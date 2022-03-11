@@ -54,7 +54,7 @@ jobs:
       - name: install RandBLAS
         run: |
           cd ..
-          git clone ssh://git@github.com:BallisticLA/RandBLAS.git
+          git clone ssh://git@github.com/BallisticLA/RandBLAS.git
           mkdir RandBLAS-build
           cd RandBLAS-build
           cmake -DCMAKE_BUILD_TYPE=Debug \

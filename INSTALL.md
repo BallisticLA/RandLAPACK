@@ -72,7 +72,7 @@ make -j2 install
 One can install Random123 from
 [source](https://github.com/DEShawResearch/random123) by running
 ```shell
-git clone git@github.com:DEShawResearch/random123.git
+git clone https://github.com/DEShawResearch/random123.git
 cd random123/
 make prefix=`pwd`/../random123-install install-include
 ```
@@ -80,7 +80,7 @@ make prefix=`pwd`/../random123-install install-include
 One can compile and install RandBLAS from [source](https://github.com/BallisticLA/RandBLAS)
 by running
 ```shell
-git clone git@github.com/BallisticLA/RandBLAS.git
+git clone https://github.com/BallisticLA/RandLAPACK.git
 mkdir RandBLAS-build
 cd RandBLAS-build
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -102,7 +102,7 @@ Assuming you used the recipies from Section 2 to get RandLAPACK's dependencies,
 you can build download, build, and install RandLAPACK as follows:
 
 ```shell
-git clone git@github.com:BallisticLA/proto_randlapack.git
+git clone https://github.com/BallisticLA/RandLAPACK.git
 mkdir RandLAPACK-build
 cd RandLAPACK-build
 cmake -DCMAKE_BUILD_TYPE=Release \
