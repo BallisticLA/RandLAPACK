@@ -38,7 +38,7 @@ we'll hide the Random123 dependency entirely within RandBLAS.
 
 We give recipies for installing BLAS++, LAPACK++, and Random123 below.
 Later on, we'll assume these recipes were executed from a directory
-that contains (or will contain) the ``proto_randlapack`` project directory as a subdirectory.
+that contains (or will contain) the ``RandLAPACK`` project directory as a subdirectory.
 
 One can compile and install BLAS++ from
 [source](https://bitbucket.org/icl/blaspp/src/master/) using CMake by running
@@ -49,7 +49,7 @@ cd blaspp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install \
     -DCMAKE_BINARY_DIR=`pwd` \
-    -Dbuild_tests=no \
+    -Dbuild_tests=OFF \
     ../blaspp
 make -j2 install
 ```
@@ -64,7 +64,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
     -DCMAKE_BINARY_DIR=`pwd` \
-    -Dbuild_tests=no \
+    -Dbuild_tests=OFF \
     ../lapackpp
 make -j2 install
 ```
@@ -207,7 +207,7 @@ Here's how Riley configured his BLAS++ and LAPACK++ installations:
     cmake -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
         -DBLAS_LIBRARIES='-lmkl_intel_ilp64 -lmkl_intel_thread -lmkl_core -liomp5 -lpthread' \
-        -Dbuild_tests=no ..
+        -Dbuild_tests=OFF ..
     ```
     Note how the MKL BLAS and threading libraries are specified explicitly with the ``-DBLAS_LIBRARIES`` flag.
     Using that flag is in contrast with simply setting ``-Dblas=mkl``,
@@ -222,7 +222,7 @@ Here's how Riley configured his BLAS++ and LAPACK++ installations:
        -Dblaspp_DIR=/opt/mklpp/lib/blaspp \
        -DCMAKE_INSTALL_PREFIX=/opt/mklpp \
        -DCMAKE_BINARY_DIR=`pwd` \
-       -Dbuild_tests=no ..
+       -Dbuild_tests=OFF ..
     make -j2 install
     ```
 

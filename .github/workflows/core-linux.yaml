@@ -76,7 +76,7 @@ jobs:
               -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
               -DCMAKE_BINARY_DIR=`pwd` \
-              -Dbuild_tests=no \
+              -Dbuild_tests=OFF \
               `pwd`/../lapackpp
           make -j2 install
 
@@ -91,7 +91,7 @@ jobs:
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
               -DCMAKE_BINARY_DIR=`pwd` \
-              `pwd`/../proto_randlapack
+              `pwd`/../RandLAPACK
           make
           make install
           ctest
