@@ -9,7 +9,7 @@ Therefore we insist that no one use it as a dependency in a larger project for t
 RandLAPACK depends on [RandBLAS](https://github.com/BallisticLA/proto_rblas), which we are also
 developing. 
 
-We've implemented most of RandLAPACK's planned algorithms in Matlab ([MARLA](https://github.com/BallisticLA/marla)) and Python ([PARLA](https://github.com/BallisticLA/parla))
+We've implemented most of RandLAPACK's planned algorithms in Matlab ([MARLA](https://github.com/BallisticLA/marla)) and Python ([PARLA](https://github.com/BallisticLA/parla)).
 PARLA takes an approach where *algorithms are objects.*
 An algorithm needs to be instantiated with its tuning parameters and implementations 
 of appropriate subroutines in order to be used.

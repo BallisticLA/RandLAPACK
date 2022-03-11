@@ -36,7 +36,7 @@ It requires BLAS++ and Random123.
 Right now we list RandBLAS and Random123 as separate dependencies, but in time
 we'll hide the Random123 dependency entirely within RandBLAS.
 
-We give recipies for installing BLAS++, LAPACK++, and Random123 below.
+We give recipes for installing BLAS++, LAPACK++, and Random123 below.
 Later on, we'll assume these recipes were executed from a directory
 that contains (or will contain) the ``RandLAPACK`` project directory as a subdirectory.
 
@@ -98,7 +98,7 @@ ctest  # run unit tests (only if GTest was found by CMake)
 RandLAPACK is configured with CMake and built with GNU make.
 The configuration and build processes are simple once its dependencies are in place. 
 
-Assuming you used the recipies from Section 2 to get RandLAPACK's dependencies,
+Assuming you used the recipes from Section 2 to get RandLAPACK's dependencies,
 you can build download, build, and install RandLAPACK as follows:
 
 ```shell
@@ -176,11 +176,11 @@ development environment.
 
 We recommend you install BLAS++ and LAPACK++ so they link to Intel MKL
 version 2022 or higher.
-That version of MKL will come with CMake figuration files.
+That version of MKL will come with CMake configuration files.
 Those configuration files are extremely useful if
 you want to make a project that connects RandLAPACK and Intel MKL.
 Such a situation might arise if you want to use RandLAPACK together with
-MKL's sparse linear algebra functionaliy.
+MKL's sparse linear algebra functionality.
 
 One of the RandLAPACK developers (Riley) has run into trouble
 getting BLAS++ to link to MKL as intended.
