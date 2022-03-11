@@ -54,7 +54,7 @@ jobs:
       - name: install RandBLAS
         run: |
           cd ..
-          git clone ssh://git@github.com/BallisticLA/proto_rblas.git
+          git clone ssh://git@github.com:BallisticLA/RandBLAS.git
           mkdir RandBLAS-build
           cd RandBLAS-build
           cmake -DCMAKE_BUILD_TYPE=Debug \
@@ -62,7 +62,7 @@ jobs:
               -DRandom123_DIR=`pwd`/../random123-install/include \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandBLAS-install \
               -DCMAKE_BINARY_DIR=`pwd` \
-              ../proto_rblas/
+              ../RandBLAS/
           make -j2 install
           ctest --output-on-failure
           
