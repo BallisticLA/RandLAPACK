@@ -77,10 +77,10 @@ cd random123/
 make prefix=`pwd`/../random123-install install-include
 ```
 
-One can compile and install RandBLAS from [source](https://github.com/BallisticLA/proto_rblas)
+One can compile and install RandBLAS from [source](https://github.com/BallisticLA/RandBLAS)
 by running
 ```shell
-git clone git@github.com/BallisticLA/proto_rblas.git
+git clone git@github.com/BallisticLA/RandBLAS.git
 mkdir RandBLAS-build
 cd RandBLAS-build
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -88,7 +88,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -DRandom123_DIR=`pwd`/../random123-install/include/ \
     -DCMAKE_BINARY_DIR=`pwd` \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../RandBLAS-install \
-    ../proto_rblas/
+    ../RandBLAS/
 make -j install
 ctest  # run unit tests (only if GTest was found by CMake)
 ```
@@ -111,7 +111,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -DRandBLAS_DIR=`pwd`/../RandBLAS-install/lib/cmake/ \
     -DCMAKE_BINARY_DIR=`pwd` \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
-    ../proto_randlapack/
+    ../RandLAPACK/
 make -j install
 ctest  # run unit tests (only if GTest was found by CMake)
 ```
@@ -237,7 +237,7 @@ when running ``cmake``.
 ### Installation trouble
 
 RandLAPACK has a GitHub Actions workflow to install it from scratch and run its suite of unit tests.
-If you're having trouble installing RandLAPACK, you can always refer to [that workflow file](https://github.com/BallisticLA/proto_randlapack/tree/main/.github/workflows).
+If you're having trouble installing RandLAPACK, you can always refer to [that workflow file](https://github.com/BallisticLA/RandLAPACK/tree/main/.github/workflows).
 The workflow includes statements which print the working directory
 and list the contents of that directory at various points in the installation.
 We do that so that it's easier to infer a valid choice of directory structure for building RandLAPACK.
