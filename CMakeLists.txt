@@ -10,8 +10,8 @@ include(build_options)
 include(version)
 
 # find dependencies
-include(lapackpp)
 include(RandLAPACK_RandBLAS)
+include(lapackpp)
 
 # compile sources
 add_subdirectory(src)  # loads src/CMakeLists.txt

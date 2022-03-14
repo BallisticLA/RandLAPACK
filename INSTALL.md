@@ -106,7 +106,6 @@ git clone https://github.com/BallisticLA/RandLAPACK.git
 mkdir RandLAPACK-build
 cd RandLAPACK-build
 cmake -DCMAKE_BUILD_TYPE=Release \
-    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp/ \
     -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp/ \
     -DRandBLAS_DIR=`pwd`/../RandBLAS-install/lib/cmake/ \
     -DCMAKE_BINARY_DIR=`pwd` \
@@ -118,15 +117,9 @@ ctest  # run unit tests (only if GTest was found by CMake)
 
 Here are the conceptual meanings in the recipe's build flags:
 
-* `-Dblaspp_DIR=W` means `W` is the directory containing the file `blasppConfig.cmake`.
-   Similarly, `-Dlapackpp_DIR=X` means `X` is the directory containing `lapackppConfig.cmake`.
-   
+* `-Dlapackpp_DIR=X` means `X` is the directory containing `lapackppConfig.cmake`.
     If you follow BLAS++ installation instructions from Section 5 instead of
-    Section 1, then you'd set ``-Dblaspp_DIR=/opt/mklpp/lib/blaspp`` and
-    `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`. (You'd also need to use this value
-    of `-Dblaspp_DIR` when building LAPACK++ in the first place.)
-    Recall that we do not recommend that you follow Section 5 the first time you
-    build RandLAPACK.
+    Section 1, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`.
 
 * `-DRandBLAS_DIR=Y` means `Y` is the directory containing `RandBLASConfig.cmake`.
 
@@ -135,6 +128,8 @@ Here are the conceptual meanings in the recipe's build flags:
    for using RandLAPACK in other projects. You should make note of the directory
    that ends up containing the file ``RandLAPACKConfig.cmake``.
 
+Note that you do not need to specify locations for BLAS++ or Random123.
+The locations of those libraries are inferred automatically from RandBLAS.
 
 ## 4. Using RandLAPACK in other projects
 
