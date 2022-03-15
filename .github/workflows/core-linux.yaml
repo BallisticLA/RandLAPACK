@@ -86,7 +86,6 @@ jobs:
           mkdir RandLAPACK-build
           cd RandLAPACK-build
           cmake -DCMAKE_BUILD_TYPE=Debug \
-              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
               -DRandBLAS_DIR=`pwd`/../RandBLAS-install/lib/cmake \
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
