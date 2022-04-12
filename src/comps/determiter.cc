@@ -4,6 +4,10 @@
 
 namespace RandLAPACK::comps::determiter {
 
+
+
+
+
 template <typename T>
 void pcg(
 	int64_t m,
@@ -23,14 +27,17 @@ void pcg(
 	T* y // length m
 	)
 {
+	
 	using namespace blas;
 
 	std::vector<T> out_a1(m, 0.0);
 	std::vector<T> out_at1(n, 0.0);
 	std::vector<T> out_m1(n, 0.0);
 	std::vector<T> out_mt1(k, 0.0);
-
+	
 	std::vector<T> b1(n);
+	int f = 1;
+	
 	//  b1 = A'b - c
 	copy<T>(n, c, 1, b1.data(), 1);
 	gemv<T>(Layout::ColMajor, Op::Trans, m, n, 1.0, A, lda, b, 1, -1.0, b1.data(), 1);
@@ -117,11 +124,13 @@ void pcg(
 
 		++iter;
 	}
+
 	resid_vec[iter] = delta1_new;
 	
 	// recover y = b - Ax
 	copy<T>(n, b, 1, y, 1);
 	gemv<T>(Layout::ColMajor, Op::NoTrans, m, n, -1.0, A, lda, x, 1, 1.0, y, 1);
+
 }
 
 
