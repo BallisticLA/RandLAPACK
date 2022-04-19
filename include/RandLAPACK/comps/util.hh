@@ -21,6 +21,14 @@ void householder_ref_gen(
 );
 
 
+template <typename T>
+void orth_dcgs2(
+        int64_t m,
+        int64_t n,
+        T* const A,
+        T* Q 
+);
+
 template <typename T> 
 void get_L(
         bool col_maj,
