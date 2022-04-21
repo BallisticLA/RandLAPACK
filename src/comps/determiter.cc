@@ -6,8 +6,6 @@ namespace RandLAPACK::comps::determiter {
 
 
 
-
-
 template <typename T>
 void pcg(
 	int64_t m,

@@ -4,6 +4,7 @@ set(RandLAPACK_cxx_srcs
     comps/rf.cc
     comps/rs.cc
     comps/util.cc
+    comps/orth.cc
 )
 
 set(RandLAPACK_libs

@@ -4,7 +4,7 @@ set(tmp FALSE)
 if (GTest_FOUND)
     set(tmp TRUE)
 
-    add_executable(RandLAPACK_tests src/comps/test_determiter.cc src/comps/test_util.cc)
+    add_executable(RandLAPACK_tests src/comps/test_determiter.cc src/comps/test_util.cc src/comps/test_orth.cc)
     target_link_libraries(RandLAPACK_tests RandLAPACK GTest::GTest GTest::Main)
     gtest_discover_tests(RandLAPACK_tests)
 
