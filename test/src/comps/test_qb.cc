@@ -76,7 +76,7 @@ class TestQB : public ::testing::Test
         */
 
         T tol = 0.0000000001;
-        int block_sz = 5; 
+        int block_sz = 1; 
         
         RandLAPACK::comps::qb::qb2<T>(
         m,
@@ -182,5 +182,5 @@ class TestQB : public ::testing::Test
 
 TEST_F(TestQB, SimpleTest)
 {
-    check_QB1<double>(2000, 1000, 500, 0);
+    check_QB1<double>(900, 450, 225, 0);
 }

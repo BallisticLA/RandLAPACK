@@ -8,6 +8,7 @@
 //#include <iostream>
 
 #include <math.h>
+#define ORTHOG_CHECKS
 
 namespace RandLAPACK::comps::qb {
 
@@ -70,13 +71,19 @@ void qb2(
     T approx_err = 0.0;
     int curr_sz = 0;
 
+#ifdef ORTHOG_CHECKS
+    std::vector<T> Q_gram(k * k, 0.0);
+#endif
+
+    std::cout << "Tol: " << tol << std::endl;
+    std::vector<T> QtQi(k * block_sz, 0.0); int ld_QtQi = k;
     while(k > curr_sz)
     {
         // Dynamically changing block size
         block_sz = std::min(block_sz, k - curr_sz);
         std::vector<T> Q_i(m * block_sz, 0.0);
+        int next_sz = curr_sz + block_sz;
         std::vector<T> B_i(block_sz * n, 0.0);
-        std::vector<T> Q_i_small(k * block_sz, 0.0);
         std::vector<T> tau(block_sz, 2.0);
 
         RandLAPACK::comps::rf::rf1<T>(m, n, A_cpy.data(), block_sz, p, passes_per_stab, Q_i.data(), use_lu, ++seed);
@@ -87,9 +94,15 @@ void qb2(
         // No need to reorthogonalize on the 1st pass
         if(curr_sz != 0)
         {
+            for (int ell = 0; ell < ld_QtQi * block_sz; ++ell) {
+                QtQi[ell] = 0.0;
+            }
             // Q_i = orth(Q_i - Q(Q'Q_i))
-            gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, block_sz, m, 1.0, Q, m, Q_i.data(), m, 0.0, Q_i_small.data(), k);
-            gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, k, -1.0, Q, m, Q_i_small.data(), k, 1.0, Q_i.data(), m);
+            gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, next_sz, block_sz, m, 1.0, Q, m, Q_i.data(), m, 0.0, QtQi.data(), ld_QtQi);
+            gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, next_sz, -1.0, Q, m, QtQi.data(), k, 1.0, Q_i.data(), m);
+            
+            //char name_QtQi[] = "QtQi";
+            //RandBLAS::util::print_colmaj(ld_QtQi, block_sz, QtQi.data(), name_QtQi);
 
             // Done via regular LAPACK's QR
             geqrf(m, block_sz, Q_i.data(), m, tau.data());
@@ -125,7 +138,7 @@ void qb2(
         // Update the matrices Q and B
         lacpy(MatrixType::General, m, block_sz, Q_i.data(), m, Q + (m * curr_sz), m);	
         lacpy(MatrixType::General, block_sz, n, B_i.data(), block_sz, B + curr_sz, k);
-        
+
         //char nameQ[] = "Q";
         //RandBLAS::util::print_colmaj<T>(m, k, Q, nameQ);
 
@@ -139,12 +152,25 @@ void qb2(
             break;
         }
         
+#ifdef ORTHOG_CHECKS
+        gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+            k, k, m,
+            1.0, Q, m, Q, m,
+            0.0, Q_gram.data(), k
+        );
+        for (int oi = 0; oi < curr_sz; ++oi) {
+            Q_gram[oi*k + oi] -= 1.0;
+        }
+        T orth_err = lange(Norm::Fro, k, k, Q_gram.data(), k);
+        std::cout << orth_err << std::endl; 
+#endif
+
         //char name_final1[] = "A_cpy_pre";
 	    //RandBLAS::util::print_colmaj<T>(m, n, A_cpy.data(), name_final1);
 
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q, m, B, k, 1.0, A_cpy.data(), m);
+        gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i.data(), m, B_i.data(), block_sz, 1.0, A_cpy.data(), m);
 
         //char name_final[] = "A_cpy";
 	    //RandBLAS::util::print_colmaj<T>(m, n, A_cpy.data(), name_final);
