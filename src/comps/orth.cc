@@ -4,6 +4,7 @@
 #include <cmath>
 #include <lapack.hh>
 #include <RandBLAS.hh>
+#include <RandLAPACK.hh>
 
 namespace RandLAPACK::comps::orth {
 
@@ -139,7 +140,63 @@ void orth_dcgs2(
 }
 
 
-//template void orth_dcgs2<float>(int64_t m, int64_t n, float* const A, float* Q);
+// Householder reflector-based orthogonalization
+// Assuming column-major storage - need row-major case
+// Not sure how non-square cases should work here
+template <typename T>
+void householder_ref_gen(
+        int64_t m,
+        int64_t n,
+        T* const A,
+        T* Q 
+)
+{
+        using namespace blas;
+        using namespace lapack;
+        
+        int size = m * n;
+        RandLAPACK::comps::util::eye<T>(m, n, Q);
+
+        // Grab columns of input matrix, get reflector vector
+        for(int i = m, j = 0; i <= size && j < m; i += m, ++j) 
+        {
+                std::vector<T> col(m, 0.0);
+                std::vector<T> buf_1(m, 0.0);
+                std::vector<T> buf_2(m, 0.0);
+
+                // Grab a column of an input matrix
+                std::copy(A + (i - m) + j, A + i, col.data() + j); 
+
+                // Get an l-2 norm of a vector
+                T norm = nrm2(m, col.data(), 1);
+
+                // Using axpy (vector sum) only to perform const * vec - what's a better way to do it?
+                axpy<T>(m, 1.0 / norm, col.data(), 1, buf_1.data(), 1);
+
+                T* first = &buf_1[j];
+                if(*first >= 0) {
+                        *first += 1;
+                }
+                else {
+                        *first -= 1;
+                }
+                // Scale the vector by this
+                T alpha = 1 / sqrt(abs(*first));
+
+                // Using axpy (vector sum) only to perform const * vec - what's a better way to do it?
+                axpy<T>(m, alpha, buf_1.data(), 1, buf_2.data(), 1);
+                // Householder reflection constant
+                T tau = 1.0; // or 2?
+
+                // Q * (I - tau * v * v')
+                larf(Side::Right, m, n, buf_2.data(), 1, tau, Q, m);
+        }
+}
+
+template void orth_dcgs2<float>(int64_t m, int64_t n, float* const A, float* Q);
 template void orth_dcgs2<double>(int64_t m, int64_t n, double* const A, double* Q);
+
+template void householder_ref_gen<float>(int64_t m, int64_t n, float* const A, float* Q );
+template void householder_ref_gen<double>(int64_t m, int64_t n, double* const A, double* Q );
 
 } // end namespace orth

@@ -19,3 +19,5 @@ add_subdirectory(test)
 
 # export the configuration
 include(config)
+
+set(CMAKE_BUILD_TYPE Debug)

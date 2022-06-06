@@ -31,14 +31,17 @@ class TestUtil : public ::testing::Test
         // Generate a random matrix of std normal distribution
         RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A.data(), seed);
 
+        // Try to grab lower-triangular portion
+        RandLAPACK::comps::util::get_L<T>(1, m, n, A.data());
 
+        char name[] = "Lower Triangular A";
+        RandBLAS::util::print_colmaj(m, n, A.data(), name);
 
     }
 };
 
-/*
+
 TEST_F(TestUtil, SimpleTest)
 {
-
+    //check_L<double>(5, 5, 0);
 }
-*/

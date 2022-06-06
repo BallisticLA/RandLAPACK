@@ -13,4 +13,12 @@ void orth_dcgs2(
         T* Q 
 );
 
+template <typename T>
+void householder_ref_gen(
+        int64_t m,
+        int64_t n,
+        T* const A,
+        T* Q 
+);
+
 } // end namespace RandLAPACK::comps::rs

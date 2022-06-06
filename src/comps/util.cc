@@ -10,6 +10,7 @@ UTILITY ROUTINES
 QUESTION: some of these very well can be separate namespace for their degree of seriousness.
 However, those routines are not necessarily randomized. What do we do with them?
 
+TODO: (maybe) substitute std copies for lapack copy functions.
 */
 namespace RandLAPACK::comps::util {
 
@@ -23,72 +24,15 @@ void eye(
         T* A 
 ){
     // Generate an identity A - kinda ugly, think of a better way
-    //std::vector<T> I (size, 0.0);
-    int64_t size = m * n;
-    for (int i = 0, j = 0; i < size && j < m; i += m, ++j)
-    {
-        A[i + j] = 1;
-    }
-}
-
-
-// Householder reflector-based orthogonalization
-// Assuming column-major storage - need row-major case
-// Not sure how non-square cases should work here
-template <typename T>
-void householder_ref_gen(
-        int64_t m,
-        int64_t n,
-        T* const A,
-        T* Q 
-)
-{
-        using namespace blas;
-        using namespace lapack;
-        
-        int size = m * n;
-        eye<T>(m, n, Q);
-
-        // Grab columns of input matrix, get reflector vector
-        for(int i = m, j = 0; i <= size && j < m; i += m, ++j) 
+    for (int j = 0; j < n; ++ j)
         {
-                std::vector<T> col(m, 0.0);
-                std::vector<T> buf_1(m, 0.0);
-                std::vector<T> buf_2(m, 0.0);
-
-                // Grab a column of an input matrix
-                std::copy(A + (i - m) + j, A + i, col.data() + j); 
-
-                // Get an l-2 norm of a vector
-                T norm = nrm2(m, col.data(), 1);
-
-                // Using axpy (vector sum) only to perform const * vec - what's a better way to do it?
-                axpy<T>(m, 1.0 / norm, col.data(), 1, buf_1.data(), 1);
-
-                T* first = &buf_1[j];
-                if(*first >= 0) {
-                        *first += 1;
-                }
-                else {
-                        *first -= 1;
-                }
-                // Scale the vector by this
-                T alpha = 1 / sqrt(abs(*first));
-
-                // Using axpy (vector sum) only to perform const * vec - what's a better way to do it?
-                axpy<T>(m, alpha, buf_1.data(), 1, buf_2.data(), 1);
-                // Householder reflection constant
-                T tau = 1.0; // or 2?
-
-                // Q * (I - tau * v * v')
-                larf(Side::Right, m, n, buf_2.data(), 1, tau, Q, m);
+                A[(m * j) + j] = 1;
         }
 }
 
-// Helper routine for retrieving the proper L factor of LU decomposition.
-/*
-Concern - not sure how the row major vs col major ordering works here & how matrices are stored.
-*/
+
+// Helper routine for retrieving the lower triangular portion of a matrix
+// Puts 1's on the main diagonal
 template <typename T> 
 void get_L(
         bool col_maj,
@@ -106,33 +50,220 @@ void get_L(
         L[0] = 1;
     
         if (col_maj) {
-                for(int i = m, j = 0; i < size && j < m; i += m, ++j) 
+                for(int i = m, j = 1; i < size && j < m; i += m, ++j) 
                 {
                         // Copy zeros into elements above the diagonal
                         std::copy(z_begin, z_begin + j, L + i);
                         // The unit diagonal elements of L were not stored.
-                        L[i + 1 + j] = 1;
+                        L[i + j] = 1;
                 }
 	}
 	else {
 		// This should be fine if matrices are stored by rows (row1 followed by row2, etc.) 
-		for (int  i = n, j = 0; i < size && j < n; i += n, ++j) 
+		for (int  i = n, j = 1; i < size && j < n; i += n, ++j) 
                 {
                         // Copy zeros into elements above the diagonal
 			std::copy(z_begin, z_begin + j, L + i);
 			// The unit diagonal elements of L were not stored.
-			L[i + 1 + j] = 1;
+			L[i + j] = 1;
 		}
 	}
 }
+
+// Helper routine for retrieving the upper triangular portion of a matrix
+// Maintains the diagonal entries
+template <typename T> 
+void get_U(
+        bool col_maj,
+        int64_t m,
+        int64_t n,
+        T* U // pointer to the beginning
+) {
+	// Vector end pointer
+	int size = m * n;
+        // Buffer zero vector
+        std::vector<T> z_buf(m, 0.0);
+        T* z_begin = z_buf.data();
+    
+        if (col_maj) {
+                for(int i = 1, j = (m - 1); i < (size - m) && j > 0; i += (m + 1), --j) 
+                {
+                        // Copy zeros into elements above the diagonal
+                        std::copy(z_begin, z_begin + j, U + i);
+                        // The unit diagonal elements of L were not stored.
+                }
+	}
+	else {
+		// This should be fine if matrices are stored by rows (row1 followed by row2, etc.) 
+		for(int i = 1, j = (n - 1); i < (size - n) && j > 0; i += (n + 1), --j) 
+                {
+                        // Copy zeros into elements above the diagonal
+                        std::copy(z_begin, z_begin + j, U + i);
+                        // The unit diagonal elements of L were not stored.
+                }
+	}
+}
+
+// Scale the diagonal of a matrix by some constant factor
+template <typename T> 
+void scale_diag(
+        int64_t m,
+        int64_t n,
+        T* U, // pointer to the beginning
+        T c //scaling factor 
+) {
+	for (int i = 0; i < m; ++i)
+        {
+                for(int j = 0; j < n; ++j)
+                {
+                        U[i + j] = c * U [i + j];
+                }
+        }
+}
+
+// Given an upper triangular matrix, produces a symmetric one
+template <typename T> 
+void get_sym(
+        bool col_maj,
+        int64_t m,
+        int64_t n,
+        T* U // pointer to the beginning
+) {
+	// Vector end pointer
+	int size = m * n;
+        // Buffer zero vector
+    
+        if (col_maj) {
+                for(int i = m, j = 1; i < size && j < m; i += m, ++j) 
+                {
+                        for(int k = 0; k < j; ++k)
+                        {
+                                U[(m * (k)) + j] = U[i + k];
+                        }
+                }
+	}
+	else {
+                // TODO
+	}
+}
+
+
+// Perfoms a Cholesky QR factorization
+template <typename T> 
+void chol_QR(
+        int64_t m,
+        int64_t k,
+        T* Q // pointer to the beginning
+) {
+        using namespace blas;
+        using namespace lapack;
+
+        std::vector<T> Q_buf(k * k, 0.0);
+        // Find normal equation Q'Q - Just the upper triangular portion
+        syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q, m, 1.0, Q_buf.data(), k);
+
+        //char name[] = "Q_buf before";
+        //RandBLAS::util::print_colmaj<T>(k, k, Q_buf.data(), name);
+
+        // Positive definite cholesky factorization
+        potrf(Uplo::Upper, k, Q_buf.data(), k);
+
+        //char name1[] = "Q_buf after";
+        //RandBLAS::util::print_colmaj<T>(k, k, Q_buf.data(), name1);
+
+        // Inverse of an upper-triangular matrix
+        trtri(Uplo::Upper, Diag::NonUnit, k, Q_buf.data(), k);
+        // Q = Q * R^(-1)
+        std::vector<T> Q_chol(m * k, 0.0);
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q, m, Q_buf.data(), k, 0.0, Q_chol.data(), m);
+
+        //char name2[] = "Q_chol";
+        //RandBLAS::util::print_colmaj<T>(m, k, Q_chol.data(), name2);
+
+        // Copy the result into Q
+        lacpy(MatrixType::General, m, k, Q_chol.data(), m, Q, m);
+}
+
+// Diagonalization - turns a vector into a diagonal matrix
+template <typename T> 
+void diag(
+        int64_t m,
+        int64_t n,
+        T* s, // pointer to the beginning
+        T* S
+) {     
+        int64_t size = m * n;
+        for (int i = 0, j = 0; i < size && j < n; i += m, ++j)
+        {
+                S[i + j] = s[j];
+        }
+}
+
+// Addressing Pivoting
+template <typename T> 
+void pivot_swap(
+        int64_t m,
+        int64_t n,
+        T* A, // pointer to the beginning
+        int64_t* p // Pivot vector
+) {     
+        using namespace blas;
+        using namespace lapack;
+
+        std::vector<T> P(m * m, 0.0);
+        std::vector<T> A_cpy(m * n, 0.0);
+        std::vector<T> col_buf(m, 0.0);
+
+        for (int j = 0; j < m; ++ j)
+        {
+                P[(m * j) + j] = 1;
+        }
+
+        for (int i = 0, j = 0; i < n; ++i)
+        {
+                j = *(p + i) - 1;
+                if (j != 0)
+                {  
+                        // Swap rows
+                        // Store ith column into the buffer
+                        copy(m, P.data() + (m * i), 1, col_buf.data(), 1);
+
+                        // copy jth column into the ith position
+                        copy(m, P.data() + (m * j), 1, P.data() + (m * i), 1);
+
+                        // copy the column from the buffer into jth position
+                        copy(m, col_buf.data(), 1, P.data() + (m * j), 1);
+                }
+        }
+
+        lacpy(MatrixType::General, m, n, A, m, A_cpy.data(), m);
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, P.data(), m, A_cpy.data(), m, 0.0, A, m);
+}
+
+
 
 // Explicit instantiation of template functions - workaround to avoid header implementations
 template void eye<float>(int64_t m, int64_t n, float* A );
 template void eye<double>(int64_t m, int64_t n, double* A );
 
-template void householder_ref_gen<float>(int64_t m, int64_t n, float* const A, float* Q );
-template void householder_ref_gen<double>(int64_t m, int64_t n, double* const A, double* Q );
-
 template void get_L<float>(bool col_maj, int64_t m, int64_t n, float* L);
 template void get_L<double>(bool col_maj, int64_t m, int64_t n, double* L);
+
+template void get_U<float>(bool col_maj, int64_t m, int64_t n, float* U);
+template void get_U<double>(bool col_maj, int64_t m, int64_t n, double* U);
+
+template void scale_diag(int64_t m, int64_t n, float* U, float c);
+template void scale_diag(int64_t m, int64_t n, double* U, double c);
+
+template void get_sym(bool col_maj, int64_t m, int64_t n, float* U);
+template void get_sym(bool col_maj, int64_t m, int64_t n, double* U);
+
+template void chol_QR(int64_t m, int64_t k, float* Q);
+template void chol_QR(int64_t m, int64_t k, double* Q);
+
+template void diag(int64_t m, int64_t n, float* s, float* S);
+template void diag(int64_t m, int64_t n, double* s, double* S);
+
+template void pivot_swap( int64_t m, int64_t n, float* A, int64_t* p);
+template void pivot_swap( int64_t m, int64_t n, double* A, int64_t* p);
 } // end namespace util
