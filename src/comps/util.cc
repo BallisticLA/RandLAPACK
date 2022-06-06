@@ -240,7 +240,89 @@ void pivot_swap(
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, P.data(), m, A_cpy.data(), m, 0.0, A, m);
 }
 
+// GENERATING MATRICES OF VARYING SPECTRAL DECAY
+template <typename T> 
+void gen_exp_mat(
+        int64_t m,
+        int64_t n,
+        T* A,
+        int64_t k, // vector length
+        int64_t t, // controls the decay. The higher the value, the slower the decay
+        int64_t seed
+) {   
+        std::vector<T> s(k, 0.0);
+        std::vector<T> S(k * k, 0.0);
+        
+        // apply lambda function to every entry of s
+        std::for_each(s.begin(), s.end(),
+                // Lambda expression begins
+                [&t](T& entry)
+                {
+                        static T cnt = 0.0;
+                        entry = std::exp(++cnt / -t);
+                }
+        );
 
+        // form a diagonal S
+        diag<T>(m, n, s.data(), S.data());
+        //gen_mat<T>(m, n, A, k, S.data());
+
+}
+
+template <typename T> 
+void gen_s_mat(
+        int64_t m,
+        int64_t n,
+        T* A,
+        int64_t k, // vector length
+        int64_t seed
+) {   
+        std::vector<T> s(k, 0.0);
+        std::vector<T> S(k * k, 0.0);
+
+        // apply lambda function to every entry of s
+        std::for_each(s.begin(), s.end(),
+                // Lambda expression begins
+                [](T& entry)
+                {
+                        static T cnt = 0.0;
+                        entry = 0.0001 + (1 / (1 + std::exp(++cnt - 30)));
+                }
+        );
+
+        // form a diagonal S
+        diag<T>(m, n, s.data(), S.data());
+        //gen_mat<T>(m, n, A, k, S.data());
+}
+
+template <typename T> 
+void gen_mat(
+        int64_t m,
+        int64_t n,
+        T* A,
+        int64_t k, // vector length
+        T* S,
+        int64_t seed
+) {   
+        using namespace blas;
+        using namespace lapack;
+
+        std::vector<T> V(m * k, 0.0);
+        std::vector<T> U(n * k, 0.0);
+        std::vector<T> tau(k, 2.0);
+        std::vector<T> Gemm_buf(m * k, 0.0);
+        RandBLAS::dense_op::gen_rmat_norm<T>(m, k, U.data(), seed);
+        RandBLAS::dense_op::gen_rmat_norm<T>(n, k, V.data(), ++seed);
+
+        geqrf(m, k, U.data(), m, tau.data());
+        ungqr(m, k, k, U.data(), m, tau.data());
+
+        geqrf(m, k, V.data(), m, tau.data());
+        ungqr(n, k, k, V.data(), n, tau.data());
+
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U.data(), m, S, k, 0.0, Gemm_buf.data(), m);
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf.data(), m, V.data(), k, 0.0, A, m);
+}
 
 // Explicit instantiation of template functions - workaround to avoid header implementations
 template void eye<float>(int64_t m, int64_t n, float* A );
@@ -266,4 +348,13 @@ template void diag(int64_t m, int64_t n, double* s, double* S);
 
 template void pivot_swap( int64_t m, int64_t n, float* A, int64_t* p);
 template void pivot_swap( int64_t m, int64_t n, double* A, int64_t* p);
+
+template void gen_s_mat(int64_t m, int64_t n, float* A, int64_t k, int64_t seed);
+template void gen_s_mat(int64_t m, int64_t n, double* A, int64_t k, int64_t seed);
+
+template void gen_exp_mat(int64_t m, int64_t n, float* A, int64_t k, int64_t t, int64_t seed); 
+template void gen_exp_mat(int64_t m, int64_t n, double* A, int64_t k, int64_t t, int64_t seed);
+
+template void gen_mat(int64_t m, int64_t n, float* A, int64_t k, float* S, int64_t seed); 
+template void gen_mat(int64_t m, int64_t n, double* A, int64_t k, double* S, int64_t seed);
 } // end namespace util

@@ -67,4 +67,33 @@ void pivot_swap(
         int64_t* p // Pivot vector
 );
 
+template <typename T> 
+void gen_exp_mat(
+        int64_t m,
+        int64_t n,
+        T* A,
+        int64_t k, // vector length
+        int64_t t, // controls the decay. The higher the value, the slower the decay
+        int64_t seed
+);
+
+template <typename T> 
+void gen_s_mat(
+        int64_t m,
+        int64_t n,
+        T* A,
+        int64_t k, // vector length
+        int64_t seed
+);
+
+template <typename T> 
+void gen_mat(
+        int64_t m,
+        int64_t n,
+        T* A,
+        int64_t k, // vector length
+        T* S,
+        int64_t seed
+);
+
 } // end namespace RandLAPACK::comps::rs

@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 #include <blas.hh>
+#include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-#include <lapack.hh>
 
 
 #define RELDTOL 1e-10;
@@ -25,15 +25,16 @@ class TestQB : public ::testing::Test
         using namespace blas;
         using namespace lapack;
 
+        /*
         std::vector<double> tau(n, 2.0);
 
         std::vector<double> A(m * n, 0.0);
 
         geqrf(m, n, A.data(), m, tau.data());
         ungqr(m, n, n, A.data(), m, tau.data());
+        */
 
-
-        /*
+        
         int64_t size = m * n;
 
 
@@ -52,7 +53,7 @@ class TestQB : public ::testing::Test
         // Rank of this matrix is half of the smaller dimension
         RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A.data(), seed);
         std::copy(A.data(), A.data() + (n / 2) * m, A.data() + (n / 2) * m);
-        */
+        
         // Generate a reference identity
         //RandLAPACK::comps::util::eye<T>(k, k, I_ref.data());
 
@@ -74,9 +75,9 @@ class TestQB : public ::testing::Test
         );
         */
 
-        //T tol = 0.0000000001;
-        //int block_sz = 5; 
-        /*
+        T tol = 0.0000000001;
+        int block_sz = 5; 
+        
         RandLAPACK::comps::qb::qb2<T>(
         m,
         n,
@@ -84,14 +85,14 @@ class TestQB : public ::testing::Test
         k, // Here, serves as a backup termination criteria
         block_sz,
         tol,
-        5,
+        0,
         1,
         Q.data(), // m by k
         B.data(), // k by n
         0,
         seed
         );
-        */
+        
 
         //char name_3[] = "QB1  output Q";
         //RandBLAS::util::print_colmaj(m, k, Q.data(), name_3);
@@ -104,15 +105,39 @@ class TestQB : public ::testing::Test
         //lacpy(MatrixType::General, m, n, A.data(), m, A_cpy.data(), m);
 
         // A = A - Q * B
-        //gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q.data(), m, B.data(), k, 1.0, A.data(), m);
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q.data(), m, B.data(), k, 1.0, A.data(), m);
 
         // A_hat = Q * B
         //gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q.data(), m, B.data(), k, 0.0, A_hat.data(), m);
     
-        //T norm_A = lange(lapack::Norm::Fro, m, n, A.data(), m);
-        //printf("A - A_hat %f\n", norm_A);
+        
+        T norm_A = lange(lapack::Norm::Fro, m, n, A.data(), m);
+        printf("A - A_hat %f\n", norm_A);
+
+        /*
+        GEMM SANITY CHECK
+        std::vector<T> Three(3 * 3);
+        std::vector<T> One(5 * 3);
+        RandBLAS::dense_op::gen_rmat_norm<T>(5, 3, One.data(), seed);
+
+        char name_5[] = "One";
+        RandBLAS::util::print_colmaj(5, 3, One.data(), name_5);
+
+        std::vector<T> Two(5 * 3);
+        RandBLAS::dense_op::gen_rmat_norm<T>(5, 3, Two.data(), seed);
+
+        char name_6[] = "Two";
+        RandBLAS::util::print_colmaj(5, 3, Two.data(), name_6);
+
+        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, 3, 3, 5, 1.0, One.data(), 5, Two.data(), 5, 0.0, Three.data(), 3);
+
+        char name_7[] = "Three";
+        RandBLAS::util::print_colmaj(3, 3, Three.data(), name_7);
+
         //char name_5[] = "QB1  output A_hat";
         //RandBLAS::util::print_colmaj(m, n, A_hat.data(), name_5);
+        */
+
 
         /*
         // Get low-rank SVD to compare the result with
@@ -157,5 +182,5 @@ class TestQB : public ::testing::Test
 
 TEST_F(TestQB, SimpleTest)
 {
-    check_QB1<double>(200, 100, 50, 0);
+    check_QB1<double>(2000, 1000, 500, 0);
 }

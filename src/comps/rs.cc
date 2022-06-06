@@ -1,10 +1,11 @@
-#include <RandLAPACK/comps/rs.hh>
-#include <RandLAPACK/comps/util.hh>
-#include <iostream>
+//#include <RandLAPACK/comps/rs.hh>
+//#include <RandLAPACK/comps/util.hh>
+//#include <iostream>
+
+#include <lapack.hh>
 
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
-#include <lapack.hh>
 
 #include <typeinfo>
 

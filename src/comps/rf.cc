@@ -1,11 +1,11 @@
-#include <RandLAPACK/comps/rf.hh>
-#include <RandLAPACK/comps/rs.hh>
-
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
-#include <iostream>
+//#include <RandLAPACK/comps/rf.hh>
+//#include <RandLAPACK/comps/rs.hh>
 
 #include <lapack.hh>
+#include <RandBLAS.hh>
+#include <RandLAPACK.hh>
+
+#include <iostream>
 
 namespace RandLAPACK::comps::rf {
 

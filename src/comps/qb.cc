@@ -1,11 +1,12 @@
-#include <RandLAPACK/comps/rf.hh>
-#include <RandLAPACK/comps/rs.hh>
-#include <RandLAPACK/comps/qb.hh>
-#include <RandLAPACK.hh>
-#include <RandBLAS.hh>
-#include <iostream>
+//#include <RandLAPACK/comps/rf.hh>
+//#include <RandLAPACK/comps/rs.hh>
+//#include <RandLAPACK/comps/qb.hh>
 
+#include <RandBLAS.hh>
 #include <lapack.hh>
+#include <RandLAPACK.hh>
+//#include <iostream>
+
 #include <math.h>
 
 namespace RandLAPACK::comps::qb {
@@ -80,8 +81,8 @@ void qb2(
 
         RandLAPACK::comps::rf::rf1<T>(m, n, A_cpy.data(), block_sz, p, passes_per_stab, Q_i.data(), use_lu, ++seed);
 
-        char nameQ_i1[] = "Q_i";
-        RandBLAS::util::print_colmaj<T>(m, block_sz, Q_i.data(), nameQ_i1);
+        //char nameQ_i1[] = "Q_i";
+        //RandBLAS::util::print_colmaj<T>(m, block_sz, Q_i.data(), nameQ_i1);
 
         // No need to reorthogonalize on the 1st pass
         if(curr_sz != 0)
@@ -102,8 +103,8 @@ void qb2(
         //B_i = Q_i' * A
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i.data(), m, A_cpy.data(), m, 0.0, B_i.data(), block_sz);
         
-        char nameQ_i[] = "Q_ii";
-        RandBLAS::util::print_colmaj<T>(m, block_sz, Q_i.data(), nameQ_i);
+        //char nameQ_i[] = "Q_ii";
+        //RandBLAS::util::print_colmaj<T>(m, block_sz, Q_i.data(), nameQ_i);
 
         //char nameB_i[] = "B_i";
         //RandBLAS::util::print_colmaj<T>(block_sz, n, B_i.data(), nameB_i);
@@ -125,8 +126,8 @@ void qb2(
         lacpy(MatrixType::General, m, block_sz, Q_i.data(), m, Q + (m * curr_sz), m);	
         lacpy(MatrixType::General, block_sz, n, B_i.data(), block_sz, B + curr_sz, k);
         
-        char nameQ[] = "Q";
-        RandBLAS::util::print_colmaj<T>(m, k, Q, nameQ);
+        //char nameQ[] = "Q";
+        //RandBLAS::util::print_colmaj<T>(m, k, Q, nameQ);
 
         //char nameB[] = "B";
         //RandBLAS::util::print_colmaj<T>(k, n, B, nameB);
@@ -143,7 +144,6 @@ void qb2(
 
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
-        std::vector<T> BUFFER(m * n, 0.0);
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q, m, B, k, 1.0, A_cpy.data(), m);
 
         //char name_final[] = "A_cpy";
