@@ -4,7 +4,8 @@
 
 #include <math.h>
 
-#define ORTHOG_CHECKS
+//#define USE_QR
+//#define ORTHOG_CHECKS
 
 namespace RandLAPACK::comps::qb {
 
@@ -19,7 +20,7 @@ void qb1(
         int64_t passes_per_stab,
         T* Q, // m by k
         T* B, // k by n
-	uint64_t seed
+	uint32_t seed
 ){
     using namespace blas;
 
@@ -40,7 +41,7 @@ void qb2(
         int64_t passes_per_stab,
         T* Q, // m by k
         T* B, // k by n
-	uint64_t seed
+	uint32_t seed
 ){
     using namespace blas;
     using namespace lapack;
@@ -92,9 +93,9 @@ void qb2(
             ungqr(m, block_sz, block_sz, Q_i.data(), m, tau.data());
 #else
             // Done via CholQR
-            RandLAPACK::comps::util::chol_QR<T>(m, block_sz, Q_i.data());
+            RandLAPACK::comps::orth::chol_QR<T>(m, block_sz, Q_i.data());
             // Performing the alg twice for better orthogonality	
-            RandLAPACK::comps::util::chol_QR<T>(m, block_sz, Q_i.data());
+            RandLAPACK::comps::orth::chol_QR<T>(m, block_sz, Q_i.data());
 #endif
         }
         //B_i = Q_i' * A
@@ -141,13 +142,14 @@ void qb2(
         // A = A - Q_i * B_i
         gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i.data(), m, B_i.data(), block_sz, 1.0, A_cpy.data(), m);
     }
-    printf("Normal termination\n");
-    // still need to shink output sizes from k to curr_sz
+    // still need to shrink output sizes from k to curr_sz
+    // Let user know that sizes of Q, B have changed
+    k = curr_sz;
 }
 
-template void qb1<float>( int64_t m, int64_t n, float* const A, int64_t k, int64_t p, int64_t passes_per_stab, float* Q, float* B, uint64_t seed);
-template void qb1<double>( int64_t m, int64_t n, double* const A, int64_t k, int64_t p, int64_t passes_per_stab, double* Q, double* B, uint64_t seed);
+template void qb1<float>( int64_t m, int64_t n, float* const A, int64_t k, int64_t p, int64_t passes_per_stab, float* Q, float* B, uint32_t seed);
+template void qb1<double>( int64_t m, int64_t n, double* const A, int64_t k, int64_t p, int64_t passes_per_stab, double* Q, double* B, uint32_t seed);
 
-template void qb2( int64_t m, int64_t n, float* const A, int64_t k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, float* Q, float* B, uint64_t seed);
-template void qb2( int64_t m, int64_t n, double* const A, int64_t k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, double* Q, double* B, uint64_t seed);
+template void qb2( int64_t m, int64_t n, float* const A, int64_t k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, float* Q, float* B, uint32_t seed);
+template void qb2( int64_t m, int64_t n, double* const A, int64_t k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, double* Q, double* B, uint32_t seed);
 }// end namespace RandLAPACK::comps::qb

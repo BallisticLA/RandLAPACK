@@ -14,41 +14,9 @@ void eye(
 
 template <typename T> 
 void get_L(
-        bool col_maj,
         int64_t m,
         int64_t n,
         T* L
-);
-
-template <typename T> 
-void get_U(
-        bool col_maj,
-        int64_t m,
-        int64_t n,
-        T* U // pointer to the beginning
-);
-
-template <typename T> 
-void scale_diag(
-        int64_t m,
-        int64_t n,
-        T* U, // pointer to the beginning
-        T c //scaling factor 
-);
-
-template <typename T> 
-void get_sym(
-        bool col_maj,
-        int64_t m,
-        int64_t n,
-        T* U // pointer to the beginning
-);
-
-template <typename T> 
-void chol_QR(
-        int64_t m,
-        int64_t k,
-        T* Q // pointer to the beginning
 );
 
 template <typename T>
@@ -60,7 +28,7 @@ void diag(
 );
 
 template <typename T> 
-void pivot_swap(
+void row_swap(
         int64_t m,
         int64_t n,
         T* A, // pointer to the beginning
@@ -73,8 +41,8 @@ void gen_exp_mat(
         int64_t n,
         T* A,
         int64_t k, // vector length
-        int64_t t, // controls the decay. The higher the value, the slower the decay
-        int64_t seed
+        T t, // controls the decay. The higher the value, the slower the decay
+        int32_t seed
 );
 
 template <typename T> 
@@ -83,7 +51,7 @@ void gen_s_mat(
         int64_t n,
         T* A,
         int64_t k, // vector length
-        int64_t seed
+        int32_t seed
 );
 
 template <typename T> 
@@ -93,7 +61,7 @@ void gen_mat(
         T* A,
         int64_t k, // vector length
         T* S,
-        int64_t seed
+        int32_t seed
 );
 
 } // end namespace RandLAPACK::comps::rs

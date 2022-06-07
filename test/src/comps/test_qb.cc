@@ -3,8 +3,6 @@
 #include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
-#include <math.h>
-
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
@@ -17,10 +15,8 @@ class TestQB : public ::testing::Test
 
     virtual void TearDown() {};
 
-
-
     template <typename T>
-    static void check_QB1(int64_t m, int64_t n, int64_t k, int64_t block_sz, T tol, uint32_t seed) {
+    static void test_QB2(int64_t m, int64_t n, int64_t k, int64_t block_sz, T tol, int64_t mat_type, uint32_t seed) {
 
         using namespace blas;
         using namespace lapack;
@@ -28,15 +24,14 @@ class TestQB : public ::testing::Test
         int64_t size = m * n;
 
         // For running QB
-        std::vector<T> A(size);
-        std::vector<T> Q(m * k);
-        std::vector<T> B(k * n);
+        std::vector<T> A(size, 0.0);
+        std::vector<T> Q(m * k, 0.0);
+        std::vector<T> B(k * n, 0.0);
 
         // For results comparison
-        std::vector<T> A_hat(size);
-        std::vector<T> A_k(size);
+        std::vector<T> A_hat(size, 0.0);
+        std::vector<T> A_k(size, 0.0);
         std::vector<T> A_cpy (m * n, 0.0);
-        lacpy(MatrixType::General, m, n, A.data(), m, A_cpy.data(), m);
 
         // For low-rank SVD
         std::vector<T> s(n, 0.0);
@@ -44,29 +39,33 @@ class TestQB : public ::testing::Test
         std::vector<T> U(m * n, 0.0);
         std::vector<T> VT(n * n, 0.0);
 
-
-        // Generate a random matrix of std normal distribution
-        // Rank of this matrix is half of the smaller dimension
-        RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A.data(), seed);
-        std::copy(A.data(), A.data() + (n / 2) * m, A.data() + (n / 2) * m);
-
-        char name1[] = "A";
-        RandBLAS::util::print_colmaj(m, n, A.data(), name1);
+        switch(mat_type) 
+        {
+            case 1:
+                // Generating matrix with exponentially decaying singular values
+                RandLAPACK::comps::util::gen_exp_mat<T>(m, n, A.data(), k, 0.5, seed); 
+                break;
+            case 2:
+                // Generating matrix with s-shaped singular values plot
+                RandLAPACK::comps::util::gen_s_mat<T>(m, n, A.data(), k, seed); 
+                break;
+            case 3:
+                // Full-rank random A
+                RandBLAS::dense_op::gen_rmat_norm<T>(m, k, A.data(), seed);
+                if (2 * k <= n)
+                {
+                    // Add entries without increasing the rank
+                    std::copy(A.data(), A.data() + (n / 2) * m, A.data() + (n / 2) * m);
+                }
+                break;
+        }
         
-        /*
-        RandLAPACK::comps::qb::qb1<T>(
-        m,
-        n,
-        A.data(),
-        k, // k - start with full rank
-        0, // passes over data - vary
-        1, // passes per stab == 1 by default
-        Q.data(), // m by k
-        B.data(), // k by n
-    	seed
-        );
-        */
-        
+        //char name1[] = "A";
+        //RandBLAS::util::print_colmaj(m, n, A.data(), name1);
+
+        // Create a copy of the original matrix
+        std::copy(A.data(), A.data() + size, A_cpy.data());
+
         RandLAPACK::comps::qb::qb2<T>(
         m,
         n,
@@ -81,21 +80,17 @@ class TestQB : public ::testing::Test
         seed
         );
         
-        char name_3[] = "QB1  output Q";
-        RandBLAS::util::print_colmaj(m, k, Q.data(), name_3);
+        //char name_3[] = "QB1  output Q";
+        //RandBLAS::util::print_colmaj(m, k, Q.data(), name_3);
 
-        char name_4[] = "QB1  output B";
-        RandBLAS::util::print_colmaj(k, n, B.data(), name_4);
+        //char name_4[] = "QB1  output B";
+        //RandBLAS::util::print_colmaj(k, n, B.data(), name_4);
 
         // A_hat = Q * B
-        //gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q.data(), m, B.data(), k, 0.0, A_hat.data(), m);
-
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q.data(), m, B.data(), k, 0.0, A_hat.data(), m);
         // A = A - Q * B
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q.data(), m, B.data(), k, 1.0, A.data(), m);
 
-        T norm_A = lange(lapack::Norm::Fro, m, n, A.data(), m);
-        printf("FRO NORM OF A - QB %f\n", norm_A);
-/*
         // Get low-rank SVD
         gesdd(Job::SomeVec, m, n, A_cpy.data(), m, s.data(), U.data(), m, VT.data(), n);
         // buffer zero vector
@@ -122,15 +117,28 @@ class TestQB : public ::testing::Test
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k.data(), m, VT.data(), n, -1.0, A_hat.data(), m);
 
         T norm_fro = lapack::lange(lapack::Norm::Fro, m, n, A_hat.data(), m);
-        printf("FRO NORM OF A_k - QB %f\n", norm_fro);
+        printf("FRO NORM OF A_k - QB: %f\n", norm_fro);
+        T norm_A = lange(lapack::Norm::Fro, m, n, A.data(), m);
+        printf("FRO NORM OF A - QB:   %f\n", norm_A);
+        printf("Inner dimension of QB: %ld\n\n", k);
         // Compare this result with low-rank svd
         //ASSERT_NEAR(norm_fro, 0, 1e-12);
-*/
     }
 };
 
 
 TEST_F(TestQB, SimpleTest)
 {
-    check_QB1<double>(100, 70, 35, 10, 0.0000000001, 0);
+    //for (uint32_t seed : {0, 1, 2})
+    //{
+        // Testing rank-deficient matrices with exp decay, increasing clock size, normal termination
+        //test_QB2<double>(1000, 1000, 100, 1, 0.0000000001, 1, 0);
+        //test_QB2<double>(1000, 1000, 100, 5, 0.0000000001, 1, 0);
+        //test_QB2<double>(1000, 1000, 100, 10, 0.0000000001, 1, 0);
+        //test_QB2<double>(1000, 1000, 100, 20, 0.0000000001, 1, 0);
+        //test_QB2<double>(1000, 1000, 100, 50, 0.0000000001, 1, 0);
+        // 74 is when conditioning becomes an issue
+        //test_QB2<double>(1000, 1000, 100, 73, 0.0000000001, 1, 0);
+        test_QB2<double>(5000, 1000, 500, 10, 0.0000000001, 1, 0);
+    //}
 }

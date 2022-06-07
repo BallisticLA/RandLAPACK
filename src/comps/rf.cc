@@ -1,12 +1,8 @@
-//#include <RandLAPACK/comps/rf.hh>
-//#include <RandLAPACK/comps/rs.hh>
-
 #include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
-#include <iostream>
-#define USE_QR
+//#define USE_QR
 
 namespace RandLAPACK::comps::rf {
 
@@ -19,7 +15,7 @@ void rf1(
         int64_t p,
         int64_t passes_per_stab,
         T* Q, // n by k
-	    uint64_t seed
+	    uint32_t seed
 ){
     using namespace blas;
     using namespace lapack;
@@ -39,12 +35,12 @@ void rf1(
     geqrf(m, k, Q, m, tau.data());
     ungqr(m, k, k, Q, m, tau.data());
 #else
-    RandLAPACK::comps::util::chol_QR<T>(m, k, Q);
+    RandLAPACK::comps::orth::chol_QR<T>(m, k, Q);
     // Performing the alg twice for better orthogonality	
-    RandLAPACK::comps::util::chol_QR<T>(m, k, Q);
+    RandLAPACK::comps::orth::chol_QR<T>(m, k, Q);
 #endif
 }
 
-template void rf1<float>(int64_t m, int64_t n, float* const A, int64_t k, int64_t p, int64_t passes_per_stab, float* Q, uint64_t seed);
-template void rf1<double>(int64_t m, int64_t n, double* const A, int64_t k, int64_t p, int64_t passes_per_stab, double* Q, uint64_t seed);
+template void rf1<float>(int64_t m, int64_t n, float* const A, int64_t k, int64_t p, int64_t passes_per_stab, float* Q, uint32_t seed);
+template void rf1<double>(int64_t m, int64_t n, double* const A, int64_t k, int64_t p, int64_t passes_per_stab, double* Q, uint32_t seed);
 } // end namespace RandLAPACK::comps::rf

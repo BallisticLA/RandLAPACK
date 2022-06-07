@@ -2,12 +2,11 @@
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
+//#define USE_QR
+#define USE_LU
+
 namespace RandLAPACK::comps::rs {
 
-
-// Add check for zero matrix
-
-//  Version where workspace gets allocated inside the function.
 template <typename T>
 void rs1(
         int64_t m,
@@ -17,7 +16,7 @@ void rs1(
         int64_t p,
         int64_t passes_per_stab,
         T* Omega, // n by k
-		uint64_t seed
+		uint32_t seed
 ){
 	using namespace blas;
 	using namespace lapack;
@@ -26,6 +25,17 @@ void rs1(
 
 	// Needs preallocated - will be used either way.
 	std::vector<T> Omega_1(m * k, 0.0);
+
+#ifdef USE_LU
+	// Pivot vectors
+	std::vector<int64_t> ipiv(k, 0);
+
+#endif
+#ifdef USE_QR
+	// tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
+	// tau needs to be a vector of all 2's by default
+	std::vector<T> tau(k, 2.0);
+#endif
 
 	if (p % 2 == 0) {
 		// Fill n by k omega
@@ -37,33 +47,31 @@ void rs1(
 
 		// multiply A' by Omega results in n by k omega
 		gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, Omega_1.data(), m, 0.0, Omega, n);
-		
+
 		++ p_done;
 		if (p_done % passes_per_stab == 0) 
 		{
 #ifdef USE_LU
-			// Pivot vectors
-			std::vector<int64_t> ipiv(k, 0);
 			// Stores L, U into Omega
 			getrf(n, k, Omega, n, ipiv.data());
+
 			// Addresses pivoting
-			RandLAPACK::comps::util::pivot_swap<T>(n, k, Omega, ipiv.data());
+			RandLAPACK::comps::util::row_swap<T>(n, k, Omega, ipiv.data());
+
 			// Extracting L
-			RandLAPACK::comps::util::get_L<T>(1, n, k, Omega);
-	
-#elseif USE_QR
+			RandLAPACK::comps::util::get_L<T>(n, k, Omega);
+#endif
+#ifdef USE_QR
 			//[Omega, ~] = tsqr(Omega)
 			// use geqrf
-			// tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
-			// tau needs to be a vector of all 2's by default
-			std::vector<T> tau(k, 2.0);
 			geqrf(n, k, Omega, n, tau.data());
 			// use ungqr to get the Q factor
 			ungqr(n, k, k, Omega, n, tau.data());
-#else
-			RandLAPACK::comps::util::chol_QR<T>(n, k, Omega);
+#endif
+#ifdef USE_CHOL
+			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega);
 			// Performing the alg twice for better orthogonality	
-			RandLAPACK::comps::util::chol_QR<T>(n, k, Omega);
+			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega);
 #endif
 		}
 	}
@@ -77,15 +85,16 @@ void rs1(
 		{
 #ifdef USE_LU
 			getrf(m, k, Omega_1.data(), m, ipiv.data());
-			RandLAPACK::comps::util::pivot_swap<T>(m, k, Omega_1.data(), ipiv.data());
-			RandLAPACK::comps::util::get_L<T>(1, n, k, Omega);
-
-#elseif USE_QR
+			RandLAPACK::comps::util::row_swap<T>(m, k, Omega_1.data(), ipiv.data());
+			RandLAPACK::comps::util::get_L<T>(m, k, Omega_1.data());
+#endif
+#ifdef USE_QR
 			geqrf(m, k, Omega_1.data(), m, tau.data());
 			ungqr(m, k, k, Omega_1.data(), m, tau.data());
-#else
-			RandLAPACK::comps::util::chol_QR<T>(m, k, Omega_1.data());
-			RandLAPACK::comps::util::chol_QR<T>(m, k, Omega_1.data());
+#endif
+#ifdef USE_CHOL
+			RandLAPACK::comps::orth::chol_QR<T>(m, k, Omega_1.data());
+			RandLAPACK::comps::orth::chol_QR<T>(m, k, Omega_1.data());
 #endif
 		}
 
@@ -96,21 +105,23 @@ void rs1(
 		{
 #ifdef USE_LU
 			getrf(n, k, Omega, n, ipiv.data());
-			RandLAPACK::comps::util::pivot_swap<T>(n, k, Omega, ipiv.data());
-			RandLAPACK::comps::util::get_L<T>(1, n, k, Omega);			
+			RandLAPACK::comps::util::row_swap<T>(n, k, Omega, ipiv.data());
+			RandLAPACK::comps::util::get_L<T>(n, k, Omega);			
 
-#elseif USE_QR
+#endif
+#ifdef USE_QR
 			geqrf(n, k, Omega, n, tau.data());
 			ungqr(n, k, k, Omega, n, tau.data());
-#else
-			RandLAPACK::comps::util::chol_QR<T>(n, k, Omega);	
-			RandLAPACK::comps::util::chol_QR<T>(n, k, Omega);
+#endif
+#ifdef USE_CHOL
+			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega);	
+			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega);
 #endif
 		}
 	}
 }
 
 
-template void rs1<float>(int64_t m, int64_t n, float* const A, int64_t k, int64_t p, int64_t passes_per_stab, float* Omega, uint64_t seed);
-template void rs1<double>(int64_t m, int64_t n, double* const A, int64_t k, int64_t p, int64_t passes_per_stab, double* Omega, uint64_t seed);
+template void rs1<float>(int64_t m, int64_t n, float* const A, int64_t k, int64_t p, int64_t passes_per_stab, float* Omega, uint32_t seed);
+template void rs1<double>(int64_t m, int64_t n, double* const A, int64_t k, int64_t p, int64_t passes_per_stab, double* Omega, uint32_t seed);
 } // end namespace RandLAPACK::comps::rs

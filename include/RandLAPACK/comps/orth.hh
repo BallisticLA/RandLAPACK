@@ -5,20 +5,11 @@
 
 namespace RandLAPACK::comps::orth {
 
-template <typename T>
-void orth_dcgs2(
+template <typename T> 
+void chol_QR(
         int64_t m,
-        int64_t n,
-        T* const A,
-        T* Q 
-);
-
-template <typename T>
-void householder_ref_gen(
-        int64_t m,
-        int64_t n,
-        T* const A,
-        T* Q 
+        int64_t k,
+        T* Q // pointer to the beginning
 );
 
 } // end namespace RandLAPACK::comps::rs

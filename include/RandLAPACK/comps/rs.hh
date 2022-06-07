@@ -14,7 +14,7 @@ void rs1(
 		int64_t p,
 		int64_t passes_per_stab,
 		T* Omega, // n by k
-		uint64_t seed
+		uint32_t seed
 );
 
 } // end namespace RandLAPACK::comps::rs

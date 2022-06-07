@@ -15,7 +15,7 @@ void qb1(
         int64_t passes_per_stab,
         T* Q, // m by k
         T* B, // k by n
-	uint64_t seed
+	uint32_t seed
 );
 
 template <typename T>
@@ -30,7 +30,7 @@ void qb2(
         int64_t passes_per_stab,
         T* Q, // m by k
         T* B, // k by n
-	uint64_t seed
+	uint32_t seed
 );
 
 } // end namespace RandLAPACK::comps::rs

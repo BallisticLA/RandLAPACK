@@ -18,100 +18,35 @@ class TestOrth : public ::testing::Test
     virtual void TearDown() {};
 
 
-
     template <typename T>
-    static void check_orth(int64_t m, int64_t n, uint32_t seed) {
+    static void test_Chol_QR(int64_t m, int64_t n, uint32_t seed) {
     
         using namespace blas;
 
         int64_t size = m * n;
         std::vector<T> A(size);
-        std::vector<T> Q(size);
-        std::vector<T> I_test(size);
-        std::vector<T> I_ref(size);
+        std::vector<T> I_ref(n * n, 0.0);
         // Generate a random matrix of std normal distribution
         RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A.data(), seed);
         // Generate a reference identity
-        RandLAPACK::comps::util::eye<T>(m, n, I_ref.data());  
-        
+        RandLAPACK::comps::util::eye<T>(n, n, I_ref.data());  
         // Orthonormalize A
-        RandLAPACK::comps::orth::householder_ref_gen<T>(m, n, A.data(), Q.data());
-        
-        // Q' * Q = I
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, m, m, 1.0, Q.data(), m, Q.data(), m, 0.0, I_test.data(), n);
-        // Q * Q' = I
-        //gemm<double>(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, n, 1.0, Q.data(), m, Q.data(), m, 0.0, I_test.data(), m);
+        RandLAPACK::comps::orth::chol_QR(m, n, A.data());;
 
-        char name_1[] = "I";
-        RandBLAS::util::print_colmaj(m, n, I_test.data(), name_1);
+        // Q' * Q  - I = 0
+        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A.data(), m, A.data(), m, -1.0, I_ref.data(), n);
 
-        T norm_fro = lapack::lange(lapack::Norm::Fro, m, n, I_test.data(), m);	
-        ASSERT_NEAR(norm_fro, sqrt(std::min(m, n)), 1e-12);
-    }
-
-
-    // Concern:: for 373x373, accuracy is around 10^-9. is this satisfactory?
-    template <typename T>
-    static void check_dcgs2(int64_t m, int64_t n, uint32_t seed) {
-    
-        using namespace blas;
-
-        int64_t size = m * n;
-        std::vector<T> A(size);
-        std::vector<T> Q(size);
-        std::vector<T> I_test(size);
-        std::vector<T> I_ref(size);
-        // Generate a random matrix of std normal distribution
-        RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A.data(), seed);
-        // Generate a reference identity
-        RandLAPACK::comps::util::eye<T>(m, n, I_ref.data());  
-
-        //char label[] = "A";
-        //RandBLAS::util::print_colmaj<T>( m, n, A, label);
-
-        // Orthonormalize A
-        RandLAPACK::comps::orth::orth_dcgs2<T>(m, n, A.data(), Q.data());
-
-        char name[] = "A";
-        RandBLAS::util::print_colmaj(m, n, A.data(), name);
-        
-        char name_1[] = "Q";
-        RandBLAS::util::print_colmaj(m, n, Q.data(), name_1);
-
-
-        // Q' * Q = I
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, Q.data(), m, Q.data(), m, 0.0, I_test.data(), n);
-        // Q * Q' = I
-        //gemm<double>(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, n, 1.0, Q.data(), m, Q.data(), m, 0.0, I_test.data(), m);
-
-        char name_2[] = "I";
-        RandBLAS::util::print_colmaj(n, n, I_test.data(), name_2);
-
-        T norm_fro = lapack::lange(lapack::Norm::Fro, m, n, I_test.data(), m);	
-        ASSERT_NEAR(norm_fro, sqrt(std::min(m, n)), 1e-12);
+        T norm_fro = lapack::lange(lapack::Norm::Fro, n, n, I_ref.data(), n);	
+        printf("FRO NORM OF Q' * Q - I %f\n", norm_fro);
+        ASSERT_NEAR(norm_fro, 0.0, 1e-12);
     }
 };
 
-/*
-TEST_F(TestUtil, SimpleTest)
+TEST_F(TestOrth, SimpleTest)
 {
     for (uint32_t seed : {0, 1, 2})
     {
-        //check_orth<double>(500, 500, seed);
-        //check_orth<double>(373, 373, seed);
-        check_orth<double>(5, 3, seed);
-        //check_orth<float>(500, 500, seed);
+        test_Chol_QR<double>(1000, 10, seed);
+        //test_Chol_QR<double>(500, 500, seed);
     }
-}
-*/
-
-TEST_F(TestOrth, SimpleTest)
-{
-    //for (uint32_t seed : {0, 1, 2})
-    //{
-        //check_orth<double>(500, 500, seed);
-        //check_orth<double>(373, 373, seed);
-        //check_dcgs2<double>(100, 10, 0);
-        //check_orth<float>(500, 500, seed);
-    //}
 }
