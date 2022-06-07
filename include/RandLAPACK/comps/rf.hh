@@ -14,7 +14,6 @@ void rf1(
         int64_t p,
         int64_t passes_per_stab,
         T* Q, // n by k
-	bool use_lu,
 	uint64_t seed
 );
 

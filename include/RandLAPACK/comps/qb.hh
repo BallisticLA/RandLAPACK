@@ -15,7 +15,6 @@ void qb1(
         int64_t passes_per_stab,
         T* Q, // m by k
         T* B, // k by n
-	bool use_lu,
 	uint64_t seed
 );
 
@@ -31,7 +30,6 @@ void qb2(
         int64_t passes_per_stab,
         T* Q, // m by k
         T* B, // k by n
-	bool use_lu,
 	uint64_t seed
 );
 

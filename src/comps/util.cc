@@ -162,23 +162,14 @@ void chol_QR(
         // Find normal equation Q'Q - Just the upper triangular portion
         syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q, m, 1.0, Q_buf.data(), k);
 
-        //char name[] = "Q_buf before";
-        //RandBLAS::util::print_colmaj<T>(k, k, Q_buf.data(), name);
-
         // Positive definite cholesky factorization
         potrf(Uplo::Upper, k, Q_buf.data(), k);
-
-        //char name1[] = "Q_buf after";
-        //RandBLAS::util::print_colmaj<T>(k, k, Q_buf.data(), name1);
 
         // Inverse of an upper-triangular matrix
         trtri(Uplo::Upper, Diag::NonUnit, k, Q_buf.data(), k);
         // Q = Q * R^(-1)
         std::vector<T> Q_chol(m * k, 0.0);
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q, m, Q_buf.data(), k, 0.0, Q_chol.data(), m);
-
-        //char name2[] = "Q_chol";
-        //RandBLAS::util::print_colmaj<T>(m, k, Q_chol.data(), name2);
 
         // Copy the result into Q
         lacpy(MatrixType::General, m, k, Q_chol.data(), m, Q, m);
@@ -265,7 +256,7 @@ void gen_exp_mat(
 
         // form a diagonal S
         diag<T>(m, n, s.data(), S.data());
-        //gen_mat<T>(m, n, A, k, S.data());
+        gen_mat<T>(m, n, A, k, S.data(), seed);
 
 }
 
@@ -292,7 +283,7 @@ void gen_s_mat(
 
         // form a diagonal S
         diag<T>(m, n, s.data(), S.data());
-        //gen_mat<T>(m, n, A, k, S.data());
+        gen_mat<T>(m, n, A, k, S.data(), seed);
 }
 
 template <typename T> 
