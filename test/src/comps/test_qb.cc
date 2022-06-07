@@ -139,6 +139,6 @@ TEST_F(TestQB, SimpleTest)
         //test_QB2<double>(1000, 1000, 100, 50, 0.0000000001, 1, 0);
         // 74 is when conditioning becomes an issue
         //test_QB2<double>(1000, 1000, 100, 73, 0.0000000001, 1, 0);
-        test_QB2<double>(5000, 1000, 500, 10, 0.0000000001, 1, 0);
+        //test_QB2<double>(5000, 1000, 500, 10, 0.0000000001, 1, 0);
     //}
 }
