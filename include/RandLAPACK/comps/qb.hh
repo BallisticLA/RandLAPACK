@@ -9,12 +9,12 @@ template <typename T>
 void qb1(
         int64_t m,
         int64_t n,
-        T* const A,
+        std::vector<T>& A,
         int64_t k,
         int64_t p,
         int64_t passes_per_stab,
-        T* Q, // m by k
-        T* B, // k by n
+        std::vector<T>& Q, // m by k
+        std::vector<T>& B, // k by n
 	uint32_t seed
 );
 
@@ -22,14 +22,14 @@ template <typename T>
 void qb2(
         int64_t m,
         int64_t n,
-        T* const A,
+        std::vector<T>& A,
         int64_t k,
         int64_t block_sz,
         T tol,
         int64_t p,
         int64_t passes_per_stab,
-        T* Q, // m by k
-        T* B, // k by n
+        std::vector<T>& Q, // m by k
+        std::vector<T>& B, // k by n
 	uint32_t seed
 );
 
@@ -37,14 +37,14 @@ template <typename T>
 void qb2_safe(
         int64_t m,
         int64_t n,
-        T* const A,
+        std::vector<T>& A,
         int64_t k,
         int64_t block_sz,
         T tol,
         int64_t p,
         int64_t passes_per_stab,
-        T* Q, // m by k
-        T* B, // k by n
+        std::vector<T>& Q, // m by k
+        std::vector<T>& B, // k by n
 	uint32_t seed
 );
 

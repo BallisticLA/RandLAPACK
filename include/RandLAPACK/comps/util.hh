@@ -9,37 +9,37 @@ template <typename T>
 void eye(
         int64_t m,
         int64_t n,
-        T* A
+        std::vector<T>& A
 );
 
 template <typename T> 
 void get_L(
         int64_t m,
         int64_t n,
-        T* L
+        std::vector<T>& L
 );
 
 template <typename T>
 void diag(
         int64_t m,
         int64_t n,
-        T* s, // pointer to the beginning
-        T* S
+        const std::vector<T>& s, // pointer to the beginning
+        std::vector<T>& S
 );
 
 template <typename T> 
 void row_swap(
         int64_t m,
         int64_t n,
-        T* A, // pointer to the beginning
-        int64_t* p // Pivot vector
+        std::vector<T>& A, // pointer to the beginning
+        const std::vector<int64_t>& p // Pivot vector
 );
 
 template <typename T> 
 void gen_exp_mat(
         int64_t m,
         int64_t n,
-        T* A,
+        std::vector<T>& A,
         int64_t k, // vector length
         T t, // controls the decay. The higher the value, the slower the decay
         int32_t seed
@@ -49,7 +49,7 @@ template <typename T>
 void gen_s_mat(
         int64_t m,
         int64_t n,
-        T* A,
+        std::vector<T>& A,
         int64_t k, // vector length
         int32_t seed
 );
@@ -58,9 +58,9 @@ template <typename T>
 void gen_mat(
         int64_t m,
         int64_t n,
-        T* A,
+        std::vector<T>& A,
         int64_t k, // vector length
-        T* S,
+        const std::vector<T>& S,
         int32_t seed
 );
 
