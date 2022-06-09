@@ -6,7 +6,7 @@ namespace RandLAPACK::comps::orth {
 
 // Perfoms a Cholesky QR factorization
 template <typename T> 
-void chol_QR(
+int chol_QR(
         int64_t m,
         int64_t k,
         T* Q // pointer to the beginning
@@ -19,7 +19,8 @@ void chol_QR(
         syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q, m, 1.0, Q_buf.data(), k);
 
         // Positive definite cholesky factorization
-        potrf(Uplo::Upper, k, Q_buf.data(), k);
+        if (potrf(Uplo::Upper, k, Q_buf.data(), k) != 0)
+                return 1; // scheme failure 
 
         // Inverse of an upper-triangular matrix
         trtri(Uplo::Upper, Diag::NonUnit, k, Q_buf.data(), k);
@@ -29,9 +30,11 @@ void chol_QR(
 
         // Copy the result into Q
         lacpy(MatrixType::General, m, k, Q_chol.data(), m, Q, m);
+        
+        return 0;
 }
 
-template void chol_QR(int64_t m, int64_t k, float* Q);
-template void chol_QR(int64_t m, int64_t k, double* Q);
+template int chol_QR(int64_t m, int64_t k, float* Q);
+template int chol_QR(int64_t m, int64_t k, double* Q);
 
 } // end namespace orth

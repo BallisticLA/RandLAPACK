@@ -6,7 +6,7 @@
 namespace RandLAPACK::comps::orth {
 
 template <typename T> 
-void chol_QR(
+int chol_QR(
         int64_t m,
         int64_t k,
         T* Q // pointer to the beginning
