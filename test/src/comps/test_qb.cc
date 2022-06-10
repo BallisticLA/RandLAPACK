@@ -99,6 +99,11 @@ class TestQB : public ::testing::Test
             case 3:
                 printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
                 break;
+            case 5:
+                printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
+                //EXPECT_TRUE(true);
+                //return;
+                break;
             case 0:
                printf("\nTERMINATED VIA: Expected tolerance reached.\n");
                 break;
@@ -159,22 +164,22 @@ class TestQB : public ::testing::Test
 
         // Test 1 Output
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
-        printf("FRO NORM OF A - QB:    %.10f\n", norm_test_1);
+        printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
         //ASSERT_NEAR(norm_test_1, 0, 1e-10);
 
         // Test 2 Output
         T norm_test_2 = lange(Norm::Fro, k, n, B_cpy_dat, k);
-        printf("FRO NORM OF B - Q'A:   %.10f\n", norm_test_2);
+        printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
         //ASSERT_NEAR(norm_test_2, 0, 1e-10);
 
         // Test 3 Output
         T norm_test_3 = lapack::lange(lapack::Norm::Fro, k, k, Ident_dat, k);
-        printf("FRO NORM OF Q'Q - I:   %.10f\n", norm_test_3);
+        printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
         //ASSERT_NEAR(norm_test_3, 0, 1e-10);
 
         // Test 4 Output
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
-        printf("FRO NORM OF A_k - QB:  %.10f\n", norm_test_4);
+        printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, 1e-10);
         printf("|=========================TEST QB2 GENERAL END=========================|\n");
     }
@@ -250,6 +255,16 @@ template <typename T>
             case 3:
                 printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
                 break;
+            case 4:
+                printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
+                EXPECT_TRUE(true);
+                return;
+                break;
+            case 5:
+                printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
+                EXPECT_TRUE(true);
+                return;
+                break;
             case 0:
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
                 break;
@@ -272,14 +287,14 @@ template <typename T>
         if(tol == 0.0)
         {
             // Test Zero Tol Output
-            printf("FRO NORM OF A - QB:    %-23.10f\n", norm_test_1);
+            printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
             ASSERT_NEAR(norm_test_1, 0, 1e-12);
         }
         else
         {
             // Test Nonzero Tol Output
-            printf("FRO NORM OF A - QB:    %-23.10f\n", norm_test_1);
-            printf("FRO NORM OF A:         %-23.10f\n", norm_A);
+            printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
+            printf("FRO NORM OF A:         %e\n", norm_A);
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
         printf("|======================TEST QB2 K = min(M, N) END======================|\n");

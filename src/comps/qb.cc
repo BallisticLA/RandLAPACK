@@ -5,7 +5,7 @@
 #include <math.h>
 
 //#define USE_QR
-#define ORTHOG_CHECKS
+#define ORTHONORM_CHECKS
 
 namespace RandLAPACK::comps::qb {
 
@@ -85,7 +85,7 @@ int qb2(
         B.resize(n * k);
     }
 
-#ifdef ORTHOG_CHECKS
+#ifdef ORTHONORM_CHECKS
     printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
     std::vector<T> Q_gram(k * k, 0.0);
     T* Q_gram_dat = Q_gram.data();
@@ -110,6 +110,29 @@ int qb2(
         int next_sz = curr_sz + block_sz;
 
         RandLAPACK::comps::rf::rf1<T>(m, n, A_cpy, block_sz, p, passes_per_stab, Q_i, ++seed);
+
+#ifdef ORTHONORM_CHECKS
+        //needs reallocated
+        std::vector<T> Q_i_gram(block_sz * block_sz, 0.0);
+        T* Q_i_gram_dat = Q_i_gram.data();
+
+        gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+            block_sz, block_sz, m,
+            1.0, Q_i_dat, m, Q_i_dat, m,
+            0.0, Q_i_gram_dat, block_sz
+        );
+        for (int oi = 0; oi < block_sz; ++oi) {
+            Q_i_gram_dat[oi * block_sz + oi] -= 1.0;
+        }
+        T orth_i_err = lange(Norm::Fro, block_sz, block_sz, Q_i_gram_dat, block_sz);
+        printf("\nQ_i ERROR: %e\n", orth_i_err);
+        if (orth_i_err > 1.0e-10)
+        {
+            // Lost orthonormality of Q_i
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 4;
+        }
+#endif
 
         // No need to reorthogonalize on the 1st pass
         if(curr_sz != 0)
@@ -155,8 +178,7 @@ int qb2(
         lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, Q_dat + (m * curr_sz), m);	
         lacpy(MatrixType::General, block_sz, n, B_i_dat, block_sz, B_dat + curr_sz, k);
 
-
-#ifdef ORTHOG_CHECKS
+#ifdef ORTHONORM_CHECKS
         gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
             k, k, m,
             1.0, Q_dat, m, Q_dat, m,
@@ -166,7 +188,13 @@ int qb2(
             Q_gram_dat[oi * k + oi] -= 1.0;
         }
         T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
-        std::cout << orth_err << std::endl; 
+        printf("Q ERROR:   %e\n", orth_err);
+        if (orth_err > 1.0e-10)
+        {
+            // Lost orthonormality of Q
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 5;
+        }
 #endif
 
         curr_sz += block_sz;
@@ -234,7 +262,7 @@ int qb2_safe(
         B.resize(n * k);
     }
 
-#ifdef ORTHOG_CHECKS
+#ifdef ORTHONORM_CHECKS
     printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
     std::vector<T> Q_gram(k * k, 0.0);
     T* Q_gram_dat = Q_gram.data();
@@ -263,6 +291,29 @@ int qb2_safe(
         int next_sz = curr_sz + block_sz;
 
         use_qr = RandLAPACK::comps::rf::rf1_safe<T>(m, n, A_cpy, block_sz, p, passes_per_stab, Q_i, use_qr, ++seed);
+
+#ifdef ORTHONORM_CHECKS
+        //needs reallocated
+        std::vector<T> Q_i_gram(block_sz * block_sz, 0.0);
+        T* Q_i_gram_dat = Q_i_gram.data();
+
+        gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+            block_sz, block_sz, m,
+            1.0, Q_i_dat, m, Q_i_dat, m,
+            0.0, Q_i_gram_dat, block_sz
+        );
+        for (int oi = 0; oi < block_sz; ++oi) {
+            Q_i_gram_dat[oi * block_sz + oi] -= 1.0;
+        }
+        T orth_i_err = lange(Norm::Fro, block_sz, block_sz, Q_i_gram_dat, block_sz);
+        printf("\nQ_i ERROR: %e\n", orth_i_err);
+        if (orth_i_err > 1.0e-10)
+        {
+            // Lost orthonormality of Q_i
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 4;
+        }
+#endif
 
         // No need to reorthogonalize on the 1st pass
         if(curr_sz != 0)
@@ -310,7 +361,7 @@ int qb2_safe(
         lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, Q_dat + (m * curr_sz), m);	
         lacpy(MatrixType::General, block_sz, n, B_i_dat, block_sz, B_dat + curr_sz, k);
 
-#ifdef ORTHOG_CHECKS
+#ifdef ORTHONORM_CHECKS
         gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
             k, k, m,
             1.0, Q_dat, m, Q_dat, m,
@@ -320,7 +371,14 @@ int qb2_safe(
             Q_gram_dat[oi * k + oi] -= 1.0;
         }
         T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
-        std::cout << orth_err << std::endl; 
+        printf("Q ERROR:   %e\n", orth_err);
+        if (orth_err > 1.0e-10)
+        {
+            // Lost orthonormality of Q
+            // Cut off the last iteration
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 5;
+        }
 #endif
 
         curr_sz += block_sz;
@@ -337,12 +395,6 @@ int qb2_safe(
         // A = A - Q_i * B_i
         gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_dat, block_sz, 1.0, A_cpy_dat, m);
     }
-    /*
-    // Resizing the output arrays
-    Q.resize(m * curr_sz);
-    RandLAPACK::comps::util::row_resize(k, n, B, curr_sz);
-    k = curr_sz;
-    */
     // Reached expected rank without achieving the tolerance
     return 3;
 }
