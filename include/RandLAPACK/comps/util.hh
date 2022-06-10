@@ -24,6 +24,7 @@ void diag(
         int64_t m,
         int64_t n,
         const std::vector<T>& s, // pointer to the beginning
+        int64_t k,
         std::vector<T>& S
 );
 
@@ -61,6 +62,16 @@ void gen_mat_type(
         int64_t k, 
         int32_t seed,
         int type
+);
+
+template <typename T> 
+void gen_poly_mat(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        int64_t k, // vector length
+        T t, // controls the decay. The higher the value, the slower the decay
+        int32_t seed
 );
 
 template <typename T> 

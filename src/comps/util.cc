@@ -35,11 +35,11 @@ void diag(
         int64_t m,
         int64_t n,
         const std::vector<T>& s, 
+        int64_t k, // size of s, < min(m, n)
         std::vector<T>& S // Assuming S is m by n
 ) {     
         using namespace blas;
         // size of s
-        int64_t k = std::min(m, n);
         copy<T, T>(k, s.data(), 1, S.data(), m + 1);
 }
 
@@ -129,7 +129,105 @@ void qb_resize(
         k = curr_sz;
 }
 
-// GENERATING MATRICES OF VARYING SPECTRAL DECAY
+template <typename T> 
+void gen_mat_type(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        int64_t k, 
+        int32_t seed,
+        int type
+) {  
+        T* A_dat = A.data();
+
+        switch(type) 
+        {
+                case 0:
+                        // Generating matrix with polynomially decaying singular values
+                        printf("TEST MATRIX: FAST POLYNOMIAL DECAY sigma_i = 1 / (i + 1)^0.5\n");
+                        RandLAPACK::comps::util::gen_poly_mat<T>(m, n, A, k, 0.5, seed); 
+                        break;
+                case 1:
+                        // Generating matrix with exponentially decaying singular values
+                        printf("TEST MATRIX: FAST EXPONENTIAL DECAY sigma_i = e^((i + 1) / -0.5)\n");
+                        RandLAPACK::comps::util::gen_exp_mat<T>(m, n, A, k, 0.5, seed); 
+                        break;
+                case 2:
+                        // Generating matrix with s-shaped singular values plot
+                        printf("TEST MATRIX: S-SHAPED DECAY\n");
+                        RandLAPACK::comps::util::gen_s_mat<T>(m, n, A, k, seed); 
+                        break;
+                case 3:
+                        // A = [A A]
+                        printf("TEST MATRIX: A = [A A]\n");
+                        RandBLAS::dense_op::gen_rmat_norm<T>(m, k, A_dat, seed);
+                        if (2 * k <= n)
+                        {
+                        
+                        std::copy(A_dat, A_dat + (n / 2) * m, A_dat + (n / 2) * m);
+                        }
+                        break;
+                case 4:
+                // Zero matrix
+                printf("TEST MATRIX: ZERO\n");
+                break;
+                case 5:
+                {
+                        // Random diagonal A of rank k
+                        printf("TEST MATRIX: RANDOM DIAGONAL\n");
+                        std::vector<T> buf(k, 0.0);
+                        RandBLAS::dense_op::gen_rmat_norm<T>(k, 1, buf.data(), seed);
+                        // Fills the first k diagonal elements
+                        diag<T>(m, n, buf, k, A);
+                        break;
+                }
+                case 6:
+                {
+                        // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
+                        // In the case below, sigma = 1 | 0.5
+                        printf("TEST MATRIX: A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n\n");
+                        std::vector<T> buf(n, 1.0);
+                        T* buf_dat = buf.data();
+                        std::for_each(buf.begin() + (n / 2), buf.end(),
+                                // Lambda expression begins
+                                [](T& entry)
+                                {
+                                        entry -= 0.5;
+                                }
+                        );
+                        diag<T>(m, n, buf, n, A);
+                }
+                break;
+        }
+}
+
+template <typename T> 
+void gen_poly_mat(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        int64_t k, // vector length
+        T t, // controls the decay. The higher the value, the slower the decay
+        int32_t seed
+) {   
+        std::vector<T> s(k, 0.0);
+        std::vector<T> S(k * k, 0.0);
+        
+        T cnt = 0.0;
+        // apply lambda function to every entry of s
+        std::for_each(s.begin(), s.end(),
+                // Lambda expression begins
+                [&t, &cnt](T& entry)
+                {
+                        entry = 1 / std::pow(++cnt, t);
+                }
+        );
+        
+        // form a diagonal S
+        diag<T>(k, k, s, k, S);
+        gen_mat<T>(m, n, A, k, S, seed);
+}
+
 template <typename T> 
 void gen_exp_mat(
         int64_t m,
@@ -153,68 +251,8 @@ void gen_exp_mat(
         );
         
         // form a diagonal S
-        diag<T>(k, k, s, S);
+        diag<T>(k, k, s, k, S);
         gen_mat<T>(m, n, A, k, S, seed);
-}
-
-template <typename T> 
-void gen_mat_type(
-        int64_t m,
-        int64_t n,
-        std::vector<T>& A,
-        int64_t k, 
-        int32_t seed,
-        int type
-) {  
-        T* A_dat = A.data();
-
-        switch(type) 
-        {
-            case 1:
-                // Generating matrix with exponentially decaying singular values
-                RandLAPACK::comps::util::gen_exp_mat<T>(m, n, A, k, 0.5, seed); 
-                break;
-            case 2:
-                // Generating matrix with s-shaped singular values plot
-                RandLAPACK::comps::util::gen_s_mat<T>(m, n, A, k, seed); 
-                break;
-            case 3:
-                // A = [A A]
-                RandBLAS::dense_op::gen_rmat_norm<T>(m, k, A_dat, seed);
-                if (2 * k <= n)
-                {
-                    
-                    std::copy(A_dat, A_dat + (n / 2) * m, A_dat + (n / 2) * m);
-                }
-                break;
-            case 4:
-                // Zero matrix
-                break;
-            case 5:
-                {
-                // Random diagonal A
-                std::vector<T> buf(n, 0.0);
-                RandBLAS::dense_op::gen_rmat_norm<T>(n, 1, buf.data(), seed);
-                diag<T>(m, n, buf, A);
-                break;
-                }
-            case 6:
-                {
-                // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-                // In the case below, sigma = 1 | 0.5
-                std::vector<T> buf(n, 1.0);
-                T* buf_dat = buf.data();
-                std::for_each(buf.begin() + (n / 2), buf.end(),
-                        // Lambda expression begins
-                        [](T& entry)
-                        {
-                                entry -= 0.5;
-                        }
-                );
-                diag<T>(m, n, buf, A);
-                }
-                break;
-        }
 }
 
 template <typename T> 
@@ -239,7 +277,7 @@ void gen_s_mat(
         );
 
         // form a diagonal S
-        diag<T>(k, k, s, S);
+        diag<T>(k, k, s, k, S);
         gen_mat<T>(m, n, A, k, S, seed);
 }
 
@@ -285,8 +323,8 @@ template void eye<double>(int64_t m, int64_t n, std::vector<double>& A );
 template void get_L<float>(int64_t m, int64_t n, std::vector<float>& L);
 template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
 
-template void diag(int64_t m, int64_t n, const std::vector<float>& s, std::vector<float>& S);
-template void diag(int64_t m, int64_t n, const std::vector<double>& s, std::vector<double>& S);
+template void diag(int64_t m, int64_t n, const std::vector<float>& s, int64_t k, std::vector<float>& S);
+template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k, std::vector<double>& S);
 
 template void row_swap( int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
 template void row_swap( int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
@@ -299,6 +337,9 @@ template void qb_resize(int64_t m, int64_t n, std::vector<double>& Q, std::vecto
 
 template void gen_mat_type(int64_t m, int64_t n, std::vector<float>& A, int64_t k, int32_t seed, int type);
 template void gen_mat_type(int64_t m, int64_t n, std::vector<double>& A, int64_t k, int32_t seed, int type);
+
+template void gen_poly_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, float t, int32_t seed); 
+template void gen_poly_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, double t, int32_t seed);
 
 template void gen_exp_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, float t, int32_t seed); 
 template void gen_exp_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, double t, int32_t seed);

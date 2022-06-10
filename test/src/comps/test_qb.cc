@@ -18,12 +18,16 @@ class TestQB : public ::testing::Test
     template <typename T>
     static void test_QB2_general(int64_t m, int64_t n, int64_t k, int64_t block_sz, T tol, int64_t mat_type, uint32_t seed) {
 
-        printf("\n|========================TEST QB2 GENERAL BEGIN========================|\n");
-
+        printf("|========================TEST QB2 GENERAL BEGIN========================|\n");
         using namespace blas;
         using namespace lapack;
         
         int64_t size = m * n;
+        // Adjust the expected rank
+        if(k == 0)
+        {
+            k = std::min(m, n);
+        }
 
         // For running QB
         std::vector<T> A(size, 0.0);
@@ -82,23 +86,22 @@ class TestQB : public ::testing::Test
         seed
         );
 
-        if (termination == 1)
+        switch(termination)
         {
-            printf("Input matrix of zero entries.\n");
-            EXPECT_TRUE(true);
-            return;
-        }
-        else if (termination == 2)
-        {
-            printf("Early termination due to unexpected error accumulation.\n");
-        }
-        else if (termination == 3)
-        {
-            printf("Reached the expected rank without achieving the specified tolerance.\n");
-        }
-        else if (termination == 0)
-        {
-            printf("Expected tolerance reached.\n");
+            case 1:
+                printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
+                EXPECT_TRUE(true);
+                return;
+                break;
+            case 2:
+                printf("\nTERMINATED VIA: Early termination due to unexpected error accumulation.\n");
+                break;
+            case 3:
+                printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
+                break;
+            case 0:
+               printf("\nTERMINATED VIA: Expected tolerance reached.\n");
+                break;
         }
 
         printf("Inner dimension of QB: %-25ld\n", k);
@@ -135,7 +138,7 @@ class TestQB : public ::testing::Test
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
         std::copy(z_buf_dat, z_buf_dat + (n - k), s_dat + k);
-        RandLAPACK::comps::util::diag(n, n, s, S);
+        RandLAPACK::comps::util::diag(n, n, s, n, S);
 
         //char name_u[] = "U";
         //RandBLAS::util::print_colmaj(m, n, U.data(), name_u);
@@ -156,35 +159,42 @@ class TestQB : public ::testing::Test
 
         // Test 1 Output
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
-        printf("FRO NORM OF A - QB:    %.12f\n", norm_test_1);
+        printf("FRO NORM OF A - QB:    %.10f\n", norm_test_1);
         //ASSERT_NEAR(norm_test_1, 0, 1e-10);
 
         // Test 2 Output
         T norm_test_2 = lange(Norm::Fro, k, n, B_cpy_dat, k);
-        printf("FRO NORM OF B - Q'A:   %.12f\n", norm_test_2);
+        printf("FRO NORM OF B - Q'A:   %.10f\n", norm_test_2);
         //ASSERT_NEAR(norm_test_2, 0, 1e-10);
 
         // Test 3 Output
         T norm_test_3 = lapack::lange(lapack::Norm::Fro, k, k, Ident_dat, k);
-        printf("FRO NORM OF Q'Q - I:   %.12f\n", norm_test_3);
+        printf("FRO NORM OF Q'Q - I:   %.10f\n", norm_test_3);
         //ASSERT_NEAR(norm_test_3, 0, 1e-10);
 
         // Test 4 Output
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
-        printf("FRO NORM OF A_k - QB:  %.12f\n", norm_test_4);
+        printf("FRO NORM OF A_k - QB:  %.10f\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, 1e-10);
+        printf("|=========================TEST QB2 GENERAL END=========================|\n");
     }
 
 //Varying tol, k = min(m, n)
 template <typename T>
-    static void test_QB2_overest_k(int64_t m, int64_t n, int64_t k, int64_t block_sz, T tol, int64_t mat_type, uint32_t seed) {
+    static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t block_sz, T tol, int64_t mat_type, uint32_t seed) {
         
-        printf("\n|========================TEST QB2 OVEREST K BEGIN========================|\n");
+        printf("|=====================TEST QB2 K = min(M, N) BEGIN=====================|\n");
 
         using namespace blas;
         using namespace lapack;
         
         int64_t size = m * n;
+        // Adjust the expected rank
+        if(k == 0)
+        {
+            k = std::min(m, n);
+        }
+        
         int64_t k_est = std::min(m, n);
 
         // For running QB
@@ -227,23 +237,22 @@ template <typename T>
         seed
         );
 
-        if (termination == 1)
+        switch(termination)
         {
-            printf("Input matrix of zero entries.\n");
-            //Terminate
-            EXPECT_TRUE(true);
-        }
-        else if (termination == 2)
-        {
-            printf("Early termination due to unexpected error accumulation.\n");
-        }
-        else if (termination == 3)
-        {
-            printf("Reached the expected rank without achieving the specified tolerance.\n");
-        }
-        else if (termination == 0)
-        {
-            printf("Expected tolerance reached.\n");
+            case 1:
+                printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
+                EXPECT_TRUE(true);
+                return;
+                break;
+            case 2:
+                printf("\nTERMINATED VIA: Early termination due to unexpected error accumulation.\n");
+                break;
+            case 3:
+                printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
+                break;
+            case 0:
+                printf("\nTERMINATED VIA: Expected tolerance reached.\n");
+                break;
         }
 
         printf("Inner dimension of QB: %ld\n", k_est);
@@ -263,38 +272,45 @@ template <typename T>
         if(tol == 0.0)
         {
             // Test Zero Tol Output
-            printf("FRO NORM OF A - QB:    %-23.12f\n", norm_test_1);
+            printf("FRO NORM OF A - QB:    %-23.10f\n", norm_test_1);
             ASSERT_NEAR(norm_test_1, 0, 1e-12);
         }
         else
         {
             // Test Nonzero Tol Output
-            printf("FRO NORM OF A - QB:    %-23.12f\n", norm_test_1);
-            printf("FRO NORM OF A:    %-23.12f\n", norm_A);
+            printf("FRO NORM OF A - QB:    %-23.10f\n", norm_test_1);
+            printf("FRO NORM OF A:         %-23.10f\n", norm_A);
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
+        printf("|======================TEST QB2 K = min(M, N) END======================|\n");
     }
 };
 
 
 TEST_F(TestQB, SimpleTest)
 {
-    //for (uint32_t seed : {0, 1, 2})
-    //{
-        // Testing rank-deficient matrices with exp decay, increasing clock size, normal termination
-        //test_QB2<double>(1000, 1000, 100, 1, 0.0000000001, 1, 0);
-        test_QB2_general<double>(100, 100, 50, 5, 0.0000000001, 1, 0);
-        test_QB2_general<double>(100, 100, 50, 5, 0.0000000001, 4, 0);
-        //test_QB2<double>(1000, 1000, 100, 10, 0.0000000001, 1, 0);
-        //test_QB2<double>(1000, 1000, 100, 20, 0.0000000001, 1, 0);
-        //test_QB2<double>(1000, 1000, 100, 50, 0.0000000001, 1, 0);
-        // 74 is when conditioning becomes an issue
-        //test_QB2_general<double>(1000, 1000, 100, 73, 0.0000000001, 1, 0);
-        //test_QB2<double>(5000, 1000, 500, 10, 0.0000000001, 1, 0);
+    for (uint32_t seed : {2})//, 1, 2})
+    {
+        
+        // Fast polynomial decay test
+        test_QB2_general<double>(1000, 1000, 50, 5, 1.0e-9, 0, seed);
+        // Superfast exponential decay test
+        test_QB2_general<double>(1000, 1000, 50, 5, 1.0e-9, 1, seed);
+        // S-shaped decay matrix test 
+        test_QB2_general<double>(1000, 1000, 50, 5, 1.0e-9, 2, seed);
+        // A = [A A]
+        test_QB2_general<double>(1000, 1000, 50, 5, 1.0e-9, 3, seed);
+        // A = 0
+        test_QB2_general<double>(1000, 1000, 50, 5, 1.0e-9, 4, seed);
+        // Random diagonal matrix test
+        test_QB2_general<double>(1000, 1000, 50, 5, 1.0e-9, 5, seed);
+        // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
+        test_QB2_general<double>(1000, 1000, 0, 5, 1.0e-9, 6, seed);
+        
 
         // test zero tol
-        test_QB2_overest_k<double>(100, 100, 10, 5, 0.0, 1, 0);
+        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 0.0, 1, seed);
         // test nonzero tol
-        test_QB2_overest_k<double>(100, 100, 10, 5, 0.1, 1, 0);
-    //}
+        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 0.1, 1, seed);
+    }
 }

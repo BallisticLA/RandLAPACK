@@ -24,6 +24,14 @@ void qb1(
 ){
     using namespace blas;
 
+    // Adjust the expected rank
+    if(k == 0)
+    {
+        k = std::min(m, n);
+        Q.resize(m * k);
+        B.resize(n * k);
+    }
+
     RandLAPACK::comps::rf::rf1<T>(m, n, A, k, p, passes_per_stab, Q, seed);
     gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, 1.0, Q.data(), m, A.data(), m, 0.0, B.data(), k);
 }
@@ -68,6 +76,14 @@ int qb2(
     T norm_B = 0.0;
     T prev_err = 0.0;
     T approx_err = 0.0;
+
+    // Adjust the expected rank
+    if(k == 0)
+    {
+        k = std::min(m, n);
+        Q.resize(m * k);
+        B.resize(n * k);
+    }
 
 #ifdef ORTHOG_CHECKS
     printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
@@ -209,6 +225,14 @@ int qb2_safe(
     T norm_B = 0.0;
     T prev_err = 0.0;
     T approx_err = 0.0;
+
+    // Adjust the expected rank
+    if(k == 0)
+    {
+        k = std::min(m, n);
+        Q.resize(m * k);
+        B.resize(n * k);
+    }
 
 #ifdef ORTHOG_CHECKS
     printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
