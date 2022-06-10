@@ -5,7 +5,7 @@
 #include <math.h>
 
 //#define USE_QR
-//#define ORTHOG_CHECKS
+#define ORTHOG_CHECKS
 
 namespace RandLAPACK::comps::qb {
 
@@ -30,11 +30,11 @@ void qb1(
 
 // Blocked scheme
 template <typename T>
-void qb2(
+int qb2(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
-        int64_t k, // Here, serves as a backup termination criteria
+        int64_t& k, // Here, serves as a backup termination criteria
         int64_t block_sz,
         T tol,
         int64_t p,
@@ -46,14 +46,18 @@ void qb2(
     using namespace blas;
     using namespace lapack;
 
-    T* A_dat = A.data();
+    int curr_sz = 0;
 
-    // pre-compute squarred error
+    T* A_dat = A.data();
+    // pre-compute norm
     T norm_A = lange(Norm::Fro, m, n, A_dat, m);
+
     // Immediate termination criteria
     if(norm_A == 0.0)
     {
-        return;
+        // Zero matrix termination
+        RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+        return 1;
     }
 
     // Copy the initial data to avoid unwanted modification
@@ -64,9 +68,9 @@ void qb2(
     T norm_B = 0.0;
     T prev_err = 0.0;
     T approx_err = 0.0;
-    int curr_sz = 0;
 
 #ifdef ORTHOG_CHECKS
+    printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
     std::vector<T> Q_gram(k * k, 0.0);
     T* Q_gram_dat = Q_gram.data();
 #endif
@@ -112,9 +116,13 @@ void qb2(
         //B_i = Q_i' * A
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
 
+        //char name_3[] = "Qi";
+        //RandBLAS::util::print_colmaj(m, block_sz, Q_i_dat, name_3);
+
         // Updating B norm estimation
         T norm_B_i = lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
         norm_B = hypot(norm_B, norm_B_i);
+
         // Updating approximation error
         prev_err = approx_err;
         approx_err = sqrt(abs(norm_A - norm_B) * (norm_A + norm_B)) / norm_A;
@@ -122,19 +130,15 @@ void qb2(
         // Early termination - handling round-off error accumulation
         if ((curr_sz > 0) && (approx_err > prev_err))
         {
-            break;
+            // Early termination - error growth
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 2;
         } 
 
         // Update the matrices Q and B
         lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, Q_dat + (m * curr_sz), m);	
         lacpy(MatrixType::General, block_sz, n, B_i_dat, block_sz, B_dat + curr_sz, k);
 
-        curr_sz += block_sz;
-        // Termination criteria
-        if (approx_err < tol)
-        {
-            break;
-        }
 
 #ifdef ORTHOG_CHECKS
         gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
@@ -142,29 +146,37 @@ void qb2(
             1.0, Q_dat, m, Q_dat, m,
             0.0, Q_gram_dat, k
         );
-        for (int oi = 0; oi < curr_sz; ++oi) {
-            Q_gram_dat + oi * k + oi -= 1.0;
+        for (int oi = 0; oi < next_sz; ++oi) {
+            Q_gram_dat[oi * k + oi] -= 1.0;
         }
         T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
         std::cout << orth_err << std::endl; 
 #endif
+
+        curr_sz += block_sz;
+        // Termination criteria
+        if (approx_err < tol)
+        {
+            // Expected ternimation - tolerance achieved
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 0;
+        }
         
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
         gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_dat, block_sz, 1.0, A_cpy_dat, m);
     }
-    // still need to shrink output sizes from k to curr_sz
-    // Let user know that sizes of Q, B have changed
-    k = curr_sz;
+    // Reached expected rank without achieving the tolerance
+    return 3;
 }
 
 // Blocked scheme utilizing CholQR by default. If CholQR fails, falls back on Householder QR for the rest of the run.
 template <typename T>
-void qb2_safe(
+int qb2_safe(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
-        int64_t k, // Here, serves as a backup termination criteria
+        int64_t& k, // Here, serves as a backup termination criteria
         int64_t block_sz,
         T tol,
         int64_t p,
@@ -176,30 +188,39 @@ void qb2_safe(
     using namespace blas;
     using namespace lapack;
 
-    // pre-compute squarred error
-    T norm_A = lange(Norm::Fro, m, n, A.data(), m);
+    int curr_sz = 0;
+
+    T* A_dat = A.data();
+    // pre-compute nrom
+    T norm_A = lange(Norm::Fro, m, n, A_dat, m);
     // Immediate termination criteria
     if(norm_A == 0.0)
     {
-        return;
+        // Zero matrix termination
+        RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+        return 1;
     }
 
     // Copy the initial data to avoid unwanted modification
     std::vector<T> A_cpy (m * n, 0.0);
-    lacpy(MatrixType::General, m, n, A.data(), m, A_cpy.data(), m);
+    T* A_cpy_dat = A_cpy.data();
+    lacpy(MatrixType::General, m, n, A_dat, m, A_cpy_dat, m);
 
     T norm_B = 0.0;
     T prev_err = 0.0;
     T approx_err = 0.0;
-    int curr_sz = 0;
+
+#ifdef ORTHOG_CHECKS
+    printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
+    std::vector<T> Q_gram(k * k, 0.0);
+    T* Q_gram_dat = Q_gram.data();
+#endif
 
     std::vector<T> QtQi(k * block_sz, 0.0); 
     std::vector<T> Q_i(m * block_sz, 0.0);
     std::vector<T> B_i(block_sz * n, 0.0);
     std::vector<T> tau(block_sz, 2.0);
 
-    T* A_dat = A.data();
-    T* A_cpy_dat = A_cpy.data();
     T* Q_dat = Q.data();
     T* B_dat = B.data();
     T* Q_i_dat = Q_i.data();
@@ -255,35 +276,59 @@ void qb2_safe(
         // Early termination - handling round-off error accumulation
         if ((curr_sz > 0) && (approx_err > prev_err))
         {
-            break;
+            // Early termination - error growth
+            // Resizing the output arrays
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 2;
         } 
 
         // Update the matrices Q and B
         lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, Q_dat + (m * curr_sz), m);	
         lacpy(MatrixType::General, block_sz, n, B_i_dat, block_sz, B_dat + curr_sz, k);
 
+#ifdef ORTHOG_CHECKS
+        gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+            k, k, m,
+            1.0, Q_dat, m, Q_dat, m,
+            0.0, Q_gram_dat, k
+        );
+        for (int oi = 0; oi < next_sz; ++oi) {
+            Q_gram_dat[oi * k + oi] -= 1.0;
+        }
+        T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
+        std::cout << orth_err << std::endl; 
+#endif
+
         curr_sz += block_sz;
         // Termination criteria
         if (approx_err < tol)
         {
-            break;
+            // Expected ternimation - tolerance achieved
+            // Resizing the output arrays 
+            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            return 0;
         }
         
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
         gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_dat, block_sz, 1.0, A_cpy_dat, m);
     }
-    // still need to shrink output sizes from k to curr_sz
-    // Let user know that sizes of Q, B have changed
+    /*
+    // Resizing the output arrays
+    Q.resize(m * curr_sz);
+    RandLAPACK::comps::util::row_resize(k, n, B, curr_sz);
     k = curr_sz;
+    */
+    // Reached expected rank without achieving the tolerance
+    return 3;
 }
 
 template void qb1<float>(int64_t m, int64_t n, std::vector<float>& A, int64_t k, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
 template void qb1<double>(int64_t m, int64_t n, std::vector<double>& A, int64_t k, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);
 
-template void qb2(int64_t m, int64_t n, std::vector<float>& A, int64_t k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
-template void qb2(int64_t m, int64_t n, std::vector<double>& A, int64_t k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);
+template int qb2(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
+template int qb2(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);
 
-template void qb2_safe(int64_t m, int64_t n, std::vector<float>& A, int64_t k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
-template void qb2_safe(int64_t m, int64_t n, std::vector<double>& A, int64_t k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);
+template int qb2_safe(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
+template int qb2_safe(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);
 }// end namespace RandLAPACK::comps::qb

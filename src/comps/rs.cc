@@ -23,7 +23,6 @@ void rs1(
 
 	int64_t p_done= 0;
 
-	// Needs preallocated - will be used either way.
 	std::vector<T> Omega_1(m * k, 0.0);
 
 	const T* A_dat = A.data();

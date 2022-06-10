@@ -73,6 +73,7 @@ bool rf1_safe(
     }
     else
     {
+        printf("CHOL QR FAILED\n");
         // Done via regular LAPACK's QR
         // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
         // tau needs to be a vector of all 2's by default

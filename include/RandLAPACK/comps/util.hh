@@ -36,6 +36,34 @@ void row_swap(
 );
 
 template <typename T> 
+void row_resize(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A, // pointer to the beginning
+        int64_t k
+);
+
+template <typename T> 
+void qb_resize(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& Q,
+        std::vector<T>& B,
+        int64_t& k,
+        int64_t curr_sz
+);
+
+template <typename T> 
+void gen_mat_type(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        int64_t k, 
+        int32_t seed,
+        int type
+);
+
+template <typename T> 
 void gen_exp_mat(
         int64_t m,
         int64_t n,

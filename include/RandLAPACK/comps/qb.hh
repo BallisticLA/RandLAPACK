@@ -19,11 +19,11 @@ void qb1(
 );
 
 template <typename T>
-void qb2(
+int qb2(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
-        int64_t k,
+        int64_t& k,
         int64_t block_sz,
         T tol,
         int64_t p,
@@ -34,11 +34,11 @@ void qb2(
 );
 
 template <typename T>
-void qb2_safe(
+int qb2_safe(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
-        int64_t k,
+        int64_t& k,
         int64_t block_sz,
         T tol,
         int64_t p,
