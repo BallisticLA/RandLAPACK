@@ -30,7 +30,8 @@ int qb2(
         int64_t passes_per_stab,
         std::vector<T>& Q, // m by k
         std::vector<T>& B, // k by n
-	uint32_t seed
+	uint32_t seed,
+        std::vector<std::pair<T, int64_t>>& cond_nums
 );
 
 template <typename T>

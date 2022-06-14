@@ -14,7 +14,8 @@ void rf1(
         int64_t p,
         int64_t passes_per_stab,
         std::vector<T>& Q, // n by k
-	uint32_t seed
+	uint32_t seed,
+        T& cond_num // For testing purposes
 );
 
 template <typename T>

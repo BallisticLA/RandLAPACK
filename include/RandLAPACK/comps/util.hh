@@ -56,28 +56,29 @@ void qb_resize(
 
 template <typename T> 
 void gen_mat_type(
-        int64_t m,
-        int64_t n,
+        int64_t& m, // These may change
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, 
         int32_t seed,
-        int type
+        std::tuple<int, T, bool> type
 );
 
 template <typename T> 
 void gen_poly_mat(
-        int64_t m,
-        int64_t n,
+        int64_t& m,
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
         T t, // controls the decay. The higher the value, the slower the decay
+        bool diagon,
         int32_t seed
 );
 
 template <typename T> 
 void gen_exp_mat(
-        int64_t m,
-        int64_t n,
+        int64_t& m,
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
         T t, // controls the decay. The higher the value, the slower the decay
@@ -86,8 +87,8 @@ void gen_exp_mat(
 
 template <typename T> 
 void gen_s_mat(
-        int64_t m,
-        int64_t n,
+        int64_t& m,
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
         int32_t seed
@@ -102,5 +103,4 @@ void gen_mat(
         const std::vector<T>& S,
         int32_t seed
 );
-
 } // end namespace RandLAPACK::comps::rs

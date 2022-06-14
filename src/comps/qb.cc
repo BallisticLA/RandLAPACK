@@ -4,8 +4,9 @@
 
 #include <math.h>
 
-//#define USE_QR
+#define USE_QR
 #define ORTHONORM_CHECKS
+#define COND_CHECK
 
 namespace RandLAPACK::comps::qb {
 
@@ -32,7 +33,8 @@ void qb1(
         B.resize(n * k);
     }
 
-    RandLAPACK::comps::rf::rf1<T>(m, n, A, k, p, passes_per_stab, Q, seed);
+    T buf = 0;
+    RandLAPACK::comps::rf::rf1<T>(m, n, A, k, p, passes_per_stab, Q, seed, buf);
     gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, 1.0, Q.data(), m, A.data(), m, 0.0, B.data(), k);
 }
 
@@ -49,7 +51,8 @@ int qb2(
         int64_t passes_per_stab,
         std::vector<T>& Q, // m by k
         std::vector<T>& B, // k by n
-	    uint32_t seed
+	    uint32_t seed,
+        std::vector<std::pair<T, int64_t>>& cond_nums
 ){
     using namespace blas;
     using namespace lapack;
@@ -86,7 +89,7 @@ int qb2(
     }
 
 #ifdef ORTHONORM_CHECKS
-    printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
+    printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
     std::vector<T> Q_gram(k * k, 0.0);
     T* Q_gram_dat = Q_gram.data();
 #endif
@@ -102,6 +105,7 @@ int qb2(
     T* B_i_dat = B_i.data();
     T* QtQi_dat = QtQi.data();
     T* tau_dat = tau.data();
+    std::pair<T, int64_t>* cond_nums_dat = cond_nums.data();
 
     while(k > curr_sz)
     {
@@ -109,7 +113,14 @@ int qb2(
         block_sz = std::min(block_sz, k - curr_sz);
         int next_sz = curr_sz + block_sz;
 
-        RandLAPACK::comps::rf::rf1<T>(m, n, A_cpy, block_sz, p, passes_per_stab, Q_i, ++seed);
+#ifdef COND_CHECK
+        RandLAPACK::comps::rf::rf1<T>(m, n, A_cpy, block_sz, p, passes_per_stab, Q_i, ++seed, cond_nums_dat -> first);
+        cond_nums_dat -> second = next_sz / block_sz;
+        ++cond_nums_dat;
+#else
+        RandLAPACK::comps::rf::rf1<T>(m, n, A_cpy, block_sz, p, passes_per_stab, Q_i, ++seed, NULL);
+#endif
+
 
 #ifdef ORTHONORM_CHECKS
         //needs reallocated
@@ -125,7 +136,7 @@ int qb2(
             Q_i_gram_dat[oi * block_sz + oi] -= 1.0;
         }
         T orth_i_err = lange(Norm::Fro, block_sz, block_sz, Q_i_gram_dat, block_sz);
-        printf("\nQ_i ERROR: %e\n", orth_i_err);
+        printf("Q_i ERROR: %e\n", orth_i_err);
         if (orth_i_err > 1.0e-10)
         {
             // Lost orthonormality of Q_i
@@ -188,7 +199,7 @@ int qb2(
             Q_gram_dat[oi * k + oi] -= 1.0;
         }
         T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
-        printf("Q ERROR:   %e\n", orth_err);
+        printf("Q ERROR:   %e\n\n", orth_err);
         if (orth_err > 1.0e-10)
         {
             // Lost orthonormality of Q
@@ -263,7 +274,7 @@ int qb2_safe(
     }
 
 #ifdef ORTHONORM_CHECKS
-    printf("\nQ ORTHOGONALITY CHECK ENABLED\n");
+    printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
     std::vector<T> Q_gram(k * k, 0.0);
     T* Q_gram_dat = Q_gram.data();
 #endif
@@ -306,7 +317,7 @@ int qb2_safe(
             Q_i_gram_dat[oi * block_sz + oi] -= 1.0;
         }
         T orth_i_err = lange(Norm::Fro, block_sz, block_sz, Q_i_gram_dat, block_sz);
-        printf("\nQ_i ERROR: %e\n", orth_i_err);
+        printf("Q_i ERROR: %e\n", orth_i_err);
         if (orth_i_err > 1.0e-10)
         {
             // Lost orthonormality of Q_i
@@ -371,7 +382,7 @@ int qb2_safe(
             Q_gram_dat[oi * k + oi] -= 1.0;
         }
         T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
-        printf("Q ERROR:   %e\n", orth_err);
+        printf("Q ERROR:   %e\n\n", orth_err);
         if (orth_err > 1.0e-10)
         {
             // Lost orthonormality of Q
@@ -402,8 +413,8 @@ int qb2_safe(
 template void qb1<float>(int64_t m, int64_t n, std::vector<float>& A, int64_t k, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
 template void qb1<double>(int64_t m, int64_t n, std::vector<double>& A, int64_t k, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);
 
-template int qb2(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
-template int qb2(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);
+template int qb2(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed, std::vector<std::pair<float, int64_t>>& cond_nums);
+template int qb2(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed, std::vector<std::pair<double, int64_t>>& cond_nums);
 
 template int qb2_safe(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, int64_t p, int64_t passes_per_stab, std::vector<float>& Q, std::vector<float>& B, uint32_t seed);
 template int qb2_safe(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, int64_t p, int64_t passes_per_stab, std::vector<double>& Q, std::vector<double>& B, uint32_t seed);

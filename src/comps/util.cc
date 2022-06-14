@@ -131,30 +131,30 @@ void qb_resize(
 
 template <typename T> 
 void gen_mat_type(
-        int64_t m,
-        int64_t n,
+        int64_t& m, // These may change
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, 
         int32_t seed,
-        int type
+        std::tuple<int, T, bool> type
 ) {  
         T* A_dat = A.data();
 
-        switch(type) 
+        switch(std::get<0>(type)) 
         {
                 case 0:
                         // Generating matrix with polynomially decaying singular values
-                        printf("TEST MATRIX: FAST POLYNOMIAL DECAY sigma_i = 1 / (i + 1)^0.5\n");
-                        RandLAPACK::comps::util::gen_poly_mat<T>(m, n, A, k, 0.5, seed); 
+                        printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = 1 / (i + 1)^pow (first k * 0.2 sigmas = 1)\n");
+                        RandLAPACK::comps::util::gen_poly_mat<T>(m, n, A, k, std::get<1>(type), std::get<2>(type), seed); 
                         break;
                 case 1:
                         // Generating matrix with exponentially decaying singular values
-                        printf("TEST MATRIX: FAST EXPONENTIAL DECAY sigma_i = e^((i + 1) / -0.5)\n");
-                        RandLAPACK::comps::util::gen_exp_mat<T>(m, n, A, k, 0.5, seed); 
+                        printf("TEST MATRIX: EXPONENTIAL DECAY sigma_i = e^((i + 1) / -pow) (first k * 0.2 sigmas = 1)\n");
+                        RandLAPACK::comps::util::gen_exp_mat<T>(m, n, A, k, std::get<1>(type), seed); 
                         break;
                 case 2:
                         // Generating matrix with s-shaped singular values plot
-                        printf("TEST MATRIX: S-SHAPED DECAY\n");
+                        printf("TEST MATRIX: S-SHAPED DECAY (first k * 0.2 sigmas = 1)\n");
                         RandLAPACK::comps::util::gen_s_mat<T>(m, n, A, k, seed); 
                         break;
                 case 3:
@@ -201,21 +201,27 @@ void gen_mat_type(
         }
 }
 
+// Merge 3 functions below
 template <typename T> 
 void gen_poly_mat(
-        int64_t m,
-        int64_t n,
+        int64_t& m,
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
         T t, // controls the decay. The higher the value, the slower the decay
+        bool diagon,
         int32_t seed
 ) {   
-        std::vector<T> s(k, 0.0);
+        using namespace lapack;
+
+        // Predeclare to all nonzero constants, start decay where needed 
+        std::vector<T> s(k, 1.0);
         std::vector<T> S(k * k, 0.0);
         
         T cnt = 0.0;
-        // apply lambda function to every entry of s
-        std::for_each(s.begin(), s.end(),
+        // apply lambda function to every entry of s       
+        
+        std::for_each(s.begin() + k * 0.2, s.end(),
                 // Lambda expression begins
                 [&t, &cnt](T& entry)
                 {
@@ -225,13 +231,26 @@ void gen_poly_mat(
         
         // form a diagonal S
         diag<T>(k, k, s, k, S);
-        gen_mat<T>(m, n, A, k, S, seed);
+        if (diagon)
+        {
+                if (!(m == k || n == k))
+                {
+                        m = k;
+                        n = k;
+                        A.resize(k * k);
+                }
+                lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        }
+        else
+        {
+                gen_mat<T>(m, n, A, k, S, seed);
+        }
 }
 
 template <typename T> 
 void gen_exp_mat(
-        int64_t m,
-        int64_t n,
+        int64_t& m,
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
         T t, // controls the decay. The higher the value, the slower the decay
@@ -257,8 +276,8 @@ void gen_exp_mat(
 
 template <typename T> 
 void gen_s_mat(
-        int64_t m,
-        int64_t n,
+        int64_t& m,
+        int64_t& n,
         std::vector<T>& A,
         int64_t k, // <= min(m, n)
         int32_t seed
@@ -326,8 +345,8 @@ template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
 template void diag(int64_t m, int64_t n, const std::vector<float>& s, int64_t k, std::vector<float>& S);
 template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k, std::vector<double>& S);
 
-template void row_swap( int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
-template void row_swap( int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
+template void row_swap(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
+template void row_swap(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
 
 template void row_resize(int64_t m, int64_t n, std::vector<float>& A, int64_t k);
 template void row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k);
@@ -335,17 +354,17 @@ template void row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k
 template void qb_resize(int64_t m, int64_t n, std::vector<float>& Q, std::vector<float>& B, int64_t& k, int64_t curr_sz); 
 template void qb_resize(int64_t m, int64_t n, std::vector<double>& Q, std::vector<double>& B, int64_t& k, int64_t curr_sz); 
 
-template void gen_mat_type(int64_t m, int64_t n, std::vector<float>& A, int64_t k, int32_t seed, int type);
-template void gen_mat_type(int64_t m, int64_t n, std::vector<double>& A, int64_t k, int32_t seed, int type);
+template void gen_mat_type(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, int32_t seed, std::tuple<int, float, bool> type);
+template void gen_mat_type(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, int32_t seed, std::tuple<int, double, bool> type);
 
-template void gen_poly_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, float t, int32_t seed); 
-template void gen_poly_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, double t, int32_t seed);
+template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, float t, bool diagon, int32_t seed); 
+template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, double t, bool diagon, int32_t seed);
 
-template void gen_exp_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, float t, int32_t seed); 
-template void gen_exp_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, double t, int32_t seed);
+template void gen_exp_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, float t, int32_t seed); 
+template void gen_exp_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, double t, int32_t seed);
 
-template void gen_s_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, int32_t seed);
-template void gen_s_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, int32_t seed);
+template void gen_s_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, int32_t seed);
+template void gen_s_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, int32_t seed);
 
 template void gen_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, const std::vector<float>& S, int32_t seed); 
 template void gen_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, const std::vector<double>& S, int32_t seed);
