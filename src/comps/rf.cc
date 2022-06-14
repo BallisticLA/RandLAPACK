@@ -4,6 +4,7 @@
 
 #define USE_QR
 #define COND_CHECK
+//#define VERBOSE
 
 namespace RandLAPACK::comps::rf {
 
@@ -46,7 +47,9 @@ void rf1(
     T* s_dat = s.data();
     gesdd(Job::NoVec, m, k, Q_cpy_dat, m, s_dat, NULL, m, NULL, k);
     cond_num = *s_dat / *(s_dat + k - 1);
+#ifdef VERBOSE
     printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
+#endif
 #endif
 
 #ifdef USE_QR

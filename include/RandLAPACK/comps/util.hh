@@ -29,6 +29,14 @@ void diag(
 );
 
 template <typename T> 
+void disp_diag(
+        int64_t m,
+        int64_t n,
+        int64_t k, 
+        std::vector<T>& A 
+);
+
+template <typename T> 
 void row_swap(
         int64_t m,
         int64_t n,

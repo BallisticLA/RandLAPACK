@@ -31,7 +31,7 @@ int qb2(
         std::vector<T>& Q, // m by k
         std::vector<T>& B, // k by n
 	uint32_t seed,
-        std::vector<std::pair<T, int64_t>>& cond_nums
+        std::vector<T>& cond_nums
 );
 
 template <typename T>

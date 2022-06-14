@@ -43,6 +43,26 @@ void diag(
         copy<T, T>(k, s.data(), 1, S.data(), m + 1);
 }
 
+template <typename T> 
+void disp_diag(
+        int64_t m,
+        int64_t n,
+        int64_t k, 
+        std::vector<T>& A 
+) {     
+        T* A_dat = A.data();
+        if (k == 0)
+        {
+                k = std::min(m, n);
+        }
+        printf("DISPLAYING THE MAIN DIAGONAL OF A GIVEN MATRIX: \n");
+        for(int i = 0; i < k; ++i)
+        {
+                printf("ELEMENT %d: %f\n", i, *(A_dat + (i * m) + i));
+        }
+}
+
+
 // Helper routine for retrieving the lower triangular portion of a matrix
 // Puts 1's on the main diagonal
 template <typename T> 
@@ -344,6 +364,9 @@ template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
 
 template void diag(int64_t m, int64_t n, const std::vector<float>& s, int64_t k, std::vector<float>& S);
 template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k, std::vector<double>& S);
+
+template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A);
+template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A);
 
 template void row_swap(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
 template void row_swap(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);

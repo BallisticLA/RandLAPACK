@@ -304,7 +304,7 @@ template <typename T>
 
 //Varying tol, k = min(m, n)
 template <typename T>
-    static void test_QB2_plot(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
+    static std::vector<T> test_QB2_plot_helper(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|===========================TEST QB2 K PLOT===========================|\n");
 
@@ -329,12 +329,14 @@ template <typename T>
         // For results comparison
         std::vector<T> A_hat(size, 0.0);
         //WARNING: block_sz may change.
-        std::vector<std::pair<T, int64_t>> cond_nums(k / block_sz);
+        std::vector<T> cond_nums(k / block_sz);
 
         T* A_dat = A.data();
         T* Q_dat = Q.data();
         T* B_dat = B.data();
         T* A_hat_dat = A_hat.data();
+
+        //RandLAPACK::comps::util::disp_diag(m, n, k, A);
 
         int termination = RandLAPACK::comps::qb::qb2<T>(
         m,
@@ -351,20 +353,67 @@ template <typename T>
         cond_nums
         );
 
-        // Plot the results
-        /*
-        Gnuplot gp;
-        gp << "set xrange [0:k]\nset yrange [0:1000]\n";
-        gp << "plot" << gp.file1d(cond_nums) << "Condition number."
-		<< gp.file1d(curr_rank) << "Current rank." << std::endl;
-        */
-
         // Save array as .dat file
-        std::ofstream file("../../build/test_plots/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + ".dat");
-        for (const auto &x : cond_nums) file << x.second << "   " << x.first << "\n"; 
+        //std::ofstream file("../../build/test_plots/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + ".dat");
+        //for (const auto &x : cond_nums) file << x.second << "   " << x.first << "\n"; 
     
         printf("|============================TEST QB2 PLOT============================|\n");
+        return cond_nums;
     }
+
+template <typename T>
+    static void test_QB2_plot(int64_t max_k, int64_t max_b_sz, int64_t max_p, int mat_type, T decay, bool diagon)
+    {
+        using namespace blas; 
+        int32_t seed = 0;
+        // Number of repeated runs of the same test
+        int runs = 5;
+
+        // varying matrix size
+        for (int64_t k = 1024; k <= max_k; k *= 2)
+        {
+            // varying block size
+            for (int64_t block_sz = 16; block_sz <= max_b_sz; block_sz *= 4)
+            {
+                int64_t v_sz = k / block_sz;  
+                std::vector<T> all_vecs(v_sz * (runs + 1));
+                T* all_vecs_dat = all_vecs.data();
+
+                // fill the 1st coumn with iteration indexes
+                int cnt = 0;
+                std::for_each(all_vecs_dat, all_vecs_dat + v_sz,
+                        // Lambda expression begins
+                        [&cnt](T& entry)
+                        {
+                                entry = ++cnt;
+                        }
+                );
+
+                // varying power iters
+                for (int64_t p = 0; p <= max_p; p += 2)
+                {
+                    for (int i = 1; i < (runs + 1); ++i)
+                    {
+                        // Grab the vetcor of condition numbers
+                        //std::vector<T>cond_nums = test_QB2_plot_helper<T>(k, k, k, p, block_sz, 0, std::make_tuple(0, 2, true), ++seed);
+                        std::vector<T>cond_nums = test_QB2_plot_helper<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), ++seed);
+                        copy<T, T>(v_sz, cond_nums.data(), 1, all_vecs_dat + (v_sz * i), 1);
+                    }
+                    
+                    // Save array as .dat file
+                    std::ofstream file("../../build/test_plots/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat");
+                    //unfortunately, cant do below with foreach
+                    for (int i = 0; i < v_sz; ++ i)
+                    {
+                        T* entry = all_vecs_dat + i;
+                        // how to simplify this expression?
+                        file << *(entry) << "  " << *(entry + v_sz) << "  " << *(entry + (2 * v_sz)) << "  " << *(entry + (3 * v_sz)) << "  " << *(entry + (4 * v_sz)) << "  " << *(entry + (5 * v_sz)) << "\n";
+                    }
+                }
+            }
+        }
+    }
+
 };
 
 
@@ -400,23 +449,12 @@ TEST_F(TestQB, SimpleTest)
 }
 */
 
+
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 TEST_F(TestQB, PlotTest)
 { 
-    // varying matrix size
-    for (int k = 1024; k <= 1024; k += 1024)
-    {
-        // varying block size
-        for (int block_sz = 16; block_sz <= 256; block_sz *= 4)
-        {
-            // varying power iters
-            for (int p = 0; p <= 0; p += 2)
-            {
-                // Fast polynomial decay, diagonal
-                test_QB2_plot<double>(k, k, k, p, block_sz, 0, std::make_tuple(0, 2, false), 1);
-                // Slow polynomial decay, diagonal
-                test_QB2_plot<double>(k, k, k, p, block_sz, 0, std::make_tuple(0, 0.5, false), 1);
-            }
-        }
-    }
+    // Fast decay
+    test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
+    test_QB2_plot<double>(4096, 256, 2, 0, 0.5, true);
+    //test_QB2_plot_helper<double>(10, 10, 10, 0, 5, 0, std::make_tuple(0, 2, true), 0);
 }
