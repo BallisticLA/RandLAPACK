@@ -3,7 +3,8 @@
 #include <RandLAPACK.hh>
 
 //#define USE_QR
-#define USE_LU
+//#define USE_LU
+#define USE_CHOL
 
 namespace RandLAPACK::comps::rs {
 
@@ -71,9 +72,8 @@ void rs1(
 			ungqr(n, k, k, Omega_dat, n, tau_dat);
 #endif
 #ifdef USE_CHOL
+			// No need to refine orthogonality here
 			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega);
-			// Performing the alg twice for better orthogonality	
-			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega;
 #endif
 		}
 	}
@@ -96,7 +96,6 @@ void rs1(
 #endif
 #ifdef USE_CHOL
 			RandLAPACK::comps::orth::chol_QR<T>(m, k, Omega_1);
-			RandLAPACK::comps::orth::chol_QR<T>(m, k, Omega_1);
 #endif
 		}
 
@@ -117,7 +116,6 @@ void rs1(
 #endif
 #ifdef USE_CHOL
 			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega);	
-			RandLAPACK::comps::orth::chol_QR<T>(n, k, Omega);
 #endif
 		}
 	}

@@ -25,17 +25,9 @@ int chol_QR(
         // Positive definite cholesky factorization
         if (potrf(Uplo::Upper, k, Q_buf_dat, k) != 0)
                 return 1; // scheme failure 
-
-        // Inverse of an upper-triangular matrix
-        trtri(Uplo::Upper, Diag::NonUnit, k, Q_buf_dat, k);
+                
         // Q = Q * R^(-1)
-        std::vector<T> Q_chol(m * k, 0.0);
-        T* Q_chol_dat = Q_chol.data();
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q_dat, m, Q_buf_dat, k, 0.0, Q_chol_dat, m);
-
-        // Copy the result into Q
-        lacpy(MatrixType::General, m, k, Q_chol_dat, m, Q_dat, m);
-        
+        trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_buf_dat, k, Q_dat, m);	    
         return 0;
 }
 

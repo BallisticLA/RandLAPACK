@@ -305,8 +305,6 @@ template <typename T>
 //Varying tol, k = min(m, n)
 template <typename T>
     static std::vector<T> test_QB2_plot_helper(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
-        
-        printf("|===========================TEST QB2 K PLOT===========================|\n");
 
         using namespace blas;
         using namespace lapack;
@@ -352,25 +350,20 @@ template <typename T>
         seed,
         cond_nums
         );
-
-        // Save array as .dat file
-        //std::ofstream file("../../build/test_plots/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + ".dat");
-        //for (const auto &x : cond_nums) file << x.second << "   " << x.first << "\n"; 
-    
-        printf("|============================TEST QB2 PLOT============================|\n");
         return cond_nums;
     }
 
 template <typename T>
     static void test_QB2_plot(int64_t max_k, int64_t max_b_sz, int64_t max_p, int mat_type, T decay, bool diagon)
     {
+        printf("|===========================TEST QB2 K PLOT===========================|\n");
         using namespace blas; 
         int32_t seed = 0;
         // Number of repeated runs of the same test
         int runs = 5;
 
         // varying matrix size
-        for (int64_t k = 1024; k <= max_k; k *= 2)
+        for (int64_t k = 4096; k <= max_k; k *= 2)
         {
             // varying block size
             for (int64_t block_sz = 16; block_sz <= max_b_sz; block_sz *= 4)
@@ -412,6 +405,7 @@ template <typename T>
                 }
             }
         }
+        printf("|============================TEST QB2 PLOT============================|\n");
     }
 
 };
@@ -454,7 +448,7 @@ TEST_F(TestQB, SimpleTest)
 TEST_F(TestQB, PlotTest)
 { 
     // Fast decay
-    test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
-    test_QB2_plot<double>(4096, 256, 2, 0, 0.5, true);
-    //test_QB2_plot_helper<double>(10, 10, 10, 0, 5, 0, std::make_tuple(0, 2, true), 0);
+    //test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
+    // Slow decay
+    //test_QB2_plot<double>(4096, 256, 0, 0, 0.5, true);
 }

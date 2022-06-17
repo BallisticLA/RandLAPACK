@@ -4,7 +4,7 @@
 
 #define USE_QR
 #define COND_CHECK
-//#define VERBOSE
+#define VERBOSE
 
 namespace RandLAPACK::comps::rf {
 
@@ -91,6 +91,26 @@ bool rf1_safe(
     // Q = orth(A * Omega)
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega.data(), n, 0.0, Q_dat, m);
 
+#ifdef COND_CHECK
+
+    // Copy to avoid any changes
+    std::vector<T> Q_cpy (m * k, 0.0);
+    T* Q_cpy_dat = Q_cpy.data();
+    lacpy(MatrixType::General, m, k, Q_dat, m, Q_cpy_dat, m);
+    /*
+    T* rcond = 0;
+    T one_norm = lange(Norm::Inf, m, k, Q_dat, m);
+    //I don't understand why thid does not work
+    gecon(Norm::Inf, k, Q_cpy_dat, k, one_norm, rcond);		
+    */
+    std::vector<T> s(k, 0.0);
+    T* s_dat = s.data();
+    gesdd(Job::NoVec, m, k, Q_cpy_dat, m, s_dat, NULL, m, NULL, k);
+    T cond_num = *s_dat / *(s_dat + k - 1);
+#ifdef VERBOSE
+    printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
+#endif
+#endif
 
     if (!(use_qr || RandLAPACK::comps::orth::chol_QR<T>(m, k, Q)))
     {

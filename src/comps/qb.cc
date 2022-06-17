@@ -4,10 +4,10 @@
 
 #include <math.h>
 
-#define USE_QR
+//#define USE_QR
 #define ORTHONORM_CHECKS
 #define COND_CHECK
-//#define VERBOSE
+#define VERBOSE
 
 namespace RandLAPACK::comps::qb {
 

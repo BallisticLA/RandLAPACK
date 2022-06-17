@@ -240,7 +240,6 @@ void gen_poly_mat(
         
         T cnt = 0.0;
         // apply lambda function to every entry of s       
-        
         std::for_each(s.begin() + k * 0.2, s.end(),
                 // Lambda expression begins
                 [&t, &cnt](T& entry)
