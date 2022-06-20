@@ -90,6 +90,7 @@ void gen_exp_mat(
         std::vector<T>& A,
         int64_t k, // vector length
         T t, // controls the decay. The higher the value, the slower the decay
+        bool diagon,
         int32_t seed
 );
 
@@ -99,6 +100,7 @@ void gen_s_mat(
         int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
+        bool diagon,
         int32_t seed
 );
 

@@ -123,7 +123,6 @@ int qb2(
         RandLAPACK::comps::rf::rf1<T>(m, n, A_cpy, block_sz, p, passes_per_stab, Q_i, ++seed, NULL);
 #endif
 
-
 #ifdef ORTHONORM_CHECKS
         //needs reallocated
         std::vector<T> Q_i_gram(block_sz * block_sz, 0.0);
@@ -169,9 +168,6 @@ int qb2(
         }
         //B_i = Q_i' * A
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
-
-        //char name_3[] = "Qi";
-        //RandBLAS::util::print_colmaj(m, block_sz, Q_i_dat, name_3);
 
         // Updating B norm estimation
         T norm_B_i = lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
