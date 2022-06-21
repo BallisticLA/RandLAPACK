@@ -409,7 +409,7 @@ template <typename T>
     }
 
 };
-
+/*
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -439,7 +439,7 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0, false), seed);
     }
 }
-
+*/
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 TEST_F(TestQB, PlotTest)
 { 
@@ -447,4 +447,77 @@ TEST_F(TestQB, PlotTest)
     //test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
     // Slow decay
     //test_QB2_plot<double>(4096, 256, 0, 0, 0.5, true);
+}
+
+TEST_F(TestQB, RS_OOTest)
+{ 
+    /*
+    int64_t m = 10;
+    int64_t n = 10;
+    int64_t k = 10;
+    int64_t p = 2;
+    int64_t q = 1;
+    int32_t seed = 0;
+
+    std::vector<double> A(m * n, 0.0);
+    std::vector<double> Omega(n * k, 0.0);
+
+    RandBLAS::dense_op::gen_rmat_norm<double>(m, n, A.data(), seed);
+
+    RandLAPACK::comps::rs::RowSketcher<double> RS
+    (
+        seed, 
+        p, 
+        q,
+        &RandLAPACK::comps::orth::stab_LU<double>
+    );
+
+    RS.RS1(m, n, A, k, Omega);
+    */
+}
+
+TEST_F(TestQB, RF_OOTest)
+{ 
+    /*
+    // Make a subclass object by calling a constructor
+    RandLAPACK::comps::rs::One<double> One(1);
+
+    RandLAPACK::comps::rf::Two<double> Two(2, One);
+
+    Two.do_more_stuff(1.1);
+    */
+
+    // BASIC PARAMS
+    int64_t m = 10;
+    int64_t n = 10;
+    int64_t k = 10;
+
+    // PARAMS FOR RS
+    int64_t p = 2;
+    int64_t q = 1;
+    int32_t seed = 0;
+
+    // PARAMS FOR RF
+    bool use_qr = true;
+
+    std::vector<double> A(m * n, 0.0);
+    std::vector<double> Q(m * k, 0.0);
+    std::vector<double> Omega(n * k, 0.0);
+
+    // FILL THE MATRIX
+    RandBLAS::dense_op::gen_rmat_norm<double>(m, n, A.data(), seed);
+
+    // DECLARE A RS
+    RandLAPACK::comps::rs::RowSketcher<double> RS
+    (
+        seed, p, q, &RandLAPACK::comps::orth::stab_LU<double>
+    );
+
+    // DECLARE A RF
+    RandLAPACK::comps::rf::RangeFinder<double> RF
+    (
+        RS, NULL, true, true
+    );
+
+    RF.RF1(m, n, A, k, Q, use_qr);
 }

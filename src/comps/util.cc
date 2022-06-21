@@ -162,6 +162,10 @@ void gen_mat_type(
 
         switch(std::get<0>(type)) 
         {
+                /*
+                First 3 cases are identical, varying ony in the entry generation function.
+                is there a way to propagate the lambda expression or somehowe pass several parameners into a undary function in foreach?
+                */
                 case 0:
                         // Generating matrix with polynomially decaying singular values
                         printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = 1 / (i + 1)^pow (first k * 0.2 sigmas = 1)\n");
@@ -319,7 +323,7 @@ void gen_s_mat(
         int32_t seed
 ) {   
         using namespace lapack;
-        
+
         std::vector<T> s(k, 0.0);
         std::vector<T> S(k * k, 0.0);
 
@@ -422,4 +426,5 @@ template void gen_s_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t 
 
 template void gen_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, const std::vector<float>& S, int32_t seed); 
 template void gen_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, const std::vector<double>& S, int32_t seed);
+
 } // end namespace util

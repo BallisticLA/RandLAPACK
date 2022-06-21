@@ -113,4 +113,5 @@ void gen_mat(
         const std::vector<T>& S,
         int32_t seed
 );
+
 } // end namespace RandLAPACK::comps::rs
