@@ -17,7 +17,8 @@ class TestUtil : public ::testing::Test
     virtual void TearDown() {};
 };
 
-
+/*
 TEST_F(TestUtil, SimpleTest)
 {
 }
+*/

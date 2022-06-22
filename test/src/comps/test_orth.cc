@@ -7,6 +7,7 @@
 
 #include <numeric>
 #include <iostream>
+#include <fstream>
 using namespace std::chrono;
 
 #define RELDTOL 1e-10;
@@ -101,7 +102,7 @@ class TestOrth : public ::testing::Test
 
     template <typename T>
     static std::tuple<long, long, long> 
-    test_speed(int64_t m, int64_t n, uint32_t seed) {
+    test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     
         using namespace blas;
         using namespace lapack;
@@ -153,33 +154,78 @@ class TestOrth : public ::testing::Test
 
         return std::make_tuple(dur_chol, dur_lu, dur_qr);
     }
+
+
+    template <typename T>
+    static void 
+    test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
+    {
+        int64_t rows = 0;
+        int64_t cols = 0;
+
+        double chol_avg = 0;
+        double lu_avg = 0;
+        double qr_avg = 0;
+
+        for(; r_pow <= r_pow_max; ++r_pow)
+        {
+            rows = std::pow(2, r_pow);
+            int c_buf = c_pow;
+
+            for (; c_buf <= c_pow_max; ++c_buf)
+            {
+                cols = std::pow(2, c_buf);
+
+                std::tuple<long, long, long> res;
+                long t_chol = 0;
+                long t_lu = 0;
+                long t_qr = 0;
+
+                long curr_t_chol = 0;
+                long curr_t_lu = 0;
+                long curr_t_qr = 0;
+
+                std::ofstream file("../../build/test_plots/test_speed/raw_data/test_" + std::to_string(rows) + "_" + std::to_string(cols) + ".dat");
+                for(int i = 0; i < runs; ++i)
+                {
+                    res = test_speed_helper<double>(rows, cols, i);
+                    curr_t_chol = std::get<0>(res);
+                    curr_t_lu = std::get<1>(res);
+                    curr_t_qr = std::get<2>(res);
+
+                    // Save the output into .dat file
+                    file << curr_t_chol << "  " << curr_t_lu << "  " << curr_t_qr << "\n";
+                
+                    t_chol += curr_t_chol;
+                    t_lu += curr_t_lu;
+                    t_qr += curr_t_qr;
+                }
+
+                chol_avg = (double)t_chol / (double)runs;
+                lu_avg = (double)t_lu / (double)runs;
+                qr_avg = (double)t_qr / (double)runs;
+
+                printf("\nMatrix size: %ld by %ld.\n", rows, cols);
+                printf("Average timing of Chol QR for %d runs: %f μs.\n", runs, chol_avg);
+                printf("Average timing of Pivoted LU for %d runs: %f μs.\n", runs, lu_avg);
+                printf("Average timing of Householder QR for %d runs: %f μs.\n", runs, qr_avg);
+                printf("\nResult: cholQR is %f times faster then HQR and %f times faster then PLU.\n", qr_avg / chol_avg, lu_avg / chol_avg);
+            }
+        }
+    }
 };
 
+/*
 TEST_F(TestOrth, SimpleTest)
 {
-    //test_orth_sketch<double>(10, 10, 9, std::make_tuple(0, 2, true), 1);
-    //test_Chol_QR<double>(12, 12, std::make_tuple(1, 0, false), 0);
+    test_orth_sketch<double>(10, 10, 9, std::make_tuple(0, 2, true), 1);
+    test_Chol_QR<double>(12, 12, std::make_tuple(1, 0, false), 0);
 }
-
-TEST_F(TestOrth, SpeedTest)
+*/
+/*
+// Cache size of my processor is 24 megs
+TEST_F(TestOrth, InOutCacheSpeedTest)
 {
-    int runs = 1000;
-    int64_t size = 1024;
-
-    std::tuple<long, long, long> res;
-    long t_chol = 0;
-    long t_lu = 0;
-    long t_qr = 0;
-
-    for(int i = 0; i < runs; ++i)
-    {
-        res = test_speed<double>(size, 64, i);
-        t_chol += std::get<0>(res);
-        t_lu += std::get<1>(res);
-        t_qr += std::get<2>(res);
-    }
-
-    printf("Average timing of Chol QR for %d runs: %f μs.\n", runs, (double)t_chol / (double)runs);
-    printf("Average timing of Pivoted LU for %d runs: %f μs.\n", runs, (double)t_lu / (double)runs);
-    printf("Average timing of Householder QR for %d runs: %f μs.\n", runs, (double)t_qr / (double)runs);
+    test_speed<double>(14, 15, 7, 9, 10);
 }
+*/

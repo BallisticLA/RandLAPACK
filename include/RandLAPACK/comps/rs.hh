@@ -55,21 +55,18 @@ class RowSketcher
 		);
 };
 
-/*
 template <typename T>
 class One
 {		
 	public:
-		int Var;
+		int test_var;
 		// Constructor
-		One(int v)
+		One(int t_var)
 		{
-			Var = v;
+			test_var = t_var;
 		}
-
 		void do_stuff(T another_var);
 };
-*/
-#endif
 
+#endif
 } // end namespace RandLAPACK::comps::rs

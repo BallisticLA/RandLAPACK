@@ -72,6 +72,19 @@ void stab_QR(
         ungqr(m, n, n, A_dat, m, tau_dat);
 }
 
+template <typename T> 
+void orth_Chol_QR(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A
+){
+        // Done via CholQR
+        RandLAPACK::comps::orth::chol_QR<T>(m, n, A);
+        // Performing the alg twice for better orthogonality	
+        RandLAPACK::comps::orth::chol_QR<T>(m, n, A);
+}
+
+
 template int chol_QR(int64_t m, int64_t k, std::vector<float>& Q);
 template int chol_QR(int64_t m, int64_t k, std::vector<double>& Q);
 

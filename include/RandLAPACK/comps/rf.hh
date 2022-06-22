@@ -77,24 +77,18 @@ class RangeFinder
                 );
 };
 
-/*
 template <typename T>
 class Two
 {
     public:
-        RandLAPACK::comps::rs::One<T>* Obj;
-
+        RandLAPACK::comps::rs::One<T>& One_obj_ptr;
         // Constructor
-        int J;
-
-        Two(int j, RandLAPACK::comps::rs::One<T> One_Obj)
+        Two(RandLAPACK::comps::rs::One<T> &Obj): One_obj_ptr(Obj)
         {
-            J = j;
-            Obj = &One_Obj;
+            
         }
-
         void do_more_stuff(T more_var);
 };
-*/
+
 #endif
 } // end namespace RandLAPACK::comps::rs

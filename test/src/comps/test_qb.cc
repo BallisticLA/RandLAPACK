@@ -4,7 +4,6 @@
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
-//#include "gnuplot-iostream.h"
 #include <fstream>
 
 #define RELDTOL 1e-10;
@@ -394,7 +393,7 @@ template <typename T>
                     }
                     
                     // Save array as .dat file
-                    std::ofstream file("../../build/test_plots/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat");
+                    std::ofstream file("../../build/test_plots/test_cond/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat");
                     //unfortunately, cant do below with foreach
                     for (int i = 0; i < v_sz; ++ i)
                     {
@@ -440,53 +439,20 @@ TEST_F(TestQB, SimpleTest)
     }
 }
 */
+/*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 TEST_F(TestQB, PlotTest)
 { 
     // Fast decay
-    //test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
+    test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
     // Slow decay
-    //test_QB2_plot<double>(4096, 256, 0, 0, 0.5, true);
+    test_QB2_plot<double>(4096, 256, 0, 0, 0.5, true);
 }
-
-TEST_F(TestQB, RS_OOTest)
-{ 
-    /*
-    int64_t m = 10;
-    int64_t n = 10;
-    int64_t k = 10;
-    int64_t p = 2;
-    int64_t q = 1;
-    int32_t seed = 0;
-
-    std::vector<double> A(m * n, 0.0);
-    std::vector<double> Omega(n * k, 0.0);
-
-    RandBLAS::dense_op::gen_rmat_norm<double>(m, n, A.data(), seed);
-
-    RandLAPACK::comps::rs::RowSketcher<double> RS
-    (
-        seed, 
-        p, 
-        q,
-        &RandLAPACK::comps::orth::stab_LU<double>
-    );
-
-    RS.RS1(m, n, A, k, Omega);
-    */
-}
+*/
 
 TEST_F(TestQB, RF_OOTest)
 { 
     /*
-    // Make a subclass object by calling a constructor
-    RandLAPACK::comps::rs::One<double> One(1);
-
-    RandLAPACK::comps::rf::Two<double> Two(2, One);
-
-    Two.do_more_stuff(1.1);
-    */
-
     // BASIC PARAMS
     int64_t m = 10;
     int64_t n = 10;
@@ -495,14 +461,20 @@ TEST_F(TestQB, RF_OOTest)
     // PARAMS FOR RS
     int64_t p = 2;
     int64_t q = 1;
-    int32_t seed = 0;
+    int32_t seed = 256;
 
     // PARAMS FOR RF
-    bool use_qr = true;
+    bool use_qr = false;
+    double cond_num = 0;
+
+    // PARAMS FOR QB
+    int64_t block_sz = 2;
+    double tol = 0.0;
 
     std::vector<double> A(m * n, 0.0);
     std::vector<double> Q(m * k, 0.0);
     std::vector<double> Omega(n * k, 0.0);
+    std::vector<double> B(k * n, 0.0);
 
     // FILL THE MATRIX
     RandBLAS::dense_op::gen_rmat_norm<double>(m, n, A.data(), seed);
@@ -513,11 +485,32 @@ TEST_F(TestQB, RF_OOTest)
         seed, p, q, &RandLAPACK::comps::orth::stab_LU<double>
     );
 
+    //RS.RS1(m, n, A, k, Omega);
+
+
     // DECLARE A RF
     RandLAPACK::comps::rf::RangeFinder<double> RF
     (
-        RS, NULL, true, true
+        RS, NULL, false, false
     );
 
-    RF.RF1(m, n, A, k, Q, use_qr);
+    printf("\nSEED IN RS %d\n", RS.seed);
+    printf("SEED THROUGH RF %d\n\n", RF.RS_Obj -> seed);
+
+    //RF.RF1_test_mode(m, n, A, k, Q, cond_num);
+
+    
+    RandLAPACK::comps::qb::QB<double> QB_obj
+    (
+        RF, NULL, true, true, true
+    );
+    */
+    //QB_obj.QB2(m, n, A, k, block_sz, tol, Q, B);
+    //QB_obj.QB1(m, n, A, k, Q, B);
+
+    RandLAPACK::comps::rs::One<double> One(512);
+    RandLAPACK::comps::rf::Two<double> Two(One);
+
+    printf("\nACCESSING THROUGH ONE %d\n", One.test_var);
+    printf("ACCESSING THROUGH TWO %d\n\n", Two.One_obj_ptr.test_var);
 }

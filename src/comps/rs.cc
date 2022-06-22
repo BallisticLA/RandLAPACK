@@ -134,11 +134,16 @@ void RowSketcher<T>::RS1(
 ){
 	using namespace blas;
 	using namespace lapack;
-
+	
 	int64_t p = RowSketcher::passes_over_data;
-	int64_t q = RowSketcher::passes_per_stab;
-	int64_t p_done= 0;
+	//int64_t q = RowSketcher::passes_per_stab;
+	//int32_t seed = RowSketcher::seed;
+	//int64_t p_done= 0;
 
+	printf("\n\nPASSES OVER DATA %ld\n", p);
+	printf("SEED %d\n\n", seed);
+
+	/*
 	std::vector<T> Omega_1(m * k, 0.0);
 
 	const T* A_dat = A.data();
@@ -147,8 +152,9 @@ void RowSketcher<T>::RS1(
 
 	if (p % 2 == 0) {
 		// Fill n by k omega
-		RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, seed);
+		RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, 0);
 	}
+	
 	else{
 		// Fill m by k omega_1
 		RandBLAS::dense_op::gen_rmat_norm<T>(m, k, Omega_1_dat, seed);
@@ -162,7 +168,7 @@ void RowSketcher<T>::RS1(
 			RowSketcher::stabilizer(n, k, Omega);
 		}
 	}
-
+	
 	while (p - p_done > 0) 
 	{
 		// Omega = A * Omega
@@ -180,20 +186,19 @@ void RowSketcher<T>::RS1(
 		{
 			RowSketcher::stabilizer(n, k, Omega);
 		}
-	}	
+	}
+	*/	
 }
 
 template void RowSketcher<float>::RS1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
 template void RowSketcher<double>::RS1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Omega);
 
-/*
 template <typename T>
 void One<T>::do_stuff(T another_var)
 {
-    printf("FUCK YOU %f\n", another_var);
+    printf("ONE MEMBER ROUTINE %f\n", another_var);
 }
-
 template void One<float>::do_stuff(float another_var);
 template void One<double>::do_stuff(double another_var);
-*/
+
 } // end namespace RandLAPACK::comps::rs

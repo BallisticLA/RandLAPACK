@@ -26,4 +26,11 @@ void stab_QR(
         std::vector<T>& A
 );
 
+template <typename T> 
+void orth_Chol_QR(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A
+);
+
 } // end namespace RandLAPACK::comps::rs

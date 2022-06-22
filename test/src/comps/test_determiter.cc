@@ -65,7 +65,7 @@ class TestDetermiterOLS : public ::testing::Test
     }
 };
 
-
+/*
 TEST_F(TestDetermiterOLS, Trivial)
 {
     //RandLAPACK::comps::determiter::run_pcgls_ex(12, 201);
@@ -74,3 +74,4 @@ TEST_F(TestDetermiterOLS, Trivial)
         run(k_idx);
     }
 }
+*/
