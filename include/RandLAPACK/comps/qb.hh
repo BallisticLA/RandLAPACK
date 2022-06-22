@@ -58,7 +58,7 @@ template <typename T>
 class QB
 {
 	public:
-                RandLAPACK::comps::rf::RangeFinder<T>* RF_Obj;
+                RandLAPACK::comps::rf::RangeFinder<T>& RF_Obj;
                 // Only used in QB2_test_mode
                 void(*Orthogonalization)(int64_t, int64_t, std::vector<T>&);
                 bool verbosity;
@@ -67,13 +67,13 @@ class QB
 
 		// Constructor
 		QB(
-                        RandLAPACK::comps::rf::RangeFinder<T> rf_obj,
+                        RandLAPACK::comps::rf::RangeFinder<T>& rf_obj,
                         void(*Orth)(int64_t, int64_t, std::vector<T>&),
                         bool verb,
                         bool orth,
                         bool cond
-		){
-                        RF_Obj = &rf_obj;
+		) : RF_Obj(rf_obj)
+                {
                         Orthogonalization = Orth;
                         verbosity = verb;
                         orth_check = orth;

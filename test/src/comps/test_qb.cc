@@ -452,7 +452,7 @@ TEST_F(TestQB, PlotTest)
 
 TEST_F(TestQB, RF_OOTest)
 { 
-    /*
+    
     // BASIC PARAMS
     int64_t m = 10;
     int64_t n = 10;
@@ -470,6 +470,7 @@ TEST_F(TestQB, RF_OOTest)
     // PARAMS FOR QB
     int64_t block_sz = 2;
     double tol = 0.0;
+    std::vector<double> cond_nums(k / block_sz, 0.0);
 
     std::vector<double> A(m * n, 0.0);
     std::vector<double> Q(m * k, 0.0);
@@ -491,26 +492,17 @@ TEST_F(TestQB, RF_OOTest)
     // DECLARE A RF
     RandLAPACK::comps::rf::RangeFinder<double> RF
     (
-        RS, NULL, false, false
+        RS, &RandLAPACK::comps::orth::stab_QR<double>, true, true
     );
-
-    printf("\nSEED IN RS %d\n", RS.seed);
-    printf("SEED THROUGH RF %d\n\n", RF.RS_Obj -> seed);
 
     //RF.RF1_test_mode(m, n, A, k, Q, cond_num);
 
-    
     RandLAPACK::comps::qb::QB<double> QB_obj
     (
-        RF, NULL, true, true, true
+        RF, &RandLAPACK::comps::orth::stab_QR<double>, true, true, true
     );
-    */
-    //QB_obj.QB2(m, n, A, k, block_sz, tol, Q, B);
+
+    QB_obj.QB2_test_mode(m, n, A, k, block_sz, tol, Q, B, cond_nums);
     //QB_obj.QB1(m, n, A, k, Q, B);
-
-    RandLAPACK::comps::rs::One<double> One(512);
-    RandLAPACK::comps::rf::Two<double> Two(One);
-
-    printf("\nACCESSING THROUGH ONE %d\n", One.test_var);
-    printf("ACCESSING THROUGH TWO %d\n\n", Two.One_obj_ptr.test_var);
 }
+

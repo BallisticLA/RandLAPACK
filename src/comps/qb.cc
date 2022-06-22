@@ -447,7 +447,7 @@ void QB<T>::QB1(
     }
 
     T buf = 0;
-    QB::RF_Obj -> RF1_test_mode(m, n, A, k, Q, buf);
+    QB::RF_Obj.RF1_test_mode(m, n, A, k, Q, buf);
     gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, 1.0, Q.data(), m, A.data(), m, 0.0, B.data(), k);
 }
 
@@ -528,13 +528,13 @@ int QB<T>::QB2_test_mode(
 
         if (QB::cond_check)
         {
-            QB::RF_Obj -> RF1_test_mode(m, n, A_cpy, block_sz, Q_i, *cond_nums_dat);
+            QB::RF_Obj.RF1_test_mode(m, n, A_cpy, block_sz, Q_i, *cond_nums_dat);
             ++cond_nums_dat;
         }
         else
         {
             T buf = 0;
-            QB::RF_Obj -> RF1_test_mode(m, n, A_cpy, block_sz, Q_i, buf);
+            QB::RF_Obj.RF1_test_mode(m, n, A_cpy, block_sz, Q_i, buf);
         }   
 
         if(QB::orth_check)
@@ -714,7 +714,7 @@ int QB<T>::QB2(
         block_sz = std::min(block_sz, k - curr_sz);
         int next_sz = curr_sz + block_sz;
 
-        use_qr = QB::RF_Obj -> RF1(m, n, A_cpy, block_sz, Q_i, use_qr);
+        use_qr = QB::RF_Obj.RF1(m, n, A_cpy, block_sz, Q_i, use_qr);
 
     if(QB::orth_check)
     {

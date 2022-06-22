@@ -157,14 +157,11 @@ void RangeFinder<T>::RF1_test_mode(
     std::vector<T> Omega(n * k, 0.0);
     T* Q_dat = Q.data();
 
-    int32_t seed = RangeFinder::RS_Obj -> seed;
-    printf("SEED IN RF %d\n", seed);
-    RangeFinder::RS_Obj -> RS1(m, n, A, k, Omega);
-    /*
+    RangeFinder::RS_Obj.RS1(m, n, A, k, Omega);
+    
     // Q = orth(A * Omega)
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega.data(), n, 0.0, Q_dat, m);
 
-    
     if (RangeFinder::cond_check)
     {
         // Copy to avoid any changes
@@ -182,7 +179,6 @@ void RangeFinder<T>::RF1_test_mode(
     }
 
     RangeFinder::Orthogonalization(m, k, Q);
-    */
 }
 
 template <typename T>
@@ -201,7 +197,7 @@ bool RangeFinder<T>::RF1(
     std::vector<T> Omega(n * k, 0.0);
     T* Q_dat = Q.data();
 
-    RangeFinder::RS_Obj -> RS1(m, n, A, k, Omega);
+    RangeFinder::RS_Obj.RS1(m, n, A, k, Omega);
 
     // Q = orth(A * Omega)
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega.data(), n, 0.0, Q_dat, m);
@@ -250,15 +246,5 @@ template void RangeFinder<double>::RF1_test_mode(int64_t m, int64_t n, const std
 
 template bool RangeFinder<float>::RF1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, bool use_qr);
 template bool RangeFinder<double>::RF1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, bool use_qr);
-
-template <typename T>
-void Two<T>::do_more_stuff(T more_var)
-{
-    // I want to be able to do somethig like
-    //Two::One_obj_ptr -> do_stuff(1.1);
-    //printf("%d\n", Two::J);
-}
-template void Two<float>::do_more_stuff(float more_var);
-template void Two<double>::do_more_stuff(double more_var);
 
 } // end namespace RandLAPACK::comps::rf

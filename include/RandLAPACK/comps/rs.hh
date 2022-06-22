@@ -54,19 +54,5 @@ class RowSketcher
 			std::vector<T>& Omega
 		);
 };
-
-template <typename T>
-class One
-{		
-	public:
-		int test_var;
-		// Constructor
-		One(int t_var)
-		{
-			test_var = t_var;
-		}
-		void do_stuff(T another_var);
-};
-
 #endif
 } // end namespace RandLAPACK::comps::rs

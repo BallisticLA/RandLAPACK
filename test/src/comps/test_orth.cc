@@ -222,10 +222,11 @@ TEST_F(TestOrth, SimpleTest)
     test_Chol_QR<double>(12, 12, std::make_tuple(1, 0, false), 0);
 }
 */
+
 /*
 // Cache size of my processor is 24 megs
 TEST_F(TestOrth, InOutCacheSpeedTest)
 {
-    test_speed<double>(14, 15, 7, 9, 10);
+    test_speed<double>(5, 5, 2, 2, 10);
 }
 */
