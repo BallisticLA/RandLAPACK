@@ -110,7 +110,7 @@ void gen_mat(
         int64_t n,
         std::vector<T>& A,
         int64_t k, // vector length
-        const std::vector<T>& S,
+        std::vector<T>& S,
         int32_t seed
 );
 

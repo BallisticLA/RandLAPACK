@@ -163,9 +163,9 @@ class TestOrth : public ::testing::Test
         int64_t rows = 0;
         int64_t cols = 0;
 
-        double chol_avg = 0;
-        double lu_avg = 0;
-        double qr_avg = 0;
+        T chol_avg = 0;
+        T lu_avg = 0;
+        T qr_avg = 0;
 
         for(; r_pow <= r_pow_max; ++r_pow)
         {
@@ -188,7 +188,7 @@ class TestOrth : public ::testing::Test
                 std::ofstream file("../../build/test_plots/test_speed/raw_data/test_" + std::to_string(rows) + "_" + std::to_string(cols) + ".dat");
                 for(int i = 0; i < runs; ++i)
                 {
-                    res = test_speed_helper<double>(rows, cols, i);
+                    res = test_speed_helper<T>(rows, cols, i);
                     curr_t_chol = std::get<0>(res);
                     curr_t_lu = std::get<1>(res);
                     curr_t_qr = std::get<2>(res);
@@ -201,9 +201,9 @@ class TestOrth : public ::testing::Test
                     t_qr += curr_t_qr;
                 }
 
-                chol_avg = (double)t_chol / (double)runs;
-                lu_avg = (double)t_lu / (double)runs;
-                qr_avg = (double)t_qr / (double)runs;
+                chol_avg = (T)t_chol / (T)runs;
+                lu_avg = (T)t_lu / (T)runs;
+                qr_avg = (T)t_qr / (T)runs;
 
                 printf("\nMatrix size: %ld by %ld.\n", rows, cols);
                 printf("Average timing of Chol QR for %d runs: %f μs.\n", runs, chol_avg);

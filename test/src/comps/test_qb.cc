@@ -73,18 +73,41 @@ class TestQB : public ::testing::Test
         std::copy(A_dat, A_dat + size, A_cpy_dat);
         std::copy(A_dat, A_dat + size, A_cpy_2_dat);
 
-        int termination = RandLAPACK::comps::qb::qb2_safe<T>(
-        m,
-        n,
-        A,
-        k, // Here, serves as a backup termination criteria
-        block_sz,
-        tol,
-        p,
-        1,
-        Q, // m by k
-        B, // k by n
-        seed
+        //Subroutine parameters 
+        bool verbosity = false;
+        bool cond_check = false;
+        bool orth_check = false;
+        int64_t passes_per_iteration = 1;
+
+        // Make subroutine objects
+        // RowSketcher constructor
+        RandLAPACK::comps::rs::RowSketcher<double> RS
+        (
+            seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<double>
+        );
+
+        // RangeFinder constructor
+        RandLAPACK::comps::rf::RangeFinder<double> RF
+        (
+            RS, &RandLAPACK::comps::orth::stab_QR<double>, verbosity, cond_check
+        );
+
+        // QB constructor
+        RandLAPACK::comps::qb::QB<double> QB
+        (
+            RF, &RandLAPACK::comps::orth::stab_QR<double>, verbosity, orth_check, cond_check
+        );
+
+        // Call QB routine
+        int termination = QB.QB2(
+                m,
+                n,
+                A,
+                k,
+                block_sz,
+                tol,
+                Q,
+                B
         );
 
         switch(termination)
@@ -199,12 +222,6 @@ template <typename T>
         RandLAPACK::comps::util::gen_mat_type(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
-        // Adjust the expected rank
-        if(k == 0)
-        {
-            k = std::min(m, n);
-        }
-        
         int64_t k_est = std::min(m, n);
 
         std::vector<T> Q(m * k_est, 0.0);
@@ -223,24 +240,41 @@ template <typename T>
         // pre-compute norm
         T norm_A = lange(Norm::Fro, m, n, A_dat, m);
 
-        // Immediate termination criteria
-        if(norm_A == 0.0)
-        {
-            return;
-        }
+        //Subroutine parameters 
+        bool verbosity = false;
+        bool cond_check = false;
+        bool orth_check = false;
+        int64_t passes_per_iteration = 1;
 
-        int termination = RandLAPACK::comps::qb::qb2_safe<T>(
-        m,
-        n,
-        A,
-        k_est, // Here, serves as a backup termination criteria
-        block_sz,
-        tol,
-        p,
-        1,
-        Q, // m by k
-        B, // k by n
-        seed
+        // Make subroutine objects
+        // RowSketcher constructor
+        RandLAPACK::comps::rs::RowSketcher<T> RS
+        (
+            seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<T>
+        );
+
+        // RangeFinder constructor
+        RandLAPACK::comps::rf::RangeFinder<T> RF
+        (
+            RS, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, cond_check
+        );
+
+        // QB constructor
+        RandLAPACK::comps::qb::QB<T> QB
+        (
+            RF, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, orth_check, cond_check
+        );
+
+        // Call QB routine
+        int termination = QB.QB2(
+                m,
+                n,
+                A,
+                k_est,
+                block_sz,
+                tol,
+                Q,
+                B
         );
         
         switch(termination)
@@ -301,8 +335,8 @@ template <typename T>
         printf("|======================TEST QB2 K = min(M, N) END======================|\n");
     }
 
-//Varying tol, k = min(m, n)
-template <typename T>
+    //Varying tol, k = min(m, n)
+    template <typename T>
     static std::vector<T> test_QB2_plot_helper(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
 
         using namespace blas;
@@ -335,24 +369,47 @@ template <typename T>
 
         //RandLAPACK::comps::util::disp_diag(m, n, k, A);
 
-        int termination = RandLAPACK::comps::qb::qb2<T>(
-        m,
-        n,
-        A,
-        k_est, // Here, serves as a backup termination criteria
-        block_sz,
-        tol,
-        p,
-        1,
-        Q, // m by k
-        B, // k by n
-        seed,
-        cond_nums
+        //Subroutine parameters 
+        bool verbosity = false;
+        bool cond_check = false;
+        bool orth_check = false;
+        int64_t passes_per_iteration = 1;
+
+        // Make subroutine objects
+        // RowSketcher constructor
+        RandLAPACK::comps::rs::RowSketcher<T> RS
+        (
+            seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<T>
         );
+
+        // RangeFinder constructor
+        RandLAPACK::comps::rf::RangeFinder<T> RF
+        (
+            RS, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, cond_check
+        );
+
+        // QB constructor
+        RandLAPACK::comps::qb::QB<T> QB
+        (
+            RF, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, orth_check, cond_check
+        );
+
+        QB.QB2_test_mode(
+            m,
+            n,
+            A,
+            k,
+            block_sz,
+            tol,
+            Q,
+            B,
+            cond_nums
+        );
+
         return cond_nums;
     }
 
-template <typename T>
+    template <typename T>
     static void test_QB2_plot(int64_t max_k, int64_t max_b_sz, int64_t max_p, int mat_type, T decay, bool diagon)
     {
         printf("|===========================TEST QB2 K PLOT===========================|\n");
@@ -406,14 +463,13 @@ template <typename T>
         }
         printf("|============================TEST QB2 PLOT============================|\n");
     }
-
 };
+
 /*
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
     {
-        
         // Fast polynomial decay test
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(0, 2, false), seed);
         // Slow polynomial decay test
@@ -431,11 +487,11 @@ TEST_F(TestQB, SimpleTest)
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
         test_QB2_general<double>(1000, 1000, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
         
-
+        // SOMETHING IS OFF HERE
         // test zero tol
-        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.0, std::make_tuple(1, 0, false), seed);
+        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.0, std::make_tuple(1, 0.5, false), seed);
         // test nonzero tol
-        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0, false), seed);
+        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
     }
 }
 */
@@ -449,60 +505,4 @@ TEST_F(TestQB, PlotTest)
     test_QB2_plot<double>(4096, 256, 0, 0, 0.5, true);
 }
 */
-
-TEST_F(TestQB, RF_OOTest)
-{ 
-    
-    // BASIC PARAMS
-    int64_t m = 10;
-    int64_t n = 10;
-    int64_t k = 10;
-
-    // PARAMS FOR RS
-    int64_t p = 2;
-    int64_t q = 1;
-    int32_t seed = 256;
-
-    // PARAMS FOR RF
-    bool use_qr = false;
-    double cond_num = 0;
-
-    // PARAMS FOR QB
-    int64_t block_sz = 2;
-    double tol = 0.0;
-    std::vector<double> cond_nums(k / block_sz, 0.0);
-
-    std::vector<double> A(m * n, 0.0);
-    std::vector<double> Q(m * k, 0.0);
-    std::vector<double> Omega(n * k, 0.0);
-    std::vector<double> B(k * n, 0.0);
-
-    // FILL THE MATRIX
-    RandBLAS::dense_op::gen_rmat_norm<double>(m, n, A.data(), seed);
-
-    // DECLARE A RS
-    RandLAPACK::comps::rs::RowSketcher<double> RS
-    (
-        seed, p, q, &RandLAPACK::comps::orth::stab_LU<double>
-    );
-
-    //RS.RS1(m, n, A, k, Omega);
-
-
-    // DECLARE A RF
-    RandLAPACK::comps::rf::RangeFinder<double> RF
-    (
-        RS, &RandLAPACK::comps::orth::stab_QR<double>, true, true
-    );
-
-    //RF.RF1_test_mode(m, n, A, k, Q, cond_num);
-
-    RandLAPACK::comps::qb::QB<double> QB_obj
-    (
-        RF, &RandLAPACK::comps::orth::stab_QR<double>, true, true, true
-    );
-
-    QB_obj.QB2_test_mode(m, n, A, k, block_sz, tol, Q, B, cond_nums);
-    //QB_obj.QB1(m, n, A, k, Q, B);
-}
 

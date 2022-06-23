@@ -7,32 +7,6 @@
 
 namespace RandLAPACK::comps::rf {
 
-template <typename T>
-void rf1(
-        int64_t m,
-        int64_t n,
-        const std::vector<T>& A,
-        int64_t k,
-        int64_t p,
-        int64_t passes_per_stab,
-        std::vector<T>& Q, // n by k
-	uint32_t seed,
-        T& cond_num // For testing purposes
-);
-
-template <typename T>
-bool rf1_safe(
-        int64_t m,
-        int64_t n,
-        const std::vector<T>& A,
-        int64_t k,
-        int64_t p,
-        int64_t passes_per_stab,
-        std::vector<T>& Q, // n by k
-        bool use_qr,
-	uint32_t seed
-);
-
 #ifndef RF_CLASS
 #define RF_CLASS
 

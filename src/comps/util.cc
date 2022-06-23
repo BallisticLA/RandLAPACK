@@ -254,6 +254,7 @@ void gen_poly_mat(
         
         // form a diagonal S
         diag<T>(k, k, s, k, S);
+
         if (diagon)
         {
                 if (!(m == k || n == k))
@@ -361,7 +362,7 @@ void gen_mat(
         int64_t n,
         std::vector<T>& A,
         int64_t k, // vector length
-        const std::vector<T>& S,
+        std::vector<T>& S,
         int32_t seed
 ) {   
         using namespace blas;
@@ -387,7 +388,12 @@ void gen_mat(
         geqrf(n, k, V_dat, n, tau_dat);
         ungqr(n, k, k, V_dat, n, tau_dat);
 
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U_dat, m, S.data(), k, 0.0, Gemm_buf_dat, m);
+        std::copy(U_dat, U_dat + m * k, Gemm_buf_dat);
+        for(int i = 0; i < k; ++i)
+        {
+                scal(m, S[i + k * i], &Gemm_buf_dat[i * m], 1);
+        }
+        
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
 }
 
@@ -424,7 +430,7 @@ template void gen_exp_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_
 template void gen_s_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, bool diagon, int32_t seed);
 template void gen_s_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, bool diagon, int32_t seed);
 
-template void gen_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, const std::vector<float>& S, int32_t seed); 
-template void gen_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, const std::vector<double>& S, int32_t seed);
+template void gen_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, std::vector<float>& S, int32_t seed); 
+template void gen_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, std::vector<double>& S, int32_t seed);
 
 } // end namespace util
