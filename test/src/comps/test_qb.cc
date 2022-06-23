@@ -81,13 +81,13 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // RowSketcher constructor
-        RandLAPACK::comps::rs::RowSketcher<double> RS
+        RandLAPACK::comps::rs::RS1<double> RS
         (
             seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<double>
         );
 
         // RangeFinder constructor
-        RandLAPACK::comps::rf::RangeFinder<double> RF
+        RandLAPACK::comps::rf::RF1<double> RF
         (
             RS, &RandLAPACK::comps::orth::stab_QR<double>, verbosity, cond_check
         );
@@ -98,16 +98,16 @@ class TestQB : public ::testing::Test
             RF, &RandLAPACK::comps::orth::stab_QR<double>, verbosity, orth_check, cond_check
         );
 
-        // Call QB routine
-        int termination = QB.QB2(
-                m,
-                n,
-                A,
-                k,
-                block_sz,
-                tol,
-                Q,
-                B
+        // Regular QB2 call
+        int termination = QB.call(
+            m,
+            n,
+            A,
+            k,
+            block_sz,
+            tol,
+            Q,
+            B
         );
 
         switch(termination)
@@ -248,13 +248,13 @@ template <typename T>
 
         // Make subroutine objects
         // RowSketcher constructor
-        RandLAPACK::comps::rs::RowSketcher<T> RS
+        RandLAPACK::comps::rs::RS1<T> RS
         (
             seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<T>
         );
 
         // RangeFinder constructor
-        RandLAPACK::comps::rf::RangeFinder<T> RF
+        RandLAPACK::comps::rf::RF1<T> RF
         (
             RS, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, cond_check
         );
@@ -265,16 +265,16 @@ template <typename T>
             RF, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, orth_check, cond_check
         );
 
-        // Call QB routine
-        int termination = QB.QB2(
-                m,
-                n,
-                A,
-                k_est,
-                block_sz,
-                tol,
-                Q,
-                B
+        // Regular QB2 call
+        int termination = QB.call(
+            m,
+            n,
+            A,
+            k_est,
+            block_sz,
+            tol,
+            Q,
+            B
         );
         
         switch(termination)
@@ -377,13 +377,13 @@ template <typename T>
 
         // Make subroutine objects
         // RowSketcher constructor
-        RandLAPACK::comps::rs::RowSketcher<T> RS
+        RandLAPACK::comps::rs::RS1<T> RS
         (
             seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<T>
         );
 
         // RangeFinder constructor
-        RandLAPACK::comps::rf::RangeFinder<T> RF
+        RandLAPACK::comps::rf::RF1<T> RF
         (
             RS, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, cond_check
         );
@@ -394,7 +394,8 @@ template <typename T>
             RF, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, orth_check, cond_check
         );
 
-        QB.QB2_test_mode(
+        // Test mode QB2
+        QB.call(
             m,
             n,
             A,
@@ -465,7 +466,7 @@ template <typename T>
     }
 };
 
-/*
+
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -494,7 +495,7 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
     }
 }
-*/
+
 /*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 TEST_F(TestQB, PlotTest)

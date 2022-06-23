@@ -11,7 +11,45 @@ namespace RandLAPACK::comps::qb {
 #define QB_CLASS
 
 template <typename T>
-class QB
+class QB_decomp
+{
+        public:
+                //QB1 call
+                virtual void call(
+                        int64_t m,
+                        int64_t n,
+                        std::vector<T>& A,
+                        int64_t k,
+                        std::vector<T>& Q,
+                        std::vector<T>& B 
+                ) = 0;
+                //QB2 call
+                virtual int call(
+                        int64_t m,
+                        int64_t n,
+                        std::vector<T>& A,
+                        int64_t& k,
+                        int64_t block_sz,
+                        T tol,
+                        std::vector<T>& Q,
+                        std::vector<T>& B
+                ) = 0;
+                //QB2_test_mode call
+                virtual int call(
+                        int64_t m,
+                        int64_t n,
+                        std::vector<T>& A,
+                        int64_t& k,
+                        int64_t block_sz,
+                        T tol,
+                        std::vector<T>& Q,
+                        std::vector<T>& B,
+                        std::vector<T>& cond_nums
+                ) = 0;
+};
+
+template <typename T>
+class QB : public QB_decomp<T>
 {
 	public:
                 RandLAPACK::comps::rf::RangeFinder<T>& RF_Obj;
@@ -36,7 +74,7 @@ class QB
                         cond_check = cond;
 		}
 
-		void QB1(
+		virtual void call(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -45,7 +83,18 @@ class QB
                         std::vector<T>& B 
                 );
 
-                int QB2_test_mode(
+                virtual int call(
+                        int64_t m,
+                        int64_t n,
+                        std::vector<T>& A,
+                        int64_t& k,
+                        int64_t block_sz,
+                        T tol,
+                        std::vector<T>& Q,
+                        std::vector<T>& B
+                );
+
+                virtual int call(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -55,17 +104,6 @@ class QB
                         std::vector<T>& Q,
                         std::vector<T>& B,
                         std::vector<T>& cond_nums
-                );
-
-                int QB2(
-                        int64_t m,
-                        int64_t n,
-                        std::vector<T>& A,
-                        int64_t& k,
-                        int64_t block_sz,
-                        T tol,
-                        std::vector<T>& Q,
-                        std::vector<T>& B
                 );
 };
 #endif

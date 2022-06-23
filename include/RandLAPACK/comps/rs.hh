@@ -12,29 +12,39 @@ template <typename T>
 class RowSketcher
 {
 	public:
+		//virtual ~RowSketcher();d
+		virtual void call(
+			int64_t m,
+			int64_t n,
+			const std::vector<T>& A,
+			int64_t k,
+			std::vector<T>& Omega
+		) = 0;
+};
+
+template <typename T>
+class RS1 : public RowSketcher<T>
+{
+	public:
 		int32_t seed;
 		int64_t passes_over_data;
 		int64_t passes_per_stab;
 		void(*stabilizer)(int64_t, int64_t, std::vector<T>&);
-		//void(*sketch_gen)(int64_t, int64_t, T*, int32_t);
 
-		// Constructor
-		RowSketcher(
+		RS1(
 			int32_t s, 
 			int64_t p, 
 			int64_t q, 
-			void (*stab)(int64_t, int64_t, std::vector<T>&)//,
-			//void (*sk_gen)(int64_t, int64_t, T*, int32_t)
-		){
+			void (*stab)(int64_t, int64_t, std::vector<T>&)
+		)
+		{
 			seed = s;
 			passes_over_data = p;
 			passes_per_stab = q;
 			stabilizer = stab;
-			//sketch_gen = sk_gen;
 		}
 
-		// Run
-		void RS1(
+		virtual void call(
 			int64_t m,
 			int64_t n,
 			const std::vector<T>& A,

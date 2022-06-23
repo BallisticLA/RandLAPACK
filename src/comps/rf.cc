@@ -9,7 +9,7 @@
 namespace RandLAPACK::comps::rf {
 
 template <typename T>
-void RangeFinder<T>::RF1_test_mode(
+void RF1<T>::call(
         int64_t m,
         int64_t n,
         const std::vector<T>& A,
@@ -24,12 +24,12 @@ void RangeFinder<T>::RF1_test_mode(
     std::vector<T> Omega(n * k, 0.0);
     T* Q_dat = Q.data();
 
-    RangeFinder::RS_Obj.RS1(m, n, A, k, Omega);
+    RF1::RS_Obj.call(m, n, A, k, Omega);
     
     // Q = orth(A * Omega)
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega.data(), n, 0.0, Q_dat, m);
 
-    if (RangeFinder::cond_check)
+    if (RF1::cond_check)
     {
         // Copy to avoid any changes
         std::vector<T> Q_cpy (m * k, 0.0);
@@ -41,15 +41,15 @@ void RangeFinder<T>::RF1_test_mode(
         gesdd(Job::NoVec, m, k, Q_cpy_dat, m, s_dat, NULL, m, NULL, k);
         cond_num = *s_dat / *(s_dat + k - 1);
 
-        if (RangeFinder::verbosity)
+        if (RF1::verbosity)
             printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
     }
 
-    RangeFinder::Orthogonalization(m, k, Q);
+    RF1::Orthogonalization(m, k, Q);
 }
 
 template <typename T>
-bool RangeFinder<T>::RF1(
+bool RF1<T>::call(
         int64_t m,
         int64_t n,
         const std::vector<T>& A,
@@ -64,12 +64,12 @@ bool RangeFinder<T>::RF1(
     std::vector<T> Omega(n * k, 0.0);
     T* Q_dat = Q.data();
 
-    RangeFinder::RS_Obj.RS1(m, n, A, k, Omega);
+    RF1::RS_Obj.call(m, n, A, k, Omega);
 
     // Q = orth(A * Omega)
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega.data(), n, 0.0, Q_dat, m);
 
-    if (RangeFinder::cond_check)
+    if (RF1::cond_check)
     {
         // Copy to avoid any changes
         std::vector<T> Q_cpy (m * k, 0.0);
@@ -81,7 +81,7 @@ bool RangeFinder<T>::RF1(
         gesdd(Job::NoVec, m, k, Q_cpy_dat, m, s_dat, NULL, m, NULL, k);
         T cond_num = *s_dat / *(s_dat + k - 1);
 
-        if (RangeFinder::verbosity)
+        if (RF1::verbosity)
             printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
     }
 
@@ -108,10 +108,10 @@ bool RangeFinder<T>::RF1(
     return false;
 }
 
-template void RangeFinder<float>::RF1_test_mode(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, float& cond_num);
-template void RangeFinder<double>::RF1_test_mode(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, double& cond_num);
+template void RF1<float>::call(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, float& cond_num);
+template void RF1<double>::call(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, double& cond_num);
 
-template bool RangeFinder<float>::RF1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, bool use_qr);
-template bool RangeFinder<double>::RF1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, bool use_qr);
+template bool RF1<float>::call(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, bool use_qr);
+template bool RF1<double>::call(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, bool use_qr);
 
 } // end namespace RandLAPACK::comps::rf

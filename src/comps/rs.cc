@@ -9,7 +9,7 @@
 namespace RandLAPACK::comps::rs {
 
 template <typename T>
-void RowSketcher<T>::RS1(
+void RS1<T>::call(
 	int64_t m,
 	int64_t n,
 	const std::vector<T>& A,
@@ -19,9 +19,9 @@ void RowSketcher<T>::RS1(
 	using namespace blas;
 	using namespace lapack;
 	
-	int64_t p = RowSketcher::passes_over_data;
-	int64_t q = RowSketcher::passes_per_stab;
-	int32_t seed = RowSketcher::seed;
+	int64_t p = RS1::passes_over_data;
+	int64_t q = RS1::passes_per_stab;
+	int32_t seed = RS1::seed;
 	int64_t p_done= 0;
 
 	std::vector<T> Omega_1(m * k, 0.0);
@@ -45,7 +45,7 @@ void RowSketcher<T>::RS1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RowSketcher::stabilizer(n, k, Omega);
+			RS1::stabilizer(n, k, Omega);
 		}
 	}
 	
@@ -56,7 +56,7 @@ void RowSketcher<T>::RS1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RowSketcher::stabilizer(m, k, Omega_1);
+			RS1::stabilizer(m, k, Omega_1);
 		}
 
 		// Omega = A' * Omega
@@ -64,11 +64,11 @@ void RowSketcher<T>::RS1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RowSketcher::stabilizer(n, k, Omega);
+			RS1::stabilizer(n, k, Omega);
 		}
 	}
 }
 
-template void RowSketcher<float>::RS1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
-template void RowSketcher<double>::RS1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Omega);
+template void RS1<float>::call(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
+template void RS1<double>::call(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Omega);
 } // end namespace RandLAPACK::comps::rs

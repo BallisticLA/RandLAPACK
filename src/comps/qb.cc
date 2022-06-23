@@ -12,7 +12,7 @@
 namespace RandLAPACK::comps::qb {
 
 template <typename T>
-void QB<T>::QB1(
+void QB<T>::call(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -31,12 +31,12 @@ void QB<T>::QB1(
     }
 
     T buf = 0;
-    QB::RF_Obj.RF1_test_mode(m, n, A, k, Q, buf);
+    QB::RF_Obj.call(m, n, A, k, Q, buf);
     gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, 1.0, Q.data(), m, A.data(), m, 0.0, B.data(), k);
 }
 
 template <typename T>
-int QB<T>::QB2_test_mode(
+int QB<T>::call(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -81,15 +81,12 @@ int QB<T>::QB2_test_mode(
         B.resize(n * k);
     }
 
-    //if(QB::orth_check)
-    //{
-        if(QB::verbosity)
-        {
-            printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
-        } 
-        std::vector<T> Q_gram(k * k, 0.0);
-        T* Q_gram_dat = Q_gram.data();
-    //}
+    if(QB::verbosity && QB::orth_check)
+    {
+        printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
+    } 
+    std::vector<T> Q_gram(k * k, 0.0);
+    T* Q_gram_dat = Q_gram.data();
 
     std::vector<T> Q_i(m * block_sz, 0.0);
     std::vector<T> B_i(block_sz * n, 0.0);
@@ -112,13 +109,13 @@ int QB<T>::QB2_test_mode(
 
         if (QB::cond_check)
         {
-            QB::RF_Obj.RF1_test_mode(m, n, A_cpy, block_sz, Q_i, *cond_nums_dat);
+            QB::RF_Obj.call(m, n, A_cpy, block_sz, Q_i, *cond_nums_dat);
             ++cond_nums_dat;
         }
         else
         {
             T buf = 0;
-            QB::RF_Obj.RF1_test_mode(m, n, A_cpy, block_sz, Q_i, buf);
+            QB::RF_Obj.call(m, n, A_cpy, block_sz, Q_i, buf);
         }   
 
         if(QB::orth_check)
@@ -223,7 +220,7 @@ int QB<T>::QB2_test_mode(
 
 
 template <typename T>
-int QB<T>::QB2(
+int QB<T>::call(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -266,15 +263,12 @@ int QB<T>::QB2(
         B.resize(n * k);
     }
 
-    //if(QB::orth_check)
-    //{
-        if(QB::verbosity)
-        {
-            printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
-        }
-        std::vector<T> Q_gram(k * k, 0.0);
-        T* Q_gram_dat = Q_gram.data();
-    //}
+    if(QB::verbosity && QB::orth_check)
+    {
+        printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
+    }
+    std::vector<T> Q_gram(k * k, 0.0);
+    T* Q_gram_dat = Q_gram.data();
 
     std::vector<T> QtQi(k * block_sz, 0.0); 
     std::vector<T> Q_i(m * block_sz, 0.0);
@@ -298,7 +292,7 @@ int QB<T>::QB2(
         block_sz = std::min(block_sz, k - curr_sz);
         int next_sz = curr_sz + block_sz;
 
-        use_qr = QB::RF_Obj.RF1(m, n, A_cpy, block_sz, Q_i, use_qr);
+        use_qr = QB::RF_Obj.call(m, n, A_cpy, block_sz, Q_i, use_qr);
 
     if(QB::orth_check)
     {
@@ -419,12 +413,12 @@ int QB<T>::QB2(
     return 3;
 }
 
-template void QB<float>::QB1(int64_t m, int64_t n, std::vector<float>& A, int64_t k, std::vector<float>& Q, std::vector<float>& B);
-template void QB<double>::QB1(int64_t m, int64_t n, std::vector<double>& A, int64_t k, std::vector<double>& Q, std::vector<double>& B);
+template void QB<float>::call(int64_t m, int64_t n, std::vector<float>& A, int64_t k, std::vector<float>& Q, std::vector<float>& B);
+template void QB<double>::call(int64_t m, int64_t n, std::vector<double>& A, int64_t k, std::vector<double>& Q, std::vector<double>& B);
 
-template int QB<float>::QB2_test_mode(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, std::vector<float>& Q, std::vector<float>& B, std::vector<float>& cond_nums);
-template int QB<double>::QB2_test_mode(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, std::vector<double>& Q, std::vector<double>& B, std::vector<double>& cond_nums);
+template int QB<float>::call(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, std::vector<float>& Q, std::vector<float>& B, std::vector<float>& cond_nums);
+template int QB<double>::call(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, std::vector<double>& Q, std::vector<double>& B, std::vector<double>& cond_nums);
 
-template int QB<float>::QB2(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, std::vector<float>& Q, std::vector<float>& B);
-template int QB<double>::QB2(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, std::vector<double>& Q, std::vector<double>& B);
+template int QB<float>::call(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, std::vector<float>& Q, std::vector<float>& B);
+template int QB<double>::call(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, std::vector<double>& Q, std::vector<double>& B);
 }// end namespace RandLAPACK::comps::qb

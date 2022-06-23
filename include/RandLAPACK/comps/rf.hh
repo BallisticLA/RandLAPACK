@@ -13,6 +13,31 @@ namespace RandLAPACK::comps::rf {
 template <typename T>
 class RangeFinder
 {
+        public:
+                // RS1 call
+                virtual bool call(
+                        int64_t m,
+                        int64_t n,
+                        const std::vector<T>& A,
+                        int64_t k,
+                        std::vector<T>& Q,
+                        bool use_qr
+                ) = 0;
+                
+                // RS1_test_mode call
+                virtual void call(
+                        int64_t m,
+                        int64_t n,
+                        const std::vector<T>& A,
+                        int64_t k,
+                        std::vector<T>& Q, // n by k
+                        T& cond_num // For testing purposes
+                ) = 0;
+};
+
+template <typename T>
+class RF1 : public RangeFinder<T>
+{
 	public:
                 RandLAPACK::comps::rs::RowSketcher<T>& RS_Obj;
                 void(*Orthogonalization)(int64_t, int64_t, std::vector<T>&);
@@ -20,7 +45,7 @@ class RangeFinder
                 bool cond_check;
 
 		// Constructor
-		RangeFinder(
+		RF1(
                         RandLAPACK::comps::rs::RowSketcher<T>& rs_obj,
                         void(*Orth)(int64_t, int64_t, std::vector<T>&),
                         bool verb,
@@ -32,22 +57,22 @@ class RangeFinder
                         cond_check = cond;
 		}
 
-		void RF1_test_mode(
-			int64_t m,
+                virtual bool call(
+                        int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
                         int64_t k,
-                        std::vector<T>& Q, // n by k
-                        T& cond_num // For testing purposes
-		);
+                        std::vector<T>& Q,
+                        bool use_qr
+                );
 
-                bool RF1(
+                virtual void call(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
                         int64_t k,
                         std::vector<T>& Q, // n by k
-                        bool use_qr
+                        T& cond_num // For testing purposes
                 );
 };
 #endif
