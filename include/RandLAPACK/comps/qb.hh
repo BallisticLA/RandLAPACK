@@ -1,3 +1,7 @@
+/*
+TODO: 
+	1. Figure out how to use QBalg istead of QB everywhere.
+*/
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -12,7 +16,22 @@ namespace RandLAPACK::comps::qb {
 #define QB_CLASS
 
 template <typename T>
-class QB
+class QBalg
+{
+        virtual void call(
+                int64_t m,
+                int64_t n,
+                std::vector<T>& A,
+                int64_t& k,
+                int64_t block_sz,
+                T tol,
+                std::vector<T>& Q,
+                std::vector<T>& B
+        ) = 0;
+};
+
+template <typename T>
+class QB : public QBalg<T>
 {
 	public:
                 RandLAPACK::comps::rf::RF<T>& RF_Obj;
@@ -65,7 +84,7 @@ class QB
                         std::vector<T>& B
                 );
 
-                void call(
+                virtual void call(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -89,5 +108,4 @@ class QB
                 }
 };
 #endif
-
 } // end namespace RandLAPACK::comps::rs

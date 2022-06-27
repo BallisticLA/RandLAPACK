@@ -31,15 +31,6 @@ void Orth<T>::CholQR(
         Orth::chol_fail = 0;
 }
 
-/*
-Issue: 
-It seems that if we want to pass around the function pointers to stabilization routines,
-those would need to have the same parameter lists.
-If that is true, then we would be re-allocating vectors at every iteration of an alg.
-*/
-
-// CholQR can also be used for stabilization, but it is defined separately.
-
 template <typename T> 
 void Stab<T>::PLU(
         int64_t m,

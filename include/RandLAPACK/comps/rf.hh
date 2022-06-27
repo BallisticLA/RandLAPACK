@@ -1,3 +1,7 @@
+/*
+TODO: 
+	1. Figure out how to use RangeFinder istead of RF everywhere.
+*/
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -11,12 +15,11 @@ namespace RandLAPACK::comps::rf {
 #ifndef RF_CLASS
 #define RF_CLASS
 
-/*
 template <typename T>
 class RangeFinder
 {
         public:
-                virtual void call<T>(
+                virtual void call(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
@@ -24,9 +27,9 @@ class RangeFinder
                         std::vector<T>& Q
                 ) = 0;    
 };
-*/
+
 template <typename T>
-class RF //: public RangeFinder<T>
+class RF : public RangeFinder<T>
 {
 	public:
                 // Instantiated in the constructor
@@ -39,8 +42,8 @@ class RF //: public RangeFinder<T>
                 int decision_RF;
 
                 // Implementation-specific vars
-                T cond_num;
-                bool use_qr;
+                T cond_num; // Condition nuber of a sketch
+                bool use_qr; // Use QR if CholQR fails - technically, can just alter the decifion variable
 
 		// Constructor
 		RF(
@@ -75,7 +78,7 @@ class RF //: public RangeFinder<T>
                 );
 
                 // Control of RF types calls.
-                void call(
+                virtual void call(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,

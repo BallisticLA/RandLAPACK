@@ -1,3 +1,9 @@
+/*
+TODO: 
+	1. Figure out how to use Stabilization insted of Stab and Orth everywhere
+        (do we also need Orthogonalization class? How to deal with shadowing problem if
+        line 27 is uncommented?)
+*/
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -9,7 +15,17 @@ namespace RandLAPACK::comps::orth {
 #define ORTH_CLASS
 
 template <typename T>
-class Orth
+class Stabiilization
+{
+        virtual void call(
+                int64_t m,
+                int64_t k,
+                std::vector<T>& Q
+        ) = 0;
+};
+
+template <typename T>
+class Orth //: public Stabiilization<T>
 {
 	public:
                 std::vector<T> tau;
@@ -24,7 +40,7 @@ class Orth
                 void CholQR(
                         int64_t m,
                         int64_t k,
-                        std::vector<T>& Q // pointer to the beginning
+                        std::vector<T>& Q
                 );
 
                 void HQR(
@@ -54,7 +70,7 @@ class Orth
 };
 
 template <typename T>
-class Stab : public Orth<T>
+class Stab : public Orth<T>, public Stabiilization<T>
 {
 	public:
                 std::vector<int64_t> ipiv;
@@ -74,7 +90,7 @@ class Stab : public Orth<T>
                 );
 
                 // Control of Stab types calls.
-                void call(
+                virtual void call(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q
@@ -91,6 +107,5 @@ class Stab : public Orth<T>
                         }
                 }
 };
-
 #endif
 } // end namespace RandLAPACK::comps::rs

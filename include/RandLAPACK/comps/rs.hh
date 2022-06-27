@@ -1,3 +1,7 @@
+/*
+TODO: 
+	1. Figure out how to use RowSketcher istead of RS everywhere.
+*/
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -11,10 +15,23 @@ namespace RandLAPACK::comps::rs {
 #define RS_CLASS
 
 template <typename T>
-class RS
+class RowSketcher
+{
+	virtual void call(
+		int64_t m,
+		int64_t n,
+		const std::vector<T>& A,
+		int64_t k,
+		std::vector<T>& Omega 
+	) = 0;
+};
+
+template <typename T>
+class RS : public RowSketcher<T>
 {
 	public:
 		RandLAPACK::comps::orth::Stab<T>& Stab_Obj;
+		//void(& SketchOpGen)(int64_t, int64_t, T*, int32_t);
 		int32_t seed;
 		int64_t passes_over_data;
 		int64_t passes_per_stab;
@@ -22,11 +39,12 @@ class RS
 
 		RS(
 			RandLAPACK::comps::orth::Stab<T>& stab_obj,
+			//void(& sk_gen)(int64_t, int64_t, T*, int32_t),
 			int32_t s, 
 			int64_t p, 
 			int64_t q,
 			int decision
-		) : Stab_Obj(stab_obj)
+		) : Stab_Obj(stab_obj)//, SketchOpGen(sk_gen)
 		{
 			seed = s;
 			passes_over_data = p;
@@ -42,7 +60,7 @@ class RS
 			std::vector<T>& Omega 
 		);
 
-		void call(
+		virtual void call(
 			int64_t m,
 			int64_t n,
 			const std::vector<T>& A,

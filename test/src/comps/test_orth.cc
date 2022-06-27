@@ -155,7 +155,6 @@ class TestOrth : public ::testing::Test
         return std::make_tuple(dur_chol, dur_lu, dur_qr);
     }
 
-
     template <typename T>
     static void 
     test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
@@ -218,8 +217,6 @@ class TestOrth : public ::testing::Test
 /*
 TEST_F(TestOrth, SimpleTest)
 {
-    test_orth_sketch<double>(10, 10, 9, std::make_tuple(0, 2, true), 1);
-    test_Chol_QR<double>(12, 12, std::make_tuple(1, 0, false), 0);
 }
 */
 

@@ -47,26 +47,35 @@ void RF<T>::rf1(
         RF::cond_num = cond_num;
     }
 
-    RF::Orth_Obj.call(m, k, Q);
-    // Check if CholQR failure flag is set to 1
-    if (!RF::Orth_Obj.chol_fail)
+    // Orthogonalization
+    switch(RF::Orth_Obj.decision_orth)
     {
-        // Performing the alg twice for better orthogonality	
-        RF::Orth_Obj.call(m, k, Q);
-    }
-    else
-    {
-        // Switch to HQR
-        RF::Orth_Obj.decision_orth = 1;
-        
-        if (RF::verbosity)
-            printf("CHOL QR FAILED\n");
-        // Done via regular LAPACK's QR
-        // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
-        // tau needs to be a vector of all 2's by default
-        RF::Orth_Obj.tau.resize(k);
-        RF::Orth_Obj.call(m, k, Q);
-        RF::use_qr = true;
+        case 0:
+            RF::Orth_Obj.call(m, k, Q);
+            // Check if CholQR failure flag is set to 1
+            if (!RF::Orth_Obj.chol_fail)
+            {
+                // Performing the alg twice for better orthogonality	
+                RF::Orth_Obj.call(m, k, Q);
+            }
+            else
+            {
+                // Switch to HQR
+                RF::Orth_Obj.decision_orth = 1;
+                
+                if (RF::verbosity)
+                    printf("CHOL QR FAILED\n");
+                // Done via regular LAPACK's QR
+                // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
+                // tau needs to be a vector of all 2's by default
+                RF::Orth_Obj.tau.resize(k);
+                RF::Orth_Obj.call(m, k, Q);
+            }
+            break;
+        case 1:
+            RF::Orth_Obj.tau.resize(k);
+            RF::Orth_Obj.call(m, k, Q);
+            break;
     }
 }
 
@@ -109,9 +118,36 @@ void RF<T>::rf1_test_mode(
         RF::cond_num = cond_num;
     }
 
-    // Call HQR
-    RF::Orth_Obj.tau.resize(k);
-    RF::Orth_Obj.call(m, k, Q);
+    // Orthogonalization
+    switch(RF::Orth_Obj.decision_orth)
+    {
+        case 0:
+            RF::Orth_Obj.call(m, k, Q);
+            // Check if CholQR failure flag is set to 1
+            if (!RF::Orth_Obj.chol_fail)
+            {
+                // Performing the alg twice for better orthogonality	
+                RF::Orth_Obj.call(m, k, Q);
+            }
+            else
+            {
+                // Switch to HQR
+                RF::Orth_Obj.decision_orth = 1;
+                
+                if (RF::verbosity)
+                    printf("CHOL QR FAILED\n");
+                // Done via regular LAPACK's QR
+                // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
+                // tau needs to be a vector of all 2's by default
+                RF::Orth_Obj.tau.resize(k);
+                RF::Orth_Obj.call(m, k, Q);
+            }
+            break;
+        case 1:
+            RF::Orth_Obj.tau.resize(k);
+            RF::Orth_Obj.call(m, k, Q);
+            break;
+    }
 }
 
 template void RF<float>::rf1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, bool use_qr);

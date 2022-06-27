@@ -2,9 +2,26 @@
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
-//#define USE_QR
-//#define USE_LU
-#define USE_CHOL
+/*
+    References
+    ----------
+    This implementation is inspired by [ZM:2020, Algorithm 3.3]. The most
+    significant difference is that this function stops one step "early",
+    so that it returns a matrix S for use in sketching Y = A @ S, rather than
+    returning an orthonormal basis for a sketched matrix Y. Here are the
+    differences between this implementation and [ZM:2020, Algorithm 3.3],
+    assuming the latter algorithm was modified to stop "one step early" like
+    this algorithm:
+        (1) We make no assumptions on the distribution of the initial
+            (oblivious) sketching matrix. [ZM:2020, Algorithm 3.3] uses
+            a Gaussian distribution.
+        (2) We allow any number of passes over A, including zero passes.
+            [ZM2020: Algorithm 3.3] requires at least one pass over A.
+        (3) We let the user provide the stabilization method. [ZM:2020,
+            Algorithm 3.3] uses LU for stabilization.
+        (4) We let the user decide how many applications of A or A.T
+            can be made between calls to the stabilizer.
+*/
 
 namespace RandLAPACK::comps::rs {
 
@@ -36,12 +53,12 @@ void RS<T>::rs1(
 
 	if (p % 2 == 0) 
 	{
-		// Fill n by k omega
+		// Fill n by k Omega
 		RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, seed);
 	}
 	else
 	{
-		// Fill m by k omega_1
+		// Fill m by k Omega_1
 		RandBLAS::dense_op::gen_rmat_norm<T>(m, k, Omega_1_dat, seed);
 
 		// multiply A' by Omega results in n by k omega
@@ -50,13 +67,24 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			// Try CholQR stabilization
-			RS::Stab_Obj.call(n, k, Omega);
-			if(RS::Stab_Obj.chol_fail)
+			// Use the specified stabilization routine
+			switch(RS::Stab_Obj.decision_stab)
 			{
-				// If CholQR fails, fall back on PLU
-				RS::Stab_Obj.decision_stab = 1;
-				RS::Stab_Obj.call(n, k, Omega);
+				// CholQR stabilization
+				case 0:
+					// Try CholQR stabilization
+					RS::Stab_Obj.call(n, k, Omega);
+					if(RS::Stab_Obj.chol_fail)
+					{
+						// If CholQR fails, fall back on PLU
+						RS::Stab_Obj.decision_stab = 1;
+						RS::Stab_Obj.call(n, k, Omega);
+					}
+					break;
+				// PLU stabilization
+				case 1:
+					RS::Stab_Obj.call(n, k, Omega);
+					break;
 			}
 		}
 	}
@@ -68,11 +96,19 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RS::Stab_Obj.call(m, k, Omega_1);
-			if(RS::Stab_Obj.chol_fail)
+			switch(RS::Stab_Obj.decision_stab)
 			{
-				RS::Stab_Obj.decision_stab = 1;
-				RS::Stab_Obj.call(m, k, Omega_1);
+				case 0:
+					RS::Stab_Obj.call(m, k, Omega_1);
+					if(RS::Stab_Obj.chol_fail)
+					{
+						RS::Stab_Obj.decision_stab = 1;
+						RS::Stab_Obj.call(m, k, Omega_1);
+					}
+					break;
+				case 1:
+					RS::Stab_Obj.call(m, k, Omega_1);
+					break;
 			}
 		}
 
@@ -81,11 +117,19 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RS::Stab_Obj.call(n, k, Omega);
-			if(RS::Stab_Obj.chol_fail)
+			switch(RS::Stab_Obj.decision_stab)
 			{
-				RS::Stab_Obj.decision_stab = 1;
-				RS::Stab_Obj.call(n, k, Omega);
+				case 0:
+					RS::Stab_Obj.call(n, k, Omega);
+					if(RS::Stab_Obj.chol_fail)
+					{
+						RS::Stab_Obj.decision_stab = 1;
+						RS::Stab_Obj.call(n, k, Omega);
+					}
+					break;
+				case 1:
+					RS::Stab_Obj.call(n, k, Omega);
+					break;
 			}
 		}
 	}

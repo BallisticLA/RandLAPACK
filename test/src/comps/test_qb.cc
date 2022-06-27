@@ -16,11 +16,22 @@ class TestQB : public ::testing::Test
     virtual void SetUp() {};
 
     virtual void TearDown() {};
+/*
+The function below, togethre with commented out lines 97, 98 and commented oyt lines 34, 42 and 47 within rs.hh
+represent an example of failing to use reference RandBLAS function as an argument to RS class.
+*/
+/*
+    template <typename T>
+    static void check(int64_t a, int64_t b, T* c, int32_t d)
+    {
+        printf("hi");
+    }
+*/
 
     template <typename T>
     static void test_QB2_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
-        printf("|========================TEST QB2 GENERAL BEGIN========================|\n");
+        printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
         using namespace blas;
         using namespace lapack;
         
@@ -84,6 +95,8 @@ class TestQB : public ::testing::Test
         RandLAPACK::comps::orth::Stab<T> Stab(1);
 
         // RowSketcher constructor - Choose default (rs1)
+        //RandLAPACK::comps::rs::RS<T> RS(Stab, TestQB::check<T>, seed, p, passes_per_iteration, 0);
+        //RandLAPACK::comps::rs::RS<T> RS(Stab, RandBLAS::dense_op::gen_rmat_norm<T>, seed, p, passes_per_iteration, 0);
         RandLAPACK::comps::rs::RS<T> RS(Stab, seed, p, passes_per_iteration, 0);
 
         // Orthogonalization Constructor - Choose CholQR
@@ -205,14 +218,14 @@ class TestQB : public ::testing::Test
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, 1e-10);
-        printf("|=========================TEST QB2 GENERAL END=========================|\n");
+        printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 
 //Varying tol, k = min(m, n)
 template <typename T>
     static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
-        printf("|=====================TEST QB2 K = min(M, N) BEGIN=====================|\n");
+        printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");
 
         using namespace blas;
         using namespace lapack;
@@ -332,7 +345,7 @@ template <typename T>
             printf("FRO NORM OF A:         %e\n", norm_A);
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
-        printf("|======================TEST QB2 K = min(M, N) END======================|\n");
+        printf("|================================TEST QB2 K = min(M, N) END================================|\n");
     }
 
     //Varying tol, k = min(m, n)
@@ -368,7 +381,7 @@ template <typename T>
         //RandLAPACK::comps::util::disp_diag(m, n, k, A);
 
         //Subroutine parameters 
-        bool verbosity = false;
+        bool verbosity = true;
         bool cond_check = true;
         bool orth_check = true;
         int64_t passes_per_iteration = 1;
@@ -380,14 +393,14 @@ template <typename T>
         // RowSketcher constructor - Choose default (rs1)
         RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, 0);
 
-        // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
+        // Orthogonalization Constructor
+        RandLAPACK::comps::orth::Orth<T> Orth_RF(1);
 
-        // RangeFinder constructor - Choose default (rf1)
+        // RangeFinder constructor
         RandLAPACK::comps::rf::RF<double> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
-        // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
+        // Orthogonalization Constructor 
+        RandLAPACK::comps::orth::Orth<T> Orth_QB(1);
 
         // QB constructor - Choose QB2_test_mode
         RandLAPACK::comps::qb::QB<double> QB(RF, Orth_QB, verbosity, orth_check, 1);
@@ -413,7 +426,7 @@ template <typename T>
     template <typename T>
     static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon)
     {
-        printf("|===========================TEST QB2 K PLOT===========================|\n");
+        printf("|=====================================TEST QB2 K PLOT=====================================|\n");
         using namespace blas; 
         int32_t seed = 0;
         // Number of repeated runs of the same test
@@ -462,10 +475,9 @@ template <typename T>
                 }
             }
         }
-        printf("|============================TEST QB2 PLOT============================|\n");
+        printf("|======================================TEST QB2 PLOT======================================|\n");
     }
 };
-
 
 TEST_F(TestQB, SimpleTest)
 { 
@@ -498,12 +510,13 @@ TEST_F(TestQB, SimpleTest)
 
 /*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
+// Will populate files with condition numbers of sketches
 TEST_F(TestQB, PlotTest)
 { 
     // Fast decay
     test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 2, true);
     // Slow decay
-    test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 0.5, true);
+    //test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 0.5, true);
 }
 */
 
