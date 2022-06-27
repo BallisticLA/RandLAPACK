@@ -39,14 +39,17 @@ class TestOrth : public ::testing::Test
         // Generate a reference identity
         RandLAPACK::comps::util::eye<T>(n, n, I_ref);  
 
+        // Orthogonalization Constructor
+        RandLAPACK::comps::orth::Orth<T> Orth;
+
         // Orthonormalize A
-        if (RandLAPACK::comps::orth::chol_QR(m, n, A) != 0)
+        if (Orth.call(m, n, A) != 0)
         {
             EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality
-        RandLAPACK::comps::orth::chol_QR(m, n, A);
+        Orth.call(m, n, A);
 
         // Q' * Q  - I = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, -1.0, I_ref_dat, n);
@@ -82,14 +85,17 @@ class TestOrth : public ::testing::Test
         // Y = A * Omega
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         
+        // Orthogonalization Constructor
+        RandLAPACK::comps::orth::Orth<T> Orth;
+
         // Orthonormalize sketch Y
-        if(RandLAPACK::comps::orth::chol_QR(m, k, Y) != 0)
+        if(Orth.call(m, k, Y) != 0)
         {
             EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality
-        RandLAPACK::comps::orth::chol_QR(m, k, Y);
+        Orth.call(m, k, Y);
 
         // Q' * Q  - I = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
@@ -117,8 +123,6 @@ class TestOrth : public ::testing::Test
         T* A_dat = A.data();
         T* A_cpy_dat = A_cpy.data();
         T* A_cpy_2_dat = A_cpy_2.data();
-        int64_t* ipiv_dat = ipiv.data();
-        T* tau_dat = tau.data();
 
         // Random Gaussian test matrix
         RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_dat, seed);
@@ -126,29 +130,25 @@ class TestOrth : public ::testing::Test
         std::copy(A_dat, A_dat + size, A_cpy_dat);
         std::copy(A_dat, A_dat + size, A_cpy_2_dat);
 
+        // Stabilization Constructor
+        RandLAPACK::comps::orth::Stab<T> Stab;
+
         // PIV LU
         // Stores L, U into Omega
         auto start_lu = high_resolution_clock::now();
-        getrf(m, n, A_cpy_dat, m, ipiv_dat);
-        // Addresses pivoting
-        RandLAPACK::comps::util::row_swap<T>(m, n, A_cpy, ipiv);
-        // Extracting L
-        RandLAPACK::comps::util::get_L<T>(m, n, A_cpy);
+        Stab.call(m, n, A_cpy_dat, ipiv);
         auto stop_lu = high_resolution_clock::now();
         long dur_lu = duration_cast<microseconds>(stop_lu - start_lu).count();
 
         // CHOL QR
         // Orthonormalize A
         auto start_chol = high_resolution_clock::now();
-        RandLAPACK::comps::orth::chol_QR(m, n, A);
-        // Call the scheme twice for better orthogonality
-        //RandLAPACK::comps::orth::chol_QR(m, n, A);
+        Stab.call(m, n, A);
         auto stop_chol = high_resolution_clock::now();
         long dur_chol = duration_cast<microseconds>(stop_chol - start_chol).count();
 
         auto start_qr = high_resolution_clock::now();
-        geqrf(m, n, A_cpy_2_dat, m, tau_dat);
-        ungqr(m, n, n, A_cpy_2_dat, m, tau_dat);
+        Stab.call(m, n, A_cpy_2_dat, tau);
         auto stop_qr = high_resolution_clock::now();
         long dur_qr = duration_cast<microseconds>(stop_qr - start_qr).count();
 

@@ -88,7 +88,6 @@ void get_L(
                 ); 
                 // The unit diagonal elements of L were not stored.
                 L_dat[i + j] = 1;
-                
         }
 }
 
@@ -158,6 +157,7 @@ void gen_mat_type(
         int32_t seed,
         std::tuple<int, T, bool> type
 ) {  
+        using namespace blas;
         T* A_dat = A.data();
 
         switch(std::get<0>(type)) 
@@ -187,8 +187,7 @@ void gen_mat_type(
                         RandBLAS::dense_op::gen_rmat_norm<T>(m, k, A_dat, seed);
                         if (2 * k <= n)
                         {
-                        
-                        std::copy(A_dat, A_dat + (n / 2) * m, A_dat + (n / 2) * m);
+                        copy(m * (n / 2), A_dat, 1, A_dat + (n / 2) * m, 1);
                         }
                         break;
                 case 4:
@@ -319,7 +318,7 @@ void gen_s_mat(
         int64_t& m,
         int64_t& n,
         std::vector<T>& A,
-        int64_t k, // <= min(m, n)
+        int64_t k,
         bool diagon,
         int32_t seed
 ) {   
@@ -388,7 +387,7 @@ void gen_mat(
         geqrf(n, k, V_dat, n, tau_dat);
         ungqr(n, k, k, V_dat, n, tau_dat);
 
-        std::copy(U_dat, U_dat + m * k, Gemm_buf_dat);
+        copy(m * k, U_dat, 1, Gemm_buf_dat, 1);
         for(int i = 0; i < k; ++i)
         {
                 scal(m, S[i + k * i], &Gemm_buf_dat[i * m], 1);

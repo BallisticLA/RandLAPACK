@@ -70,36 +70,36 @@ class TestQB : public ::testing::Test
         //RandBLAS::util::print_colmaj(m, n, A.data(), name1);
 
         // Create a copy of the original matrix
-        std::copy(A_dat, A_dat + size, A_cpy_dat);
-        std::copy(A_dat, A_dat + size, A_cpy_2_dat);
+        copy(size, A_dat, 1, A_cpy_dat, 1);
+        copy(size, A_dat, 1, A_cpy_2_dat, 1);
 
         //Subroutine parameters 
         bool verbosity = false;
-        bool cond_check = false;
-        bool orth_check = false;
+        bool cond_check = true;
+        bool orth_check = true;
         int64_t passes_per_iteration = 1;
 
         // Make subroutine objects
-        // RowSketcher constructor
-        RandLAPACK::comps::rs::RS1<double> RS
-        (
-            seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<double>
-        );
+        // Stabilization Constructor - Choose PLU
+        RandLAPACK::comps::orth::Stab<T> Stab(1);
 
-        // RangeFinder constructor
-        RandLAPACK::comps::rf::RF1<double> RF
-        (
-            RS, &RandLAPACK::comps::orth::stab_QR<double>, verbosity, cond_check
-        );
+        // RowSketcher constructor - Choose default (rs1)
+        RandLAPACK::comps::rs::RS<T> RS(Stab, seed, p, passes_per_iteration, 0);
 
-        // QB constructor
-        RandLAPACK::comps::qb::QB<double> QB
-        (
-            RF, &RandLAPACK::comps::orth::stab_QR<double>, verbosity, orth_check, cond_check
-        );
+        // Orthogonalization Constructor - Choose CholQR
+        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
+
+        // RangeFinder constructor - Choose default (rf1)
+        RandLAPACK::comps::rf::RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
+
+        // Orthogonalization Constructor - Choose CholQR
+        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
+
+        // QB constructor - Choose defaut (QB2)
+        RandLAPACK::comps::qb::QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
 
         // Regular QB2 call
-        int termination = QB.call(
+        QB.call(
             m,
             n,
             A,
@@ -110,7 +110,7 @@ class TestQB : public ::testing::Test
             B
         );
 
-        switch(termination)
+        switch(QB.termination)
         {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
@@ -141,7 +141,7 @@ class TestQB : public ::testing::Test
         RandLAPACK::comps::util::eye<T>(k, k, Ident); 
 
         // Buffer for testing B
-        std::copy(B_dat, B_dat + (k * n), B_cpy_dat);
+        copy(k * n, B_dat, 1, B_cpy_dat, 1);
         
         //char name_3[] = "QB1  output Q";
         //RandBLAS::util::print_colmaj(m, k, Q.data(), name_3);
@@ -166,7 +166,7 @@ class TestQB : public ::testing::Test
         std::vector<T> z_buf(n, 0.0);
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
-        std::copy(z_buf_dat, z_buf_dat + (n - k), s_dat + k);
+        copy(n - k, z_buf_dat, 1, s_dat + k, 1);
         RandLAPACK::comps::util::diag(n, n, s, n, S);
 
         //char name_u[] = "U";
@@ -242,31 +242,31 @@ template <typename T>
 
         //Subroutine parameters 
         bool verbosity = false;
-        bool cond_check = false;
-        bool orth_check = false;
+        bool cond_check = true;
+        bool orth_check = true;
         int64_t passes_per_iteration = 1;
 
         // Make subroutine objects
-        // RowSketcher constructor
-        RandLAPACK::comps::rs::RS1<T> RS
-        (
-            seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<T>
-        );
+        // Stabilization Constructor - Choose CholQR
+        RandLAPACK::comps::orth::Stab<double> Stab(0);
 
-        // RangeFinder constructor
-        RandLAPACK::comps::rf::RF1<T> RF
-        (
-            RS, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, cond_check
-        );
+        // RowSketcher constructor - Choose default (rs1)
+        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, 0);
 
-        // QB constructor
-        RandLAPACK::comps::qb::QB<T> QB
-        (
-            RF, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, orth_check, cond_check
-        );
+        // Orthogonalization Constructor - Choose CholQR
+        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
+
+        // RangeFinder constructor - Choose default (rf1)
+        RandLAPACK::comps::rf::RF<double> RF(RS, Orth_RF, verbosity, cond_check, 0);
+
+        // Orthogonalization Constructor - Choose CholQR
+        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
+
+        // QB constructor - Choose defaut (QB2)
+        RandLAPACK::comps::qb::QB<double> QB(RF, Orth_QB, verbosity, orth_check, 0);
 
         // Regular QB2 call
-        int termination = QB.call(
+        QB.call(
             m,
             n,
             A,
@@ -277,7 +277,7 @@ template <typename T>
             B
         );
         
-        switch(termination)
+        switch(QB.termination)
         {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
@@ -359,8 +359,6 @@ template <typename T>
         std::vector<T> B(k_est * n, 0.0);
         // For results comparison
         std::vector<T> A_hat(size, 0.0);
-        //WARNING: block_sz may change.
-        std::vector<T> cond_nums(k / block_sz);
 
         T* A_dat = A.data();
         T* Q_dat = Q.data();
@@ -371,28 +369,31 @@ template <typename T>
 
         //Subroutine parameters 
         bool verbosity = false;
-        bool cond_check = false;
-        bool orth_check = false;
+        bool cond_check = true;
+        bool orth_check = true;
         int64_t passes_per_iteration = 1;
 
         // Make subroutine objects
-        // RowSketcher constructor
-        RandLAPACK::comps::rs::RS1<T> RS
-        (
-            seed, p, passes_per_iteration, &RandLAPACK::comps::orth::stab_LU<T>
-        );
+        // Stabilization Constructor - Choose PLU
+        RandLAPACK::comps::orth::Stab<double> Stab(1);
 
-        // RangeFinder constructor
-        RandLAPACK::comps::rf::RF1<T> RF
-        (
-            RS, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, cond_check
-        );
+        // RowSketcher constructor - Choose default (rs1)
+        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, 0);
 
-        // QB constructor
-        RandLAPACK::comps::qb::QB<T> QB
-        (
-            RF, &RandLAPACK::comps::orth::stab_QR<T>, verbosity, orth_check, cond_check
-        );
+        // Orthogonalization Constructor - Choose CholQR
+        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
+
+        // RangeFinder constructor - Choose default (rf1)
+        RandLAPACK::comps::rf::RF<double> RF(RS, Orth_RF, verbosity, cond_check, 0);
+
+        // Orthogonalization Constructor - Choose CholQR
+        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
+
+        // QB constructor - Choose QB2_test_mode
+        RandLAPACK::comps::qb::QB<double> QB(RF, Orth_QB, verbosity, orth_check, 1);
+
+        //WARNING: block_sz may change.
+        QB.cond_nums.resize(k / block_sz);
 
         // Test mode QB2
         QB.call(
@@ -403,15 +404,14 @@ template <typename T>
             block_sz,
             tol,
             Q,
-            B,
-            cond_nums
+            B
         );
 
-        return cond_nums;
+        return QB.cond_nums;
     }
 
     template <typename T>
-    static void test_QB2_plot(int64_t max_k, int64_t max_b_sz, int64_t max_p, int mat_type, T decay, bool diagon)
+    static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon)
     {
         printf("|===========================TEST QB2 K PLOT===========================|\n");
         using namespace blas; 
@@ -420,10 +420,10 @@ template <typename T>
         int runs = 5;
 
         // varying matrix size
-        for (int64_t k = 4096; k <= max_k; k *= 2)
+        for (; k <= max_k; k *= 2)
         {
             // varying block size
-            for (int64_t block_sz = 16; block_sz <= max_b_sz; block_sz *= 4)
+            for (; block_sz <= max_b_sz; block_sz *= 4)
             {
                 int64_t v_sz = k / block_sz;  
                 std::vector<T> all_vecs(v_sz * (runs + 1));
@@ -440,7 +440,7 @@ template <typename T>
                 );
 
                 // varying power iters
-                for (int64_t p = 0; p <= max_p; p += 2)
+                for (; p <= max_p; p += 2)
                 {
                     for (int i = 1; i < (runs + 1); ++i)
                     {
@@ -482,12 +482,12 @@ TEST_F(TestQB, SimpleTest)
         // A = [A A]
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed);
         // A = 0
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed);
+        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed); 
         // Random diagonal matrix test
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
         test_QB2_general<double>(1000, 1000, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
-        
+
         // SOMETHING IS OFF HERE
         // test zero tol
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.0, std::make_tuple(1, 0.5, false), seed);
@@ -501,9 +501,9 @@ TEST_F(TestQB, SimpleTest)
 TEST_F(TestQB, PlotTest)
 { 
     // Fast decay
-    test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
+    test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 2, true);
     // Slow decay
-    test_QB2_plot<double>(4096, 256, 0, 0, 0.5, true);
+    test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 0.5, true);
 }
 */
 

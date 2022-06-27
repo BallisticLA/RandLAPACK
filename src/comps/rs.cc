@@ -9,33 +9,38 @@
 namespace RandLAPACK::comps::rs {
 
 template <typename T>
-void RS1<T>::call(
+void RS<T>::rs1(
 	int64_t m,
 	int64_t n,
 	const std::vector<T>& A,
 	int64_t k,
-	std::vector<T>& Omega // n by k
+	std::vector<T>& Omega 
 ){
 	using namespace blas;
 	using namespace lapack;
 	
-	int64_t p = RS1::passes_over_data;
-	int64_t q = RS1::passes_per_stab;
-	int32_t seed = RS1::seed;
+	int64_t p = RS::passes_over_data;
+	int64_t q = RS::passes_per_stab;
+	int32_t seed = RS::seed;
 	int64_t p_done= 0;
 
+	// Preallocations
 	std::vector<T> Omega_1(m * k, 0.0);
+	// Setting stabilization parameters
+	RS::Stab_Obj.tau.resize(k);
+	RS::Stab_Obj.ipiv.resize(k);
 
 	const T* A_dat = A.data();
 	T* Omega_dat = Omega.data();
 	T* Omega_1_dat = Omega_1.data();
 
-	if (p % 2 == 0) {
+	if (p % 2 == 0) 
+	{
 		// Fill n by k omega
 		RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, seed);
 	}
-	
-	else{
+	else
+	{
 		// Fill m by k omega_1
 		RandBLAS::dense_op::gen_rmat_norm<T>(m, k, Omega_1_dat, seed);
 
@@ -45,7 +50,14 @@ void RS1<T>::call(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RS1::stabilizer(n, k, Omega);
+			// Try CholQR stabilization
+			RS::Stab_Obj.call(n, k, Omega);
+			if(RS::Stab_Obj.chol_fail)
+			{
+				// If CholQR fails, fall back on PLU
+				RS::Stab_Obj.decision_stab = 1;
+				RS::Stab_Obj.call(n, k, Omega);
+			}
 		}
 	}
 	
@@ -56,7 +68,12 @@ void RS1<T>::call(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RS1::stabilizer(m, k, Omega_1);
+			RS::Stab_Obj.call(m, k, Omega_1);
+			if(RS::Stab_Obj.chol_fail)
+			{
+				RS::Stab_Obj.decision_stab = 1;
+				RS::Stab_Obj.call(m, k, Omega_1);
+			}
 		}
 
 		// Omega = A' * Omega
@@ -64,11 +81,16 @@ void RS1<T>::call(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			RS1::stabilizer(n, k, Omega);
+			RS::Stab_Obj.call(n, k, Omega);
+			if(RS::Stab_Obj.chol_fail)
+			{
+				RS::Stab_Obj.decision_stab = 1;
+				RS::Stab_Obj.call(n, k, Omega);
+			}
 		}
 	}
 }
 
-template void RS1<float>::call(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
-template void RS1<double>::call(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Omega);
+template void RS<float>::rs1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
+template void RS<double>::rs1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Omega);
 } // end namespace RandLAPACK::comps::rs

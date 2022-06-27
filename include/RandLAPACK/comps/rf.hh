@@ -4,60 +4,59 @@
 #endif
 
 #include "rs.hh"
+#include "orth.hh"
 
 namespace RandLAPACK::comps::rf {
 
 #ifndef RF_CLASS
 #define RF_CLASS
 
+/*
 template <typename T>
 class RangeFinder
 {
         public:
-                // RS1 call
-                virtual bool call(
+                virtual void call<T>(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
                         int64_t k,
-                        std::vector<T>& Q,
-                        bool use_qr
-                ) = 0;
-                
-                // RS1_test_mode call
-                virtual void call(
-                        int64_t m,
-                        int64_t n,
-                        const std::vector<T>& A,
-                        int64_t k,
-                        std::vector<T>& Q, // n by k
-                        T& cond_num // For testing purposes
-                ) = 0;
+                        std::vector<T>& Q
+                ) = 0;    
 };
-
+*/
 template <typename T>
-class RF1 : public RangeFinder<T>
+class RF //: public RangeFinder<T>
 {
 	public:
-                RandLAPACK::comps::rs::RowSketcher<T>& RS_Obj;
-                void(*Orthogonalization)(int64_t, int64_t, std::vector<T>&);
+                // Instantiated in the constructor
+                RandLAPACK::comps::rs::RS<T>& RS_Obj;
+                RandLAPACK::comps::orth::Orth<T>& Orth_Obj;
                 bool verbosity;
                 bool cond_check;
+                
+                // Controls RF version to be used
+                int decision_RF;
+
+                // Implementation-specific vars
+                T cond_num;
+                bool use_qr;
 
 		// Constructor
-		RF1(
-                        RandLAPACK::comps::rs::RowSketcher<T>& rs_obj,
-                        void(*Orth)(int64_t, int64_t, std::vector<T>&),
+		RF(
+                        RandLAPACK::comps::rs::RS<T>& rs_obj,
+                        RandLAPACK::comps::orth::Orth<T>& orth_obj,
                         bool verb,
-                        bool cond
-		) : RS_Obj(rs_obj)
+                        bool cond,
+                        int decision
+		) : RS_Obj(rs_obj), Orth_Obj(orth_obj)
                 {
-                        Orthogonalization = Orth;
                         verbosity = verb;
                         cond_check = cond;
+                        decision_RF = decision;
 		}
 
-                virtual bool call(
+                void rf1(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
@@ -66,14 +65,34 @@ class RF1 : public RangeFinder<T>
                         bool use_qr
                 );
 
-                virtual void call(
+                void rf1_test_mode(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
                         int64_t k,
-                        std::vector<T>& Q, // n by k
-                        T& cond_num // For testing purposes
+                        std::vector<T>& Q,
+                        T& cond_num
                 );
+
+                // Control of RF types calls.
+                void call(
+                        int64_t m,
+                        int64_t n,
+                        const std::vector<T>& A,
+                        int64_t k,
+                        std::vector<T>& Q
+                ){
+                        switch(RF::decision_RF)
+                        {
+                                case 0:
+                                        rf1(m, n, A, k, Q, RF::use_qr);
+                                        break;
+
+                                case 1:
+                                        rf1_test_mode(m, n, A, k, Q, RF::cond_num);
+                                        break;
+                        }
+                }
 };
 #endif
 } // end namespace RandLAPACK::comps::rs

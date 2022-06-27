@@ -3,54 +3,59 @@
 #define BLAS_HH
 #endif
 
+#include "orth.hh"
+
 namespace RandLAPACK::comps::rs {
 
 #ifndef RS_CLASS
 #define RS_CLASS
 
 template <typename T>
-class RowSketcher
+class RS
 {
 	public:
-		//virtual ~RowSketcher();d
-		virtual void call(
-			int64_t m,
-			int64_t n,
-			const std::vector<T>& A,
-			int64_t k,
-			std::vector<T>& Omega
-		) = 0;
-};
-
-template <typename T>
-class RS1 : public RowSketcher<T>
-{
-	public:
+		RandLAPACK::comps::orth::Stab<T>& Stab_Obj;
 		int32_t seed;
 		int64_t passes_over_data;
 		int64_t passes_per_stab;
-		void(*stabilizer)(int64_t, int64_t, std::vector<T>&);
+		int decision_RS;
 
-		RS1(
+		RS(
+			RandLAPACK::comps::orth::Stab<T>& stab_obj,
 			int32_t s, 
 			int64_t p, 
-			int64_t q, 
-			void (*stab)(int64_t, int64_t, std::vector<T>&)
-		)
+			int64_t q,
+			int decision
+		) : Stab_Obj(stab_obj)
 		{
 			seed = s;
 			passes_over_data = p;
 			passes_per_stab = q;
-			stabilizer = stab;
+			decision_RS = decision;
 		}
 
-		virtual void call(
+		void rs1(
 			int64_t m,
 			int64_t n,
 			const std::vector<T>& A,
 			int64_t k,
-			std::vector<T>& Omega
+			std::vector<T>& Omega 
 		);
+
+		void call(
+			int64_t m,
+			int64_t n,
+			const std::vector<T>& A,
+			int64_t k,
+			std::vector<T>& Omega 
+		){
+			switch(RS::decision_RS)
+			{
+				case 0:
+					rs1(m, n, A, k, Omega);
+					break;
+			}
+		}
 };
 #endif
 } // end namespace RandLAPACK::comps::rs
