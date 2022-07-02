@@ -381,9 +381,9 @@ template <typename T>
         //RandLAPACK::comps::util::disp_diag(m, n, k, A);
 
         //Subroutine parameters 
-        bool verbosity = true;
+        bool verbosity = false;
         bool cond_check = true;
-        bool orth_check = true;
+        bool orth_check = false;
         int64_t passes_per_iteration = 1;
 
         // Make subroutine objects
@@ -420,13 +420,35 @@ template <typename T>
             B
         );
 
+        switch(QB.termination)
+        {
+            case 1:
+                printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
+                break;
+            case 2:
+                printf("\nTERMINATED VIA: Early termination due to unexpected error accumulation.\n");
+                break;
+            case 3:
+                printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
+                break;
+            case 4:
+                printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
+                break;
+            case 5:
+                printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
+                break;
+            case 0:
+                printf("\nTERMINATED VIA: Expected tolerance reached.\n");
+                break;
+        }
+
         return QB.cond_nums;
     }
 
     template <typename T>
     static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon)
     {
-        printf("|=====================================TEST QB2 K PLOT=====================================|\n");
+        printf("|==================================TEST QB2 K PLOT BEGIN==================================|\n");
         using namespace blas; 
         int32_t seed = 0;
         // Number of repeated runs of the same test
@@ -475,10 +497,10 @@ template <typename T>
                 }
             }
         }
-        printf("|======================================TEST QB2 PLOT======================================|\n");
+        printf("|====================================TEST QB2 PLOT END====================================|\n");
     }
 };
-
+/*
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -507,10 +529,11 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
     }
 }
-
+*/
 /*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
+// Running tests without the orthogonality loss check to ensure normal termination
 TEST_F(TestQB, PlotTest)
 { 
     // Fast decay
@@ -519,4 +542,3 @@ TEST_F(TestQB, PlotTest)
     //test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 0.5, true);
 }
 */
-

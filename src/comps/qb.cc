@@ -280,7 +280,6 @@ void QB<T>::QB2_test_mode(
         QB::RF_Obj.call(m, n, A_cpy, block_sz, Q_i);
         // Would be nice to update through pointers instead
         QB::cond_nums[curr_sz / block_sz] = QB::RF_Obj.cond_num;
-        printf("FILLED: %f\n", QB::cond_nums[curr_sz / block_sz]);
 
         if(QB::orth_check)
         {

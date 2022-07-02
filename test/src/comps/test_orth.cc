@@ -40,7 +40,7 @@ class TestOrth : public ::testing::Test
         RandLAPACK::comps::util::eye<T>(n, n, I_ref);  
 
         // Orthogonalization Constructor
-        RandLAPACK::comps::orth::Orth<T> Orth;
+        RandLAPACK::comps::orth::Orth<T> Orth(0);
 
         // Orthonormalize A
         if (Orth.call(m, n, A) != 0)
@@ -86,7 +86,7 @@ class TestOrth : public ::testing::Test
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         
         // Orthogonalization Constructor
-        RandLAPACK::comps::orth::Orth<T> Orth;
+        RandLAPACK::comps::orth::Orth<T> Orth(0);
 
         // Orthonormalize sketch Y
         if(Orth.call(m, k, Y) != 0)
@@ -131,26 +131,33 @@ class TestOrth : public ::testing::Test
         std::copy(A_dat, A_dat + size, A_cpy_2_dat);
 
         // Stabilization Constructor
-        RandLAPACK::comps::orth::Stab<T> Stab;
+        RandLAPACK::comps::orth::Stab<T> Stab_PLU(1);
+        RandLAPACK::comps::orth::Orth<T> Orth_HQR(1);
+        RandLAPACK::comps::orth::Orth<T> Orth_CholQR(0);
+
+        // Setting routine-specific vars
+        Orth_HQR.tau.resize(n);
+	    Stab_PLU.ipiv.resize(n);
 
         // PIV LU
         // Stores L, U into Omega
         auto start_lu = high_resolution_clock::now();
-        Stab.call(m, n, A_cpy_dat, ipiv);
+        Stab_PLU.call(m, n, A_cpy);
         auto stop_lu = high_resolution_clock::now();
         long dur_lu = duration_cast<microseconds>(stop_lu - start_lu).count();
+
+        // HQR
+        auto start_qr = high_resolution_clock::now();
+        Orth_HQR.call(m, n, A_cpy_2);
+        auto stop_qr = high_resolution_clock::now();
+        long dur_qr = duration_cast<microseconds>(stop_qr - start_qr).count();
 
         // CHOL QR
         // Orthonormalize A
         auto start_chol = high_resolution_clock::now();
-        Stab.call(m, n, A);
+        Orth_CholQR.call(m, n, A);
         auto stop_chol = high_resolution_clock::now();
         long dur_chol = duration_cast<microseconds>(stop_chol - start_chol).count();
-
-        auto start_qr = high_resolution_clock::now();
-        Stab.call(m, n, A_cpy_2_dat, tau);
-        auto stop_qr = high_resolution_clock::now();
-        long dur_qr = duration_cast<microseconds>(stop_qr - start_qr).count();
 
         return std::make_tuple(dur_chol, dur_lu, dur_qr);
     }
@@ -187,7 +194,7 @@ class TestOrth : public ::testing::Test
                 std::ofstream file("../../build/test_plots/test_speed/raw_data/test_" + std::to_string(rows) + "_" + std::to_string(cols) + ".dat");
                 for(int i = 0; i < runs; ++i)
                 {
-                    res = test_speed_helper<T>(rows, cols, i);
+                    res = test_speed_helper<T>(rows, cols, 1);
                     curr_t_chol = std::get<0>(res);
                     curr_t_lu = std::get<1>(res);
                     curr_t_qr = std::get<2>(res);
@@ -220,10 +227,8 @@ TEST_F(TestOrth, SimpleTest)
 }
 */
 
-/*
 // Cache size of my processor is 24 megs
 TEST_F(TestOrth, InOutCacheSpeedTest)
 {
-    test_speed<double>(5, 5, 2, 2, 10);
+    test_speed<double>(10, 10, 4, 4, 100);
 }
-*/
