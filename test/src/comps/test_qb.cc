@@ -136,13 +136,18 @@ represent an example of failing to use reference RandBLAS function as an argumen
             case 3:
                 printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
                 break;
+            case 4:
+                printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
+                //EXPECT_TRUE(true);
+                //return;
+                break;
             case 5:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
                 //EXPECT_TRUE(true);
                 //return;
                 break;
             case 0:
-               printf("\nTERMINATED VIA: Expected tolerance reached.\n");
+                printf("\nTERMINATED VIA: Expected tolerance reached.\n");
                 break;
         }
 
@@ -441,6 +446,7 @@ template <typename T>
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
                 break;
         }
+        printf("Inner dimension of QB: %ld\n", k);
 
         return QB.cond_nums;
     }
@@ -454,9 +460,13 @@ template <typename T>
         // Number of repeated runs of the same test
         int runs = 5;
 
+        int64_t b_sz_init = block_sz;
+        int64_t p_init = p;
+
         // varying matrix size
         for (; k <= max_k; k *= 2)
         {
+            block_sz = b_sz_init;
             // varying block size
             for (; block_sz <= max_b_sz; block_sz *= 4)
             {
@@ -475,6 +485,7 @@ template <typename T>
                 );
 
                 // varying power iters
+                p = p_init;
                 for (; p <= max_p; p += 2)
                 {
                     for (int i = 1; i < (runs + 1); ++i)
@@ -530,15 +541,15 @@ TEST_F(TestQB, SimpleTest)
     }
 }
 */
-/*
+
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
 // Running tests without the orthogonality loss check to ensure normal termination
 TEST_F(TestQB, PlotTest)
 { 
     // Fast decay
-    test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 2, true);
+    test_QB2_plot<double>(1024, 4096, 16, 256, 0, 2, 0, 2, true);
     // Slow decay
-    //test_QB2_plot<double>(1024, 1024, 16, 16, 0, 0, 0, 0.5, true);
+    //test_QB2_plot<double>(1024, 4096, 16, 256, 0, 2, 0, 0.5, true);
 }
-*/
+

@@ -40,11 +40,6 @@ void Stab<T>::PLU(
 ){
         using namespace lapack;
 
-        std::vector<T> Buf(n * n, 0.0);
-        RandLAPACK::comps::util::eye<T>(n, n, Buf);
-        trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, Buf.data(), n, A.data(), m);
-
-
         getrf(m, n, A.data(), m, ipiv.data());
         RandLAPACK::comps::util::row_swap<T>(m, n, A, ipiv);
         RandLAPACK::comps::util::get_L<T>(m, n, A);
@@ -66,12 +61,14 @@ void Orth<T>::HQR(
 
         T* A_dat = A.data();
 	T* tau_dat = tau.data();
+        /*
         geqr(m, n, A_dat, m, Tvec.data(), -1);
         int64_t tsize = (int64_t) Tvec[0]; 
         Tvec.resize(tsize);
         geqr(m, n, A_dat, m, Tvec.data(), tsize);
-        //geqrf(m, n, A_dat, m, tau_dat);
-        //ungqr(m, n, n, A_dat, m, tau_dat);
+        */
+        geqrf(m, n, A_dat, m, tau_dat);
+        ungqr(m, n, n, A_dat, m, tau_dat);
 }
 
 template void Orth<float>::CholQR(int64_t m, int64_t k, std::vector<float>& Q);

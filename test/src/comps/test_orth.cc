@@ -8,6 +8,7 @@
 #include <numeric>
 #include <iostream>
 #include <fstream>
+#include <chrono>
 using namespace std::chrono;
 
 #define RELDTOL 1e-10;
@@ -226,9 +227,10 @@ TEST_F(TestOrth, SimpleTest)
 {
 }
 */
-
+/*
 // Cache size of my processor is 24 megs
 TEST_F(TestOrth, InOutCacheSpeedTest)
 {
-    test_speed<double>(10, 10, 4, 4, 100);
+    test_speed<double>(12, 14, 7, 9, 100);
 }
+*/

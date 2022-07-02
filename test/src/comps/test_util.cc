@@ -4,6 +4,7 @@
 #include <RandLAPACK.hh>
 #include <math.h>
 
+#include <chrono>
 using namespace std::chrono;
 
 #define RELDTOL 1e-10;
