@@ -360,13 +360,13 @@ template <typename T>
         using namespace blas; 
         int32_t seed = 0;
         // Number of repeated runs of the same test
-        int runs = 5;
+        int runs = 1;
 
         // varying matrix size
-        for (int64_t k = 4096; k <= max_k; k *= 2)
+        for (int64_t k = 2048; k <= max_k; k *= 2)
         {
             // varying block size
-            for (int64_t block_sz = 16; block_sz <= max_b_sz; block_sz *= 4)
+            for (int64_t block_sz = 64; block_sz <= max_b_sz; block_sz *= 4)
             {
                 int64_t v_sz = k / block_sz;  
                 std::vector<T> all_vecs(v_sz * (runs + 1));
@@ -394,7 +394,7 @@ template <typename T>
                     }
                     
                     // Save array as .dat file
-                    std::ofstream file("../../build/test_plots/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat");
+                    std::ofstream file("../../build/test_plots/test_cond/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat");
                     //unfortunately, cant do below with foreach
                     for (int i = 0; i < v_sz; ++ i)
                     {
@@ -409,7 +409,7 @@ template <typename T>
     }
 
 };
-
+/*
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -439,12 +439,12 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0, false), seed);
     }
 }
-
+*/
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 TEST_F(TestQB, PlotTest)
 { 
     // Fast decay
-    //test_QB2_plot<double>(4096, 256, 2, 0, 2, true);
+    test_QB2_plot<double>(2048, 64, 2, 0, 2, true);
     // Slow decay
     //test_QB2_plot<double>(4096, 256, 0, 0, 0.5, true);
 }

@@ -160,7 +160,7 @@ TEST_F(TestOrth, SimpleTest)
     //test_orth_sketch<double>(10, 10, 9, std::make_tuple(0, 2, true), 1);
     //test_Chol_QR<double>(12, 12, std::make_tuple(1, 0, false), 0);
 }
-
+/*
 TEST_F(TestOrth, SpeedTest)
 {
     int runs = 1000;
@@ -183,3 +183,4 @@ TEST_F(TestOrth, SpeedTest)
     printf("Average timing of Pivoted LU for %d runs: %f μs.\n", runs, (double)t_lu / (double)runs);
     printf("Average timing of Householder QR for %d runs: %f μs.\n", runs, (double)t_qr / (double)runs);
 }
+*/

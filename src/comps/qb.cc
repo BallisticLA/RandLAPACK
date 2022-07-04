@@ -8,6 +8,7 @@
 #define ORTHONORM_CHECKS
 #define COND_CHECK
 #define VERBOSE
+#define USE_QR
 
 namespace RandLAPACK::comps::qb {
 
