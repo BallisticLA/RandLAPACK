@@ -52,6 +52,7 @@ void Orth<T>::HQR(
         std::vector<T>& A,
         std::vector<T>& tau
 ){
+        printf("ORTH VIA HQR\n");
         // Done via regular LAPACK's QR
         // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
         // tau needs to be a vector of all 2's by default

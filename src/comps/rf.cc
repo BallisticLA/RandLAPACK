@@ -17,6 +17,8 @@ void RF<T>::rf1(
     std::vector<T>& Q, // n by k
     bool use_qr
 ){
+    printf("HI, I AM REGULAR RF. \n");
+
     using namespace blas;
     using namespace lapack;
 
@@ -28,6 +30,10 @@ void RF<T>::rf1(
 
     // Q = orth(A * Omega)
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega.data(), n, 0.0, Q_dat, m);
+
+
+    //char name_5[] = "Gemm result";
+    //RandBLAS::util::print_colmaj(m, k, Q_dat, name_5);
 
     if (RF::cond_check)
     {
@@ -41,7 +47,9 @@ void RF<T>::rf1(
         gesdd(Job::NoVec, m, k, Q_cpy_dat, m, s_dat, NULL, m, NULL, k);
         T cond_num = *s_dat / *(s_dat + k - 1);
 
-        if (RF::verbosity)
+        printf("FIRST ENRY: %e\n", *s_dat);
+
+        //if (RF::verbosity)
             printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
         
         RF::cond_num = cond_num;
@@ -91,6 +99,8 @@ void RF<T>::rf1_test_mode(
     using namespace blas;
     using namespace lapack;
 
+    //printf("HI, I AM TEST MODE. \nDIMENSIONS ARE: m = %ld, n = %ld, k = %ld\n", m, n, k);
+
     // Get the sketching operator Omega
     std::vector<T> Omega(n * k, 0.0);
     T* Q_dat = Q.data();
@@ -112,6 +122,8 @@ void RF<T>::rf1_test_mode(
         gesdd(Job::NoVec, m, k, Q_cpy_dat, m, s_dat, NULL, m, NULL, k);
         cond_num = *s_dat / *(s_dat + k - 1);
 
+        //printf("FIRST ENRY: %e\n", *s_dat);
+
         if (RF::verbosity)
             printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
 
@@ -119,6 +131,11 @@ void RF<T>::rf1_test_mode(
     }
 
     // Orthogonalization
+    RF::Orth_Obj.decision_orth = 1;
+    RF::Orth_Obj.tau.resize(k);
+    RF::Orth_Obj.call(m, k, Q);
+
+    /*
     switch(RF::Orth_Obj.decision_orth)
     {
         case 0:
@@ -148,6 +165,7 @@ void RF<T>::rf1_test_mode(
             RF::Orth_Obj.call(m, k, Q);
             break;
     }
+    */
 }
 
 template void RF<float>::rf1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, bool use_qr);

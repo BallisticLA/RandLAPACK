@@ -155,6 +155,12 @@ void QB<T>::QB2(
         lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, Q_dat + (m * curr_sz), m);	
         lacpy(MatrixType::General, block_sz, n, B_i_dat, block_sz, B_dat + curr_sz, k);
 
+        //char name_3[] = "QB1  output Q";
+        //RandBLAS::util::print_colmaj(m, k, Q.data(), name_3);
+
+        //char name_4[] = "QB1  output B";
+        //RandBLAS::util::print_colmaj(k, n, B.data(), name_4);
+
         if(QB::orth_check)
         {
             gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
@@ -196,6 +202,9 @@ void QB<T>::QB2(
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
         gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_dat, block_sz, 1.0, A_cpy_dat, m);
+
+        //char name_5[] = "A_updated";
+        //RandBLAS::util::print_colmaj(m, n, A_cpy_dat, name_5);
     }
     // Reached expected rank without achieving the tolerance
     QB::termination = 3;
@@ -303,9 +312,9 @@ void QB<T>::QB2_test_mode(
             if (orth_i_err > 1.0e-10)
             {
                 // Lost orthonormality of Q_i
-                RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
-                QB::termination = 4;
-                return;
+                //RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+                //QB::termination = 4;
+                //return;
             }
         }
 
@@ -313,9 +322,13 @@ void QB<T>::QB2_test_mode(
         if(curr_sz != 0)
         {
             // Q_i = orth(Q_i - Q(Q'Q_i))
-            gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, next_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, k);
-            gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, next_sz, -1.0, Q_dat, m, QtQi_dat, k, 1.0, Q_i_dat, m);
+            //gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, next_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, k);
+            //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, next_sz, -1.0, Q_dat, m, QtQi_dat, k, 1.0, Q_i_dat, m);
             // Always call HQR in test mode
+            //QB::Orth_Obj.call(m, block_sz, Q_i);
+            // Orthogonalization
+            QB::Orth_Obj.decision_orth = 1;
+            QB::Orth_Obj.tau.resize(k);
             QB::Orth_Obj.call(m, block_sz, Q_i);
         }
         //B_i = Q_i' * A
@@ -362,9 +375,9 @@ void QB<T>::QB2_test_mode(
             if (orth_err > 1.0e-10)
             {
                 // Lost orthonormality of Q
-                RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
-                QB::termination = 5;
-                return;
+                //RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+                //QB::termination = 5;
+                //return;
             }
         }
 
