@@ -55,7 +55,6 @@ void RS<T>::rs1(
 	{
 		// Fill n by k Omega
 		RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, seed);
-		return;
 	}
 	else
 	{

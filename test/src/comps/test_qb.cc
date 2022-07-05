@@ -95,8 +95,6 @@ represent an example of failing to use reference RandBLAS function as an argumen
         RandLAPACK::comps::orth::Stab<T> Stab(1);
 
         // RowSketcher constructor - Choose default (rs1)
-        //RandLAPACK::comps::rs::RS<T> RS(Stab, TestQB::check<T>, seed, p, passes_per_iteration, 0);
-        //RandLAPACK::comps::rs::RS<T> RS(Stab, RandBLAS::dense_op::gen_rmat_norm<T>, seed, p, passes_per_iteration, 0);
         RandLAPACK::comps::rs::RS<T> RS(Stab, seed, p, passes_per_iteration, 0);
 
         // Orthogonalization Constructor - Choose CholQR
@@ -458,7 +456,7 @@ template <typename T>
         using namespace blas; 
         int32_t seed = 0;
         // Number of repeated runs of the same test
-        int runs = 1;
+        int runs = 5;
 
         int64_t b_sz_init = block_sz;
         int64_t p_init = p;
@@ -550,7 +548,8 @@ TEST_F(TestQB, PlotTest)
     //test_buffer<double>(2048, 2048, 2048, 0, 64, 0, std::make_tuple(0, .5, false), 0);
     
     // Fast decay
-    test_QB2_plot<double>(2048, 2048, 64, 64, 0, 0, 0, 2, true);
+    //test_QB2_plot<double>(10, 10, 2, 2, 0, 0, 0, 2, true);
+    //test_QB2_plot<double>(2048, 2048, 64, 64, 0, 0, 0, 2, true);
     // Slow decay
     //test_QB2_plot<double>(1024, 4096, 16, 256, 0, 2, 0, 0.5, true);
 }
