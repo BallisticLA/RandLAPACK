@@ -36,6 +36,7 @@ class RS : public RowSketcher<T>
 		int64_t passes_over_data;
 		int64_t passes_per_stab;
 		int decision_RS;
+		std::vector<T> Omega_1;
 
 		RS(
 			RandLAPACK::comps::orth::Stab<T>& stab_obj,
@@ -67,7 +68,7 @@ class RS : public RowSketcher<T>
 			int64_t k,
 			std::vector<T>& Omega 
 		){
-			switch(RS::decision_RS)
+			switch(this->decision_RS)
 			{
 				case 0:
 					rs1(m, n, A, k, Omega);

@@ -36,16 +36,20 @@ void RS<T>::rs1(
 	using namespace blas;
 	using namespace lapack;
 	
-	int64_t p = RS::passes_over_data;
-	int64_t q = RS::passes_per_stab;
-	int32_t seed = RS::seed;
+	int64_t p = this->passes_over_data;
+	int64_t q = this->passes_per_stab;
+	int32_t seed = this->seed;
 	int64_t p_done= 0;
 
-	// Preallocations
-	std::vector<T> Omega_1(m * k, 0.0);
+	if(this->Omega_1.size() != m * k)
+		this->Omega_1.resize(m * k);
+		
 	// Setting stabilization parameters
-	RS::Stab_Obj.tau.resize(k);
-	RS::Stab_Obj.ipiv.resize(k);
+	if(this->Stab_Obj.ipiv.size() != k)
+		this->Stab_Obj.ipiv.resize(k);
+
+	if(this->Stab_Obj.tau.size() != k)
+		this->Stab_Obj.tau.resize(k);
 
 	const T* A_dat = A.data();
 	T* Omega_dat = Omega.data();
@@ -68,22 +72,22 @@ void RS<T>::rs1(
 		if (p_done % q == 0) 
 		{
 			// Use the specified stabilization routine
-			switch(RS::Stab_Obj.decision_stab)
+			switch(this->Stab_Obj.decision_stab)
 			{
 				// CholQR stabilization
 				case 0:
 					// Try CholQR stabilization
-					RS::Stab_Obj.call(n, k, Omega);
-					if(RS::Stab_Obj.chol_fail)
+					this->Stab_Obj.call(n, k, Omega);
+					if(this->Stab_Obj.chol_fail)
 					{
 						// If CholQR fails, fall back on PLU
-						RS::Stab_Obj.decision_stab = 1;
-						RS::Stab_Obj.call(n, k, Omega);
+						this->Stab_Obj.decision_stab = 1;
+						this->Stab_Obj.call(n, k, Omega);
 					}
 					break;
 				// PLU stabilization
 				case 1:
-					RS::Stab_Obj.call(n, k, Omega);
+					this->Stab_Obj.call(n, k, Omega);
 					break;
 			}
 		}
@@ -96,18 +100,18 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			switch(RS::Stab_Obj.decision_stab)
+			switch(this->Stab_Obj.decision_stab)
 			{
 				case 0:
-					RS::Stab_Obj.call(m, k, Omega_1);
-					if(RS::Stab_Obj.chol_fail)
+					this->Stab_Obj.call(m, k, Omega_1);
+					if(this->Stab_Obj.chol_fail)
 					{
-						RS::Stab_Obj.decision_stab = 1;
-						RS::Stab_Obj.call(m, k, Omega_1);
+						this->Stab_Obj.decision_stab = 1;
+						this->Stab_Obj.call(m, k, Omega_1);
 					}
 					break;
 				case 1:
-					RS::Stab_Obj.call(m, k, Omega_1);
+					this->Stab_Obj.call(m, k, Omega_1);
 					break;
 			}
 		}
@@ -117,18 +121,18 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			switch(RS::Stab_Obj.decision_stab)
+			switch(this->Stab_Obj.decision_stab)
 			{
 				case 0:
-					RS::Stab_Obj.call(n, k, Omega);
-					if(RS::Stab_Obj.chol_fail)
+					this->Stab_Obj.call(n, k, Omega);
+					if(this->Stab_Obj.chol_fail)
 					{
-						RS::Stab_Obj.decision_stab = 1;
-						RS::Stab_Obj.call(n, k, Omega);
+						this->Stab_Obj.decision_stab = 1;
+						this->Stab_Obj.call(n, k, Omega);
 					}
 					break;
 				case 1:
-					RS::Stab_Obj.call(n, k, Omega);
+					this->Stab_Obj.call(n, k, Omega);
 					break;
 			}
 		}

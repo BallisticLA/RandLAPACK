@@ -37,7 +37,11 @@ class RF : public RangeFinder<T>
                 RandLAPACK::comps::orth::Orth<T>& Orth_Obj;
                 bool verbosity;
                 bool cond_check;
-                
+                std::vector<T> Omega;
+                // Avoiding reallocation
+                std::vector<T> Q_cpy;
+                std::vector<T> s;
+
                 // Controls RF version to be used
                 int decision_RF;
 
@@ -85,14 +89,13 @@ class RF : public RangeFinder<T>
                         int64_t k,
                         std::vector<T>& Q
                 ){
-                        switch(RF::decision_RF)
+                        switch(this->decision_RF)
                         {
                                 case 0:
-                                        rf1(m, n, A, k, Q, RF::use_qr);
+                                        rf1(m, n, A, k, Q, this->use_qr);
                                         break;
-
                                 case 1:
-                                        rf1_test_mode(m, n, A, k, Q, RF::cond_num);
+                                        rf1_test_mode(m, n, A, k, Q, this->cond_num);
                                         break;
                         }
                 }

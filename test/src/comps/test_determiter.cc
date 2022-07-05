@@ -64,7 +64,6 @@ class TestDetermiterOLS : public ::testing::Test
         ASSERT_GE(iter_count, 2);
     }
 };
-
 /*
 TEST_F(TestDetermiterOLS, Trivial)
 {

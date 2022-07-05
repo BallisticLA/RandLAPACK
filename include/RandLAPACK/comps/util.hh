@@ -37,7 +37,7 @@ void disp_diag(
 );
 
 template <typename T> 
-void row_swap(
+void swap_rows(
         int64_t m,
         int64_t n,
         std::vector<T>& A, // pointer to the beginning
@@ -78,7 +78,7 @@ void gen_poly_mat(
         int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
-        T t, // controls the decay. The higher the value, the slower the decay
+        T t, // controls the decay. The higher the value, the faster the decay
         bool diagon,
         int32_t seed
 );
@@ -89,7 +89,7 @@ void gen_exp_mat(
         int64_t& n,
         std::vector<T>& A,
         int64_t k, // vector length
-        T t, // controls the decay. The higher the value, the slower the decay
+        T t, // controls the decay. The higher the value, the faster the decay
         bool diagon,
         int32_t seed
 );

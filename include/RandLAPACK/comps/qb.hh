@@ -39,6 +39,14 @@ class QB : public QBalg<T>
                 bool verbosity;
                 bool orth_check;
 
+                // Avoiding preallocations
+                std::vector<T> Q_gram;
+                std::vector<T> Q_i_gram;
+
+                std::vector<T> QtQi; 
+                std::vector<T> Q_i;
+                std::vector<T> B_i;
+
                 // Controls QB version to be used
                 int decision_QB;
 
@@ -95,12 +103,11 @@ class QB : public QBalg<T>
                         std::vector<T>& B
                 )
                 {
-                        switch(QB::decision_QB)
+                        switch(this->decision_QB)
                         {
                                 case 0:
                                         QB2(m, n, A, k, block_sz, tol, Q, B);
                                         break;
-
                                 case 1:
                                         QB2_test_mode(m, n, A, k, block_sz, tol, Q, B);
                                         break;

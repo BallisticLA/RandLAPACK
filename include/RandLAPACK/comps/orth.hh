@@ -1,6 +1,5 @@
 /*
-TODO: 
-	1. Figure out how to use Stabilization insted of Stab and Orth everywhere
+TODO #1: Figure out how to use Stabilization insted of Stab and Orth everywhere
         (do we also need Orthogonalization class? How to deal with shadowing problem if
         line 27 is uncommented?)
 */
@@ -15,7 +14,7 @@ namespace RandLAPACK::comps::orth {
 #define ORTH_CLASS
 
 template <typename T>
-class Stabiilization
+class Stabilization
 {
         virtual void call(
                 int64_t m,
@@ -25,17 +24,18 @@ class Stabiilization
 };
 
 template <typename T>
-class Orth //: public Stabiilization<T>
+class Orth //: public Stabilization<T> // TODO #1
 {
 	public:
                 std::vector<T> tau;
                 bool chol_fail;
                 int decision_orth;
+
+                // CholQR-specific
+                std::vector<T> Q_gram;
+
                 // Constructor
-                Orth(int decision)
-                {
-                        decision_orth = decision;
-                }
+                Orth(int decision = 0) : decision_orth(decision) {};
 
                 void CholQR(
                         int64_t m,
@@ -56,31 +56,27 @@ class Orth //: public Stabiilization<T>
                         int64_t k,
                         std::vector<T>& Q
                 ){
-                        switch(Orth::decision_orth)
+                        switch(this->decision_orth)
                         {
                                 case 0:
                                         CholQR(m, k, Q);
                                         break;
-
                                 case 1:
-                                        HQR(m, k, Q, Orth::tau);
+                                        HQR(m, k, Q, this->tau);
                                         break;
                         }
                 }
 };
 
 template <typename T>
-class Stab : public Orth<T>, public Stabiilization<T>
+class Stab : public Orth<T>, public Stabilization<T>
 {
 	public:
                 std::vector<int64_t> ipiv;
                 int decision_stab;
                 
                 // Constructor
-                Stab(int decision) : Orth<T>::Orth(decision)
-                {
-                        decision_stab = decision;
-                }      
+                Stab(int decision = 0) : Orth<T>::Orth(decision), decision_stab(decision) {};
 
                 void PLU(
                         int64_t m,
@@ -95,14 +91,13 @@ class Stab : public Orth<T>, public Stabiilization<T>
                         int64_t k,
                         std::vector<T>& Q
                 ){
-                        switch(Stab::decision_stab)
+                        switch(this->decision_stab)
                         {
                                 case 0:
-                                        this -> CholQR(m, k, Q);
+                                        this->CholQR(m, k, Q);
                                         break;
-
                                 case 1:
-                                        PLU(m, k, Q, Stab::ipiv);
+                                        PLU(m, k, Q, this->ipiv);
                                         break;
                         }
                 }

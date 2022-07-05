@@ -77,8 +77,8 @@ represent an example of failing to use reference RandBLAS function as an argumen
         T* S_dat = S.data();
         T* VT_dat = VT.data();
         
-        char name1[] = "A";
-        RandBLAS::util::print_colmaj(m, n, A.data(), name1);
+        //char name1[] = "A";
+        //RandBLAS::util::print_colmaj(m, n, A.data(), name1);
 
         // Create a copy of the original matrix
         copy(size, A_dat, 1, A_cpy_dat, 1);
@@ -456,7 +456,7 @@ template <typename T>
         using namespace blas; 
         int32_t seed = 0;
         // Number of repeated runs of the same test
-        int runs = 5;
+        int runs = 1;
 
         int64_t b_sz_init = block_sz;
         int64_t p_init = p;
@@ -508,7 +508,7 @@ template <typename T>
         printf("|====================================TEST QB2 PLOT END====================================|\n");
     }
 };
-/*
+
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -518,7 +518,7 @@ TEST_F(TestQB, SimpleTest)
         // Slow polynomial decay test
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
         // Superfast exponential decay test
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(1, 0.5, false), seed);
+        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2, false), seed);
         // S-shaped decay matrix test 
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
         // A = [A A]
@@ -537,7 +537,7 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
     }
 }
-*/
+
 
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
@@ -549,7 +549,7 @@ TEST_F(TestQB, PlotTest)
     
     // Fast decay
     //test_QB2_plot<double>(10, 10, 2, 2, 0, 0, 0, 2, true);
-    //test_QB2_plot<double>(2048, 2048, 64, 64, 0, 0, 0, 2, true);
+    test_QB2_plot<double>(2048, 2048, 64, 64, 0, 0, 0, 2, true);
     // Slow decay
     //test_QB2_plot<double>(1024, 4096, 16, 256, 0, 2, 0, 0.5, true);
 }

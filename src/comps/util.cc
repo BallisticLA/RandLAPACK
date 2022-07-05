@@ -1,3 +1,7 @@
+/*
+TODO #1: Test get_L.
+*/
+
 #include <RandLAPACK/comps/util.hh>
 
 #include <iostream>
@@ -79,7 +83,7 @@ void get_L(
     
         for(int i = m, j = 1; i < size && j < m; i += m, ++j) 
         {             
-                std::for_each(L_dat + i, L_dat + i + j,
+                std::for_each(&L_dat[i], &L_dat[i + j],
                         // Lambda expression begins
                         [](T& entry)
                         {
@@ -93,7 +97,7 @@ void get_L(
 
 // Addressing Pivoting
 template <typename T> 
-void row_swap(
+void swap_rows(
         int64_t m,
         int64_t n,
         std::vector<T>& A, // pointer to the beginning
@@ -107,8 +111,8 @@ void row_swap(
 
         for (int i = 0, j = 0; i < n; ++i)
         {
-                j = *(p_dat + i) - 1;
-                swap<T, T>(n, A_dat + i, m, A_dat + j, m);
+                j = p_dat[i] - 1;
+                swap<T, T>(n, &A_dat[i], m, &A_dat[j], m);
         }
 }
 
@@ -117,7 +121,7 @@ template <typename T>
 void row_resize(
         int64_t m,
         int64_t n,
-        std::vector<T>& A, // pointer to the beginning
+        std::vector<T>& A,
         int64_t k
 ) {     
         using namespace blas;
@@ -127,7 +131,7 @@ void row_resize(
         for (int i = 1; i < n; ++i)
         {
                 // Place jth column (of k entries) after the (j - 1)st column
-                copy(k, A_dat + (m * i), 1, A_dat + end, 1);
+                copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
                 end += k;
         }
         // Cut off the end
@@ -173,7 +177,7 @@ void gen_mat_type(
                         break;
                 case 1:
                         // Generating matrix with exponentially decaying singular values
-                        printf("TEST MATRIX: EXPONENTIAL DECAY sigma_i = e^((i + 1) / -pow) (first k * 0.2 sigmas = 1)\n");
+                        printf("TEST MATRIX: EXPONENTIAL DECAY sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1)\n");
                         RandLAPACK::comps::util::gen_exp_mat<T>(m, n, A, k, std::get<1>(type), std::get<2>(type), seed); 
                         break;
                 case 2:
@@ -187,7 +191,7 @@ void gen_mat_type(
                         RandBLAS::dense_op::gen_rmat_norm<T>(m, k, A_dat, seed);
                         if (2 * k <= n)
                         {
-                        copy(m * (n / 2), A_dat, 1, A_dat + (n / 2) * m, 1);
+                        copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
                         }
                         break;
                 case 4:
@@ -291,7 +295,7 @@ void gen_exp_mat(
                 // Lambda expression begins
                 [&t, &cnt](T& entry)
                 {
-                        entry = (std::exp(++cnt / -t));
+                        entry = (std::exp(++cnt * -t));
                 }
         );
         
@@ -408,8 +412,8 @@ template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A);
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A);
 
-template void row_swap(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
-template void row_swap(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
+template void swap_rows(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
+template void swap_rows(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
 
 template void row_resize(int64_t m, int64_t n, std::vector<float>& A, int64_t k);
 template void row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k);
