@@ -4,6 +4,11 @@
 
 #include <math.h>
 
+#define ORTHONORM_CHECKS
+#define COND_CHECK
+#define VERBOSE
+#define USE_QR
+
 namespace RandLAPACK::comps::qb {
 
 template <typename T>
@@ -322,14 +327,11 @@ void QB<T>::QB2_test_mode(
         if(curr_sz != 0)
         {
             // Q_i = orth(Q_i - Q(Q'Q_i))
-            //gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, next_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, k);
-            //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, next_sz, -1.0, Q_dat, m, QtQi_dat, k, 1.0, Q_i_dat, m);
+            gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, k);
+            gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, k, -1.0, Q_dat, m, QtQi_dat, k, 1.0, Q_i_dat, m);
             // Always call HQR in test mode
-            //QB::Orth_Obj.call(m, block_sz, Q_i);
-            // Orthogonalization
-            QB::Orth_Obj.decision_orth = 1;
-            QB::Orth_Obj.tau.resize(k);
             QB::Orth_Obj.call(m, block_sz, Q_i);
+            // Orthogonalization
         }
         //B_i = Q_i' * A
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
