@@ -64,24 +64,10 @@ void QB<T>::QB2(
         B.resize(n * k);
     }
 
-
-    if(this->verbosity && this->orth_check)
+    if(this->orth_check)
     {
-        printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
-    }
-    std::vector<T> Q_gram(k * k, 0.0);
-    std::vector<T> Q_i_gram(block_sz * block_sz, 0.0);
-
-    std::vector<T> QtQi(k * block_sz, 0.0); 
-    std::vector<T> Q_i(m * block_sz, 0.0);
-    std::vector<T> B_i(block_sz * n, 0.0);
-
-
-    this->Orth_Obj.tau.resize(block_sz);
-/*
-    if(this->verbosity && this->orth_check)
-    {
-        printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
+        if (this->verbosity)
+            printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
         if (this->Q_gram.size() != k * k)
             this->Q_gram.resize(k * k);
         if (this->Q_i_gram.size() != block_sz * block_sz)
@@ -95,20 +81,18 @@ void QB<T>::QB2(
         this->Q_i.resize(m * block_sz);
     if (this->B_i.size() != block_sz * n)
         this->B_i.resize(block_sz * n);
-
-    if (this->Orth_Obj.tau.size() == block_sz)
-        this->Orth_Obj.tau.resize(block_sz)
-*/
+    if (this->Orth_Obj.tau.size() != block_sz)
+        this->Orth_Obj.tau.resize(block_sz);
 
     // Only used if cond_check flag is enabled
-    T* Q_gram_dat = Q_gram.data();
-    T* Q_i_gram_dat = Q_i_gram.data();
+    T* Q_gram_dat = this->Q_gram.data();
+    T* Q_i_gram_dat = this->Q_i_gram.data();
 
     T* Q_dat = Q.data();
     T* B_dat = B.data();
-    T* Q_i_dat = Q_i.data();
-    T* B_i_dat = B_i.data();
-    T* QtQi_dat = QtQi.data();
+    T* Q_i_dat = this->Q_i.data();
+    T* B_i_dat = this->B_i.data();
+    T* QtQi_dat = this->QtQi.data();
 
     while(k > curr_sz)
     {
@@ -117,7 +101,7 @@ void QB<T>::QB2(
         int next_sz = curr_sz + block_sz;
 
         this->RF_Obj.RS_Obj.seed += n * block_sz;
-        this->RF_Obj.call(m, n, A_cpy, block_sz, Q_i);
+        this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i);
 
         if(this->orth_check)
         {
@@ -157,15 +141,15 @@ void QB<T>::QB2(
             {
                 // No need to perform failure check here, as RF1 will notify in advance
                 // Done via CholQR
-                this->Orth_Obj.call(m, block_sz, Q_i);
+                this->Orth_Obj.call(m, block_sz, this->Q_i);
                 // Performing the alg twice for better orthogonality	
-                this->Orth_Obj.call(m, block_sz, Q_i);
+                this->Orth_Obj.call(m, block_sz, this->Q_i);
             }
             else
             {
                 this->Orth_Obj.decision_orth = 1;
                 // Done via regular LAPACK's QR
-                this->Orth_Obj.call(m, block_sz, Q_i);
+                this->Orth_Obj.call(m, block_sz, this->Q_i);
             }
         }
         //B_i = Q_i' * A
@@ -284,28 +268,33 @@ void QB<T>::QB2_test_mode(
         B.resize(n * k);
     }
 
-    if(this->verbosity && this->orth_check)
+    if(this->orth_check)
     {
-        printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
-    } 
-    std::vector<T> Q_gram(k * k, 0.0);
-    std::vector<T> Q_i_gram(block_sz * block_sz, 0.0);
+        if (this->verbosity)
+            printf("\nQ ORTHOGONALITY CHECK ENABLED\n\n");
+        if (this->Q_gram.size() != k * k)
+            this->Q_gram.resize(k * k);
+        if (this->Q_i_gram.size() != block_sz * block_sz)
+            this->Q_i_gram.resize(block_sz * block_sz);
+    }
 
-    T* Q_gram_dat = Q_gram.data();
-    T* Q_i_gram_dat = Q_i_gram.data();
+    if (this->QtQi.size() != k * block_sz)
+        this->QtQi.resize(k * block_sz);
+    if (this->Q_i.size() != m * block_sz)
+        this->Q_i.resize(m * block_sz);
+    if (this->B_i.size() != block_sz * n)
+        this->B_i.resize(block_sz * n);
+    if (this->Orth_Obj.tau.size() != block_sz)
+        this->Orth_Obj.tau.resize(block_sz);
 
-
-    std::vector<T> Q_i(m * block_sz, 0.0);
-    std::vector<T> B_i(block_sz * n, 0.0);
-    std::vector<T> QtQi(k * block_sz, 0.0); 
-
-    this->Orth_Obj.tau.resize(block_sz);
+    T* Q_gram_dat = this->Q_gram.data();
+    T* Q_i_gram_dat = this->Q_i_gram.data();
 
     T* Q_dat = Q.data();
     T* B_dat = B.data();
-    T* Q_i_dat = Q_i.data();
-    T* B_i_dat = B_i.data();
-    T* QtQi_dat = QtQi.data();
+    T* Q_i_dat = this->Q_i.data();
+    T* B_i_dat = this->B_i.data();
+    T* QtQi_dat = this->QtQi.data();
     T* cond_nums_dat = this->cond_nums.data();
 
     // No matter what parameters the user provided, always switch to test mode and using default Householder QR
@@ -319,7 +308,7 @@ void QB<T>::QB2_test_mode(
         int next_sz = curr_sz + block_sz;
 
         this->RF_Obj.RS_Obj.seed += n * block_sz;
-        this->RF_Obj.call(m, n, A_cpy, block_sz, Q_i);
+        this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i);
         // Would be nice to update through pointers instead
         this->cond_nums[curr_sz / block_sz] = this->RF_Obj.cond_num;
 
@@ -354,7 +343,7 @@ void QB<T>::QB2_test_mode(
             gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, k);
             gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, k, 1.0, Q_i_dat, m);
             // Always call HQR in test mode
-            this->Orth_Obj.call(m, block_sz, Q_i);
+            this->Orth_Obj.call(m, block_sz, this->Q_i);
         }
         //B_i = Q_i' * A
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
@@ -382,17 +371,15 @@ void QB<T>::QB2_test_mode(
 
         if(this->orth_check)
         {
-            //Q_gram.resize(next_sz * next_sz);
-
             gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                k, k, m,
+                next_sz, next_sz, m,
                 1.0, Q_dat, m, Q_dat, m,
-                0.0, Q_gram_dat, k
+                0.0, Q_gram_dat, next_sz
             );
             for (int oi = 0; oi < next_sz; ++oi) {
-                Q_gram_dat[oi * k + oi] -= 1.0;
+                Q_gram_dat[oi * next_sz + oi] -= 1.0;
             }
-            T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
+            T orth_err = lange(Norm::Fro, next_sz, next_sz, Q_gram_dat, next_sz);
             
             if(this->verbosity)
             {

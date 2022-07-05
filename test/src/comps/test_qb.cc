@@ -508,7 +508,7 @@ template <typename T>
         printf("|====================================TEST QB2 PLOT END====================================|\n");
     }
 };
-
+/*
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -537,8 +537,8 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
     }
 }
-
-
+*/
+/*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
 // Running tests without the orthogonality loss check to ensure normal termination
@@ -553,4 +553,4 @@ TEST_F(TestQB, PlotTest)
     // Slow decay
     //test_QB2_plot<double>(1024, 4096, 16, 256, 0, 2, 0, 0.5, true);
 }
-
+*/

@@ -227,10 +227,9 @@ TEST_F(TestOrth, SimpleTest)
 {
 }
 */
-/*
+
 // Cache size of my processor is 24 megs
 TEST_F(TestOrth, InOutCacheSpeedTest)
 {
-    test_speed<double>(12, 14, 7, 9, 100);
+    test_speed<double>(12, 12, 7, 7, 100);
 }
-*/
