@@ -456,7 +456,7 @@ template <typename T>
         using namespace blas; 
         int32_t seed = 0;
         // Number of repeated runs of the same test
-        int runs = 1;
+        int runs = 5;
 
         int64_t b_sz_init = block_sz;
         int64_t p_init = p;
@@ -508,7 +508,7 @@ template <typename T>
         printf("|====================================TEST QB2 PLOT END====================================|\n");
     }
 };
-/*
+
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -537,7 +537,7 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
     }
 }
-*/
+
 /*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
@@ -547,10 +547,9 @@ TEST_F(TestQB, PlotTest)
     // Quick check
     //test_buffer<double>(2048, 2048, 2048, 0, 64, 0, std::make_tuple(0, .5, false), 0);
     
+    // Slow_decay
+    test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 2, true);
     // Fast decay
-    //test_QB2_plot<double>(10, 10, 2, 2, 0, 0, 0, 2, true);
-    test_QB2_plot<double>(2048, 2048, 64, 64, 0, 0, 0, 2, true);
-    // Slow decay
-    //test_QB2_plot<double>(1024, 4096, 16, 256, 0, 2, 0, 0.5, true);
+    test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 0.5, true);
 }
 */

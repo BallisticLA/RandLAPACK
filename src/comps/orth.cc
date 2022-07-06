@@ -1,6 +1,8 @@
 /*
 TODO #1: only store the upper triangle of the gram matrix in gram_vec,
 so that it can be of size k*(k+1)/2 instead of k*k.
+
+TODO #2: reisze class memeber vectors inside the routines.
 */
 
 #include <lapack.hh>
@@ -63,19 +65,31 @@ void Orth<T>::HQR(
         // tau needs to be a vector of all 2's by default
         using namespace lapack;
 
-        std::vector<T> Tvec (5, 0);
-
         T* A_dat = A.data();
 	T* tau_dat = tau.data();
-        /*
-        // To perform TSQR-like orthogonalization. Currently, Q extraction step is not in lapackpp.
-        geqr(m, n, A_dat, m, Tvec.data(), -1);
-        int64_t tsize = (int64_t) Tvec[0]; 
-        Tvec.resize(tsize);
-        geqr(m, n, A_dat, m, Tvec.data(), tsize);
-        */
         geqrf(m, n, A_dat, m, tau_dat);
         ungqr(m, n, n, A_dat, m, tau_dat);
+}
+
+// GEQR lack "unpacking" of Q
+template <typename T> 
+void Orth<T>::GEQR(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        std::vector<T>& tvec
+){
+        using namespace lapack;
+
+        tvec.resize(5);
+
+        T* A_dat = A.data();
+        T* tvec_dat = tvec.data();
+        
+        geqr(m, n, A_dat, m, tvec_dat, -1);
+        int64_t tsize = (int64_t) tvec[0]; 
+        tvec.resize(tsize);
+        geqr(m, n, A_dat, m, tvec.data(), tsize);
 }
 
 template void Orth<float>::CholQR(int64_t m, int64_t k, std::vector<float>& Q);
@@ -87,4 +101,6 @@ template void Stab<double>::PLU(int64_t m, int64_t n, std::vector<double>& A, st
 template void Orth<float>::HQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
 template void Orth<double>::HQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
 
+template void Orth<float>::GEQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
+template void Orth<double>::GEQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
 } // end namespace orth

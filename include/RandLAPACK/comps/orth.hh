@@ -27,6 +27,7 @@ template <typename T>
 class Orth //: public Stabilization<T> // TODO #1
 {
 	public:
+                std::vector<T> tvec;
                 std::vector<T> tau;
                 bool chol_fail;
                 int decision_orth;
@@ -50,6 +51,13 @@ class Orth //: public Stabilization<T> // TODO #1
                         std::vector<T>& tau
                 );
 
+                void GEQR(
+                        int64_t m,
+                        int64_t n,
+                        std::vector<T>& A,
+                        std::vector<T>& tvec
+                );
+
                 // Control of Orth types calls.
                 void call(
                         int64_t m,
@@ -64,6 +72,8 @@ class Orth //: public Stabilization<T> // TODO #1
                                 case 1:
                                         HQR(m, k, Q, this->tau);
                                         break;
+                                case 2: 
+                                        GEQR(m, k, Q, this->tvec);
                         }
                 }
 };
