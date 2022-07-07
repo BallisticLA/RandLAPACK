@@ -50,9 +50,6 @@ class QB : public QBalg<T>
                 // Controls QB version to be used
                 int decision_QB;
 
-                // Implementation-specific vars
-                std::vector<T> cond_nums;
-
                 // Output
                 int termination;
 

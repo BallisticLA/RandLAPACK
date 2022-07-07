@@ -3,7 +3,7 @@ TODO #1: Update implementation so that no copy of the original data is needed.
 
 TODO #2: Resize Q, B dynamically, no pre-allocation
 
-TODO #3: Differentiate test_mode and generic routine via comments.
+TODO #3: Merge test_mod and normal routine
 */
 
 #include <RandBLAS.hh>
@@ -295,7 +295,6 @@ void QB<T>::QB2_test_mode(
     T* Q_i_dat = this->Q_i.data();
     T* B_i_dat = this->B_i.data();
     T* QtQi_dat = this->QtQi.data();
-    T* cond_nums_dat = this->cond_nums.data();
 
     // No matter what parameters the user provided, always switch to test mode and using default Householder QR
     //this->RF_Obj.decision_RF = 1;
@@ -309,8 +308,6 @@ void QB<T>::QB2_test_mode(
 
         this->RF_Obj.RS_Obj.seed += n * block_sz;
         this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i);
-        // Would be nice to update through pointers instead
-        this->cond_nums[curr_sz / block_sz] = this->RF_Obj.cond_num;
 
         if(this->orth_check)
         {

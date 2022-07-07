@@ -35,8 +35,15 @@ class RS : public RowSketcher<T>
 		int32_t seed;
 		int64_t passes_over_data;
 		int64_t passes_per_stab;
+		bool verbosity;
+		bool cond_check;
 		int decision_RS;
 		std::vector<T> Omega_1;
+		std::vector<T> cond_nums;
+		// Avoiding reallocation
+		std::vector<T> Omega_cpy;
+		std::vector<T> Omega_1_cpy;
+		std::vector<T> s;
 
 		RS(
 			RandLAPACK::comps::orth::Stab<T>& stab_obj,
@@ -44,9 +51,13 @@ class RS : public RowSketcher<T>
 			int32_t s, 
 			int64_t p, 
 			int64_t q,
+			bool verb,
+			bool cond,
 			int decision
 		) : Stab_Obj(stab_obj)//, SketchOpGen(sk_gen)
 		{
+			verbosity = verb;
+			cond_check = cond;
 			seed = s;
 			passes_over_data = p;
 			passes_per_stab = q;

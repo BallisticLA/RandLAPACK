@@ -116,6 +116,28 @@ void RS<T>::rs1(
 			}
 		}
 
+		// Condition number check
+		if (this->cond_check)
+		{
+			// Copy to avoid any changes
+			if(this->Omega_1_cpy.size() != m * k)
+				this->Omega_1_cpy.resize(m * k);
+			if(this->s.size() != k)
+				this->s.resize(k);
+
+			T* Omega_1_cpy_dat = this->Omega_1_cpy.data();
+			T* s_dat = this->s.data();
+
+			lacpy(MatrixType::General, m, k, Omega_1_dat, m, Omega_1_cpy_dat, m);
+			gesdd(Job::NoVec, m, k, Omega_1_cpy_dat, m, s_dat, NULL, m, NULL, k);
+			T cond_num = s_dat[0] / s_dat[k - 1];
+
+			if (this->verbosity)
+				printf("CONDITION NUMBER OF OMEGA IS: %f\n", cond_num);
+			
+			this->cond_nums.push_back(cond_num);
+		}
+
 		// Omega = A' * Omega
 		gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);
 		++ p_done;
@@ -135,6 +157,28 @@ void RS<T>::rs1(
 					this->Stab_Obj.call(n, k, Omega);
 					break;
 			}
+		}
+
+		// Condition number check
+		if (this->cond_check)
+		{
+			// Copy to avoid any changes
+			if(this->Omega_cpy.size() != n * k)
+				this->Omega_cpy.resize(n * k);
+			if(this->s.size() != k)
+				this->s.resize(k);
+
+			T* Omega_cpy_dat = this->Omega_cpy.data();
+			T* s_dat = this->s.data();
+
+			lacpy(MatrixType::General, n, k, Omega_dat, n, Omega_cpy_dat, n);
+			gesdd(Job::NoVec, n, k, Omega_cpy_dat, n, s_dat, NULL, n, NULL, k);
+			T cond_num = s_dat[0] / s_dat[k - 1];
+
+			if (this->verbosity)
+				printf("CONDITION NUMBER OF OMEGA IS: %f\n", cond_num);
+			
+			this->cond_nums.push_back(cond_num);
 		}
 	}
 }

@@ -46,7 +46,7 @@ class RF : public RangeFinder<T>
                 int decision_RF;
 
                 // Implementation-specific vars
-                T cond_num; // Condition nuber of a sketch
+                std::vector<T> cond_nums; // Condition nubers of sketches
                 bool use_qr; // Use QR if CholQR fails - technically, can just alter the decifion variable
 
 		// Constructor
@@ -78,7 +78,7 @@ class RF : public RangeFinder<T>
                         const std::vector<T>& A,
                         int64_t k,
                         std::vector<T>& Q,
-                        T& cond_num
+                        std::vector<T>& cond_nums
                 );
 
                 // Control of RF types calls.
@@ -95,7 +95,7 @@ class RF : public RangeFinder<T>
                                         rf1(m, n, A, k, Q, this->use_qr);
                                         break;
                                 case 1:
-                                        rf1_test_mode(m, n, A, k, Q, this->cond_num);
+                                        rf1_test_mode(m, n, A, k, Q, this->cond_nums);
                                         break;
                         }
                 }

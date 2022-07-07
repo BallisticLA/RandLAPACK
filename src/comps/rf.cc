@@ -1,5 +1,5 @@
 /*
-TODO #1: Differentiate test_mode and generic routine via comments.
+TODO #1: Merge test_mod and normal routine
 */
 #include <lapack.hh>
 #include <RandBLAS.hh>
@@ -51,8 +51,8 @@ void RF<T>::rf1(
 
         if (this->verbosity)
             printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
-        
-        this->cond_num = cond_num;
+
+        this->cond_nums.push_back(cond_num);
     }
 
     // Orthogonalization
@@ -94,7 +94,7 @@ void RF<T>::rf1_test_mode(
     const std::vector<T>& A,
     int64_t k,
     std::vector<T>& Q,
-    T& cond_num
+    std::vector<T>& cond_nums
 ){
     using namespace blas;
     using namespace lapack;
@@ -128,7 +128,7 @@ void RF<T>::rf1_test_mode(
         if (this->verbosity)
             printf("CONDITION NUMBER OF SKETCH Q_i: %f\n", cond_num);
         
-        this->cond_num = cond_num;
+        cond_nums.push_back(cond_num);
     }
 
     switch(this->Orth_Obj.decision_orth)
@@ -165,6 +165,6 @@ void RF<T>::rf1_test_mode(
 template void RF<float>::rf1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, bool use_qr);
 template void RF<double>::rf1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, bool use_qr);
 
-template void RF<float>::rf1_test_mode(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, float& cond_num);
-template void RF<double>::rf1_test_mode(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, double& cond_num);
+template void RF<float>::rf1_test_mode(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q, std::vector<float>& cond_num);
+template void RF<double>::rf1_test_mode(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Q, std::vector<double>& cond_num);
 } // end namespace RandLAPACK::comps::rf

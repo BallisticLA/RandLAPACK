@@ -95,7 +95,7 @@ represent an example of failing to use reference RandBLAS function as an argumen
         RandLAPACK::comps::orth::Stab<T> Stab(1);
 
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::comps::rs::RS<T> RS(Stab, seed, p, passes_per_iteration, 0);
+        RandLAPACK::comps::rs::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
         RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
@@ -267,7 +267,7 @@ template <typename T>
         RandLAPACK::comps::orth::Stab<double> Stab(0);
 
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, 0);
+        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
         RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
@@ -351,9 +351,11 @@ template <typename T>
         printf("|================================TEST QB2 K = min(M, N) END================================|\n");
     }
 
-    //Varying tol, k = min(m, n)
+// Define a new return type
+typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
+
     template <typename T>
-    static std::vector<T> test_QB2_plot_helper(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
+    static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
 
         using namespace blas;
         using namespace lapack;
@@ -394,7 +396,7 @@ template <typename T>
         RandLAPACK::comps::orth::Stab<double> Stab(1);
 
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, 0);
+        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor
         RandLAPACK::comps::orth::Orth<T> Orth_RF(1);
@@ -407,9 +409,6 @@ template <typename T>
 
         // QB constructor - Choose QB2_test_mode
         RandLAPACK::comps::qb::QB<double> QB(RF, Orth_QB, verbosity, orth_check, 1);
-
-        //WARNING: block_sz may change.
-        QB.cond_nums.resize(k / block_sz);
 
         // Test mode QB2
         QB.call(
@@ -446,7 +445,8 @@ template <typename T>
         }
         printf("Inner dimension of QB: %ld\n", k);
 
-        return QB.cond_nums;
+        printf("SIZE IS %ld\n", RS.cond_nums.size());
+        return std::make_pair(RF.cond_nums, RS.cond_nums);
     }
 
     template <typename T>
@@ -468,13 +468,14 @@ template <typename T>
             // varying block size
             for (; block_sz <= max_b_sz; block_sz *= 4)
             {
-                int64_t v_sz = k / block_sz;  
-                std::vector<T> all_vecs(v_sz * (runs + 1));
-                T* all_vecs_dat = all_vecs.data();
+                // Making RF's ALL_VEC
+                int64_t v_RF_sz = k / block_sz;  
+                std::vector<T> all_vecs_RF(v_RF_sz * (runs + 1));
+                T* all_vecs_RF_dat = all_vecs_RF.data();
 
                 // fill the 1st coumn with iteration indexes
                 int cnt = 0;
-                std::for_each(all_vecs_dat, all_vecs_dat + v_sz,
+                std::for_each(all_vecs_RF_dat, all_vecs_RF_dat + v_RF_sz,
                         // Lambda expression begins
                         [&cnt](T& entry)
                         {
@@ -486,21 +487,60 @@ template <typename T>
                 p = p_init;
                 for (; p <= max_p; p += 2)
                 {
+                    // Making RS's ALL_VEC
+                    int64_t v_RS_sz = p * k / block_sz;  
+                    std::vector<T> all_vecs_RS(v_RS_sz * (runs + 1));
+                    T* all_vecs_RS_dat = all_vecs_RS.data();
+
+                    // fill the 1st coumn with iteration indexes
+                    int cnt = 0;
+                    std::for_each(all_vecs_RS_dat, all_vecs_RS_dat + v_RS_sz,
+                            // Lambda expression begins
+                            [&cnt](T& entry)
+                            {
+                                    entry = ++cnt;
+                            }
+                    );
+             
                     for (int i = 1; i < (runs + 1); ++i)
                     {
                         // Grab the vetcor of condition numbers
-                        std::vector<T>cond_nums = test_QB2_plot_helper<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), ++seed);
-                        copy<T, T>(v_sz, cond_nums.data(), 1, all_vecs_dat + (v_sz * i), 1);
+                        vector_pair cond_nums = test_QB2_plot_helper_run<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), ++seed);
+                        // Fill RF
+                        copy<T, T>(v_RF_sz, cond_nums.first.data(), 1, all_vecs_RF_dat + (v_RF_sz * i), 1);
+                        // Fill RS
+                        if(v_RS_sz > 0)
+                        {
+                            copy<T, T>(v_RS_sz, cond_nums.second.data(), 1, all_vecs_RS_dat + (v_RS_sz * i), 1);
+                        
+                        
+
+                        }
                     }
                     
                     // Save array as .dat file - generic plot
-                    std::ofstream file("../../build/test_plots/test_cond/raw_data/test_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat");
+                    std::string path_RF = "../../build/test_plots/test_cond/raw_data/test_RF_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
+                    std::string path_RS = "../../build/test_plots/test_cond/raw_data/test_RS_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
+
+                    std::ofstream file_RF(path_RF);
                     //unfortunately, cant do below with foreach
-                    for (int i = 0; i < v_sz; ++ i)
+                    for (int i = 0; i < v_RF_sz; ++ i)
                     {
-                        T* entry = all_vecs_dat + i;
+                        T* entry = all_vecs_RF_dat + i;
                         // how to simplify this expression?
-                        file << *(entry) << "  " << *(entry + v_sz) << "  " << *(entry + (2 * v_sz)) << "  " << *(entry + (3 * v_sz)) << "  " << *(entry + (4 * v_sz)) << "  " << *(entry + (5 * v_sz)) << "\n";
+                        file_RF << *(entry) << "  " << *(entry + v_RF_sz) << "  " << *(entry + (2 * v_RF_sz)) << "  " << *(entry + (3 * v_RF_sz)) << "  " << *(entry + (4 * v_RF_sz)) << "  " << *(entry + (5 * v_RF_sz)) << "\n";
+                    }
+
+                    if(v_RS_sz > 0)
+                    {
+                        std::ofstream file_RS(path_RS);
+                        //unfortunately, cant do below with foreach
+                        for (int i = 0; i < v_RS_sz; ++ i)
+                        {
+                            T* entry = all_vecs_RS_dat + i;
+                            // how to simplify this expression?
+                            file_RS << *(entry) << "  " << *(entry + v_RS_sz) << "  " << *(entry + (2 * v_RS_sz)) << "  " << *(entry + (3 * v_RS_sz)) << "  " << *(entry + (4 * v_RS_sz)) << "  " << *(entry + (5 * v_RS_sz)) << "\n";
+                        }
                     }
                 }
             }
@@ -508,7 +548,7 @@ template <typename T>
         printf("|====================================TEST QB2 PLOT END====================================|\n");
     }
 };
-
+/*
 TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -537,19 +577,17 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
     }
 }
+*/
 
-/*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
 // Running tests without the orthogonality loss check to ensure normal termination
 TEST_F(TestQB, PlotTest)
-{ 
-    // Quick check
-    //test_buffer<double>(2048, 2048, 2048, 0, 64, 0, std::make_tuple(0, .5, false), 0);
-    
+{   
     // Slow_decay
-    test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 2, true);
+    //test_QB2_plot<double>(1024, 1024, 16, 16, 2, 2, 0, 2, true);
+    test_QB2_plot<double>(2048, 2048, 128, 128, 2, 2, 0, 2, true);
     // Fast decay
-    test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 0.5, true);
+    //test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 0.5, true);
 }
-*/
+
