@@ -244,6 +244,76 @@ class TestOrth : public ::testing::Test
             }
         }
     }
+
+    template <typename T>
+    static void 
+    test_speed_mean(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
+    {
+        int64_t rows = 0;
+        int64_t cols = 0;
+
+        T chol_avg = 0;
+        T lu_avg = 0;
+        T qr_avg = 0;
+        T geqr_avg = 0;
+
+        for(; r_pow <= r_pow_max; ++r_pow)
+        {
+            rows = std::pow(2, r_pow);
+            int c_buf = c_pow;
+
+            for (; c_buf <= c_pow_max; ++c_buf)
+            {
+                cols = std::pow(2, c_buf);
+
+                std::tuple<long, long, long, long> res;
+                long t_chol = 0;
+                long t_lu   = 0;
+                long t_qr   = 0;
+                long t_geqr = 0;
+
+                long curr_t_chol = 0;
+                long curr_t_lu   = 0;
+                long curr_t_qr   = 0;
+                long curr_t_geqr = 0;
+
+                for(int i = 0; i < runs; ++i)
+                {
+                    res = test_speed_helper<T>(rows, cols, 1);
+                    curr_t_chol = std::get<0>(res);
+                    curr_t_lu   = std::get<1>(res);
+                    curr_t_qr   = std::get<2>(res);
+                    curr_t_geqr = std::get<3>(res);
+
+                    // Skip first iteration, as it tends to produce garbage results
+                    if (i != 0)
+                    {
+                
+                        t_chol += curr_t_chol;
+                        t_lu   += curr_t_lu;
+                        t_qr   += curr_t_qr;
+                        t_geqr += curr_t_geqr;
+                    }
+                }
+
+                chol_avg = (T)t_chol / (T)(runs - 1);
+                lu_avg   = (T)t_lu   / (T)(runs - 1);
+                qr_avg   = (T)t_qr   / (T)(runs - 1);
+                geqr_avg   = (T)t_geqr   / (T)(runs - 1);
+
+                // Save the output into .dat file
+                std::ofstream file("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat");
+                file << chol_avg << "  " << lu_avg << "  " << qr_avg << "  " << geqr_avg << "\n";
+
+                printf("\nMatrix size: %ld by %ld.\n", rows, cols);
+                printf("Average timing of Chol QR for %d runs: %f μs.\n", runs, chol_avg);
+                printf("Average timing of Pivoted LU for %d runs: %f μs.\n", runs, lu_avg);
+                printf("Average timing of Householder QR for %d runs: %f μs.\n", runs, qr_avg);
+                printf("Average timing of GEQR for %d runs: %f μs.\n", runs, geqr_avg);
+                printf("\nResult: cholQR is %f times faster then HQR, %f times faster then GEQR and %f times faster then PLU.\n", qr_avg / chol_avg, geqr_avg / chol_avg, lu_avg / chol_avg);
+            }
+        }
+    }
 };
 
 /*
@@ -251,10 +321,10 @@ TEST_F(TestOrth, SimpleTest)
 {
 }
 */
-/*
+
 // Cache size of my processor is 24 megs
 TEST_F(TestOrth, InOutCacheSpeedTest)
 {
-    test_speed<double>(12, 14, 7, 9, 100);
+    //test_speed<double>(12, 14, 7, 9, 100);
+    test_speed_mean<double>(12, 14, 7, 9, 100);
 }
-*/

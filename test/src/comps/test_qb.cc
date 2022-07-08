@@ -578,7 +578,7 @@ TEST_F(TestQB, SimpleTest)
     }
 }
 */
-
+/*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
 // Running tests without the orthogonality loss check to ensure normal termination
@@ -590,4 +590,4 @@ TEST_F(TestQB, PlotTest)
     // Fast decay
     //test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 0.5, true);
 }
-
+*/
