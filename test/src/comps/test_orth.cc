@@ -257,7 +257,7 @@ class TestOrth : public ::testing::Test
         {
             int rows = std::pow(2, r_buf);
             std::ofstream ofs;
-            ofs.open("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
+            ofs.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
             ofs.close();
         }
 
@@ -315,7 +315,7 @@ class TestOrth : public ::testing::Test
                 // Save the output into .dat file
                 //std::ofstream file("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat");
                 std::fstream file;
-                file.open("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
+                file.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::fstream::app);
                 file << chol_avg << "  " << lu_avg << "  " << qr_avg << "  " << geqr_avg << "\n";
 
                 printf("\nMatrix size: %ld by %ld.\n", rows, cols);
@@ -341,6 +341,6 @@ TEST_F(TestOrth, InOutCacheSpeedTest)
     // 4096 : 64 to 256
     // rest : 64 to 512
     test_speed_mean<double>(12, 12, 64, 256, 100);
-    test_speed_mean<double>(13, 14, 64, 512, 100);
-    test_speed<double>(12, 14, 7, 9, 100);
+    //test_speed_mean<double>(13, 14, 64, 512, 100);
+    //test_speed<double>(12, 14, 7, 9, 100);
 }
