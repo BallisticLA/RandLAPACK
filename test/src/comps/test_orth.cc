@@ -15,6 +15,8 @@ TODO #1: Switch tuples to vectors.
 #include <chrono>
 using namespace std::chrono;
 
+#include <fstream>
+
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
@@ -247,8 +249,18 @@ class TestOrth : public ::testing::Test
 
     template <typename T>
     static void 
-    test_speed_mean(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
+    test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     {
+
+        // Clear all files
+        for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
+        {
+            int rows = std::pow(2, r_buf);
+            std::ofstream ofs;
+            ofs.open("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
+            ofs.close();
+        }
+
         int64_t rows = 0;
         int64_t cols = 0;
 
@@ -260,11 +272,10 @@ class TestOrth : public ::testing::Test
         for(; r_pow <= r_pow_max; ++r_pow)
         {
             rows = std::pow(2, r_pow);
-            int c_buf = c_pow;
+            int64_t cols = col;
 
-            for (; c_buf <= c_pow_max; ++c_buf)
+            for (; cols <= col_max; cols += 64)
             {
-                cols = std::pow(2, c_buf);
 
                 std::tuple<long, long, long, long> res;
                 long t_chol = 0;
@@ -302,7 +313,9 @@ class TestOrth : public ::testing::Test
                 geqr_avg   = (T)t_geqr   / (T)(runs - 1);
 
                 // Save the output into .dat file
-                std::ofstream file("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat");
+                //std::ofstream file("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat");
+                std::fstream file;
+                file.open("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
                 file << chol_avg << "  " << lu_avg << "  " << qr_avg << "  " << geqr_avg << "\n";
 
                 printf("\nMatrix size: %ld by %ld.\n", rows, cols);
@@ -325,6 +338,9 @@ TEST_F(TestOrth, SimpleTest)
 // Cache size of my processor is 24 megs
 TEST_F(TestOrth, InOutCacheSpeedTest)
 {
-    //test_speed<double>(12, 14, 7, 9, 100);
-    test_speed_mean<double>(12, 14, 7, 9, 100);
+    // 4096 : 64 to 256
+    // rest : 64 to 512
+    test_speed_mean<double>(12, 12, 64, 256, 100);
+    test_speed_mean<double>(13, 14, 64, 512, 100);
+    test_speed<double>(12, 14, 7, 9, 100);
 }
