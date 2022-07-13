@@ -72,15 +72,6 @@ class RF : public RangeFinder<T>
                         bool use_qr
                 );
 
-                void rf1_test_mode(
-                        int64_t m,
-                        int64_t n,
-                        const std::vector<T>& A,
-                        int64_t k,
-                        std::vector<T>& Q,
-                        std::vector<T>& cond_nums
-                );
-
                 // Control of RF types calls.
                 virtual void call(
                         int64_t m,
@@ -93,9 +84,6 @@ class RF : public RangeFinder<T>
                         {
                                 case 0:
                                         rf1(m, n, A, k, Q, this->use_qr);
-                                        break;
-                                case 1:
-                                        rf1_test_mode(m, n, A, k, Q, this->cond_nums);
                                         break;
                         }
                 }

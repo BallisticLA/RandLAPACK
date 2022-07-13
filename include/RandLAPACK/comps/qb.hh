@@ -78,17 +78,6 @@ class QB : public QBalg<T>
                         std::vector<T>& B
                 );
 
-                void QB2_test_mode(
-                        int64_t m,
-                        int64_t n,
-                        std::vector<T>& A,
-                        int64_t& k,
-                        int64_t block_sz,
-                        T tol,
-                        std::vector<T>& Q,
-                        std::vector<T>& B
-                );
-
                 virtual void call(
                         int64_t m,
                         int64_t n,
@@ -104,9 +93,6 @@ class QB : public QBalg<T>
                         {
                                 case 0:
                                         QB2(m, n, A, k, block_sz, tol, Q, B);
-                                        break;
-                                case 1:
-                                        QB2_test_mode(m, n, A, k, block_sz, tol, Q, B);
                                         break;
                         }
                 }

@@ -16,6 +16,7 @@ include(lapackpp)
 # compile sources
 add_subdirectory(src)  # loads src/CMakeLists.txt
 add_subdirectory(test)
+add_subdirectory(benchmark)
 
 # export the configuration
 include(config)

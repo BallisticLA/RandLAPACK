@@ -2,27 +2,6 @@
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
-/*
-    References
-    ----------
-    This implementation is inspired by [ZM:2020, Algorithm 3.3]. The most
-    significant difference is that this function stops one step "early",
-    so that it returns a matrix S for use in sketching Y = A @ S, rather than
-    returning an orthonormal basis for a sketched matrix Y. Here are the
-    differences between this implementation and [ZM:2020, Algorithm 3.3],
-    assuming the latter algorithm was modified to stop "one step early" like
-    this algorithm:
-        (1) We make no assumptions on the distribution of the initial
-            (oblivious) sketching matrix. [ZM:2020, Algorithm 3.3] uses
-            a Gaussian distribution.
-        (2) We allow any number of passes over A, including zero passes.
-            [ZM2020: Algorithm 3.3] requires at least one pass over A.
-        (3) We let the user provide the stabilization method. [ZM:2020,
-            Algorithm 3.3] uses LU for stabilization.
-        (4) We let the user decide how many applications of A or A.T
-            can be made between calls to the stabilizer.
-*/
-
 namespace RandLAPACK::comps::rs {
 
 template <typename T>
@@ -41,19 +20,9 @@ void RS<T>::rs1(
 	int32_t seed = this->seed;
 	int64_t p_done= 0;
 
-	if(this->Omega_1.size() != m * k)
-		this->Omega_1.resize(m * k);
-		
-	// Setting stabilization parameters
-	if(this->Stab_Obj.ipiv.size() != k)
-		this->Stab_Obj.ipiv.resize(k);
-
-	if(this->Stab_Obj.tau.size() != k)
-		this->Stab_Obj.tau.resize(k);
-
 	const T* A_dat = A.data();
 	T* Omega_dat = Omega.data();
-	T* Omega_1_dat = Omega_1.data();
+	T* Omega_1_dat = RandLAPACK::comps::util::resize(m * k, this->Omega_1);
 
 	if (p % 2 == 0) 
 	{
@@ -120,13 +89,8 @@ void RS<T>::rs1(
 		if (this->cond_check)
 		{
 			// Copy to avoid any changes
-			if(this->Omega_1_cpy.size() != m * k)
-				this->Omega_1_cpy.resize(m * k);
-			if(this->s.size() != k)
-				this->s.resize(k);
-
-			T* Omega_1_cpy_dat = this->Omega_1_cpy.data();
-			T* s_dat = this->s.data();
+			T* Omega_1_cpy_dat = RandLAPACK::comps::util::resize(m * k, this->Omega_1_cpy);
+			T* s_dat = RandLAPACK::comps::util::resize(k, this->s);
 
 			lacpy(MatrixType::General, m, k, Omega_1_dat, m, Omega_1_cpy_dat, m);
 			gesdd(Job::NoVec, m, k, Omega_1_cpy_dat, m, s_dat, NULL, m, NULL, k);
@@ -163,13 +127,8 @@ void RS<T>::rs1(
 		if (this->cond_check)
 		{
 			// Copy to avoid any changes
-			if(this->Omega_cpy.size() != n * k)
-				this->Omega_cpy.resize(n * k);
-			if(this->s.size() != k)
-				this->s.resize(k);
-
-			T* Omega_cpy_dat = this->Omega_cpy.data();
-			T* s_dat = this->s.data();
+			T* Omega_cpy_dat = RandLAPACK::comps::util::resize(n * k, this->Omega_cpy);
+			T* s_dat = RandLAPACK::comps::util::resize(k, this->s);
 
 			lacpy(MatrixType::General, n, k, Omega_dat, n, Omega_cpy_dat, n);
 			gesdd(Job::NoVec, n, k, Omega_cpy_dat, n, s_dat, NULL, n, NULL, k);

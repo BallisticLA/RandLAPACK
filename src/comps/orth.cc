@@ -1,8 +1,6 @@
 /*
 TODO #1: only store the upper triangle of the gram matrix in gram_vec,
 so that it can be of size k*(k+1)/2 instead of k*k.
-
-TODO #2: reisze class memeber vectors inside the routines.
 */
 
 #include <lapack.hh>
@@ -21,11 +19,8 @@ void Orth<T>::CholQR(
         using namespace blas;
         using namespace lapack;
 
-        if (this->Q_gram.size() != k * k)
-                this->Q_gram.resize(k * k); // TODO #1
-
+        T* Q_gram_dat = RandLAPACK::comps::util::resize(k * k, this->Q_gram);
         T* Q_dat = Q.data();
-        T* Q_gram_dat = this->Q_gram.data();
 
         // Find normal equation Q'Q - Just the upper triangular portion
         syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat, k);
@@ -48,6 +43,9 @@ void Stab<T>::PLU(
 ){
         using namespace lapack;
 
+        if(ipiv.size() != n) 
+                ipiv.resize(n);
+
         getrf(m, n, A.data(), m, ipiv.data());
         RandLAPACK::comps::util::swap_rows<T>(m, n, A, ipiv);
         RandLAPACK::comps::util::get_L<T>(m, n, A);
@@ -64,6 +62,8 @@ void Orth<T>::HQR(
         // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
         // tau needs to be a vector of all 2's by default
         using namespace lapack;
+
+        RandLAPACK::comps::util::resize(n, tau);
 
         T* A_dat = A.data();
 	T* tau_dat = tau.data();

@@ -116,6 +116,19 @@ void swap_rows(
         }
 }
 
+// "intellegent reisze"
+template <typename T> 
+T* resize(
+        int64_t target_sz,
+        std::vector<T>& A
+) {     
+        if (A.size() < target_sz)
+                A.resize(target_sz);
+
+        return A.data();
+}
+
+
 // Resulting array is to be k by n
 template <typename T> 
 void row_resize(
@@ -414,6 +427,9 @@ template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A)
 
 template void swap_rows(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
 template void swap_rows(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
+
+template float* resize(int64_t target_sz, std::vector<float>& A);
+template double* resize(int64_t target_sz, std::vector<double>& A);
 
 template void row_resize(int64_t m, int64_t n, std::vector<float>& A, int64_t k);
 template void row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k);

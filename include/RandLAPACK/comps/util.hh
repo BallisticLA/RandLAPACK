@@ -45,6 +45,12 @@ void swap_rows(
 );
 
 template <typename T> 
+T* resize(
+        int64_t target_sz,
+        std::vector<T>& A
+);
+
+template <typename T> 
 void row_resize(
         int64_t m,
         int64_t n,
