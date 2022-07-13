@@ -1,7 +1,11 @@
 /*
 TODO #1: Update implementation so that no copy of the original data is needed.
 
-TODO #2: Resize Q, B dynamically, no pre-allocation
+TODO #2: Resize Q, B dynamically, no pre-allocation - but resizing at runtime is expensive.
+
+TODO #3: Need a test case with switching between different orthogonalization types
+
+TODO #4: Check orthonormality loss test.
 */
 
 #include <RandBLAS.hh>
@@ -84,29 +88,15 @@ void QB<T>::QB2(
         block_sz = std::min(block_sz, k - curr_sz);
         int next_sz = curr_sz + block_sz;
 
-        this->RF_Obj.RS_Obj.seed += n * block_sz;
+        // Calling RangeFinder
         this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i);
 
         if(this->orth_check)
         {
-            gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                block_sz, block_sz, m,
-                1.0, Q_i_dat, m, Q_i_dat, m,
-                0.0, Q_i_gram_dat, block_sz
-            );
-            for (int oi = 0; oi < block_sz; ++oi) {
-                Q_i_gram_dat[oi * block_sz + oi] -= 1.0;
-            }
-            T orth_i_err = lange(Norm::Fro, block_sz, block_sz, Q_i_gram_dat, block_sz);
-
-            if(this->verbosity)
+            if (RandLAPACK::comps::util::orthogonality_check(m, block_sz, block_sz, Q_i, Q_i_gram, this->verbosity))
             {
-                printf("Q_i ERROR: %e\n", orth_i_err);
-            }
-
-            if (orth_i_err > 1.0e-10)
-            {
-                // Lost orthonormality of Q_i
+                // Lost orthonormality of Q
+                // Cut off the last iteration
                 RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
                 this->termination = 4;
                 return;
@@ -120,21 +110,8 @@ void QB<T>::QB2(
             gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, k);
             gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, k, 1.0, Q_i_dat, m);
 
-            // If CholQR succeeded in the rangefinder
-            if (!this->RF_Obj.Orth_Obj.chol_fail)
-            {
-                // No need to perform failure check here, as RF1 will notify in advance
-                // Done via CholQR
-                this->Orth_Obj.call(m, block_sz, this->Q_i);
-                // Performing the alg twice for better orthogonality	
-                this->Orth_Obj.call(m, block_sz, this->Q_i);
-            }
-            else
-            {
-                this->Orth_Obj.decision_orth = 1;
-                // Done via regular LAPACK's QR
-                this->Orth_Obj.call(m, block_sz, this->Q_i);
-            }
+            // If CholQR failed, will use HQR
+            this->Orth_Obj.call(m, block_sz, this->Q_i);
         }
         //B_i = Q_i' * A
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
@@ -162,22 +139,7 @@ void QB<T>::QB2(
 
         if(this->orth_check)
         {
-            gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                k, k, m,
-                1.0, Q_dat, m, Q_dat, m,
-                0.0, Q_gram_dat, k
-            );
-            for (int oi = 0; oi < next_sz; ++oi) {
-                Q_gram_dat[oi * k + oi] -= 1.0;
-            }
-            T orth_err = lange(Norm::Fro, k, k, Q_gram_dat, k);
-    
-            if(this->verbosity)
-            {
-               printf("Q ERROR:   %e\n\n", orth_err);
-            }
-
-            if (orth_err > 1.0e-10)
+            if (RandLAPACK::comps::util::orthogonality_check(m, k, next_sz, Q, Q_gram, this->verbosity))
             {
                 // Lost orthonormality of Q
                 // Cut off the last iteration

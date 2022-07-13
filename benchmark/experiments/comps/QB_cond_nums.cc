@@ -53,25 +53,25 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
         //Subroutine parameters 
         bool verbosity = true;
-        bool cond_check = true;
+        bool cond_check = true; // MUST BE TRUE, OR REGFAULT
         bool orth_check = true;
         int64_t passes_per_iteration = 1;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        RandLAPACK::comps::orth::Stab<double> Stab(1);
+        RandLAPACK::comps::orth::Stab<double> Stab(0);
 
         // RowSketcher constructor - Choose default (rs1)
         RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - use HQR
-        RandLAPACK::comps::orth::Orth<T> Orth_RF(1);
+        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
 
         // RangeFinder constructor
         RandLAPACK::comps::rf::RF<double> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - use HQR
-        RandLAPACK::comps::orth::Orth<T> Orth_QB(1);
+        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
 
         // QB constructor - Choose QB2_test_mode
         RandLAPACK::comps::qb::QB<double> QB(RF, Orth_QB, verbosity, orth_check, 0);
@@ -178,9 +178,6 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
                         if(v_RS_sz > 0)
                         {
                             copy<T, T>(v_RS_sz, cond_nums.second.data(), 1, all_vecs_RS_dat + (v_RS_sz * i), 1);
-                        
-                        
-
                         }
                     }
                     
@@ -215,16 +212,19 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
     }
 };
 
-/*
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
 // Running tests without the orthogonality loss check to ensure normal termination
 TEST_F(BenchmarkQB, PlotTest)
 {   
+    //test_QB2_plot<double>(10, 10, 2, 2, 2, 2, 0, 2, true);
+    //test_QB2_plot_helper_run<double>(10, 10, 10, 2, 2, 0, std::make_tuple(0, 2, true), 0);
+    
+    
+    
     // Slow_decay
     //test_QB2_plot<double>(1024, 1024, 16, 16, 2, 2, 0, 2, true);
-    test_QB2_plot<double>(2048, 2048, 128, 128, 2, 2, 0, 2, true);
+    //test_QB2_plot<double>(2048, 2048, 128, 128, 2, 2, 0, 2, true);
     // Fast decay
     //test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 0.5, true);
 }
-*/

@@ -120,4 +120,25 @@ void gen_mat(
         int32_t seed
 );
 
+template <typename T> 
+void cond_num_check(
+        int64_t m,
+        int64_t n,
+        const std::vector<T>& A,
+        std::vector<T>& A_cpy,
+        std::vector<T>& s,
+        std::vector<T>& cond_nums,
+        bool verbosity
+);
+
+template <typename T> 
+bool orthogonality_check(
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        const std::vector<T>& A,
+        std::vector<T>& A_gram,
+        bool verbosity
+);
+
 } // end namespace RandLAPACK::comps::rs

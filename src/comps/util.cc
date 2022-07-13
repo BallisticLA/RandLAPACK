@@ -413,6 +413,65 @@ void gen_mat(
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
 }
 
+template <typename T> 
+void cond_num_check(
+        int64_t m,
+        int64_t n,
+        const std::vector<T>& A,
+        std::vector<T>& A_cpy,
+        std::vector<T>& s,
+        std::vector<T>& cond_nums,
+        bool verbosity
+) {   
+        using namespace lapack;
+        
+        // Copy to avoid any changes
+        T* A_cpy_dat = resize(m * n, A_cpy);
+        T* s_dat = resize(n, s);
+
+        lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
+        gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
+        T cond_num = s_dat[0] / s_dat[n - 1];
+
+        if (verbosity)
+                printf("CONDITION NUMBER: %f\n", cond_num);
+        
+        cond_nums.push_back(cond_num);
+}
+
+// Bool=1 indicates failure
+template <typename T> 
+bool orthogonality_check(
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        const std::vector<T>& A,
+        std::vector<T>& A_gram,
+        bool verbosity
+) {
+        using namespace lapack;
+
+        const T* A_dat = A.data();
+        T* A_gram_dat = A_gram.data();
+        
+        gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, 0.0, A_gram_dat, n);
+        for (int oi = 0; oi < k; ++oi) 
+        {
+                A_gram_dat[oi * n + oi] -= 1.0;
+        }
+        T orth_err = lange(Norm::Fro, n, n, A_gram_dat, k);
+    
+        if(verbosity)
+        {
+                printf("Q ERROR:   %e\n\n", orth_err);
+        }
+
+        if (orth_err > 1.0e-10)
+                return true;
+
+        return false;
+}
+
 template void eye<float>(int64_t m, int64_t n, std::vector<float>& A );
 template void eye<double>(int64_t m, int64_t n, std::vector<double>& A );
 
@@ -452,4 +511,9 @@ template void gen_s_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t 
 template void gen_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, std::vector<float>& S, int32_t seed); 
 template void gen_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, std::vector<double>& S, int32_t seed);
 
+template void cond_num_check(int64_t m, int64_t n, const std::vector<float>& A, std::vector<float>& A_cpy, std::vector<float>& s, std::vector<float>& cond_nums, bool verbosity);
+template void cond_num_check(int64_t m, int64_t n, const std::vector<double>& A, std::vector<double>& A_cpy, std::vector<double>& s, std::vector<double>& cond_nums, bool verbosity);
+
+template bool orthogonality_check(int64_t m, int64_t n, int64_t k, const std::vector<float>& A, std::vector<float>& A_gram, bool verbosity);
+template bool orthogonality_check(int64_t m, int64_t n, int64_t k, const std::vector<double>& A, std::vector<double>& A_gram, bool verbosity);
 } // end namespace util

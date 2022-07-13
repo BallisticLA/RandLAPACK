@@ -1,8 +1,3 @@
-/*
-TODO #1: Figure out how to use Stabilization insted of Stab and Orth everywhere
-        (do we also need Orthogonalization class? How to deal with shadowing problem if
-        line 27 is uncommented?)
-*/
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -16,15 +11,16 @@ namespace RandLAPACK::comps::orth {
 template <typename T>
 class Stabilization
 {
-        virtual void call(
-                int64_t m,
-                int64_t k,
-                std::vector<T>& Q
-        ) = 0;
+        public:
+                virtual void call(
+                        int64_t m,
+                        int64_t k,
+                        std::vector<T>& Q
+                ) = 0;
 };
 
 template <typename T>
-class Orth //: public Stabilization<T> // TODO #1
+class Orth : public Stabilization<T> // TODO #1
 {
 	public:
                 std::vector<T> tvec;
@@ -67,7 +63,15 @@ class Orth //: public Stabilization<T> // TODO #1
                         switch(this->decision_orth)
                         {
                                 case 0:
-                                        CholQR(m, k, Q);
+                                        if(this->chol_fail)
+                                        {
+                                                HQR(m, k, Q, this->tau);
+                                        }
+                                        else{
+                                                //Call it twice for better orthogonality
+                                                CholQR(m, k, Q);
+                                                CholQR(m, k, Q);
+                                        }
                                         break;
                                 case 1:
                                         HQR(m, k, Q, this->tau);
@@ -79,7 +83,7 @@ class Orth //: public Stabilization<T> // TODO #1
 };
 
 template <typename T>
-class Stab : public Orth<T>, public Stabilization<T>
+class Stab : public Orth<T>
 {
 	public:
                 std::vector<int64_t> ipiv;
@@ -104,7 +108,14 @@ class Stab : public Orth<T>, public Stabilization<T>
                         switch(this->decision_stab)
                         {
                                 case 0:
-                                        this->CholQR(m, k, Q);
+                                        if(this->chol_fail)
+                                        {
+                                                PLU(m, k, Q, this->ipiv);
+                                        }
+                                        else{
+                                                // Only call once
+                                                this->CholQR(m, k, Q);
+                                        }
                                         break;
                                 case 1:
                                         PLU(m, k, Q, this->ipiv);

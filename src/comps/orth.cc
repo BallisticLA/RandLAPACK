@@ -71,7 +71,7 @@ void Orth<T>::HQR(
         ungqr(m, n, n, A_dat, m, tau_dat);
 }
 
-// GEQR lack "unpacking" of Q
+// GEQR lacks "unpacking" of Q
 template <typename T> 
 void Orth<T>::GEQR(
         int64_t m,

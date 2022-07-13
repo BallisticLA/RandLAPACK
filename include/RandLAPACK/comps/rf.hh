@@ -1,7 +1,3 @@
-/*
-TODO: 
-	1. Figure out how to use RangeFinder istead of RF everywhere.
-*/
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -33,8 +29,8 @@ class RF : public RangeFinder<T>
 {
 	public:
                 // Instantiated in the constructor
-                RandLAPACK::comps::rs::RS<T>& RS_Obj;
-                RandLAPACK::comps::orth::Orth<T>& Orth_Obj;
+                RandLAPACK::comps::rs::RowSketcher<T>& RS_Obj;
+                RandLAPACK::comps::orth::Stabilization<T>& Orth_Obj;
                 bool verbosity;
                 bool cond_check;
                 std::vector<T> Omega;
@@ -47,12 +43,11 @@ class RF : public RangeFinder<T>
 
                 // Implementation-specific vars
                 std::vector<T> cond_nums; // Condition nubers of sketches
-                bool use_qr; // Use QR if CholQR fails - technically, can just alter the decifion variable
 
 		// Constructor
 		RF(
-                        RandLAPACK::comps::rs::RS<T>& rs_obj,
-                        RandLAPACK::comps::orth::Orth<T>& orth_obj,
+                        RandLAPACK::comps::rs::RowSketcher<T>& rs_obj,
+                        RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
                         bool verb,
                         bool cond,
                         int decision
@@ -68,8 +63,7 @@ class RF : public RangeFinder<T>
                         int64_t n,
                         const std::vector<T>& A,
                         int64_t k,
-                        std::vector<T>& Q,
-                        bool use_qr
+                        std::vector<T>& Q
                 );
 
                 // Control of RF types calls.
@@ -83,7 +77,7 @@ class RF : public RangeFinder<T>
                         switch(this->decision_RF)
                         {
                                 case 0:
-                                        rf1(m, n, A, k, Q, this->use_qr);
+                                        rf1(m, n, A, k, Q);
                                         break;
                         }
                 }

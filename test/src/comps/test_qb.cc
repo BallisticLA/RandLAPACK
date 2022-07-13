@@ -297,13 +297,13 @@ template <typename T>
                 break;
             case 4:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
-                EXPECT_TRUE(true);
-                return;
+                //EXPECT_TRUE(true);
+                //return;
                 break;
             case 5:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
-                EXPECT_TRUE(true);
-                return;
+                //EXPECT_TRUE(true);
+                //return;
                 break;
             case 0:
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
@@ -364,8 +364,8 @@ TEST_F(TestQB, SimpleTest)
 
         // SOMETHING IS OFF HERE
         // test zero tol
-        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.0, std::make_tuple(1, 0.5, false), seed);
+        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
         // test nonzero tol
-        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(1, 0.5, false), seed);
+        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(0, 0.1, false), seed);
     }
 }

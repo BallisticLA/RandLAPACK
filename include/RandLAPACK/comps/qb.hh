@@ -1,7 +1,3 @@
-/*
-TODO: 
-	1. Figure out how to use QBalg istead of QB everywhere.
-*/
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -18,24 +14,25 @@ namespace RandLAPACK::comps::qb {
 template <typename T>
 class QBalg
 {
-        virtual void call(
-                int64_t m,
-                int64_t n,
-                std::vector<T>& A,
-                int64_t& k,
-                int64_t block_sz,
-                T tol,
-                std::vector<T>& Q,
-                std::vector<T>& B
-        ) = 0;
+        public:
+                virtual void call(
+                        int64_t m,
+                        int64_t n,
+                        std::vector<T>& A,
+                        int64_t& k,
+                        int64_t block_sz,
+                        T tol,
+                        std::vector<T>& Q,
+                        std::vector<T>& B
+                ) = 0;
 };
 
 template <typename T>
 class QB : public QBalg<T>
 {
 	public:
-                RandLAPACK::comps::rf::RF<T>& RF_Obj;
-                RandLAPACK::comps::orth::Orth<T>& Orth_Obj;
+                RandLAPACK::comps::rf::RangeFinder<T>& RF_Obj;
+                RandLAPACK::comps::orth::Stabilization<T>& Orth_Obj;
                 bool verbosity;
                 bool orth_check;
 
@@ -55,8 +52,8 @@ class QB : public QBalg<T>
 
 		// Constructor
 		QB(
-                        RandLAPACK::comps::rf::RF<T>& rf_obj,
-                        RandLAPACK::comps::orth::Orth<T>& orth_obj,
+                        RandLAPACK::comps::rf::RangeFinder<T>& rf_obj,
+                        RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
                         bool verb,
                         bool orth,
                         int decision

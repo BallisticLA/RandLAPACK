@@ -240,6 +240,7 @@ class BenchmarkOrth : public ::testing::Test
     }
 };
 
+/*
 // Cache size of my processor is 24 megs
 TEST_F(BenchmarkOrth, InOutCacheSpeedTest)
 {
@@ -249,3 +250,4 @@ TEST_F(BenchmarkOrth, InOutCacheSpeedTest)
     //test_speed_mean<double>(13, 14, 64, 512, 100);
     //test_speed<double>(12, 14, 7, 9, 100);
 }
+*/
