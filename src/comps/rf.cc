@@ -31,7 +31,8 @@ void RF<T>::rf1(
         RandLAPACK::comps::util::cond_num_check(m, k, Q, this->Q_cpy, this->s, this->cond_nums, this->verbosity);
     
     // If CholQR failed, will use HQR
-    this->Orth_Obj.call(m, k, Q);
+    if(this->Orth_Obj.call(m, k, Q))
+        this->Orth_Obj.call(m, k, Q);
 }
 
 template void RF<float>::rf1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q);

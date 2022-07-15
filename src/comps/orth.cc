@@ -11,31 +11,31 @@ namespace RandLAPACK::comps::orth {
 
 // Perfoms a Cholesky QR factorization
 template <typename T> 
-void Orth<T>::CholQR(
+int Orth<T>::CholQR(
         int64_t m,
         int64_t k,
         std::vector<T>& Q // pointer to the beginning
 ){
         using namespace blas;
         using namespace lapack;
-
-        T* Q_gram_dat = RandLAPACK::comps::util::resize(k * k, this->Q_gram);
+        
+        T* Q_gram_dat = RandLAPACK::comps::util::resize(k * (k - 1) / 2, this->Q_gram);
         T* Q_dat = Q.data();
 
-        // Find normal equation Q'Q - Just the upper triangular portion
-        syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat, k);
+        // Find normal equation Q'Q - Just the upper triangular portion        
+        sfrk(Op::NoTrans, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat);
 
         // Positive definite cholesky factorization
-        if (potrf(Uplo::Upper, k, Q_gram_dat, k) != 0)
+        if (pftrf(Op::NoTrans, Uplo::Upper, k, Q_gram_dat))
                 this->chol_fail = true; // scheme failure 
-                
-        // Q = Q * R^(-1)
-        trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q_dat, m);	    
-        this->chol_fail = false;
+
+        tfsm(Op::NoTrans, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, Q_dat, m);
+        
+       return 0;
 }
 
 template <typename T> 
-void Stab<T>::PLU(
+int Stab<T>::PLU(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
@@ -43,16 +43,20 @@ void Stab<T>::PLU(
 ){
         using namespace lapack;
 
-        if(ipiv.size() != n) 
+        // Not using utility bc vector of int
+        if(ipiv.size() < n) 
                 ipiv.resize(n);
 
-        getrf(m, n, A.data(), m, ipiv.data());
+        if(getrf(m, n, A.data(), m, ipiv.data()))
+                return 1; // failure condition
         RandLAPACK::comps::util::swap_rows<T>(m, n, A, ipiv);
         RandLAPACK::comps::util::get_L<T>(m, n, A);
+
+        return 0;
 }
 
 template <typename T> 
-void Orth<T>::HQR(
+int Orth<T>::HQR(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
@@ -67,13 +71,16 @@ void Orth<T>::HQR(
 
         T* A_dat = A.data();
 	T* tau_dat = tau.data();
-        geqrf(m, n, A_dat, m, tau_dat);
+        if(geqrf(m, n, A_dat, m, tau_dat))
+                return 1; // Failure condition
         ungqr(m, n, n, A_dat, m, tau_dat);
+
+        return 0;
 }
 
 // GEQR lacks "unpacking" of Q
 template <typename T> 
-void Orth<T>::GEQR(
+int Orth<T>::GEQR(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
@@ -90,17 +97,19 @@ void Orth<T>::GEQR(
         int64_t tsize = (int64_t) tvec[0]; 
         tvec.resize(tsize);
         geqr(m, n, A_dat, m, tvec.data(), tsize);
+
+        return 0;
 }
 
-template void Orth<float>::CholQR(int64_t m, int64_t k, std::vector<float>& Q);
-template void Orth<double>::CholQR(int64_t m, int64_t k, std::vector<double>& Q);
+template int Orth<float>::CholQR(int64_t m, int64_t k, std::vector<float>& Q);
+template int Orth<double>::CholQR(int64_t m, int64_t k, std::vector<double>& Q);
 
-template void Stab<float>::PLU(int64_t m, int64_t n, std::vector<float>& A, std::vector<int64_t>& ipiv);
-template void Stab<double>::PLU(int64_t m, int64_t n, std::vector<double>& A, std::vector<int64_t>& ipiv);
+template int Stab<float>::PLU(int64_t m, int64_t n, std::vector<float>& A, std::vector<int64_t>& ipiv);
+template int Stab<double>::PLU(int64_t m, int64_t n, std::vector<double>& A, std::vector<int64_t>& ipiv);
 
-template void Orth<float>::HQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
-template void Orth<double>::HQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
+template int Orth<float>::HQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
+template int Orth<double>::HQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
 
-template void Orth<float>::GEQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
-template void Orth<double>::GEQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
+template int Orth<float>::GEQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
+template int Orth<double>::GEQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
 } // end namespace orth

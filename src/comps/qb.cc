@@ -1,15 +1,11 @@
 /*
 TODO #1: Update implementation so that no copy of the original data is needed.
 
-TODO #2: Resize Q, B dynamically, no pre-allocation - but resizing at runtime is expensive.
-
 TODO #3: Need a test case with switching between different orthogonalization types
 
-TODO #4: Check orthonormality loss test.
-
-Do we care about potential case of inner dim of Q, B larger than k?
-
 On early termination, data in B is moved, but not sized down
+
+TODO: If user gives tol 0, change it to machine epsilon * 100
 */
 
 #include <RandBLAS.hh>
@@ -132,7 +128,8 @@ void QB<T>::QB2(
             gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, this->curr_lim, 1.0, Q_i_dat, m);
 
             // If CholQR failed, will use HQR
-            this->Orth_Obj.call(m, block_sz, this->Q_i);
+            if(this->Orth_Obj.call(m, block_sz, this->Q_i))
+                this->Orth_Obj.call(m, block_sz, this->Q_i);
         }
 
         //B_i = Q_i' * A

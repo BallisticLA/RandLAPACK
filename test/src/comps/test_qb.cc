@@ -35,8 +35,8 @@ class TestQB : public ::testing::Test
             k = std::min(m, n);
         }
 
-        std::vector<T> Q(m * 1, 0.0);
-        std::vector<T> B(1 * n, 0.0);
+        std::vector<T> Q(3, 0);
+        std::vector<T> B;
         std::vector<T> B_cpy(k * n, 0.0);
 
         // For results comparison
@@ -234,8 +234,8 @@ template <typename T>
         int64_t size = m * n;
         int64_t k_est = std::min(m, n);
 
-        std::vector<T> Q(m * k_est, 0.0);
-        std::vector<T> B(k_est * n, 0.0);
+        std::vector<T> Q;
+        std::vector<T> B;
         // For results comparison
         std::vector<T> A_hat(size, 0.0);
 
@@ -286,7 +286,11 @@ template <typename T>
             Q,
             B
         );
-        
+
+        // Reassing pointers because Q, B have been resized
+        Q_dat = Q.data();
+        B_dat = B.data();
+    
         switch(QB.termination)
         {
             case 1:
@@ -322,12 +326,13 @@ template <typename T>
 
         //char name_4[] = "QB1  output B";
         //RandBLAS::util::print_colmaj(k_est, n, B_dat, name_4);
-
+        
         // A_hat = Q * B
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);
+        
         // TEST 1: A = A - Q * B = 0
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
-
+        
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
         if(tol == 0.0)
         {
@@ -350,28 +355,30 @@ TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
     {
+        //test_QB2_k_eq_min<double>(100, 100, 10, 10, 2, 0.0, std::make_tuple(0, 0.2, false), seed);
+        
         // Fast polynomial decay test
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 2, false), seed);
         // Slow polynomial decay test
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
         // Superfast exponential decay test
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2, false), seed);
         
         // S-shaped decay matrix test 
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
         // A = [A A]
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed);
         // A = 0
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed); 
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed); 
         // Random diagonal matrix test
-        test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-        test_QB2_general<double>(1000, 1000, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
+        test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
         
         // SOMETHING IS OFF HERE
         // test zero tol
-        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
         // test nonzero tol
-        test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.1, std::make_tuple(0, 0.1, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 0.1, false), seed);
     }
 }

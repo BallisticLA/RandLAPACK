@@ -12,7 +12,7 @@ template <typename T>
 class Stabilization
 {
         public:
-                virtual void call(
+                virtual int call(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q
@@ -32,22 +32,22 @@ class Orth : public Stabilization<T> // TODO #1
                 std::vector<T> Q_gram;
 
                 // Constructor
-                Orth(int decision = 0) : decision_orth(decision) {};
+                Orth(int decision = 0) : decision_orth(decision) {chol_fail = false;};
 
-                void CholQR(
+                int CholQR(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q
                 );
 
-                void HQR(
+                int HQR(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
                         std::vector<T>& tau
                 );
 
-                void GEQR(
+                int GEQR(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -55,30 +55,36 @@ class Orth : public Stabilization<T> // TODO #1
                 );
 
                 // Control of Orth types calls.
-                void call(
+                int call(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q
                 ){
+                        // Default
+                        int termination = 0;
                         switch(this->decision_orth)
                         {
                                 case 0:
                                         if(this->chol_fail)
                                         {
-                                                HQR(m, k, Q, this->tau);
+                                                termination = HQR(m, k, Q, this->tau);
                                         }
                                         else{
                                                 //Call it twice for better orthogonality
-                                                CholQR(m, k, Q);
-                                                CholQR(m, k, Q);
+                                                if(CholQR(m, k, Q))
+                                                {
+                                                        return 1;
+                                                }
+                                                termination = CholQR(m, k, Q);
                                         }
                                         break;
                                 case 1:
-                                        HQR(m, k, Q, this->tau);
+                                        termination = HQR(m, k, Q, this->tau);
                                         break;
                                 case 2: 
-                                        GEQR(m, k, Q, this->tvec);
+                                        termination = GEQR(m, k, Q, this->tvec);
                         }
+                        return termination;
                 }
 };
 
@@ -90,9 +96,9 @@ class Stab : public Orth<T>
                 int decision_stab;
                 
                 // Constructor
-                Stab(int decision = 0) : Orth<T>::Orth(decision), decision_stab(decision) {};
+                Stab(int decision = 0) : Orth<T>::Orth(decision), decision_stab(decision) {this->chol_fail = false;};
 
-                void PLU(
+                int PLU(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q,
@@ -100,27 +106,29 @@ class Stab : public Orth<T>
                 );
 
                 // Control of Stab types calls.
-                virtual void call(
+                virtual int call(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q
                 ){
+                        int termination = 0;
                         switch(this->decision_stab)
                         {
                                 case 0:
                                         if(this->chol_fail)
                                         {
-                                                PLU(m, k, Q, this->ipiv);
+                                                termination = PLU(m, k, Q, this->ipiv);
                                         }
                                         else{
                                                 // Only call once
-                                                this->CholQR(m, k, Q);
+                                                termination = this->CholQR(m, k, Q);
                                         }
                                         break;
                                 case 1:
-                                        PLU(m, k, Q, this->ipiv);
+                                        termination = PLU(m, k, Q, this->ipiv);
                                         break;
                         }
+                        return termination;
                 }
 };
 #endif

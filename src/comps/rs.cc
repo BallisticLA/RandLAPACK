@@ -41,7 +41,8 @@ void RS<T>::rs1(
 		if (p_done % q == 0) 
 		{
 			// If CholQR failed, will use PLU
-			this->Stab_Obj.call(n, k, Omega);
+			if(this->Stab_Obj.call(n, k, Omega))
+				this->Stab_Obj.call(n, k, Omega);
 		}
 	}
 	
@@ -52,7 +53,8 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			this->Stab_Obj.call(m, k, Omega_1);
+			if(this->Stab_Obj.call(m, k, Omega_1))
+				this->Stab_Obj.call(m, k, Omega_1);
 		}
 
 		if(this->cond_check)
@@ -63,7 +65,8 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			this->Stab_Obj.call(n, k, Omega);
+			if(this->Stab_Obj.call(n, k, Omega))
+				this->Stab_Obj.call(n, k, Omega);
 		}
 		
 		if(this->cond_check)
@@ -71,7 +74,6 @@ void RS<T>::rs1(
 	}
 	// Increment seed upon termination
 	this->seed += m * n;
-
 }
 
 template void RS<float>::rs1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
