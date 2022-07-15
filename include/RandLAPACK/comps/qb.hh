@@ -50,6 +50,13 @@ class QB : public QBalg<T>
                 // Output
                 int termination;
 
+                /*
+                This represents how much space is currently allocated for cols of Q and rows of B.
+                This is <= k. We are assuming that the user may not have given "enough"
+                space when allocating Q, B initially.
+                */
+                int64_t curr_lim;
+
 		// Constructor
 		QB(
                         RandLAPACK::comps::rf::RangeFinder<T>& rf_obj,

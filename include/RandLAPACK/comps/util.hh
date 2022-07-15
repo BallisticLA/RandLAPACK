@@ -51,21 +51,11 @@ T* resize(
 );
 
 template <typename T> 
-void row_resize(
+T* row_resize(
         int64_t m,
         int64_t n,
         std::vector<T>& A, // pointer to the beginning
         int64_t k
-);
-
-template <typename T> 
-void qb_resize(
-        int64_t m,
-        int64_t n,
-        std::vector<T>& Q,
-        std::vector<T>& B,
-        int64_t& k,
-        int64_t curr_sz
 );
 
 template <typename T> 

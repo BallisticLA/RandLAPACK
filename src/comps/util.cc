@@ -123,46 +123,52 @@ T* resize(
         std::vector<T>& A
 ) {     
         if (A.size() < target_sz)
-                A.resize(target_sz);
+                A.resize(target_sz, 0);
 
         return A.data();
 }
 
 
-// Resulting array is to be k by n
+// Resulting array is to be k by n - THIS IS SIZING DOWN
 template <typename T> 
-void row_resize(
+T* row_resize(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
         int64_t k
 ) {     
         using namespace blas;
+
         T* A_dat = A.data();
-        uint64_t end = k;
 
-        for (int i = 1; i < n; ++i)
+        // SIZING DOWN - just moving data
+        if(m > k)
         {
-                // Place jth column (of k entries) after the (j - 1)st column
-                copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
-                end += k;
-        }
-        // Cut off the end
-        A.resize(k * n);
-}
+                uint64_t end = k;
 
-template <typename T> 
-void qb_resize(
-        int64_t m,
-        int64_t n,
-        std::vector<T>& Q,
-        std::vector<T>& B,
-        int64_t& k,
-        int64_t curr_sz
-) { 
-        Q.resize(m * curr_sz);
-        row_resize<T>(k, n, B, curr_sz);
-        k = curr_sz;
+                for (int i = 1; i < n; ++i)
+                {
+                        // Place ith column (of k entries) after the (i - 1)st column
+                        copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
+                        end += k;
+                }
+        }
+        //SIZING UP
+        else{
+                // How many rows are being added: k - m
+                A_dat = resize(k * n, A);
+
+                int64_t end = k * (n - 1);
+                for(int i = n - 1; i > 0; --i)
+                {
+                        // Copy in reverse order to avoid overwriting
+                        copy(m, &A_dat[m * i], -1, &A_dat[end], -1);
+                        std::fill(&A_dat[m * i], &A_dat[end], 0.0);
+                        end -= k;
+                }
+        }
+
+        return A_dat;
 }
 
 template <typename T> 
@@ -490,11 +496,8 @@ template void swap_rows(int64_t m, int64_t n, std::vector<double>& A, const std:
 template float* resize(int64_t target_sz, std::vector<float>& A);
 template double* resize(int64_t target_sz, std::vector<double>& A);
 
-template void row_resize(int64_t m, int64_t n, std::vector<float>& A, int64_t k);
-template void row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k);
-
-template void qb_resize(int64_t m, int64_t n, std::vector<float>& Q, std::vector<float>& B, int64_t& k, int64_t curr_sz); 
-template void qb_resize(int64_t m, int64_t n, std::vector<double>& Q, std::vector<double>& B, int64_t& k, int64_t curr_sz); 
+template float* row_resize(int64_t m, int64_t n, std::vector<float>& A, int64_t k);
+template double* row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k);
 
 template void gen_mat_type(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, int32_t seed, std::tuple<int, float, bool> type);
 template void gen_mat_type(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, int32_t seed, std::tuple<int, double, bool> type);

@@ -35,8 +35,8 @@ class TestQB : public ::testing::Test
             k = std::min(m, n);
         }
 
-        std::vector<T> Q(m * k, 0.0);
-        std::vector<T> B(k * n, 0.0);
+        std::vector<T> Q(m * 1, 0.0);
+        std::vector<T> B(1 * n, 0.0);
         std::vector<T> B_cpy(k * n, 0.0);
 
         // For results comparison
@@ -110,6 +110,10 @@ class TestQB : public ::testing::Test
             B
         );
 
+        // Reassing pointers because Q, B have been resized
+        Q_dat = Q.data();
+        B_dat = B.data();
+
         switch(QB.termination)
         {
             case 1:
@@ -139,12 +143,12 @@ class TestQB : public ::testing::Test
         }
 
         printf("Inner dimension of QB: %-25ld\n", k);
-
+        
         std::vector<T> Ident(k * k, 0.0);
         T* Ident_dat = Ident.data();
         // Generate a reference identity
         RandLAPACK::comps::util::eye<T>(k, k, Ident); 
-
+        
         // Buffer for testing B
         copy(k * n, B_dat, 1, B_cpy_dat, 1);
         
@@ -153,12 +157,12 @@ class TestQB : public ::testing::Test
 
         //char name_4[] = "QB1  output B";
         //RandBLAS::util::print_colmaj(k, n, B.data(), name_4);
-
+        
         // A_hat = Q * B
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q_dat, m, B_dat, k, 1.0, A_dat, m);
-
+        
         // TEST 2: B - Q'A = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, B_cpy_dat, k);
 
@@ -211,6 +215,7 @@ class TestQB : public ::testing::Test
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, 1e-10);
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
+        
     }
 
 //Varying tol, k = min(m, n)
@@ -351,6 +356,7 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
         // Superfast exponential decay test
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2, false), seed);
+        
         // S-shaped decay matrix test 
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
         // A = [A A]
@@ -361,7 +367,7 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_general<double>(1000, 1000, 50, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
         test_QB2_general<double>(1000, 1000, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
-
+        
         // SOMETHING IS OFF HERE
         // test zero tol
         test_QB2_k_eq_min<double>(1000, 1000, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);

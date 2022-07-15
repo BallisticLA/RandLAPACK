@@ -6,6 +6,10 @@ TODO #2: Resize Q, B dynamically, no pre-allocation - but resizing at runtime is
 TODO #3: Need a test case with switching between different orthogonalization types
 
 TODO #4: Check orthonormality loss test.
+
+Do we care about potential case of inner dim of Q, B larger than k?
+
+On early termination, data in B is moved, but not sized down
 */
 
 #include <RandBLAS.hh>
@@ -35,7 +39,8 @@ void QB<T>::QB2(
     using namespace blas;
     using namespace lapack;
 
-    int curr_sz = 0;
+    int64_t curr_sz = 0;
+    int64_t next_sz = 0;
 
     T* A_dat = A.data();
     // pre-compute nrom
@@ -44,11 +49,25 @@ void QB<T>::QB2(
     if(norm_A == 0.0)
     {
         // Zero matrix termination
-        RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+        k = curr_sz;
         this->termination = 1;
         return;
     }
-
+    
+    // If the space allocated for col in Q and row in B is insufficient for any iterations ...
+    if(std::max( Q.size() / m, B.size() / n) < k)
+    {
+        // ... allocate more!
+        this->curr_lim = std::min(4 * block_sz, k);
+        // No need for data movement in this case
+        RandLAPACK::comps::util::resize<T>(m * this->curr_lim, Q);
+        RandLAPACK::comps::util::resize<T>(this->curr_lim * n, B);
+    }
+    else
+    {
+        this->curr_lim = k;
+    }
+    
     // Copy the initial data to avoid unwanted modification TODO #1
     std::vector<T> A_cpy (m * n, 0.0);
     T* A_cpy_dat = A_cpy.data();
@@ -58,35 +77,37 @@ void QB<T>::QB2(
     T prev_err = 0.0;
     T approx_err = 0.0;
 
-    // Adjust the expected rank
-    if(k == 0) // TODO #2
-    {
-        k = std::min(m, n);
-        Q.resize(m * k);
-        B.resize(n * k);
-    }
-
     T* Q_gram_dat;
     T* Q_i_gram_dat;
 
     if(this->orth_check)
     {
-        Q_gram_dat = RandLAPACK::comps::util::resize(k * k, this->Q_gram);
+        Q_gram_dat = RandLAPACK::comps::util::resize(this->curr_lim * this->curr_lim, this->Q_gram);
         Q_i_gram_dat = RandLAPACK::comps::util::resize(block_sz * block_sz, this->Q_i_gram);
     }
 
-    T* QtQi_dat = RandLAPACK::comps::util::resize(k * block_sz, this->QtQi);
+    T* QtQi_dat = RandLAPACK::comps::util::resize(this->curr_lim * block_sz, this->QtQi);
     T* Q_i_dat = RandLAPACK::comps::util::resize(m * block_sz, this->Q_i);
     T* B_i_dat = RandLAPACK::comps::util::resize(block_sz * n, this->B_i);
 
     T* Q_dat = Q.data();
     T* B_dat = B.data();
-
+    
     while(k > curr_sz)
     {
         // Dynamically changing block size
         block_sz = std::min(block_sz, k - curr_sz);
-        int next_sz = curr_sz + block_sz;
+        next_sz = curr_sz + block_sz;
+
+        // Make sure we have enough space for everything
+        if(next_sz > this->curr_lim)
+        {
+            this->curr_lim = std::min(2 * this->curr_lim, k);
+            Q_dat = RandLAPACK::comps::util::resize(this->curr_lim * m, Q);
+            B_dat = RandLAPACK::comps::util::row_resize(curr_sz, n, B, this->curr_lim);
+            QtQi_dat = RandLAPACK::comps::util::resize(this->curr_lim * block_sz, QtQi);
+            Q_gram_dat = RandLAPACK::comps::util::resize(this->curr_lim * this->curr_lim, Q_gram);
+        }
 
         // Calling RangeFinder
         this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i);
@@ -96,8 +117,8 @@ void QB<T>::QB2(
             if (RandLAPACK::comps::util::orthogonality_check(m, block_sz, block_sz, Q_i, Q_i_gram, this->verbosity))
             {
                 // Lost orthonormality of Q
-                // Cut off the last iteration
-                RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+                RandLAPACK::comps::util::row_resize(this->curr_lim, n, B, curr_sz);
+                k = curr_sz;
                 this->termination = 4;
                 return;
             }
@@ -107,12 +128,13 @@ void QB<T>::QB2(
         if(curr_sz != 0)
         {
             // Q_i = orth(Q_i - Q(Q'Q_i))
-            gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, k);
-            gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, k, 1.0, Q_i_dat, m);
+            gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, this->curr_lim);
+            gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, this->curr_lim, 1.0, Q_i_dat, m);
 
             // If CholQR failed, will use HQR
             this->Orth_Obj.call(m, block_sz, this->Q_i);
         }
+
         //B_i = Q_i' * A
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
 
@@ -127,35 +149,37 @@ void QB<T>::QB2(
         if ((curr_sz > 0) && (approx_err > prev_err))
         {
             // Early termination - error growth
-            // Resizing the output arrays
-            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            // Only need to move B's data, no resizing
+            RandLAPACK::comps::util::row_resize(this->curr_lim, n, B, curr_sz);
+            k = curr_sz;
             this->termination = 2;
             return;
         } 
 
         // Update the matrices Q and B
         lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, Q_dat + (m * curr_sz), m);	
-        lacpy(MatrixType::General, block_sz, n, B_i_dat, block_sz, B_dat + curr_sz, k);
-
+        lacpy(MatrixType::General, block_sz, n, B_i_dat, block_sz, B_dat + curr_sz, this->curr_lim);
+        
         if(this->orth_check)
         {
-            if (RandLAPACK::comps::util::orthogonality_check(m, k, next_sz, Q, Q_gram, this->verbosity))
+            if (RandLAPACK::comps::util::orthogonality_check(m, this->curr_lim, next_sz, Q, Q_gram, this->verbosity))
             {
                 // Lost orthonormality of Q
-                // Cut off the last iteration
-                RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+                RandLAPACK::comps::util::row_resize(this->curr_lim, n, B, curr_sz);
+                k = curr_sz;
+             
                 this->termination = 5;
                 return;
             }
         }
-
+        
         curr_sz += block_sz;
         // Termination criteria
         if (approx_err < tol)
         {
-            // Expected ternimation - tolerance achieved
-            // Resizing the output arrays 
-            RandLAPACK::comps::util::qb_resize( m, n, Q, B, k, curr_sz);
+            // Reached the required error tol
+            RandLAPACK::comps::util::row_resize(this->curr_lim, n, B, curr_sz);
+            k = curr_sz;
             this->termination = 0;
             return;
         }
