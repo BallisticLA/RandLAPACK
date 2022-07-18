@@ -20,6 +20,9 @@ using namespace std::chrono;
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
+using namespace RandLAPACK::comps::util;
+using namespace RandLAPACK::comps::orth;
+
 class BenchmarkOrth : public ::testing::Test
 {
     protected:
@@ -54,10 +57,10 @@ class BenchmarkOrth : public ::testing::Test
         std::copy(A_dat, A_dat + size, A_cpy_3_dat);
 
         // Stabilization Constructor
-        RandLAPACK::comps::orth::Stab<T> Stab_PLU(1);
-        RandLAPACK::comps::orth::Orth<T> Orth_CholQR(0);
-        RandLAPACK::comps::orth::Orth<T> Orth_HQR(1);
-        RandLAPACK::comps::orth::Orth<T> Orth_GEQR(2);
+        Stab<T> Stab_PLU(1);
+        Orth<T> Orth_CholQR(0);
+        Orth<T> Orth_HQR(1);
+        Orth<T> Orth_GEQR(2);
 
         // PIV LU
         // Stores L, U into Omega
@@ -84,7 +87,6 @@ class BenchmarkOrth : public ::testing::Test
         Orth_GEQR.call(m, n, A);
         auto stop_geqr = high_resolution_clock::now();
         long dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
-
 
         return std::make_tuple(dur_chol, dur_lu, dur_qr, dur_geqr);
     }
@@ -187,7 +189,6 @@ class BenchmarkOrth : public ::testing::Test
 
             for (; cols <= col_max; cols += 64)
             {
-
                 std::tuple<long, long, long, long> res;
                 long t_chol = 0;
                 long t_lu   = 0;
@@ -210,7 +211,6 @@ class BenchmarkOrth : public ::testing::Test
                     // Skip first iteration, as it tends to produce garbage results
                     if (i != 0)
                     {
-                
                         t_chol += curr_t_chol;
                         t_lu   += curr_t_lu;
                         t_qr   += curr_t_qr;

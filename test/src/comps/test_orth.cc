@@ -20,6 +20,9 @@ using namespace std::chrono;
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
+using namespace RandLAPACK::comps::util;
+using namespace RandLAPACK::comps::orth;
+
 class TestOrth : public ::testing::Test
 {
     protected:
@@ -41,13 +44,13 @@ class TestOrth : public ::testing::Test
         T* A_dat = A.data();
         T* I_ref_dat = I_ref.data();
         
-        RandLAPACK::comps::util::gen_mat_type(m, n, A, n, seed, mat_type);
+        gen_mat_type<T>(m, n, A, n, seed, mat_type);
 
         // Generate a reference identity
-        RandLAPACK::comps::util::eye<T>(n, n, I_ref);  
+        eye<T>(n, n, I_ref);  
 
         // Orthogonalization Constructor
-        RandLAPACK::comps::orth::Orth<T> Orth(0);
+        Orth<T> Orth(0);
 
         // Orthonormalize A
         if (Orth.call(m, n, A) != 0)
@@ -82,18 +85,18 @@ class TestOrth : public ::testing::Test
         T* Omega_dat = Omega.data();
         T* I_ref_dat = I_ref.data();
         
-        RandLAPACK::comps::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        gen_mat_type<T>(m, n, A, k, seed, mat_type);
         
         // Fill the gaussian random matrix
         RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, seed);
         // Generate a reference identity
-        RandLAPACK::comps::util::eye<T>(k, k, I_ref);  
+        eye<T>(k, k, I_ref);  
         
         // Y = A * Omega
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         
         // Orthogonalization Constructor
-        RandLAPACK::comps::orth::Orth<T> Orth(0);
+        Orth<T> Orth(0);
 
         // Orthonormalize sketch Y
         if(Orth.call(m, k, Y) != 0)

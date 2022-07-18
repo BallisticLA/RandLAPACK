@@ -2,6 +2,8 @@
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
+using namespace RandLAPACK::comps::util;
+
 namespace RandLAPACK::comps::rs {
 
 template <typename T>
@@ -22,7 +24,7 @@ void RS<T>::rs1(
 
 	const T* A_dat = A.data();
 	T* Omega_dat = Omega.data();
-	T* Omega_1_dat = RandLAPACK::comps::util::resize(m * k, this->Omega_1);
+	T* Omega_1_dat = upsize<T>(m * k, this->Omega_1);
 
 	if (p % 2 == 0) 
 	{
@@ -40,9 +42,7 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			// If CholQR failed, will use PLU
-			if(this->Stab_Obj.call(n, k, Omega))
-				this->Stab_Obj.call(n, k, Omega);
+			this->Stab_Obj.call(n, k, Omega);
 		}
 	}
 	
@@ -53,24 +53,22 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			if(this->Stab_Obj.call(m, k, Omega_1))
-				this->Stab_Obj.call(m, k, Omega_1);
+			this->Stab_Obj.call(m, k, Omega_1);
 		}
 
 		if(this->cond_check)
-			RandLAPACK::comps::util::cond_num_check(m, k, Omega_1, this->Omega_1_cpy, this->s, this->cond_nums, this->verbosity);
+			cond_num_check<T>(m, k, Omega_1, this->Omega_1_cpy, this->s, this->cond_nums, this->verbosity);
 
 		// Omega = A' * Omega
 		gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			if(this->Stab_Obj.call(n, k, Omega))
-				this->Stab_Obj.call(n, k, Omega);
+			this->Stab_Obj.call(n, k, Omega);
 		}
 		
 		if(this->cond_check)
-			RandLAPACK::comps::util::cond_num_check(n, k, Omega, this->Omega_cpy, this->s, this->cond_nums, this->verbosity);
+			cond_num_check<T>(n, k, Omega, this->Omega_cpy, this->s, this->cond_nums, this->verbosity);
 	}
 	// Increment seed upon termination
 	this->seed += m * n;

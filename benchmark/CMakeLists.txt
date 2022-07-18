@@ -1,3 +1,4 @@
+# TODO stop using gtest
 message(STATUS "Checking for benchmarks ...")
 find_package(GTest)
 set(tmp FALSE)

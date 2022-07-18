@@ -1,3 +1,11 @@
+/*
+TODO #1: Resizing tests.
+
+TODO #2: Diagonalization tests.
+
+TODO #4: L & pivotig tests.
+*/
+
 #include <gtest/gtest.h>
 #include <blas.hh>
 #include <RandBLAS.hh>

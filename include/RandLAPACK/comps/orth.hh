@@ -73,7 +73,7 @@ class Orth : public Stabilization<T> // TODO #1
                                                 //Call it twice for better orthogonality
                                                 if(CholQR(m, k, Q))
                                                 {
-                                                        return 1;
+                                                        termination = HQR(m, k, Q, this->tau);
                                                 }
                                                 termination = CholQR(m, k, Q);
                                         }
@@ -122,6 +122,10 @@ class Stab : public Orth<T>
                                         else{
                                                 // Only call once
                                                 termination = this->CholQR(m, k, Q);
+                                                if(termination)
+                                                {
+                                                        termination = PLU(m, k, Q, this->ipiv);
+                                                }
                                         }
                                         break;
                                 case 1:

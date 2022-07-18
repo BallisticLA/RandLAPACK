@@ -118,7 +118,7 @@ void swap_rows(
 
 // "intellegent reisze"
 template <typename T> 
-T* resize(
+T* upsize(
         int64_t target_sz,
         std::vector<T>& A
 ) {     
@@ -156,7 +156,7 @@ T* row_resize(
         //SIZING UP
         else{
                 // How many rows are being added: k - m
-                A_dat = resize(k * n, A);
+                A_dat = upsize(k * n, A);
 
                 int64_t end = k * (n - 1);
                 for(int i = n - 1; i > 0; --i)
@@ -253,7 +253,7 @@ void gen_poly_mat(
         int64_t& m,
         int64_t& n,
         std::vector<T>& A,
-        int64_t k, // vector length
+        int64_t k,
         T t, // controls the decay. The higher the value, the slower the decay
         bool diagon,
         int32_t seed
@@ -298,7 +298,7 @@ void gen_exp_mat(
         int64_t& m,
         int64_t& n,
         std::vector<T>& A,
-        int64_t k, // vector length
+        int64_t k,
         T t, // controls the decay. The higher the value, the slower the decay
         bool diagon,
         int32_t seed
@@ -383,7 +383,7 @@ void gen_mat(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
-        int64_t k, // vector length
+        int64_t k,
         std::vector<T>& S,
         int32_t seed
 ) {   
@@ -432,8 +432,8 @@ void cond_num_check(
         using namespace lapack;
         
         // Copy to avoid any changes
-        T* A_cpy_dat = resize(m * n, A_cpy);
-        T* s_dat = resize(n, s);
+        T* A_cpy_dat = upsize(m * n, A_cpy);
+        T* s_dat = upsize(n, s);
 
         lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
         gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
@@ -493,8 +493,8 @@ template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A)
 template void swap_rows(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
 template void swap_rows(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
 
-template float* resize(int64_t target_sz, std::vector<float>& A);
-template double* resize(int64_t target_sz, std::vector<double>& A);
+template float* upsize(int64_t target_sz, std::vector<float>& A);
+template double* upsize(int64_t target_sz, std::vector<double>& A);
 
 template float* row_resize(int64_t m, int64_t n, std::vector<float>& A, int64_t k);
 template double* row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k);

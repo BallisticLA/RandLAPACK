@@ -2,9 +2,7 @@
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
-#define USE_QR
-#define COND_CHECK
-#define VERBOSE
+using namespace RandLAPACK::comps::util;
 
 namespace RandLAPACK::comps::rf {
 
@@ -19,7 +17,7 @@ void RF<T>::rf1(
     using namespace blas;
     using namespace lapack;
 
-    T* Omega_dat = RandLAPACK::comps::util::resize(n * k, this->Omega);
+    T* Omega_dat = upsize<T>(n * k, this->Omega);
     T* Q_dat = Q.data();
 
     this->RS_Obj.call(m, n, A, k, this->Omega);
@@ -28,11 +26,10 @@ void RF<T>::rf1(
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega_dat, n, 0.0, Q_dat, m);
 
     if(this->cond_check)
-        RandLAPACK::comps::util::cond_num_check(m, k, Q, this->Q_cpy, this->s, this->cond_nums, this->verbosity);
+        // Writes into this->cond_nums
+        cond_num_check<T>(m, k, Q, this->Q_cpy, this->s, this->cond_nums, this->verbosity);
     
-    // If CholQR failed, will use HQR
-    if(this->Orth_Obj.call(m, k, Q))
-        this->Orth_Obj.call(m, k, Q);
+    this->Orth_Obj.call(m, k, Q);
 }
 
 template void RF<float>::rf1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Q);

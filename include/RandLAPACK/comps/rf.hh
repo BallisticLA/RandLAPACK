@@ -34,7 +34,7 @@ class RF : public RangeFinder<T>
                 bool verbosity;
                 bool cond_check;
                 std::vector<T> Omega;
-                // Avoiding reallocation
+
                 std::vector<T> Q_cpy;
                 std::vector<T> s;
 

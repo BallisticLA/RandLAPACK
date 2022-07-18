@@ -1,3 +1,11 @@
+/*
+TODO #1: The QB class probably doesn't need a QB2 function that's separate from call(...). 
+The same goes for RF not needing rf1 separately from call(...). I know that the Orth class has 
+several functions and a call method that chooses among them. That's an okay design pattern in isolation 
+but if we assume it's used in most implementations then that can lead to indirect assumptions about how 
+customized user implementations might behave.
+*/
+
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -36,7 +44,6 @@ class QB : public QBalg<T>
                 bool verbosity;
                 bool orth_check;
 
-                // Avoiding preallocations
                 std::vector<T> Q_gram;
                 std::vector<T> Q_i_gram;
 
@@ -57,6 +64,9 @@ class QB : public QBalg<T>
                 */
                 int64_t curr_lim;
 
+                // By how much are we increasing the dimension when we've reached curr_lim
+                int dim_growth_factor;
+
 		// Constructor
 		QB(
                         RandLAPACK::comps::rf::RangeFinder<T>& rf_obj,
@@ -69,6 +79,7 @@ class QB : public QBalg<T>
                         verbosity = verb;
                         orth_check = orth;
                         decision_QB = decision;
+                        dim_growth_factor = 4;
 		}
 
 		void QB2(
@@ -102,4 +113,4 @@ class QB : public QBalg<T>
                 }
 };
 #endif
-} // end namespace RandLAPACK::comps::rs
+} // end namespace RandLAPACK::comps::qb

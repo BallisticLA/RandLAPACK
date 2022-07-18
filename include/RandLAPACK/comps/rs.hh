@@ -37,7 +37,7 @@ class RS : public RowSketcher<T>
 		int decision_RS;
 		std::vector<T> Omega_1;
 		std::vector<T> cond_nums;
-		// Avoiding reallocation
+
 		std::vector<T> Omega_cpy;
 		std::vector<T> Omega_1_cpy;
 		std::vector<T> s;

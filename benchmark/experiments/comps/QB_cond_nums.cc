@@ -1,3 +1,8 @@
+/*
+TODO #1: Create files if those do not exist.
+
+*/
+
 #include <gtest/gtest.h>
 #include <blas.hh>
 #include <lapack.hh>
@@ -8,6 +13,12 @@
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
+
+using namespace RandLAPACK::comps::util;
+using namespace RandLAPACK::comps::orth;
+using namespace RandLAPACK::comps::rs;
+using namespace RandLAPACK::comps::rf;
+using namespace RandLAPACK::comps::qb;
 
 class BenchmarkQB : public ::testing::Test
 {
@@ -28,7 +39,7 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        RandLAPACK::comps::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        gen_mat_type<T>(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
         // Adjust the expected rank
@@ -59,22 +70,22 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        RandLAPACK::comps::orth::Stab<double> Stab(0);
+        Stab<T> Stab(0);
 
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - use HQR
-        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(0);
 
         // RangeFinder constructor
-        RandLAPACK::comps::rf::RF<double> RF(RS, Orth_RF, verbosity, cond_check, 0);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - use HQR
-        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(0);
 
         // QB constructor - Choose QB2_test_mode
-        RandLAPACK::comps::qb::QB<double> QB(RF, Orth_QB, verbosity, orth_check, 0);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
 
         // Test mode QB2
         QB.call(

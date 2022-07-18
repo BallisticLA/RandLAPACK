@@ -9,6 +9,12 @@
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
+using namespace RandLAPACK::comps::util;
+using namespace RandLAPACK::comps::orth;
+using namespace RandLAPACK::comps::rs;
+using namespace RandLAPACK::comps::rf;
+using namespace RandLAPACK::comps::qb;
+
 class TestQB : public ::testing::Test
 {
     protected:
@@ -26,7 +32,7 @@ class TestQB : public ::testing::Test
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        RandLAPACK::comps::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        gen_mat_type<T>(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
         // Adjust the expected rank
@@ -81,22 +87,22 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        RandLAPACK::comps::orth::Stab<T> Stab(1);
+        Stab<T> Stab(1);
 
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::comps::rs::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(0);
 
         // RangeFinder constructor - Choose default (rf1)
-        RandLAPACK::comps::rf::RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(0);
 
         // QB constructor - Choose defaut (QB2)
-        RandLAPACK::comps::qb::QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
 
         // Regular QB2 call
         QB.call(
@@ -147,7 +153,7 @@ class TestQB : public ::testing::Test
         std::vector<T> Ident(k * k, 0.0);
         T* Ident_dat = Ident.data();
         // Generate a reference identity
-        RandLAPACK::comps::util::eye<T>(k, k, Ident); 
+        eye<T>(k, k, Ident); 
         
         // Buffer for testing B
         copy(k * n, B_dat, 1, B_cpy_dat, 1);
@@ -176,7 +182,7 @@ class TestQB : public ::testing::Test
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
         copy(n - k, z_buf_dat, 1, s_dat + k, 1);
-        RandLAPACK::comps::util::diag(n, n, s, n, S);
+        diag<T>(n, n, s, n, S);
 
         //char name_u[] = "U";
         //RandBLAS::util::print_colmaj(m, n, U.data(), name_u);
@@ -229,7 +235,7 @@ template <typename T>
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        RandLAPACK::comps::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        gen_mat_type<T>(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
         int64_t k_est = std::min(m, n);
@@ -258,22 +264,22 @@ template <typename T>
 
         // Make subroutine objects
         // Stabilization Constructor - Choose CholQR
-        RandLAPACK::comps::orth::Stab<double> Stab(0);
+        Stab<T> Stab(0);
 
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::comps::rs::RS<double> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::comps::orth::Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(0);
 
         // RangeFinder constructor - Choose default (rf1)
-        RandLAPACK::comps::rf::RF<double> RF(RS, Orth_RF, verbosity, cond_check, 0);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::comps::orth::Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(0);
 
         // QB constructor - Choose defaut (QB2)
-        RandLAPACK::comps::qb::QB<double> QB(RF, Orth_QB, verbosity, orth_check, 0);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
 
         // Regular QB2 call
         QB.call(

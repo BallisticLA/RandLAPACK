@@ -7,6 +7,8 @@ so that it can be of size k*(k+1)/2 instead of k*k.
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 
+using namespace RandLAPACK::comps::util;
+
 namespace RandLAPACK::comps::orth {
 
 // Perfoms a Cholesky QR factorization
@@ -14,12 +16,12 @@ template <typename T>
 int Orth<T>::CholQR(
         int64_t m,
         int64_t k,
-        std::vector<T>& Q // pointer to the beginning
+        std::vector<T>& Q
 ){
         using namespace blas;
         using namespace lapack;
         
-        T* Q_gram_dat = RandLAPACK::comps::util::resize(k * (k - 1) / 2, this->Q_gram);
+        T* Q_gram_dat = upsize<T>(k * (k + 1) / 2, this->Q_gram);
         T* Q_dat = Q.data();
 
         // Find normal equation Q'Q - Just the upper triangular portion        
@@ -27,7 +29,10 @@ int Orth<T>::CholQR(
 
         // Positive definite cholesky factorization
         if (pftrf(Op::NoTrans, Uplo::Upper, k, Q_gram_dat))
+        {
                 this->chol_fail = true; // scheme failure 
+                return 1;
+        }
 
         tfsm(Op::NoTrans, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, Q_dat, m);
         
@@ -49,8 +54,8 @@ int Stab<T>::PLU(
 
         if(getrf(m, n, A.data(), m, ipiv.data()))
                 return 1; // failure condition
-        RandLAPACK::comps::util::swap_rows<T>(m, n, A, ipiv);
-        RandLAPACK::comps::util::get_L<T>(m, n, A);
+        swap_rows<T>(m, n, A, ipiv);
+        get_L<T>(m, n, A);
 
         return 0;
 }
@@ -67,7 +72,7 @@ int Orth<T>::HQR(
         // tau needs to be a vector of all 2's by default
         using namespace lapack;
 
-        RandLAPACK::comps::util::resize(n, tau);
+        upsize<T>(n, tau);
 
         T* A_dat = A.data();
 	T* tau_dat = tau.data();
@@ -91,12 +96,12 @@ int Orth<T>::GEQR(
         tvec.resize(5);
 
         T* A_dat = A.data();
-        T* tvec_dat = tvec.data();
         
-        geqr(m, n, A_dat, m, tvec_dat, -1);
+        geqr(m, n, A_dat, m, tvec.data(), -1);
         int64_t tsize = (int64_t) tvec[0]; 
         tvec.resize(tsize);
-        geqr(m, n, A_dat, m, tvec.data(), tsize);
+        if(geqr(m, n, A_dat, m, tvec.data(), tsize))
+                return 1;
 
         return 0;
 }
