@@ -46,6 +46,7 @@ class TestDetermiterOLS : public ::testing::Test
             m, n, A.data(), m, b.data(), c.data(), delta,
             resid_vec, tol, n, M.data(), n, x0.data(), x.data(), y.data());
         
+
         int64_t iter_count = 0;
         for (double res: resid_vec)
         {
@@ -63,7 +64,6 @@ class TestDetermiterOLS : public ::testing::Test
         ASSERT_GE(iter_count, 2);
     }
 };
-
 
 TEST_F(TestDetermiterOLS, Trivial)
 {

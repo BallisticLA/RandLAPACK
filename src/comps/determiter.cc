@@ -4,6 +4,8 @@
 
 namespace RandLAPACK::comps::determiter {
 
+
+
 template <typename T>
 void pcg(
 	int64_t m,
@@ -23,14 +25,17 @@ void pcg(
 	T* y // length m
 	)
 {
+	
 	using namespace blas;
 
 	std::vector<T> out_a1(m, 0.0);
 	std::vector<T> out_at1(n, 0.0);
 	std::vector<T> out_m1(n, 0.0);
 	std::vector<T> out_mt1(k, 0.0);
-
+	
 	std::vector<T> b1(n);
+	int f = 1;
+	
 	//  b1 = A'b - c
 	copy<T>(n, c, 1, b1.data(), 1);
 	gemv<T>(Layout::ColMajor, Op::Trans, m, n, 1.0, A, lda, b, 1, -1.0, b1.data(), 1);
@@ -117,11 +122,13 @@ void pcg(
 
 		++iter;
 	}
+
 	resid_vec[iter] = delta1_new;
 	
 	// recover y = b - Ax
 	copy<T>(n, b, 1, y, 1);
 	gemv<T>(Layout::ColMajor, Op::NoTrans, m, n, -1.0, A, lda, x, 1, 1.0, y, 1);
+
 }
 
 
@@ -163,5 +170,14 @@ void run_pcgls_ex(int n, int m)
 		std::cout << res << "\n";
 	}
 }
+
+
+
+// Explicit instantiation of template functions - workaround to avoid header implementations
+template void pcg<float>( int64_t m, int64_t n, float* const A, int64_t lda,  float* const b, float* const c, float delta, 
+std::vector<float>& resid_vec, float tol, int64_t k, float* const M, int64_t ldm, float* const x0, float* x, float* y);
+
+template void pcg<double>( int64_t m, int64_t n, double* const A, int64_t lda,  double* const b, double* const c, double delta, 
+std::vector<double>& resid_vec, double tol, int64_t k, double* const M, int64_t ldm, double* const x0, double* x, double* y);
 
 } // end namespace RandLAPACK::comps::determiter

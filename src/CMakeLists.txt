@@ -1,5 +1,10 @@
 set(RandLAPACK_cxx_srcs
     comps/determiter.cc
+    comps/qb.cc
+    comps/rf.cc
+    comps/rs.cc
+    comps/util.cc
+    comps/orth.cc
 )
 
 set(RandLAPACK_libs

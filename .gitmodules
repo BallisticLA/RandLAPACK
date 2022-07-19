@@ -1,3 +1,6 @@
 [submodule "RandBLAS"]
 	path = RandBLAS
 	url = https://github.com/BallisticLA/RandBLAS
+[submodule "Submod"]
+	url = https://github.com/BallisticLA/RandBLAS/tree/max_branch
+	branch = max_branch
