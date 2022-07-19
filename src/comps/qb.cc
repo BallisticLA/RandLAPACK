@@ -4,8 +4,6 @@ TODO #1: Update implementation so that no copy of the original data is needed.
 TODO #3: Need a test case with switching between different orthogonalization types
 
 On early termination, data in B is moved, but not sized down
-
-TODO: If user gives tol 0, change it to machine epsilon * 100
 */
 
 #include <RandBLAS.hh>
@@ -45,6 +43,12 @@ void QB<T>::QB2(
         k = curr_sz;
         this->termination = 1;
         return;
+    }
+
+    // tolerance check
+    if (tol < 100 * std::numeric_limits<T>::epsilon())
+    {
+        tol = 100 * std::numeric_limits<T>::epsilon();
     }
     
     // If the space allocated for col in Q and row in B is insufficient for any iterations ...

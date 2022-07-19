@@ -54,8 +54,9 @@ int Stab<T>::PLU(
 
         if(getrf(m, n, A.data(), m, ipiv.data()))
                 return 1; // failure condition
-        swap_rows<T>(m, n, A, ipiv);
+
         get_L<T>(m, n, A);
+        swap_rows<T>(m, n, A, ipiv);
 
         return 0;
 }
