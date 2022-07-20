@@ -40,8 +40,8 @@ int Orth<T>::CholQR(
         // Scheme may succeed, but output garbage
         if(this->cond_check)
         {
-                if (1 / cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) < 100 * std::numeric_limits<T>::epsilon())
-                        return 1;
+                // Does not work for a matrix with packed storage
+                //cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, true);
         }
 
         tfsm(Op::NoTrans, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, Q_dat, m);
@@ -62,11 +62,14 @@ int Stab<T>::PLU(
         if(ipiv.size() < (uint64_t)n)
                 ipiv.resize(n);
 
-        if(getrf(m, n, A.data(), m, ipiv.data()))
+        T* A_dat = A.data();
+        int64_t* ipiv_dat = ipiv.data(); 
+
+        if(getrf(m, n, A_dat, m, ipiv_dat))
                 return 1; // failure condition
 
         get_L<T>(m, n, A);
-        swap_rows<T>(m, n, A, ipiv);
+        laswp(n, A_dat, m, 1, n, ipiv_dat, 1);
 
         return 0;
 }

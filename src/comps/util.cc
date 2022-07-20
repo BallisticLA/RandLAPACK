@@ -98,27 +98,6 @@ void get_L(
     }
 }
 
-// Addressing Pivoting
-template <typename T> 
-void swap_rows(
-    int64_t m,
-    int64_t n,
-    std::vector<T>& A, // pointer to the beginning
-    const std::vector<int64_t>& p // Pivot vector
-) {     
-    using namespace blas;
-    const int64_t* p_dat = p.data();
-    T* A_dat = A.data();
-
-    std::vector<T> row_buf(n, 0.0);
-
-    for (int i = 0, j = 0; i < n; ++i)
-    {
-        j = p_dat[i] - 1;
-        swap<T, T>(n, &A_dat[i], m, &A_dat[j], m);
-    }
-}
-
 // "intellegent reisze"
 template <typename T> 
 T* upsize(
@@ -494,9 +473,6 @@ template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k
 
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A);
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A);
-
-template void swap_rows(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& p);
-template void swap_rows(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& p);
 
 template float* upsize(int64_t target_sz, std::vector<float>& A);
 template double* upsize(int64_t target_sz, std::vector<double>& A);

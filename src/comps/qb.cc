@@ -109,7 +109,7 @@ int QB<T>::QB2(
 
         // Calling RangeFinder
         if(this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i))
-            return 6;
+            return 6; // RF failed
 
         if(this->orth_check)
         {
