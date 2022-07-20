@@ -23,7 +23,7 @@ template <typename T>
 class QBalg
 {
         public:
-                virtual void call(
+                virtual int call(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -54,9 +54,6 @@ class QB : public QBalg<T>
                 // Controls QB version to be used
                 int decision_QB;
 
-                // Output
-                int termination;
-
                 /*
                 This represents how much space is currently allocated for cols of Q and rows of B.
                 This is <= k. We are assuming that the user may not have given "enough"
@@ -82,7 +79,7 @@ class QB : public QBalg<T>
                         dim_growth_factor = 4;
 		}
 
-		void QB2(
+		int QB2(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -93,7 +90,7 @@ class QB : public QBalg<T>
                         std::vector<T>& B
                 );
 
-                virtual void call(
+                virtual int call(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -104,12 +101,42 @@ class QB : public QBalg<T>
                         std::vector<T>& B
                 )
                 {
+                        int termination = 0;
                         switch(this->decision_QB)
                         {
                                 case 0:
-                                        QB2(m, n, A, k, block_sz, tol, Q, B);
+                                        termination = QB2(m, n, A, k, block_sz, tol, Q, B);
                                         break;
                         }
+
+                        if(this->verbosity)
+                        {
+                                switch(termination)
+                                {
+                                case 1:
+                                        printf("\nQB TERMINATED VIA: Input matrix of zero entries.\n");
+                                        break;
+                                case 2:
+                                        printf("\nQB TERMINATED VIA: Early termination due to unexpected error accumulation.\n");
+                                        break;
+                                case 3:
+                                        printf("\nQB TERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
+                                        break;
+                                case 4:
+                                        printf("\nQB TERMINATED VIA: Lost orthonormality of Q_i.\n");
+                                        break;
+                                case 5:
+                                        printf("\nQB TERMINATED VIA: Lost orthonormality of Q.\n");
+                                        break;
+                                case 6:
+                                        printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
+                                        break;
+                                case 0:
+                                        printf("\nQB TERMINATED VIA: Normal termination; Expected tolerance reached.\n");
+                                        break;
+                                }
+                        }
+                        return termination;
                 }
 };
 #endif

@@ -1,8 +1,3 @@
-/*
-TODO #1: only store the upper triangle of the gram matrix in gram_vec,
-so that it can be of size k*(k+1)/2 instead of k*k.
-*/
-
 #include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
@@ -32,6 +27,13 @@ int Orth<T>::CholQR(
         {
                 this->chol_fail = true; // scheme failure 
                 return 1;
+        }
+
+        // Scheme may succeed, but output garbage
+        if(this->cond_check)
+        {
+                if (1 / cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) < 100 * std::numeric_limits<T>::epsilon())
+                        return 1;
         }
 
         tfsm(Op::NoTrans, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, Q_dat, m);

@@ -87,25 +87,25 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(1);
+        Stab<T> Stab(1, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
         RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(0, cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
         RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(0, cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
         QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
 
         // Regular QB2 call
-        QB.call(
+        int termination = QB.call(
             m,
             n,
             A,
@@ -120,7 +120,7 @@ class TestQB : public ::testing::Test
         Q_dat = Q.data();
         B_dat = B.data();
 
-        switch(QB.termination)
+        switch(termination)
         {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
@@ -264,25 +264,25 @@ template <typename T>
 
         // Make subroutine objects
         // Stabilization Constructor - Choose CholQR
-        Stab<T> Stab(0);
+        Stab<T> Stab(0, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
         RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(0, cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
         RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(0, cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
         QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
 
         // Regular QB2 call
-        QB.call(
+        int termination = QB.call(
             m,
             n,
             A,
@@ -297,7 +297,7 @@ template <typename T>
         Q_dat = Q.data();
         B_dat = B.data();
     
-        switch(QB.termination)
+        switch(termination)
         {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
@@ -361,8 +361,6 @@ TEST_F(TestQB, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
     {
-        //test_QB2_k_eq_min<double>(100, 100, 10, 10, 2, 0.0, std::make_tuple(0, 0.2, false), seed);
-        
         // Fast polynomial decay test
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 2, false), seed);
         // Slow polynomial decay test
@@ -380,8 +378,6 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
         test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
-        
-        // SOMETHING IS OFF HERE
         // test zero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
         // test nonzero tol

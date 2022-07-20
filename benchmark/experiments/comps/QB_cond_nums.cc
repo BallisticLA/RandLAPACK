@@ -70,19 +70,19 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(0);
+        Stab<T> Stab(1, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
         RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - use HQR
-        Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(1, cond_check, verbosity);
 
         // RangeFinder constructor
         RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
 
         // Orthogonalization Constructor - use HQR
-        Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(1, cond_check, verbosity);
 
         // QB constructor - Choose QB2_test_mode
         QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
@@ -226,16 +226,15 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
 // Running tests without the orthogonality loss check to ensure normal termination
-
 /*
 TEST_F(BenchmarkQB, PlotTest)
 {   
-    test_QB2_plot<double>(10, 10, 2, 2, 2, 2, 0, 2, true);
-    //test_QB2_plot_helper_run<double>(10, 10, 10, 2, 2, 0, std::make_tuple(0, 2, true), 0);
+    //test_QB2_plot<double>(10, 10, 2, 2, 2, 2, 0, 2, true);
+
     // Slow_decay
     //test_QB2_plot<double>(1024, 1024, 16, 16, 2, 2, 0, 2, true);
-    //test_QB2_plot<double>(2048, 2048, 128, 128, 2, 2, 0, 2, true);
+    test_QB2_plot<double>(2048, 2048, 256, 256, 2, 2, 0, 2, true);
     // Fast decay
-    //test_QB2_plot<double>(1024, 2048, 128, 128, 0, 2, 0, 0.5, true);
+    test_QB2_plot<double>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true);
 }
 */
