@@ -41,8 +41,8 @@ class TestQB : public ::testing::Test
             k = std::min(m, n);
         }
 
-        std::vector<T> Q(3, 0);
-        std::vector<T> B;
+        std::vector<T> Q(m * k, 0.0);
+        std::vector<T> B(k * n, 0.0);
         std::vector<T> B_cpy(k * n, 0.0);
 
         // For results comparison
@@ -87,7 +87,7 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(1, cond_check, verbosity);
+        Stab<T> Stab(0, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
         RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
@@ -119,7 +119,7 @@ class TestQB : public ::testing::Test
         // Reassing pointers because Q, B have been resized
         Q_dat = Q.data();
         B_dat = B.data();
-
+        
         switch(termination)
         {
             case 1:
@@ -135,13 +135,12 @@ class TestQB : public ::testing::Test
                 break;
             case 4:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
-                //EXPECT_TRUE(true);
-                //return;
                 break;
             case 5:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
-                //EXPECT_TRUE(true);
-                //return;
+            case 6:
+                printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
+                break;
                 break;
             case 0:
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
@@ -312,13 +311,12 @@ template <typename T>
                 break;
             case 4:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
-                //EXPECT_TRUE(true);
-                //return;
                 break;
             case 5:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
-                //EXPECT_TRUE(true);
-                //return;
+                break;
+            case 6:
+                printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
                 break;
             case 0:
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
@@ -362,7 +360,8 @@ TEST_F(TestQB, SimpleTest)
     for (uint32_t seed : {2})//, 1, 2})
     {
         // Fast polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2, false), seed);
+        /*
         // Slow polynomial decay test
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
         // Superfast exponential decay test
@@ -382,5 +381,6 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
         // test nonzero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 0.1, false), seed);
+        */
     }
 }

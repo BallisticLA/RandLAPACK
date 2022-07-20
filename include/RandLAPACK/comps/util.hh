@@ -45,14 +45,6 @@ void disp_diag(
         std::vector<T>& A 
 );
 
-template <typename T> 
-void swap_rows(
-        int64_t m,
-        int64_t n,
-        std::vector<T>& A,
-        const std::vector<int64_t>& p
-);
-
 /*
 Checks if the given size is larger than available. If so, resizes the vector.
 */
