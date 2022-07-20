@@ -21,7 +21,7 @@ using namespace RandLAPACK::comps::util;
 namespace RandLAPACK::comps::qb {
 
 template <typename T>
-void QB<T>::QB2(
+int QB<T>::QB2(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -45,8 +45,7 @@ void QB<T>::QB2(
     {
         // Zero matrix termination
         k = curr_sz;
-        this->termination = 1;
-        return;
+        return 1;
     }
 
     // tolerance check
@@ -109,7 +108,8 @@ void QB<T>::QB2(
         }
 
         // Calling RangeFinder
-        this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i);
+        if(this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i))
+            return 6;
 
         if(this->orth_check)
         {
@@ -118,8 +118,7 @@ void QB<T>::QB2(
                 // Lost orthonormality of Q
                 row_resize<T>(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
-                this->termination = 4;
-                return;
+                return 4;
             }
         }
 
@@ -150,8 +149,7 @@ void QB<T>::QB2(
             // Only need to move B's data, no resizing
             row_resize<T>(this->curr_lim, n, B, curr_sz);
             k = curr_sz;
-            this->termination = 2;
-            return;
+            return 2;
         } 
 
         // Update the matrices Q and B
@@ -165,8 +163,7 @@ void QB<T>::QB2(
                 // Lost orthonormality of Q
                 row_resize<T>(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
-                this->termination = 5;
-                return;
+                return 5;
             }
         }
         
@@ -177,8 +174,7 @@ void QB<T>::QB2(
             // Reached the required error tol
             row_resize<T>(this->curr_lim, n, B, curr_sz);
             k = curr_sz;
-            this->termination = 0;
-            return;
+            return 0;
         }
         
         // This step is only necessary for the next iteration
@@ -186,9 +182,9 @@ void QB<T>::QB2(
         gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_dat, block_sz, 1.0, A_cpy_dat, m);
     }
     // Reached expected rank without achieving the tolerance
-    this->termination = 3;
+    return 3;
 }
 
-template void QB<float>::QB2(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, std::vector<float>& Q, std::vector<float>& B);
-template void QB<double>::QB2(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, std::vector<double>& Q, std::vector<double>& B);
+template int QB<float>::QB2(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, std::vector<float>& Q, std::vector<float>& B);
+template int QB<double>::QB2(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, std::vector<double>& Q, std::vector<double>& B);
 }// end namespace RandLAPACK::comps::qb

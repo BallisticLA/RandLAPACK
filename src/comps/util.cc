@@ -1,5 +1,7 @@
 /*
 TODO #1: Test get_L.
+
+TODO: Use laswap istead of pivot restoration
 */
 
 #include <RandLAPACK/comps/util.hh>
@@ -15,13 +17,7 @@ TODO #1: Test get_L.
 #include <lapack.hh>
 #include <RandBLAS.hh>
 
-/*
-UTILITY ROUTINES
-QUESTION: some of these very well can be separate namespace for their degree of seriousness.
-However, those routines are not necessarily randomized. What do we do with them?
-*/
 namespace RandLAPACK::comps::util {
-
 
 // Generate Identity
 // Assuming col-maj
@@ -430,14 +426,13 @@ void gen_mat(
 }
 
 template <typename T> 
-void cond_num_check(
-    int64_t m,
-    int64_t n,
-    const std::vector<T>& A,
-    std::vector<T>& A_cpy,
-    std::vector<T>& s,
-    std::vector<T>& cond_nums,
-    bool verbosity
+T cond_num_check(
+        int64_t m,
+        int64_t n,
+        const std::vector<T>& A,
+        std::vector<T>& A_cpy,
+        std::vector<T>& s,
+        bool verbosity
 ) {   
     using namespace lapack;
     
@@ -449,10 +444,10 @@ void cond_num_check(
     gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
     T cond_num = s_dat[0] / s_dat[n - 1];
 
-    if (verbosity)
-        printf("CONDITION NUMBER: %f\n", cond_num);
-    
-    cond_nums.push_back(cond_num);
+        if (verbosity)
+                printf("CONDITION NUMBER: %f\n", cond_num);
+
+        return cond_num;
 }
 
 // Bool=1 indicates failure
@@ -524,8 +519,8 @@ template void gen_s_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t 
 template void gen_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, std::vector<float>& S, int32_t seed); 
 template void gen_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, std::vector<double>& S, int32_t seed);
 
-template void cond_num_check(int64_t m, int64_t n, const std::vector<float>& A, std::vector<float>& A_cpy, std::vector<float>& s, std::vector<float>& cond_nums, bool verbosity);
-template void cond_num_check(int64_t m, int64_t n, const std::vector<double>& A, std::vector<double>& A_cpy, std::vector<double>& s, std::vector<double>& cond_nums, bool verbosity);
+template float cond_num_check(int64_t m, int64_t n, const std::vector<float>& A, std::vector<float>& A_cpy, std::vector<float>& s, bool verbosity);
+template double cond_num_check(int64_t m, int64_t n, const std::vector<double>& A, std::vector<double>& A_cpy, std::vector<double>& s, bool verbosity);
 
 template bool orthogonality_check(int64_t m, int64_t n, int64_t k, const std::vector<float>& A, std::vector<float>& A_gram, bool verbosity);
 template bool orthogonality_check(int64_t m, int64_t n, int64_t k, const std::vector<double>& A, std::vector<double>& A_gram, bool verbosity);

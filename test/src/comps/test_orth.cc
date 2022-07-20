@@ -50,7 +50,7 @@ class TestOrth : public ::testing::Test
         eye<T>(n, n, I_ref);  
 
         // Orthogonalization Constructor
-        Orth<T> Orth(0);
+        Orth<T> Orth(0, false, false);
 
         // Orthonormalize A
         if (Orth.call(m, n, A) != 0)
@@ -98,7 +98,7 @@ class TestOrth : public ::testing::Test
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         
         // Orthogonalization Constructor
-        Orth<T> Orth(0);
+        Orth<T> Orth(0, false, false);
 
         // Orthonormalize sketch Y
         if(Orth.call(m, k, Y) != 0)

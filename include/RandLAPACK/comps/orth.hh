@@ -20,19 +20,29 @@ class Stabilization
 };
 
 template <typename T>
-class Orth : public Stabilization<T> // TODO #1
+class Orth : public Stabilization<T>
 {
 	public:
                 std::vector<T> tvec;
                 std::vector<T> tau;
                 bool chol_fail;
+                bool cond_check;
+                bool verbosity;
                 int decision_orth;
 
                 // CholQR-specific
                 std::vector<T> Q_gram;
+                std::vector<T> Q_gram_cpy;
+                std::vector<T> s;
 
                 // Constructor
-                Orth(int decision = 0) : decision_orth(decision) {chol_fail = false;};
+                Orth(int decision, bool c_check, bool verb) 
+                {
+                        cond_check = c_check;
+                        verbosity = verb;
+                        decision_orth = decision;
+                        chol_fail = false; 
+                };
 
                 int CholQR(
                         int64_t m,
@@ -100,7 +110,13 @@ class Stab : public Orth<T>
                 int decision_stab;
                 
                 // Constructor
-                Stab(int decision = 0) : Orth<T>::Orth(decision), decision_stab(decision) {this->chol_fail = false;};
+                Stab(int decision, bool c_check, bool verb) : Orth<T>::Orth(decision, c_check, verb) 
+                {
+                        this->cond_check = c_check;
+                        this->verbosity = verb;
+                        decision_stab = decision;
+                        this->chol_fail = false; 
+                };
 
                 int PLU(
                         int64_t m,

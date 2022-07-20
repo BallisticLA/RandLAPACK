@@ -15,7 +15,7 @@ template <typename T>
 class RangeFinder
 {
         public:
-                virtual void call(
+                virtual int call(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
@@ -58,7 +58,7 @@ class RF : public RangeFinder<T>
                         decision_RF = decision;
 		}
 
-                void rf1(
+                int rf1(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
@@ -67,19 +67,37 @@ class RF : public RangeFinder<T>
                 );
 
                 // Control of RF types calls.
-                virtual void call(
+                virtual int call(
                         int64_t m,
                         int64_t n,
                         const std::vector<T>& A,
                         int64_t k,
                         std::vector<T>& Q
                 ){
+                        int termination = 0;
                         switch(this->decision_RF)
                         {
                                 case 0:
-                                        rf1(m, n, A, k, Q);
+                                        termination = rf1(m, n, A, k, Q);
                                         break;
                         }
+
+                        if(this->verbosity)
+                        {
+                                switch(termination)
+                                {
+                                case 0:
+                                        printf("\nRF TERMINATED VIA: Normal termination.\n");
+                                        break;
+                                case 1:
+                                        printf("\nRF TERMINATED VIA: RowSketcher failed.\n");
+                                        break;
+                                case 2:
+                                        printf("\nRF TERMINATED VIA: Orthogonalization failed.\n");
+                                        break;
+                                }
+                        }
+                        return termination;
                 }
 };
 #endif

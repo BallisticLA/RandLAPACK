@@ -10,7 +10,7 @@ using namespace RandLAPACK::comps::util;
 namespace RandLAPACK::comps::rs {
 
 template <typename T>
-void RS<T>::rs1(
+int RS<T>::rs1(
 	int64_t m,
 	int64_t n,
 	const std::vector<T>& A,
@@ -47,7 +47,8 @@ void RS<T>::rs1(
 		++ p_done;
 		if (p_done % q == 0) 
 		{
-			this->Stab_Obj.call(n, k, Omega);
+			if(this->Stab_Obj.call(n, k, Omega))
+				return 1; // Scheme failure
 		}
 	}
 	
@@ -56,29 +57,35 @@ void RS<T>::rs1(
 		// Omega = A * Omega
 		gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Omega_1_dat, m);
 		++ p_done;
+		
+		if(this->cond_check)
+			this->cond_nums.push_back(cond_num_check<T>(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
+
 		if (p_done % q == 0) 
 		{
-			this->Stab_Obj.call(m, k, Omega_1);
+			if(this->Stab_Obj.call(m, k, Omega_1))
+				return 1;
 		}
-
-		if(this->cond_check)
-			cond_num_check<T>(m, k, Omega_1, this->Omega_1_cpy, this->s, this->cond_nums, this->verbosity);
 
 		// Omega = A' * Omega
 		gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);
 		++ p_done;
-		if (p_done % q == 0) 
-		{
-			this->Stab_Obj.call(n, k, Omega);
-		}
 		
 		if(this->cond_check)
-			cond_num_check<T>(n, k, Omega, this->Omega_cpy, this->s, this->cond_nums, this->verbosity);
+			this->cond_nums.push_back(cond_num_check<T>(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
+		
+		if (p_done % q == 0) 
+		{
+			if(this->Stab_Obj.call(n, k, Omega))
+				return 1;
+		}
 	}
 	// Increment seed upon termination
 	this->seed += m * n;
+	//successful termination
+	return 0;
 }
 
-template void RS<float>::rs1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
-template void RS<double>::rs1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Omega);
+template int RS<float>::rs1(int64_t m, int64_t n, const std::vector<float>& A, int64_t k, std::vector<float>& Omega);
+template int RS<double>::rs1(int64_t m, int64_t n, const std::vector<double>& A, int64_t k, std::vector<double>& Omega);
 } // end namespace RandLAPACK::comps::rs

@@ -14,7 +14,7 @@ template <typename T>
 class RowSketcher
 {
 	public:
-		virtual void call(
+		virtual int call(
 			int64_t m,
 			int64_t n,
 			const std::vector<T>& A,
@@ -61,7 +61,7 @@ class RS : public RowSketcher<T>
 			decision_RS = decision;
 		}
 
-		void rs1(
+		int rs1(
 			int64_t m,
 			int64_t n,
 			const std::vector<T>& A,
@@ -69,19 +69,35 @@ class RS : public RowSketcher<T>
 			std::vector<T>& Omega 
 		);
 
-		virtual void call(
+		virtual int call(
 			int64_t m,
 			int64_t n,
 			const std::vector<T>& A,
 			int64_t k,
 			std::vector<T>& Omega 
 		){
+			// Default
+			int termination = 0;
 			switch(this->decision_RS)
 			{
 				case 0:
-					rs1(m, n, A, k, Omega);
+					termination = rs1(m, n, A, k, Omega);
 					break;
 			}
+
+			if(this->verbosity)
+			{
+				switch(termination)
+				{
+				case 0:
+						printf("\nRS TERMINATED VIA: Normal termination.\n");
+						break;
+				case 1:
+						printf("\nRS TERMINATED VIA: Stabilization failed.\n");
+						break;
+				}
+			}
+			return termination;
 		}
 };
 #endif

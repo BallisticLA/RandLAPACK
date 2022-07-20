@@ -154,13 +154,12 @@ void gen_mat(
 Find the condition number of a given matrix A.
 */
 template <typename T> 
-void cond_num_check(
+T cond_num_check(
         int64_t m,
         int64_t n,
         const std::vector<T>& A,
         std::vector<T>& A_cpy,
         std::vector<T>& s,
-        std::vector<T>& cond_nums,
         bool verbosity
 );
 
