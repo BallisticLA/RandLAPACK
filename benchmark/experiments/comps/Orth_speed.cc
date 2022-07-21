@@ -57,10 +57,10 @@ class BenchmarkOrth : public ::testing::Test
         std::copy(A_dat, A_dat + size, A_cpy_3_dat);
 
         // Stabilization Constructor
-        Stab<T> Stab_PLU(1, false, false);
-        Orth<T> Orth_CholQR(0, false, false);
-        Orth<T> Orth_HQR(1, false, false);
-        Orth<T> Orth_GEQR(2, false, false);
+        Stab<T> Stab_PLU(use_PLUL, false, false);
+        Orth<T> Orth_CholQR(use_CholQRQ, false, false);
+        Orth<T> Orth_HQR(use_HQRQ, false, false);
+        Orth<T> Orth_GEQR(use_GEQR, false, false);
 
         // PIV LU
         // Stores L, U into Omega

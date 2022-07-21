@@ -8,7 +8,7 @@ namespace RandLAPACK::comps::orth {
 
 // Perfoms a Cholesky QR factorization
 template <typename T> 
-int Orth<T>::CholQR(
+int Orth<T>::CholQRQ(
         int64_t m,
         int64_t k,
         std::vector<T>& Q
@@ -42,7 +42,7 @@ int Orth<T>::CholQR(
 }
 
 template <typename T> 
-int Stab<T>::PLU(
+int Stab<T>::PLUL(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
@@ -67,7 +67,7 @@ int Stab<T>::PLU(
 }
 
 template <typename T> 
-int Orth<T>::HQR(
+int Orth<T>::HQRQ(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
@@ -112,14 +112,14 @@ int Orth<T>::GEQR(
         return 0;
 }
 
-template int Orth<float>::CholQR(int64_t m, int64_t k, std::vector<float>& Q);
-template int Orth<double>::CholQR(int64_t m, int64_t k, std::vector<double>& Q);
+template int Orth<float>::CholQRQ(int64_t m, int64_t k, std::vector<float>& Q);
+template int Orth<double>::CholQRQ(int64_t m, int64_t k, std::vector<double>& Q);
 
-template int Stab<float>::PLU(int64_t m, int64_t n, std::vector<float>& A, std::vector<int64_t>& ipiv);
-template int Stab<double>::PLU(int64_t m, int64_t n, std::vector<double>& A, std::vector<int64_t>& ipiv);
+template int Stab<float>::PLUL(int64_t m, int64_t n, std::vector<float>& A, std::vector<int64_t>& ipiv);
+template int Stab<double>::PLUL(int64_t m, int64_t n, std::vector<double>& A, std::vector<int64_t>& ipiv);
 
-template int Orth<float>::HQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
-template int Orth<double>::HQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
+template int Orth<float>::HQRQ(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
+template int Orth<double>::HQRQ(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
 
 template int Orth<float>::GEQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
 template int Orth<double>::GEQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 

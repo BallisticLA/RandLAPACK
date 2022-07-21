@@ -11,6 +11,8 @@ namespace RandLAPACK::comps::rf {
 #ifndef RF_CLASS
 #define RF_CLASS
 
+enum decision_rf {use_rf1};
+
 template <typename T>
 class RangeFinder
 {
@@ -39,7 +41,7 @@ class RF : public RangeFinder<T>
                 std::vector<T> s;
 
                 // Controls RF version to be used
-                int decision_RF;
+                decision_rf decision_RF;
 
                 // Implementation-specific vars
                 std::vector<T> cond_nums; // Condition nubers of sketches
@@ -50,7 +52,7 @@ class RF : public RangeFinder<T>
                         RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
                         bool verb,
                         bool cond,
-                        int decision
+                        decision_rf decision
 		) : RS_Obj(rs_obj), Orth_Obj(orth_obj)
                 {
                         verbosity = verb;
@@ -77,7 +79,7 @@ class RF : public RangeFinder<T>
                         int termination = 0;
                         switch(this->decision_RF)
                         {
-                                case 0:
+                                case use_rf1:
                                         termination = rf1(m, n, A, k, Q);
                                         break;
                         }

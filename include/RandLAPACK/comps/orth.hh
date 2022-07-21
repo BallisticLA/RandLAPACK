@@ -8,6 +8,8 @@ namespace RandLAPACK::comps::orth {
 #ifndef ORTH_CLASS
 #define ORTH_CLASS
 
+enum decision_orth_stab {use_CholQRQ, use_HQRQ, use_PLUL, use_GEQR};
+
 template <typename T>
 class Stabilization
 {
@@ -28,7 +30,7 @@ class Orth : public Stabilization<T>
                 bool chol_fail;
                 bool cond_check;
                 bool verbosity;
-                int decision_orth;
+                decision_orth_stab decision_orth;
 
                 // CholQR-specific
                 std::vector<T> Q_gram;
@@ -36,21 +38,21 @@ class Orth : public Stabilization<T>
                 std::vector<T> s;
 
                 // Constructor
-                Orth(int decision, bool c_check, bool verb) 
+                Orth(decision_orth_stab dec, bool c_check, bool verb) 
                 {
                         cond_check = c_check;
                         verbosity = verb;
-                        decision_orth = decision;
+                        decision_orth = dec;
                         chol_fail = false; 
                 };
 
-                int CholQR(
+                int CholQRQ(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q
                 );
 
-                int HQR(
+                int HQRQ(
                         int64_t m,
                         int64_t n,
                         std::vector<T>& A,
@@ -74,24 +76,24 @@ class Orth : public Stabilization<T>
                         int termination = 0;
                         switch(this->decision_orth)
                         {
-                                case 0:
+                                case use_CholQRQ:
                                         if(this->chol_fail)
                                         {
-                                                termination = HQR(m, k, Q, this->tau);
+                                                termination = HQRQ(m, k, Q, this->tau);
                                         }
                                         else{
                                                 //Call it twice for better orthogonality
-                                                if(CholQR(m, k, Q))
+                                                if(CholQRQ(m, k, Q))
                                                 {
-                                                        termination = HQR(m, k, Q, this->tau);
+                                                        termination = HQRQ(m, k, Q, this->tau);
                                                 }
-                                                termination = CholQR(m, k, Q);
+                                                termination = CholQRQ(m, k, Q);
                                         }
                                         break;
-                                case 1:
-                                        termination = HQR(m, k, Q, this->tau);
+                                case use_HQRQ:
+                                        termination = HQRQ(m, k, Q, this->tau);
                                         break;
-                                case 2: 
+                                case use_GEQR: 
                                         termination = GEQR(m, k, Q, this->tvec);
                         }
                         return termination;
@@ -103,18 +105,18 @@ class Stab : public Orth<T>
 {
 	public:
                 std::vector<int64_t> ipiv;
-                int decision_stab;
+                decision_orth_stab decision_stab;
                 
                 // Constructor
-                Stab(int decision, bool c_check, bool verb) : Orth<T>::Orth(decision, c_check, verb) 
+                Stab(decision_orth_stab dec, bool c_check, bool verb) : Orth<T>::Orth(dec, c_check, verb) 
                 {
                         this->cond_check = c_check;
                         this->verbosity = verb;
-                        decision_stab = decision;
+                        decision_stab = dec;
                         this->chol_fail = false; 
                 };
 
-                int PLU(
+                int PLUL(
                         int64_t m,
                         int64_t k,
                         std::vector<T>& Q,
@@ -130,22 +132,22 @@ class Stab : public Orth<T>
                         int termination = 0;
                         switch(this->decision_stab)
                         {
-                                case 0:
+                                case use_CholQRQ:
                                         if(this->chol_fail)
                                         {
-                                                termination = PLU(m, k, Q, this->ipiv);
+                                                termination = PLUL(m, k, Q, this->ipiv);
                                         }
                                         else{
                                                 // Only call once
-                                                termination = this->CholQR(m, k, Q);
+                                                termination = this->CholQRQ(m, k, Q);
                                                 if(termination)
                                                 {
-                                                        termination = PLU(m, k, Q, this->ipiv);
+                                                        termination = PLUL(m, k, Q, this->ipiv);
                                                 }
                                         }
                                         break;
-                                case 1:
-                                        termination = PLU(m, k, Q, this->ipiv);
+                                case use_PLUL:
+                                        termination = PLUL(m, k, Q, this->ipiv);
                                         break;
                         }
                         return termination;

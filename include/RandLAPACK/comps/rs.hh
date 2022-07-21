@@ -10,6 +10,8 @@ namespace RandLAPACK::comps::rs {
 #ifndef RS_CLASS
 #define RS_CLASS
 
+enum decision_rs {use_rs1};
+
 template <typename T>
 class RowSketcher
 {
@@ -34,7 +36,7 @@ class RS : public RowSketcher<T>
 		int64_t passes_per_stab;
 		bool verbosity;
 		bool cond_check;
-		int decision_RS;
+		decision_rs decision_RS;
 		std::vector<T> Omega_1;
 		std::vector<T> cond_nums;
 
@@ -50,7 +52,7 @@ class RS : public RowSketcher<T>
 			int64_t q,
 			bool verb,
 			bool cond,
-			int decision
+			decision_rs dec
 		) : Stab_Obj(stab_obj)//, SketchOpGen(sk_gen)
 		{
 			verbosity = verb;
@@ -58,7 +60,7 @@ class RS : public RowSketcher<T>
 			seed = s;
 			passes_over_data = p;
 			passes_per_stab = q;
-			decision_RS = decision;
+			decision_RS = dec;
 		}
 
 		int rs1(
@@ -80,7 +82,7 @@ class RS : public RowSketcher<T>
 			int termination = 0;
 			switch(this->decision_RS)
 			{
-				case 0:
+				case use_rs1:
 					termination = rs1(m, n, A, k, Omega);
 					break;
 			}
