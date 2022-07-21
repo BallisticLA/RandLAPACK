@@ -19,6 +19,8 @@ namespace RandLAPACK::comps::qb {
 #ifndef QB_CLASS
 #define QB_CLASS
 
+enum decision_qb {use_qb2};
+
 template <typename T>
 class QBalg
 {
@@ -52,7 +54,7 @@ class QB : public QBalg<T>
                 std::vector<T> B_i;
 
                 // Controls QB version to be used
-                int decision_QB;
+                decision_qb decision_QB;
 
                 /*
                 This represents how much space is currently allocated for cols of Q and rows of B.
@@ -70,7 +72,7 @@ class QB : public QBalg<T>
                         RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
                         bool verb,
                         bool orth,
-                        int decision
+                        decision_qb decision
 		) : RF_Obj(rf_obj), Orth_Obj(orth_obj)
                 {
                         verbosity = verb;
@@ -104,7 +106,7 @@ class QB : public QBalg<T>
                         int termination = 0;
                         switch(this->decision_QB)
                         {
-                                case 0:
+                                case use_qb2:
                                         termination = QB2(m, n, A, k, block_sz, tol, Q, B);
                                         break;
                         }

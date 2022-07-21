@@ -87,22 +87,22 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(0, cond_check, verbosity);
+        Stab<T> Stab(use_PLUL, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(0, cond_check, verbosity);
+        Orth<T> Orth_RF(use_CholQRQ, cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check, use_rf1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(0, cond_check, verbosity);
+        Orth<T> Orth_QB(use_CholQRQ, cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check, use_qb2);
 
         // Regular QB2 call
         int termination = QB.call(
@@ -263,22 +263,22 @@ template <typename T>
 
         // Make subroutine objects
         // Stabilization Constructor - Choose CholQR
-        Stab<T> Stab(0, cond_check, verbosity);
+        Stab<T> Stab(use_CholQRQ, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(0, cond_check, verbosity);
+        Orth<T> Orth_RF(use_CholQRQ, cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check, use_rf1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(0, cond_check, verbosity);
+        Orth<T> Orth_QB(use_CholQRQ, cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check, use_qb2);
 
         // Regular QB2 call
         int termination = QB.call(
@@ -361,7 +361,6 @@ TEST_F(TestQB, SimpleTest)
     {
         // Fast polynomial decay test
         test_QB2_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2, false), seed);
-        /*
         // Slow polynomial decay test
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
         // Superfast exponential decay test
@@ -381,6 +380,5 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
         // test nonzero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 0.1, false), seed);
-        */
     }
 }
