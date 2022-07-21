@@ -40,8 +40,8 @@ int Orth<T>::CholQRQ(
         // Scheme may succeed, but output garbage
         if(this->cond_check)
         {
-                // Does not work for a matrix with packed storage
-                //cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, true);
+                if(1 / cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) < 100 * std::pow(10, -16))
+                        return 1;
         }
 
         tfsm(Op::NoTrans, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, Q_dat, m);
