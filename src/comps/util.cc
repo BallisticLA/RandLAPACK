@@ -409,7 +409,16 @@ T cond_num_check(
         T* A_cpy_dat = upsize(m * n, A_cpy);
         T* s_dat = upsize(n, s);
 
-        lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
+        // Packed storage check
+        if (A.size() < A_cpy.size())
+        {
+                // Convert to normal format
+                tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
+        }
+        else
+        {
+                lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
+        }
         gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
         T cond_num = s_dat[0] / s_dat[n - 1];
 
