@@ -24,14 +24,14 @@ int Orth<T>::CholQRQ(
         using namespace blas;
         using namespace lapack;
         
-        T* Q_gram_dat = upsize<T>(k * (k + 1) / 2, this->Q_gram);
+        T* Q_gram_dat = upsize<T>(k * k, this->Q_gram);
         T* Q_dat = Q.data();
 
         // Find normal equation Q'Q - Just the upper triangular portion        
-        sfrk(Op::NoTrans, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat);
+        syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat, k);
 
         // Positive definite cholesky factorization
-        if (pftrf(Op::NoTrans, Uplo::Upper, k, Q_gram_dat))
+        if (potrf(Uplo::Upper, k, Q_gram_dat, k))
         {
                 this->chol_fail = true; // scheme failure 
                 return 1;
@@ -44,7 +44,7 @@ int Orth<T>::CholQRQ(
                         return 1;
         }
 
-        tfsm(Op::NoTrans, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, Q_dat, m);
+        trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q_dat, m);
         
        return 0;
 }
