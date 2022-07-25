@@ -70,7 +70,7 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(use_PLUL, cond_check, verbosity);
+        Stab<T> Stab(use_CholQRQ, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
         RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
