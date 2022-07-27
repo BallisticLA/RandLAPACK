@@ -1,8 +1,10 @@
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <RandBLAS.hh>
+//#include <gtest/gtest.h>
+//#include <blas.hh>
 #include <RandLAPACK.hh>
+#include <RandBLAS.hh>
 #include <math.h>
+
+//#include <blas.hh>
 
 #include <chrono>
 using namespace std::chrono;
@@ -10,7 +12,7 @@ using namespace std::chrono;
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
-class BenchmarkUtil : public ::testing::Test
+class BenchmarkUtil
 {
     protected:
 
