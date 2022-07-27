@@ -166,7 +166,7 @@ void gen_mat_type(
                 */
                 case 0:
                         // Generating matrix with polynomially decaying singular values
-                        printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = 1 / (i + 1)^pow (first k * 0.2 sigmas = 1)\n");
+                        printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = (i + 1)^-pow (first k * 0.2 sigmas = 1)\n");
                         RandLAPACK::comps::util::gen_poly_mat<T>(m, n, A, k, std::get<1>(type), std::get<2>(type), seed); 
                         break;
                 case 1:

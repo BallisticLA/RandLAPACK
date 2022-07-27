@@ -87,7 +87,7 @@ class Orth : public Stabilization<T>
                                                 {
                                                         termination = HQRQ(m, k, Q, this->tau);
                                                 }
-                                                termination = CholQRQ(m, k, Q);
+                                                //termination = CholQRQ(m, k, Q);
                                         }
                                         break;
                                 case use_HQRQ:

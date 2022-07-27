@@ -115,11 +115,45 @@ class TestOrth : public ::testing::Test
         printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);
         ASSERT_NEAR(norm_fro, 0.0, 1e-10);
     }
+
+    // Switching between different orthogonalization and stabilization types
+    template <typename T>
+    static void test_orth_switch(uint32_t seed) 
+    {  
+        printf("|==================================TEST ORTH SWITCH BEGIN==================================|\n");
+        using namespace blas;
+
+        // Chosen so that A is ill-conditioned
+        int64_t m = 15;
+        int64_t n = 15;
+
+        std::vector<T> I_ref(n * n, 0.0);
+        eye<T>(n, n, I_ref);  
+
+        std::vector<T> A(m * n, 0.0); 
+        gen_mat_type<T>(m, n, A, n, seed, std::tuple(1, 2, true));
+
+        // Orthogonalization Constructor
+        Orth<T> Orth(use_CholQRQ, true, true);
+
+        Orth.call(m, n, A);
+
+        // Q' * Q  - I = 0
+        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A.data(), m, A.data(), m, -1.0, I_ref.data(), n);
+
+        T norm_fro = lapack::lange(lapack::Norm::Fro, n, n, I_ref.data(), n);	
+
+        printf("FRO NORM OF Q' * Q - I: %e\n", norm_fro);
+        ASSERT_NEAR(norm_fro, 0.0, 1e-10);
+
+        printf("|===================================TEST ORTH SWITCH END===================================|\n");
+    }
 };
 
-/*
+
 TEST_F(TestOrth, SimpleTest)
 {
+    test_orth_switch<double>(0); 
 }
-*/
+
 
