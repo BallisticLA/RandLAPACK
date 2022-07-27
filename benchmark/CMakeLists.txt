@@ -47,3 +47,26 @@ set(
 target_link_libraries(
     FLOP_count PUBLIC RandBLAS blaspp lapackpp ${RandLAPACK_lib_file}
 )
+
+set(
+    Orth_speed_cxx
+    Orth_speed.cc
+)
+add_executable(
+    Orth_speed ${Orth_speed_cxx}
+)
+set(
+    RandLAPACK_include_dirs
+    ${RandLAPACK_DIR}/../../include
+    ${RandLAPACK_DIR}/../../include/RandLAPACK
+)
+target_include_directories(
+    Orth_speed PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+)
+set(
+    RandLAPACK_lib_file
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
+)
+target_link_libraries(
+    Orth_speed PUBLIC RandBLAS blaspp lapackpp ${RandLAPACK_lib_file}
+)
