@@ -1,7 +1,7 @@
 //#include <gtest/gtest.h>
-//#include <blas.hh>
-#include <RandLAPACK.hh>
+#include <blas.hh>
 #include <RandBLAS.hh>
+#include <RandLAPACK.hh>
 #include <math.h>
 
 //#include <blas.hh>
@@ -69,11 +69,7 @@ class BenchmarkUtil
         printf("|=====================================TEST SYSTEM FLOPS END====================================|\n");
     }
 };
-/*
-// Check how many fps the machine is capable of
-TEST_F(BenchmarkUtil, GemmFlop)
-{
-    //__builtin___clear_cache();   
-    test_flops<double>(10000, 0);
+
+int main(int argc, char **argv){
+    return 0;
 }
-*/
