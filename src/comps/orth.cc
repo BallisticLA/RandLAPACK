@@ -21,6 +21,7 @@ int Orth<T>::CholQRQ(
         int64_t k,
         std::vector<T>& Q
 ){
+        printf("CHOL QR BEGIN\n");
         using namespace blas;
         using namespace lapack;
         
@@ -33,6 +34,10 @@ int Orth<T>::CholQRQ(
         // Positive definite cholesky factorization
         if (potrf(Uplo::Upper, k, Q_gram_dat, k))
         {
+                if(this->verbosity)
+                {
+                        printf("CHOLESKY QR FAILED\n");
+                }
                 this->chol_fail = true; // scheme failure 
                 return 1;
         }
@@ -40,13 +45,14 @@ int Orth<T>::CholQRQ(
         // Scheme may succeed, but output garbage
         if(this->cond_check)
         {
-                if(1 / cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) < 100 * std::pow(10, -16))
-                        return 1;
+                if(cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
+                //        return 1;
+                }
         }
 
         trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q_dat, m);
-        
-       return 0;
+        printf("CHOL QR END\n");
+        return 0;
 }
 
 template <typename T> 
@@ -81,6 +87,7 @@ int Orth<T>::HQRQ(
         std::vector<T>& A,
         std::vector<T>& tau
 ){
+        printf("HQR BEGIN\n");
         // Done via regular LAPACK's QR
         // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
         // tau needs to be a vector of all 2's by default
@@ -93,7 +100,7 @@ int Orth<T>::HQRQ(
         if(geqrf(m, n, A_dat, m, tau_dat))
                 return 1; // Failure condition
         ungqr(m, n, n, A_dat, m, tau_dat);
-
+        printf("HQR END BEGIN\n");
         return 0;
 }
 
