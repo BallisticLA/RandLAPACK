@@ -5,11 +5,11 @@ project(benchmark)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-set(CMAKE_FIND_DEBUG_MODE TRUE)
+#set(CMAKE_FIND_DEBUG_MODE TRUE)
 message(STATUS "Checking for RandLAPACK ... ")
 find_package(RandLAPACK REQUIRED)
 message(STATUS "Done checking for RandLAPACK.")
-set(CMAKE_FIND_DEBUG_MODE FALSE)
+#set(CMAKE_FIND_DEBUG_MODE FALSE)
 
 
 message(STATUS "Checking for RandBLAS ... ")

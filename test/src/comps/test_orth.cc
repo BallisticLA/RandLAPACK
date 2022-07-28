@@ -150,10 +150,9 @@ class TestOrth : public ::testing::Test
     }
 };
 
-
+/*
 TEST_F(TestOrth, SimpleTest)
 {
     test_orth_switch<double>(0); 
 }
-
-
+*/

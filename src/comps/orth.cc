@@ -13,7 +13,6 @@ int Orth<T>::CholQRQ(
         int64_t k,
         std::vector<T>& Q
 ){
-        printf("CHOL QR BEGIN\n");
         using namespace blas;
         using namespace lapack;
         
@@ -43,7 +42,6 @@ int Orth<T>::CholQRQ(
         }
 
         trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q_dat, m);
-        printf("CHOL QR END\n");
         return 0;
 }
 
@@ -79,7 +77,6 @@ int Orth<T>::HQRQ(
         std::vector<T>& A,
         std::vector<T>& tau
 ){
-        printf("HQR BEGIN\n");
         // Done via regular LAPACK's QR
         // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
         // tau needs to be a vector of all 2's by default
@@ -92,7 +89,6 @@ int Orth<T>::HQRQ(
         if(geqrf(m, n, A_dat, m, tau_dat))
                 return 1; // Failure condition
         ungqr(m, n, n, A_dat, m, tau_dat);
-        printf("HQR END BEGIN\n");
         return 0;
 }
 
