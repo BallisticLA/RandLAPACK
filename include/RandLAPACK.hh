@@ -7,5 +7,6 @@
 #include <RandLAPACK/comps/rs.hh>
 #include <RandLAPACK/comps/util.hh>
 #include <RandLAPACK/comps/orth.hh>
+#include <RandLAPACK/comps/preconditioners.hh>
 
 #endif
