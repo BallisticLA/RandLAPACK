@@ -70,7 +70,7 @@ int64_t rpc_svd_sjlt(
 ){
     T* buff_A = A_rm.data();
     if (M_wk.size() < d*n)
-        throw std::value_error("M_wk must be of size at least d*n.");
+        throw std::invalid_argument("M_wk must be of size at least d*n.");
     T* buff_A_sk = M_wk.data(); // interpret as row-major
     
     // step 1: sketch the data matrix
@@ -82,14 +82,13 @@ int64_t rpc_svd_sjlt(
     sjl.rows = new uint64_t[k * m];
     sjl.cols = new uint64_t[k * m];
     sjl.vals = new double[k * m];
-    RandBLAS::sjlts::fill_colwise(sjl, seed_key, *seed_ctr);
-    *seed_ctr = sjl.vec_nnz * sjl.n_cols;
+    RandBLAS::sjlts::fill_colwise(sjl, seed_key, seed_ctr);
+    seed_ctr = sjl.vec_nnz * sjl.n_cols;
     blas::scal(d*n, 0.0, buff_A_sk, 1);
     RandBLAS::sjlts::sketch_cscrow(sjl, n, buff_A, buff_A_sk, threads);
-    delete sjl->rows;
-    delete sjl->cols;
-    delete sjl->vals;
-    delete sjl;
+    delete sjl.rows;
+    delete sjl.cols;
+    delete sjl.vals;
 
     // step 2: compute SVD of sketch
     //
@@ -109,7 +108,7 @@ int64_t rpc_svd_sjlt(
     std::vector<T> s(n, 0.0);
     lapack::Job jobu = lapack::Job::OverwriteVec;
     lapack::Job jobvt = lapack::Job::NoVec;
-    lapack::gesvd(jobu, jobvt, n, d, buff_A_sk, n, s, ignore, 1, ignore, 1);
+    lapack::gesvd(jobu, jobvt, n, d, buff_A_sk, n, s.data(), ignore, 1, ignore, 1);
 
     // step 3: define preconditioner
     //
@@ -140,7 +139,7 @@ int64_t rpc_svd_sjlt(
 }
 
 
-template int64_t rpc_svd_sjlt<double>(
+template int64_t rpc_svd_sjlt(
     int64_t m,
     int64_t n,
     int64_t d,

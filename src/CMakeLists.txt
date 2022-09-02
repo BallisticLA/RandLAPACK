@@ -5,6 +5,7 @@ set(RandLAPACK_cxx_srcs
     comps/rs.cc
     comps/util.cc
     comps/orth.cc
+    comps/preconditioners.cc
 )
 
 set(RandLAPACK_libs
