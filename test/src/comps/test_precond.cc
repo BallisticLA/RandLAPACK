@@ -32,18 +32,19 @@ class Test_rpc_svd_sjlt : public ::testing::Test
         // construct test data: A
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
-        RandBLAS::util::gen_rmat_norm(m, n, a, (uint32_t) a_seed);        
+        RandBLAS::dense_op::gen_rmat_norm(m, n, a, (uint32_t) a_seed);        
 
         // compute expected result
         std::vector<double> M_wk(d*n, 0.0);
-        int64_t rank = RandLAPACK::comps::preconditioners::rpc_svd_sjlt(m, n, d, k,
-            A, M_wk, 0.0, threads, seed_key, seed_ctr    
+        int64_t rank;
+        rank = RandLAPACK::comps::preconditioners::rpc_svd_sjlt(m, n, d, k,
+            A, M_wk, 0.0, 2, seed_key, seed_ctr    
         );
         std::vector<double> A_pc(m*n, 0.0);
         double *at = A.data(); // interpret as transpose in column-major
         double *M = M_wk.data();
         blas::gemm(
-            blas::LayOut::ColumnMajor,
+            blas::Layout::ColMajor,
             blas::Op::Trans,
             blas::Op::NoTrans,
             m, n, n,

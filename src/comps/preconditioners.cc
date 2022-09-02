@@ -61,12 +61,12 @@ int64_t rpc_svd_sjlt(
     int64_t n,
     int64_t d,
     int64_t k,
-    std::vector<T> &A_rm,
-    std::vector<T> &M_wk,
+    std::vector<T>& A_rm,
+    std::vector<T>& M_wk,
     T mu, 
     int64_t threads,
     uint64_t seed_key, 
-    uint64_t &seed_ctr
+    uint64_t seed_ctr
 ){
     T* buff_A = A_rm.data();
     if (M_wk.size() < d*n)
@@ -126,7 +126,7 @@ int64_t rpc_svd_sjlt(
     int64_t rank = 0; 
     while (rank < n) {
        ++rank;
-       if (s[rank - 1] < s[0]*n*std::numeric_limits<T>::epsilon)
+       if (s[rank - 1] < s[0]*n*std::numeric_limits<T>::epsilon())
             break;
     }
     if (s[rank - 1] == 0.0)
@@ -145,12 +145,12 @@ template int64_t rpc_svd_sjlt<double>(
     int64_t n,
     int64_t d,
     int64_t k,
-    std::vector<double> &A_rm,
-    std::vector<double> &M_wk,
+    std::vector<double>& A_rm,
+    std::vector<double>& M_wk,
     double mu,
     int64_t threads,
     uint64_t seed_key,
-    uint64_t &seed_ctr
+    uint64_t seed_ctr
 );
 
 }
