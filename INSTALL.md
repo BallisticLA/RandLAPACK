@@ -80,7 +80,7 @@ make prefix=`pwd`/../random123-install install-include
 One can compile and install RandBLAS from [source](https://github.com/BallisticLA/RandBLAS)
 by running
 ```shell
-git clone https://github.com/BallisticLA/RandLAPACK.git
+git clone https://github.com/BallisticLA/RandBLAS.git
 mkdir RandBLAS-build
 cd RandBLAS-build
 cmake -DCMAKE_BUILD_TYPE=Release \
