@@ -3,6 +3,9 @@ TODO #1: only store the upper triangle of the gram matrix in gram_vec,
 so that it can be of size k*(k+1)/2 instead of k*k.
 */
 
+#include <cstdint>
+#include <vector>
+
 #include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
