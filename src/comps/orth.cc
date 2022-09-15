@@ -88,6 +88,7 @@ int Orth<T>::HQRQ(
 	T* tau_dat = tau.data();
         if(geqrf(m, n, A_dat, m, tau_dat))
                 return 1; // Failure condition
+
         ungqr(m, n, n, A_dat, m, tau_dat);
         return 0;
 }

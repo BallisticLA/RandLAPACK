@@ -91,6 +91,24 @@ void get_L(
         }
 }
 
+template <typename T> 
+void col_swap(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A, 
+        const std::vector<int64_t>& idx 
+) {     
+        using namespace blas;
+        const int64_t* idx_dat = idx.data();
+        T* A_dat = A.data();
+
+        for (int64_t i = 0, j = 0; i < n; ++i)
+        {
+                j = idx_dat[i];
+                swap<T, T>(m, &A_dat[i * m], 1, &A_dat[j * m], 1);
+        }
+}
+
 // "intellegent reisze"
 template <typename T> 
 T* upsize(
@@ -464,14 +482,17 @@ bool orthogonality_check(
 template void eye<float>(int64_t m, int64_t n, std::vector<float>& A );
 template void eye<double>(int64_t m, int64_t n, std::vector<double>& A );
 
-template void get_L<float>(int64_t m, int64_t n, std::vector<float>& L);
-template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
-
 template void diag(int64_t m, int64_t n, const std::vector<float>& s, int64_t k, std::vector<float>& S);
 template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k, std::vector<double>& S);
 
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A);
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A);
+
+template void get_L<float>(int64_t m, int64_t n, std::vector<float>& L);
+template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
+
+template void col_swap(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& idx);
+template void col_swap(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& idx);
 
 template float* upsize(int64_t target_sz, std::vector<float>& A);
 template double* upsize(int64_t target_sz, std::vector<double>& A);

@@ -13,16 +13,6 @@ void eye(
 );
 
 /*
-Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
-*/
-template <typename T> 
-void get_L(
-        int64_t m,
-        int64_t n,
-        std::vector<T>& L
-);
-
-/*
 Overwrites the diagonal entries of matrix S with those stored in s.
 */
 template <typename T>
@@ -43,6 +33,24 @@ void disp_diag(
         int64_t n,
         int64_t k, 
         std::vector<T>& A 
+);
+
+/*
+Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
+*/
+template <typename T> 
+void get_L(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& L
+);
+
+template <typename T> 
+void col_swap(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A, 
+        const std::vector<int64_t>& idx 
 );
 
 /*

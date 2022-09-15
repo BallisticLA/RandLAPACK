@@ -367,9 +367,11 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2, false), seed);
         
         // S-shaped decay matrix test 
+        /*
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
         // A = [A A]
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed);
+        */
         // A = 0
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed); 
         // Random diagonal matrix test

@@ -55,6 +55,9 @@ set(
 add_executable(
     Orth_speed ${Orth_speed_cxx}
 )
+target_compile_options(
+    Orth_speed PRIVATE "-g"
+)
 set(
     RandLAPACK_include_dirs
     ${RandLAPACK_DIR}/../../include
@@ -68,5 +71,31 @@ set(
     ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
-    Orth_speed PUBLIC RandBLAS blaspp lapackpp ${RandLAPACK_lib_file}
+    Orth_speed PUBLIC RandBLAS blaspp ${RandLAPACK_lib_file} lapackpp
+)
+
+set(
+    Full_QR_restoration_cxx
+    Full_QR_restoration.cc
+)
+add_executable(
+    Full_QR_restoration ${Full_QR_restoration_cxx}
+)
+target_compile_options(
+    Full_QR_restoration PRIVATE "-g"
+)
+set(
+    RandLAPACK_include_dirs
+    ${RandLAPACK_DIR}/../../include
+    ${RandLAPACK_DIR}/../../include/RandLAPACK
+)
+target_include_directories(
+    Full_QR_restoration PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+)
+set(
+    RandLAPACK_lib_file
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
+)
+target_link_libraries(
+    Full_QR_restoration PUBLIC RandBLAS blaspp ${RandLAPACK_lib_file} lapackpp
 )
