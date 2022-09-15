@@ -12,6 +12,7 @@ TODO #1: Switch tuples to vectors.
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <thread>
 using namespace std::chrono;
 
 #include <fstream>
@@ -46,6 +47,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::copy(A_dat, A_dat + size, A_cpy_dat);
     std::copy(A_dat, A_dat + size, A_cpy_2_dat);
     std::copy(A_dat, A_dat + size, A_cpy_3_dat);
+
+    std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // Stabilization Constructor
     Stab<T> Stab_PLU(use_PLUL, false, false);
@@ -161,8 +164,8 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
-        ofs.close();
+        //ofs.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
+        //ofs.close();
     }
 
     int64_t rows = 0;
@@ -216,9 +219,9 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
             // Save the output into .dat file
             //std::ofstream file("../../build/test_plots/test_speed/raw_data/test_mean_time_" + std::to_string(rows) + ".dat");
-            std::fstream file;
-            file.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::fstream::app);
-            file << chol_avg << "  " << lu_avg << "  " << qr_avg << "  " << geqr_avg << "\n";
+            //std::fstream file;
+            //file.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::fstream::app);
+            //file << chol_avg << "  " << lu_avg << "  " << qr_avg << "  " << geqr_avg << "\n";
 
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
             printf("Average timing of Chol QR for %d runs: %f μs.\n", runs, chol_avg);
@@ -231,6 +234,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 }
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(12, 12, 64, 256, 100);
+    test_speed_mean<double>(12, 12, 64, 64, 3);
     return 0;
 }
