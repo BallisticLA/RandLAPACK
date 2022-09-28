@@ -137,9 +137,9 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto start_chol = high_resolution_clock::now();
     Orth_CholQR.call(m, n, A);
     // Restore Householder vectors
-    orhr_col(m, n, n, A.data(), m, T_mat.data(), n, D.data());
-    undiag(n, n, T_mat, t);
-    ormqr(Side::Left, Op::Trans, m, n, n, A.data(), m, t.data(), B.data(), m);
+    //orhr_col(m, n, n, A.data(), m, T_mat.data(), n, D.data());
+    //undiag(n, n, T_mat, t);
+    //ormqr(Side::Left, Op::Trans, m, n, n, A.data(), m, t.data(), B.data(), m);
 
     // BELOW STEPS ARE FOR EXPLICIT STORAGE
     // Get the lower triangular portion of A
@@ -170,7 +170,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto start_qr = high_resolution_clock::now();
     HQRQ_full(m, n, A_cpy, tau);
     // Compute Q' * B
-    ormqr(Side::Left, Op::Trans, m, n, n, A_cpy.data(), m, tau.data(), B_cpy.data(), m);	
+    //ormqr(Side::Left, Op::Trans, m, n, n, A_cpy.data(), m, tau.data(), B_cpy.data(), m);	
 
     auto stop_qr = high_resolution_clock::now();
     long dur_qr = duration_cast<microseconds>(stop_qr - start_qr).count();
@@ -189,6 +189,65 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::vector<long> res{dur_qr, dur_chol}; 
   
     return res; 
+}
+
+template <typename T>
+static void 
+test_speed_max(int r_pow, int r_pow_max, int col, int col_max, int runs)
+{
+
+    // Clear all files
+    for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
+    {
+        int rows = std::pow(2, r_buf);
+        std::ofstream ofs;
+        ofs.open("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
+        ofs.close();
+    }
+
+    int64_t rows = 0;
+    int64_t cols = 0;
+
+    for(; r_pow <= r_pow_max; ++r_pow)
+    {
+        rows = std::pow(2, r_pow);
+        int64_t cols = col;
+
+        for (; cols <= col_max; cols += 32)
+        {
+            std::vector<long> res;
+            long t_chol = 0;
+            long t_qr   = 0;
+
+            long curr_t_chol = 0;
+            long curr_t_qr   = 0;
+
+            for(int i = 0; i < runs; ++i)
+            {
+                res = test_speed_helper<T>(rows, cols, 0);
+                curr_t_chol = res[1];
+                curr_t_qr   = res[0];
+
+                // Skip first iteration, as it tends to produce garbage results
+                if (i != 0)
+                {
+                    if(t_chol > curr_t_chol || t_chol == 0)
+                        t_chol = curr_t_chol;
+                    if(t_qr > curr_t_qr || t_qr == 0)
+                        t_qr  = curr_t_qr;
+                }
+            }
+
+            // Save the output into .dat file
+            std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
+            file << t_qr << "  " << t_chol << "\n";
+
+            printf("\nMatrix size: %ld by %ld.\n", rows, cols);
+            printf("Best timing of Chol QR + restoration for %d runs: %ld μs.\n", runs - 1, t_chol);
+            printf("Best timing of Full Householder QR for %d runs: %ld μs.\n", runs - 1, t_qr);
+            printf("Result: cholQR + rest is %f times faster then Full HQR.\n\n", (float) t_qr / (float) t_chol);
+        }
+    }
 }
 
 template <typename T>
@@ -227,7 +286,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
             for(int i = 0; i < runs; ++i)
             {
-                res = test_speed_helper<T>(rows, cols, i);
+                res = test_speed_helper<T>(rows, cols, 0);
                 curr_t_chol = res[1];
                 curr_t_qr   = res[0];
 
@@ -256,7 +315,8 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(12, 12, 64, 256, 5);
+    test_speed_mean<double>(12, 14, 32, 256, 50);
+    //test_speed_max<double>(12, 14, 32, 256, 50);
     //test_speed_helper<double>(5, 3, 0);
     return 0;
 }
