@@ -11,5 +11,4 @@
 
 // Drivers
 #include <RandLAPACK/drivers/rsvd.hh>
-#include <RandLAPACK/drivers/revd.hh>
 #endif
