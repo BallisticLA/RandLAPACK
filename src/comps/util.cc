@@ -6,6 +6,8 @@ TODO #1: Test get_L.
 
 #include <iostream>
 #include <cmath>
+#include <algorithm>
+
 #include <lapack.hh>
 #include <RandBLAS.hh>
 
