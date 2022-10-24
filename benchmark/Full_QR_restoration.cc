@@ -23,6 +23,8 @@ using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
 
+#include <valgrind/callgrind.h>
+
 /*
 // For calling LAPACK directly (didnt work)
 void _LAPACK_sorhr_col(
@@ -58,6 +60,28 @@ void HQRQ_full(int64_t m, int64_t n, std::vector<T>& A, std::vector<T>& tau)
 
     // FOR EXPLICIT STORAGE
     //ungqr(m, m, n, A_dat, m, tau_dat);
+}
+
+template <typename T> 
+int GEQR(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        std::vector<T>& tvec
+){
+        using namespace lapack;
+
+        tvec.resize(5);
+
+        T* A_dat = A.data();
+        
+        geqr(m, n, A_dat, m, tvec.data(), -1);
+        int64_t tsize = (int64_t) tvec[0]; 
+        tvec.resize(tsize);
+        if(geqr(m, n, A_dat, m, tvec.data(), tsize))
+                return 1;
+
+        return 0;
 }
 
 // Grabs the main diagonal of a matrix and stores it in a vector
@@ -99,7 +123,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     int64_t size = m * n;
     std::vector<T> A(size, 0.0);
     // Allocate more space for A_cpy used in HQR
-    std::vector<T> A_cpy(m * m, 0.0);
+    std::vector<T> A_cpy(m * n, 0.0);
     std::vector<T> B(size, 0.0);
     std::vector<T> B_cpy(size, 0.0);
 
@@ -112,12 +136,9 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::vector<T> tau ;
     std::vector<T> D (n, 0.0);
     std::vector<T> T_mat (n * n, 0.0);
-    std::vector<T> I_mat (m * m, 0.0);
     std::vector<T> TVT (n * m, 0.0);
     std::vector<T> t;
-
-    // Fill the identity
-    eye<T>(m, m, I_mat);
+    std::vector<T> Q_gram;
 
     // Random Gaussian test matrix
     RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_dat, seed);
@@ -134,59 +155,82 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     // CHOL QR
     // Orthonormalize A
+
+    for(int i = 0; i < m * n; ++i)
+    {
+       A[i] = (float) A[i];
+    }
+
     auto start_chol = high_resolution_clock::now();
     Orth_CholQR.call(m, n, A);
     // Restore Householder vectors
     //orhr_col(m, n, n, A.data(), m, T_mat.data(), n, D.data());
-    //undiag(n, n, T_mat, t);
-    //ormqr(Side::Left, Op::Trans, m, n, n, A.data(), m, t.data(), B.data(), m);
-
-    // BELOW STEPS ARE FOR EXPLICIT STORAGE
-    // Get the lower triangular portion of A
-    //get_L(m, n, A);
-    // Compute (I - V * T * V')  - Q will be stored in an identity
-    //gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, m, n, 1.0, T_mat.data(), n, A.data(), m, 0.0, TVT.data(), n);
-    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, n, -1.0, A.data(), m, TVT.data(), n, 1.0, I_mat.data(), m);
-    // Compute Q' * B
-    //gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, n, m, 1.0, I_mat.data(), m, B.data(), m, 0.0, Buf.data(), m);
 
     auto stop_chol = high_resolution_clock::now();
     long dur_chol = duration_cast<microseconds>(stop_chol - start_chol).count();
 
-    /*
-    // Identity check
-    std::vector<T> Check (m * m, 0.0);
-    eye<T>(m, m, Check);
-    gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, m, -1.0, I_mat.data(), m, I_mat.data(), m, 1.0, Check.data(), m);
-    T norm_test = lange(Norm::Fro, m, m, Check.data(), m);
-    if (norm_test > 10^(-13))
-    {
-      //printf("From CholQR: norm_fro(Q * Q' - I):  %e\n", norm_test);
-    }
-    // Identity check end
-    */
-
     // HQR
     auto start_qr = high_resolution_clock::now();
-    HQRQ_full(m, n, A_cpy, tau);
-    // Compute Q' * B
-    //ormqr(Side::Left, Op::Trans, m, n, n, A_cpy.data(), m, tau.data(), B_cpy.data(), m);	
+    //HQRQ_full(m, n, A_cpy, tau);
+    GEQR(m, n, A_cpy, tau);
 
     auto stop_qr = high_resolution_clock::now();
     long dur_qr = duration_cast<microseconds>(stop_qr - start_qr).count();
 
-    // Identity check
-    /*
-    std::vector<T> Check1 (m * m, 0.0);
-    eye<T>(m, m, Check1);
-    gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, m, -1.0, A_cpy.data(), m, A_cpy.data(), m, 1.0, Check1.data(), m);
-    T norm_test1 = lange(Norm::Fro, m, m, Check1.data(), m);
-    if (norm_test1 > 10^(-13))
-    {
-      //printf("From HQR: norm_fro(Q * Q' - I):  %e\n", norm_test1);
-    }
-    */
     std::vector<long> res{dur_qr, dur_chol}; 
+  
+    return res; 
+}
+
+template <typename T>
+static std::vector<long> 
+test_speed_orhr_col(int64_t m, int64_t n, uint32_t seed) {
+
+    using namespace blas;
+    using namespace lapack;
+
+    int64_t size = m * n;
+    std::vector<T> A(size, 0.0);
+
+    T* A_dat = A.data();
+
+    // Needed for full QR through Chol
+    std::vector<T> tau ;
+    std::vector<T> D (n, 0.0);
+    std::vector<T> T_mat (n * n, 0.0);
+
+    // Random Gaussian test matrix
+    RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_dat, seed);
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    // Stabilization Constructor - not needed for HQRQ, as we're using a custom function
+    Orth<T> Orth_CholQR(use_CholQRQ, false, false);
+    //Orth<T> Orth_HQR(use_HQRQ, false, false);
+
+    // CHOL QR
+    // Orthonormalize A
+    auto start_qr = high_resolution_clock::now();
+    Orth_CholQR.call(m, n, A);
+    auto stop_qr = high_resolution_clock::now();
+    long dur_qr = duration_cast<microseconds>(stop_qr - start_qr).count();
+
+    // Restore Householder vectors
+    auto start_rest = high_resolution_clock::now();
+
+    // PERFORMANCE PROFILING
+    // CALLGRIND_START_INSTRUMENTATION;
+    // CALLGRIND_TOGGLE_COLLECT;
+
+    orhr_col(m, n, n, A.data(), m, T_mat.data(), n, D.data());
+
+    // CALLGRIND_TOGGLE_COLLECT;
+    // CALLGRIND_STOP_INSTRUMENTATION;
+
+    auto stop_rest = high_resolution_clock::now();
+    long dur_rest = duration_cast<microseconds>(stop_rest - start_rest).count();
+
+    std::vector<long> res{dur_qr, dur_rest}; 
   
     return res; 
 }
@@ -213,7 +257,7 @@ test_speed_max(int r_pow, int r_pow_max, int col, int col_max, int runs)
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols += 32)
+        for (; cols <= col_max; cols += 64)
         {
             std::vector<long> res;
             long t_chol = 0;
@@ -225,6 +269,7 @@ test_speed_max(int r_pow, int r_pow_max, int col, int col_max, int runs)
             for(int i = 0; i < runs; ++i)
             {
                 res = test_speed_helper<T>(rows, cols, 0);
+                //res = test_speed_orhr_col<T>(rows, cols, 0);
                 curr_t_chol = res[1];
                 curr_t_qr   = res[0];
 
@@ -242,7 +287,11 @@ test_speed_max(int r_pow, int r_pow_max, int col, int col_max, int runs)
             std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
             file << t_qr << "  " << t_chol << "\n";
 
-            printf("\nMatrix size: %ld by %ld.\n", rows, cols);
+            //printf("\nMatrix size: %ld by %ld.\n", rows, cols);
+            //printf("Best timing of Chol QR for %d runs: %ld μs.\n", runs - 1, t_chol);
+            //printf("Best timing of Householder reflector restoration for %d runs: %ld μs.\n", runs - 1, t_qr);
+            //printf("Result: rest is %f times faster than CholQR.\n\n", (float) t_qr / (float) t_chol);
+
             printf("Best timing of Chol QR + restoration for %d runs: %ld μs.\n", runs - 1, t_chol);
             printf("Best timing of Full Householder QR for %d runs: %ld μs.\n", runs - 1, t_qr);
             printf("Result: cholQR + rest is %f times faster then Full HQR.\n\n", (float) t_qr / (float) t_chol);
@@ -275,7 +324,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols += 32)
+        for (; cols <= col_max; cols += 64)
         {
             std::vector<long> res;
             long t_chol = 0;
@@ -286,7 +335,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
             for(int i = 0; i < runs; ++i)
             {
-                res = test_speed_helper<T>(rows, cols, 0);
+                res = test_speed_helper<T>(rows, cols, i);
                 curr_t_chol = res[1];
                 curr_t_qr   = res[0];
 
@@ -308,14 +357,15 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
             printf("Average timing of Chol QR + restoration for %d runs: %f μs.\n", runs - 1, chol_avg);
             printf("Average timing of Full Householder QR for %d runs: %f μs.\n", runs - 1, qr_avg);
-            printf("Result: cholQR + rest is %f times faster then Full HQR.\n\n", qr_avg / chol_avg);
+            printf("Result: cholQR + rest is %f times faster than Full HQR.\n\n", qr_avg / chol_avg);
         }
     }
 }
 
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(12, 14, 32, 256, 50);
+    test_speed_max<double>(17, 17, 64, 64, 5);
+    //test_speed_max<double>(18, 18, 64, 1024, 50);
     //test_speed_max<double>(12, 14, 32, 256, 50);
     //test_speed_helper<double>(5, 3, 0);
     return 0;
