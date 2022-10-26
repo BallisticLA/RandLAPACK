@@ -9,6 +9,8 @@ TODO: Use laswap istead of pivot restoration
 #include <iostream>
 #include <cmath>
 #include <lapack.hh>
+#include <algorithm>
+
 #include <RandBLAS.hh>
 
 namespace RandLAPACK::comps::util {
@@ -91,21 +93,37 @@ void get_L(
         }
 }
 
+// Idx array is only modified within the function itself, so there's no need to make a copy
+// k indicates how many columns need swapped
 template <typename T> 
 void col_swap(
         int64_t m,
         int64_t n,
+        int64_t k,
         std::vector<T>& A, 
-        const std::vector<int64_t>& idx 
+        std::vector<int64_t> idx 
 ) {     
         using namespace blas;
-        const int64_t* idx_dat = idx.data();
+        int64_t* idx_dat = idx.data();
         T* A_dat = A.data();
 
-        for (int64_t i = 0, j = 0; i < n; ++i)
+        int64_t i, j, l;
+        for (i = 0, j = 0; i < k; ++i)
         {
-                j = idx_dat[i];
+                j = idx_dat[i] - 1;
                 swap<T, T>(m, &A_dat[i * m], 1, &A_dat[j * m], 1);
+
+                // swap idx array elements
+                // Find idx element with value i and assign it to j
+                for(l = i; l < k; ++l)
+                {
+                        if(idx[l] == i + 1)
+                        {
+                                idx[l] = j + 1; 
+                                break;
+                        }
+                }
+                idx[i] = i + 1;
         }
 }
 
@@ -371,6 +389,9 @@ void gen_s_mat(
         }
 }
 
+/*
+Note: Printed matrix A may have different rank from actual generated matrix A
+*/
 template <typename T> 
 void gen_mat(
         int64_t m,
@@ -491,8 +512,8 @@ template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A)
 template void get_L<float>(int64_t m, int64_t n, std::vector<float>& L);
 template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
 
-template void col_swap(int64_t m, int64_t n, std::vector<float>& A, const std::vector<int64_t>& idx);
-template void col_swap(int64_t m, int64_t n, std::vector<double>& A, const std::vector<int64_t>& idx);
+template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<float>& A, std::vector<int64_t> idx);
+template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<double>& A, std::vector<int64_t> idx);
 
 template float* upsize(int64_t target_sz, std::vector<float>& A);
 template double* upsize(int64_t target_sz, std::vector<double>& A);
