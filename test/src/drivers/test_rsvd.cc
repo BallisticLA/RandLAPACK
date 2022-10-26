@@ -149,7 +149,7 @@ class TestRSVD : public ::testing::Test
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 };
-
+/*
 TEST_F(TestRSVD, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
@@ -157,3 +157,4 @@ TEST_F(TestRSVD, SimpleTest)
         test_RSVD1_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2, false), seed);
     }
 }
+*/
