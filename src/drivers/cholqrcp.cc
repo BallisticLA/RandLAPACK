@@ -73,12 +73,12 @@ int CholQRCP<T>::CholQRCP1(
     col_swap(m, n, k, A_cpy, J);
     
     // IS THIS FASTER THAN DOING TRSM?
-    //trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_cpy_dat, m);
-    
+
     // Get an inverse of R_sp
     trtri(Uplo::Upper, Diag::NonUnit, k, R_sp_dat, k);
 
     // Do AJ_k * R_sp^(-1)
+    // switch this for trmm
     gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, A_cpy_dat, m, R_sp_dat, k, 0.0, Q_dat, m);
     
     // Do Cholesky QR
@@ -106,7 +106,7 @@ int CholQRCP<T>::CholQRCP1(
 ){
     // What to do about these?
 
-    T* Q_dat   = upsize(m * n, Q);
+    T* Q_dat       = upsize(m * n, Q);
     T* A_dat       = A.data();
     T* A_hat_dat   = upsize(d * n, this->A_hat);
     T* tau_dat     = upsize(n, this->tau);
@@ -116,10 +116,21 @@ int CholQRCP<T>::CholQRCP1(
     copy<T, T>(m * n, A_dat, 1, Q_dat, 1);
     
     // Generate a random matrix
-    T* Omega_dat = upsize(d * m, this->Omega);
-    RandBLAS::dense_op::gen_rmat_norm<T>(d, m, Omega_dat, this->seed);
-    
-    gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, Omega_dat, d, Q_dat, m, 0.0, A_hat_dat, d);
+    //T* Omega_dat = upsize(d * m, this->Omega);
+    //RandBLAS::dense_op::gen_rmat_norm<T>(d, m, Omega_dat, this->seed);
+    //gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, Omega_dat, d, Q_dat, m, 0.0, A_hat_dat, d);
+
+    struct RandBLAS::sjlts::SJLT sjl;
+    sjl.ori = RandBLAS::sjlts::ColumnWise;
+    sjl.n_rows = d; // > n
+    sjl.n_cols = m;
+    sjl.vec_nnz = 8; // <= n_rows
+    sjl.rows = new uint64_t[sjl.vec_nnz * m];
+    sjl.cols = new uint64_t[sjl.vec_nnz * m];
+    sjl.vals = new double[sjl.vec_nnz * m];
+    RandBLAS::sjlts::fill_colwise(sjl, this->seed, 0);
+
+    RandBLAS::sjlts::sketch_csccol(sjl, m, n, (double*) Q_dat, (double*) A_hat_dat);
 
     // QRCP - add failure condition
     geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
