@@ -8,7 +8,7 @@ namespace RandLAPACK::drivers::cholqrcp {
 #ifndef CholQRCP_CLASS
 #define CholQRCP_CLASS
 
-enum decision_CholQRCP {use_cholqrcp1};
+enum decision_CholQRCP {use_cholqrcp1, use_cholqrcp2};
 
 template <typename T>
 class CholQRCPalg
@@ -18,7 +18,7 @@ class CholQRCPalg
             int64_t m,
             int64_t n,
             std::vector<T>& A,
-            int64_t& d,
+            int64_t d,
             std::vector<T>& Q,
             std::vector<T>& R,
             std::vector<int64_t>& J
@@ -33,6 +33,7 @@ class CholQRCP : public CholQRCPalg<T>
         uint32_t seed;
         T eps;
         int64_t rank;
+        int64_t b_sz;
 
         //std::vector<T> Q; 
         //std::vector<T> R;
@@ -44,8 +45,9 @@ class CholQRCP : public CholQRCPalg<T>
         std::vector<T> A_hat;
         std::vector<T> tau;
         std::vector<T> R_sp;
-        std::vector<T> A_buf;
         std::vector<T> R_buf;
+
+        std::vector<T> Q_cpy;
 
         // Controls QB version to be used
         decision_CholQRCP decision_cholqrcp;
@@ -68,7 +70,18 @@ class CholQRCP : public CholQRCPalg<T>
         int64_t m,
         int64_t n,
         std::vector<T>& A,
-        int64_t& d,
+        int64_t d,
+        std::vector<T>& Q,
+        std::vector<T>& R,
+        std::vector<int64_t>& J
+    );
+
+    int CholQRCP2(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        int64_t d,
+        int64_t b_sz,
         std::vector<T>& Q,
         std::vector<T>& R,
         std::vector<int64_t>& J
@@ -78,7 +91,7 @@ class CholQRCP : public CholQRCPalg<T>
             int64_t m,
             int64_t n,
             std::vector<T>& A,
-            int64_t& d,
+            int64_t d,
             std::vector<T>& Q,
             std::vector<T>& R,
             std::vector<int64_t>& J
@@ -89,6 +102,9 @@ class CholQRCP : public CholQRCPalg<T>
             {
                     case use_cholqrcp1:
                             termination = CholQRCP1(m, n, A, d, Q, R, J);
+                            break;
+                    case use_cholqrcp2:
+                            //termination = CholQRCP2(m, n, A, d, this->b_sz, Q, R, J);
                             break;
             }
 
