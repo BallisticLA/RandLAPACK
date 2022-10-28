@@ -21,12 +21,12 @@ using namespace std::chrono;
 #define ABSDTOL 1e-12;
 
 using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::comps::cholqrcp;
+using namespace RandLAPACK::drivers::cholqrcp;
 
 template <typename T>
 static std::vector<long> 
 test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
-
+    
     using namespace blas;
     using namespace lapack;
 
@@ -40,43 +40,42 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::vector<int64_t> J_1(n, 0);
 
     std::vector<int64_t> J_2(n, 0.0);
-    std::vector<int64_t> tau_2(n, 0);
+    std::vector<T> tau_2(n, 0);
 
     std::vector<int64_t> t_3(5, 0);
     std::vector<int64_t> tau_3(n, 0);
     std::vector<int64_t> J_3(n, 0);
 
     // Random Gaussian test matrix
-    RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_dat, seed);
-    // Make a copy
-    std::copy(A_dat, A_dat + size, A_cpy_dat);
-    std::copy(A_dat, A_dat + size, A_cpy_2_dat);
-    std::copy(A_dat, A_dat + size, A_cpy_3_dat);
+    RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_1.data(), seed);
+    // Make copies
+    std::copy(A_1.data(), A_1.data() + size, A_2.data());
+    std::copy(A_1.data(), A_1.data() + size, A_3.data());
 
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // CholQRCP constructor
-    Stab<T> CholQRCP(false, seed, 1.0e-16, use_cholqrcp1);
-
+    CholQRCP<T> CholQRCP(false, seed, 1.0e-16, use_cholqrcp1);
+    /*
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
-    CholQRCP.call(m, n, A_1, d, Q_1, R_1, J_1);
+    //CholQRCP.call(m, n, A_1, n + 1, Q_1, R_1, J_1);
     auto stop_cholqrcp = high_resolution_clock::now();
     long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
 
     // GEQP3
     auto start_geqp3 = high_resolution_clock::now();
-    geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
+    //geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
     auto stop_geqp3 = high_resolution_clock::now();
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
     // TSQR + GEQP3
     auto start_tsqrp = high_resolution_clock::now();
     // TSQR part
-    geqr(m, n, A_3.data(), m, t_3.data(), -1);
+    //geqr(m, n, A_3.data(), m, t_3.data(), -1);
     int64_t tsize = (int64_t) t_3[0]; 
     t_3.resize(tsize);
-    geqr(m, n, A_3.data(), m, t_3.data(), tsize)
+    //geqr(m, n, A_3.data(), m, t_3.data(), tsize);
 
     // GEQP3 on R part
     // Get_U(m, n, A_3);
@@ -86,8 +85,12 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
+    
+    long dur_tsqrp = 0;
 
     std::vector<long> res{dur_cholqrcp, dur_geqp3, dur_tsqrp}; 
+    */
+    std::vector<long> res;
     return res;
 }
 
