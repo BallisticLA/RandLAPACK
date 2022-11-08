@@ -13,7 +13,7 @@ set(RandLAPACK_libs
     RandBLAS_blaspp
     RandBLAS_Random123
     RandBLAS_OpenMP
-) 
+)
 
 add_library(RandLAPACK ${RandLAPACK_cxx_srcs})
 
@@ -38,4 +38,10 @@ install(
     INCLUDES DESTINATION include/RandLAPACK
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(
+    EXPORT RandLAPACK
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake
+    EXPORT_LINK_INTERFACE_LIBRARIES
 )

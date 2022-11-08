@@ -7,27 +7,23 @@ set(RandLAPACK_VERSION_MINOR "@RandLAPACK_VERSION_MINOR@")
 set(RandLAPACK_VERSION_PATCH "@RandLAPACK_VERSION_PATCH@")
 set(RandLAPACK_VERSION_DEVEL "@RandLAPACK_VERSION_DEVEL@")
 
-# RBLAS and its dependencies
-
+# RandBLAS and its dependencies
+include(RandLAPACK_blaspp)
 if (NOT RandBLAS_DIR)
     set(RandBLAS_DIR @RandBLAS_DIR@)
 endif()
 find_dependency(RandBLAS)
+
+# RandLAPACK and dependencies
+include(RandLAPACK_lapackpp)
 include(RandLAPACK_RandBLAS)
-
-find_dependency(RandBLAS_blaspp)
-include(RandLAPACK_blaspp)
-
-find_dependency(RandBLAS_Random123)
 include(RandLAPACK_Random123)
-
-# find_dependency(RandBLAS_OpenMP)
 # include(RandLAPACK_OpenMP)
 
 # LAPACK++
-
 if (NOT lapackpp_DIR)
     set(lapackpp_DIR @lapackpp_DIR@)
 endif()
 find_dependency(lapackpp)
-include(RandLAPACK_lapackpp)
+
+include(RandLAPACK)

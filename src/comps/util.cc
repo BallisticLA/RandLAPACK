@@ -9,6 +9,9 @@ TODO #1: Test get_L.
 #include <cmath>
 #include <vector>
 #include <tuple>
+
+#include <algorithm>
+
 #include <lapack.hh>
 #include <RandBLAS.hh>
 
