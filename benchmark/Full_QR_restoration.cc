@@ -23,7 +23,7 @@ using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
 
-#include <valgrind/callgrind.h>
+//#include <valgrind/callgrind.h>
 
 /*
 // For calling LAPACK directly (didnt work)

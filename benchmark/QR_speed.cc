@@ -48,6 +48,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     // Random Gaussian test matrix
     RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_1.data(), seed);
+
+
     // Make copies
     std::copy(A_1.data(), A_1.data() + size, A_2.data());
     std::copy(A_1.data(), A_1.data() + size, A_3.data());
@@ -56,7 +58,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     // CholQRCP constructor
     CholQRCP<T> CholQRCP(false, seed, 1.0e-16, use_cholqrcp1);
-    /*
+
+    
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     //CholQRCP.call(m, n, A_1, n + 1, Q_1, R_1, J_1);
@@ -85,12 +88,12 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
-    
-    long dur_tsqrp = 0;
 
+
+    printf("CHOL %d\n", dur_cholqrcp);
+    
     std::vector<long> res{dur_cholqrcp, dur_geqp3, dur_tsqrp}; 
-    */
-    std::vector<long> res;
+ 
     return res;
 }
 
@@ -167,6 +170,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 }
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(12, 12, 64, 64, 3);
+    test_speed_mean<double>(8, 8, 64, 64, 3);
     return 0;
 }
