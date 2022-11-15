@@ -46,6 +46,14 @@ void get_L(
 );
 
 template <typename T> 
+void get_U(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        std::vector<T>& U
+);
+
+template <typename T> 
 void col_swap(
         int64_t m,
         int64_t n,
