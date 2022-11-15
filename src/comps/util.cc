@@ -100,6 +100,29 @@ void get_L(
     }
 }
 
+// Helper routine for retrieving the upper triangular portion of a matrix
+// Copies the elements over into a new matrix
+template <typename T> 
+void get_U(
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        std::vector<T>& U
+) {
+        using namespace blas;
+	// Vector end pointer
+	int size = m * n;
+
+        T* A_dat = A.data();
+        T* U_dat = U.data();
+    
+        for(int i = 0, j = 1; i < size && j <= m; i += m, ++j) 
+        {             
+
+                copy(j, &A_dat[i], 1, &U_dat[i], 1);
+        }
+}
+
 // Idx array is only modified within the function itself, so there's no need to make a copy
 // k indicates how many columns need swapped
 template <typename T> 
@@ -521,6 +544,9 @@ template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A)
 
 template void get_L<float>(int64_t m, int64_t n, std::vector<float>& L);
 template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
+
+template void get_U<float>(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& U);
+template void get_U<double>(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& U);
 
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<float>& A, std::vector<int64_t> idx);
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<double>& A, std::vector<int64_t> idx);

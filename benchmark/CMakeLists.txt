@@ -42,7 +42,7 @@ target_include_directories(
 )
 set(
     RandLAPACK_lib_file
-    ${RandLAPACK_DIR}/../../lib64/libRandLAPACK.a
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
     FLOP_count PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
@@ -68,7 +68,7 @@ target_include_directories(
 )
 set(
     RandLAPACK_lib_file
-    ${RandLAPACK_DIR}/../../lib64/libRandLAPACK.a
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
     Orth_speed PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
@@ -94,7 +94,7 @@ target_include_directories(
 )
 set(
     RandLAPACK_lib_file
-    ${RandLAPACK_DIR}/../../lib64/libRandLAPACK.a
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
     Full_QR_restoration PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
@@ -120,7 +120,7 @@ target_include_directories(
 )
 set(
     RandLAPACK_lib_file
-    ${RandLAPACK_DIR}/../../lib64/libRandLAPACK.a
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
     QR_speed PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
