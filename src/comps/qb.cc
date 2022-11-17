@@ -6,6 +6,10 @@ TODO #3: Need a test case with switching between different orthogonalization typ
 On early termination, data in B is moved, but not sized down
 */
 
+#include <cstdint>
+#include <limits>
+#include <vector>
+
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>

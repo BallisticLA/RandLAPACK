@@ -5,7 +5,11 @@ TODO #1: Test get_L.
 #include <RandLAPACK/comps/util.hh>
 
 #include <iostream>
+#include <cstdint>
 #include <cmath>
+#include <vector>
+#include <tuple>
+
 #include <algorithm>
 
 #include <lapack.hh>

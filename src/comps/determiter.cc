@@ -1,5 +1,6 @@
 #include <RandLAPACK/comps/determiter.hh>
 #include <iostream>
+#include <vector>
 
 
 namespace RandLAPACK::comps::determiter {
