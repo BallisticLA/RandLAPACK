@@ -145,6 +145,8 @@ int CholQRCP<T>::CholQRCP1(
     if(this -> timing)
     {
         total_t_start = high_resolution_clock::now();
+    
+        copy_t_start = high_resolution_clock::now();
     }
     /*****TIMING******/
 
@@ -154,13 +156,6 @@ int CholQRCP<T>::CholQRCP1(
     T* tau_dat     = upsize(n, this->tau);
     J.resize(n);
     int64_t* J_dat = J.data();
-
-    /*****TIMING******/
-    if(this -> timing)
-    {
-        copy_t_start = high_resolution_clock::now();
-    }
-    /*****TIMING******/
 
     copy<T, T>(m * n, A_dat, 1, Q_dat, 1);
     
