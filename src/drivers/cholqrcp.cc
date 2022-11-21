@@ -284,20 +284,19 @@ int CholQRCP<T>::CholQRCP1(
 
     // VERSION WITH TRMM 
     
-     // Get an inverse of R_sp
+    /*
+    // Get an inverse of R_sp
     trtri(Uplo::Upper, Diag::NonUnit, k, R_sp_dat, k);
 
     // Do AJ_k * R_sp^(-1)
     //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, A_dat, m, R_sp_dat, k, 0.0, Q_dat, m);
     trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 0.0, R_sp_dat, k, A_dat, m);	
+    */
 
-
-    /*
     // VERSION WITH TRSM
 
     // A_sp_pre * R_sp = AP
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
-    */
 
     //-------TIMING--------/
     if(this -> timing)
