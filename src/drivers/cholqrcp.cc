@@ -230,21 +230,32 @@ int CholQRCP<T>::CholQRCP1(
     /*****TIMING******/
     if(this -> timing)
     {
-        a_mod_t_start = high_resolution_clock::now();
+        a_mod_piv_t_start = high_resolution_clock::now();
     }
     /*****TIMING******/
 
     // Swap k columns of A with pivots from J
     col_swap(m, n, k, Q, J);
     
+
+    /*****TIMING******/
+    if(this -> timing)
+    {
+        a_mod_piv_t_stop = high_resolution_clock::now();
+        a_mod_piv_t_dur = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
+
+        a_mod_trsm_t_start = high_resolution_clock::now();
+    }
+    /*****TIMING******/
+
     // A_sp_pre * R_sp = AP
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, Q_dat, m);
     
     /*****TIMING******/
     if(this -> timing)
     {
-        a_mod_t_stop = high_resolution_clock::now();
-        a_mod_t_dur = duration_cast<microseconds>(a_mod_t_stop - a_mod_t_start).count();
+        a_mod_trsm_t_stop = high_resolution_clock::now();
+        a_mod_trsm_t_dur = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
     }
     /*****TIMING******/
 
@@ -274,20 +285,22 @@ int CholQRCP<T>::CholQRCP1(
 
         printf("\n\n/**********CholQRCP1 TIMING RESULTS BEGIN**********/\n");
 
-        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_t_dur);
+        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur);
 
         printf("SASO time: %d μs,\n", saso_t_dur);
         printf("QRCP time: %d μs,\n", qrcp_t_dur);
         printf("Rank revealing time: %d μs,\n", rank_reveal_t_dur);
         printf("CholQRCP time: %d μs,\n", cholqrcp_t_dur);
-        printf("A modification time: %d μs,\n", a_mod_t_dur);
+        printf("A modification pivoting time: %d μs,\n", a_mod_piv_t_dur);
+        printf("A modification TRSM time: %d μs,\n", a_mod_trsm_t_dur);
         printf("Other routines time: %d μs,\n", t_rest);
         printf("Total time: %d μs,\n", total_t_dur);
 
         printf("\nSASO generation and application takes %.1f%% of runtime.\n", 100 * ((double) saso_t_dur / (double) total_t_dur));
         printf("QRCP takes %.1f%% of runtime.\n", 100 * ((double) qrcp_t_dur / (double) total_t_dur));
         printf("Rank revealing takes %.1f%% of runtime.\n", 100 * ((double) rank_reveal_t_dur / (double) total_t_dur));
-        printf("Modifying matrix A %.1f%% of runtime.\n", 100 * ((double) a_mod_t_dur / (double) total_t_dur));
+        printf("Modifying matrix (pivoting) A %.1f%% of runtime.\n", 100 * ((double) a_mod_piv_t_dur / (double) total_t_dur));
+        printf("Modifying matrix (trsm) A %.1f%% of runtime.\n", 100 * ((double) a_mod_trsm_t_dur / (double) total_t_dur));
         printf("Cholqrcp takes %.1f%% of runtime.\n", 100 * ((double) cholqrcp_t_dur / (double) total_t_dur));
         printf("Everything else takes %.1f%% of runtime.\n", 100 * ((double) t_rest / (double) total_t_dur));
         printf("/*********CholQRCP1 TIMING RESULTS END*********/\n\n");
