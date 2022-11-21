@@ -274,7 +274,7 @@ int CholQRCP<T>::CholQRCP1(
 
         printf("\n\n/**********CholQRCP1 TIMING RESULTS BEGIN**********/\n");
 
-        double t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_t_dur);
+        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_t_dur);
 
         printf("SASO time: %d μs,\n", saso_t_dur);
         printf("QRCP time: %d μs,\n", qrcp_t_dur);
