@@ -152,18 +152,16 @@ int CholQRCP<T>::CholQRCP1(
     }
     /*****TIMING******/
 
-    // Need a wrapper for SASO
-    struct RandBLAS::sasos::SASO saso;
-    saso.ori = RandBLAS::sasos::ColumnWise;
-    saso.n_rows = d; // > n
-    saso.n_cols = m;
-    saso.vec_nnz = 8; // Arbitrary constant, Riley likes 8s
-    saso.rows = new uint64_t[saso.vec_nnz * m];
-    saso.cols = new uint64_t[saso.vec_nnz * m];
-    saso.vals = new double[saso.vec_nnz * m];
-    RandBLAS::sasos::fill_colwise(saso, this->seed, 0);
+    struct RandBLAS::sasos::SASO sas;
+    sas.n_rows = d; // > n
+    sas.n_cols = m;
+    sas.vec_nnz = 8; // Arbitrary constant, Riley likes 8
+    sas.rows = new int64_t[sas.vec_nnz * m];
+    sas.cols = new int64_t[sas.vec_nnz * m];
+    sas.vals = new double[sas.vec_nnz * m];
+    RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
 
-    RandBLAS::sasos::sketch_csccol(saso, m, n, (double*) Q_dat, (double*) A_hat_dat);
+    RandBLAS::sasos::sketch_csccol(sas, n, (double*) Q_dat, (double*) A_hat_dat, 1);
 
     /*****TIMING******/
     if(this -> timing)
