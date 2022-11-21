@@ -273,7 +273,6 @@ int CholQRCP<T>::CholQRCP2(
     std::vector<T>& A,
     int64_t d,
     int64_t b_sz,
-    std::vector<T>& Q,
     std::vector<T>& R,
     std::vector<int64_t>& J
 ){
