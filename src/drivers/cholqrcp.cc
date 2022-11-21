@@ -248,7 +248,7 @@ int CholQRCP<T>::CholQRCP1(
     if(this -> timing)
     {
         cholqrcp_t_stop = high_resolution_clock::now();
-        rank_reveal_t_dur = duration_cast<microseconds>(cholqrcp_t_stop - cholqrcp_t_start).count();
+        cholqrcp_t_dur = duration_cast<microseconds>(cholqrcp_t_stop - cholqrcp_t_start).count();
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
