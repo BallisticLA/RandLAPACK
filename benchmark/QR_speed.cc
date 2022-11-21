@@ -59,8 +59,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     // CholQRCP constructor
     CholQRCP<T> CholQRCP(false, true, seed, 1.0e-16, use_cholqrcp1);
-    CholQRCP.nnz = 8;
-    CholQRCP.num_threads = 1;
+    CholQRCP.nnz = 4;
+    CholQRCP.num_threads = 16;
     // Upsizing buffers
     upsize(m * n, Q_1);
     upsize((n + 1) * n, (CholQRCP.A_hat));
@@ -177,6 +177,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 }
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(17, 17, 32, 32, 5);
+    test_speed_mean<double>(12, 17, 32, 512, 5);
     return 0;
 }
