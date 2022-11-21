@@ -124,9 +124,13 @@ int CholQRCP<T>::CholQRCP1(
     high_resolution_clock::time_point cholqrcp_t_stop;
     long cholqrcp_t_dur;
 
-    high_resolution_clock::time_point a_mod_t_start;
-    high_resolution_clock::time_point a_mod_t_stop;
-    long a_mod_t_dur;
+    high_resolution_clock::time_point a_mod_piv_t_start;
+    high_resolution_clock::time_point a_mod_piv_t_stop;
+    long a_mod_piv_t_dur;
+
+    high_resolution_clock::time_point a_mod_trsm_t_start;
+    high_resolution_clock::time_point a_mod_trsm_t_stop;
+    long a_mod_trsm_t_dur;
 
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
