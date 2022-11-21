@@ -289,7 +289,7 @@ int CholQRCP<T>::CholQRCP1(
 
     // Do AJ_k * R_sp^(-1)
     //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, A_dat, m, R_sp_dat, k, 0.0, Q_dat, m);
-    trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 0.0, R_sp_dat, k, A_dat, m);	
+    trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);	
 
     /*
     // VERSION WITH TRSM
@@ -320,7 +320,9 @@ int CholQRCP<T>::CholQRCP1(
 
 
     // Get R
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, n, k, 1.0, R_sp_dat, k, R_buf_dat, k, 0.0, R_dat, k);
+    // trmm
+    trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_buf_dat, n);	
+    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, n, k, 1.0, R_sp_dat, k, R_buf_dat, k, 0.0, R_dat, k);
     
     //-------TIMING--------/
     if(this -> timing)
