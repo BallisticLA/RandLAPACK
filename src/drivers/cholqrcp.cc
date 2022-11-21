@@ -254,10 +254,17 @@ int CholQRCP<T>::CholQRCP1(
         total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
 
-        printf("SASO generation and application takes %d%/ of runtime.", (double) saso_t_dur / (double) total_t_dur);
-        printf("QRCP takes %d%/ of runtime.", (double) qrcp_t_dur / (double) total_t_dur);
-        printf("Rank revealing takes %d%/ of runtime.", (double) rank_reveal_t_dur / (double) total_t_dur);
-        printf("Cholqrcp takes %d%/ of runtime.", (double) cholqrcp_t_dur / (double) total_t_dur);
+        printf("SASO time: %d μs,\n", saso_t_dur);
+        printf("QRCP time: %d μs,\n", qrcp_t_dur);
+        printf("Rank revealing time: %d μs,\n", rank_reveal_t_dur);
+        printf("CholQRCP time: %d μs,\n", cholqrcp_t_dur);
+        printf("Total time: %d μs,\n", total_t_dur);
+
+
+        printf("SASO generation and application takes %d%/ of runtime.\n", (double) saso_t_dur / (double) total_t_dur);
+        printf("QRCP takes %d%/ of runtime.\n", (double) qrcp_t_dur / (double) total_t_dur);
+        printf("Rank revealing takes %d%/ of runtime.\n", (double) rank_reveal_t_dur / (double) total_t_dur);
+        printf("Cholqrcp takes %d%/ of runtime.\n", (double) cholqrcp_t_dur / (double) total_t_dur);
     }
     /*****TIMING******/
 
