@@ -61,6 +61,14 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     CholQRCP<T> CholQRCP(false, true, seed, 1.0e-16, use_cholqrcp1);
     CholQRCP.nnz = 8;
     CholQRCP.num_threads = 1;
+    // Upsizing buffers
+    Q_1.upsize(m * n, Q_1);
+    (CholQRCP.A_hat).upsize((n + 1) * n, (CholQRCP.A_hat));
+    (CholQRCP.A_hat).upsize(n, (CholQRCP.A_hat));
+    J_1.resize(n);
+    (CholQRCP.R_sp).upsize(n * n, (CholQRCP.R_sp));
+    R_1.upsize(n * n, R_1);
+    (CholQRCP.R_buf).upsize(n * n, (CholQRCP.R_buf));
     
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
