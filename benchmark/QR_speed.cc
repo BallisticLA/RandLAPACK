@@ -59,6 +59,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     // CholQRCP constructor
     CholQRCP<T> CholQRCP(false, seed, 1.0e-16, use_cholqrcp1);
+    CholQRCP.nnz = 8;
+    CholQRCP.num_threads = 1;
     
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();

@@ -36,6 +36,10 @@ class CholQRCP : public CholQRCPalg<T>
         int64_t rank;
         int64_t b_sz;
 
+        // tuning SASOS
+        int num_threads;
+        int64_t nnz;
+
         //std::vector<T> Q; 
         //std::vector<T> R;
         //std::vector<T> J;
