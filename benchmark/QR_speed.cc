@@ -162,13 +162,13 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             printf("Average timing of CholQRCP for %d runs: %f μs.\n", runs - 1, cholqrcp_avg);
             printf("Average timing of GEQP3 for %d runs: %f μs.\n", runs - 1, geqp3_avg);
             printf("Average timing of TSQRP for %d runs: %f μs.\n", runs - 1, tsqrp_avg);
-            printf("Result: CholQRCP is %f times faster than GEQP3.\n\n", cholqrcp_avg / geqp3_avg);
-            printf("Result: CholQRCP is %f times faster than TSQRP.\n\n", cholqrcp_avg / tsqrp_avg);
+            printf("Result: CholQRCP is %f times faster than GEQP3.\n\n", geqp3_avg / cholqrcp_avg);
+            printf("Result: CholQRCP is %f times faster than TSQRP.\n\n", tsqrp_avg / cholqrcp_avg);
         }
     }
 }
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(12, 17, 64, 64, 5);
+    test_speed_mean<double>(12, 12, 32, 32, 25);
     return 0;
 }
