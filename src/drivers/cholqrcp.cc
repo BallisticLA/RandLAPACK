@@ -182,7 +182,7 @@ int CholQRCP<T>::CholQRCP1(
     //-------TIMING--------/
 
     // Swap k columns of A with pivots from J
-    col_swap(m, n, k, Q, J);
+    col_swap(m, n, k, A, J);
     
 
     //-------TIMING--------/
