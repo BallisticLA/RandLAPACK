@@ -185,13 +185,13 @@ int CholQRCP<T>::CholQRCP1(
     struct RandBLAS::sasos::SASO sas;
     sas.n_rows = d; // > n
     sas.n_cols = m;
-    sas.vec_nnz = 8; // Arbitrary constant, Riley likes 8
+    sas.vec_nnz = 2; // Arbitrary constant, Riley likes 8
     sas.rows = new int64_t[sas.vec_nnz * m];
     sas.cols = new int64_t[sas.vec_nnz * m];
     sas.vals = new double[sas.vec_nnz * m];
     RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
 
-    RandBLAS::sasos::sketch_csccol(sas, n, (double*) Q_dat, (double*) A_hat_dat, 1);
+    RandBLAS::sasos::sketch_csccol(sas, n, (double*) Q_dat, (double*) A_hat_dat, 8);
 
     /*****TIMING******/
     if(this -> timing)
@@ -297,6 +297,7 @@ int CholQRCP<T>::CholQRCP1(
 
     // Do AJ_k * R_sp^(-1)
     // switch this for trmm
+    use trmm
     gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, A_cpy_dat, m, R_sp_dat, k, 0.0, Q_dat, m);
  */ 
 
