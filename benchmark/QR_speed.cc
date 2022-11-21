@@ -58,12 +58,13 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
+    int64_t d = 2 * n;
     CholQRCP<T> CholQRCP(false, true, seed, 1.0e-16, use_cholqrcp1);
     CholQRCP.nnz = 4;
     CholQRCP.num_threads = 4;
     // Upsizing buffers
     upsize(m * n, Q_1);
-    upsize((n + 1) * n, (CholQRCP.A_hat));
+    upsize(d * n, (CholQRCP.A_hat));
     upsize(n, (CholQRCP.A_hat));
     J_1.resize(n);
     upsize(n * n, (CholQRCP.R_sp));
@@ -72,7 +73,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
-    CholQRCP.call(m, n, A_1, n + 1, Q_1, R_1, J_1);
+    CholQRCP.call(m, n, A_1, d, Q_1, R_1, J_1);
     auto stop_cholqrcp = high_resolution_clock::now();
     long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
 
