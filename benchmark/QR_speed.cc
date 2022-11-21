@@ -177,6 +177,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 }
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(12, 17, 32, 512, 5);
+    test_speed_mean<double>(14, 16, 32, 128, 5);
     return 0;
 }
