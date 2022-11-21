@@ -357,6 +357,6 @@ int CholQRCP<T>::CholQRCP2(
     return 0;
 }
 
-template int CholQRCP<float>::CholQRCP1(int64_t m, int64_t n, std::vector<float>& A, int64_t d, std::vector<float>& Q, std::vector<float>& R, std::vector<int64_t>& J);
-template int CholQRCP<double>::CholQRCP1(int64_t m, int64_t n, std::vector<double>& A, int64_t d, std::vector<double>& Q, std::vector<double>& R, std::vector<int64_t>& J);
+template int CholQRCP<float>::CholQRCP1(int64_t m, int64_t n, std::vector<float>& A, int64_t d, std::vector<float>& R, std::vector<int64_t>& J);
+template int CholQRCP<double>::CholQRCP1(int64_t m, int64_t n, std::vector<double>& A, int64_t d, std::vector<double>& R, std::vector<int64_t>& J);
 }
