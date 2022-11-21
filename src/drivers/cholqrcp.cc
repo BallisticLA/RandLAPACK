@@ -284,6 +284,7 @@ int CholQRCP<T>::CholQRCP1(
         printf("QRCP time: %d μs,\n", qrcp_t_dur);
         printf("Rank revealing time: %d μs,\n", rank_reveal_t_dur);
         printf("CholQRCP time: %d μs,\n", cholqrcp_t_dur);
+        printf("A modification time: %d μs,\n", a_mod_t_dur);
         printf("Other routines time: %d μs,\n", t_rest);
         printf("Total time: %d μs,\n", total_t_dur);
 
