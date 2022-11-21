@@ -19,7 +19,6 @@ class CholQRCPalg
             int64_t n,
             std::vector<T>& A,
             int64_t d,
-            std::vector<T>& Q,
             std::vector<T>& R,
             std::vector<int64_t>& J
         ) = 0;
@@ -78,7 +77,6 @@ class CholQRCP : public CholQRCPalg<T>
         int64_t n,
         std::vector<T>& A,
         int64_t d,
-        std::vector<T>& Q,
         std::vector<T>& R,
         std::vector<int64_t>& J
     );
@@ -89,7 +87,6 @@ class CholQRCP : public CholQRCPalg<T>
         std::vector<T>& A,
         int64_t d,
         int64_t b_sz,
-        std::vector<T>& Q,
         std::vector<T>& R,
         std::vector<int64_t>& J
     );
@@ -99,7 +96,6 @@ class CholQRCP : public CholQRCPalg<T>
             int64_t n,
             std::vector<T>& A,
             int64_t d,
-            std::vector<T>& Q,
             std::vector<T>& R,
             std::vector<int64_t>& J
     )
@@ -108,7 +104,7 @@ class CholQRCP : public CholQRCPalg<T>
             switch(this->decision_cholqrcp)
             {
                     case use_cholqrcp1:
-                            termination = CholQRCP1(m, n, A, d, Q, R, J);
+                            termination = CholQRCP1(m, n, A, d, R, J);
                             break;
                     case use_cholqrcp2:
                             //termination = CholQRCP2(m, n, A, d, this->b_sz, Q, R, J);

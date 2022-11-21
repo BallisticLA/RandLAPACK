@@ -37,6 +37,7 @@ class TestCholQRCP : public ::testing::Test
 
         // For results comparison
         std::vector<T> A_hat(size, 0.0);
+        std::copy(A.data(), A.data() + size, A_hat.data());
 
         // For RSVD
         std::vector<T> Q;
@@ -44,6 +45,7 @@ class TestCholQRCP : public ::testing::Test
         std::vector<int64_t> J(n, 0.0);
 
         T* A_dat = A.data();
+        T* A_hat_dat = A_hat.data();
 
         //Subroutine parameters 
         bool verbosity = false;
@@ -58,7 +60,6 @@ class TestCholQRCP : public ::testing::Test
             n,
             A,
             d,
-            Q,
             R,
             J
         );
@@ -72,9 +73,9 @@ class TestCholQRCP : public ::testing::Test
         col_swap(m, n, n, A, J);
 
         // AP - QR
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, k, -1.0, A_dat, m);
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
 
-        T norm_test = lange(Norm::Fro, m, n, A_dat, m);
+        T norm_test = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A - QR:  %e\n", norm_test);
         //ASSERT_NEAR(norm_test, 0, 1e-10);
         printf("|=================================TEST CholQRCP GENERAL END================================|\n");
