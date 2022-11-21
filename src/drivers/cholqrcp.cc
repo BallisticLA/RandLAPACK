@@ -108,7 +108,7 @@ int CholQRCP<T>::CholQRCP1(
     std::vector<T>& R,
     std::vector<int64_t>& J
 ){
-    /*****TIMING VARS BEGIN******/
+    //-------TIMING VARS--------/
     high_resolution_clock::time_point saso_t_stop;
     high_resolution_clock::time_point saso_t_start;
     long saso_t_dur;
@@ -144,16 +144,16 @@ int CholQRCP<T>::CholQRCP1(
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
     long total_t_dur;
-    /******TIMING VARS END*******/
+    //-------TIMING VARS--------/
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         total_t_start = high_resolution_clock::now();
     
         resize_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
 
     T* A_dat       = A.data();
     T* Q_dat       = upsize(m * n, Q);
@@ -162,19 +162,19 @@ int CholQRCP<T>::CholQRCP1(
     J.resize(n);
     int64_t* J_dat = J.data();
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         resize_t_stop = high_resolution_clock::now();
         resize_t_dur = duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
     }
     
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         saso_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
 
     struct RandBLAS::sasos::SASO sas;
     sas.n_rows = d; // > n
@@ -187,7 +187,7 @@ int CholQRCP<T>::CholQRCP1(
 
     RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         saso_t_stop = high_resolution_clock::now();
@@ -195,12 +195,12 @@ int CholQRCP<T>::CholQRCP1(
 
         qrcp_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
     
     // QRCP - add failure condition
     geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
 
-    /*****TIMING******/    
+    //-------TIMING--------/
     if(this -> timing)
     {
         qrcp_t_stop = high_resolution_clock::now();
@@ -208,7 +208,7 @@ int CholQRCP<T>::CholQRCP1(
 
         rank_reveal_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
 
     // Find rank
     int64_t k = n;
@@ -223,7 +223,7 @@ int CholQRCP<T>::CholQRCP1(
         }
     }
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         rank_reveal_t_stop = high_resolution_clock::now();
@@ -231,13 +231,13 @@ int CholQRCP<T>::CholQRCP1(
 
         resize_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
     
     T* R_sp_dat  = upsize(k * k, this->R_sp);
     T* R_dat     = upsize(k * n, R);
     T* R_buf_dat = upsize(k * n, this -> R_buf);
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         resize_t_stop = high_resolution_clock::now();
@@ -258,7 +258,7 @@ int CholQRCP<T>::CholQRCP1(
         copy<T, T>(k, &A_hat_dat[i * d], 1, &R_buf_dat[i * k], 1);
     }
     
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         copy_t_stop = high_resolution_clock::now();
@@ -266,13 +266,13 @@ int CholQRCP<T>::CholQRCP1(
 
         a_mod_piv_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
 
     // Swap k columns of A with pivots from J
     col_swap(m, n, k, Q, J);
     
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         a_mod_piv_t_stop = high_resolution_clock::now();
@@ -280,35 +280,50 @@ int CholQRCP<T>::CholQRCP1(
 
         a_mod_trsm_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
+
+    // VERSION WITH TRMM 
+    
+     // Get an inverse of R_sp
+    trtri(Uplo::Upper, Diag::NonUnit, k, R_sp_dat, k);
+
+    // Do AJ_k * R_sp^(-1)
+    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, A_dat, m, R_sp_dat, k, 0.0, Q_dat, m);
+    trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 0.0, R_sp_dat, k, A_dat, m);	
+
+
+    /*
+    // VERSION WITH TRSM
 
     // A_sp_pre * R_sp = AP
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
+    */
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         a_mod_trsm_t_stop = high_resolution_clock::now();
         a_mod_trsm_t_dur = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
 
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         cholqrcp_t_start = high_resolution_clock::now();
     }
-    /*****TIMING******/
+    //-------TIMING--------/
 
     // Do Cholesky QR
     syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
     potrf(Uplo::Upper, k, R_sp_dat, k);
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
+
     // Get R
     gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, n, k, 1.0, R_sp_dat, k, R_buf_dat, k, 0.0, R_dat, k);
     
-    /*****TIMING******/
+    //-------TIMING--------/
     if(this -> timing)
     {
         cholqrcp_t_stop = high_resolution_clock::now();
@@ -317,7 +332,7 @@ int CholQRCP<T>::CholQRCP1(
         total_t_stop = high_resolution_clock::now();
         total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
-        printf("\n\n/**********CholQRCP1 TIMING RESULTS BEGIN**********/\n");
+        printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
 
         long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
 
@@ -341,9 +356,9 @@ int CholQRCP<T>::CholQRCP1(
         printf("Copying takes %.1f%% of runtime.\n", 100 * ((double) copy_t_dur / (double) total_t_dur));
         printf("Resizing takes %.1f%% of runtime.\n", 100 * ((double) resize_t_dur / (double) total_t_dur));
         printf("Everything else takes %.1f%% of runtime.\n", 100 * ((double) t_rest / (double) total_t_dur));
-        printf("/*********CholQRCP1 TIMING RESULTS END*********/\n\n");
+        printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
     }
-    /*****TIMING******/
+    //-------TIMING--------/
 
     return 0;
 }
