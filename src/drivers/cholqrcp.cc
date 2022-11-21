@@ -124,6 +124,10 @@ int CholQRCP<T>::CholQRCP1(
     high_resolution_clock::time_point cholqrcp_t_stop;
     long cholqrcp_t_dur;
 
+    high_resolution_clock::time_point a_mod_t_start;
+    high_resolution_clock::time_point a_mod_t_stop;
+    long a_mod_t_dur;
+
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
     long total_t_dur;
@@ -226,7 +230,7 @@ int CholQRCP<T>::CholQRCP1(
     /*****TIMING******/
     if(this -> timing)
     {
-        cholqrcp_t_start = high_resolution_clock::now();
+        a_mod_t_start = high_resolution_clock::now();
     }
     /*****TIMING******/
 
@@ -236,6 +240,21 @@ int CholQRCP<T>::CholQRCP1(
     // A_sp_pre * R_sp = AP
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, Q_dat, m);
     
+    /*****TIMING******/
+    if(this -> timing)
+    {
+        a_mod_t_stop = high_resolution_clock::now();
+        a_mod_t_dur = duration_cast<microseconds>(a_mod_t_stop - a_mod_t_start).count();
+    }
+    /*****TIMING******/
+
+    /*****TIMING******/
+    if(this -> timing)
+    {
+        cholqrcp_t_start = high_resolution_clock::now();
+    }
+    /*****TIMING******/
+
     // Do Cholesky QR
     syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, R_sp_dat, k);
     potrf(Uplo::Upper, k, R_sp_dat, k);
@@ -260,10 +279,18 @@ int CholQRCP<T>::CholQRCP1(
         printf("CholQRCP time: %d μs,\n", cholqrcp_t_dur);
         printf("Total time: %d μs,\n", total_t_dur);
 
+        double t_rest = 100 - (100 * ((((double) saso_t_dur / (double) total_t_dur)) 
+                            + ((double) qrcp_t_dur / (double) total_t_dur)
+                            + ((double) rank_reveal_t_dur / (double) total_t_dur)
+                            + ((double) a_mod_t_dur / (double) total_t_dur)
+                            + ((double) cholqrcp_t_dur / (double) total_t_dur)));
+
         printf("\nSASO generation and application takes %.1f%% of runtime.\n", 100 * ((double) saso_t_dur / (double) total_t_dur));
         printf("QRCP takes %.1f%% of runtime.\n", 100 * ((double) qrcp_t_dur / (double) total_t_dur));
         printf("Rank revealing takes %.1f%% of runtime.\n", 100 * ((double) rank_reveal_t_dur / (double) total_t_dur));
+        printf("Modifying matrix A %.1f%% of runtime.\n", 100 * ((double) a_mod_t_dur / (double) total_t_dur));
         printf("Cholqrcp takes %.1f%% of runtime.\n", 100 * ((double) cholqrcp_t_dur / (double) total_t_dur));
+        printf("Everything else takes %.1f%% of runtime.\n", 100 * (t_rest / (double) total_t_dur));
         printf("/*********CholQRCP1 TIMING RESULTS END*********/\n\n");
     }
     /*****TIMING******/
