@@ -108,9 +108,9 @@ int CholQRCP<T>::CholQRCP1(
     std::vector<int64_t>& J
 ){
     /*****TIMING VARS BEGIN******/
-    high_resolution_clock::time_point sjlt_t_stop;
-    high_resolution_clock::time_point sjlt_t_start;
-    long sjlt_t_dur;
+    high_resolution_clock::time_point saso_t_stop;
+    high_resolution_clock::time_point saso_t_start;
+    long saso_t_dur;
 
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
@@ -148,28 +148,28 @@ int CholQRCP<T>::CholQRCP1(
     /*****TIMING******/
     if(this -> timing)
     {
-        sjlt_t_start = high_resolution_clock::now();
+        saso_t_start = high_resolution_clock::now();
     }
     /*****TIMING******/
 
-    // Need a wrapper for SJLT
-    struct RandBLAS::sjlts::SJLT sjl;
-    sjl.ori = RandBLAS::sjlts::ColumnWise;
-    sjl.n_rows = d; // > n
-    sjl.n_cols = m;
-    sjl.vec_nnz = 8; // Arbitrary constant, Riley likes 8s
-    sjl.rows = new uint64_t[sjl.vec_nnz * m];
-    sjl.cols = new uint64_t[sjl.vec_nnz * m];
-    sjl.vals = new double[sjl.vec_nnz * m];
-    RandBLAS::sjlts::fill_colwise(sjl, this->seed, 0);
+    // Need a wrapper for SASO
+    struct RandBLAS::sasos::SASO saso;
+    saso.ori = RandBLAS::sasos::ColumnWise;
+    saso.n_rows = d; // > n
+    saso.n_cols = m;
+    saso.vec_nnz = 8; // Arbitrary constant, Riley likes 8s
+    saso.rows = new uint64_t[saso.vec_nnz * m];
+    saso.cols = new uint64_t[saso.vec_nnz * m];
+    saso.vals = new double[saso.vec_nnz * m];
+    RandBLAS::sasos::fill_colwise(saso, this->seed, 0);
 
-    RandBLAS::sjlts::sketch_csccol(sjl, m, n, (double*) Q_dat, (double*) A_hat_dat);
+    RandBLAS::sasos::sketch_csccol(saso, m, n, (double*) Q_dat, (double*) A_hat_dat);
 
     /*****TIMING******/
     if(this -> timing)
     {
-        sjlt_t_stop = high_resolution_clock::now();
-        sjlt_t_dur = duration_cast<microseconds>(sjlt_t_stop - sjlt_t_start).count();
+        saso_t_stop = high_resolution_clock::now();
+        saso_t_dur = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
 
         qrcp_t_start = high_resolution_clock::now();
     }
@@ -256,7 +256,7 @@ int CholQRCP<T>::CholQRCP1(
         total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
 
-        printf("SJLT generation and application takes %d%/ of runtime.", (double) sjlt_t_dur / (double) total_t_dur);
+        printf("SASO generation and application takes %d%/ of runtime.", (double) saso_t_dur / (double) total_t_dur);
         printf("QRCP takes %d%/ of runtime.", (double) qrcp_t_dur / (double) total_t_dur);
         printf("Rank revealing takes %d%/ of runtime.", (double) rank_reveal_t_dur / (double) total_t_dur);
         printf("Cholqrcp takes %d%/ of runtime.", (double) cholqrcp_t_dur / (double) total_t_dur);
@@ -297,19 +297,19 @@ int CholQRCP<T>::CholQRCP2(
         int64_t sz1 = m;
         int64_t sz2 = n;
         
-        // Need a wrapper for SJLT
-        struct RandBLAS::sjlts::SJLT sjl;
-        sjl.ori = RandBLAS::sjlts::ColumnWise;
+        // Need a wrapper for SASO
+        struct RandBLAS::sasos::SASO saso;
+        sjl.ori = RandBLAS::sasos::ColumnWise;
         sjl.n_rows = d;
         sjl.n_cols = sz1;
         sjl.vec_nnz = 8; // Arbitrary constant, Riley likes 8s
         sjl.rows = new uint64_t[sjl.vec_nnz * sz1];
         sjl.cols = new uint64_t[sjl.vec_nnz * sz1];
         sjl.vals = new double[sjl.vec_nnz * sz1];
-        RandBLAS::sjlts::fill_colwise(sjl, this->seed, 0);
+        RandBLAS::sasos::fill_colwise(sjl, this->seed, 0);
 
         // A_hat = S * A
-        RandBLAS::sjlts::sketch_csccol(sjl, d, sz2, (double*) Q_dat, (double*) A_hat_dat);
+        RandBLAS::sasos::sketch_csccol(sjl, d, sz2, (double*) Q_dat, (double*) A_hat_dat);
 
         // At every iteration, size of J will be different
         geqp3(d, sz2, A_hat_dat, d, J_dat, tau_dat);
