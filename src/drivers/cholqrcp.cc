@@ -274,11 +274,7 @@ int CholQRCP<T>::CholQRCP1(
 
         printf("\n\n/**********CholQRCP1 TIMING RESULTS BEGIN**********/\n");
 
-        double t_rest = 100 - (100 * ((((double) saso_t_dur / (double) total_t_dur)) 
-                            + ((double) qrcp_t_dur / (double) total_t_dur)
-                            + ((double) rank_reveal_t_dur / (double) total_t_dur)
-                            + ((double) a_mod_t_dur / (double) total_t_dur)
-                            + ((double) cholqrcp_t_dur / (double) total_t_dur)));
+        double t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_t_dur);
 
         printf("SASO time: %d μs,\n", saso_t_dur);
         printf("QRCP time: %d μs,\n", qrcp_t_dur);
@@ -293,7 +289,7 @@ int CholQRCP<T>::CholQRCP1(
         printf("Rank revealing takes %.1f%% of runtime.\n", 100 * ((double) rank_reveal_t_dur / (double) total_t_dur));
         printf("Modifying matrix A %.1f%% of runtime.\n", 100 * ((double) a_mod_t_dur / (double) total_t_dur));
         printf("Cholqrcp takes %.1f%% of runtime.\n", 100 * ((double) cholqrcp_t_dur / (double) total_t_dur));
-        printf("Everything else takes %.1f%% of runtime.\n", 100 * (t_rest / (double) total_t_dur));
+        printf("Everything else takes %.1f%% of runtime.\n", 100 * ((double) t_rest / (double) total_t_dur));
         printf("/*********CholQRCP1 TIMING RESULTS END*********/\n\n");
     }
     /*****TIMING******/
