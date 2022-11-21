@@ -30,6 +30,7 @@ class CholQRCP : public CholQRCPalg<T>
 {
 	public:
         bool verbosity;
+        bool timing;
         uint32_t seed;
         T eps;
         int64_t rank;
@@ -55,12 +56,14 @@ class CholQRCP : public CholQRCPalg<T>
     // Constructor
     CholQRCP(
         bool verb,
+        bool t,
         uint32_t sd,
         T ep,
         decision_CholQRCP decision
     )
     {
         verbosity = verb;
+        timing = t;
         seed = sd;
         eps = ep;
         decision_cholqrcp = decision;

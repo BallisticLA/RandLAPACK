@@ -47,9 +47,10 @@ class TestCholQRCP : public ::testing::Test
 
         //Subroutine parameters 
         bool verbosity = false;
+        bool timimg = true;
         
         // CholQRCP constructor - Choose defaut (CholQRCP1)
-        CholQRCP<T> CholQRCP(verbosity, seed, tol, use_cholqrcp1);
+        CholQRCP<T> CholQRCP(verbosity, timing, seed, tol, use_cholqrcp1);
         
         // Regular QB2 call
         CholQRCP.call(
