@@ -35,7 +35,6 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::vector<T> A_2(size, 0.0);
     std::vector<T> A_3(size, 0.0);
     
-    std::vector<T> Q_1;
     std::vector<T> R_1;
     std::vector<int64_t> J_1(n, 0);
 
@@ -63,7 +62,6 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     CholQRCP.nnz = 8;
     CholQRCP.num_threads = 4;
     // Upsizing buffers
-    upsize(m * n, Q_1);
     upsize(d * n, (CholQRCP.A_hat));
     upsize(n, (CholQRCP.A_hat));
     J_1.resize(n);
@@ -73,7 +71,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
-    CholQRCP.call(m, n, A_1, d, Q_1, R_1, J_1);
+    CholQRCP.call(m, n, A_1, d, R_1, J_1);
     auto stop_cholqrcp = high_resolution_clock::now();
     long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
 
