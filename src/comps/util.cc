@@ -322,11 +322,22 @@ void gen_poly_mat(
     // form a diagonal S
     diag<T>(k, k, s, k, S);
 
-    if (diagon) {
-        if (!(m == k || n == k)) {
-            m = k;
-            n = k;
-            A.resize(k * k);
+        char name1[] = "S";
+        RandBLAS::util::print_colmaj(k, k, S.data(), name1);
+
+        if (diagon)
+        {
+                if (!(m == k || n == k))
+                {
+                        m = k;
+                        n = k;
+                        A.resize(k * k);
+                }
+                lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        }
+        else
+        {
+                gen_mat<T>(m, n, A, k, S, seed);
         }
         lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
     } else {

@@ -25,6 +25,51 @@ class TestCholQRCP : public ::testing::Test
     static void test_CholQRCP1_general(int64_t m, int64_t n, int64_t d, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|================================TEST CholQRCP GENERAL BEGIN===============================|\n");
+
+        using namespace blas;
+        using namespace lapack;
+
+        int64_t size = m * n;
+        std::vector<T> A(size, 0.0);
+
+        std::vector<T> R;
+        std::vector<int64_t> J(n, 0);
+
+        // Random Gaussian test matrix
+        gen_mat_type<T>(m, n, A, 2, seed, mat_type);
+
+        std::vector<T> A_hat(size, 0.0);
+        std::copy(A.data(), A.data() + size, A_hat.data());
+
+        T* A_dat = A.data();
+        T* A_hat_dat = A_hat.data();
+
+        CholQRCP<T> CholQRCP(false, false, seed, 1.0e-16, use_cholqrcp1);
+        CholQRCP.nnz = 8;
+        CholQRCP.num_threads = 1;
+
+        CholQRCP.call(m, n, A, d, R, J);
+
+        A_dat = A.data();
+        T* R_dat = R.data();
+        int64_t* J_dat = J.data();
+        int64_t k = 2;
+
+        col_swap(m, n, n, A_hat, J);
+
+        char name2[] = "Q";
+        RandBLAS::util::print_colmaj(m, k, A.data(), name2);
+
+        // AP - QR
+        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
+
+        T norm_test = lange(Norm::Fro, m, n, A_hat_dat, m);
+        printf("FRO NORM OF A - QR:  %e\n", norm_test);
+        
+        printf("|=================================TEST CholQRCP GENERAL END================================|\n");
+
+        /*
+        printf("|================================TEST CholQRCP GENERAL BEGIN===============================|\n");
         using namespace blas;
         using namespace lapack;
         
@@ -49,7 +94,7 @@ class TestCholQRCP : public ::testing::Test
 
         //Subroutine parameters 
         bool verbosity = false;
-        bool timimg = true;
+        bool timing = true;
         
         // CholQRCP constructor - Choose defaut (CholQRCP1)
         CholQRCP<T> CholQRCP(verbosity, timing, seed, tol, use_cholqrcp1);
@@ -79,6 +124,7 @@ class TestCholQRCP : public ::testing::Test
         printf("FRO NORM OF A - QR:  %e\n", norm_test);
         //ASSERT_NEAR(norm_test, 0, 1e-10);
         printf("|=================================TEST CholQRCP GENERAL END================================|\n");
+        */
     }
 };
 
@@ -86,6 +132,6 @@ TEST_F(TestCholQRCP, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
     {
-        test_CholQRCP1_general<double>(100, 60, 70,  1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_CholQRCP1_general<double>(10, 4, 8,  1.0e-9, std::make_tuple(0, 2, false), seed);
     }
 }
