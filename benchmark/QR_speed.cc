@@ -58,7 +58,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
 
     // CholQRCP constructor
     int64_t d = 2 * n;
-    CholQRCP<T> CholQRCP(false, false, seed, 1.0e-16, use_cholqrcp1);
+    CholQRCP<T> CholQRCP(false, true, seed, 1.0e-16, use_cholqrcp1);
     CholQRCP.nnz = nnz;
     CholQRCP.num_threads = num_threads;
     // Upsizing buffers
