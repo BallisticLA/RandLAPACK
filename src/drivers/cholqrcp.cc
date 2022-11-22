@@ -10,94 +10,6 @@ using namespace lapack;
 using namespace std::chrono;
 
 namespace RandLAPACK::drivers::cholqrcp {
-/*
-template <typename T>
-int CholQRCP<T>::CholQRCP1(
-    int64_t m,
-    int64_t n,
-    std::vector<T>& A,
-    int64_t d,
-    std::vector<T>& R,
-    std::vector<int64_t>& J
-){
-    T* A_dat       = A.data();
-    T* A_hat_dat   = upsize(d * n, this->A_hat);
-    T* tau_dat     = upsize(n, this->tau);
-    J.resize(n);
-    int64_t* J_dat = J.data();
-
-    struct RandBLAS::sasos::SASO sas;
-    sas.n_rows = d; // > n
-    sas.n_cols = m;
-    sas.vec_nnz = 8; // Arbitrary constant, Riley likes 8
-    sas.rows = new int64_t[sas.vec_nnz * m];
-    sas.cols = new int64_t[sas.vec_nnz * m];
-    sas.vals = new double[sas.vec_nnz * m];
-    RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
-
-    char name0[] = "A";
-    RandBLAS::util::print_colmaj(m, n, A.data(), name0);
-
-    RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, 1);
-
-    char name1[] = "A_hat";
-    RandBLAS::util::print_colmaj(d, n, A_hat.data(), name1);
-
-    // QRCP - add failure condition
-    geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
-
-    char name2[] = "A_hat after GEQP3";
-    RandBLAS::util::print_colmaj(d, n, A_hat.data(), name2);
-    
-    // Find rank
-    int64_t k = n;
-    int i;
-    for(i = 0; i < n; ++i)
-    {
-        printf("R[%d, %d] is %.20f: \n", i, i, std::abs(A_hat_dat[i * d + i]));
-        if(std::abs(A_hat_dat[i * d + i]) < this->eps)
-        {
-            printf("Rank is %d\n", i);
-            k = i;
-            this->rank = i;
-            break;
-        }
-    }
-    
-    T* R_sp_dat  = upsize(k * k, this->R_sp);
-    T* R_dat     = upsize(k * n, R);
-    T* R_buf_dat = upsize(k * n, this -> R_buf);
-
-    // extract k by k R
-    // Copy data over to R_sp_dat col by col
-    for(i = 0; i < k; ++i)
-    {
-        copy<T, T>(i + 1, &A_hat_dat[i * d], 1, &R_sp_dat[i * k], 1);
-        copy<T, T>(i + 1, &A_hat_dat[i * d], 1, &R_buf_dat[i * k], 1);
-    }
-    for(i = k; i < n; ++i)
-    {
-        copy<T, T>(k, &A_hat_dat[i * d], 1, &R_buf_dat[i * k], 1);
-    }
-    
-    // Swap k columns of A with pivots from J
-    col_swap(m, n, k, A, J);
-    
-    // A_sp_pre * R_sp = AP
-    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
-    
-    // Do Cholesky QR
-    syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
-    potrf(Uplo::Upper, k, R_sp_dat, k);
-    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
-
-    // Get R
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, n, k, 1.0, R_sp_dat, k, R_buf_dat, k, 0.0, R_dat, k);
-    
-    return 0;
-}
-*/
-
 
 // This vesrion of the code overwrites matrix A with Q
 // Note that Q is now useless here
@@ -163,9 +75,6 @@ int CholQRCP<T>::CholQRCP1(
     J.resize(n);
     int64_t* J_dat = J.data();
 
-    char name0[] = "A";
-    RandBLAS::util::print_colmaj(m, n, A.data(), name0);
-
     //-------TIMING--------/
     if(this -> timing)
     {
@@ -191,9 +100,6 @@ int CholQRCP<T>::CholQRCP1(
 
     RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
 
-    char name1[] = "A_hat";
-    RandBLAS::util::print_colmaj(d, n, A_hat.data(), name1);
-
     //-------TIMING--------/
     if(this -> timing)
     {
@@ -206,15 +112,6 @@ int CholQRCP<T>::CholQRCP1(
     
     // QRCP - add failure condition
     geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
-
-    char name2[] = "A_hat after";
-    RandBLAS::util::print_colmaj(d, n, A_hat.data(), name2);
-
-
-    for(int i = 0; i < n; ++i)
-    {
-        printf("%d\n", J[i]);
-    }
 
     //-------TIMING--------/
     if(this -> timing)
@@ -240,8 +137,6 @@ int CholQRCP<T>::CholQRCP1(
             break;
         }
     }
-    printf("Rank is %d\n", k);
-    printf("Rank is %d\n", this->rank);
 
     //-------TIMING--------/
     if(this -> timing)
@@ -323,31 +218,11 @@ int CholQRCP<T>::CholQRCP1(
     syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
     potrf(Uplo::Upper, k, R_sp_dat, k);
 
-    char name6[] = "R_chol";
-    RandBLAS::util::print_colmaj(k, k, R_sp.data(), name6);
-
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
-
 
     // Get R
     // trmm
-
-    char name7[] = "R_sp_dat (left)";
-    RandBLAS::util::print_colmaj(k, k, R_sp.data(), name7);
-
-
-    char name8[] = "R_dat (right)";
-    RandBLAS::util::print_colmaj(k, n, R.data(), name8);
-
-
     trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);	
-    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, n, k, 1.0, R_sp_dat, k, R_buf_dat, k, 0.0, R_dat, k);
-
-    char name10[] = "R";
-    RandBLAS::util::print_colmaj(k, n, R.data(), name10);
-
-    char name9[] = "Q";
-    RandBLAS::util::print_colmaj(m, k, A.data(), name9);
 
     //-------TIMING--------/
     if(this -> timing)
