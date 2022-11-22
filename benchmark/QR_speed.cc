@@ -110,7 +110,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
 
 template <typename T>
 static void 
-test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
+test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nnz, int num_threads)
 {
 
     // Clear all files
@@ -130,69 +130,68 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     T tsqrp_avg    = 0;
     T alloc_avg    = 0;
 
-    for(int nnz = 1; nnz <= 8; ++nnz)
+    for(; r_pow <= r_pow_max; ++r_pow)
     {
-        for(; r_pow <= r_pow_max; ++r_pow)
+        rows = std::pow(2, r_pow);
+        int64_t cols = col;
+
+        for (; cols <= col_max; cols += 64)
         {
-            rows = std::pow(2, r_pow);
-            int64_t cols = col;
+            std::vector<long> res;
+            long t_cholqrcp = 0;
+            long t_geqp3    = 0;
+            long t_tsqrp    = 0;
+            long t_alloc    = 0;
 
-            for (; cols <= col_max; cols += 64)
+            long curr_t_cholqrcp = 0;
+            long curr_t_geqp3    = 0;
+            long curr_t_tsqrp    = 0;
+            long curr_t_alloc    = 0;
+
+            for(int i = 0; i < runs; ++i)
             {
-                std::vector<long> res;
-                long t_cholqrcp = 0;
-                long t_geqp3    = 0;
-                long t_tsqrp    = 0;
-                long t_alloc    = 0;
+                res = test_speed_helper<T>(rows, cols, nnz, num_threads, i);
+                curr_t_cholqrcp = res[0];
+                curr_t_geqp3    = res[1];
+                curr_t_tsqrp    = res[2];
+                curr_t_alloc    = res[3];
 
-                long curr_t_cholqrcp = 0;
-                long curr_t_geqp3    = 0;
-                long curr_t_tsqrp    = 0;
-                long curr_t_alloc    = 0;
-
-                for(int i = 0; i < runs; ++i)
+                // Skip first iteration, as it tends to produce garbage results
+                if (i != 0)
                 {
-                    res = test_speed_helper<T>(rows, cols, nnz, 32, i);
-                    curr_t_cholqrcp = res[0];
-                    curr_t_geqp3    = res[1];
-                    curr_t_tsqrp    = res[2];
-                    curr_t_alloc    = res[3];
-
-                    // Skip first iteration, as it tends to produce garbage results
-                    if (i != 0)
-                    {
-                        t_cholqrcp += curr_t_cholqrcp;
-                        t_geqp3    += curr_t_geqp3;
-                        t_tsqrp    += curr_t_tsqrp;
-                        t_alloc    += curr_t_alloc;
-                    }
+                    t_cholqrcp += curr_t_cholqrcp;
+                    t_geqp3    += curr_t_geqp3;
+                    t_tsqrp    += curr_t_tsqrp;
+                    t_alloc    += curr_t_alloc;
                 }
-
-                cholqrcp_avg = (T)t_cholqrcp / (T)(runs - 1);
-                geqp3_avg    = (T)t_geqp3    / (T)(runs - 1);
-                tsqrp_avg    = (T)t_tsqrp    / (T)(runs - 1);
-                alloc_avg    = (T)t_alloc    / (T)(runs - 1);
-
-                // Save the output into .dat file
-                std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
-                file << cholqrcp_avg << "  " << geqp3_avg << tsqrp_avg << "\n";
-
-                printf("\nMatrix size: %ld by %ld.\n", rows, cols);
-                printf("Number of nonzeros per column in SASO: %d\n", nnz);
-
-                printf("Average timing of workspace pre-allocation for CholQRCP for %d runs: %f μs.\n", runs - 1, alloc_avg);
-                printf("Average timing of CholQRCP for %d runs: %f μs.\n", runs - 1, cholqrcp_avg);
-                printf("Average timing of GEQP3 for %d runs: %f μs.\n", runs - 1, geqp3_avg);
-                printf("Average timing of TSQRP for %d runs: %f μs.\n", runs - 1, tsqrp_avg);
-                printf("Result: CholQRCP is %f times faster than GEQP3. With space allocation: %f.\n\n", geqp3_avg / cholqrcp_avg, geqp3_avg / (cholqrcp_avg + alloc_avg));
-                printf("Result: CholQRCP is %f times faster than TSQRP. With space allocation: %f.\n\n", tsqrp_avg / cholqrcp_avg, tsqrp_avg / (cholqrcp_avg + alloc_avg));
             }
+
+            cholqrcp_avg = (T)t_cholqrcp / (T)(runs - 1);
+            geqp3_avg    = (T)t_geqp3    / (T)(runs - 1);
+            tsqrp_avg    = (T)t_tsqrp    / (T)(runs - 1);
+            alloc_avg    = (T)t_alloc    / (T)(runs - 1);
+
+            // Save the output into .dat file
+            std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
+            file << cholqrcp_avg << "  " << geqp3_avg << tsqrp_avg << "\n";
+
+            printf("\nMatrix size: %ld by %ld.\n", rows, cols);
+            printf("Number of nonzeros per column in SASO: %d\n", nnz);
+
+            printf("Average timing of workspace pre-allocation for CholQRCP for %d runs: %f μs.\n", runs - 1, alloc_avg);
+            printf("Average timing of CholQRCP for %d runs: %f μs.\n", runs - 1, cholqrcp_avg);
+            printf("Average timing of GEQP3 for %d runs: %f μs.\n", runs - 1, geqp3_avg);
+            printf("Average timing of TSQRP for %d runs: %f μs.\n", runs - 1, tsqrp_avg);
+            printf("Result: CholQRCP is %f times faster than GEQP3. With space allocation: %f.\n\n", geqp3_avg / cholqrcp_avg, geqp3_avg / (cholqrcp_avg + alloc_avg));
+            printf("Result: CholQRCP is %f times faster than TSQRP. With space allocation: %f.\n\n", tsqrp_avg / cholqrcp_avg, tsqrp_avg / (cholqrcp_avg + alloc_avg));
         }
-        printf("nnz %d\n", nnz );
     }
 }
 
 int main(int argc, char **argv){
-    test_speed_mean<double>(12, 12, 32, 32, 5);
+    for (int nnz : {1, 2, 3, 4, 6, 8})
+    {
+        test_speed_mean<double>(12, 12, 32, 32, 5, nnz, 32);
+    }
     return 0;
 }
