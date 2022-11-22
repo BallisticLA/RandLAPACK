@@ -45,16 +45,20 @@ int CholQRCP<T>::CholQRCP1(
 
     // QRCP - add failure condition
     geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
+
+    char name2[] = "A_hat after GEQP3";
+    RandBLAS::util::print_colmaj(d, n, A_hat.data(), name2);
     
     // Find rank
     int64_t k = n;
     int i;
     for(i = 0; i < n; ++i)
     {
+        printf("R[%d, %d] is %.20f: \n", i, i, std::abs(A_hat_dat[i * d + i]));
         if(std::abs(A_hat_dat[i * d + i]) < this->eps)
         {
+            printf("Rank is %d\n", i);
             k = i;
-            printf("RANK IS %d\n", k);
             this->rank = i;
             break;
         }
@@ -159,8 +163,8 @@ int CholQRCP<T>::CholQRCP1(
     J.resize(n);
     int64_t* J_dat = J.data();
 
-    //char name0[] = "A";
-    //RandBLAS::util::print_colmaj(m, n, A.data(), name0);
+    char name0[] = "A";
+    RandBLAS::util::print_colmaj(m, n, A.data(), name0);
 
     //-------TIMING--------/
     if(this -> timing)
@@ -187,8 +191,8 @@ int CholQRCP<T>::CholQRCP1(
 
     RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
 
-    //char name1[] = "A_hat";
-    //RandBLAS::util::print_colmaj(d, n, A_hat.data(), name1);
+    char name1[] = "A_hat";
+    RandBLAS::util::print_colmaj(d, n, A_hat.data(), name1);
 
     //-------TIMING--------/
     if(this -> timing)
@@ -203,16 +207,14 @@ int CholQRCP<T>::CholQRCP1(
     // QRCP - add failure condition
     geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
 
-
-    /*
-    char name2[] = "A_hat after GEQP3";
+    char name2[] = "A_hat after";
     RandBLAS::util::print_colmaj(d, n, A_hat.data(), name2);
+
 
     for(int i = 0; i < n; ++i)
     {
         printf("%d\n", J[i]);
     }
-    */
 
     //-------TIMING--------/
     if(this -> timing)
@@ -226,17 +228,20 @@ int CholQRCP<T>::CholQRCP1(
 
     // Find rank
     int64_t k = n;
+    this->rank = k;
     int i;
     for(i = 0; i < n; ++i)
     {
         if(std::abs(A_hat_dat[i * d + i]) < this->eps)
         {
+            // "Rank" is k, but the index should be k - 1
             k = i;
-            //printf("RANK IS %d\n", k);
-            this->rank = i;
+            this->rank = k;
             break;
         }
     }
+    printf("Rank is %d\n", k);
+    printf("Rank is %d\n", this->rank);
 
     //-------TIMING--------/
     if(this -> timing)
@@ -285,12 +290,6 @@ int CholQRCP<T>::CholQRCP1(
 
     // Swap k columns of A with pivots from J
     col_swap(m, n, k, A, J);
-    
-    //char name4[] = "A * P";
-    //RandBLAS::util::print_colmaj(m, k, A.data(), name4);
-
-    //char name5[] = "R_sp_dat";
-    //RandBLAS::util::print_colmaj(k, k, R_sp.data(), name5);
 
     //-------TIMING--------/
     if(this -> timing)
@@ -304,10 +303,6 @@ int CholQRCP<T>::CholQRCP1(
 
     // A_sp_pre * R_sp = AP
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
-    
-
-    //char name3[] = "A_sp_pre";
-    //RandBLAS::util::print_colmaj(m, k, A.data(), name3);
 
     //-------TIMING--------/
     if(this -> timing)
@@ -328,8 +323,8 @@ int CholQRCP<T>::CholQRCP1(
     syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
     potrf(Uplo::Upper, k, R_sp_dat, k);
 
-    //char name6[] = "R_chol";
-    //RandBLAS::util::print_colmaj(k, k, R_sp.data(), name6);
+    char name6[] = "R_chol";
+    RandBLAS::util::print_colmaj(k, k, R_sp.data(), name6);
 
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
@@ -337,20 +332,22 @@ int CholQRCP<T>::CholQRCP1(
     // Get R
     // trmm
 
-    //char name7[] = "R_sp_dat (left)";
-    //RandBLAS::util::print_colmaj(k, k, R_sp.data(), name7);
+    char name7[] = "R_sp_dat (left)";
+    RandBLAS::util::print_colmaj(k, k, R_sp.data(), name7);
 
 
-    //char name8[] = "R_dat (right)";
-    //RandBLAS::util::print_colmaj(k, n, R.data(), name8);
+    char name8[] = "R_dat (right)";
+    RandBLAS::util::print_colmaj(k, n, R.data(), name8);
 
 
     trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);	
     //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, n, k, 1.0, R_sp_dat, k, R_buf_dat, k, 0.0, R_dat, k);
 
+    char name10[] = "R";
+    RandBLAS::util::print_colmaj(k, n, R.data(), name10);
 
-    //char name9[] = "R";
-    //RandBLAS::util::print_colmaj(k, n, R.data(), name9);
+    char name9[] = "Q";
+    RandBLAS::util::print_colmaj(m, k, A.data(), name9);
 
     //-------TIMING--------/
     if(this -> timing)

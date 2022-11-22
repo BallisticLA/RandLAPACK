@@ -322,9 +322,6 @@ void gen_poly_mat(
     // form a diagonal S
     diag<T>(k, k, s, k, S);
 
-        char name1[] = "S";
-        RandBLAS::util::print_colmaj(k, k, S.data(), name1);
-
         if (diagon)
         {
                 if (!(m == k || n == k))

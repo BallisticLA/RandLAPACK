@@ -13,6 +13,10 @@ using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
 using namespace RandLAPACK::drivers::cholqrcp;
 
+
+/*
+Beware of improper rank k defining.
+*/
 class TestCholQRCP : public ::testing::Test
 {
     protected:
@@ -36,7 +40,7 @@ class TestCholQRCP : public ::testing::Test
         std::vector<int64_t> J(n, 0);
 
         // Random Gaussian test matrix
-        gen_mat_type<T>(m, n, A, 2, seed, mat_type);
+        gen_mat_type<T>(m, n, A, 200, seed, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
         std::copy(A.data(), A.data() + size, A_hat.data());
@@ -44,8 +48,8 @@ class TestCholQRCP : public ::testing::Test
         T* A_dat = A.data();
         T* A_hat_dat = A_hat.data();
 
-        CholQRCP<T> CholQRCP(false, false, seed, 1.0e-16, use_cholqrcp1);
-        CholQRCP.nnz = 8;
+        CholQRCP<T> CholQRCP(false, false, seed, tol, use_cholqrcp1);
+        CholQRCP.nnz = 4;
         CholQRCP.num_threads = 1;
 
         CholQRCP.call(m, n, A, d, R, J);
@@ -53,12 +57,16 @@ class TestCholQRCP : public ::testing::Test
         A_dat = A.data();
         T* R_dat = R.data();
         int64_t* J_dat = J.data();
-        int64_t k = 2;
+        int64_t k = CholQRCP.rank;
 
         col_swap(m, n, n, A_hat, J);
 
-        char name2[] = "Q";
-        RandBLAS::util::print_colmaj(m, k, A.data(), name2);
+
+        char name9[] = "Q";
+        RandBLAS::util::print_colmaj(m, k, A.data(), name9);
+
+        char name10[] = "R";
+        RandBLAS::util::print_colmaj(k, n, R.data(), name10);
 
         // AP - QR
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
@@ -132,6 +140,6 @@ TEST_F(TestCholQRCP, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
     {
-        test_CholQRCP1_general<double>(10, 4, 8,  1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_CholQRCP1_general<double>(10000, 200, 400, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
     }
 }
