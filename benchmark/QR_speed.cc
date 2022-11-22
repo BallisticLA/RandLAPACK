@@ -178,7 +178,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
                 file << cholqrcp_avg << "  " << geqp3_avg << tsqrp_avg << "\n";
 
                 printf("\nMatrix size: %ld by %ld.\n", rows, cols);
-                printf("Number of nunzeros per column in SASO: %d\n", nnz);
+                printf("Number of nonzeros per column in SASO: %d\n", nnz);
 
                 printf("Average timing of workspace pre-allocation for CholQRCP for %d runs: %f μs.\n", runs - 1, alloc_avg);
                 printf("Average timing of CholQRCP for %d runs: %f μs.\n", runs - 1, cholqrcp_avg);
@@ -188,6 +188,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
                 printf("Result: CholQRCP is %f times faster than TSQRP. With space allocation: %f.\n\n", tsqrp_avg / cholqrcp_avg, tsqrp_avg / (cholqrcp_avg + alloc_avg));
             }
         }
+        printf("nnz %d\n", nnz );
     }
 }
 
