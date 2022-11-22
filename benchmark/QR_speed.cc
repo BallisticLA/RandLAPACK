@@ -152,7 +152,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
                 for(int i = 0; i < runs; ++i)
                 {
-                    res = test_speed_helper<T>(rows, cols, nnz, 32 i);
+                    res = test_speed_helper<T>(rows, cols, nnz, 32, i);
                     curr_t_cholqrcp = res[0];
                     curr_t_geqp3    = res[1];
                     curr_t_tsqrp    = res[2];
