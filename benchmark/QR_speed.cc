@@ -175,7 +175,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
             file << cholqrcp_avg << "  " << geqp3_avg << tsqrp_avg << "\n";
 
-            printf("\n/------------QRCP MEAN TIMING BEGIN------------/\n");
+            printf("\n/--------------------------------------QRCP MEAN TIMING BEGIN--------------------------------------/\n");
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
             printf("Number of nonzeros per column in SASO: %d\n", nnz);
 
@@ -185,7 +185,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             printf("Average timing of TSQRP for %d runs: %f μs.\n\n", runs - 1, tsqrp_avg);
             printf("Result: CholQRCP is %f times faster than GEQP3. With space allocation: %f.\n", geqp3_avg / cholqrcp_avg, geqp3_avg / (cholqrcp_avg + alloc_avg));
             printf("Result: CholQRCP is %f times faster than TSQRP. With space allocation: %f.\n", tsqrp_avg / cholqrcp_avg, tsqrp_avg / (cholqrcp_avg + alloc_avg));
-            printf("\n/-------------QRCP MEAN TIMING END-------------/\n\n");
+            printf("\n/---------------------------------------QRCP MEAN TIMING END---------------------------------------/\n\n");
         }
     }
 }
