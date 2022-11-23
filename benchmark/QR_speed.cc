@@ -142,6 +142,10 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
 
     // GEQP3 on R part
     get_U(m, n, A_3, R_3);
+
+    char name1[] = "R";
+    RandBLAS::util::print_colmaj(n, n, R_3.data(), name1);
+
     geqp3(n, n, R_3.data(), m, J_3.data(), tau_3.data());
 
     auto stop_tsqrp = high_resolution_clock::now();
