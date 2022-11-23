@@ -93,6 +93,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     // CholQRCP verbose info print
     if(log_times)
     {
+        printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
         printf("SASO time: %ld μs,\n",                    (CholQRCP.times)[0]);
         printf("QRCP time: %ld μs,\n",                    (CholQRCP.times)[1]);
         printf("Rank revealing time: %ld μs,\n",          (CholQRCP.times)[2]);
@@ -113,6 +114,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
         printf("Copying takes %.1f%% of runtime.\n",                           100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
         printf("Resizing takes %.1f%% of runtime.\n",                          100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
         printf("Everything else takes %.1f%% of runtime.\n",                   100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
+        printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
     }
 
     // Householder reflectors restoring
