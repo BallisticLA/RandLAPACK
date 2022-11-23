@@ -288,8 +288,8 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
 int main(int argc, char **argv){
     for (int nnz : {4})
     {
-        test_speed_mean<double>(17, 17, 32, 32, 3, 1, 32);
-        //test_speed_mean<double>(17, 17, 4000, 4000, 3, nnz, 32);
+        //test_speed_mean<double>(17, 17, 32, 32, 3, 1, 32);
+        test_speed_mean<double>(17, 17, 4000, 4000, 3, nnz, 32);
         //test_speed_mean<double>(18, 18, 10000, 10000, 3, nnz, 32);
         //test_speed_mean<double>(19, 19, 25000, 25000, 3, nnz, 32);
     }
