@@ -233,31 +233,10 @@ int CholQRCP<T>::CholQRCP1(
         total_t_stop = high_resolution_clock::now();
         total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
-        printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
-
         long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
 
-        printf("SASO time: %ld μs,\n", saso_t_dur);
-        printf("QRCP time: %ld μs,\n", qrcp_t_dur);
-        printf("Rank revealing time: %ld μs,\n", rank_reveal_t_dur);
-        printf("CholQRCP time: %ld μs,\n", cholqrcp_t_dur);
-        printf("A modification pivoting time: %ld μs,\n", a_mod_piv_t_dur);
-        printf("A modification TRSM time: %ld μs,\n", a_mod_trsm_t_dur);
-        printf("Copying time: %ld μs,\n", copy_t_dur);
-        printf("Resizing time: %ld μs,\n", resize_t_dur);
-        printf("Other routines time: %ld μs,\n", t_rest);
-        printf("Total time: %ld μs.\n", total_t_dur);
-
-        printf("\nSASO generation and application takes %.1f%% of runtime.\n", 100 * ((double) saso_t_dur / (double) total_t_dur));
-        printf("QRCP takes %.1f%% of runtime.\n", 100 * ((double) qrcp_t_dur / (double) total_t_dur));
-        printf("Rank revealing takes %.1f%% of runtime.\n", 100 * ((double) rank_reveal_t_dur / (double) total_t_dur));
-        printf("Modifying matrix (pivoting) A %.1f%% of runtime.\n", 100 * ((double) a_mod_piv_t_dur / (double) total_t_dur));
-        printf("Modifying matrix (trsm) A %.1f%% of runtime.\n", 100 * ((double) a_mod_trsm_t_dur / (double) total_t_dur));
-        printf("Cholqrcp takes %.1f%% of runtime.\n", 100 * ((double) cholqrcp_t_dur / (double) total_t_dur));
-        printf("Copying takes %.1f%% of runtime.\n", 100 * ((double) copy_t_dur / (double) total_t_dur));
-        printf("Resizing takes %.1f%% of runtime.\n", 100 * ((double) resize_t_dur / (double) total_t_dur));
-        printf("Everything else takes %.1f%% of runtime.\n", 100 * ((double) t_rest / (double) total_t_dur));
-        printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
+        // Fill the data vector
+        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqrcp_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
     }
     //-------TIMING--------/
 
