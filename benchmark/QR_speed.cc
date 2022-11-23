@@ -163,7 +163,7 @@ template <typename T>
 static void 
 test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nnz, int num_threads)
 {
-
+    printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n\n");
     // Clear all files
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
     {
@@ -247,7 +247,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
             file << cholqrcp_avg << "  " << geqp3_avg << tsqrp_avg << "\n";
 
-            printf("\n/--------------------------------------QRCP MEAN TIMING BEGIN--------------------------------------/\n");
+            printf("\n/-------------------------------------QRCP MEAN TIMING BEGIN-------------------------------------/\n");
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
             printf("Number of nonzeros per column in SASO: %d\n", nnz);
             printf("Number of threads used in SASO application: %d\n", num_threads);
@@ -282,15 +282,16 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             printf("\n/---------------------------------------QRCP MEAN TIMING END---------------------------------------/\n\n");
         }
     }
+    printf("\n/-----------------------------------------MEAN SPEED TEST STOP-----------------------------------------/\n\n");
 }
 
 int main(int argc, char **argv){
     for (int nnz : {4})
     {
         test_speed_mean<double>(17, 17, 32, 32, 3, nnz, 32);
-        //test_speed_mean<double>(17, 17, 2000, 2000, 3, nnz, 32);
-        //test_speed_mean<double>(18, 18, 4000, 4000, 3, nnz, 32);
-        //test_speed_mean<double>(19, 19, 8000, 8000, 3, nnz, 32);
+        //test_speed_mean<double>(17, 17, 4000, 4000, 3, nnz, 32);
+        //test_speed_mean<double>(18, 18, 10000, 10000, 3, nnz, 32);
+        //test_speed_mean<double>(19, 19, 25000, 25000, 3, nnz, 32);
     }
     return 0;
 }
