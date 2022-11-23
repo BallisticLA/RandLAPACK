@@ -106,14 +106,14 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
         printf("Total time: %32ld μs.\n",                   (CholQRCP.times)[9]);
 
         printf("\nSASO generation and application takes %.2f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
-        printf("QRCP takes %31.2f%% of runtime.\n",                            100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
-        printf("Rank revealing takes %21.2f%% of runtime.\n",                  100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (pivoting) A %12.2f%% of runtime.\n",         100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (trsm) A %16.2f%% of runtime.\n",             100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
-        printf("Cholqrcp takes %27.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
-        printf("Copying takes %28.2f%% of runtime.\n",                         100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
-        printf("Resizing takes %27.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
-        printf("Everything else takes %20.2f%% of runtime.\n",                 100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
+        printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
+        printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
+        printf("Cholqrcp takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
+        printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
+        printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
+        printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
         printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
     }
 
@@ -260,9 +260,9 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             printf("Average timing of GEQR for %d runs: %58.2f μs.\n",                                    runs - 1, geqr_avg);
             printf("Average timing of TSQRP for %d runs: %57.2f μs.\n\n",                                 runs - 1, tsqrp_avg);
 
-            printf("Result: CholQRCP is %23.2f times faster than GEQP3.\n",        geqp3_avg / cholqrcp_avg);
-            printf("With space allocation: %18.2f.\n",                             geqp3_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %15.2f.\n",                      geqp3_avg / (cholqrcp_avg + rest_avg));
+            printf("Result: CholQRCP is %33.2f times faster than GEQP3.\n",        geqp3_avg / cholqrcp_avg);
+            printf("With space allocation: %30.2f.\n",                             geqp3_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %24.2f.\n",                      geqp3_avg / (cholqrcp_avg + rest_avg));
             printf("With space allocation + Householder restoration: %.2f.\n\n", geqp3_avg / (cholqrcp_avg + alloc_avg + rest_avg));
 
             printf("Result: CholQRCP is %.2f times faster than TSQRP.\n",        tsqrp_avg / cholqrcp_avg);
