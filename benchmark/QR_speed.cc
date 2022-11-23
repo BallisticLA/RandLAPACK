@@ -290,7 +290,7 @@ int main(int argc, char **argv){
     for (int nnz : {4})
     {
         //test_speed_mean<double>(17, 17, 10, 10, 3, 1, 32);
-        test_speed_mean<double>(17, 17, 200, 200, 1, nnz, 32);
+        test_speed_mean<double>(17, 17, 200, 200, 2, nnz, 32);
         //test_speed_mean<double>(17, 17, 10000, 10000, 3, nnz, 32);
         //test_speed_mean<double>(18, 18, 5000, 5000, 3, nnz, 32);
     }
