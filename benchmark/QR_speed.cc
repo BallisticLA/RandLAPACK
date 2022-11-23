@@ -260,25 +260,25 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             printf("Average timing of GEQR for %d runs: %58.2f μs.\n",                                    runs - 1, geqr_avg);
             printf("Average timing of TSQRP for %d runs: %57.2f μs.\n\n",                                 runs - 1, tsqrp_avg);
 
-            printf("Result: CholQRCP is %33.2f times faster than GEQP3.\n",        geqp3_avg / cholqrcp_avg);
-            printf("With space allocation: %30.2f.\n",                             geqp3_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %24.2f.\n",                      geqp3_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %.2f.\n\n", geqp3_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %33.2f times faster than GEQP3.\n",                              geqp3_avg / cholqrcp_avg);
+            printf("With space allocation: %30.2f times faster than GEQP3.\n",                           geqp3_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %23.2f times faster than GEQP3.\n",                    geqp3_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f times faster than GEQP3.\n\n", geqp3_avg / (cholqrcp_avg + alloc_avg + rest_avg));
 
-            printf("Result: CholQRCP is %.2f times faster than TSQRP.\n",        tsqrp_avg / cholqrcp_avg);
-            printf("With space allocation: %.2f.\n",                             tsqrp_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %.2f.\n",                      tsqrp_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %.2f.\n\n", tsqrp_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %33.2f times faster than TSQRP.\n",                              tsqrp_avg / cholqrcp_avg);
+            printf("With space allocation: %30.2f times faster than TSQRP.\n",                           tsqrp_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %23.2f times faster than TSQRP.\n",                    tsqrp_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f times faster than TSQRP.\n\n", tsqrp_avg / (cholqrcp_avg + alloc_avg + rest_avg));
 
-            printf("Result: CholQRCP is %.2f times faster than GEQRF.\n",        geqrf_avg / cholqrcp_avg);
-            printf("With space allocation: %.2f.\n",                             geqrf_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %.2f.\n",                      geqrf_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %.2f.\n\n", geqrf_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %33.2f times faster than GEQRF.\n",                              geqrf_avg / cholqrcp_avg);
+            printf("With space allocation: %30.2f times faster than GEQRF.\n",                           geqrf_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %23.2f times faster than GEQRF.\n",                    geqrf_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f times faster than GEQRF.\n\n", geqrf_avg / (cholqrcp_avg + alloc_avg + rest_avg));
 
-            printf("Result: CholQRCP is %.2f times faster than GEQR.\n",         geqr_avg / cholqrcp_avg);
-            printf("With space allocation: %.2f.\n",                             geqr_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %.2f.\n",                      geqr_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %.2f.\n\n", geqr_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %33.2f times faster than GEQR.\n",                              geqr_avg / cholqrcp_avg);
+            printf("With space allocation: %30.2f times faster than GEQR.\n",                           geqr_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %23.2f times faster than GEQR.\n",                    geqr_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f times faster than GEQR.\n\n", geqr_avg / (cholqrcp_avg + alloc_avg + rest_avg));
             printf("\n/---------------------------------------QRCP MEAN TIMING END---------------------------------------/\n\n");
         }
     }
