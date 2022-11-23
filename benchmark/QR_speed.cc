@@ -44,7 +44,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     std::vector<int64_t> J_2(n, 0.0);
     std::vector<T> tau_2(n, 0);
 
-    std::vector<T> R_3(m * n, 0);
+    std::vector<T> R_3(n * n, 0);
     std::vector<T> t_3(5, 0);
     std::vector<T> tau_3(n, 0);
     std::vector<int64_t> J_3(n, 0);
@@ -141,7 +141,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
     // GEQP3 on R part
-    // We are not timing the pre-allocation of R, as it is insignificant
+    // We are not timing the pre-allocation of R, as it expected to take very small time
     get_U(m, n, A_3, R_3);
     geqp3(n, n, R_3.data(), m, J_3.data(), tau_3.data());
 
