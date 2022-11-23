@@ -94,8 +94,8 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     if(log_times)
     {
         printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
-        printf("SASO time: %-30ld μs,\n",                    (CholQRCP.times)[0]);
-        printf("QRCP time: %22ld μs,\n",                    (CholQRCP.times)[1]);
+        printf("SASO time: %23ld μs,\n",                    (CholQRCP.times)[0]);
+        printf("QRCP time: %23ld μs,\n",                    (CholQRCP.times)[1]);
         printf("Rank revealing time: %13ld μs,\n",          (CholQRCP.times)[2]);
         printf("CholQRCP time: %18ld μs,\n",                (CholQRCP.times)[3]);
         printf("A modification pivoting time: %ld μs,\n", (CholQRCP.times)[4]);
