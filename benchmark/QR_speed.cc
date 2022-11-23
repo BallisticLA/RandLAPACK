@@ -253,12 +253,12 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             printf("Number of threads used in SASO application: %d\n", num_threads);
 
             printf("\nAverage timing of workspace pre-allocation for CholQRCP for %d runs: %f μs.\n", runs - 1, alloc_avg);
-            printf("Average timing of CholQRCP for %d runs: %28f μs.\n",                                runs - 1, cholqrcp_avg);
-            printf("Average timing Householder vector restoration for %d runs: %10f μs.\n",             runs - 1, rest_avg);
-            printf("Average timing of GEQP3 for %d runs: %33f μs.\n",                                   runs - 1, geqp3_avg);
-            printf("Average timing of GEQRF for %d runs: %33f μs.\n",                                   runs - 1, geqrf_avg);
-            printf("Average timing of GEQR for %d runs: %34f μs.\n",                                    runs - 1, geqr_avg);
-            printf("Average timing of TSQRP for %d runs: %33f μs.\n\n",                                 runs - 1, tsqrp_avg);
+            printf("Average timing of CholQRCP for %d runs: %38f μs.\n",                                runs - 1, cholqrcp_avg);
+            printf("Average timing Householder vector restoration for %d runs: %20f μs.\n",             runs - 1, rest_avg);
+            printf("Average timing of GEQP3 for %d runs: %43f μs.\n",                                   runs - 1, geqp3_avg);
+            printf("Average timing of GEQRF for %d runs: %43f μs.\n",                                   runs - 1, geqrf_avg);
+            printf("Average timing of GEQR for %d runs: %44f μs.\n",                                    runs - 1, geqr_avg);
+            printf("Average timing of TSQRP for %d runs: %43f μs.\n\n",                                 runs - 1, tsqrp_avg);
 
             printf("Result: CholQRCP is %f times faster than GEQP3.\n",        geqp3_avg / cholqrcp_avg);
             printf("With space allocation: %f.\n",                             geqp3_avg / (cholqrcp_avg + alloc_avg));
