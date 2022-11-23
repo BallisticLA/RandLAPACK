@@ -107,7 +107,7 @@ void get_U(
         int64_t m,
         int64_t n,
         std::vector<T>& A,
-        std::vector<T>& U
+        std::vector<T>& U // We are assuming U is n by n
 ) {
         using namespace blas;
 	// Vector end pointer
@@ -116,10 +116,10 @@ void get_U(
         T* A_dat = A.data();
         T* U_dat = U.data();
     
-        for(int i = 0, j = 1; i < size && j <= m; i += m, ++j) 
+        for(int i = 0, j = 1, k = 0; i < size && j <= m; i += m, k +=n, ++j) 
         {             
 
-                copy(j, &A_dat[i], 1, &U_dat[i], 1);
+                copy(j, &A_dat[i], 1, &U_dat[k], 1);
         }
 }
 

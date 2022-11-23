@@ -142,7 +142,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
 
     // GEQP3 on R part
     get_U(m, n, A_3, R_3);
-    geqp3(m, n, A_3.data(), m, J_3.data(), tau_3.data());
+    geqp3(m, n, R_3.data(), m, J_3.data(), tau_3.data());
 
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
@@ -290,7 +290,7 @@ int main(int argc, char **argv){
     {
         //test_speed_mean<double>(17, 17, 32, 32, 3, 1, 32);
         //test_speed_mean<double>(17, 17, 4000, 4000, 3, nnz, 32);
-        test_speed_mean<double>(18, 18, 10000, 10000, 3, nnz, 32);
+        //test_speed_mean<double>(18, 18, 10000, 10000, 3, nnz, 32);
         //test_speed_mean<double>(19, 19, 25000, 25000, 3, nnz, 32);
     }
     return 0;
