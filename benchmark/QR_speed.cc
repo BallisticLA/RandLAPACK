@@ -130,13 +130,13 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     // GEQR + GEQP3
     auto start_tsqrp = high_resolution_clock::now();
     // GEQR part
-    auto stop_geqr = high_resolution_clock::now();
+    auto sart_geqr = high_resolution_clock::now();
     geqr(m, n, A_3.data(), m, t_3.data(), -1);
     int64_t tsize = (int64_t) t_3[0]; 
     t_3.resize(tsize);
     geqr(m, n, A_3.data(), m, t_3.data(), tsize);
     auto stop_geqr = high_resolution_clock::now();
-    long dur_geqr = duration_cast<microseconds>(stop_geqr - stop_geqr).count();
+    long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
     // GEQP3 on R part
     get_U(m, n, A_3, R_3);
@@ -146,10 +146,10 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
 
     // GEQRF
-    auto stop_geqrf = high_resolution_clock::now();
+    auto start_geqrf = high_resolution_clock::now();
     geqrf(m, n, A_4.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
-    long dur_geqrf = duration_cast<microseconds>(stop_geqrf - stop_geqrf).count();
+    long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
     std::vector<long> res{dur_alloc, dur_cholqrcp, dur_rest, dur_geqp3, dur_geqrf, dur_geqr, dur_tsqrp}; 
  
@@ -254,8 +254,8 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             printf("Average timing of CholQRCP for %d runs: %f μs.\n",                                runs - 1, cholqrcp_avg);
             printf("Average timing Householder vector restoration for %d runs: %f μs.\n",             runs - 1, rest_avg);
             printf("Average timing of GEQP3 for %d runs: %f μs.\n",                                   runs - 1, geqp3_avg);
-            printf("Average timing of GEQRF for %d runs: %f μs.\n",                                   runs - 1, geqrf_qvg);
-            printf("Average timing of GEQR for %d runs: %f μs.\n",                                    runs - 1, geqr_qvg);
+            printf("Average timing of GEQRF for %d runs: %f μs.\n",                                   runs - 1, geqrf_avg);
+            printf("Average timing of GEQR for %d runs: %f μs.\n",                                    runs - 1, geqr_avg);
             printf("Average timing of TSQRP for %d runs: %f μs.\n\n",                                 runs - 1, tsqrp_avg);
 
             printf("Result: CholQRCP is %f times faster than GEQP3.\n",        geqp3_avg / cholqrcp_avg);
