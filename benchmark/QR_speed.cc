@@ -98,7 +98,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
         printf("QRCP time: %33ld μs,\n",                    (CholQRCP.times)[1]);
         printf("Rank revealing time: %23ld μs,\n",          (CholQRCP.times)[2]);
         printf("CholQRCP time: %29ld μs,\n",                (CholQRCP.times)[3]);
-        printf("A modification pivoting time: %10ld μs,\n", (CholQRCP.times)[4]);
+        printf("A modification pivoting time: %13ld μs,\n", (CholQRCP.times)[4]);
         printf("A modification TRSM time: %18ld μs,\n",     (CholQRCP.times)[5]);
         printf("Copying time: %30ld μs,\n",                 (CholQRCP.times)[6]);
         printf("Resizing time: %29ld μs,\n",                (CholQRCP.times)[7]);
