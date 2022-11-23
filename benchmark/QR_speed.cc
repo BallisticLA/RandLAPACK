@@ -94,16 +94,16 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     if(log_times)
     {
         printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
-        printf("SASO time: %19ld μs,\n",                    (CholQRCP.times)[0]);
-        printf("QRCP time: %19ld μs,\n",                    (CholQRCP.times)[1]);
-        printf("Rank revealing time: %9ld μs,\n",          (CholQRCP.times)[2]);
-        printf("CholQRCP time: %15ld μs,\n",                (CholQRCP.times)[3]);
+        printf("SASO time: %22ld μs,\n",                    (CholQRCP.times)[0]);
+        printf("QRCP time: %22ld μs,\n",                    (CholQRCP.times)[1]);
+        printf("Rank revealing time: %13ld μs,\n",          (CholQRCP.times)[2]);
+        printf("CholQRCP time: %18ld μs,\n",                (CholQRCP.times)[3]);
         printf("A modification pivoting time: %ld μs,\n", (CholQRCP.times)[4]);
-        printf("A modification TRSM time: %6ld μs,\n",     (CholQRCP.times)[5]);
-        printf("Copying time: %16ld μs,\n",                 (CholQRCP.times)[6]);
+        printf("A modification TRSM time: %7ld μs,\n",     (CholQRCP.times)[5]);
+        printf("Copying time: %17ld μs,\n",                 (CholQRCP.times)[6]);
         printf("Resizing time: %15ld μs,\n",                (CholQRCP.times)[7]);
-        printf("Other routines time: %8ld μs,\n",          (CholQRCP.times)[8]);
-        printf("Total time: %19ld μs.\n",                   (CholQRCP.times)[9]);
+        printf("Other routines time: %10ld μs,\n",          (CholQRCP.times)[8]);
+        printf("Total time: %22ld μs.\n",                   (CholQRCP.times)[9]);
 
         printf("\nSASO generation and application takes %.1f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
         printf("QRCP takes %26.1f%% of runtime.\n",                              100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
