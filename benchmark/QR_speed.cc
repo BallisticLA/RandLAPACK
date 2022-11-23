@@ -141,11 +141,8 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
     // GEQP3 on R part
+    // We are not timing the pre-allocation of R, as it is insignificant
     get_U(m, n, A_3, R_3);
-
-    char name1[] = "R";
-    RandBLAS::util::print_colmaj(n, n, R_3.data(), name1);
-
     geqp3(n, n, R_3.data(), m, J_3.data(), tau_3.data());
 
     auto stop_tsqrp = high_resolution_clock::now();
