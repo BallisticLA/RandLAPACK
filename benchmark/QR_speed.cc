@@ -98,7 +98,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
         printf("QRCP time: %33ld μs,\n",                    (CholQRCP.times)[1]);
         printf("Rank revealing time: %23ld μs,\n",          (CholQRCP.times)[2]);
         printf("CholQRCP time: %29ld μs,\n",                (CholQRCP.times)[3]);
-        printf("A modification pivoting time: %13ld μs,\n", (CholQRCP.times)[4]);
+        printf("A modification pivoting time: %14ld μs,\n", (CholQRCP.times)[4]);
         printf("A modification TRSM time: %18ld μs,\n",     (CholQRCP.times)[5]);
         printf("Copying time: %30ld μs,\n",                 (CholQRCP.times)[6]);
         printf("Resizing time: %29ld μs,\n",                (CholQRCP.times)[7]);
@@ -106,14 +106,14 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
         printf("Total time: %32ld μs.\n",                   (CholQRCP.times)[9]);
 
         printf("\nSASO generation and application takes %.1f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
-        printf("QRCP takes %26.1f%% of runtime.\n",                              100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
-        printf("Rank revealing takes %16.1f%% of runtime.\n",                    100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (pivoting) A %7.1f%% of runtime.\n",           100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (trsm) A %9.1f%% of runtime.\n",               100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
-        printf("Cholqrcp takes %23.1f%% of runtime.\n",                          100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
-        printf("Copying takes %24.1f%% of runtime.\n",                           100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
-        printf("Resizing takes %23.1f%% of runtime.\n",                          100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
-        printf("Everything else takes %18.1f%% of runtime.\n",                   100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
+        printf("QRCP takes %27.1f%% of runtime.\n",                              100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
+        printf("Rank revealing takes %19.1f%% of runtime.\n",                    100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (pivoting) A %10.1f%% of runtime.\n",           100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (trsm) A %14.1f%% of runtime.\n",               100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
+        printf("Cholqrcp takes %25.1f%% of runtime.\n",                          100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
+        printf("Copying takes %27.1f%% of runtime.\n",                           100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
+        printf("Resizing takes %21.1f%% of runtime.\n",                          100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
+        printf("Everything else takes %21.1f%% of runtime.\n",                   100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
         printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
     }
 
