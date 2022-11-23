@@ -103,7 +103,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
         printf("Copying time: %20ld μs,\n",                 (CholQRCP.times)[6]);
         printf("Resizing time: %19ld μs,\n",                (CholQRCP.times)[7]);
         printf("Other routines time: %13ld μs,\n",          (CholQRCP.times)[8]);
-        printf("Total time: %25ld μs.\n",                   (CholQRCP.times)[9]);
+        printf("Total time: %22ld μs.\n",                   (CholQRCP.times)[9]);
 
         printf("\nSASO generation and application takes %.1f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
         printf("QRCP takes %26.1f%% of runtime.\n",                              100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
