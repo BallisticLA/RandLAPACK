@@ -105,15 +105,15 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
         printf("Other routines time: %23ld μs,\n",          (CholQRCP.times)[8]);
         printf("Total time: %32ld μs.\n",                   (CholQRCP.times)[9]);
 
-        printf("\nSASO generation and application takes %.1f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
-        printf("QRCP takes %31.1f%% of runtime.\n",                            100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
-        printf("Rank revealing takes %21.1f%% of runtime.\n",                  100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (pivoting) A %12.1f%% of runtime.\n",         100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (trsm) A %16.1f%% of runtime.\n",             100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
-        printf("Cholqrcp takes %27.1f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
-        printf("Copying takes %28.1f%% of runtime.\n",                         100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
-        printf("Resizing takes %27.1f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
-        printf("Everything else takes %20.1f%% of runtime.\n",                 100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
+        printf("\nSASO generation and application takes %.2f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
+        printf("QRCP takes %31.2f%% of runtime.\n",                            100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
+        printf("Rank revealing takes %21.2f%% of runtime.\n",                  100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (pivoting) A %12.2f%% of runtime.\n",         100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (trsm) A %16.2f%% of runtime.\n",             100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
+        printf("Cholqrcp takes %27.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
+        printf("Copying takes %28.2f%% of runtime.\n",                         100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
+        printf("Resizing takes %27.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
+        printf("Everything else takes %20.2f%% of runtime.\n",                 100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
         printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
     }
 
@@ -252,33 +252,33 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
             printf("Number of nonzeros per column in SASO: %d\n", nnz);
             printf("Number of threads used in SASO application: %d\n", num_threads);
 
-            printf("\nAverage timing of workspace pre-allocation for CholQRCP for %d runs: %25.1f μs.\n", runs - 1, alloc_avg);
-            printf("Average timing of CholQRCP for %d runs: %54.1f μs.\n",                                runs - 1, cholqrcp_avg);
-            printf("Average timing Householder vector restoration for %d runs: %35.1f μs.\n",             runs - 1, rest_avg);
-            printf("Average timing of GEQP3 for %d runs: %57.1f μs.\n",                                   runs - 1, geqp3_avg);
-            printf("Average timing of GEQRF for %d runs: %57.1f μs.\n",                                   runs - 1, geqrf_avg);
-            printf("Average timing of GEQR for %d runs: %58.1f μs.\n",                                    runs - 1, geqr_avg);
-            printf("Average timing of TSQRP for %d runs: %57.1f μs.\n\n",                                 runs - 1, tsqrp_avg);
+            printf("\nAverage timing of workspace pre-allocation for CholQRCP for %d runs: %25.2f μs.\n", runs - 1, alloc_avg);
+            printf("Average timing of CholQRCP for %d runs: %54.2f μs.\n",                                runs - 1, cholqrcp_avg);
+            printf("Average timing Householder vector restoration for %d runs: %35.2f μs.\n",             runs - 1, rest_avg);
+            printf("Average timing of GEQP3 for %d runs: %57.2f μs.\n",                                   runs - 1, geqp3_avg);
+            printf("Average timing of GEQRF for %d runs: %57.2f μs.\n",                                   runs - 1, geqrf_avg);
+            printf("Average timing of GEQR for %d runs: %58.2f μs.\n",                                    runs - 1, geqr_avg);
+            printf("Average timing of TSQRP for %d runs: %57.2f μs.\n\n",                                 runs - 1, tsqrp_avg);
 
-            printf("Result: CholQRCP is %f times faster than GEQP3.\n",        geqp3_avg / cholqrcp_avg);
-            printf("With space allocation: %f.\n",                             geqp3_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %f.\n",                      geqp3_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %f.\n\n", geqp3_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %23.2f times faster than GEQP3.\n",        geqp3_avg / cholqrcp_avg);
+            printf("With space allocation: %18.2f.\n",                             geqp3_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %15.2f.\n",                      geqp3_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f.\n\n", geqp3_avg / (cholqrcp_avg + alloc_avg + rest_avg));
 
-            printf("Result: CholQRCP is %f times faster than TSQRP.\n",        tsqrp_avg / cholqrcp_avg);
-            printf("With space allocation: %f.\n",                             tsqrp_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %f.\n",                      tsqrp_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %f.\n\n", tsqrp_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %.2f times faster than TSQRP.\n",        tsqrp_avg / cholqrcp_avg);
+            printf("With space allocation: %.2f.\n",                             tsqrp_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %.2f.\n",                      tsqrp_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f.\n\n", tsqrp_avg / (cholqrcp_avg + alloc_avg + rest_avg));
 
-            printf("Result: CholQRCP is %f times faster than GEQRF.\n",        geqrf_avg / cholqrcp_avg);
-            printf("With space allocation: %f.\n",                             geqrf_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %f.\n",                      geqrf_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %f.\n\n", geqrf_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %.2f times faster than GEQRF.\n",        geqrf_avg / cholqrcp_avg);
+            printf("With space allocation: %.2f.\n",                             geqrf_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %.2f.\n",                      geqrf_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f.\n\n", geqrf_avg / (cholqrcp_avg + alloc_avg + rest_avg));
 
-            printf("Result: CholQRCP is %f times faster than GEQR.\n",         geqr_avg / cholqrcp_avg);
-            printf("With space allocation: %f.\n",                             geqr_avg / (cholqrcp_avg + alloc_avg));
-            printf("With Householder restoration: %f.\n",                      geqr_avg / (cholqrcp_avg + rest_avg));
-            printf("With space allocation + Householder restoration: %f.\n\n", geqr_avg / (cholqrcp_avg + alloc_avg + rest_avg));
+            printf("Result: CholQRCP is %.2f times faster than GEQR.\n",         geqr_avg / cholqrcp_avg);
+            printf("With space allocation: %.2f.\n",                             geqr_avg / (cholqrcp_avg + alloc_avg));
+            printf("With Householder restoration: %.2f.\n",                      geqr_avg / (cholqrcp_avg + rest_avg));
+            printf("With space allocation + Householder restoration: %.2f.\n\n", geqr_avg / (cholqrcp_avg + alloc_avg + rest_avg));
             printf("\n/---------------------------------------QRCP MEAN TIMING END---------------------------------------/\n\n");
         }
     }
