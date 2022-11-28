@@ -25,7 +25,7 @@ using namespace RandLAPACK::drivers::cholqrcp;
 
 template <typename T>
 static std::vector<long> 
-test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32_t seed) {
+test_speed_helper(int64_t m, int64_t n, int64_t d, int64_t nnz, int64_t num_threads, uint32_t seed) {
     
     using namespace blas;
     using namespace lapack;
@@ -63,7 +63,6 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
-    int64_t d = 2 * n;
     bool log_times = true;
     CholQRCP<T> CholQRCP(false, log_times, seed, 1.0e-16, use_cholqrcp1);
     CholQRCP.nnz = nnz;
@@ -162,7 +161,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t nnz, int64_t num_threads, uint32
 
 template <typename T>
 static void 
-test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nnz, int num_threads)
+test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nnz, int num_threads, int64_t d)
 {
     printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n");
     // Clear all files
@@ -211,7 +210,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
 
             for(int i = 0; i < runs; ++i)
             {
-                res = test_speed_helper<T>(rows, cols, nnz, num_threads, i);
+                res = test_speed_helper<T>(rows, cols, d, nnz, num_threads, i);
 
                 //res{dur_alloc, dur_cholqrcp, dur_rest, dur_geqp3, dur_geqrf, dur_geqr, dur_tsqrp}; 
 
@@ -289,10 +288,10 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
 int main(int argc, char **argv){
     for (int nnz : {4})
     {
-        //test_speed_mean<double>(17, 17, 10, 10, 3, 1, 32);
-        //test_speed_mean<double>(17, 17, 2000, 2000, 3, nnz, 32);
-        test_speed_mean<double>(17, 17, 10000, 10000, 3, nnz, 32);
-        test_speed_mean<double>(18, 18, 5000, 5000, 3, nnz, 32);
+        //test_speed_mean<double>(17, 17, 10, 10, 3, 1, 32, 1.5 * 10);
+        test_speed_mean<double>(17, 17, 2000, 2000, 3, nnz, 32, 1.5 * 2000);
+        //test_speed_mean<double>(17, 17, 10000, 10000, 3, nnz, 32, 1.5 * 10000);
+        //test_speed_mean<double>(18, 18, 5000, 5000, 3, nnz, 32, 1.5 * 5000);
     }
     return 0;
 }
