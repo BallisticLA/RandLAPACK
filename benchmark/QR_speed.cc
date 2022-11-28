@@ -64,7 +64,7 @@ test_speed_helper(int64_t m, int64_t n, int64_t d, int64_t nnz, int64_t num_thre
 
     // CholQRCP constructor
     bool log_times = true;
-    CholQRCP<T> CholQRCP(false, log_times, seed, 1.0e-16, use_cholqrcp1);
+    CholQRCP<T> CholQRCP(false, log_times, seed, std::pow(1.0e-16, 0.75), use_cholqrcp1);
     CholQRCP.nnz = nnz;
     CholQRCP.num_threads = num_threads;
     // Upsizing buffers
