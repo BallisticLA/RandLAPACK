@@ -73,7 +73,7 @@ class TestCholQRCP : public ::testing::Test
     template <typename T>
     static void test_CholQRCP1_bench_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
-        printf("|================================TEST CholQRCP GENERAL BEGIN===============================|\n");
+        printf("|================================TEST CholQRCP BENCH PARAM BEGIN===============================|\n");
 
         using namespace blas;
         using namespace lapack;
@@ -89,7 +89,12 @@ class TestCholQRCP : public ::testing::Test
         //gen_mat_type<T>(m, n, A, k, seed, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
+        std::vector<T> A_1(size, 0.0);
+        std::vector<int64_t> J_1(n, 0.0);
+        std::vector<T> tau_1(n, 0.0);
+
         std::copy(A.data(), A.data() + size, A_hat.data());
+        std::copy(A.data(), A.data() + size, A_1.data());
 
         T* A_dat = A.data();
         T* A_hat_dat = A_hat.data();
@@ -111,22 +116,43 @@ class TestCholQRCP : public ::testing::Test
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
 
         T norm_test = lange(Norm::Fro, m, n, A_hat_dat, m);
-        printf("FRO NORM OF AP - QR:  %e\n", norm_test);
+
+        // Deterministic alg
+        geqp3(m, n, A_1.data(), m, J_1.data(), tau_1.data());
+
+        printf("\nMatrix size: %ld by %ld.\n", m, n);
+        printf("Embedding size: %ld.\n", d);
+        printf("Number of nonzeros per column in SASO: %ld\n", nnz);
+        printf("FRO NORM OF AP - QR: %e\n", norm_test);
         
-        printf("|=================================TEST CholQRCP GENERAL END================================|\n");
+        // Something potentially wrong with this
+        //printf("Levenshtein Distance of permutation vectors: %d\n", levenstein_dist(n, J, J_1));
+
+        for(int i = 0; i < n; ++i)
+        {
+            printf("%ld, %ld\n", J[i], J_1[i]);
+        }
+        
+        printf("|=================================TEST CholQRCP BENCH PARAM END================================|\n");
     }
 };
 
+/*Subprocess killed exception - reload vscode*/
 TEST_F(TestCholQRCP, SimpleTest)
 { 
     for (uint32_t seed : {2})//, 1, 2})
     {
-        test_CholQRCP1_general<double>(10000, 200, 200, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
-        test_CholQRCP1_general<double>(10000, 200, 100, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_general<double>(10000, 200, 200, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_general<double>(10000, 200, 100, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+
+        test_CholQRCP1_bench_qual<double>(13107, 200, 200, 200, 4, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
 
         // Tests copying sizes used in benchmarks
-        test_CholQRCP1_bench_qual<double>(131072, 2000, 2000, 2000, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
-        test_CholQRCP1_bench_qual<double>(131072, 2000, 2000, 4000, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
-        test_CholQRCP1_bench_qual<double>(131072, 2000, 2000, 6000, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_bench_qual<double>(5, 4, 4, 4, 4, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_bench_qual<double>(131072, 2000, 2000, 2000, 4, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_bench_qual<double>(131072, 2000, 2000, 4000, 4, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_bench_qual<double>(131072, 2000, 2000, 6000, 4, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_bench_qual<double>(131072, 2000, 2000, 20000, 4, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
+        //test_CholQRCP1_bench_qual<double>(131072, 5000, 5000, 20000, 4, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
     }
 }

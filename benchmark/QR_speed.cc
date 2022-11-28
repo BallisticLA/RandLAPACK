@@ -249,7 +249,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, int nn
 
             printf("\n/-------------------------------------QRCP MEAN TIMING BEGIN-------------------------------------/\n");
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
-            printf("\nEmbedding size: %ld.\n", d);
+            printf("Embedding size: %ld.\n", d);
             printf("Number of nonzeros per column in SASO: %d\n", nnz);
             printf("Number of threads used in SASO application: %d\n", num_threads);
 

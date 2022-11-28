@@ -157,6 +157,47 @@ void col_swap(
         }
 }
 
+
+// Levenshtein distance: the minimum number of modifications necessary to get from one sequence to another.
+int levenstein_dist(
+        int64_t m,
+        std::vector<int64_t>& J1,
+        std::vector<int64_t>& J2
+) 
+{
+        int64_t i, j, l1, l2, t, track;
+        int dist [m + 10][m + 10];
+
+        for(i = 0; i <= m; ++i) 
+        {
+                dist[0][i] = i;
+        }
+        
+        for(j = 0; j <= m; ++j) 
+        {
+                dist[j][0] = j;
+        }
+        for(j = 1; j <= m; ++j) 
+        {
+                for(i = 1; i <= m; ++i) 
+                {
+                        if(J1[i - 1] == J2[j - 1]) 
+                        {
+                                track= 0;
+                        } 
+                        else 
+                        {
+                                track = 1;
+                        }
+
+                        t = std::min((dist[i - 1][j] + 1),(dist[i][j - 1] + 1));
+                        dist[i][j] = std::min(t, (dist[i - 1][j - 1] + track));
+                }
+        }
+        
+        return dist[m][m];
+}
+
 // "intellegent reisze"
 template <typename T> 
 T* upsize(
@@ -558,6 +599,8 @@ template void get_U<double>(int64_t m, int64_t n, std::vector<double>& A, std::v
 
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<float>& A, std::vector<int64_t> idx);
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<double>& A, std::vector<int64_t> idx);
+
+int levenstein_dist(int64_t m, std::vector<int64_t>& J1, std::vector<int64_t>& J2); 
 
 template float* upsize(int64_t target_sz, std::vector<float>& A);
 template double* upsize(int64_t target_sz, std::vector<double>& A);

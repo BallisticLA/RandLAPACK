@@ -62,6 +62,12 @@ void col_swap(
         std::vector<int64_t> idx 
 );
 
+int levenstein_dist(
+        int64_t m,
+        std::vector<int64_t>& J1,
+        std::vector<int64_t>& J2
+);
+
 /*
 Checks if the given size is larger than available. If so, resizes the vector.
 */
