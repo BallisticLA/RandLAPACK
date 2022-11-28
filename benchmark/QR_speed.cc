@@ -107,9 +107,9 @@ test_speed_helper(int64_t m, int64_t n, int64_t d, int64_t nnz, int64_t num_thre
         printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
         printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
         printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
-        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
-        printf("Cholqrcp takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
+        printf("Cholqrcp takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
+        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
         printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
         printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
         printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
@@ -290,9 +290,9 @@ int main(int argc, char **argv){
     for (int nnz : {4})
     {
         //test_speed_mean<double>(17, 17, 10, 10, 3, 1, 32, 1.5 * 10);
-        test_speed_mean<double>(17, 17, 5000, 5000, 3, nnz, 32, 5000);
+        //test_speed_mean<double>(17, 17, 5000, 5000, 3, nnz, 32, 5000);
         //test_speed_mean<double>(17, 17, 10000, 10000, 3, nnz, 32, 1.5 * 10000);
-        //test_speed_mean<double>(18, 18, 5000, 5000, 3, nnz, 32, 1.5 * 5000);
+        test_speed_mean<double>(18, 18, 5000, 5000, 3, nnz, 32, 1.5 * 5000);
     }
     return 0;
 }
