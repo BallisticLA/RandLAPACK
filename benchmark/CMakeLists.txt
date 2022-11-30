@@ -127,14 +127,14 @@ target_link_libraries(
 )
 
 set(
-    QR_speed__basic_cxx
-    QR_speed__basic.cc
+    QR_speed_basic_cxx
+    QR_speed_basic.cc
 )
 add_executable(
-    QR_speed__basic ${QR_speed_cxx}
+    QR_speed_basic ${QR_speed_cxx}
 )
 target_compile_options(
-    QR_speed__basic PRIVATE "-g"
+    QR_speed_basic PRIVATE "-g"
 )
 set(
     RandLAPACK_include_dirs
@@ -142,12 +142,12 @@ set(
     ${RandLAPACK_DIR}/../../include/RandLAPACK
 )
 target_include_directories(
-    QR_speed__basic PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+    QR_speed_basic PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
 )
 set(
     RandLAPACK_lib_file
     ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
-    QR_speed__basic PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
+    QR_speed_basic PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
 )
