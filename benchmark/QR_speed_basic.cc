@@ -65,6 +65,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto stop_cholqr = high_resolution_clock::now();
     long dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
 
+    printf("HERE\n");
+
     /*
     // Householder reflectors restoring
     auto start_rest = high_resolution_clock::now();
