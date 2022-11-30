@@ -66,8 +66,6 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto stop_cholqr = high_resolution_clock::now();
     long dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
 
-    printf("HERE\n");
-
     /*
     // Householder reflectors restoring
     auto start_rest = high_resolution_clock::now();
@@ -163,6 +161,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
                     t_geqp3    += curr_t_geqp3;
                     t_geqrf    += curr_t_geqrf;
                     t_geqr     += curr_t_geqr;
+                    printf("HERE %ld\n", t_geqrf);
                 }
             }
 
