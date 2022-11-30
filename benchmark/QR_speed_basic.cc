@@ -151,10 +151,10 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
                 //res{dur_alloc, dur_cholqrcp, dur_rest, dur_geqp3, dur_geqrf, dur_geqr, dur_tsqrp}; 
 
-                curr_t_cholqr = res[1];
-                curr_t_geqp3    = res[3];
-                curr_t_geqrf    = res[4];
-                curr_t_geqr     = res[5];
+                curr_t_cholqr = res[0];
+                curr_t_geqp3    = res[1];
+                curr_t_geqrf    = res[2];
+                curr_t_geqr     = res[3];
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (i != 0)
