@@ -39,8 +39,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::vector<T> D_1(n, 0.0);
     std::vector<T> T_1(n * n, 0.0);
 
+    std::vector<int64_t> J_2(n, 0);
     std::vector<T> tau_2(n, 0);
-    std::vector<T> J_2(n, 0);
 
     std::vector<T> R_3(n * n, 0);
     std::vector<T> t_3(5, 0);
@@ -62,7 +62,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto start_cholqr = high_resolution_clock::now();
     syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, R_1_sp.data(), n);
     potrf(Uplo::Upper, n, R_1_sp.data(), n);
-    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_1_sp.data(), k, A_1.data(), m);
+    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_1_sp.data(), n, A_1.data(), m);
     auto stop_cholqr = high_resolution_clock::now();
     long dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
 
