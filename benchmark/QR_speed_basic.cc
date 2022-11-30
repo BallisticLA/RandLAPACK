@@ -193,7 +193,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int col_step, in
 int main(int argc, char **argv){
         
     //test_speed_mean<double>(14, 17, 64, 1024, 64, 10);
-    test_speed_mean<double>(14, 14, 1638, 16384, 1638, 10);
+    test_speed_mean<double>(13, 13, 819, 8192, 819, 10);
     
     return 0;
 }
