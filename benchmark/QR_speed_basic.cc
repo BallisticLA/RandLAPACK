@@ -103,7 +103,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
 template <typename T>
 static void 
-test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
+test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int col_step, int runs)
 {
     printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n");
     // Clear all files
@@ -129,7 +129,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols += 64)
+        for (; cols <= col_max; cols += col_step)
         {
             std::vector<long> res;
             long t_cholqr = 0;
@@ -192,7 +192,8 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
 int main(int argc, char **argv){
         
-    test_speed_mean<double>(14, 17, 64, 1024, 10);
+    //test_speed_mean<double>(14, 17, 64, 1024, 64, 10);
+    test_speed_mean<double>(14, 14, 1638, 16384, 1638, 10);
     
     return 0;
 }
