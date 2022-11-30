@@ -158,8 +158,8 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             std::fstream file("../../../testing/test_basic_qr_speed_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
             file << cholqr_avg << "  " << geqp3_avg << "  " << geqrf_avg << "  " << geqr_avg << "\n";
 
-            std::fstream file("../../../testing/test_basic_qr_speed_mean_time_ratio_" + std::to_string(rows) + ".dat", std::fstream::app);
-            file << cholqr_avg / geqrf_avg << "  " << geqp3_avg / geqrf_avg <<  "\n";
+            std::fstream file1("../../../testing/test_basic_qr_speed_mean_time_ratio_" + std::to_string(rows) + ".dat", std::fstream::app);
+            file1 << cholqr_avg / geqrf_avg << "  " << geqp3_avg / geqrf_avg <<  "\n";
 
             printf("\n/-------------------------------------QRCP MEAN TIMING BEGIN-------------------------------------/\n");
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
