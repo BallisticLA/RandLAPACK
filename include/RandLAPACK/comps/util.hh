@@ -24,6 +24,15 @@ void diag(
         std::vector<T>& S
 );
 
+template <typename T> 
+void extract_diag(
+        int64_t m,
+        int64_t n,
+        int64_t k, 
+        std::vector<T>& A,
+        std::vector<T>& buf 
+); 
+
 /*
 Displays the first k diagonal elements.
 */

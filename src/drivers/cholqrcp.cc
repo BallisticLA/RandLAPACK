@@ -89,6 +89,7 @@ int CholQRCP<T>::CholQRCP1(
     }
     //-------TIMING--------/
 
+    
     struct RandBLAS::sasos::SASO sas;
     sas.n_rows = d; // > n
     sas.n_cols = m;
@@ -99,6 +100,20 @@ int CholQRCP<T>::CholQRCP1(
     RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
 
     RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
+    
+
+    //std::copy(A.data(), A.data() + d * n, A_hat_dat);
+
+    /*
+    std::vector<T> S (d * m, 0.0);
+    std::vector<T> tau_buf (d, 0.0);
+    RandBLAS::dense_op::gen_rmat_norm<T>(m, d, S.data(), seed);
+
+    geqrf(m, d, S.data(), m, tau_buf.data());
+    ungqr(m, d, d, S.data(), m, tau_buf.data());
+
+    gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, d, n, m, 1.0, S.data(), m, A.data(), m, 0.0, A_hat_dat, d);
+    */
 
     //-------TIMING--------/
     if(this -> timing)

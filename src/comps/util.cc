@@ -53,6 +53,25 @@ void diag(
 }
 
 template <typename T> 
+void extract_diag(
+        int64_t m,
+        int64_t n,
+        int64_t k, 
+        std::vector<T>& A,
+        std::vector<T>& buf 
+) {     
+        T* A_dat = A.data();
+        if (k == 0)
+        {
+                k = std::min(m, n);
+        }
+        for(int i = 0; i < k; ++i)
+        {
+                buf[i] = A_dat[(i * m) + i];
+        }
+}
+
+template <typename T> 
 void disp_diag(
     int64_t m,
     int64_t n,
@@ -346,22 +365,23 @@ void gen_poly_mat(
 ) {   
     using namespace lapack;
 
-    // Predeclare to all nonzero constants, start decay where needed 
-    std::vector<T> s(k, 1.0);
-    std::vector<T> S(k * k, 0.0);
-    
-    T cnt = 0.0;
-    // apply lambda function to every entry of s       
-    std::for_each(s.begin() + k * 0.2, s.end(),
-        // Lambda expression begins
-        [&t, &cnt](T& entry)
-        {
-            entry = 1 / std::pow(++cnt, t);
-        }
-    );
-    
-    // form a diagonal S
-    diag<T>(k, k, s, k, S);
+        // Predeclare to all nonzero constants, start decay where needed 
+        std::vector<T> s(k, 1.0);
+        std::vector<T> S(k * k, 0.0);
+        
+        T cnt = 0.0;
+        // apply lambda function to every entry of s       
+        std::for_each(s.begin() + k * 0.1, s.end(),
+        //std::for_each(s.begin(), s.end(),
+                // Lambda expression begins
+                [&t, &cnt](T& entry)
+                {
+                        entry = 1 / std::pow(++cnt, t);
+                }
+        );
+        
+        // form a diagonal S
+        diag<T>(k, k, s, k, S);
 
         if (diagon)
         {
@@ -587,6 +607,9 @@ template void eye<double>(int64_t m, int64_t n, std::vector<double>& A );
 
 template void diag(int64_t m, int64_t n, const std::vector<float>& s, int64_t k, std::vector<float>& S);
 template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k, std::vector<double>& S);
+
+template void extract_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A, std::vector<float>& buf);
+template void extract_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A, std::vector<double>& buf);
 
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A);
 template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A);
