@@ -107,7 +107,6 @@ static void
 test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 {
     printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n");
-    printf("WHAT THE FUCK\n");
     // Clear all files
     /*
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
@@ -128,11 +127,8 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     T geqrf_avg    = 0;
     T geqr_avg     = 0;
 
-
-    printf("HERE\n");
     for(; r_pow <= r_pow_max; ++r_pow)
     {
-        printf("HERE\n");
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
