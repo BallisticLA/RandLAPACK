@@ -131,7 +131,7 @@ set(
     QR_speed_basic.cc
 )
 add_executable(
-    QR_speed_basic ${QR_speed_cxx}
+    QR_speed_basic ${QR_speed_basic_cxx}
 )
 target_compile_options(
     QR_speed_basic PRIVATE "-g"
