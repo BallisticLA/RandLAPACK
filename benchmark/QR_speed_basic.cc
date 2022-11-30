@@ -108,6 +108,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 {
     printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n");
     // Clear all files
+    /*
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
     {
         int rows = std::pow(2, r_buf);
@@ -116,6 +117,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
         //ofs.open("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
+    */
 
     int64_t rows = 0;
     int64_t cols = 0;
