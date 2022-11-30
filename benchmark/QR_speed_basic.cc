@@ -95,8 +95,6 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
-    printf("HERE %ld\n", dur_geqrf);
-
     std::vector<long> res{dur_cholqr, dur_geqp3, dur_geqrf, dur_geqr}; 
  
     return res;
@@ -114,8 +112,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open("../../../FIND_ME.dat", std::ofstream::out | std::ofstream::trunc);
-        //ofs.open("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
+        ofs.open("../../../testing/test_basic_qr_speed_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
 
@@ -172,7 +169,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             geqr_avg     = (T)t_geqr     / (T)(runs - 1);
 
             // Save the output into .dat file
-            std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
+            std::fstream file("../../../testing/test_basic_qr_speed_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
             file << cholqr_avg << "  " << geqp3_avg << "  " << geqrf_avg << "  " << geqr_avg << "\n";
 
             printf("\n/-------------------------------------QRCP MEAN TIMING BEGIN-------------------------------------/\n");
