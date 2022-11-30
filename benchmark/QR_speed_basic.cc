@@ -40,6 +40,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::vector<T> T_1(n * n, 0.0);
 
     std::vector<T> tau_2(n, 0);
+    std::vector<T> J_2(n, 0);
 
     std::vector<T> R_3(n * n, 0);
     std::vector<T> t_3(5, 0);
@@ -108,7 +109,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 {
     printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n");
     // Clear all files
-    /*
+    
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
     {
         int rows = std::pow(2, r_buf);
@@ -117,7 +118,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
         //ofs.open("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
-    */
 
     int64_t rows = 0;
     int64_t cols = 0;
@@ -172,7 +172,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             geqr_avg     = (T)t_geqr     / (T)(runs - 1);
 
             // Save the output into .dat file
-            //std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
+            std::fstream file("../../../test_plots/test_speed_full_Q/raw_data/test_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
             file << cholqr_avg << "  " << geqp3_avg << "  " << geqrf_avg << "  " << geqr_avg << "\n";
 
             printf("\n/-------------------------------------QRCP MEAN TIMING BEGIN-------------------------------------/\n");
