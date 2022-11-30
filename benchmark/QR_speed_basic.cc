@@ -107,6 +107,7 @@ static void
 test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 {
     printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n");
+    printf("WHAT THE FUCK\n");
     // Clear all files
     /*
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
