@@ -95,6 +95,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
+    printf("HERE %ld\n", dur_geqrf);
+
     std::vector<long> res{dur_cholqr, dur_geqp3, dur_geqrf, dur_geqr}; 
  
     return res;
@@ -161,7 +163,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
                     t_geqp3    += curr_t_geqp3;
                     t_geqrf    += curr_t_geqrf;
                     t_geqr     += curr_t_geqr;
-                    printf("HERE %ld\n", t_geqrf);
                 }
             }
 
