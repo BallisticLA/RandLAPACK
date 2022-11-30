@@ -80,22 +80,13 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     auto stop_geqp3 = high_resolution_clock::now();
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
-    // GEQR 
-    auto sart_geqr = high_resolution_clock::now();
-    geqr(m, n, A_3.data(), m, t_3.data(), -1);
-    int64_t tsize = (int64_t) t_3[0]; 
-    t_3.resize(tsize);
-    geqr(m, n, A_3.data(), m, t_3.data(), tsize);
-    auto stop_geqr = high_resolution_clock::now();
-    long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
-
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
     geqrf(m, n, A_4.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
-    std::vector<long> res{dur_cholqr, dur_geqp3, dur_geqrf, dur_geqr}; 
+    std::vector<long> res{dur_cholqr, dur_geqp3, dur_geqrf}; 
  
     return res;
 }
@@ -113,6 +104,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
         ofs.open("../../../testing/test_basic_qr_speed_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
+        ofs.open("../../../testing/test_basic_qr_speed_mean_time_ratio_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
 
@@ -122,7 +114,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     T cholqr_avg = 0;
     T geqp3_avg    = 0;
     T geqrf_avg    = 0;
-    T geqr_avg     = 0;
 
     for(; r_pow <= r_pow_max; ++r_pow)
     {
@@ -135,12 +126,10 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             long t_cholqr = 0;
             long t_geqp3    = 0;
             long t_geqrf    = 0;
-            long t_geqr     = 0;
 
             long curr_t_cholqr = 0;
             long curr_t_geqp3    = 0;
             long curr_t_geqrf    = 0;
-            long curr_t_geqr     = 0;
 
             for(int i = 0; i < runs; ++i)
             {
@@ -151,7 +140,6 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
                 curr_t_cholqr = res[0];
                 curr_t_geqp3    = res[1];
                 curr_t_geqrf    = res[2];
-                curr_t_geqr     = res[3];
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (i != 0)
@@ -159,18 +147,19 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
                     t_cholqr += curr_t_cholqr;
                     t_geqp3    += curr_t_geqp3;
                     t_geqrf    += curr_t_geqrf;
-                    t_geqr     += curr_t_geqr;
                 }
             }
 
             cholqr_avg = (T)t_cholqr / (T)(runs - 1);
             geqp3_avg    = (T)t_geqp3    / (T)(runs - 1);
             geqrf_avg    = (T)t_geqrf    / (T)(runs - 1);
-            geqr_avg     = (T)t_geqr     / (T)(runs - 1);
 
             // Save the output into .dat file
             std::fstream file("../../../testing/test_basic_qr_speed_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
             file << cholqr_avg << "  " << geqp3_avg << "  " << geqrf_avg << "  " << geqr_avg << "\n";
+
+            std::fstream file("../../../testing/test_basic_qr_speed_mean_time_ratio_" + std::to_string(rows) + ".dat", std::fstream::app);
+            file << cholqr_avg / geqrf_avg << "  " << geqp3_avg / geqrf_avg <<  "\n";
 
             printf("\n/-------------------------------------QRCP MEAN TIMING BEGIN-------------------------------------/\n");
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
@@ -178,11 +167,9 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             printf("Average timing of CholQR for %d runs: %54.2f μs.\n",                                runs - 1, cholqr_avg);
             printf("Average timing of GEQP3 for %d runs: %57.2f μs.\n",                                   runs - 1, geqp3_avg);
             printf("Average timing of GEQRF for %d runs: %57.2f μs.\n",                                   runs - 1, geqrf_avg);
-            printf("Average timing of GEQR for %d runs: %58.2f μs.\n",                                    runs - 1, geqr_avg);
 
             printf("Result: CholQR is %33.2f times faster than GEQP3.\n",                              geqp3_avg / cholqr_avg);
             printf("Result: CholQRCP is %33.2f times faster than GEQRF.\n",                              geqrf_avg / cholqr_avg);
-            printf("Result: CholQRCP is %33.2f times faster than GEQR.\n",                              geqr_avg / cholqr_avg);
 
             printf("\n/---------------------------------------QRCP MEAN TIMING END---------------------------------------/\n\n");
         }
