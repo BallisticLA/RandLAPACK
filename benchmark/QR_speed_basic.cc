@@ -174,7 +174,6 @@ test_speed(int r_pow,
                     }
                     else
                     {
-                        printf("HERE");
                         if(cholqr_total > res[0] || cholqr_total == 0)
                         {
                             cholqr_total = res[0];
@@ -236,13 +235,13 @@ test_speed(int r_pow,
 }
 
 int main(int argc, char **argv){
-        
-    //test_speed_mean<double>(14, 17, 64, 1024, 64, 10);
-    //test_speed_mean<double>(14, 14, 256, 16384, 5);
-    //test_speed_mean<double>(16, 16, 512, 65536, 5);
+    test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Mean");
+    test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Best");
 
-    test_speed<double>(10, 10, 8, 8, 1, 3, std::make_tuple(6, 0, false), "Mean");
-    test_speed<double>(10, 10, 8, 8, 1, 3, std::make_tuple(6, 0, false), "Best");
-    
+    test_speed<double>(16, 16, 256, 4096, 1, 5, std::make_tuple(6, 0, false), "Mean");
+    test_speed<double>(16, 16, 256, 4096, 1, 5, std::make_tuple(6, 0, false), "Best");
+
+    test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Mean");
+    test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Best");
     return 0;
 }
