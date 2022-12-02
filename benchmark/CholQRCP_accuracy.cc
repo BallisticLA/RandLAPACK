@@ -175,12 +175,10 @@ template <typename T>
 
 int main(int argc, char **argv){
         
-    //test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2.5, false), 1, 1);
+    // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
 
     // Large condition number may not work for a small matrix
     test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::pow(1.0e-16, 0.75), std::make_tuple(0, 1e9, false), 1, 1);
-    
-    printf("%f\n", log2(1e12));
     
     return 0;
 }

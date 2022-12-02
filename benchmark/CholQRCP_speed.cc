@@ -497,16 +497,16 @@ test_speed(int r_pow,
 }
 
 int main(int argc, char **argv){
-    for (int nnz : {4})
-    {
-        test_speed<double>(14, 14, 64, 1024, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
-        test_speed<double>(14, 14, 64, 1024, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
 
-        test_speed<double>(16, 16, 256, 4096, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
-        test_speed<double>(16, 16, 256, 4096, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best");
+    // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
+    test_speed<double>(14, 14, 64, 1024, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
+    test_speed<double>(14, 14, 64, 1024, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
 
-        test_speed<double>(17, 17, 512, 8192, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean");
-        test_speed<double>(17, 17, 512, 8192, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
-    }
+    test_speed<double>(16, 16, 256, 4096, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
+    test_speed<double>(16, 16, 256, 4096, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best");
+
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean");
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
+
     return 0;
 }

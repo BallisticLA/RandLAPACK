@@ -239,6 +239,8 @@ test_speed(int r_pow,
 }
 
 int main(int argc, char **argv){
+
+    // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
     test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Best");
 
@@ -247,5 +249,6 @@ int main(int argc, char **argv){
 
     test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Best");
+    
     return 0;
 }
