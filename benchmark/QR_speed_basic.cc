@@ -226,7 +226,7 @@ test_speed(int r_pow,
             printf("%s timing of GEQRF for %d runs: %15.2f μs.\n",  test_type_print, runs - 1, geqrf_total);
 
             printf("\nResult: CholQR is %30.2f times faster than GEQP3.\n", geqp3_total / cholqr_total);
-            printf("Result: CholQRCP is %28.2f times faster than GEQRF.\n", geqrf_total / cholqr_total);
+            printf("Result: CholQR is %28.2f times faster than GEQRF.\n", geqrf_total / cholqr_total);
 
             printf("\n/-----------------------------------------QR TIMING INFO END------------------------------------------/\n\n");
         }
