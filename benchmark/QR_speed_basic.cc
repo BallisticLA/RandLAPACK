@@ -126,6 +126,7 @@ test_speed(int r_pow,
                                                                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
                                                                                    + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
                                                                                    + "_runs_per_sz_"  + std::to_string(runs)
+                                                                                   + "_OMP_threads_"  + std::to_string(36) // Set by default
                                                                                    + ".dat", std::ofstream::out | std::ofstream::trunc);
 
         ofs.close();
@@ -135,6 +136,7 @@ test_speed(int r_pow,
                                                                                           + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
                                                                                           + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
                                                                                           + "_runs_per_sz_"  + std::to_string(runs)
+                                                                                          + "_OMP_threads_"  + std::to_string(36) // Set by default
                                                                                           + ".dat", std::ofstream::out | std::ofstream::trunc);
 
         ofs.close();
@@ -204,16 +206,18 @@ test_speed(int r_pow,
                                                                              + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
                                                                              + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
                                                                              + "_runs_per_sz_"  + std::to_string(runs)
+                                                                             + "_OMP_threads_"  + std::to_string(36) // Set by default
                                                                              + ".dat", std::fstream::app);
             file << cholqr_total << "  " << geqp3_total << "  " << geqrf_total << "\n";
 
             std::fstream file1("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_ratios_" + test_type 
-                                                                                                        + "_m_"            + std::to_string(rows) 
-                                                                                                        + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                                        + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                                        + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
-                                                                                                        + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                                        + ".dat", std::fstream::app);
+                                                                                     + "_m_"            + std::to_string(rows) 
+                                                                                     + "_k_multiplier_" + std::to_string(k_multiplier)
+                                                                                     + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                                                                     + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                                     + "_runs_per_sz_"  + std::to_string(runs)
+                                                                                     + "_OMP_threads_"  + std::to_string(36) // Set by default
+                                                                                     + ".dat", std::fstream::app);
             file1 << cholqr_total / geqrf_total << "  " << geqp3_total / geqrf_total <<  "\n";
 
             const char * test_type_print = test_type.c_str();
