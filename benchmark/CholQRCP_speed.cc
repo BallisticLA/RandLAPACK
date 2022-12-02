@@ -395,7 +395,7 @@ test_speed(int r_pow,
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols += 64)
+        for (; cols <= col_max; cols *= 2)
         {
             std::vector<long> res;
             long t_alloc    = 0;
@@ -499,14 +499,14 @@ test_speed(int r_pow,
 int main(int argc, char **argv){
     for (int nnz : {4})
     {
-        //test_speed_mean<double>(17, 17, 10, 10, 3, 1, 32, 1.5 * 10);
-        //test_speed_mean<double>(17, 17, 5000, 5000, 3, nnz, 32, 5000);
-        //test_speed_mean<double>(17, 17, 10000, 10000, 3, nnz, 32, 1.5 * 10000);
-        //test_speed_mean<double>(18, 18, 5000, 5000, 3, nnz, 32, 1.5 * 5000);
+        test_speed<double>(14, 14, 64, 1024, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
+        test_speed<double>(14, 14, 64, 1024, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
 
-        test_speed<double>(10, 10, 8, 8, 3, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
-        test_speed<double>(10, 10, 8, 8, 3, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
-    
+        test_speed<double>(16, 16, 256, 4096, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
+        test_speed<double>(16, 16, 256, 4096, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best");
+
+        test_speed<double>(17, 17, 512, 8192, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean");
+        test_speed<double>(17, 17, 512, 8192, 5, 1, 32, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
     }
     return 0;
 }
