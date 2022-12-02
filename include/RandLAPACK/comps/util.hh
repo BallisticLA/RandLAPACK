@@ -71,12 +71,6 @@ void col_swap(
         std::vector<int64_t> idx 
 );
 
-int levenstein_dist(
-        int64_t m,
-        std::vector<int64_t>& J1,
-        std::vector<int64_t>& J2
-);
-
 /*
 Checks if the given size is larger than available. If so, resizes the vector.
 */
@@ -121,7 +115,7 @@ void gen_poly_mat(
         int64_t& n,
         std::vector<T>& A,
         int64_t k,
-        T t, // controls the decay. The higher the value, the faster the decay
+        T cond, 
         bool diagon,
         int32_t seed
 );
@@ -139,24 +133,7 @@ void gen_exp_mat(
         int64_t& n,
         std::vector<T>& A,
         int64_t k,
-        T t, // controls the decay. The higher the value, the faster the decay
-        bool diagon,
-        int32_t seed
-);
-
-/*
-Generates matrix with the following singular values:
-S-SHAPED DECAY (first k * 0.2 sigmas = 1)
-Can either be a diagonal matrix, or a full one.
-In later case, left and right singular vectors are randomly-generated 
-and orthogonaized.
-*/
-template <typename T> 
-void gen_s_mat(
-        int64_t& m,
-        int64_t& n,
-        std::vector<T>& A,
-        int64_t k,
+        T cond, 
         bool diagon,
         int32_t seed
 );

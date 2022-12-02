@@ -8,6 +8,10 @@ TODO #1: Switch tuples to vectors.
 #include <RandLAPACK.hh>
 #include <math.h>
 
+/*
+Compares speed of various QR algorithms
+*/
+
 #include <numeric>
 #include <iostream>
 #include <fstream>
@@ -21,10 +25,16 @@ using namespace std::chrono;
 #define ABSDTOL 1e-12;
 
 using namespace RandLAPACK::comps::util;
+using std::string;
 
 template <typename T>
 static std::vector<long> 
-test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
+test_speed_helper(int64_t m, 
+                  int64_t n, 
+                  int64_t k, 
+                  std::tuple<int, T, bool> mat_type, 
+                  uint32_t seed) 
+    {
     
     using namespace blas;
     using namespace lapack;
@@ -47,8 +57,8 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     std::vector<T> tau_4(n, 0);
 
-    // Random Gaussian test matrix
-    RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_1.data(), seed);
+    // Generate random matrix
+    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
 
 
     // Make copies
@@ -94,26 +104,48 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
 template <typename T>
 static void 
-test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
+test_speed(int r_pow, 
+                int r_pow_max, 
+                int col, 
+                int col_max, 
+                T k_multiplier, 
+                int runs, 
+                std::tuple<int, T, bool> mat_type, 
+                string test_type)
 {
-    printf("\n/-----------------------------------------MEAN SPEED TEST START-----------------------------------------/\n");
-    // Clear all files
+    printf("\n/-----------------------------------------QR SPEED TEST START-----------------------------------------/\n");
     
+    // Clear all files
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
     {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open("../../../testing/test_basic_qr_speed_mean_time_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
-        ofs.open("../../../testing/test_basic_qr_speed_mean_time_ratio_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
+        ofs.open("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_" + test_type 
+                                                                                   + "_m_"            + std::to_string(rows) 
+                                                                                   + "_k_multiplier_" + std::to_string(k_multiplier)
+                                                                                   + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                                                                   + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                                   + "_runs_per_sz_"  + std::to_string(runs)
+                                                                                   + ".dat", std::ofstream::out | std::ofstream::trunc);
+
+        ofs.close();
+        ofs.open("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_ratios_" + test_type 
+                                                                                          + "_m_"            + std::to_string(rows) 
+                                                                                          + "_k_multiplier_" + std::to_string(k_multiplier)
+                                                                                          + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                                                                          + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                                          + "_runs_per_sz_"  + std::to_string(runs)
+                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
+
         ofs.close();
     }
 
     int64_t rows = 0;
     int64_t cols = 0;
 
-    T cholqr_avg = 0;
-    T geqp3_avg    = 0;
-    T geqrf_avg    = 0;
+    T cholqr_total = 0;
+    T geqp3_total  = 0;
+    T geqrf_total  = 0;
 
     for(; r_pow <= r_pow_max; ++r_pow)
     {
@@ -124,64 +156,93 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
         {
             std::vector<long> res;
             long t_cholqr = 0;
-            long t_geqp3    = 0;
-            long t_geqrf    = 0;
-
-            long curr_t_cholqr = 0;
-            long curr_t_geqp3    = 0;
-            long curr_t_geqrf    = 0;
+            long t_geqp3  = 0;
+            long t_geqrf  = 0;
 
             for(int i = 0; i < runs; ++i)
             {
-                res = test_speed_helper<T>(rows, cols, i);
-
-                //res{dur_alloc, dur_cholqrcp, dur_rest, dur_geqp3, dur_geqrf, dur_geqr, dur_tsqrp}; 
-
-                curr_t_cholqr = res[0];
-                curr_t_geqp3    = res[1];
-                curr_t_geqrf    = res[2];
+                res = test_speed_helper<T>(rows, cols, k_multiplier * cols, mat_type, i);
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (i != 0)
                 {
-                    t_cholqr += curr_t_cholqr;
-                    t_geqp3    += curr_t_geqp3;
-                    t_geqrf    += curr_t_geqrf;
+                    if(!test_type.compare("Mean"))
+                    {
+                        t_cholqr += res[0];
+                        t_geqp3  += res[1];
+                        t_geqrf  += res[2];
+                    }
+                    else
+                    {
+                        printf("HERE");
+                        if(cholqr_total > res[0] || cholqr_total == 0)
+                        {
+                            cholqr_total = res[0];
+                        }
+                        if(geqp3_total > res[1] || geqp3_total == 0)
+                        {
+                            geqp3_total = res[1];
+                        }
+                        if(geqrf_total > res[2] || geqrf_total == 0)
+                        {
+                            geqrf_total = res[2];
+                        }
+                    }
                 }
             }
 
-            cholqr_avg = (T)t_cholqr / (T)(runs - 1);
-            geqp3_avg    = (T)t_geqp3    / (T)(runs - 1);
-            geqrf_avg    = (T)t_geqrf    / (T)(runs - 1);
+            if(!test_type.compare("Mean"))
+            {
+                cholqr_total = (T)t_cholqr     / (T)(runs - 1);
+                geqp3_total    = (T)t_geqp3    / (T)(runs - 1);
+                geqrf_total    = (T)t_geqrf    / (T)(runs - 1);
+            }
 
             // Save the output into .dat file
-            std::fstream file("../../../testing/test_basic_qr_speed_mean_time_" + std::to_string(rows) + ".dat", std::fstream::app);
-            file << cholqr_avg << "  " << geqp3_avg << "  " << geqrf_avg << "  " << geqrf_avg << "\n";
+            std::fstream file("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_" + test_type 
+                                                                             + "_m_"            + std::to_string(rows) 
+                                                                             + "_k_multiplier_" + std::to_string(k_multiplier)
+                                                                             + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                                                             + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                             + "_runs_per_sz_"  + std::to_string(runs)
+                                                                             + ".dat", std::fstream::app);
+            file << cholqr_total << "  " << geqp3_total << "  " << geqrf_total << "\n";
 
-            std::fstream file1("../../../testing/test_basic_qr_speed_mean_time_ratio_" + std::to_string(rows) + ".dat", std::fstream::app);
-            file1 << cholqr_avg / geqrf_avg << "  " << geqp3_avg / geqrf_avg <<  "\n";
+            std::fstream file1("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_ratios_" + test_type 
+                                                                                                        + "_m_"            + std::to_string(rows) 
+                                                                                                        + "_k_multiplier_" + std::to_string(k_multiplier)
+                                                                                                        + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                                                                                        + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                                                        + "_runs_per_sz_"  + std::to_string(runs)
+                                                                                                        + ".dat", std::fstream::app);
+            file1 << cholqr_total / geqrf_total << "  " << geqp3_total / geqrf_total <<  "\n";
 
-            printf("\n/-------------------------------------QRCP MEAN TIMING BEGIN-------------------------------------/\n");
+            const char * test_type_print = test_type.c_str();
+
+            printf("\n/---------------------------------------QR TIMING INFO BEGIN------------------------------------------/\n");
             printf("\nMatrix size: %ld by %ld.\n", rows, cols);
 
-            printf("Average timing of CholQR for %d runs: %54.2f μs.\n",                                runs - 1, cholqr_avg);
-            printf("Average timing of GEQP3 for %d runs: %57.2f μs.\n",                                   runs - 1, geqp3_avg);
-            printf("Average timing of GEQRF for %d runs: %57.2f μs.\n",                                   runs - 1, geqrf_avg);
+            printf("%s timing of CholQR for %d runs: %14.2f μs.\n", test_type_print, runs - 1, cholqr_total);
+            printf("%s timing of GEQP3 for %d runs: %15.2f μs.\n",  test_type_print, runs - 1, geqp3_total);
+            printf("%s timing of GEQRF for %d runs: %15.2f μs.\n",  test_type_print, runs - 1, geqrf_total);
 
-            printf("Result: CholQR is %33.2f times faster than GEQP3.\n",                              geqp3_avg / cholqr_avg);
-            printf("Result: CholQRCP is %33.2f times faster than GEQRF.\n",                              geqrf_avg / cholqr_avg);
+            printf("\nResult: CholQR is %30.2f times faster than GEQP3.\n", geqp3_total / cholqr_total);
+            printf("Result: CholQRCP is %28.2f times faster than GEQRF.\n", geqrf_total / cholqr_total);
 
-            printf("\n/---------------------------------------QRCP MEAN TIMING END---------------------------------------/\n\n");
+            printf("\n/-----------------------------------------QR TIMING INFO END------------------------------------------/\n\n");
         }
     }
-    printf("\n/-----------------------------------------MEAN SPEED TEST STOP-----------------------------------------/\n\n");
+    printf("\n/-----------------------------------------QR SPEED TEST STOP------------------------------------------/\n\n");
 }
 
 int main(int argc, char **argv){
         
     //test_speed_mean<double>(14, 17, 64, 1024, 64, 10);
     //test_speed_mean<double>(14, 14, 256, 16384, 5);
-    test_speed_mean<double>(16, 16, 512, 65536, 5);
+    //test_speed_mean<double>(16, 16, 512, 65536, 5);
+
+    test_speed<double>(10, 10, 8, 8, 1, 3, std::make_tuple(6, 0, false), "Mean");
+    test_speed<double>(10, 10, 8, 8, 1, 3, std::make_tuple(6, 0, false), "Best");
     
     return 0;
 }

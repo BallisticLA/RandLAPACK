@@ -360,27 +360,25 @@ TEST_F(TestQB, SimpleTest)
     for (uint32_t seed : {2})//, 1, 2})
     {
         // Fast polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2025, false), seed);
         // Slow polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 6.7, false), seed);
         // Superfast exponential decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2025, false), seed);
         
-        // S-shaped decay matrix test 
-        //test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
         // A = [A A]
-        //test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed);
+        //test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
         
         // A = 0
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed); 
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed); 
         // Random diagonal matrix test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed);
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-        test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
+        test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
         // test zero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), seed);
         // test nonzero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 0.1, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 1.23, false), seed);
     }
 }
 */

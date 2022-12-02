@@ -176,47 +176,6 @@ void col_swap(
         }
 }
 
-
-// Levenshtein distance: the minimum number of modifications necessary to get from one sequence to another.
-int levenstein_dist(
-        int64_t m,
-        std::vector<int64_t>& J1,
-        std::vector<int64_t>& J2
-) 
-{
-        int64_t i, j, l1, l2, t, track;
-        int dist [m + 10][m + 10];
-
-        for(i = 0; i <= m; ++i) 
-        {
-                dist[0][i] = i;
-        }
-        
-        for(j = 0; j <= m; ++j) 
-        {
-                dist[j][0] = j;
-        }
-        for(j = 1; j <= m; ++j) 
-        {
-                for(i = 1; i <= m; ++i) 
-                {
-                        if(J1[i - 1] == J2[j - 1]) 
-                        {
-                                track= 0;
-                        } 
-                        else 
-                        {
-                                track = 1;
-                        }
-
-                        t = std::min((dist[i - 1][j] + 1),(dist[i][j - 1] + 1));
-                        dist[i][j] = std::min(t, (dist[i - 1][j - 1] + track));
-                }
-        }
-        
-        return dist[m][m];
-}
-
 // "intellegent reisze"
 template <typename T> 
 T* upsize(
@@ -355,23 +314,30 @@ void gen_mat_type(
 // Merge 3 functions below
 template <typename T> 
 void gen_poly_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
-    int64_t k,
-    T t, // controls the decay. The higher the value, the slower the decay
-    bool diagon,
-    int32_t seed
+        int64_t& m,
+        int64_t& n,
+        std::vector<T>& A,
+        int64_t k,
+        T cond,
+        bool diagon,
+        int32_t seed
 ) {   
     using namespace lapack;
 
         // Predeclare to all nonzero constants, start decay where needed 
         std::vector<T> s(k, 1.0);
         std::vector<T> S(k * k, 0.0);
+
+        // The first 10% of the singular values will be =1
+        int offset = (int) floor(k * 0.1);
+
+        // We have a set condition number, so need to find an exponent parameter
+        // The higher the value, the faster the decay
+        T t = log2(cond) / log2(k - offset); 
         
         T cnt = 0.0;
         // apply lambda function to every entry of s       
-        std::for_each(s.begin() + k * 0.1, s.end(),
+        std::for_each(s.begin() + offset, s.end(),
         //std::for_each(s.begin(), s.end(),
                 // Lambda expression begins
                 [&t, &cnt](T& entry)
@@ -405,71 +371,42 @@ void gen_poly_mat(
 
 template <typename T> 
 void gen_exp_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
-    int64_t k,
-    T t, // controls the decay. The higher the value, the slower the decay
-    bool diagon,
-    int32_t seed
+        int64_t& m,
+        int64_t& n,
+        std::vector<T>& A,
+        int64_t k,
+        T cond,
+        bool diagon,
+        int32_t seed
 ) {   
     using namespace lapack;
 
-    std::vector<T> s(k, 0.0);
-    std::vector<T> S(k * k, 0.0);
-    
-    T cnt = 0.0;
-    // apply lambda function to every entry of s
-    std::for_each(s.begin(), s.end(),
-        // Lambda expression begins
-        [&t, &cnt](T& entry)
+        std::vector<T> s(k, 1.0);
+        std::vector<T> S(k * k, 0.0);
+
+        // The first 10% of the singular values will be =1
+        int offset = (int) floor(k * 0.1);
+
+        T t = -log(1 / cond) / (k - offset);
+        
+        T cnt = 0.0;
+        // apply lambda function to every entry of s
+        // Please make sure that the first singular value is always 1 
+        std::for_each(s.begin() + offset, s.end(),
+                // Lambda expression begins
+                [&t, &cnt](T& entry)
+                {
+                        entry = (std::exp(++cnt * -t));
+                }
+        );
+        
+        // form a diagonal S
+        diag<T>(k, k, s, k, S);
+        if (diagon)
         {
             entry = (std::exp(++cnt * -t));
         }
-    );
     
-    // form a diagonal S
-    diag<T>(k, k, s, k, S);
-    if (diagon)
-    {
-        if (!(m == k || n == k))
-        {
-            m = k;
-            n = k;
-            A.resize(k * k);
-        }
-        lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
-    }
-    else
-    {
-        gen_mat<T>(m, n, A, k, S, seed);
-    }
-}
-
-template <typename T> 
-void gen_s_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
-    int64_t k,
-    bool diagon,
-    int32_t seed
-) {   
-    using namespace lapack;
-
-    std::vector<T> s(k, 0.0);
-    std::vector<T> S(k * k, 0.0);
-
-    T cnt = 0.0;
-    // apply lambda function to every entry of s
-    std::for_each(s.begin(), s.end(),
-        // Lambda expression begins
-        [&cnt](T& entry)
-        {
-            entry = 0.0001 + (1 / (1 + std::exp(++cnt - 30)));
-        }
-    );
-
     // form a diagonal S
     diag<T>(k, k, s, k, S);
     if (diagon)
@@ -623,8 +560,6 @@ template void get_U<double>(int64_t m, int64_t n, std::vector<double>& A, std::v
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<float>& A, std::vector<int64_t> idx);
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<double>& A, std::vector<int64_t> idx);
 
-int levenstein_dist(int64_t m, std::vector<int64_t>& J1, std::vector<int64_t>& J2); 
-
 template float* upsize(int64_t target_sz, std::vector<float>& A);
 template double* upsize(int64_t target_sz, std::vector<double>& A);
 
@@ -634,14 +569,11 @@ template double* row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_
 template void gen_mat_type(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, int32_t seed, std::tuple<int, float, bool> type);
 template void gen_mat_type(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, int32_t seed, std::tuple<int, double, bool> type);
 
-template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, float t, bool diagon, int32_t seed); 
-template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, double t, bool diagon, int32_t seed);
+template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, float cond, bool diagon, int32_t seed); 
+template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, double cond, bool diagon, int32_t seed);
 
-template void gen_exp_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, float t, bool diagon, int32_t seed); 
-template void gen_exp_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, double t, bool diagon, int32_t seed);
-
-template void gen_s_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, bool diagon, int32_t seed);
-template void gen_s_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, bool diagon, int32_t seed);
+template void gen_exp_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, float cond, bool diagon, int32_t seed); 
+template void gen_exp_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, double cond, bool diagon, int32_t seed);
 
 template void gen_mat(int64_t m, int64_t n, std::vector<float>& A, int64_t k, std::vector<float>& S, int32_t seed); 
 template void gen_mat(int64_t m, int64_t n, std::vector<double>& A, int64_t k, std::vector<double>& S, int32_t seed);

@@ -1,3 +1,7 @@
+/*
+Auxillary benchmark routine, computes flops using GEMM for a given system
+*/
+
 #include <blas.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>

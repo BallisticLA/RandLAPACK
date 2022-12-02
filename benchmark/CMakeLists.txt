@@ -26,11 +26,11 @@ message(STATUS "Done looking for LAPACK++.")
 
 
 set(
-    FLOP_count_cxx
-    FLOP_count.cc
+    GEMM_flop_count_cxx
+    GEMM_flop_count.cc
 )
 add_executable(
-    FLOP_count ${FLOP_count_cxx}
+    GEMM_flop_count ${GEMM_flop_count_cxx}
 )
 set(
     RandLAPACK_include_dirs
@@ -38,14 +38,14 @@ set(
     ${RandLAPACK_DIR}/../../include/RandLAPACK
 )
 target_include_directories(
-    FLOP_count PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+    GEMM_flop_count PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
 )
 set(
     RandLAPACK_lib_file
     ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
-    FLOP_count PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
+    GEMM_flop_count PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
 )
 
 set(
@@ -75,14 +75,14 @@ target_link_libraries(
 )
 
 set(
-    Full_QR_restoration_cxx
-    Full_QR_restoration.cc
+    CholQRCP_speed_cxx
+    CholQRCP_speed.cc
 )
 add_executable(
-    Full_QR_restoration ${Full_QR_restoration_cxx}
+    CholQRCP_speed ${CholQRCP_speed_cxx}
 )
 target_compile_options(
-    Full_QR_restoration PRIVATE "-g"
+    CholQRCP_speed PRIVATE "-g"
 )
 set(
     RandLAPACK_include_dirs
@@ -90,40 +90,14 @@ set(
     ${RandLAPACK_DIR}/../../include/RandLAPACK
 )
 target_include_directories(
-    Full_QR_restoration PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+    CholQRCP_speed PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
 )
 set(
     RandLAPACK_lib_file
     ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
 )
 target_link_libraries(
-    Full_QR_restoration PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
-)
-
-set(
-    QR_speed_cxx
-    QR_speed.cc
-)
-add_executable(
-    QR_speed ${QR_speed_cxx}
-)
-target_compile_options(
-    QR_speed PRIVATE "-g"
-)
-set(
-    RandLAPACK_include_dirs
-    ${RandLAPACK_DIR}/../../include
-    ${RandLAPACK_DIR}/../../include/RandLAPACK
-)
-target_include_directories(
-    QR_speed PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
-)
-set(
-    RandLAPACK_lib_file
-    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
-)
-target_link_libraries(
-    QR_speed PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
+    CholQRCP_speed PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
 )
 
 set(
@@ -150,4 +124,30 @@ set(
 )
 target_link_libraries(
     QR_speed_basic PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
+)
+
+set(
+    CholQRCP_accuracy_cxx
+    CholQRCP_accuracy.cc
+)
+add_executable(
+    CholQRCP_accuracy ${CholQRCP_accuracy_cxx}
+)
+target_compile_options(
+    CholQRCP_accuracy PRIVATE "-g"
+)
+set(
+    RandLAPACK_include_dirs
+    ${RandLAPACK_DIR}/../../include
+    ${RandLAPACK_DIR}/../../include/RandLAPACK
+)
+target_include_directories(
+    CholQRCP_accuracy PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+)
+set(
+    RandLAPACK_lib_file
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
+)
+target_link_libraries(
+    CholQRCP_accuracy PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
 )
