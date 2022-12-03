@@ -71,29 +71,29 @@ template <typename T>
             {
                 // Clear the file if it exists
                 std::ofstream ofs;
-                ofs.open("../../../testing/test_benchmark/QR/accuracy/raw_data/R_R_norm_ratio_m_" + std::to_string(m) 
-                                                                                + "_n_"           + std::to_string(n) 
-                                                                                + "_k_"           + std::to_string(k) 
-                                                                                + "_d_"           + std::to_string(d) 
-                                                                                + "_log10(tol)_"  + std::to_string(int(log10(tol)))
-                                                                                + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                                                                + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
-                                                                                + "_nnz_"         + std::to_string(nnz)
-                                                                                + "_OMP_threads_" + std::to_string(36) 
-                                                                                + ".dat", std::ofstream::out | std::ofstream::trunc);
+                ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/R_R_norm_ratio_m_" + std::to_string(m) 
+                                                                                                   + "_n_"           + std::to_string(n) 
+                                                                                                   + "_k_"           + std::to_string(k) 
+                                                                                                   + "_d_"           + std::to_string(d) 
+                                                                                                   + "_log10(tol)_"  + std::to_string(int(log10(tol)))
+                                                                                                   + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
+                                                                                                   + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
+                                                                                                   + "_nnz_"         + std::to_string(nnz)
+                                                                                                   + "_OMP_threads_" + std::to_string(36) 
+                                                                                                   + ".dat", std::ofstream::out | std::ofstream::trunc);
                 ofs.close();
 
                 // Open a new file
-                std::fstream file("../../../testing/test_benchmark/QR/accuracy/raw_data/R_R_norm_ratio_m_" + std::to_string(m) 
-                                                                                         + "_n_"           + std::to_string(n) 
-                                                                                         + "_k_"           + std::to_string(k) 
-                                                                                         + "_d_"           + std::to_string(d) 
-                                                                                         + "_log10(tol)_"  + std::to_string(int(log10(tol)))
-                                                                                         + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                                                                         + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
-                                                                                         + "_nnz_"         + std::to_string(nnz)
-                                                                                         + "_OMP_threads_" + std::to_string(36) 
-                                                                                         + ".dat", std::fstream::app);
+                std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/R_R_norm_ratio_m_" + std::to_string(m) 
+                                                                                                            + "_n_"           + std::to_string(n) 
+                                                                                                            + "_k_"           + std::to_string(k) 
+                                                                                                            + "_d_"           + std::to_string(d) 
+                                                                                                            + "_log10(tol)_"  + std::to_string(int(log10(tol)))
+                                                                                                            + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
+                                                                                                            + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
+                                                                                                            + "_nnz_"         + std::to_string(nnz)
+                                                                                                            + "_OMP_threads_" + std::to_string(36) 
+                                                                                                            + ".dat", std::fstream::app);
 
                 std::vector<T> z_buf(k, 0.0);
                 T* R_1_dat = R_1.data();
@@ -136,29 +136,29 @@ template <typename T>
 
                 // Clear the file if it exists
                 std::ofstream ofs;
-                ofs.open("../../../testing/test_benchmark/QR/accuracy/raw_data/r_s_ratio_m_"    + std::to_string(m) 
-                                                                                       + "_n_"           + std::to_string(n) 
-                                                                                       + "_k_"           + std::to_string(k) 
-                                                                                       + "_d_"           + std::to_string(d) 
-                                                                                       + "_log10(tol)_"  + std::to_string(int(log10(tol)))
-                                                                                       + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                                                                       + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
-                                                                                       + "_nnz_"         + std::to_string(nnz)
-                                                                                       + "_OMP_threads_" + std::to_string(36) 
-                                                                                       + ".dat", std::ofstream::out | std::ofstream::trunc);
+                ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/r_s_ratio_m_"    + std::to_string(m) 
+                                                                                                 + "_n_"           + std::to_string(n) 
+                                                                                                 + "_k_"           + std::to_string(k) 
+                                                                                                 + "_d_"           + std::to_string(d) 
+                                                                                                 + "_log10(tol)_"  + std::to_string(int(log10(tol)))
+                                                                                                 + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
+                                                                                                 + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
+                                                                                                 + "_nnz_"         + std::to_string(nnz)
+                                                                                                 + "_OMP_threads_" + std::to_string(36) 
+                                                                                                 + ".dat", std::ofstream::out | std::ofstream::trunc);
                 ofs.close();
 
                 // Open a new file
-                std::fstream file("../../../testing/test_benchmark/QR/accuracy/raw_data/r_s_ratio_m_"    + std::to_string(m) 
-                                                                                       + "_n_"           + std::to_string(n) 
-                                                                                       + "_k_"           + std::to_string(k) 
-                                                                                       + "_d_"           + std::to_string(d) 
-                                                                                       + "_log10(tol)_"  + std::to_string(int(log10(tol)))
-                                                                                       + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                                                                       + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
-                                                                                       + "_nnz_"         + std::to_string(nnz)
-                                                                                       + "_OMP_threads_" + std::to_string(36) 
-                                                                                       + ".dat", std::fstream::app);
+                std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/r_s_ratio_m_"    + std::to_string(m) 
+                                                                                                          + "_n_"           + std::to_string(n) 
+                                                                                                          + "_k_"           + std::to_string(k) 
+                                                                                                          + "_d_"           + std::to_string(d) 
+                                                                                                          + "_log10(tol)_"  + std::to_string(int(log10(tol)))
+                                                                                                          + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
+                                                                                                          + "_cond_"        + std::to_string(int(std::get<1>(mat_type)))
+                                                                                                          + "_nnz_"         + std::to_string(nnz)
+                                                                                                          + "_OMP_threads_" + std::to_string(36) 
+                                                                                                          + ".dat", std::fstream::app);
 
                 for(int i = 0; i < n; ++i)
                 {

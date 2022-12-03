@@ -120,7 +120,7 @@ test_speed(int r_pow,
     {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_" + test_type 
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/QR_comp_time_" + test_type 
                                                                                    + "_m_"            + std::to_string(rows) 
                                                                                    + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
@@ -130,7 +130,7 @@ test_speed(int r_pow,
                                                                                    + ".dat", std::ofstream::out | std::ofstream::trunc);
 
         ofs.close();
-        ofs.open("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_ratios_" + test_type 
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/QR_comp_time_ratios_" + test_type 
                                                                                           + "_m_"            + std::to_string(rows) 
                                                                                           + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                           + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
@@ -200,7 +200,7 @@ test_speed(int r_pow,
             }
 
             // Save the output into .dat file
-            std::fstream file("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_" + test_type 
+            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/QR_comp_time_" + test_type 
                                                                              + "_m_"            + std::to_string(rows) 
                                                                              + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                              + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
@@ -210,7 +210,7 @@ test_speed(int r_pow,
                                                                              + ".dat", std::fstream::app);
             file << cholqr_total << "  " << geqp3_total << "  " << geqrf_total << "\n";
 
-            std::fstream file1("../../../testing/test_benchmark/QR/speed/raw_data/QR_comp_time_ratios_" + test_type 
+            std::fstream file1("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/QR_comp_time_ratios_" + test_type 
                                                                                      + "_m_"            + std::to_string(rows) 
                                                                                      + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                      + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
