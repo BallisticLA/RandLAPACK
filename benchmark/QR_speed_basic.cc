@@ -161,6 +161,10 @@ test_speed(int r_pow,
             long t_geqp3  = 0;
             long t_geqrf  = 0;
 
+            cholqr_total = 0;
+            geqp3_total  = 0;
+            geqrf_total  = 0;
+
             for(int i = 0; i < runs; ++i)
             {
                 res = test_speed_helper<T>(rows, cols, k_multiplier * cols, mat_type, i);
@@ -194,9 +198,9 @@ test_speed(int r_pow,
 
             if(!test_type.compare("Mean"))
             {
-                cholqr_total = (T)t_cholqr     / (T)(runs - 1);
-                geqp3_total    = (T)t_geqp3    / (T)(runs - 1);
-                geqrf_total    = (T)t_geqrf    / (T)(runs - 1);
+                cholqr_total = (T)t_cholqr / (T)(runs - 1);
+                geqp3_total  = (T)t_geqp3  / (T)(runs - 1);
+                geqrf_total  = (T)t_geqrf  / (T)(runs - 1);
             }
 
             // Save the output into .dat file
@@ -241,13 +245,13 @@ test_speed(int r_pow,
 int main(int argc, char **argv){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
-    test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Mean");
+    //test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Best");
 
-    test_speed<double>(16, 16, 256, 4096, 1, 5, std::make_tuple(6, 0, false), "Mean");
+    //test_speed<double>(16, 16, 256, 4096, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(16, 16, 256, 4096, 1, 5, std::make_tuple(6, 0, false), "Best");
 
-    test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Mean");
+    //test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Best");
     
     return 0;
