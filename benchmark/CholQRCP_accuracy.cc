@@ -168,7 +168,7 @@ template <typename T>
             }
         }
 
-        printf("|==================================Benchmark CholQRCP Accuracy End=================================|\n");
+        printf("|=================================Benchmark CholQRCP Accuracy End================================|\n");
     }
 
 
@@ -178,7 +178,8 @@ int main(int argc, char **argv){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
 
     // Large condition number may not work for a small matrix
-    test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::pow(1.0e-16, 0.75), std::make_tuple(0, 1e9, false), 1, 1);
-    
+    test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::pow(1.0e-16, 0.75), std::make_tuple(0, 1e10, false), 1, 1);
+    test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::pow(1.0e-16, 0.75), std::make_tuple(0, 1e10, false), 1, 2);
+
     return 0;
 }
