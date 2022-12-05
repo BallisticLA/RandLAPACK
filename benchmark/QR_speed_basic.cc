@@ -124,7 +124,7 @@ test_speed(int r_pow,
                                                                                    + "_m_"            + std::to_string(rows) 
                                                                                    + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                   + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                                   + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
                                                                                    + "_runs_per_sz_"  + std::to_string(runs)
                                                                                    + "_OMP_threads_"  + std::to_string(36) // Set by default
                                                                                    + ".dat", std::ofstream::out | std::ofstream::trunc);
@@ -134,7 +134,7 @@ test_speed(int r_pow,
                                                                                           + "_m_"            + std::to_string(rows) 
                                                                                           + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                           + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                          + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                                          + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
                                                                                           + "_runs_per_sz_"  + std::to_string(runs)
                                                                                           + "_OMP_threads_"  + std::to_string(36) // Set by default
                                                                                           + ".dat", std::ofstream::out | std::ofstream::trunc);
@@ -208,7 +208,7 @@ test_speed(int r_pow,
                                                                              + "_m_"            + std::to_string(rows) 
                                                                              + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                              + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                             + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                             + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
                                                                              + "_runs_per_sz_"  + std::to_string(runs)
                                                                              + "_OMP_threads_"  + std::to_string(36) // Set by default
                                                                              + ".dat", std::fstream::app);
@@ -218,7 +218,7 @@ test_speed(int r_pow,
                                                                                      + "_m_"            + std::to_string(rows) 
                                                                                      + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                      + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                     + "_cond_"         + std::to_string(int(std::get<1>(mat_type)))
+                                                                                     + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
                                                                                      + "_runs_per_sz_"  + std::to_string(runs)
                                                                                      + "_OMP_threads_"  + std::to_string(36) // Set by default
                                                                                      + ".dat", std::fstream::app);
