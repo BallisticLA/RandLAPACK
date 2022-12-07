@@ -2,17 +2,20 @@ cmake_minimum_required(VERSION 3.2)
 
 project(RandLAPACK)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/CMake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 
 # configure the build
 enable_testing()
 
-include(build_options)
-include(version)
+include(rl_build_options)
+include(rl_version)
 
 # find dependencies
-include(RandLAPACK_RandBLAS)
-include(lapackpp)
+find_package(blaspp REQUIRED)
+find_package(lapackpp REQUIRED)
+
+# configure RandBLAS subproject
+add_subdirectory(RandBLAS)
 
 # compile sources
 add_subdirectory(src)
@@ -20,4 +23,4 @@ add_subdirectory(test)
 add_subdirectory(benchmark)
 
 # export the configuration
-include(config)
+include(rl_config)
