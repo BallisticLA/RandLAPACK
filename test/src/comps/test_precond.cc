@@ -1,7 +1,7 @@
+#include <gtest/gtest.h>
 #include <blas.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
-#include <gtest/gtest.h>
 #include <math.h>
 #include <lapack.hh>
 
