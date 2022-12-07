@@ -5,23 +5,23 @@ set(RandLAPACK_cxx_srcs
     comps/rs.cc
     comps/util.cc
     comps/orth.cc
-    comps/preconditioners.cc
 )
 
 set(RandLAPACK_libs
-    RandLAPACK_RandBLAS
-    RandLAPACK_lapackpp
-    RandBLAS_blaspp
+    RandBLAS
+    lapackpp
+    blaspp
     RandBLAS_Random123
-    RandBLAS_OpenMP
+    OpenMP::OpenMP_CXX
 )
 
 add_library(RandLAPACK ${RandLAPACK_cxx_srcs})
+target_compile_options(RandLAPACK PUBLIC -Wall -Wextra)
 
 target_include_directories(
     RandLAPACK PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/RandLAPACK>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include/RandLAPACK>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK>
 )
