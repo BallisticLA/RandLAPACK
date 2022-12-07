@@ -52,7 +52,7 @@ void QB<T>::QB2(
     }
     
     // If the space allocated for col in Q and row in B is insufficient for any iterations ...
-    if(std::max( Q.size() / m, B.size() / n) < k)
+    if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k)
     {
         // ... allocate more!
         this->curr_lim = std::min(this->dim_growth_factor * block_sz, k);
@@ -74,13 +74,10 @@ void QB<T>::QB2(
     T prev_err = 0.0;
     T approx_err = 0.0;
 
-    T* Q_gram_dat;
-    T* Q_i_gram_dat;
-
     if(this->orth_check)
     {
-        Q_gram_dat = upsize<T>(this->curr_lim * this->curr_lim, this->Q_gram);
-        Q_i_gram_dat = upsize<T>(block_sz * block_sz, this->Q_i_gram);
+        upsize<T>(this->curr_lim * this->curr_lim, this->Q_gram);
+        upsize<T>(block_sz * block_sz, this->Q_i_gram);
     }
 
     T* QtQi_dat = upsize<T>(this->curr_lim * block_sz, this->QtQi);
@@ -89,7 +86,7 @@ void QB<T>::QB2(
 
     T* Q_dat = Q.data();
     T* B_dat = B.data();
-    
+
     while(k > curr_sz)
     {
         // Dynamically changing block size
@@ -104,7 +101,7 @@ void QB<T>::QB2(
             B_dat = row_resize<T>(curr_sz, n, B, this->curr_lim);
             QtQi_dat = upsize<T>(this->curr_lim * block_sz, QtQi);
             if(this->orth_check)
-                Q_gram_dat = upsize<T>(this->curr_lim * this->curr_lim, Q_gram);
+                upsize<T>(this->curr_lim * this->curr_lim, Q_gram);
         }
 
         // Calling RangeFinder

@@ -34,7 +34,6 @@ void pcg(
 	std::vector<T> out_mt1(k, 0.0);
 	
 	std::vector<T> b1(n);
-	int f = 1;
 	
 	//  b1 = A'b - c
 	copy<T>(n, c, 1, b1.data(), 1);
@@ -135,12 +134,12 @@ void pcg(
 void run_pcgls_ex(int n, int m)
 {
 	std::vector<double> A(m * n);
-	for (int i = 0; i < A.size(); ++i)
+	for (uint64_t i = 0; i < A.size(); ++i)
 	{
 		A[i] = ((double)i + 1.0) / m;
 	}
 	std::vector<double> b(m);
-	for (int i = 0; i < b.size(); ++i)
+	for (uint64_t i = 0; i < b.size(); ++i)
 	{
 		b[i] = 1.0 / ((double) (i+1));
 	}

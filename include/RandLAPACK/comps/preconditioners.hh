@@ -60,14 +60,14 @@ namespace RandLAPACK::comps::preconditioners {
  */
 template <typename T>
 int64_t rpc_svd_sjlt(
-    int64_t m,
-    int64_t n,
-    int64_t d,
-    int64_t k,
+    uint64_t m,
+    uint64_t n,
+    uint64_t d,
+    uint64_t k,
     const T *A_rm,
     T *M_wk,
     T mu,
-    int64_t threads,
+    int threads,
     uint64_t seed_key,
     uint64_t seed_ctr
 ){
@@ -96,8 +96,8 @@ int64_t rpc_svd_sjlt(
     //      taking a basis "B" for the kernel of A_sk and checking if
     //      if A*B == 0 (up to some tolerance).
     //
-    T* ignore;
-    std::vector<T> s(n, 0.0);
+    T* ignore = nullptr;
+    std::vector<T> s(n);
     ::lapack::Job jobu = ::lapack::Job::OverwriteVec;
     ::lapack::Job jobvt = ::lapack::Job::NoVec;
     ::lapack::gesvd(jobu, jobvt, n, d, buff_A_sk, n, s.data(), ignore, 1, ignore, 1);
@@ -110,11 +110,11 @@ int64_t rpc_svd_sjlt(
     //
     if (mu > 0) {
         double sqrtmu = std::sqrt((double) mu);
-        for (int i = 0; i < n; ++i) {
+        for (uint64_t i = 0; i < n; ++i) {
             s[i] = (T) std::hypot((double) s[i], sqrtmu); // sqrt(s[i]^2 + mu)
         }
     }
-    int64_t rank = 0;
+    uint64_t rank = 0;
     while (rank < n) {
        ++rank;
        if (s[rank - 1] < s[0]*n*std::numeric_limits<T>::epsilon())
@@ -123,7 +123,7 @@ int64_t rpc_svd_sjlt(
     if (s[rank - 1] == 0.0)
         throw std::runtime_error("The rank of the regularized sketch must be at least one.");
 
-    for (int64_t i = 0; i < rank; ++i) {
+    for (uint64_t i = 0; i < rank; ++i) {
         T scale = 1.0 / s[i];
         blas::scal(n, scale, &buff_V[i*n], 1);
     }
@@ -132,14 +132,14 @@ int64_t rpc_svd_sjlt(
 
 template <typename T>
 int64_t rpc_svd_sjlt(
-    int64_t m,
-    int64_t n,
-    int64_t d,
-    int64_t k,
+    uint64_t m,
+    uint64_t n,
+    uint64_t d,
+    uint64_t k,
     const std::vector<T>& A_rm,
     std::vector<T>& M_wk,
     T mu,
-    int64_t threads,
+    int threads,
     uint64_t seed_key,
     uint64_t seed_ctr
 ){

@@ -72,9 +72,8 @@ class Test_rpc_svd_sjlt : public ::testing::Test
         );
         
         // check the result
-        double reldtol = RELDTOL;
         EXPECT_EQ(rank, n);
-        double *ignore;
+        double *ignore = nullptr;
         std::vector<double> s(n, 0.0);
         lapack::gesvd(
             lapack::Job::NoVec,
@@ -136,14 +135,13 @@ class Test_rpc_svd_sjlt : public ::testing::Test
         );
         double sqrt_mu = std::sqrt(mu);
         double *sqrt_mu_eye = &a_aug_pc[m];  // offset by m. 
-        for (int i = 0; i < n; ++i) {
+        for (uint64_t i = 0; i < n; ++i) {
             sqrt_mu_eye[(m+n)*i + i] = sqrt_mu;
         }
         
         // check the result
-        double reldtol = RELDTOL;
         EXPECT_EQ(rank, n);
-        double *ignore;
+        double *ignore = nullptr;
         std::vector<double> s(n, 0.0);
         lapack::gesvd(
             lapack::Job::NoVec,
