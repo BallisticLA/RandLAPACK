@@ -11,7 +11,7 @@ set(RandLAPACK_libs
     RandBLAS
     lapackpp
     blaspp
-    RandBLAS_Random123
+    Random123
     OpenMP::OpenMP_CXX
 )
 
