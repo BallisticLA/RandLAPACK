@@ -151,7 +151,6 @@ test_speed_helper(int64_t m,
                   std::tuple<int, T, bool> mat_type, 
                   uint32_t seed) 
 {
-/*  
     using namespace blas;
     using namespace lapack;
 
@@ -180,7 +179,7 @@ test_speed_helper(int64_t m,
     std::vector<int64_t> J_3;
 
     std::vector<T> tau_4;
-
+/*
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
 
