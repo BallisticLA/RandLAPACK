@@ -183,7 +183,7 @@ test_speed_helper(int64_t m,
 
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
-
+/*
     // Make copies
     std::copy(A_1.data(), A_1.data() + size, A_2.data());
     std::copy(A_1.data(), A_1.data() + size, A_3.data());
@@ -222,7 +222,7 @@ test_speed_helper(int64_t m,
     upsize(m * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    /*
+    
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
