@@ -221,7 +221,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    
+    /*
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
@@ -356,13 +356,12 @@ test_speed_helper(int64_t m,
                           dur_alloc3, dur_geqr,     dur_appl3,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
-/*
+*/
    std::vector<long> res{0, 0, 0, 
                           0, 0,    0,
                           0, 0,     0,
                           0, 0,    0,
                           0, 0,    0}; 
-*/
     return res;
 }
 
