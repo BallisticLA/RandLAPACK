@@ -161,9 +161,9 @@ test_speed_helper(int64_t m,
     std::vector<T> A_4(size, 0.0);
 
     std::vector<T> B_1(n * m, 0.0);
-    std::vector<T> B_2(n * m, 0.0);
-    std::vector<T> B_3(n * m, 0.0);
-    std::vector<T> B_4(n * m, 0.0);
+    //std::vector<T> B_2(n * m, 0.0);
+    //std::vector<T> B_3(n * m, 0.0);
+    //std::vector<T> B_4(n * m, 0.0);
     
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
@@ -192,9 +192,9 @@ test_speed_helper(int64_t m,
     gen_mat_type<T>(m, m, B_1, m, seed + 1, mat_type);
 
     // Make copies
-    std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
-    std::copy(B_1.data(), B_1.data() + n * m, B_3.data());
-    std::copy(B_1.data(), B_1.data() + n * m, B_4.data());
+    //std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
+    //std::copy(B_1.data(), B_1.data() + n * m, B_3.data());
+    //std::copy(B_1.data(), B_1.data() + n * m, B_4.data());
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -221,7 +221,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    /*
+ /*   
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
@@ -257,7 +257,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
-    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, B_1.data(), n, A_1.data(), m, 0.0, Res_1.data(), n);
+    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, B_1.data(), n, A_1.data(), m, 0.0, Res_1.data(), n);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(start_appl1 - start_appl1).count();
 
@@ -362,6 +362,7 @@ test_speed_helper(int64_t m,
                           0, 0,     0,
                           0, 0,    0,
                           0, 0,    0}; 
+
     return res;
 }
 
