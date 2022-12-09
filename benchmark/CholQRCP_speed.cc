@@ -205,7 +205,7 @@ test_speed_helper(int64_t m,
     CholQRCP.nnz = nnz;
     CholQRCP.num_threads = num_threads;
 
-    /*TEST POINT 1 BEGIN*******************************************************************************************************************************************/
+    //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     
     // Pre-allocation for CholQRCP
     auto start_alloc1 = high_resolution_clock::now();
