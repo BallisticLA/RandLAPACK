@@ -258,7 +258,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, B_1.data(), m, A_1.data(), m, 0.0, Res_1.data(), m);
+    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, B_1.data(), m, A_1.data(), m, 0.0, Res_1.data(), m);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(start_appl1 - start_appl1).count();
 
@@ -279,7 +279,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     auto start_appl2 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, m, n, n, A_2.data(), m, tau_2.data(), B_2.data(), m);
+    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_2.data(), m, tau_2.data(), B_2.data(), m);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(start_appl2 - start_appl2).count();
 
@@ -320,13 +320,13 @@ test_speed_helper(int64_t m,
 
     // Apply Q_3
     auto start_appl3 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, m, n, n, A_3.data(), m, t_3.data(), B_3.data(), m);
+    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_3.data(), m, t_3.data(), B_3.data(), m);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(start_appl3 - start_appl3).count();
 
     // Apply Q_4
     auto start_appl4 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_3.data(), B_4.data(), m);
+    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_3.data(), B_4.data(), m);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(start_appl4 - start_appl4).count();
 
@@ -346,7 +346,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_5
     auto start_appl5 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_4.data(), B_4.data(), m);
+    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_4.data(), B_4.data(), m);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(start_appl5 - start_appl5).count();
 
