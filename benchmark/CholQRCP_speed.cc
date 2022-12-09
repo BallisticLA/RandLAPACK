@@ -222,7 +222,7 @@ test_speed_helper(int64_t m,
     upsize(m * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    
+    /*
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
@@ -262,7 +262,7 @@ test_speed_helper(int64_t m,
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(start_appl1 - start_appl1).count();
 
-    /*TEST POINT 1 END*********************************************************************************************************************************************/
+    //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
 
     // Pre-allocation for GEQP3
     auto start_alloc2 = high_resolution_clock::now();
@@ -273,7 +273,7 @@ test_speed_helper(int64_t m,
 
     // GEQP3
     auto start_geqp3 = high_resolution_clock::now();
-    //geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
+    geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
     auto stop_geqp3 = high_resolution_clock::now();
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
@@ -283,7 +283,7 @@ test_speed_helper(int64_t m,
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(start_appl2 - start_appl2).count();
 
-    /*TEST POINT 2 END*********************************************************************************************************************************************/
+    //-TEST POINT 2 END---------------------------------------------------------------------------------------------------------------------------------------------/
 
     // Pre-allocation for GEQR
     auto start_alloc3 = high_resolution_clock::now();
@@ -303,17 +303,17 @@ test_speed_helper(int64_t m,
     auto start_tsqrp = high_resolution_clock::now();
     // GEQR part
     auto sart_geqr = high_resolution_clock::now();
-    //geqr(m, n, A_3.data(), m, t_3.data(), -1);
-    //int64_t tsize = (int64_t) t_3[0]; 
-    //t_3.resize(tsize);
-    //geqr(m, n, A_3.data(), m, t_3.data(), tsize);
+    geqr(m, n, A_3.data(), m, t_3.data(), -1);
+    int64_t tsize = (int64_t) t_3[0]; 
+    t_3.resize(tsize);
+    geqr(m, n, A_3.data(), m, t_3.data(), tsize);
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
     // GEQP3 on R part
     // We are not timing the pre-allocation of R, as it expected to take very small time
-    //get_U(m, n, A_3, R_3);
-    //geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
+    get_U(m, n, A_3, R_3);
+    geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
 
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
@@ -330,7 +330,7 @@ test_speed_helper(int64_t m,
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(start_appl4 - start_appl4).count();
 
-    /*TEST POINT 3&4 END******************************************************************************************************************************************/
+    //-TEST POINT 3&4 END-------------------------------------------------------------------------------------------------------------------------------------------/
 
     // Pre-allocation for GEQRF
     auto start_alloc5 = high_resolution_clock::now();
@@ -340,7 +340,7 @@ test_speed_helper(int64_t m,
 
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
-    //geqrf(m, n, A_4.data(), m, tau_4.data());
+    geqrf(m, n, A_4.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
@@ -350,14 +350,21 @@ test_speed_helper(int64_t m,
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(start_appl5 - start_appl5).count();
 
-    /*TEST POINT 5 END*********************************************************************************************************************************************/
+    //-TEST POINT 5 END---------------------------------------------------------------------------------------------------------------------------------------------/
 
     std::vector<long> res{dur_alloc1, dur_cholqrcp, dur_appl1, 
                           dur_alloc2, dur_geqp3,    dur_appl2,
                           dur_alloc3, dur_geqr,     dur_appl3,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
- 
+    */
+
+   std::vector<long> res{0, 0, 0, 
+                          0, 0,    0,
+                          0, 0,     0,
+                          0, 0,    0,
+                          0, 0,    0}; 
+
     return res;
 }
 
