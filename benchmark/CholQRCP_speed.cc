@@ -219,7 +219,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, (CholQRCP.R_sp));
     upsize(n * n, R_1);
     upsize(n * n, (CholQRCP.R_buf));
-    upsize(m * m, Res_1);
+    upsize(m * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
