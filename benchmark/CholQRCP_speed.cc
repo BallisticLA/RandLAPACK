@@ -160,10 +160,10 @@ test_speed_helper(int64_t m,
     std::vector<T> A_3(size, 0.0);
     std::vector<T> A_4(size, 0.0);
 
-    std::vector<T> B_1(m * m, 0.0);
-    //std::vector<T> B_2(m * m, 0.0);
-    //std::vector<T> B_3(m * m, 0.0);
-    //std::vector<T> B_4(m * m, 0.0);
+    std::vector<T> B_1(n * m, 0.0);
+    std::vector<T> B_2(n * m, 0.0);
+    std::vector<T> B_3(n * m, 0.0);
+    std::vector<T> B_4(n * m, 0.0);
     
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
@@ -179,7 +179,7 @@ test_speed_helper(int64_t m,
     std::vector<int64_t> J_3;
 
     std::vector<T> tau_4;
-/*
+
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
 
@@ -192,9 +192,9 @@ test_speed_helper(int64_t m,
     gen_mat_type<T>(m, m, B_1, m, seed + 1, mat_type);
 
     // Make copies
-    std::copy(B_1.data(), B_1.data() + m * m, B_2.data());
-    std::copy(B_1.data(), B_1.data() + m * m, B_3.data());
-    std::copy(B_1.data(), B_1.data() + m * m, B_4.data());
+    std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
+    std::copy(B_1.data(), B_1.data() + n * m, B_3.data());
+    std::copy(B_1.data(), B_1.data() + n * m, B_4.data());
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -218,7 +218,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, (CholQRCP.R_sp));
     upsize(n * n, R_1);
     upsize(n * n, (CholQRCP.R_buf));
-    upsize(m * n, Res_1);
+    upsize(n * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
@@ -257,7 +257,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
-    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, B_1.data(), m, A_1.data(), m, 0.0, Res_1.data(), m);
+    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, B_1.data(), n, A_1.data(), m, 0.0, Res_1.data(), n);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(start_appl1 - start_appl1).count();
 
@@ -278,7 +278,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     auto start_appl2 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_2.data(), m, tau_2.data(), B_2.data(), m);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_2.data(), m, tau_2.data(), B_2.data(), n);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(start_appl2 - start_appl2).count();
 
@@ -319,13 +319,13 @@ test_speed_helper(int64_t m,
 
     // Apply Q_3
     auto start_appl3 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_3.data(), m, t_3.data(), B_3.data(), m);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_3.data(), m, t_3.data(), B_3.data(), n);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(start_appl3 - start_appl3).count();
 
     // Apply Q_4
     auto start_appl4 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_3.data(), B_4.data(), m);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_3.data(), B_4.data(), n);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(start_appl4 - start_appl4).count();
 
@@ -345,7 +345,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_5
     auto start_appl5 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_4.data(), B_4.data(), m);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_4.data(), B_4.data(), n);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(start_appl5 - start_appl5).count();
 
@@ -356,14 +356,13 @@ test_speed_helper(int64_t m,
                           dur_alloc3, dur_geqr,     dur_appl3,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
-    */
-
+/*
    std::vector<long> res{0, 0, 0, 
                           0, 0,    0,
                           0, 0,     0,
                           0, 0,    0,
                           0, 0,    0}; 
-
+*/
     return res;
 }
 
