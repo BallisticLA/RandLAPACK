@@ -189,7 +189,7 @@ test_speed_helper(int64_t m,
     std::copy(A_1.data(), A_1.data() + size, A_4.data());
 
     // Generate random matrix that we will apply Q to
-    gen_mat_type<T>(m, m, B_1, m, seed + 1, mat_type);
+    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
 
     // Make copies
     //std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
