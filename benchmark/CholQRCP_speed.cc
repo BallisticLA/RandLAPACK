@@ -273,7 +273,7 @@ test_speed_helper(int64_t m,
 
     // GEQP3
     auto start_geqp3 = high_resolution_clock::now();
-    geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
+    //geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
     auto stop_geqp3 = high_resolution_clock::now();
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
@@ -303,17 +303,17 @@ test_speed_helper(int64_t m,
     auto start_tsqrp = high_resolution_clock::now();
     // GEQR part
     auto sart_geqr = high_resolution_clock::now();
-    geqr(m, n, A_3.data(), m, t_3.data(), -1);
-    int64_t tsize = (int64_t) t_3[0]; 
-    t_3.resize(tsize);
-    geqr(m, n, A_3.data(), m, t_3.data(), tsize);
+    //geqr(m, n, A_3.data(), m, t_3.data(), -1);
+    //int64_t tsize = (int64_t) t_3[0]; 
+    //t_3.resize(tsize);
+    //geqr(m, n, A_3.data(), m, t_3.data(), tsize);
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
     // GEQP3 on R part
     // We are not timing the pre-allocation of R, as it expected to take very small time
-    get_U(m, n, A_3, R_3);
-    geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
+    //get_U(m, n, A_3, R_3);
+    //geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
 
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
@@ -340,7 +340,7 @@ test_speed_helper(int64_t m,
 
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
-    geqrf(m, n, A_4.data(), m, tau_4.data());
+    //geqrf(m, n, A_4.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
