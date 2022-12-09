@@ -1,12 +1,11 @@
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#ifndef RandLAPACK_comps_preconditioners_h
+#define RandLAPACK_comps_preconditioners_h
+
 
 #include <math.h>
-
 #include <blas.hh>
 #include <lapack.hh>
+#include <RandBLAS.hh>
 
 namespace RandLAPACK::comps::preconditioners {
 
@@ -43,7 +42,7 @@ namespace RandLAPACK::comps::preconditioners {
  * @param[in] A_rm
  *      A row-major representation of an m \times n matrix A
  * @param[out] M_wk
- *      We require that M_wk.data().size() >= d*n. Letting "r" denote the return
+ *      We require that the size of M_wk is >= d*n elements. Letting "r" denote the return
  *      value of this function, on exit the preconditioner M is identified
  *      with the first n*r entries in M_wk.data(), read in column-major format.
  * @param[in] mu
@@ -149,3 +148,5 @@ int64_t rpc_svd_sjlt(
     return rpc_svd_sjlt(m, n, d, k, A_rm.data(), M_wk.data(), mu, threads, seed_key, seed_ctr);
 }
 }
+
+#endif
