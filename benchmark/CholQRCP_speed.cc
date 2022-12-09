@@ -161,9 +161,9 @@ test_speed_helper(int64_t m,
     std::vector<T> A_4(size, 0.0);
 
     std::vector<T> B_1(n * m, 0.0);
-    //std::vector<T> B_2(n * m, 0.0);
-    //std::vector<T> B_3(n * m, 0.0);
-    //std::vector<T> B_4(n * m, 0.0);
+    std::vector<T> B_2(n * m, 0.0);
+    std::vector<T> B_3(n * m, 0.0);
+    std::vector<T> B_4(n * m, 0.0);
     
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
@@ -192,9 +192,9 @@ test_speed_helper(int64_t m,
     gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
 
     // Make copies
-    //std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
-    //std::copy(B_1.data(), B_1.data() + n * m, B_3.data());
-    //std::copy(B_1.data(), B_1.data() + n * m, B_4.data());
+    std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
+    std::copy(B_1.data(), B_1.data() + n * m, B_3.data());
+    std::copy(B_1.data(), B_1.data() + n * m, B_4.data());
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
