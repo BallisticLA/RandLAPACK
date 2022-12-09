@@ -33,13 +33,16 @@ print_info(int64_t rows,
            T d_multiplier, 
            int64_t nnz, 
            int64_t num_threads, 
-           T alloc_time, 
            T cholqrcp_time, 
-           T rest_time, 
            T geqp3_time, 
-           T geqrf_time, 
            T geqr_time, 
            T tsqrp_time, 
+           T geqrf_time, 
+           T chol_full_time,
+           T geqp3_full_time,
+           T geqr_full_time,
+           T tsqrp_full_time,
+           T geqrf_full_time,
            string test_type,
            int runs)
 {
@@ -51,148 +54,83 @@ print_info(int64_t rows,
             printf("Number of nonzeros per column in SASO: %ld\n", nnz);
             printf("Number of threads used in SASO application: %ld\n", num_threads);
 
-            printf("\n%s timing of workspace pre-allocation for CholQRCP for %d runs: %25.2f μs.\n", test_type_print, runs - 1, alloc_time);
-            printf("%s timing of CholQRCP for %d runs: %54.2f μs.\n",                                test_type_print, runs - 1, cholqrcp_time);
-            printf("%s timing Householder vector restoration for %d runs: %35.2f μs.\n",             test_type_print, runs - 1, rest_time);
-            printf("%s timing of GEQP3 for %d runs: %57.2f μs.\n",                                   test_type_print, runs - 1, geqp3_time);
-            printf("%s timing of GEQRF for %d runs: %57.2f μs.\n",                                   test_type_print, runs - 1, geqrf_time);
-            printf("%s timing of GEQR for %d runs: %58.2f μs.\n",                                    test_type_print, runs - 1, geqr_time);
-            printf("%s timing of TSQRP for %d runs: %57.2f μs.\n\n",                                 test_type_print, runs - 1, tsqrp_time);
+            printf("%s timing of CholQRCP for %d runs: %54.2f μs. Full timing: %f μs.\n",                                test_type_print, runs - 1, cholqrcp_time, chol_full_time);
+            printf("%s timing of GEQP3 for %d runs: %57.2f μs. Full timing: %f μs.\n",                                   test_type_print, runs - 1, geqp3_time, geqp3_full_time);
+            printf("%s timing of GEQRF for %d runs: %57.2f μs. Full timing: %f μs.\n",                                   test_type_print, runs - 1, geqrf_time, geqrf_full_time);
+            printf("%s timing of GEQR for %d runs: %58.2f μs. Full timing: %f μs.\n",                                    test_type_print, runs - 1, geqr_time, geqr_full_time);
+            printf("%s timing of TSQRP for %d runs: %57.2f μs. Full timing: %f μs.\n\n",                                 test_type_print, runs - 1, tsqrp_time, tsqrp_time);
 
             /*CholQRCP vs GEQP3*/
             if(cholqrcp_time < geqp3_time)
             {
-                printf("Result: CholQRCP is %33.2f times faster than GEQP3.\n",                               geqp3_time / cholqrcp_time);
+                printf("Result: CholQRCP is %33.2f times faster than GEQP3.\n",                         geqp3_time / cholqrcp_time);
             }
             else
             {
-                printf("Result: CholQRCP is %33.2f times slower than GEQP3.\n",                               cholqrcp_time / geqp3_time);
+                printf("Result: CholQRCP is %33.2f times slower than GEQP3.\n",                         cholqrcp_time / geqp3_time);
             }
-            if((cholqrcp_time + alloc_time) < geqp3_time)
+
+            if(chol_full_time < geqp3_full_time)
             {
-            printf("With space allocation: %30.2f times faster than GEQP3.\n",                                geqp3_time / (cholqrcp_time + alloc_time));
-            }
-            else
-            {
-                printf("With space allocation: %30.2f times slower than GEQP3.\n",                            (cholqrcp_time + alloc_time) / geqp3_time);
-            }
-            if((cholqrcp_time + rest_time) < geqp3_time)
-            {
-                printf("With Householder restoration: %23.2f times faster than GEQP3.\n",                     geqp3_time / (cholqrcp_time + rest_time));
+                printf("With space allocation + application: %3.2f times faster than GEQP3.\n\n", geqp3_full_time / chol_full_time);
             }
             else
             {
-                printf("With Householder restoration: %23.2f times slower than GEQP3.\n",                     (cholqrcp_time + rest_time) / geqp3_time);
-            }
-            if((cholqrcp_time + alloc_time + rest_time) < geqp3_time)
-            {
-                printf("With space allocation + Householder restoration: %3.2f times faster than GEQP3.\n\n", geqp3_time / (cholqrcp_time + alloc_time + rest_time));
-            }
-            else
-            {
-                printf("With space allocation + Householder restoration: %3.2f times slower than GEQP3.\n\n", (cholqrcp_time + alloc_time + rest_time) / geqp3_time);
+                printf("With space allocation + application: %3.2f times slower than GEQP3.\n\n", chol_full_time / geqp3_full_time);
             }
 
             /*CholQRCP vs TSQRP*/
             if(cholqrcp_time < tsqrp_time)
             {
-                printf("Result: CholQRCP is %33.2f times faster than TSQRP.\n",                               tsqrp_time / cholqrcp_time);
+                printf("Result: CholQRCP is %33.2f times faster than TSQRP.\n",                         tsqrp_time / cholqrcp_time);
             }
             else
             {
-                printf("Result: CholQRCP is %33.2f times slower than TSQRP.\n",                               cholqrcp_time / tsqrp_time);
+                printf("Result: CholQRCP is %33.2f times slower than TSQRP.\n",                         cholqrcp_time / tsqrp_time);
             }
-            if((cholqrcp_time + alloc_time) < tsqrp_time)
+            if(chol_full_time < tsqrp_full_time)
             {
-            printf("With space allocation: %30.2f times faster than TSQRP.\n",                                tsqrp_time / (cholqrcp_time + alloc_time));
-            }
-            else
-            {
-                printf("With space allocation: %30.2f times slower than TSQRP.\n",                            (cholqrcp_time + alloc_time) / tsqrp_time);
-            }
-            if((cholqrcp_time + rest_time) < tsqrp_time)
-            {
-                printf("With Householder restoration: %23.2f times faster than TSQRP.\n",                     tsqrp_time / (cholqrcp_time + rest_time));
+                printf("With space allocation + application: %3.2f times faster than TSQRP.\n\n", tsqrp_full_time / chol_full_time);
             }
             else
             {
-                printf("With Householder restoration: %23.2f times slower than TSQRP.\n",                     (cholqrcp_time + rest_time) / tsqrp_time);
-            }
-            if((cholqrcp_time + alloc_time + rest_time) < tsqrp_time)
-            {
-                printf("With space allocation + Householder restoration: %3.2f times faster than TSQRP.\n\n", tsqrp_time / (cholqrcp_time + alloc_time + rest_time));
-            }
-            else
-            {
-                printf("With space allocation + Householder restoration: %3.2f times slower than TSQRP.\n\n", (cholqrcp_time + alloc_time + rest_time) / tsqrp_time);
+                printf("With space allocation + application: %3.2f times slower than TSQRP.\n\n", chol_full_time / tsqrp_full_time);
             }
 
             /*CholQRCP vs GEQRF*/
             if(cholqrcp_time < geqrf_time)
             {
-                printf("Result: CholQRCP is %33.2f times faster than GEQRF.\n",                               geqrf_time / cholqrcp_time);
+                printf("Result: CholQRCP is %33.2f times faster than GEQRF.\n",                         geqrf_time / cholqrcp_time);
             }
             else
             {
-                printf("Result: CholQRCP is %33.2f times slower than GEQRF.\n",                               cholqrcp_time / geqrf_time);
+                printf("Result: CholQRCP is %33.2f times slower than GEQRF.\n",                         cholqrcp_time / geqrf_time);
             }
-            if((cholqrcp_time + alloc_time) < geqrf_time)
+            if(chol_full_time < geqrf_full_time)
             {
-            printf("With space allocation: %30.2f times faster than GEQRF.\n",                                geqrf_time / (cholqrcp_time + alloc_time));
-            }
-            else
-            {
-                printf("With space allocation: %30.2f times slower than GEQRF.\n",                            (cholqrcp_time + alloc_time) / geqrf_time);
-            }
-            if((cholqrcp_time + rest_time) < geqrf_time)
-            {
-                printf("With Householder restoration: %23.2f times faster than GEQRF.\n",                     geqrf_time / (cholqrcp_time + rest_time));
+                printf("With space allocation + application: %3.2f times faster than GEQRF.\n\n", geqrf_full_time / chol_full_time);
             }
             else
             {
-                printf("With Householder restoration: %23.2f times slower than GEQRF.\n",                     (cholqrcp_time + rest_time) / geqrf_time);
-            }
-            if((cholqrcp_time + alloc_time + rest_time) < geqrf_time)
-            {
-                printf("With space allocation + Householder restoration: %3.2f times faster than GEQRF.\n\n", geqrf_time / (cholqrcp_time + alloc_time + rest_time));
-            }
-            else
-            {
-                printf("With space allocation + Householder restoration: %3.2f times slower than GEQRF.\n\n", (cholqrcp_time + alloc_time + rest_time) / geqrf_time);
+                printf("With space allocation + application: %3.2f times slower than GEQRF.\n\n", chol_full_time / geqrf_full_time);
             }
 
             /*CholQRCP vs GEQR*/
             if(cholqrcp_time < geqr_time)
             {
-                printf("Result: CholQRCP is %33.2f times faster than GEQR.\n",                               geqr_time / cholqrcp_time);
+                printf("Result: CholQRCP is %33.2f times faster than GEQR.\n",                          geqr_time / cholqrcp_time);
             }
             else
             {
-                printf("Result: CholQRCP is %33.2f times slower than GEQR.\n",                               cholqrcp_time / geqr_time);
+                printf("Result: CholQRCP is %33.2f times slower than GEQR.\n",                          cholqrcp_time / geqr_time);
             }
-            if((cholqrcp_time + alloc_time) < geqr_time)
+            if(chol_full_time < geqr_full_time)
             {
-            printf("With space allocation: %30.2f times faster than GEQR.\n",                                geqr_time / (cholqrcp_time + alloc_time));
-            }
-            else
-            {
-                printf("With space allocation: %30.2f times slower than GEQR.\n",                            (cholqrcp_time + alloc_time) / geqr_time);
-            }
-            if((cholqrcp_time + rest_time) < geqr_time)
-            {
-                printf("With Householder restoration: %23.2f times faster than GEQR.\n",                     geqr_time / (cholqrcp_time + rest_time));
+                printf("With space allocation + application: %3.2f times faster than GEQR.\n\n",  geqr_full_time / chol_full_time);
             }
             else
             {
-                printf("With Householder restoration: %23.2f times slower than GEQR.\n",                     (cholqrcp_time + rest_time) / geqr_time);
-            }
-            if((cholqrcp_time + alloc_time + rest_time) < geqr_time)
-            {
-                printf("With space allocation + Householder restoration: %3.2f times faster than GEQR.\n\n", geqr_time / (cholqrcp_time + alloc_time + rest_time));
-            }
-            else
-            {
-                printf("With space allocation + Householder restoration: %3.2f times slower than GEQR.\n\n", (cholqrcp_time + alloc_time + rest_time) / geqr_time);
+                printf("With space allocation + application: %3.2f times slower than GEQR.\n\n",  chol_full_time / geqr_full_time);
             }
 
             printf("\n/---------------------------------------QR TIMING INFO END---------------------------------------/\n\n");
@@ -222,17 +160,22 @@ test_speed_helper(int64_t m,
     std::vector<T> A_2(size, 0.0);
     std::vector<T> A_3(size, 0.0);
     std::vector<T> A_4(size, 0.0);
+
+    std::vector<T> B_1(m * m, 0.0);
+    std::vector<T> B_2(m * m, 0.0);
+    std::vector<T> B_3(m * m, 0.0);
+    std::vector<T> B_4(m * m, 0.0);
     
     std::vector<T> R_1;
-    std::vector<int64_t> J_1(n, 0);
-    std::vector<T> D_1(n, 0.0);
-    std::vector<T> T_1(n * n, 0.0);
+    std::vector<int64_t> J_1;
+    std::vector<T> Res_1;
 
-    std::vector<int64_t> J_2(n, 0.0);
-    std::vector<T> tau_2(n, 0);
+    std::vector<int64_t> J_2;
+    std::vector<T> tau_2;
+
+    std::vector<T> t_3;
 
     std::vector<T> R_3(n * n, 0);
-    std::vector<T> t_3(5, 0);
     std::vector<T> tau_3(n, 0);
     std::vector<int64_t> J_3(n, 0);
 
@@ -246,6 +189,14 @@ test_speed_helper(int64_t m,
     std::copy(A_1.data(), A_1.data() + size, A_3.data());
     std::copy(A_1.data(), A_1.data() + size, A_4.data());
 
+    // Generate random matrix that we will apply Q to
+    gen_mat_type<T>(m, m, B_1, m, seed + 1, mat_type);
+
+    // Make copies
+    std::copy(B_1.data(), B_1.data() + m * m, B_2.data());
+    std::copy(B_1.data(), B_1.data() + m * m, B_3.data());
+    std::copy(B_1.data(), B_1.data() + m * m, B_4.data());
+
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
@@ -253,9 +204,11 @@ test_speed_helper(int64_t m,
     CholQRCP<T> CholQRCP(false, log_times, seed, tol, use_cholqrcp1);
     CholQRCP.nnz = nnz;
     CholQRCP.num_threads = num_threads;
-    // Upsizing buffers
 
-    auto start_alloc = high_resolution_clock::now();
+    /*TEST POINT 1 BEGIN*******************************************************************************************************************************************/
+    
+    // Pre-allocation for CholQRCP
+    auto start_alloc1 = high_resolution_clock::now();
     if(log_times)
     {
         (CholQRCP.times).resize(10);
@@ -266,8 +219,9 @@ test_speed_helper(int64_t m,
     upsize(n * n, (CholQRCP.R_sp));
     upsize(n * n, R_1);
     upsize(n * n, (CholQRCP.R_buf));
-    auto stop_alloc = high_resolution_clock::now();
-    long dur_alloc = duration_cast<microseconds>(stop_alloc - start_alloc).count();
+    upsize(m * m, Res_1);
+    auto stop_alloc1 = high_resolution_clock::now();
+    long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
@@ -302,17 +256,48 @@ test_speed_helper(int64_t m,
         printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
     }
 
-    // Householder reflectors restoring
-    auto start_rest = high_resolution_clock::now();
-    orhr_col(m, n, n, A_1.data(), m, T_1.data(), n, D_1.data());
-    auto stop_rest = high_resolution_clock::now();
-    long dur_rest = duration_cast<microseconds>(stop_rest - start_rest).count();
+    // Apply Q_1
+    auto start_appl1 = high_resolution_clock::now();
+    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, B_1.data(), m, A_1.data(), m, 0.0, Res_1.data(), m);
+    auto stop_appl1 = high_resolution_clock::now();
+    long dur_appl1 = duration_cast<microseconds>(start_appl1 - start_appl1).count();
+
+    /*TEST POINT 1 END*********************************************************************************************************************************************/
+
+    // Pre-allocation for GEQP3
+    auto start_alloc2 = high_resolution_clock::now();
+    upsize(n, tau_2);
+    J_2.resize(n);
+    auto stop_alloc2 = high_resolution_clock::now();
+    long dur_alloc2 = duration_cast<microseconds>(start_alloc2 - start_alloc2).count();
 
     // GEQP3
     auto start_geqp3 = high_resolution_clock::now();
     geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
     auto stop_geqp3 = high_resolution_clock::now();
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
+
+    // Apply Q_2
+    auto start_appl2 = high_resolution_clock::now();
+    ormqr(Side::Right, Op::NoTrans, m, n, n, A_2.data(), m, tau_2.data(), B_2.data(), m);
+    auto stop_appl2 = high_resolution_clock::now();
+    long dur_appl2 = duration_cast<microseconds>(start_appl2 - start_appl2).count();
+
+    /*TEST POINT 2 END*********************************************************************************************************************************************/
+
+    // Pre-allocation for GEQR
+    auto start_alloc3 = high_resolution_clock::now();
+    upsize(5, t_3);
+    auto stop_alloc3 = high_resolution_clock::now();
+    long dur_alloc3 = duration_cast<microseconds>(start_alloc3 - start_alloc3).count();
+
+    // Pre-allocation for GEQP3
+    auto start_alloc4 = high_resolution_clock::now();
+    upsize(n * n, R_3);
+    upsize(n, tau_3);
+    J_3.resize(n);
+    auto stop_alloc4 = high_resolution_clock::now();
+    long dur_alloc4 = duration_cast<microseconds>(start_alloc4 - start_alloc4).count();
 
     // GEQR + GEQP3
     auto start_tsqrp = high_resolution_clock::now();
@@ -333,13 +318,45 @@ test_speed_helper(int64_t m,
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
 
+    // Apply Q_3
+    auto start_appl3 = high_resolution_clock::now();
+    ormqr(Side::Right, Op::NoTrans, m, n, n, A_3.data(), m, t_3.data(), B_3.data(), m);
+    auto stop_appl3 = high_resolution_clock::now();
+    long dur_appl3 = duration_cast<microseconds>(start_appl3 - start_appl3).count();
+
+    // Apply Q_4
+    auto start_appl4 = high_resolution_clock::now();
+    ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_3.data(), B_4.data(), m);
+    auto stop_appl4 = high_resolution_clock::now();
+    long dur_appl4 = duration_cast<microseconds>(start_appl4 - start_appl4).count();
+
+    /*TEST POINT 3&4 END******************************************************************************************************************************************/
+
+    // Pre-allocation for GEQRF
+    auto start_alloc5 = high_resolution_clock::now();
+    upsize(n, tau_4);
+    auto stop_alloc5 = high_resolution_clock::now();
+    long dur_alloc5 = duration_cast<microseconds>(start_alloc5 - start_alloc5).count();
+
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
     geqrf(m, n, A_4.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
-    std::vector<long> res{dur_alloc, dur_cholqrcp, dur_rest, dur_geqp3, dur_geqrf, dur_geqr, dur_tsqrp}; 
+    // Apply Q_5
+    auto start_appl5 = high_resolution_clock::now();
+    ormqr(Side::Right, Op::NoTrans, m, n, n, A_4.data(), m, tau_4.data(), B_4.data(), m);
+    auto stop_appl5 = high_resolution_clock::now();
+    long dur_appl5 = duration_cast<microseconds>(start_appl5 - start_appl5).count();
+
+    /*TEST POINT 5 END*********************************************************************************************************************************************/
+
+    std::vector<long> res{dur_alloc1, dur_cholqrcp, dur_appl1, 
+                          dur_alloc2, dur_geqp3,    dur_appl2,
+                          dur_alloc3, dur_geqr,     dur_appl3,
+                          dur_alloc4, dur_tsqrp,    dur_appl4,
+                          dur_alloc5, dur_geqrf,    dur_appl5}; 
  
     return res;
 }
@@ -382,13 +399,21 @@ test_speed(int r_pow,
     int64_t rows = 0;
     int64_t cols = 0;
 
-    T alloc_total    = 0;
+    T alloc1_total   = 0;
     T cholqrcp_total = 0;
-    T rest_total     = 0;
+    T appl1_total    = 0;
+    T alloc2_total   = 0;
     T geqp3_total    = 0;
-    T geqrf_total    = 0;
+    T appl2_total    = 0;
+    T alloc3_total   = 0;
     T geqr_total     = 0;
+    T appl3_total    = 0;
+    T alloc4_total   = 0;
     T tsqrp_total    = 0;
+    T appl4_total    = 0;
+    T alloc5_total   = 0;
+    T geqrf_total    = 0;
+    T appl5_total    = 0;
 
     for(; r_pow <= r_pow_max; ++r_pow)
     {
@@ -398,21 +423,38 @@ test_speed(int r_pow,
         for (; cols <= col_max; cols *= 2)
         {
             std::vector<long> res;
-            long t_alloc    = 0;
-            long t_cholqrcp = 0;
-            long t_rest     = 0;
-            long t_geqp3    = 0;
-            long t_geqrf    = 0;
-            long t_geqr     = 0;
-            long t_tsqrp    = 0;
 
-            alloc_total    = 0;
+            long t_alloc1   = 0;
+            long t_cholqrcp = 0;
+            long t_appl1    = 0;
+            long t_alloc2   = 0;
+            long t_geqp3    = 0;
+            long t_appl2    = 0;
+            long t_alloc3   = 0;
+            long t_geqr     = 0;
+            long t_appl3    = 0;
+            long t_alloc4   = 0;
+            long t_tsqrp    = 0;
+            long t_appl4    = 0;
+            long t_alloc5   = 0;
+            long t_geqrf    = 0;
+            long t_appl5    = 0;
+
+            alloc1_total   = 0;
             cholqrcp_total = 0;
-            rest_total     = 0;
+            appl1_total    = 0;
+            alloc2_total   = 0;
             geqp3_total    = 0;
-            geqrf_total    = 0;
+            appl2_total    = 0;
+            alloc3_total   = 0;
             geqr_total     = 0;
+            appl3_total    = 0;
+            alloc4_total   = 0;
             tsqrp_total    = 0;
+            appl4_total    = 0;
+            alloc5_total   = 0;
+            geqrf_total    = 0;
+            appl5_total    = 0;
 
             for(int i = 0; i < runs; ++i)
             {
@@ -423,43 +465,99 @@ test_speed(int r_pow,
                 {
                     if(!test_type.compare("Mean"))
                     {
-                        t_alloc    += res[0];
-                        t_cholqrcp += res[1];
-                        t_rest     += res[2];
-                        t_geqp3    += res[3];
-                        t_geqrf    += res[4];
-                        t_geqr     += res[5];
-                        t_tsqrp    += res[6];
+                        t_alloc1   = res[0];
+                        t_cholqrcp = res[1];
+                        t_appl1    = res[2];
+                        t_alloc2   = res[3];
+                        t_geqp3    = res[4];
+                        t_appl2    = res[5];
+                        t_alloc3   = res[6];
+                        t_geqr     = res[7];
+                        t_appl3    = res[8];
+                        t_alloc4   = res[9];
+                        t_tsqrp    = res[10];
+                        t_appl4    = res[11];
+                        t_alloc5   = res[12];
+                        t_geqrf    = res[13];
+                        t_appl5    = res[14];
                     }
                     else
                     {
-                        if(alloc_total > res[0] || alloc_total == 0)
+                        alloc1_total   = 0;
+                        cholqrcp_total = 0;
+                        appl1_total    = 0;
+                        alloc2_total   = 0;
+                        geqp3_total    = 0;
+                        appl2_total    = 0;
+                        alloc3_total   = 0;
+                        geqr_total     = 0;
+                        appl3_total    = 0;
+                        alloc4_total   = 0;
+                        tsqrp_total    = 0;
+                        appl4_total    = 0;
+                        alloc5_total   = 0;
+                        geqrf_total    = 0;
+                        appl5_total    = 0;
+
+                        if(alloc1_total > res[0] || alloc1_total == 0)
                         {
-                            alloc_total = res[0];
+                            alloc1_total = res[0];
                         }
                         if(cholqrcp_total > res[1] || cholqrcp_total == 0)
                         {
                             cholqrcp_total = res[1];
                         }
-                        if(rest_total > res[2] || rest_total == 0)
+                        if(appl1_total > res[2] || appl1_total == 0)
                         {
-                            rest_total = res[2];
+                            appl1_total = res[2];
                         }
-                        if(geqp3_total > res[3] || geqp3_total == 0)
+                        if(alloc2_total > res[3] || alloc2_total == 0)
                         {
-                            geqp3_total = res[3];
+                            alloc2_total = res[3];
                         }
-                        if(geqrf_total > res[4] || geqrf_total == 0)
+                        if(geqp3_total > res[4] || geqp3_total == 0)
                         {
-                            geqrf_total = res[4];
+                            geqp3_total = res[4];
                         }
-                        if(geqr_total > res[5] || geqr_total == 0)
+                        if(appl2_total > res[5] || appl2_total == 0)
                         {
-                            geqr_total = res[5];
+                            appl2_total = res[5];
                         }
-                        if(tsqrp_total > res[6] || tsqrp_total == 0)
+                        if(alloc3_total > res[6] || alloc3_total == 0)
                         {
-                            tsqrp_total = res[6];
+                            alloc3_total = res[6];
+                        }
+                        if(geqr_total > res[7] || geqr_total == 0)
+                        {
+                            geqr_total = res[7];
+                        }
+                        if(appl3_total > res[8] || appl3_total == 0)
+                        {
+                            appl3_total = res[8];
+                        }
+                        if(alloc4_total > res[9] || alloc4_total == 0)
+                        {
+                            alloc4_total = res[9];
+                        }
+                        if(tsqrp_total > res[10] || tsqrp_total == 0)
+                        {
+                            tsqrp_total = res[10];
+                        }
+                        if(appl4_total > res[11] || appl4_total == 0)
+                        {
+                            appl4_total = res[11];
+                        }
+                        if(alloc5_total > res[12] || alloc5_total == 0)
+                        {
+                            alloc5_total = res[12];
+                        }
+                        if(geqrf_total > res[13] || geqrf_total == 0)
+                        {
+                            geqrf_total = res[13];
+                        }
+                        if(appl5_total > res[14] || appl5_total == 0)
+                        {
+                            appl5_total = res[14];
                         }
                     }
                 }
@@ -467,13 +565,21 @@ test_speed(int r_pow,
 
             if(!test_type.compare("Mean"))
             {
-                alloc_total    = (T)t_alloc    / (T)(runs - 1);
+                alloc1_total   = (T)t_alloc1   / (T)(runs - 1);
                 cholqrcp_total = (T)t_cholqrcp / (T)(runs - 1);
-                rest_total     = (T)t_rest     / (T)(runs - 1);
+                appl1_total    = (T)t_appl1    / (T)(runs - 1);
+                alloc2_total   = (T)t_alloc2   / (T)(runs - 1);
                 geqp3_total    = (T)t_geqp3    / (T)(runs - 1);
-                geqrf_total    = (T)t_geqrf    / (T)(runs - 1);
+                appl2_total    = (T)t_appl2    / (T)(runs - 1);
+                alloc3_total   = (T)t_alloc3   / (T)(runs - 1);
                 geqr_total     = (T)t_geqr     / (T)(runs - 1);
+                appl3_total    = (T)t_appl3    / (T)(runs - 1);
+                alloc4_total   = (T)t_alloc4   / (T)(runs - 1);
                 tsqrp_total    = (T)t_tsqrp    / (T)(runs - 1);
+                appl4_total    = (T)t_appl4    / (T)(runs - 1);
+                alloc5_total   = (T)t_alloc5   / (T)(runs - 1);
+                geqrf_total    = (T)t_geqrf    / (T)(runs - 1);
+                appl5_total    = (T)t_appl5    / (T)(runs - 1);
             }
 
             // Save the output into .dat file
@@ -488,17 +594,29 @@ test_speed(int r_pow,
                                                                                                       + "_runs_per_sz_"  + std::to_string(runs)
                                                                                                       + "_OMP_threads_"  + std::to_string(num_threads) 
                                                                                                       + ".dat", std::fstream::app);
-            file << cholqrcp_total                            << "  " 
-                 << geqp3_total                               << "  " 
-                 << tsqrp_total                               << "  " 
-                 << geqrf_total                               << "  " 
-                 << geqr_total                                << "  " 
-                 << cholqrcp_total + alloc_total              << "  " 
-                 << cholqrcp_total + rest_total               << "  "
-                 << cholqrcp_total + alloc_total + rest_total << "\n";
+            file << cholqrcp_total                              << "  " 
+                 << geqp3_total                                 << "  " 
+                 << geqr_total                                  << "  "
+                 << tsqrp_total                                 << "  " 
+                 << geqrf_total                                 << "  "  
+                 << cholqrcp_total + alloc1_total + appl1_total << "  " 
+                 << geqp3_total    + alloc2_total + appl2_total << "  " 
+                 << geqr_total     + alloc3_total + appl3_total << "  "
+                 << tsqrp_total    + alloc4_total + appl4_total << "  " 
+                 << geqrf_total    + alloc5_total + appl5_total << "\n";
 
-
-            print_info(rows, cols, d_multiplier, nnz, num_threads, alloc_total, cholqrcp_total, rest_total, geqp3_total, geqrf_total, geqr_total, tsqrp_total, test_type, runs);
+            print_info(rows, cols, d_multiplier, nnz, num_threads, 
+                        cholqrcp_total,
+                        geqp3_total,
+                        geqr_total,
+                        tsqrp_total,
+                        geqrf_total,  
+                        cholqrcp_total + alloc1_total + appl1_total, 
+                        geqp3_total    + alloc2_total + appl2_total, 
+                        geqr_total     + alloc3_total + appl3_total,
+                        tsqrp_total    + alloc4_total + appl4_total, 
+                        geqrf_total    + alloc5_total + appl5_total,
+                        test_type, runs);
         }
     }
     printf("\n/-----------------------------------------SPEED TEST STOP-----------------------------------------/\n\n");
@@ -507,14 +625,18 @@ test_speed(int r_pow,
 int main(int argc, char **argv){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
-    //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
+    test_speed<double>(13, 13, 2, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
+    test_speed<double>(13, 13, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
+    /*
+    test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
     test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
 
-    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
+    test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
     test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best");
 
-    //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean");
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
+    */
 
     return 0;
 }
