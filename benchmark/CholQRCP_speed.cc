@@ -175,11 +175,11 @@ test_speed_helper(int64_t m,
 
     std::vector<T> t_3;
 
-    std::vector<T> R_3(n * n, 0);
-    std::vector<T> tau_3(n, 0);
-    std::vector<int64_t> J_3(n, 0);
+    std::vector<T> R_3;
+    std::vector<T> tau_3;
+    std::vector<int64_t> J_3;
 
-    std::vector<T> tau_4(n, 0);
+    std::vector<T> tau_4;
 
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
