@@ -258,7 +258,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, B_1.data(), m, A_1.data(), m, 0.0, Res_1.data(), m);
+    //gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, B_1.data(), m, A_1.data(), m, 0.0, Res_1.data(), m);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(start_appl1 - start_appl1).count();
 
