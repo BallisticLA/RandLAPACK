@@ -221,7 +221,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
- /*   
+    
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
@@ -278,7 +278,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     auto start_appl2 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, n, m, n, A_2.data(), m, tau_2.data(), B_2.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_2.data(), m, tau_2.data(), B_2.data(), n);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(start_appl2 - start_appl2).count();
 
@@ -319,13 +319,13 @@ test_speed_helper(int64_t m,
 
     // Apply Q_3
     auto start_appl3 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, n, m, n, A_3.data(), m, t_3.data(), B_3.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_3.data(), m, t_3.data(), B_3.data(), n);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(start_appl3 - start_appl3).count();
 
     // Apply Q_4
     auto start_appl4 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_3.data(), B_4.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_3.data(), B_4.data(), n);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(start_appl4 - start_appl4).count();
 
@@ -345,7 +345,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_5
     auto start_appl5 = high_resolution_clock::now();
-    //ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_4.data(), B_4.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_4.data(), B_4.data(), n);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(start_appl5 - start_appl5).count();
 
@@ -356,13 +356,13 @@ test_speed_helper(int64_t m,
                           dur_alloc3, dur_geqr,     dur_appl3,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
-*/
+/*
    std::vector<long> res{0, 0, 0, 
                           0, 0,    0,
                           0, 0,     0,
                           0, 0,    0,
                           0, 0,    0}; 
-
+*/
     return res;
 }
 
