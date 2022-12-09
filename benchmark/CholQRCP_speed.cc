@@ -151,7 +151,7 @@ test_speed_helper(int64_t m,
                   std::tuple<int, T, bool> mat_type, 
                   uint32_t seed) 
 {
-    
+/*  
     using namespace blas;
     using namespace lapack;
 
@@ -183,7 +183,7 @@ test_speed_helper(int64_t m,
 
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
-/*
+
     // Make copies
     std::copy(A_1.data(), A_1.data() + size, A_2.data());
     std::copy(A_1.data(), A_1.data() + size, A_3.data());
