@@ -440,8 +440,8 @@ test_speed(int r_pow,
     {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Best"
-                                                                                         + "_m_"            + std::to_string(rows) 
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Best_m_"
+                                                                                                            + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                          + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                          + "_log10(tol)_"   + std::to_string(long(log10(tol)))
@@ -454,8 +454,8 @@ test_speed(int r_pow,
         ofs.close();
 
         std::ofstream ofs;
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Mean"
-                                                                                         + "_m_"            + std::to_string(rows) 
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Mean_m_"
+                                                                                                            + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                          + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                          + "_log10(tol)_"   + std::to_string(long(log10(tol)))
@@ -468,8 +468,8 @@ test_speed(int r_pow,
         ofs.close();
 
         std::ofstream ofs;
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw"
-                                                                                         + "_m_"            + std::to_string(rows) 
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw_m_"
+                                                                                                            + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                          + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                          + "_log10(tol)_"   + std::to_string(long(log10(tol)))
