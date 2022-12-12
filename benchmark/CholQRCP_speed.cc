@@ -144,6 +144,7 @@ log_info(int64_t rows,
            int64_t cols,
            T d_multiplier,
            T k_multiplier, 
+           T tol,
            int64_t nnz, 
            int64_t num_threads,
            std::tuple<int, T, bool> mat_type,
@@ -673,7 +674,7 @@ test_speed(int r_pow,
             geqrf_mean    = (T)t_geqrf    / (T)(runs - 1);
             appl5_mean    = (T)t_appl5    / (T)(runs - 1);
 
-            log_info(rows, cols, d_multiplier, k_multiplier, nnz, num_threads, mat_type, 
+            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      cholqrcp_mean,
                      geqp3_mean,
                      geqr_mean,
@@ -686,7 +687,7 @@ test_speed(int r_pow,
                      geqrf_mean    + alloc5_mean + appl5_mean,
                      "Best", runs);
 
-            log_info(rows, cols, d_multiplier, k_multiplier, nnz, num_threads, mat_type, 
+            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      cholqrcp_mean,
                      geqp3_mean,
                      geqr_mean,
