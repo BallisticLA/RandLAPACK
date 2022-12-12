@@ -566,8 +566,8 @@ test_speed(int r_pow,
                     t_appl5    = res[14];
 
                     // Log every run in the raw data file
-                    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw" 
-                                                                                                      + "_m_"            + std::to_string(rows) 
+                    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw_m_" 
+                                                                                                                         + std::to_string(rows) 
                                                                                                       + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                                       + "_k_multiplier_" + std::to_string(k_multiplier)
                                                                                                       + "_log10(tol)_"   + std::to_string(long(log10(tol)))
