@@ -453,7 +453,6 @@ test_speed(int r_pow,
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        std::ofstream ofs;
         ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Mean_m_"
                                                                                                             + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
@@ -467,7 +466,6 @@ test_speed(int r_pow,
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        std::ofstream ofs;
         ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw_m_"
                                                                                                             + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
@@ -708,14 +706,11 @@ int main(int argc, char **argv){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     
-    test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
-    test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best"); 
+    test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
-    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Mean"); 
-    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "Best");
+    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
     //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
-    //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
     return 0;
 }
