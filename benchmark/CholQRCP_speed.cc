@@ -162,42 +162,41 @@ log_info(int64_t rows,
            int runs)
 {
     // Save the output into .dat file
-            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type 
-                                                                                                      + "_m_"            + std::to_string(rows) 
-                                                                                                      + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                                      + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                                      + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                                      + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                                      + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                                      + "_nnz_"          + std::to_string(nnz)
-                                                                                                      + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                                      + "_OMP_threads_"  + std::to_string(num_threads) 
-                                                                                                      + ".dat", std::fstream::app);
-            file << cholqrcp_time   << "  " 
-                 << geqp3_time      << "  " 
-                 << geqr_time       << "  "
-                 << tsqrp_time      << "  " 
-                 << geqrf_time      << "  "  
-                 << chol_full_time  << "  " 
-                 << geqp3_full_time << "  " 
-                 << geqr_full_time  << "  "
-                 << tsqrp_full_time << "  " 
-                 << geqrf_full_time << "\n";
+    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type 
+                                                                                              + "_m_"            + std::to_string(rows) 
+                                                                                              + "_d_multiplier_" + std::to_string(d_multiplier)
+                                                                                              + "_k_multiplier_" + std::to_string(k_multiplier)
+                                                                                              + "_log10(tol)_"   + std::to_string(long(log10(tol)))
+                                                                                              + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                                                                              + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                                                                              + "_nnz_"          + std::to_string(nnz)
+                                                                                              + "_runs_per_sz_"  + std::to_string(runs)
+                                                                                              + "_OMP_threads_"  + std::to_string(num_threads) 
+                                                                                              + ".dat", std::fstream::app);
+    file << cholqrcp_time   << "  " 
+         << geqp3_time      << "  " 
+         << geqr_time       << "  "
+         << tsqrp_time      << "  " 
+         << geqrf_time      << "  "  
+         << chol_full_time  << "  " 
+         << geqp3_full_time << "  " 
+         << geqr_full_time  << "  "
+         << tsqrp_full_time << "  " 
+         << geqrf_full_time << "\n";
 
-            print_info(rows, cols, d_multiplier, nnz, num_threads, 
-                       cholqrcp_time,
-                       geqp3_time,
-                       geqr_time,
-                       tsqrp_time,
-                       geqrf_time,  
-                       chol_full_time, 
-                       geqp3_full_time, 
-                       geqr_full_time,
-                       tsqrp_full_time, 
-                       geqrf_full_time,
-                       test_type, runs);
+    print_info(rows, cols, d_multiplier, nnz, num_threads, 
+               cholqrcp_time,
+               geqp3_time,
+               geqr_time,
+               tsqrp_time,
+               geqrf_time,  
+               chol_full_time, 
+               geqp3_full_time, 
+               geqr_full_time,
+               tsqrp_full_time, 
+               geqrf_full_time,
+               test_type, runs);
 }
-
 
 template <typename T>
 static std::vector<long> 
