@@ -52,10 +52,12 @@ compute_and_log(
            T geqrf_full_time)
 {
 
-    T geqrf_gflop = ((2 * rows * std::pow(cols, 2)) - (2 / (3 * std::pow(cols, 3))) + (3 * rows * cols) - std::pow(cols, 2) + (14 / (3 * rows))) / 1e+9;
+    T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
 
-    T system_gflops  = geqrf_gflop   / (geqrf_time/ 1e+6);
+    T system_gflops  = geqrf_gflop / (geqrf_time / 1e+6);
 
+    printf("GEQRF time %f\n", geqrf_time);
+    printf("Mat size %ld, %ld\n", rows, cols);
     printf("SYSTEM GFLOPS %f\n", system_gflops);
 
     T cholqrcp_gflop = system_gflops * cholqrcp_time;
@@ -86,8 +88,8 @@ template <typename T>
 static void 
 process_dat()
 {
-    vector<string> test_type    = {"Best"};
-    vector<string> rows         = {"131072"};
+    vector<string> test_type    = {"Mean"};
+    vector<string> rows         = {"262144"};
     vector<string> d_multiplier = {"1.000000"};
     vector<string> k_multiplier = {"1.000000"};
     vector<string> log10tol     = {"-12"};
@@ -157,7 +159,7 @@ process_dat()
 
                                                 compute_and_log(test_type[i],
                                                                 numrows, 
-                                                                numrows / (256 / col_multiplier),
+                                                                numrows / (128 / col_multiplier),
                                                                 d_multiplier[k],
                                                                 k_multiplier[k], 
                                                                 log10tol[m],
