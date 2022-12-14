@@ -60,10 +60,16 @@ compute_and_log(
     printf("Mat size %ld, %ld\n", rows, cols);
     printf("SYSTEM GFLOPS %f\n\n", system_gflops);
 
-    T cholqrcp_gflop = system_gflops * cholqrcp_time;
-    T geqp3_gflop    = system_gflops * geqp3_time;
-    T geqr_gflop     = system_gflops * geqr_time;
-    T tsqrp_gflop    = system_gflops * tsqrp_time;
+    T cholqrcp_gflop = system_gflops * (cholqrcp_time / 1e+6);
+    T geqp3_gflop    = system_gflops * (geqp3_time / 1e+6);
+    T geqr_gflop     = system_gflops * (geqr_time / 1e+6);
+    T tsqrp_gflop    = system_gflops * (tsqrp_time / 1e+6);
+
+    printf("CholQRCP GFLOP %f\n", cholqrcp_gflop);
+    printf("GEQP3 GFLOP %f\n", geqp3_gflop);
+    printf("TSQRP GFLOP %f\n", tsqrp_gflop);
+    printf("GEQR GFLOP %f\n", geqr_gflop);
+    printf("GEQRF GFLOP %f\n\n", geqrf_gflop);
 
     /*
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_FLOPS_" + test_type 
@@ -90,7 +96,7 @@ static void
 process_dat()
 {
     vector<string> test_type    = {"Mean"};
-    vector<string> rows         = {"262144"};
+    vector<string> rows         = {"131072"};
     vector<string> d_multiplier = {"1.000000"};
     vector<string> k_multiplier = {"1.000000"};
     vector<string> log10tol     = {"-12"};
@@ -161,7 +167,7 @@ process_dat()
 
                                                 compute_and_log(test_type[i],
                                                                 numrows, 
-                                                                numrows / (128 / col_multiplier),
+                                                                numrows / (256 / col_multiplier),
                                                                 d_multiplier[k],
                                                                 k_multiplier[k], 
                                                                 log10tol[m],
