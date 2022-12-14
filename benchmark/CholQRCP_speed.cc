@@ -220,6 +220,9 @@ test_speed_helper(int64_t m,
     std::vector<T> A_4(size, 0.0);
 
     std::vector<T> B_1(n * m, 0.0);
+    //std::vector<T> B_2(n * m, 0.0);
+    //std::vector<T> B_3(n * m, 0.0);
+    //std::vector<T> B_4(n * m, 0.0);
     
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
@@ -235,7 +238,7 @@ test_speed_helper(int64_t m,
     std::vector<int64_t> J_3;
 
     std::vector<T> tau_4;
-    /*
+    
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
 
@@ -277,7 +280,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    
+    /*
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
