@@ -280,7 +280,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    /*
+    
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
@@ -336,8 +336,10 @@ test_speed_helper(int64_t m,
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
     // Apply Q_2
+    // Re-generate the random matrix
+    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
     auto start_appl2 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_2.data(), m, tau_2.data(), B_2.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_2.data(), m, tau_2.data(), B_1.data(), n);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
@@ -377,14 +379,18 @@ test_speed_helper(int64_t m,
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count();
 
     // Apply Q_3
+    // Re-generate the random matrix
+    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
     auto start_appl3 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_3.data(), m, t_3.data(), B_3.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_3.data(), m, t_3.data(), B_1.data(), n);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(stop_appl3 - start_appl3).count();
 
     // Apply Q_4
+    // Re-generate the random matrix
+    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
     auto start_appl4 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_3.data(), B_4.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_3.data(), B_1.data(), n);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(stop_appl4 - start_appl4).count();
 
@@ -403,8 +409,10 @@ test_speed_helper(int64_t m,
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
     // Apply Q_5
+    // Re-generate the random matrix
+    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
     auto start_appl5 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_4.data(), B_4.data(), n);
+    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_4.data(), B_1.data(), n);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(stop_appl5 - start_appl5).count();
 
@@ -415,7 +423,6 @@ test_speed_helper(int64_t m,
                           dur_alloc3, dur_geqr,     dur_appl3,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
-    */
 
     std::vector<long> res{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
     return res;
