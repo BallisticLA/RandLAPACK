@@ -424,7 +424,7 @@ test_speed_helper(int64_t m,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
 
-    std::vector<long> res{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
+    //std::vector<long> res{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
     return res;
 }
 
