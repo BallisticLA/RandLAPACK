@@ -214,12 +214,13 @@ test_speed_helper(int64_t m,
     using namespace lapack;
 
     int64_t size = m * n;
+    int64_t b_dim = 10;
     std::vector<T> A_1(size, 0.0);
     std::vector<T> A_2(size, 0.0);
     std::vector<T> A_3(size, 0.0);
     std::vector<T> A_4(size, 0.0);
 
-    std::vector<T> B_1(10 * m, 0.0);
+    std::vector<T> B_1(b_dim * m, 0.0);
     //std::vector<T> B_2(n * m, 0.0);
     //std::vector<T> B_3(n * m, 0.0);
     //std::vector<T> B_4(n * m, 0.0);
@@ -227,7 +228,7 @@ test_speed_helper(int64_t m,
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
     std::vector<T> Res_1;
-    upsize(10 * n, Res_1);
+    upsize(b_dim * n, Res_1);
 
     std::vector<int64_t> J_2;
     std::vector<T> tau_2;
@@ -249,7 +250,7 @@ test_speed_helper(int64_t m,
     std::copy(A_1.data(), A_1.data() + size, A_4.data());
 
     // Generate random matrix that we will apply Q to
-    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
+    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
 
     // Make copies
     //std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
@@ -316,7 +317,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, 10, n, m, 1.0, B_1.data(), 10, A_1.data(), m, 0.0, Res_1.data(), 10);
+    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_1.data(), b_dim);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(stop_appl1 - start_appl1).count();
 
@@ -337,9 +338,9 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     // Re-generate the random matrix
-    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
+    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl2 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_2.data(), m, tau_2.data(), B_1.data(), 10);
+    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_2.data(), m, tau_2.data(), B_1.data(), b_dim);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
@@ -380,17 +381,17 @@ test_speed_helper(int64_t m,
 
     // Apply Q_3
     // Re-generate the random matrix
-    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
+    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl3 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_3.data(), m, t_3.data(), B_1.data(), 10);
+    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_3.data(), m, t_3.data(), B_1.data(), b_dim);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(stop_appl3 - start_appl3).count();
 
     // Apply Q_4
     // Re-generate the random matrix
-    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
+    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl4 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_4.data(), m, tau_3.data(), B_1.data(), 10);
+    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_4.data(), m, tau_3.data(), B_1.data(), b_dim);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(stop_appl4 - start_appl4).count();
 
@@ -410,9 +411,9 @@ test_speed_helper(int64_t m,
 
     // Apply Q_5
     // Re-generate the random matrix
-    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
+    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl5 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_4.data(), m, tau_4.data(), B_1.data(), 10);
+    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_4.data(), m, tau_4.data(), B_1.data(), b_dim);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(stop_appl5 - start_appl5).count();
 
