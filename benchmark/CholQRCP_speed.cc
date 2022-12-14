@@ -214,7 +214,7 @@ test_speed_helper(int64_t m,
     using namespace lapack;
 
     int64_t size = m * n;
-    int64_t b_dim = 10;
+    int64_t b_dim = n;
     std::vector<T> A_1(size, 0.0);
     std::vector<T> A_2(size, 0.0);
     std::vector<T> A_3(size, 0.0);
