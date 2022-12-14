@@ -220,9 +220,6 @@ test_speed_helper(int64_t m,
     std::vector<T> A_4(size, 0.0);
 
     std::vector<T> B_1(n * m, 0.0);
-    std::vector<T> B_2(n * m, 0.0);
-    std::vector<T> B_3(n * m, 0.0);
-    std::vector<T> B_4(n * m, 0.0);
     
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
