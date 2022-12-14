@@ -58,13 +58,14 @@ compute_and_log(
 
     printf("GEQRF time %f\n", geqrf_time);
     printf("Mat size %ld, %ld\n", rows, cols);
-    printf("SYSTEM GFLOPS %f\n", system_gflops);
+    printf("SYSTEM GFLOPS %f\n\n", system_gflops);
 
     T cholqrcp_gflop = system_gflops * cholqrcp_time;
     T geqp3_gflop    = system_gflops * geqp3_time;
     T geqr_gflop     = system_gflops * geqr_time;
     T tsqrp_gflop    = system_gflops * tsqrp_time;
 
+    /*
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_FLOPS_" + test_type 
                                                                                           + "_m_"            + std::to_string(rows) 
                                                                                           + "_d_multiplier_" + d_multiplier
@@ -81,7 +82,7 @@ compute_and_log(
          << geqr_gflop       << "  "
          << tsqrp_gflop      << "  " 
          << geqrf_gflop      << "\n";
-
+    */
 }
 
 template <typename T>
@@ -120,6 +121,7 @@ process_dat()
                                         for (int r = 0; r < num_threads.size(); ++r)
                                         {
                                             // Clear old flop file
+                                            /*
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_FLOPS_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
@@ -133,7 +135,7 @@ process_dat()
                                                                                                                                   + "_OMP_threads_"  + num_threads[r]
                                                                                                                                   + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
-
+                                            */
                                             // Open data file
                                             std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
@@ -155,7 +157,7 @@ process_dat()
                                                 std::istream_iterator<std::string> begin(ss);
                                                 std::istream_iterator<std::string> end;
                                                 std::vector<std::string> times_per_col_sz(begin, end);
-                                                std::copy(times_per_col_sz.begin(), times_per_col_sz.end(), std::ostream_iterator<std::string>(std::cout, "\n"));
+                                                //std::copy(times_per_col_sz.begin(), times_per_col_sz.end(), std::ostream_iterator<std::string>(std::cout, "\n"));
 
                                                 compute_and_log(test_type[i],
                                                                 numrows, 
