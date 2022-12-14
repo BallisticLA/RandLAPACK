@@ -219,7 +219,7 @@ test_speed_helper(int64_t m,
     std::vector<T> A_3(size, 0.0);
     std::vector<T> A_4(size, 0.0);
 
-    std::vector<T> B_1(n * m, 0.0);
+    std::vector<T> B_1(10 * m, 0.0);
     //std::vector<T> B_2(n * m, 0.0);
     //std::vector<T> B_3(n * m, 0.0);
     //std::vector<T> B_4(n * m, 0.0);
@@ -227,6 +227,7 @@ test_speed_helper(int64_t m,
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
     std::vector<T> Res_1;
+    upsize(10 * n, Res_1);
 
     std::vector<int64_t> J_2;
     std::vector<T> tau_2;
@@ -248,7 +249,7 @@ test_speed_helper(int64_t m,
     std::copy(A_1.data(), A_1.data() + size, A_4.data());
 
     // Generate random matrix that we will apply Q to
-    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
+    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
 
     // Make copies
     //std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
@@ -277,7 +278,6 @@ test_speed_helper(int64_t m,
     upsize(n * n, (CholQRCP.R_sp));
     upsize(n * n, R_1);
     upsize(n * n, (CholQRCP.R_buf));
-    upsize(n * n, Res_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
@@ -316,7 +316,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, B_1.data(), n, A_1.data(), m, 0.0, Res_1.data(), n);
+    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, 10, n, m, 1.0, B_1.data(), 10, A_1.data(), m, 0.0, Res_1.data(), 10);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(stop_appl1 - start_appl1).count();
 
@@ -337,9 +337,9 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     // Re-generate the random matrix
-    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
+    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
     auto start_appl2 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_2.data(), m, tau_2.data(), B_1.data(), n);
+    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_2.data(), m, tau_2.data(), B_1.data(), 10);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
@@ -380,17 +380,17 @@ test_speed_helper(int64_t m,
 
     // Apply Q_3
     // Re-generate the random matrix
-    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
+    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
     auto start_appl3 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_3.data(), m, t_3.data(), B_1.data(), n);
+    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_3.data(), m, t_3.data(), B_1.data(), 10);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(stop_appl3 - start_appl3).count();
 
     // Apply Q_4
     // Re-generate the random matrix
-    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
+    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
     auto start_appl4 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_3.data(), B_1.data(), n);
+    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_4.data(), m, tau_3.data(), B_1.data(), 10);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(stop_appl4 - start_appl4).count();
 
@@ -410,9 +410,9 @@ test_speed_helper(int64_t m,
 
     // Apply Q_5
     // Re-generate the random matrix
-    gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
+    gen_mat_type<T>(10, m, B_1, 10, seed + 1, mat_type);
     auto start_appl5 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, n, m, n, A_4.data(), m, tau_4.data(), B_1.data(), n);
+    ormqr(Side::Right, Op::NoTrans, 10, m, 10, A_4.data(), m, tau_4.data(), B_1.data(), 10);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(stop_appl5 - start_appl5).count();
 
@@ -424,7 +424,6 @@ test_speed_helper(int64_t m,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
 
-    //std::vector<long> res{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
     return res;
 }
 
