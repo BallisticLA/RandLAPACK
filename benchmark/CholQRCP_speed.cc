@@ -251,9 +251,9 @@ test_speed_helper(int64_t m,
     gen_mat_type<T>(n, m, B_1, n, seed + 1, mat_type);
 
     // Make copies
-    std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
-    std::copy(B_1.data(), B_1.data() + n * m, B_3.data());
-    std::copy(B_1.data(), B_1.data() + n * m, B_4.data());
+    //std::copy(B_1.data(), B_1.data() + n * m, B_2.data());
+    //std::copy(B_1.data(), B_1.data() + n * m, B_3.data());
+    //std::copy(B_1.data(), B_1.data() + n * m, B_4.data());
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
