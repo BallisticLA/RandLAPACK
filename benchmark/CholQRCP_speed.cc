@@ -212,7 +212,7 @@ test_speed_helper(int64_t m,
 {
     using namespace blas;
     using namespace lapack;
-/*
+
     int64_t size = m * n;
     int64_t b_dim = 10;
     std::vector<T> A_1(size, 0.0);
@@ -281,7 +281,7 @@ test_speed_helper(int64_t m,
     upsize(n * n, (CholQRCP.R_buf));
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    
+/*    
     // CholQRCP
     auto start_cholqrcp = high_resolution_clock::now();
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
