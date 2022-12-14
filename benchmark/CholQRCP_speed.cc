@@ -238,7 +238,7 @@ test_speed_helper(int64_t m,
     std::vector<int64_t> J_3;
 
     std::vector<T> tau_4;
-
+    /*
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
 
@@ -415,7 +415,9 @@ test_speed_helper(int64_t m,
                           dur_alloc3, dur_geqr,     dur_appl3,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
+    */
 
+    std::vector<long> res{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
     return res;
 }
 
@@ -563,7 +565,7 @@ test_speed(int r_pow,
                     t_alloc5   += res[12];
                     t_geqrf    += res[13];
                     t_appl5    += res[14];
-
+                    /*
                     // Log every run in the raw data file
                     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw_m_" 
                                                                                                                          + std::to_string(rows) 
@@ -591,7 +593,7 @@ test_speed(int r_pow,
                          << res[12] << "  "
                          << res[13] << "  "
                          << res[14] << "\n";
-
+                    */
                     // For best timing
                     if(alloc1_best > res[0] || alloc1_best == 0)
                     {
@@ -672,7 +674,7 @@ test_speed(int r_pow,
             alloc5_mean   = (T)t_alloc5   / (T)(runs - 1);
             geqrf_mean    = (T)t_geqrf    / (T)(runs - 1);
             appl5_mean    = (T)t_appl5    / (T)(runs - 1);
-
+            /*
             log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      cholqrcp_best,
                      geqp3_best,
@@ -698,6 +700,7 @@ test_speed(int r_pow,
                      tsqrp_mean    + alloc4_mean + appl4_mean, 
                      geqrf_mean    + alloc5_mean + appl5_mean,
                      "Mean", runs);
+            */
         }
     }
     printf("\n/-----------------------------------------SPEED TEST STOP-----------------------------------------/\n\n");
