@@ -546,21 +546,21 @@ test_speed(int r_pow,
                 // Skip first iteration, as it tends to produce garbage results
                 if (i != 0)
                 {
-                    t_alloc1   = res[0];
-                    t_cholqrcp = res[1];
-                    t_appl1    = res[2];
-                    t_alloc2   = res[3];
-                    t_geqp3    = res[4];
-                    t_appl2    = res[5];
-                    t_alloc3   = res[6];
-                    t_geqr     = res[7];
-                    t_appl3    = res[8];
-                    t_alloc4   = res[9];
-                    t_tsqrp    = res[10];
-                    t_appl4    = res[11];
-                    t_alloc5   = res[12];
-                    t_geqrf    = res[13];
-                    t_appl5    = res[14];
+                    t_alloc1   += res[0];
+                    t_cholqrcp += res[1];
+                    t_appl1    += res[2];
+                    t_alloc2   += res[3];
+                    t_geqp3    += res[4];
+                    t_appl2    += res[5];
+                    t_alloc3   += res[6];
+                    t_geqr     += res[7];
+                    t_appl3    += res[8];
+                    t_alloc4   += res[9];
+                    t_tsqrp    += res[10];
+                    t_appl4    += res[11];
+                    t_alloc5   += res[12];
+                    t_geqrf    += res[13];
+                    t_appl5    += res[14];
 
                     // Log every run in the raw data file
                     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw_m_" 
@@ -574,21 +574,21 @@ test_speed(int r_pow,
                                                                                                       + "_runs_per_sz_"  + std::to_string(runs)
                                                                                                       + "_OMP_threads_"  + std::to_string(num_threads) 
                                                                                                       + ".dat", std::fstream::app);
-                    file << t_alloc1   << "  " 
-                         << t_cholqrcp << "  " 
-                         << t_appl1    << "  "
-                         << t_alloc2   << "  " 
-                         << t_geqp3    << "  "  
-                         << t_appl2    << "  " 
-                         << t_alloc3   << "  " 
-                         << t_geqr     << "  "
-                         << t_appl3    << "  " 
-                         << t_alloc4   << "  "
-                         << t_tsqrp    << "  " 
-                         << t_appl4    << "  " 
-                         << t_alloc5   << "  "
-                         << t_geqrf    << "  "
-                         << t_appl5    << "\n";
+                    file << res[0]  << "  " 
+                         << res[1]  << "  " 
+                         << res[2]  << "  "
+                         << res[3]  << "  " 
+                         << res[4]  << "  "  
+                         << res[5]  << "  " 
+                         << res[6]  << "  " 
+                         << res[7]  << "  "
+                         << res[8]  << "  " 
+                         << res[9]  << "  "
+                         << res[10] << "  " 
+                         << res[11] << "  " 
+                         << res[12] << "  "
+                         << res[13] << "  "
+                         << res[14] << "\n";
 
                     // For best timing
                     if(alloc1_best > res[0] || alloc1_best == 0)
@@ -705,13 +705,13 @@ int main(int argc, char **argv){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     
-    //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
+    test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
     //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
     //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 
-    test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+    //test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 
     return 0;
 }
