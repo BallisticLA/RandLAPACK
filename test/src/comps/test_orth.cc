@@ -88,7 +88,9 @@ class TestOrth : public ::testing::Test
         gen_mat_type<T>(m, n, A, k, seed, mat_type);
         
         // Fill the gaussian random matrix
-        RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, seed);
+        RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
+        auto state = RandBLAS::base::RNGState(seed, 0);
+        state = RandBLAS::dense::fill_buff<T>(Omega_dat, D, state);
         // Generate a reference identity
         eye<T>(k, k, I_ref);  
         
