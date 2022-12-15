@@ -1,5 +1,6 @@
 set(RandLAPACK_cxx_srcs
     comps/determiter.cc
+    comps/preconditioners.cc
     comps/qb.cc
     comps/rf.cc
     comps/rs.cc
