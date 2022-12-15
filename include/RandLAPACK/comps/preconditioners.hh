@@ -16,7 +16,7 @@ int64_t rpc_svd_sjlt(
     T mu,
     int64_t threads, // number of OpenMP threads to use in sketching.
     uint64_t seed_key,
-    uint64_t seed_ctr
+    uint32_t seed_ctr
 );
 
 }

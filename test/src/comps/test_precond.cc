@@ -13,9 +13,9 @@ class Test_rpc_svd_sjlt : public ::testing::Test
 {
 
     protected:
-        uint64_t m = 5000;
-        uint64_t n = 100;
-        uint64_t d = 300;
+        int64_t m = 5000;
+        int64_t n = 100;
+        int64_t d = 300;
         std::vector<uint64_t> keys = {42, 1};
         std::vector<uint64_t> vec_nnzs = {8, 10};
         double sqrt_cond = 1e5;
@@ -43,12 +43,19 @@ class Test_rpc_svd_sjlt : public ::testing::Test
         uint64_t a_seed = 99;
         int64_t k = vec_nnzs[nnz_index];
         uint64_t seed_key = keys[key_index];
-        uint64_t seed_ctr = 0;
+        uint32_t seed_ctr = 0;
         
         // construct "A" with cond(A) >= sqrt_cond^2.
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
-        RandBLAS::dense_op::gen_rmat_unif(m, n, a, (uint32_t) a_seed);        
+        RandBLAS::dense::DenseDist D{
+            .family = RandBLAS::dense::DenseDistName::Uniform,
+            .n_rows = m,
+            .n_cols = n
+        };
+        auto state = RandBLAS::base::RNGState(a_seed, 0);
+        auto next_a_state = RandBLAS::dense::fill_buff(a, D, state);
+               
         blas::scal(n, sqrt_cond, a, 1);
         double invscale = 1.0 / sqrt_cond;
         blas::scal(n, invscale, &a[n], 1);
@@ -105,12 +112,19 @@ class Test_rpc_svd_sjlt : public ::testing::Test
         uint64_t a_seed = 99;
         int64_t k = vec_nnzs[nnz_index];
         uint64_t seed_key = keys[key_index];
-        uint64_t seed_ctr = 0;
+        uint32_t seed_ctr = 0;
         
         // construct an ill-conditioned matrix, then zero out first column.
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
-        RandBLAS::dense_op::gen_rmat_unif(m, n, a, (uint32_t) a_seed);        
+        RandBLAS::dense::DenseDist D{
+            .family = RandBLAS::dense::DenseDistName::Uniform,
+            .n_rows = m,
+            .n_cols = n
+        };
+        auto state = RandBLAS::base::RNGState(a_seed, 0);
+        auto next_a_state = RandBLAS::dense::fill_buff(a, D, state);
+                      
         blas::scal(n, sqrt_cond, a, 1);
         double invscale = 1.0 / sqrt_cond;
         blas::scal(n, invscale, &a[n], 1);
