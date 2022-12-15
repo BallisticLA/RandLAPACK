@@ -48,6 +48,7 @@ void diag(
     int64_t k, // size of s, < min(m, n)
     std::vector<T>& S // Assuming S is m by n
 ) {     
+    (void) n;
     using namespace blas;
     // size of s
     copy<T, T>(k, s.data(), 1, S.data(), m + 1);
@@ -128,7 +129,7 @@ T* upsize(
     int64_t target_sz,
     std::vector<T>& A
 ) {     
-    if (A.size() < target_sz)
+    if (A.size() < ((uint64_t)target_sz))
         A.resize(target_sz, 0);
 
     return A.data();
@@ -242,7 +243,6 @@ void gen_mat_type(
             // In the case below, sigma = 1 | 0.5
             printf("TEST MATRIX: A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n\n");
             std::vector<T> buf(n, 1.0);
-            T* buf_dat = buf.data();
             std::for_each(buf.begin() + (n / 2), buf.end(),
                 // Lambda expression begins
                 [](T& entry)
