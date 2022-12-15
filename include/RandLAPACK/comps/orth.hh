@@ -82,7 +82,11 @@ class Orth : public Stabilization<T> // TODO #1
                                         termination = HQR(m, k, Q, this->tau);
                                         break;
                                 case 2: 
+#if !defined(__APPLE__)
                                         termination = GEQR(m, k, Q, this->tvec);
+#else
+                                        throw(1);  // GEQR not available on macOS; must use HQR.
+#endif
                         }
                         return termination;
                 }
