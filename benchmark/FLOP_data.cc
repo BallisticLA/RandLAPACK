@@ -55,22 +55,22 @@ compute_and_log(
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
 
     T system_gflops  = geqrf_gflop / (geqrf_time / 1e+6);
-
-    printf("GEQRF time %f\n", geqrf_time);
-    printf("Mat size %ld, %ld\n", rows, cols);
-    printf("SYSTEM GFLOPS %f\n\n", system_gflops);
+    printf("\n/----------------------------------------FLOP ITER START----------------------------------------/\n");
+    printf("GEQRF time %12.1f\n",      geqrf_time);
+    printf("Mat size %12ld x %ld\n", rows, cols);
+    printf("SYSTEM GFLOPS %6.1f\n\n", system_gflops);
 
     T cholqrcp_gflop = system_gflops * (cholqrcp_time / 1e+6);
     T geqp3_gflop    = system_gflops * (geqp3_time / 1e+6);
     T geqr_gflop     = system_gflops * (geqr_time / 1e+6);
     T tsqrp_gflop    = system_gflops * (tsqrp_time / 1e+6);
 
-    printf("CholQRCP GFLOP %f\n", cholqrcp_gflop);
-    printf("GEQP3 GFLOP %f\n", geqp3_gflop);
-    printf("TSQRP GFLOP %f\n", tsqrp_gflop);
-    printf("GEQR GFLOP %f\n", geqr_gflop);
-    printf("GEQRF GFLOP %f\n\n", geqrf_gflop);
-
+    printf("CholQRCP GFLOP %12.1f\n",   cholqrcp_gflop);
+    printf("GEQP3 GFLOP    %12.1f\n",   geqp3_gflop);
+    printf("TSQRP GFLOP    %12.1f\n",   tsqrp_gflop);
+    printf("GEQR GFLOP     %12.1f\n",   geqr_gflop);
+    printf("GEQRF GFLOP    %12.1f\n", geqrf_gflop);
+    printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
     /*
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_FLOPS_" + test_type 
                                                                                           + "_m_"            + std::to_string(rows) 
@@ -96,7 +96,7 @@ static void
 process_dat()
 {
     vector<string> test_type    = {"Mean"};
-    vector<string> rows         = {"131072"};
+    vector<string> rows         = {"131072"}; // {"262144"};
     vector<string> d_multiplier = {"1.000000"};
     vector<string> k_multiplier = {"1.000000"};
     vector<string> log10tol     = {"-12"};
@@ -157,6 +157,7 @@ process_dat()
                                             
                                             int64_t numrows = stoi(rows[j]);
                                             int col_multiplier = 1;
+                                            int start_col_ratio = 256;
                                             for( std::string l; getline(file, l);)
                                             {
                                                 std::stringstream ss(l);
@@ -167,7 +168,8 @@ process_dat()
 
                                                 compute_and_log(test_type[i],
                                                                 numrows, 
-                                                                numrows / (256 / col_multiplier),
+                                                                numrows / (start_col_ratio / col_multiplier),
+                                                                //numrows / (128 / col_multiplier),
                                                                 d_multiplier[k],
                                                                 k_multiplier[k], 
                                                                 log10tol[m],
