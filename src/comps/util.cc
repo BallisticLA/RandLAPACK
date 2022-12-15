@@ -217,10 +217,8 @@ void gen_mat_type(
             printf("TEST MATRIX: A = [A A]\n");
             RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
             auto next_state = RandBLAS::dense::fill_buff<T>(A_dat, D, state);
-            //RandBLAS::dense_op::gen_rmat_norm<T>(m, k, A_dat, seed);
-            if (2 * k <= n)
-            {
-            copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
+            if (2 * k <= n) {
+                copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
             }
             break;
         }
@@ -233,9 +231,8 @@ void gen_mat_type(
             // Random diagonal A of rank k
             printf("TEST MATRIX: RANDOM DIAGONAL\n");
             std::vector<T> buf(k, 0.0);
-            auto D = RandBLAS::dense::DenseDist{.n_rows = k, .n_cols = 1};
+            RandBLAS::dense::DenseDist D{.n_rows = k, .n_cols = 1};
             auto next_state = RandBLAS::dense::fill_buff<T>(buf.data(), D, state);
-            //RandBLAS::dense_op::gen_rmat_norm<T>(k, 1, buf.data(), seed);
             // Fills the first k diagonal elements
             diag<T>(m, n, buf, k, A);
             break;
@@ -416,8 +413,6 @@ void gen_mat(
     RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = k};
     state = RandBLAS::dense::fill_buff<T>(U_dat, DU, state);
     state = RandBLAS::dense::fill_buff<T>(V_dat, DV, state);
-    //RandBLAS::dense_op::gen_rmat_norm<T>(m, k, U_dat, seed);
-    //RandBLAS::dense_op::gen_rmat_norm<T>(n, k, V_dat, ++seed);
 
     geqrf(m, k, U_dat, m, tau_dat);
     ungqr(m, k, k, U_dat, m, tau_dat);

@@ -33,16 +33,12 @@ void RS<T>::rs1(
 	{
 		// Fill n by k Omega
 		RandBLAS::dense::DenseDist  D{.n_rows = n, .n_cols = k};
-		//auto Omega_op = RandBLAS::dense::DenseSkOp<T>(D, state, Omega_dat, false);
-		//RandBLAS::dense_op::gen_rmat_norm<T>(n, k, Omega_dat, seed);
 		auto next_state = RandBLAS::dense::fill_buff<T>(Omega_dat, D, state);
 	}
 	else
 	{
 		// Fill m by k Omega_1
-		//RandBLAS::dense_op::gen_rmat_norm<T>(m, k, Omega_1_dat, seed);
 		RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
-		//auto Omega_op = RandBLAS::dense::DenseSkOp<T>(D, state, Omega_dat, false);
 		auto next_state = RandBLAS::dense::fill_buff<T>(Omega_1_dat, D, state);
 
 		// multiply A' by Omega results in n by k omega
