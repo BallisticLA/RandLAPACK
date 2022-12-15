@@ -3,6 +3,9 @@ TODO #1: only store the upper triangle of the gram matrix in gram_vec,
 so that it can be of size k*(k+1)/2 instead of k*k.
 */
 
+#include <cstdint>
+#include <vector>
+
 #include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
@@ -84,6 +87,7 @@ int Orth<T>::HQR(
         return 0;
 }
 
+#if !defined(__APPLE__)
 // GEQR lacks "unpacking" of Q
 template <typename T> 
 int Orth<T>::GEQR(
@@ -106,6 +110,7 @@ int Orth<T>::GEQR(
 
         return 0;
 }
+#endif
 
 template int Orth<float>::CholQR(int64_t m, int64_t k, std::vector<float>& Q);
 template int Orth<double>::CholQR(int64_t m, int64_t k, std::vector<double>& Q);
@@ -116,6 +121,8 @@ template int Stab<double>::PLU(int64_t m, int64_t n, std::vector<double>& A, std
 template int Orth<float>::HQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
 template int Orth<double>::HQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
 
+#if !defined(__APPLE__)
 template int Orth<float>::GEQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
 template int Orth<double>::GEQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
+#endif
 } // end namespace orth
