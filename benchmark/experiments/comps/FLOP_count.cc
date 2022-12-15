@@ -44,8 +44,13 @@ class BenchmarkUtil : public ::testing::Test
             T* B_dat = B.data();
             T* C_dat = C.data();
 
-            RandBLAS::dense_op::gen_rmat_norm<T>(k, k, A_dat, ++seed);
-            RandBLAS::dense_op::gen_rmat_norm<T>(k, k, B_dat, ++seed);
+            //RandBLAS::dense_op::gen_rmat_norm<T>(k, k, A_dat, ++seed);
+            //RandBLAS::dense_op::gen_rmat_norm<T>(k, k, B_dat, ++seed);
+
+            RandBLAS::dense::DenseDist D {.n_rows = k, .n_cols = k};
+            auto state = RandBLAS::base::RNGState(seed, 0);
+            state = RandBLAS::dense::fill_buff<T>(A_dat, D, state);
+            state = RandBLAS::dense::fill_buff<T>(B_dat, D, state);
 
             // Get the timing
             auto start = high_resolution_clock::now();

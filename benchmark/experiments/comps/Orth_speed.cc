@@ -50,7 +50,11 @@ class BenchmarkOrth : public ::testing::Test
         T* A_cpy_3_dat = A_cpy_3.data();
 
         // Random Gaussian test matrix
-        RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A_dat, seed);
+        //RandBLAS::dense::gen_rmat_norm<T>(m, n, A_dat, seed);
+        RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = n};
+        auto state = RandBLAS::base::RNGState(seed, 0);
+        RandBLAS::dense::fill_buff<T>(A_dat, D, state);
+        
         // Make a copy
         std::copy(A_dat, A_dat + size, A_cpy_dat);
         std::copy(A_dat, A_dat + size, A_cpy_2_dat);
