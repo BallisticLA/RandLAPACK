@@ -82,18 +82,8 @@ int64_t rpc_svd_sjlt(
     auto state = RandBLAS::base::RNGState(seed_key, seed_ctr);
     auto S = RandBLAS::sparse::SparseSkOp<T>(D, state);
     auto next_state = RandBLAS::sparse::fill_saso<T>(S);
-    // struct RandBLAS::sjlts::SJLT sjl;
-    // sjl.ori = RandBLAS::sjlts::ColumnWise;
-    // sjl.n_rows = (uint64_t) d;
-    // sjl.n_cols = (uint64_t) m;
-    // sjl.vec_nnz = (uint64_t) k;
-    // sjl.rows = new uint64_t[k * m];
-    // sjl.cols = new uint64_t[k * m];
-    // sjl.vals = new double[k * m];
-    // RandBLAS::sjlts::fill_colwise(sjl, seed_key, seed_ctr);
-    // seed_ctr = sjl.vec_nnz * sjl.n_cols;
 
-    // step 1.2: sektch the data matrix
+    // step 1.2: sketch the data matrix
     blas::scal(d*n, 0.0, buff_A_sk, 1);
     RandBLAS::sparse::lskges<T>(
         blas::Layout::RowMajor,
@@ -104,7 +94,6 @@ int64_t rpc_svd_sjlt(
         buff_A, n,
         0.0, buff_A_sk, n, threads
     );
-    //RandBLAS::sjlts::sketch_cscrow(sjl, n, buff_A, buff_A_sk, threads);
 
     // step 2: compute SVD of sketch
     //
