@@ -445,7 +445,7 @@ test_speed(int r_pow,
 {
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw
-    
+    /*
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
     {
         int rows = std::pow(2, r_buf);
@@ -489,7 +489,7 @@ test_speed(int r_pow,
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
-
+    */
     int64_t rows = 0;
     int64_t cols = 0;
 
@@ -722,7 +722,7 @@ int main(int argc, char **argv){
 
     //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 
-    test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+    test_speed<double>(18, 18, 8192, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 
     return 0;
 }
