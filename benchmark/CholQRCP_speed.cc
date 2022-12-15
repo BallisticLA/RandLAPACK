@@ -316,6 +316,7 @@ test_speed_helper(int64_t m,
     //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+
     // Pre-allocation for GEQP3
     auto start_alloc2 = high_resolution_clock::now();
     upsize(n, tau_2);
@@ -340,6 +341,7 @@ test_speed_helper(int64_t m,
     //-TEST POINT 2 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+
     // Pre-allocation for GEQR
     auto start_alloc3 = high_resolution_clock::now();
     upsize(5, t_3);
@@ -392,6 +394,7 @@ test_speed_helper(int64_t m,
     //-TEST POINT 3&4 END-------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+
     // Pre-allocation for GEQRF
     auto start_alloc5 = high_resolution_clock::now();
     upsize(n, tau_4);
@@ -440,7 +443,7 @@ test_speed(int r_pow,
 {
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw
-    /*
+    
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
     {
         int rows = std::pow(2, r_buf);
@@ -484,7 +487,7 @@ test_speed(int r_pow,
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
-    */
+    
     int64_t rows = 0;
     int64_t cols = 0;
 
@@ -711,13 +714,13 @@ int main(int argc, char **argv){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     
-    //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
+    test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
-    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
+    test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
-    //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 
-    test_speed<double>(18, 18, 8192, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+    //test_speed<double>(18, 18, 8192, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 
     return 0;
 }

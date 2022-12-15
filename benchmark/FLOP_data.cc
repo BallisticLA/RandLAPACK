@@ -71,8 +71,8 @@ compute_and_log(
     printf("GEQR GFLOP     %12.1f\n",   geqr_gflop);
     printf("GEQRF GFLOP    %12.1f\n", geqrf_gflop);
     printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
-    /*
-    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_FLOPS_" + test_type 
+    
+    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOPS_" + test_type 
                                                                                           + "_m_"            + std::to_string(rows) 
                                                                                           + "_d_multiplier_" + d_multiplier
                                                                                           + "_k_multiplier_" + k_multiplier
@@ -88,14 +88,13 @@ compute_and_log(
          << geqr_gflop       << "  "
          << tsqrp_gflop      << "  " 
          << geqrf_gflop      << "\n";
-    */
 }
 
 template <typename T>
 static void 
 process_dat()
 {
-    vector<string> test_type    = {"Mean"};
+    vector<string> test_type    = {"Best"};
     vector<string> rows         = {"131072"}; // {"262144"};
     vector<string> d_multiplier = {"1.000000"};
     vector<string> k_multiplier = {"1.000000"};
@@ -127,9 +126,9 @@ process_dat()
                                         for (int r = 0; r < num_threads.size(); ++r)
                                         {
                                             // Clear old flop file
-                                            /*
+                                            
                                             std::ofstream ofs;
-                                            ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_FLOPS_" + test_type[i] 
+                                            ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOPS_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
                                                                                                                                   + "_d_multiplier_" + d_multiplier[k]
                                                                                                                                   + "_k_multiplier_" + k_multiplier[l]
@@ -141,7 +140,7 @@ process_dat()
                                                                                                                                   + "_OMP_threads_"  + num_threads[r]
                                                                                                                                   + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
-                                            */
+                                            
                                             // Open data file
                                             std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
