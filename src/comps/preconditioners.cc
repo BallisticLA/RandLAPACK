@@ -143,7 +143,6 @@ int64_t rpc_svd_sjlt(
     return rank;
 }
 
-
 template int64_t rpc_svd_sjlt(
     int64_t m,
     int64_t n,
@@ -152,6 +151,19 @@ template int64_t rpc_svd_sjlt(
     std::vector<double>& A_rm,
     std::vector<double>& M_wk,
     double mu,
+    int64_t threads,
+    uint64_t seed_key,
+    uint32_t seed_ctr
+);
+
+template int64_t rpc_svd_sjlt(
+    int64_t m,
+    int64_t n,
+    int64_t d,
+    int64_t k,
+    std::vector<float>& A_rm,
+    std::vector<float>& M_wk,
+    float mu,
     int64_t threads,
     uint64_t seed_key,
     uint32_t seed_ctr

@@ -79,9 +79,8 @@ class Test_rpc_svd_sjlt : public ::testing::Test
         );
         
         // check the result
-        double reldtol = RELDTOL;
         EXPECT_EQ(rank, n);
-        double *ignore;
+        double *ignore = nullptr;
         std::vector<double> s(n, 0.0);
         lapack::gesvd(
             lapack::Job::NoVec,
@@ -155,9 +154,8 @@ class Test_rpc_svd_sjlt : public ::testing::Test
         }
         
         // check the result
-        double reldtol = RELDTOL;
         EXPECT_EQ(rank, n);
-        double *ignore;
+        double *ignore = nullptr;
         std::vector<double> s(n, 0.0);
         lapack::gesvd(
             lapack::Job::NoVec,
