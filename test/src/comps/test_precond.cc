@@ -233,39 +233,3 @@ TEST_F(Test_rpc_svd_sjlt, FullRankAfterReg)
     test_full_rank_after_reg(1, 0);
     test_full_rank_after_reg(1, 1);
 }
-
-class Test_rightsingvect_recovery : public ::testing::Test {
-
-    protected:
-        int64_t m = 5;
-        int64_t n = 3;  
-    
-    virtual void SetUp() {};
-
-    virtual void TearDown() {};
-
-    virtual void run() {
-        double *aug_mat = new double[m * n]{};
-        int64_t shift = m - n;
-        int i;
-        for (int i = 0; i < n; ++i) {
-            aug_mat[shift +  i*(m+1)] = ((double) i + 2);
-        }
-        i = 1;
-        aug_mat[shift +  i*(m+1)] = 0.5;
-        RandBLAS::util::print_colmaj(m, n, aug_mat, "Before SVD");
-        double* ignore;
-        std::vector<double> s(n, 0.0);
-        lapack::Job jobu = lapack::Job::NoVec;
-        lapack::Job jobvt = lapack::Job::OverwriteVec;
-        lapack::gesvd(jobu, jobvt, m, n, aug_mat, m, s.data(), ignore, 1, ignore, 1);
-        RandBLAS::util::print_colmaj(m, n, aug_mat, "After SVD");
-
-        // Next, transform the output
-    }
-}; 
-
-// TEST_F(Test_rightsingvect_recovery, FullRankAfterReg)
-// {
-//     run();
-// }
