@@ -11,7 +11,6 @@ include(rl_build_options)
 include(rl_version)
 
 # find dependencies
-find_package(blaspp REQUIRED)
 find_package(lapackpp REQUIRED)
 
 # configure RandBLAS subproject
