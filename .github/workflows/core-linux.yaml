@@ -1,10 +1,6 @@
 name: core-linux
 on:
-  push:
-    branches: [ main ]
   pull_request:
-    branches: [ main ]
-
   workflow_dispatch:
 
 jobs:
@@ -17,6 +13,10 @@ jobs:
         uses: webfactory/ssh-agent@v0.5.4
         with:
             ssh-private-key: ${{ secrets.PRIVATE_CLONE_SSH_KEY }}
+
+      - name: submodule update
+        run: |
+          git submodule update --init --recursive
 
       - name: configure OS
         run: |
@@ -44,28 +44,13 @@ jobs:
               ../blaspp
           make -j2 install
 
-      - name: install Random123  
+      - name: install Random123
         run: |
           cd ..
           git clone https://github.com/DEShawResearch/random123.git
           cd random123/
           make prefix=`pwd`/../random123-install install-include
-      
-      - name: install RandBLAS
-        run: |
-          cd ..
-          git clone ssh://git@github.com/BallisticLA/RandBLAS.git
-          mkdir RandBLAS-build
-          cd RandBLAS-build
-          cmake -DCMAKE_BUILD_TYPE=Debug \
-              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
-              -DRandom123_DIR=`pwd`/../random123-install/include \
-              -DCMAKE_INSTALL_PREFIX=`pwd`/../RandBLAS-install \
-              -DCMAKE_BINARY_DIR=`pwd` \
-              ../RandBLAS/
-          make -j2 install
-          ctest --output-on-failure
-          
+
       - name: install LAPACK++
         run: |
           cd ..
@@ -86,10 +71,10 @@ jobs:
           mkdir RandLAPACK-build
           cd RandLAPACK-build
           cmake -DCMAKE_BUILD_TYPE=Debug \
-              -DRandBLAS_DIR=`pwd`/../RandBLAS-install/lib/cmake \
+              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
+              -DRandom123_DIR=`pwd`/../random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
-              -DCMAKE_BINARY_DIR=`pwd` \
               `pwd`/../RandLAPACK
           make
           make install

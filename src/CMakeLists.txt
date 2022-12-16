@@ -1,29 +1,30 @@
 set(RandLAPACK_cxx_srcs
     comps/determiter.cc
+    comps/preconditioners.cc
     comps/qb.cc
     comps/rf.cc
     comps/rs.cc
     comps/util.cc
     comps/orth.cc
-    comps/preconditioners.cc
 )
 
 set(RandLAPACK_libs
-    RandLAPACK_RandBLAS
-    RandLAPACK_lapackpp
-    RandBLAS_blaspp
-    RandBLAS_Random123
-    RandBLAS_OpenMP
+    RandBLAS
+    lapackpp
+    blaspp
+    Random123
+    OpenMP::OpenMP_CXX
 )
 
 add_library(RandLAPACK ${RandLAPACK_cxx_srcs})
+target_compile_options(RandLAPACK PUBLIC -Wall -Wextra)
 
 target_include_directories(
     RandLAPACK PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include/RandLAPACK>
-    $<INSTALL_INTERFACE:include>
-    $<INSTALL_INTERFACE:include/RandLAPACK>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include/RandLAPACK>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK>
 )
 
 target_link_libraries(RandLAPACK PUBLIC ${RandLAPACK_libs})
@@ -36,7 +37,7 @@ install(
 install(
     TARGETS RandLAPACK
     EXPORT RandLAPACK
-    INCLUDES DESTINATION include/RandLAPACK
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )

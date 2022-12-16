@@ -52,7 +52,7 @@ int Stab<T>::PLU(
         using namespace lapack;
 
         // Not using utility bc vector of int
-        if(ipiv.size() < n) 
+        if(ipiv.size() < (uint64_t)n)
                 ipiv.resize(n);
 
         if(getrf(m, n, A.data(), m, ipiv.data()))

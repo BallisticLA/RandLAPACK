@@ -61,18 +61,16 @@ int64_t rpc_svd_sjlt(
     int64_t n,
     int64_t d,
     int64_t k,
-    std::vector<T>& A_rm,
-    std::vector<T>& M_wk,
+    const T *A_rm,
+    T *M_wk,
     T mu, 
     int64_t threads,
     uint64_t seed_key, 
     uint32_t seed_ctr
-){
-    T* buff_A = A_rm.data();
-    if (M_wk.size() < d*n)
-        throw std::invalid_argument("M_wk must be of size at least d*n.");
-    T* buff_A_sk = M_wk.data(); // interpret as row-major
-    
+) {
+    const T *buff_A = A_rm;
+    T *buff_A_sk = M_wk;
+
     // step 1.1: define the sketching operator
     RandBLAS::sparse::SparseDist D{
         .n_rows = d,
@@ -109,7 +107,7 @@ int64_t rpc_svd_sjlt(
     //      taking a basis "B" for the kernel of A_sk and checking if
     //      if A*B == 0 (up to some tolerance).   
     //
-    T* ignore;
+    T* ignore = nullptr;
     std::vector<T> s(n, 0.0);
     lapack::Job jobu = lapack::Job::OverwriteVec;
     lapack::Job jobvt = lapack::Job::NoVec;
@@ -135,7 +133,7 @@ int64_t rpc_svd_sjlt(
     }
     if (s[rank - 1] == 0.0)
         throw std::runtime_error("The rank of the regularized sketch must be at least one.");
-    T *buff_V = M_wk.data(); // interpret as column-major
+    T *buff_V = M_wk; // interpret as column-major
     for (int64_t i = 0; i < rank; ++i) {
         T scale = 1.0 / s[i];
         blas::scal(n, scale, &buff_V[i*n], 1);
@@ -144,14 +142,75 @@ int64_t rpc_svd_sjlt(
 }
 
 
+
+template <typename T>
+int64_t rpc_svd_sjlt(
+    int64_t m,
+    int64_t n,
+    int64_t d,
+    int64_t ki,
+    const std::vector<T>& A_rm,
+    std::vector<T>& M_wk,
+    T mu, 
+    int64_t threads,
+    uint64_t seed_key, 
+    uint32_t seed_ctr
+) {
+    if (M_wk.size() < ((uint64_t)d*n))
+        throw std::invalid_argument("M_wk must be of size at least d*n.");
+
+    return rpc_svd_sjlt(m, n, d, ki, A_rm.data(), M_wk.data(),
+                        mu, threads, seed_key, seed_ctr);
+}
+
+
 template int64_t rpc_svd_sjlt(
     int64_t m,
     int64_t n,
     int64_t d,
     int64_t k,
-    std::vector<double>& A_rm,
+    const double *A_rm,
+    double *M_wk,
+    double mu, 
+    int64_t threads,
+    uint64_t seed_key, 
+    uint32_t seed_ctr
+);
+
+template int64_t rpc_svd_sjlt(
+    int64_t m,
+    int64_t n,
+    int64_t d,
+    int64_t k,
+    const float *A_rm,
+    float *M_wk,
+    float mu, 
+    int64_t threads,
+    uint64_t seed_key, 
+    uint32_t seed_ctr
+);
+
+template int64_t rpc_svd_sjlt(
+    int64_t m,
+    int64_t n,
+    int64_t d,
+    int64_t k,
+    const std::vector<double>& A_rm,
     std::vector<double>& M_wk,
     double mu,
+    int64_t threads,
+    uint64_t seed_key,
+    uint32_t seed_ctr
+);
+
+template int64_t rpc_svd_sjlt(
+    int64_t m,
+    int64_t n,
+    int64_t d,
+    int64_t k,
+    const std::vector<float>& A_rm,
+    std::vector<float>& M_wk,
+    float mu,
     int64_t threads,
     uint64_t seed_key,
     uint32_t seed_ctr
