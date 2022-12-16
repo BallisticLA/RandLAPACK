@@ -7,23 +7,11 @@ set(RandLAPACK_VERSION_MINOR "@RandLAPACK_VERSION_MINOR@")
 set(RandLAPACK_VERSION_PATCH "@RandLAPACK_VERSION_PATCH@")
 set(RandLAPACK_VERSION_DEVEL "@RandLAPACK_VERSION_DEVEL@")
 
-# blas++
-if (NOT blaspp_DIR)
-    set(blaspp_DIR @blaspp_DIR@)
-endif()
-find_dependency(blaspp)
-
 # lapack++
 if (NOT lapackpp_DIR)
     set(lapackpp_DIR @lapackpp_DIR@)
 endif()
 find_dependency(lapackpp)
-
-# random123
-if (NOT Random123_DIR)
-    set(Random123_DIR @Random123_DIR@)
-endif()
-find_dependency(Random123)
 
 # randblas
 if (NOT RandBLAS_DIR)
