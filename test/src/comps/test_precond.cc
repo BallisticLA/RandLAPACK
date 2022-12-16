@@ -78,7 +78,8 @@ class Test_rpc_svd_sjlt : public ::testing::Test
 
     /*
      * Generate an ill-conditioned 5000-by-100 matrix "A," which we
-     * interpret as being stored in row-major format.
+     * interpret as being stored in either row-major or column-major
+     * format.
      * 
      * Use an SJLT to sketch A down to 300-by-100; process the sketch to
      * obtain an SVD-based preconditioner "M" in column-major format.
