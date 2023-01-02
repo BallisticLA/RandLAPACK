@@ -216,9 +216,6 @@ test_speed_helper(int64_t m,
     int64_t size = m * n;
     int64_t b_dim = 10;
     std::vector<T> A_1(size, 0.0);
-    //std::vector<T> A_2(size, 0.0);
-    //std::vector<T> A_3(size, 0.0);
-    //std::vector<T> A_4(size, 0.0);
 
     std::vector<T> B_1(b_dim * m, 0.0);
     
@@ -240,11 +237,6 @@ test_speed_helper(int64_t m,
     
     // Generate random matrix
     gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
-
-    // Make copies
-    //std::copy(A_1.data(), A_1.data() + size, A_2.data());
-    //std::copy(A_1.data(), A_1.data() + size, A_3.data());
-    //std::copy(A_1.data(), A_1.data() + size, A_4.data());
 
     // Generate random matrix that we will apply Q to
     gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
@@ -423,7 +415,6 @@ test_speed_helper(int64_t m,
                           dur_alloc4, dur_tsqrp,    dur_appl4,
                           dur_alloc5, dur_geqrf,    dur_appl5}; 
 
-//std::vector<long> res{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
     return res;
 }
 
@@ -716,9 +707,9 @@ int main(int argc, char **argv){
     
     test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
-    test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
+    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
 
-    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+    //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 
     //test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
 

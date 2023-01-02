@@ -54,8 +54,44 @@ compute_and_log(
 
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
 
-    T system_gflops  = geqrf_gflop / (geqrf_time / 1e+6);
     printf("\n/----------------------------------------FLOP ITER START----------------------------------------/\n");
+
+    // This version finds flop RATES, pretending that geqrf_gflop is the standard num flops
+    T geqrf_flop_rate    = geqrf_gflop / (geqrf_time / 1e+6);
+    T cholqrcp_flop_rate = geqrf_gflop / (cholqrcp_time / 1e+6);
+    T geqp3_flop_rate    = geqrf_gflop / (geqp3_time / 1e+6);
+    T geqr_flop_rate     = geqrf_gflop / (geqr_time / 1e+6);
+    T tsqrp_flop_rate    = geqrf_gflop / (tsqrp_time / 1e+6);
+
+    printf("CholQRCP GFLOP RATE %12.1f\n",   cholqrcp_flop_rate);
+    printf("GEQP3 GFLOP RATE    %12.1f\n",   geqp3_flop_rate);
+    printf("GEQR GFLOP RATE     %12.1f\n",   geqr_flop_rate);
+    printf("TSQRP GFLOP RATE    %12.1f\n",   tsqrp_flop_rate);
+    printf("GEQRF GFLOP RATE    %12.1f\n",   geqrf_flop_rate);
+
+    printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
+    
+    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type 
+                                                                                          + "_m_"            + std::to_string(rows) 
+                                                                                          + "_d_multiplier_" + d_multiplier
+                                                                                          + "_k_multiplier_" + k_multiplier
+                                                                                          + "_log10(tol)_"   + log10tol
+                                                                                          + "_mat_type_"     + mat_type
+                                                                                          + "_cond_"         + cond
+                                                                                          + "_nnz_"          + nnz
+                                                                                          + "_runs_per_sz_"  + runs
+                                                                                          + "_OMP_threads_"  + num_threads 
+                                                                                          + ".dat", std::fstream::app);
+    file << cholqrcp_flop_rate   << "  " 
+         << geqp3_flop_rate      << "  " 
+         << geqr_flop_rate       << "  "
+         << tsqrp_flop_rate      << "  " 
+         << geqrf_flop_rate      << "\n";
+
+    /*
+    // This finds how many FLOP each algorithm takes based on first computing system GFLOP
+
+    T system_gflops  = geqrf_gflop / (geqrf_time / 1e+6);
     printf("GEQRF time %12.1f\n",      geqrf_time);
     printf("Mat size %12ld x %ld\n", rows, cols);
     printf("SYSTEM GFLOPS %6.1f\n\n", system_gflops);
@@ -69,7 +105,8 @@ compute_and_log(
     printf("GEQP3 GFLOP    %12.1f\n",   geqp3_gflop);
     printf("TSQRP GFLOP    %12.1f\n",   tsqrp_gflop);
     printf("GEQR GFLOP     %12.1f\n",   geqr_gflop);
-    printf("GEQRF GFLOP    %12.1f\n", geqrf_gflop);
+    printf("GEQRF GFLOP    %12.1f\n",   geqrf_gflop);
+    
     printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
     
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOPS_" + test_type 
@@ -88,6 +125,7 @@ compute_and_log(
          << geqr_gflop       << "  "
          << tsqrp_gflop      << "  " 
          << geqrf_gflop      << "\n";
+    */
 }
 
 template <typename T>
@@ -125,8 +163,9 @@ process_dat()
                                     {
                                         for (int r = 0; r < num_threads.size(); ++r)
                                         {
+                                            printf("HERE\n");
                                             // Clear old flop file
-                                            
+                                            /*
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOPS_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
@@ -140,9 +179,9 @@ process_dat()
                                                                                                                                   + "_OMP_threads_"  + num_threads[r]
                                                                                                                                   + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
-                                            
+                                            */
                                             // Open data file
-                                            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type[i] 
+                                            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
                                                                                                                                   + "_d_multiplier_" + d_multiplier[k]
                                                                                                                                   + "_k_multiplier_" + k_multiplier[l]
