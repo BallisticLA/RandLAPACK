@@ -165,9 +165,9 @@ process_dat()
                                         {
                                             printf("HERE\n");
                                             // Clear old flop file
-                                            /*
+                                            
                                             std::ofstream ofs;
-                                            ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOPS_" + test_type[i] 
+                                            ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
                                                                                                                                   + "_d_multiplier_" + d_multiplier[k]
                                                                                                                                   + "_k_multiplier_" + k_multiplier[l]
@@ -179,9 +179,9 @@ process_dat()
                                                                                                                                   + "_OMP_threads_"  + num_threads[r]
                                                                                                                                   + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
-                                            */
+                                            
                                             // Open data file
-                                            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_" + test_type[i] 
+                                            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
                                                                                                                                   + "_d_multiplier_" + d_multiplier[k]
                                                                                                                                   + "_k_multiplier_" + k_multiplier[l]
