@@ -235,6 +235,14 @@ int CholQRCP<T>::CholQRCP1(
 
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
+    //-------TIMING--------/
+    if(this -> timing)
+    {
+        cholqrcp_t_stop = high_resolution_clock::now();
+        cholqrcp_t_dur = duration_cast<microseconds>(cholqrcp_t_stop - cholqrcp_t_start).count();
+    }
+    //-------TIMING--------/
+
     // Get R
     // trmm
     trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);	
@@ -242,9 +250,6 @@ int CholQRCP<T>::CholQRCP1(
     //-------TIMING--------/
     if(this -> timing)
     {
-        cholqrcp_t_stop = high_resolution_clock::now();
-        cholqrcp_t_dur = duration_cast<microseconds>(cholqrcp_t_stop - cholqrcp_t_start).count();
-
         total_t_stop = high_resolution_clock::now();
         total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
