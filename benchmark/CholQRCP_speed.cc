@@ -162,7 +162,7 @@ log_info(int64_t rows,
            int runs)
 {
     // Save the output into .dat file
-    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type 
+    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_" + test_type 
                                                                                               + "_m_"            + std::to_string(rows) 
                                                                                               + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                               + "_k_multiplier_" + std::to_string(k_multiplier)
@@ -214,7 +214,7 @@ test_speed_helper(int64_t m,
     using namespace lapack;
 
     int64_t size = m * n;
-    int64_t b_dim = 10;
+    int64_t b_dim = n;
     std::vector<T> A_1(size, 0.0);
 
     std::vector<T> B_1(b_dim * m, 0.0);
@@ -439,7 +439,7 @@ test_speed(int r_pow,
     {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Best_m_"
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Best_m_"
                                                                                                             + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                          + "_k_multiplier_" + std::to_string(k_multiplier)
@@ -452,7 +452,7 @@ test_speed(int r_pow,
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Mean_m_"
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Mean_m_"
                                                                                                             + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                          + "_k_multiplier_" + std::to_string(k_multiplier)
@@ -465,7 +465,7 @@ test_speed(int r_pow,
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw_m_"
+        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Raw_m_"
                                                                                                             + std::to_string(rows) 
                                                                                          + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                          + "_k_multiplier_" + std::to_string(k_multiplier)
@@ -563,7 +563,7 @@ test_speed(int r_pow,
                     t_appl5    += res[14];
                     
                     // Log every run in the raw data file
-                    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_Raw_m_" 
+                    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Raw_m_" 
                                                                                                                          + std::to_string(rows) 
                                                                                                       + "_d_multiplier_" + std::to_string(d_multiplier)
                                                                                                       + "_k_multiplier_" + std::to_string(k_multiplier)
