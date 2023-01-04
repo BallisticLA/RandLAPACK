@@ -178,3 +178,28 @@ target_link_libraries(
     FLOP_data PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
 )
 
+set(
+    CholQRCP_inner_speed_cxx
+    CholQRCP_inner_speed.cc
+)
+add_executable(
+    CholQRCP_inner_speed ${CholQRCP_inner_speed_cxx}
+)
+target_compile_options(
+    CholQRCP_inner_speed PRIVATE "-g"
+)
+set(
+    RandLAPACK_include_dirs
+    ${RandLAPACK_DIR}/../../include
+    ${RandLAPACK_DIR}/../../include/RandLAPACK
+)
+target_include_directories(
+    CholQRCP_inner_speed PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+)
+set(
+    RandLAPACK_lib_file
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
+)
+target_link_libraries(
+    CholQRCP_inner_speed PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
+)

@@ -58,10 +58,10 @@ compute_and_log(
 
     // This version finds flop RATES, pretending that geqrf_gflop is the standard num flops
     T geqrf_flop_rate    = geqrf_gflop / (geqrf_time / 1e+6);
-    T cholqrcp_flop_rate = geqrf_gflop / (chol_full_time / 1e+6);
-    T geqp3_flop_rate    = geqrf_gflop / (geqp3_full_time / 1e+6);
-    T geqr_flop_rate     = geqrf_gflop / (geqr_full_time / 1e+6);
-    T tsqrp_flop_rate    = geqrf_gflop / (tsqrp_full_time / 1e+6);
+    T cholqrcp_flop_rate = geqrf_gflop / (cholqrcp_time / 1e+6);
+    T geqp3_flop_rate    = geqrf_gflop / (geqp3_time / 1e+6);
+    T geqr_flop_rate     = geqrf_gflop / (geqr_time / 1e+6);
+    T tsqrp_flop_rate    = geqrf_gflop / (tsqrp_time / 1e+6);
 
     printf("CholQRCP GFLOP RATE %12.1f\n",   cholqrcp_flop_rate);
     printf("GEQP3 GFLOP RATE    %12.1f\n",   geqp3_flop_rate);
@@ -181,7 +181,7 @@ process_dat()
                                             ofs.close();
                                             
                                             // Open data file
-                                            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_" + test_type[i] 
+                                            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
                                                                                                                                   + "_d_multiplier_" + d_multiplier[k]
                                                                                                                                   + "_k_multiplier_" + k_multiplier[l]
