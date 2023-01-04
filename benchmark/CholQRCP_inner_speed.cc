@@ -290,45 +290,20 @@ test_speed(int r_pow,
                          << res[9]  << "\n";
                     
                     // For best timing
-                    if(saso_best > res[0] || saso_best == 0)
-                    {
-                        saso_best = res[0];
-                    }
-                    if(qrcp_best > res[1] || qrcp_best == 0)
-                    {
-                        qrcp_best = res[1];
-                    }
-                    if(rank_reveal_best > res[2] || rank_reveal_best == 0)
-                    {
-                        rank_reveal_best = res[2];
-                    }
-                    if(cholqr_best > res[3] || cholqr_best == 0)
-                    {
-                        cholqr_best = res[3];
-                    }
-                    if(A_pivot_best > res[4] || A_pivot_best == 0)
-                    {
-                        A_pivot_best = res[4];
-                    }
-                    if(A_trsm_best > res[5] || A_trsm_best == 0)
-                    {
-                        A_trsm_best = res[5];
-                    }
-                    if(copy_best > res[6] || copy_best == 0)
-                    {
-                        copy_best = res[6];
-                    }
-                    if(resize_best > res[7] || resize_best == 0)
-                    {
-                        resize_best = res[7];
-                    }
-                    if(other_best > res[8] || other_best == 0)
-                    {
-                        other_best = res[8];
-                    }
                     if(total_best > res[9] || total_best == 0)
                     {
-                        total_best = res[9];
+                        saso_best        = res[0];
+                        qrcp_best        = res[1];
+                        qrcp_best        = res[1];
+                        rank_reveal_best = res[2];
+                        cholqr_best      = res[3];
+                        A_pivot_best     = res[4];
+                        A_trsm_best      = res[5];
+                        copy_best        = res[6];
+                        resize_best      = res[7];
+                        resize_best      = res[7];
+                        other_best       = res[8];
+                        total_best       = res[9];
                     }
                 }
             }
