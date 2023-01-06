@@ -163,9 +163,7 @@ process_dat()
                                     {
                                         for (int r = 0; r < num_threads.size(); ++r)
                                         {
-                                            printf("HERE\n");
-                                            // Clear old flop file
-                                            
+                                            // Clear old flop file   
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
