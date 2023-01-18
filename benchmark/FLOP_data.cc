@@ -87,45 +87,6 @@ compute_and_log(
          << geqr_flop_rate       << "  "
          << tsqrp_flop_rate      << "  " 
          << geqrf_flop_rate      << "\n";
-
-    /*
-    // This finds how many FLOP each algorithm takes based on first computing system GFLOP
-
-    T system_gflops  = geqrf_gflop / (geqrf_time / 1e+6);
-    printf("GEQRF time %12.1f\n",      geqrf_time);
-    printf("Mat size %12ld x %ld\n", rows, cols);
-    printf("SYSTEM GFLOPS %6.1f\n\n", system_gflops);
-
-    T cholqrcp_gflop = system_gflops * (cholqrcp_time / 1e+6);
-    T geqp3_gflop    = system_gflops * (geqp3_time / 1e+6);
-    T geqr_gflop     = system_gflops * (geqr_time / 1e+6);
-    T tsqrp_gflop    = system_gflops * (tsqrp_time / 1e+6);
-
-    printf("CholQRCP GFLOP %12.1f\n",   cholqrcp_gflop);
-    printf("GEQP3 GFLOP    %12.1f\n",   geqp3_gflop);
-    printf("TSQRP GFLOP    %12.1f\n",   tsqrp_gflop);
-    printf("GEQR GFLOP     %12.1f\n",   geqr_gflop);
-    printf("GEQRF GFLOP    %12.1f\n",   geqrf_gflop);
-    
-    printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
-    
-    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOPS_" + test_type 
-                                                                                          + "_m_"            + std::to_string(rows) 
-                                                                                          + "_d_multiplier_" + d_multiplier
-                                                                                          + "_k_multiplier_" + k_multiplier
-                                                                                          + "_log10(tol)_"   + log10tol
-                                                                                          + "_mat_type_"     + mat_type
-                                                                                          + "_cond_"         + cond
-                                                                                          + "_nnz_"          + nnz
-                                                                                          + "_runs_per_sz_"  + runs
-                                                                                          + "_OMP_threads_"  + num_threads 
-                                                                                          + ".dat", std::fstream::app);
-    file << cholqrcp_gflop   << "  " 
-         << geqp3_gflop      << "  " 
-         << geqr_gflop       << "  "
-         << tsqrp_gflop      << "  " 
-         << geqrf_gflop      << "\n";
-    */
 }
 
 template <typename T>

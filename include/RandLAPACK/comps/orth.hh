@@ -93,7 +93,7 @@ class Orth : public Stabilization<T>
                                 case use_HQRQ:
                                         termination = HQRQ(m, k, Q, this->tau);
                                         break;
-                                case 2: 
+                                case use_GEQR: 
 #if !defined(__APPLE__)
                                         termination = GEQR(m, k, Q, this->tvec);
 #else

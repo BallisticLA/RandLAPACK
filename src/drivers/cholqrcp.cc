@@ -1,6 +1,10 @@
+#include <cstdint>
+#include <vector>
+
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
+
 #include <chrono>
 
 using namespace RandLAPACK::comps::util;
@@ -93,27 +97,13 @@ int CholQRCP<T>::CholQRCP1(
     struct RandBLAS::sasos::SASO sas;
     sas.n_rows = d; // > n
     sas.n_cols = m;
-    sas.vec_nnz = this->nnz; // Arbitrary constant, Riley likes 8
+    sas.vec_nnz = this->nnz;
     sas.rows = new int64_t[sas.vec_nnz * m];
     sas.cols = new int64_t[sas.vec_nnz * m];
     sas.vals = new double[sas.vec_nnz * m];
     RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
 
     RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
-    
-
-    //std::copy(A.data(), A.data() + d * n, A_hat_dat);
-
-    /*
-    std::vector<T> S (d * m, 0.0);
-    std::vector<T> tau_buf (d, 0.0);
-    RandBLAS::dense_op::gen_rmat_norm<T>(m, d, S.data(), seed);
-
-    geqrf(m, d, S.data(), m, tau_buf.data());
-    ungqr(m, d, d, S.data(), m, tau_buf.data());
-
-    gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, d, n, m, 1.0, S.data(), m, A.data(), m, 0.0, A_hat_dat, d);
-    */
 
     //-------TIMING--------/
     if(this -> timing)

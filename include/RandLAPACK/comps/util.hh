@@ -5,6 +5,9 @@
 
 namespace RandLAPACK::comps::util {
 
+/*
+Generates an identity matrix.
+*/
 template <typename T>
 void eye(
         int64_t m,
@@ -24,6 +27,9 @@ void diag(
         std::vector<T>& S
 );
 
+/*
+Captyres k diagonal elements of A and stores them in buf.
+*/
 template <typename T> 
 void extract_diag(
         int64_t m,
@@ -46,6 +52,7 @@ void disp_diag(
 
 /*
 Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
+Overwrites the passed-in matrix.
 */
 template <typename T> 
 void get_L(
@@ -54,6 +61,9 @@ void get_L(
         std::vector<T>& L
 );
 
+/*
+Stores the upper-triangualr portion of A in U.
+*/
 template <typename T> 
 void get_U(
         int64_t m,
@@ -62,6 +72,10 @@ void get_U(
         std::vector<T>& U
 );
 
+
+/*
+Positions columns of A in accordance with idx vector of length k.
+*/
 template <typename T> 
 void col_swap(
         int64_t m,
@@ -80,6 +94,9 @@ T* upsize(
         std::vector<T>& A
 );
 
+/*
+Changes the number of rows of a column-major matrix.
+*/
 template <typename T> 
 T* row_resize(
         int64_t m,

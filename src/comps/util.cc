@@ -1,9 +1,3 @@
-/*
-TODO #1: Test get_L.
-
-TODO: Use laswap istead of pivot restoration
-*/
-
 #include <RandLAPACK/comps/util.hh>
 
 #include <iostream>
@@ -338,7 +332,6 @@ void gen_poly_mat(
         T cnt = 0.0;
         // apply lambda function to every entry of s       
         std::for_each(s.begin() + offset, s.end(),
-        //std::for_each(s.begin(), s.end(),
                 // Lambda expression begins
                 [&t, &cnt](T& entry)
                 {

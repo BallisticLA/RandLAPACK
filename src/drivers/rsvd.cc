@@ -1,3 +1,6 @@
+#include <cstdint>
+#include <vector>
+
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
