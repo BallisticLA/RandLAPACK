@@ -67,6 +67,7 @@ process_dat()
                                                                                           + "_m_"             + rows[j] 
                                                                                           + "_d_multiplier1_" + d_multiplier[k]
                                                                                           + "_d_multiplier2_" + std::to_string(2.000000)
+                                                                                          + "_d_multiplier3_" + std::to_string(4.000000)
                                                                                           + "_k_multiplier_"  + k_multiplier[l]
                                                                                           + "_log10(tol)_"    + log10tol[m]
                                                                                           + "_mat_type_"      + mat_type[n]
@@ -100,6 +101,17 @@ process_dat()
                                                                                                                                   + "_runs_per_sz_"  + runs[q]
                                                                                                                                   + "_OMP_threads_"  + num_threads[r]
                                                                                                                                   + ".dat");
+                                            std::fstream file3("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_inner_time_" + test_type[i] 
+                                                                                                                                  + "_m_"            + rows[j] 
+                                                                                                                                  + "_d_multiplier_" + std::to_string(4.000000)
+                                                                                                                                  + "_k_multiplier_" + k_multiplier[l]
+                                                                                                                                  + "_log10(tol)_"   + log10tol[m]
+                                                                                                                                  + "_mat_type_"     + mat_type[n]
+                                                                                                                                  + "_cond_"         + cond[o]
+                                                                                                                                  + "_nnz_"          + nnz[p]
+                                                                                                                                  + "_runs_per_sz_"  + runs[q]
+                                                                                                                                  + "_OMP_threads_"  + num_threads[r]
+                                                                                                                                  + ".dat");
                                             
                                             int64_t numrows = stoi(rows[j]);
                                             int col_multiplier = 1;
@@ -118,10 +130,18 @@ process_dat()
                                                 std::istream_iterator<std::string> end2;
                                                 std::vector<std::string> times_per_col_sz2(begin2, end2);
 
+                                                std::string l3;
+                                                getline(file3, l3);
+                                                std::stringstream ss3(l3);
+                                                std::istream_iterator<std::string> begin3(ss3);
+                                                std::istream_iterator<std::string> end3;
+                                                std::vector<std::string> times_per_col_sz3(begin3, end3);
+
                                                 std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQR_vs_GEQP3_" + test_type[i] 
                                                                                           + "_m_"             + rows[j] 
                                                                                           + "_d_multiplier1_" + d_multiplier[k]
                                                                                           + "_d_multiplier2_" + std::to_string(2.000000)
+                                                                                          + "_d_multiplier3_" + std::to_string(4.000000)
                                                                                           + "_k_multiplier_"  + k_multiplier[l]
                                                                                           + "_log10(tol)_"    + log10tol[m]
                                                                                           + "_mat_type_"      + mat_type[n]
@@ -131,7 +151,8 @@ process_dat()
                                                                                           + "_OMP_threads_"   + num_threads[r] 
                                                                                           + ".dat", std::fstream::app);
                                                 file << stod(times_per_col_sz1[1]) / (stod(times_per_col_sz1[1]) + stod(times_per_col_sz1[3])) << "  " 
-                                                     << stod(times_per_col_sz2[1]) / (stod(times_per_col_sz2[1]) + stod(times_per_col_sz2[3])) << "\n";
+                                                     << stod(times_per_col_sz2[1]) / (stod(times_per_col_sz2[1]) + stod(times_per_col_sz2[3])) << "  "
+                                                     << stod(times_per_col_sz3[1]) / (stod(times_per_col_sz3[1]) + stod(times_per_col_sz3[3])) << "\n";
 
                                                 col_multiplier *= 2;
                                             }
