@@ -43,7 +43,7 @@ that contains (or will contain) the ``RandLAPACK`` project directory as a subdir
 One can compile and install BLAS++ from
 [source](https://bitbucket.org/icl/blaspp/src/master/) using CMake by running
 ```shell
-git clone https://bitbucket.org/icl/blaspp.git
+git clone https://github.com/icl-utk-edu/blaspp.git
 mkdir blaspp-build
 cd blaspp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -57,7 +57,7 @@ make -j2 install
 One can compile and install LAPACK++ from
 [source](https://bitbucket.org/icl/lapackpp/src/master/) using CMake by running
 ```shell
-git clone https://bitbucket.org/icl/lapackpp.git
+git clone https://github.com/icl-utk-edu/lapackpp.git
 mkdir lapackpp-build
 cd lapackpp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
