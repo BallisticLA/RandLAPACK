@@ -93,7 +93,9 @@ int CholQRCP<T>::CholQRCP1(
     }
     //-------TIMING--------/
 
-    
+    /*
+    Old way of generating and applying SASO
+
     struct RandBLAS::sasos::SASO sas;
     sas.n_rows = d; // > n
     sas.n_cols = m;
@@ -104,6 +106,13 @@ int CholQRCP<T>::CholQRCP1(
     RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
 
     RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
+    */
+
+    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};        
+    RandBLAS::sparse::SparseSkOp<T> S(DS, this->seed, 0, NULL, NULL, NULL);        
+    RandBLAS::sparse::fill_sparse(S);
+
+    lskges(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans, d, n, m, 1.0, S, 0, 0, A_dat, m, 0.0, A_hat_dat, d);
 
     //-------TIMING--------/
     if(this -> timing)
