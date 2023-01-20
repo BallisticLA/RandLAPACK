@@ -263,7 +263,7 @@ int CholQRCP<T>::CholQRCP2(
     std::vector<T>& R,
     std::vector<int64_t>& J
 ){
-    /*
+    
     T* Q_dat       = upsize(m * n, Q);
     T* A_dat       = A.data();
     T* A_hat_dat   = upsize(d * n, this->A_hat);
@@ -296,6 +296,17 @@ int CholQRCP<T>::CholQRCP2(
 
         // A_hat = S * A
         RandBLAS::sasos::sketch_csccol(sjl, d, sz2, (double*) Q_dat, (double*) A_hat_dat);
+
+        struct RandBLAS::sasos::SASO sas;
+        sas.n_rows = d; // > n
+        sas.n_cols = m;
+        sas.vec_nnz = this->nnz;
+        sas.rows = new int64_t[sas.vec_nnz * m];
+        sas.cols = new int64_t[sas.vec_nnz * m];
+        sas.vals = new double[sas.vec_nnz * m];
+        RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
+
+        RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
 
         // At every iteration, size of J will be different
         geqp3(d, sz2, A_hat_dat, d, J_dat, tau_dat);

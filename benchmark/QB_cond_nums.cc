@@ -226,7 +226,7 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 // Testing with full-rank square diagonal matrices with polynomial decay of varying speed.
 // Will populate files with condition numbers of sketches
 // Running tests without the orthogonality loss check to ensure normal termination
-/*
+
 TEST_F(BenchmarkQB, PlotTest)
 {   
     //test_QB2_plot<double>(10, 10, 2, 2, 2, 2, 0, 2, true);
@@ -237,4 +237,3 @@ TEST_F(BenchmarkQB, PlotTest)
     // Fast decay
     test_QB2_plot<double>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true);
 }
-*/
