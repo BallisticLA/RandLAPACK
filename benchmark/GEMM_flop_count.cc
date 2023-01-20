@@ -39,8 +39,8 @@ test_flops(int k, uint32_t seed)
         T* B_dat = B.data();
         T* C_dat = C.data();
 
-        RandBLAS::dense_op::gen_rmat_norm<T>(k, k, A_dat, ++seed);
-        RandBLAS::dense_op::gen_rmat_norm<T>(k, k, B_dat, ++seed);
+        gen_mat_type<T>(k, k, A, k, ++seed, std::tuple(6, 0, false));
+        gen_mat_type<T>(k, k, B, k, ++seed, std::tuple(6, 0, false));
 
         // Get the timing
         auto start = high_resolution_clock::now();

@@ -34,7 +34,6 @@ template <typename T>
         std::vector<int64_t> J(n, 0);
 
         // Random Gaussian test matrix
-        //RandBLAS::dense_op::gen_rmat_norm<T>(m, n, A.data(), seed);
         gen_mat_type<T>(m, n, A, k, seed, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
