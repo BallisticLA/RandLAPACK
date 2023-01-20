@@ -7,23 +7,16 @@ set(RandLAPACK_VERSION_MINOR "@RandLAPACK_VERSION_MINOR@")
 set(RandLAPACK_VERSION_PATCH "@RandLAPACK_VERSION_PATCH@")
 set(RandLAPACK_VERSION_DEVEL "@RandLAPACK_VERSION_DEVEL@")
 
-# RandBLAS and its dependencies
-include(RandLAPACK_blaspp)
-if (NOT RandBLAS_DIR)
-    set(RandBLAS_DIR @RandBLAS_DIR@)
-endif()
-find_dependency(RandBLAS)
-
-# RandLAPACK and dependencies
-include(RandLAPACK_lapackpp)
-include(RandLAPACK_RandBLAS)
-include(RandLAPACK_Random123)
-# include(RandLAPACK_OpenMP)
-
-# LAPACK++
+# lapack++
 if (NOT lapackpp_DIR)
     set(lapackpp_DIR @lapackpp_DIR@)
 endif()
 find_dependency(lapackpp)
+
+# randblas
+if (NOT RandBLAS_DIR)
+    set(RandBLAS_DIR ${CMAKE_CURRENT_LIST_DIR})
+endif()
+find_dependency(RandBLAS)
 
 include(RandLAPACK)
