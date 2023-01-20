@@ -19,7 +19,6 @@ add_subdirectory(RandBLAS)
 # compile sources
 add_subdirectory(src)
 add_subdirectory(test)
-add_subdirectory(benchmark)
 
 # export the configuration
 include(rl_config)
