@@ -160,14 +160,13 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 
     // Clear all files
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
-        int rows = std::pow(2, r_buf);
+        //int rows = std::pow(2, r_buf);
         std::ofstream ofs;
         //ofs.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
         //ofs.close();
     }
 
     int64_t rows = 0;
-    int64_t cols = 0;
 
     T chol_avg = 0;
     T lu_avg = 0;
@@ -227,7 +226,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     }
 }
 
-int main(int argc, char **argv) {
+int main() {
     test_speed_mean<double>(12, 12, 64, 64, 3);
     return 0;
 }

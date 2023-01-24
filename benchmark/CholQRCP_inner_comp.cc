@@ -45,16 +45,16 @@ process_dat()
     vector<string> runs         = {"5"};
     vector<string> num_threads  = {"36"};
 
-    for (int i = 0; i < test_type.size(); ++i) {
-        for (int j = 0; j < rows.size(); ++j) {
-            for (int k = 0; k < d_multiplier.size(); ++k) {
-                for (int l = 0; l < k_multiplier.size(); ++l) {
-                    for (int m = 0; m < log10tol.size(); ++m) {
-                        for (int n = 0; n < mat_type.size(); ++n) {
-                            for (int o = 0; o < cond.size(); ++o) {
-                                for (int p = 0; p < nnz.size(); ++p) {
-                                    for (int q = 0; q < runs.size(); ++q) {
-                                        for (int r = 0; r < num_threads.size(); ++r) {
+    for (int i = 0; i < (int) test_type.size(); ++i) {
+        for (int j = 0; j < (int) rows.size(); ++j) {
+            for (int k = 0; k < (int) d_multiplier.size(); ++k) {
+                for (int l = 0; l < (int) k_multiplier.size(); ++l) {
+                    for (int m = 0; m < (int) log10tol.size(); ++m) {
+                        for (int n = 0; n < (int) mat_type.size(); ++n) {
+                            for (int o = 0; o < (int) cond.size(); ++o) {
+                                for (int p = 0; p < (int) nnz.size(); ++p) {
+                                    for (int q = 0; q < (int) runs.size(); ++q) {
+                                        for (int r = 0; r < (int) num_threads.size(); ++r) {
                                             // Clear old file
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQR_vs_GEQP3_" + test_type[i] 
@@ -107,9 +107,7 @@ process_dat()
                                                                                                                                   + "_OMP_threads_"  + num_threads[r]
                                                                                                                                   + ".dat");
                                             
-                                            int64_t numrows = stoi(rows[j]);
                                             int col_multiplier = 1;
-                                            int start_col_ratio = 256;
                                             for( std::string l1; getline(file1, l1);) {
                                                 std::stringstream ss1(l1);
                                                 std::istream_iterator<std::string> begin1(ss1);
@@ -163,7 +161,7 @@ process_dat()
 
 
 
-int main(int argc, char **argv){ 
+int main(){ 
     process_dat<double>();
     return 0;
 }

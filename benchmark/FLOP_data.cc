@@ -48,12 +48,7 @@ compute_and_log(
     T geqp3_time, 
     T geqr_time, 
     T tsqrp_time, 
-    T geqrf_time, 
-    T chol_full_time,
-    T geqp3_full_time,
-    T geqr_full_time,
-    T tsqrp_full_time,
-    T geqrf_full_time)
+    T geqrf_time)
 {
 
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
@@ -107,16 +102,16 @@ process_dat() {
     vector<string> runs         = {"5"};
     vector<string> num_threads  = {"36"};
 
-    for (int i = 0; i < test_type.size(); ++i) {
-        for (int j = 0; j < rows.size(); ++j) {
-            for (int k = 0; k < d_multiplier.size(); ++k) {
-                for (int l = 0; l < k_multiplier.size(); ++l) {
-                    for (int m = 0; m < log10tol.size(); ++m) {
-                        for (int n = 0; n < mat_type.size(); ++n) {
-                            for (int o = 0; o < cond.size(); ++o) {
-                                for (int p = 0; p < nnz.size(); ++p) {
-                                    for (int q = 0; q < runs.size(); ++q) {
-                                        for (int r = 0; r < num_threads.size(); ++r) {
+    for (int i = 0; i < (int) test_type.size(); ++i) {
+        for (int j = 0; j < (int) rows.size(); ++j) {
+            for (int k = 0; k < (int) d_multiplier.size(); ++k) {
+                for (int l = 0; l < (int) k_multiplier.size(); ++l) {
+                    for (int m = 0; m < (int) log10tol.size(); ++m) {
+                        for (int n = 0; n < (int) mat_type.size(); ++n) {
+                            for (int o = 0; o < (int) cond.size(); ++o) {
+                                for (int p = 0; p < (int) nnz.size(); ++p) {
+                                    for (int q = 0; q < (int) runs.size(); ++q) {
+                                        for (int r = 0; r < (int) num_threads.size(); ++r) {
                                             // Clear old flop file   
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type[i] 
@@ -172,12 +167,7 @@ process_dat() {
                                                     stod(times_per_col_sz[1]), 
                                                     stod(times_per_col_sz[2]),
                                                     stod(times_per_col_sz[3]), 
-                                                    stod(times_per_col_sz[4]),
-                                                    stod(times_per_col_sz[5]),
-                                                    stod(times_per_col_sz[6]),
-                                                    stod(times_per_col_sz[7]),
-                                                    stod(times_per_col_sz[8]),
-                                                    stod(times_per_col_sz[9]));
+                                                    stod(times_per_col_sz[4]));
 
                                                 col_multiplier *= 2;
                                             }
@@ -196,7 +186,7 @@ process_dat() {
 
 
 
-int main(int argc, char **argv){ 
+int main(){ 
     process_dat<double>();
     return 0;
 }

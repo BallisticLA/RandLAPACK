@@ -1,4 +1,8 @@
 /*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
 Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 */
 #include<stdio.h>
@@ -458,7 +462,6 @@ test_speed(int r_pow,
     }
     
     int64_t rows = 0;
-    int64_t cols = 0;
 
     for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
@@ -660,7 +663,7 @@ test_speed(int r_pow,
     printf("\n/-----------------------------------------SPEED TEST STOP-----------------------------------------/\n\n");
 }
 
-int main(int argc, char **argv){
+int main(){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     

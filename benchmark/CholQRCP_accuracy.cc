@@ -53,9 +53,6 @@ template <typename T>
         std::copy(A.data(), A.data() + size, A_1.data());
         std::copy(A.data(), A.data() + size, A_2.data());
 
-        T* A_dat = A.data();
-        T* A_hat_dat = A_hat.data();
-
         CholQRCP<T> CholQRCP(false, false, seed, tol, use_cholqrcp1);
         CholQRCP.nnz = nnz;
         CholQRCP.num_threads = 32;
@@ -171,7 +168,7 @@ template <typename T>
 
 
 
-int main(int argc, char **argv){
+int main(){
         
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
 

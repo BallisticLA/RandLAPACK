@@ -145,7 +145,6 @@ test_speed(int r_pow,
     }
 
     int64_t rows = 0;
-    int64_t cols = 0;
 
     T cholqr_total = 0;
     T geqp3_total  = 0;
@@ -234,7 +233,7 @@ test_speed(int r_pow,
     printf("\n/-----------------------------------------QR SPEED TEST STOP------------------------------------------/\n\n");
 }
 
-int main(int argc, char **argv){
+int main(){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
     //test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Mean");

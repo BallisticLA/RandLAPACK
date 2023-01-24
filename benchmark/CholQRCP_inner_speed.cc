@@ -32,7 +32,6 @@ using std::string;
 template <typename T>
 static void 
 log_info(int64_t rows, 
-           int64_t cols,
            T d_multiplier,
            T k_multiplier, 
            T tol,
@@ -205,7 +204,6 @@ test_speed(int r_pow,
     }
     
     int64_t rows = 0;
-    int64_t cols = 0;
 
     for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
@@ -316,7 +314,7 @@ test_speed(int r_pow,
             other_mean       = (T)t_other       / (T)(runs - 1);
             total_mean       = (T)t_total       / (T)(runs - 1);
             
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
+            log_info(rows, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      saso_best,
                      qrcp_best,
                      rank_reveal_best,
@@ -329,7 +327,7 @@ test_speed(int r_pow,
                      total_best,
                      "Best", runs);
 
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
+            log_info(rows, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      saso_mean,
                      qrcp_mean,
                      rank_reveal_mean,
@@ -346,7 +344,7 @@ test_speed(int r_pow,
     printf("\n/-----------------------------------------SPEED TEST STOP-----------------------------------------/\n\n");
 }
 
-int main(int argc, char **argv){
+int main(){
 
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     

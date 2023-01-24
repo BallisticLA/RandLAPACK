@@ -9,13 +9,14 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 
 #include <chrono>
 using namespace std::chrono;
+using namespace RandLAPACK::comps::util;
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
 template <typename T>
 static void 
-test_flops(int k, uint32_t seed) {
+test_flops(int64_t k, uint32_t seed) {
     printf("|===================================TEST SYSTEM FLOPS BEGIN====================================|\n");
     int size = k * k;
 
@@ -60,7 +61,7 @@ test_flops(int k, uint32_t seed) {
     printf("|=====================================TEST SYSTEM FLOPS END====================================|\n");
 }
 
-int main(int argc, char **argv) {
+int main() {
     test_flops<double>(1000, 0);
     return 0;
 }
