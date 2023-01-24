@@ -1,6 +1,6 @@
 /*
-TODO #1: Create files if those do not exist.
-
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
 */
 
 #include <gtest/gtest.h>
@@ -20,8 +20,7 @@ using namespace RandLAPACK::comps::rs;
 using namespace RandLAPACK::comps::rf;
 using namespace RandLAPACK::comps::qb;
 
-class BenchmarkQB : public ::testing::Test
-{
+class BenchmarkQB : public ::testing::Test {
     protected:
 
     virtual void SetUp() {};
@@ -43,8 +42,7 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
         int64_t size = m * n;
         // Adjust the expected rank
-        if(k == 0)
-        {
+        if(k == 0) {
             k = std::min(m, n);
         }
 
@@ -139,12 +137,10 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
         int64_t p_init = p;
 
         // varying matrix size
-        for (; k <= max_k; k *= 2)
-        {
+        for (; k <= max_k; k *= 2) {
             block_sz = b_sz_init;
             // varying block size
-            for (; block_sz <= max_b_sz; block_sz *= 4)
-            {
+            for (; block_sz <= max_b_sz; block_sz *= 4) {
                 // Making RF's ALL_VEC
                 int64_t v_RF_sz = k / block_sz;  
                 std::vector<T> all_vecs_RF(v_RF_sz * (runs + 1));
@@ -154,16 +150,14 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
                 int cnt = 0;
                 std::for_each(all_vecs_RF_dat, all_vecs_RF_dat + v_RF_sz,
                         // Lambda expression begins
-                        [&cnt](T& entry)
-                        {
+                        [&cnt](T& entry) {
                                 entry = ++cnt;
                         }
                 );
 
                 // varying power iters
                 p = p_init;
-                for (; p <= max_p; p += 2)
-                {
+                for (; p <= max_p; p += 2) {
                     // Making RS's ALL_VEC
                     int64_t v_RS_sz = p * k / block_sz;  
                     std::vector<T> all_vecs_RS(v_RS_sz * (runs + 1));
@@ -173,21 +167,18 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
                     int cnt = 0;
                     std::for_each(all_vecs_RS_dat, all_vecs_RS_dat + v_RS_sz,
                             // Lambda expression begins
-                            [&cnt](T& entry)
-                            {
+                            [&cnt](T& entry) {
                                     entry = ++cnt;
                             }
                     );
              
-                    for (int i = 1; i < (runs + 1); ++i)
-                    {
+                    for (int i = 1; i < (runs + 1); ++i) {
                         // Grab the vetcor of condition numbers
                         vector_pair cond_nums = test_QB2_plot_helper_run<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), ++seed);
                         // Fill RF
                         copy<T, T>(v_RF_sz, cond_nums.first.data(), 1, all_vecs_RF_dat + (v_RF_sz * i), 1);
                         // Fill RS
-                        if(v_RS_sz > 0)
-                        {
+                        if(v_RS_sz > 0) {
                             copy<T, T>(v_RS_sz, cond_nums.second.data(), 1, all_vecs_RS_dat + (v_RS_sz * i), 1);
                         }
                     }
@@ -198,19 +189,16 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
                     std::ofstream file_RF(path_RF);
                     //unfortunately, cant do below with foreach
-                    for (int i = 0; i < v_RF_sz; ++ i)
-                    {
+                    for (int i = 0; i < v_RF_sz; ++ i) {
                         T* entry = all_vecs_RF_dat + i;
                         // how to simplify this expression?
                         file_RF << *(entry) << "  " << *(entry + v_RF_sz) << "  " << *(entry + (2 * v_RF_sz)) << "  " << *(entry + (3 * v_RF_sz)) << "  " << *(entry + (4 * v_RF_sz)) << "  " << *(entry + (5 * v_RF_sz)) << "\n";
                     }
 
-                    if(v_RS_sz > 0)
-                    {
+                    if(v_RS_sz > 0) {
                         std::ofstream file_RS(path_RS);
                         //unfortunately, cant do below with foreach
-                        for (int i = 0; i < v_RS_sz; ++ i)
-                        {
+                        for (int i = 0; i < v_RS_sz; ++ i) {
                             T* entry = all_vecs_RS_dat + i;
                             // how to simplify this expression?
                             file_RS << *(entry) << "  " << *(entry + v_RS_sz) << "  " << *(entry + (2 * v_RS_sz)) << "  " << *(entry + (3 * v_RS_sz)) << "  " << *(entry + (4 * v_RS_sz)) << "  " << *(entry + (5 * v_RS_sz)) << "\n";

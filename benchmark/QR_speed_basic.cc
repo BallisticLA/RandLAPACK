@@ -1,4 +1,8 @@
 /*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
 TODO #1: Switch tuples to vectors.
 */
 
@@ -33,8 +37,7 @@ test_speed_helper(int64_t m,
                   int64_t n, 
                   int64_t k, 
                   std::tuple<int, T, bool> mat_type, 
-                  uint32_t seed) 
-    {
+                  uint32_t seed) {
     
     using namespace blas;
     using namespace lapack;
@@ -111,8 +114,7 @@ test_speed(int r_pow,
                 T k_multiplier, 
                 int runs, 
                 std::tuple<int, T, bool> mat_type, 
-                string test_type)
-{
+                string test_type) {
     printf("\n/-----------------------------------------QR SPEED TEST START-----------------------------------------/\n");
     
     // Clear all files
@@ -149,13 +151,11 @@ test_speed(int r_pow,
     T geqp3_total  = 0;
     T geqrf_total  = 0;
 
-    for(; r_pow <= r_pow_max; ++r_pow)
-    {
+    for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols *= 2)
-        {
+        for (; cols <= col_max; cols *= 2) {
             std::vector<long> res;
             long t_cholqr = 0;
             long t_geqp3  = 0;
@@ -165,39 +165,31 @@ test_speed(int r_pow,
             geqp3_total  = 0;
             geqrf_total  = 0;
 
-            for(int i = 0; i < runs; ++i)
-            {
+            for(int i = 0; i < runs; ++i) {
                 res = test_speed_helper<T>(rows, cols, k_multiplier * cols, mat_type, i);
 
                 // Skip first iteration, as it tends to produce garbage results
-                if (i != 0)
-                {
-                    if(!test_type.compare("Mean"))
-                    {
+                if (i != 0) {
+                    if(!test_type.compare("Mean")) {
                         t_cholqr += res[0];
                         t_geqp3  += res[1];
                         t_geqrf  += res[2];
                     }
-                    else
-                    {
-                        if(cholqr_total > res[0] || cholqr_total == 0)
-                        {
+                    else {
+                        if(cholqr_total > res[0] || cholqr_total == 0) {
                             cholqr_total = res[0];
                         }
-                        if(geqp3_total > res[1] || geqp3_total == 0)
-                        {
+                        if(geqp3_total > res[1] || geqp3_total == 0) {
                             geqp3_total = res[1];
                         }
-                        if(geqrf_total > res[2] || geqrf_total == 0)
-                        {
+                        if(geqrf_total > res[2] || geqrf_total == 0) {
                             geqrf_total = res[2];
                         }
                     }
                 }
             }
 
-            if(!test_type.compare("Mean"))
-            {
+            if(!test_type.compare("Mean")) {
                 cholqr_total = (T)t_cholqr / (T)(runs - 1);
                 geqp3_total  = (T)t_geqp3  / (T)(runs - 1);
                 geqrf_total  = (T)t_geqrf  / (T)(runs - 1);

@@ -1,4 +1,8 @@
 /*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
 Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 */
 #include<stdio.h>
@@ -29,27 +33,27 @@ using std::vector;
 template <typename T>
 static void 
 compute_and_log(
-           string test_type,
-           int64_t rows, 
-           int64_t cols,
-           string d_multiplier,
-           string k_multiplier, 
-           string log10tol,
-           string mat_type, 
-           string cond,
-           string nnz,
-           string runs,
-           string num_threads,
-           T cholqrcp_time, 
-           T geqp3_time, 
-           T geqr_time, 
-           T tsqrp_time, 
-           T geqrf_time, 
-           T chol_full_time,
-           T geqp3_full_time,
-           T geqr_full_time,
-           T tsqrp_full_time,
-           T geqrf_full_time)
+    string test_type,
+    int64_t rows, 
+    int64_t cols,
+    string d_multiplier,
+    string k_multiplier, 
+    string log10tol,
+    string mat_type, 
+    string cond,
+    string nnz,
+    string runs,
+    string num_threads,
+    T cholqrcp_time, 
+    T geqp3_time, 
+    T geqr_time, 
+    T tsqrp_time, 
+    T geqrf_time, 
+    T chol_full_time,
+    T geqp3_full_time,
+    T geqr_full_time,
+    T tsqrp_full_time,
+    T geqrf_full_time)
 {
 
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
@@ -91,8 +95,7 @@ compute_and_log(
 
 template <typename T>
 static void 
-process_dat()
-{
+process_dat() {
     vector<string> test_type    = {"Best"};
     vector<string> rows         = {"131072"}; // {"262144"};
     vector<string> d_multiplier = {"1.000000"};
@@ -104,26 +107,16 @@ process_dat()
     vector<string> runs         = {"5"};
     vector<string> num_threads  = {"36"};
 
-    for (int i = 0; i < test_type.size(); ++i)
-    {
-        for (int j = 0; j < rows.size(); ++j)
-        {
-            for (int k = 0; k < d_multiplier.size(); ++k)
-            {
-                for (int l = 0; l < k_multiplier.size(); ++l)
-                {
-                    for (int m = 0; m < log10tol.size(); ++m)
-                    {
-                        for (int n = 0; n < mat_type.size(); ++n)
-                        {
-                            for (int o = 0; o < cond.size(); ++o)
-                            {
-                                for (int p = 0; p < nnz.size(); ++p)
-                                {
-                                    for (int q = 0; q < runs.size(); ++q)
-                                    {
-                                        for (int r = 0; r < num_threads.size(); ++r)
-                                        {
+    for (int i = 0; i < test_type.size(); ++i) {
+        for (int j = 0; j < rows.size(); ++j) {
+            for (int k = 0; k < d_multiplier.size(); ++k) {
+                for (int l = 0; l < k_multiplier.size(); ++l) {
+                    for (int m = 0; m < log10tol.size(); ++m) {
+                        for (int n = 0; n < mat_type.size(); ++n) {
+                            for (int o = 0; o < cond.size(); ++o) {
+                                for (int p = 0; p < nnz.size(); ++p) {
+                                    for (int q = 0; q < runs.size(); ++q) {
+                                        for (int r = 0; r < num_threads.size(); ++r) {
                                             // Clear old flop file   
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type[i] 
@@ -164,27 +157,27 @@ process_dat()
                                                 //std::copy(times_per_col_sz.begin(), times_per_col_sz.end(), std::ostream_iterator<std::string>(std::cout, "\n"));
 
                                                 compute_and_log(test_type[i],
-                                                                numrows, 
-                                                                numrows / (start_col_ratio / col_multiplier),
-                                                                //numrows / (128 / col_multiplier),
-                                                                d_multiplier[k],
-                                                                k_multiplier[k], 
-                                                                log10tol[m],
-                                                                mat_type[n], 
-                                                                cond[o],
-                                                                nnz[p],
-                                                                runs[q],
-                                                                num_threads[r],
-                                                                stod(times_per_col_sz[0]), 
-                                                                stod(times_per_col_sz[1]), 
-                                                                stod(times_per_col_sz[2]),
-                                                                stod(times_per_col_sz[3]), 
-                                                                stod(times_per_col_sz[4]),
-                                                                stod(times_per_col_sz[5]),
-                                                                stod(times_per_col_sz[6]),
-                                                                stod(times_per_col_sz[7]),
-                                                                stod(times_per_col_sz[8]),
-                                                                stod(times_per_col_sz[9]));
+                                                    numrows, 
+                                                    numrows / (start_col_ratio / col_multiplier),
+                                                    //numrows / (128 / col_multiplier),
+                                                    d_multiplier[k],
+                                                    k_multiplier[k], 
+                                                    log10tol[m],
+                                                    mat_type[n], 
+                                                    cond[o],
+                                                    nnz[p],
+                                                    runs[q],
+                                                    num_threads[r],
+                                                    stod(times_per_col_sz[0]), 
+                                                    stod(times_per_col_sz[1]), 
+                                                    stod(times_per_col_sz[2]),
+                                                    stod(times_per_col_sz[3]), 
+                                                    stod(times_per_col_sz[4]),
+                                                    stod(times_per_col_sz[5]),
+                                                    stod(times_per_col_sz[6]),
+                                                    stod(times_per_col_sz[7]),
+                                                    stod(times_per_col_sz[8]),
+                                                    stod(times_per_col_sz[9]));
 
                                                 col_multiplier *= 2;
                                             }

@@ -41,30 +41,26 @@ int QB<T>::QB2(
     // pre-compute nrom
     T norm_A = lange(Norm::Fro, m, n, A_dat, m);
     // Immediate termination criteria
-    if(norm_A == 0.0)
-    {
+    if(norm_A == 0.0) {
         // Zero matrix termination
         k = curr_sz;
         return 1;
     }
 
     // tolerance check
-    if (tol < 100 * std::numeric_limits<T>::epsilon())
-    {
+    if (tol < 100 * std::numeric_limits<T>::epsilon()) {
         tol = 100 * std::numeric_limits<T>::epsilon();
     }
     
     // If the space allocated for col in Q and row in B is insufficient for any iterations ...
-    if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k)
-    {
+    if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k) {
         // ... allocate more!
         this->curr_lim = std::min(this->dim_growth_factor * block_sz, k);
         // No need for data movement in this case
         upsize<T>(m * this->curr_lim, Q);
         upsize<T>(this->curr_lim * n, B);
     }
-    else
-    {
+    else {
         this->curr_lim = k;
     }
     
@@ -77,8 +73,7 @@ int QB<T>::QB2(
     T prev_err = 0.0;
     T approx_err = 0.0;
 
-    if(this->orth_check)
-    {
+    if(this->orth_check) {
         upsize<T>(this->curr_lim * this->curr_lim, this->Q_gram);
         upsize<T>(block_sz * block_sz, this->Q_i_gram);
     }
@@ -90,15 +85,13 @@ int QB<T>::QB2(
     T* Q_dat = Q.data();
     T* B_dat = B.data();
 
-    while(k > curr_sz)
-    {
+    while(k > curr_sz) {
         // Dynamically changing block size
         block_sz = std::min(block_sz, k - curr_sz);
         next_sz = curr_sz + block_sz;
 
         // Make sure we have enough space for everything
-        if(next_sz > this->curr_lim)
-        {
+        if(next_sz > this->curr_lim) {
             this->curr_lim = std::min(2 * this->curr_lim, k);
             Q_dat = upsize<T>(this->curr_lim * m, Q);
             B_dat = row_resize<T>(curr_sz, n, B, this->curr_lim);
@@ -111,10 +104,8 @@ int QB<T>::QB2(
         if(this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i))
             return 6; // RF failed
 
-        if(this->orth_check)
-        {
-            if (orthogonality_check<T>(m, block_sz, block_sz, Q_i, Q_i_gram, this->verbosity))
-            {
+        if(this->orth_check) {
+            if (orthogonality_check<T>(m, block_sz, block_sz, Q_i, Q_i_gram, this->verbosity)) {
                 // Lost orthonormality of Q
                 row_resize<T>(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
@@ -123,8 +114,7 @@ int QB<T>::QB2(
         }
 
         // No need to reorthogonalize on the 1st pass
-        if(curr_sz != 0)
-        {
+        if(curr_sz != 0) {
             // Q_i = orth(Q_i - Q(Q'Q_i))
             gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, this->curr_lim);
             gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, this->curr_lim, 1.0, Q_i_dat, m);
@@ -143,8 +133,7 @@ int QB<T>::QB2(
         approx_err = sqrt(abs(norm_A - norm_B)) * (sqrt(norm_A + norm_B) / norm_A);
 
         // Early termination - handling round-off error accumulation
-        if ((curr_sz > 0) && (approx_err > prev_err))
-        {
+        if ((curr_sz > 0) && (approx_err > prev_err)) {
             // Early termination - error growth
             // Only need to move B's data, no resizing
             row_resize<T>(this->curr_lim, n, B, curr_sz);
@@ -156,10 +145,8 @@ int QB<T>::QB2(
         lacpy(MatrixType::General, m, block_sz, &Q_i_dat[0], m, &Q_dat[m * curr_sz], m);	
         lacpy(MatrixType::General, block_sz, n, &B_i_dat[0], block_sz, &B_dat[curr_sz], this->curr_lim);
         
-        if(this->orth_check)
-        {
-            if (orthogonality_check<T>(m, this->curr_lim, next_sz, Q, Q_gram, this->verbosity))
-            {
+        if(this->orth_check) {
+            if (orthogonality_check<T>(m, this->curr_lim, next_sz, Q, Q_gram, this->verbosity)) {
                 // Lost orthonormality of Q
                 row_resize<T>(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
@@ -169,8 +156,7 @@ int QB<T>::QB2(
         
         curr_sz += block_sz;
         // Termination criteria
-        if (approx_err < tol)
-        {
+        if (approx_err < tol) {
             // Reached the required error tol
             row_resize<T>(this->curr_lim, n, B, curr_sz);
             k = curr_sz;

@@ -296,8 +296,7 @@ template <typename T>
         Q_dat = Q.data();
         B_dat = B.data();
     
-        switch(termination)
-        {
+        switch(termination) {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
                 EXPECT_TRUE(true);
@@ -338,14 +337,12 @@ template <typename T>
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
         
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
-        if(tol == 0.0)
-        {
+        if(tol == 0.0) {
             // Test Zero Tol Output
             printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
             ASSERT_NEAR(norm_test_1, 0, 1e-12);
         }
-        else
-        {
+        else {
             // Test Nonzero Tol Output
             printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
             printf("FRO NORM OF A:         %e\n", norm_A);

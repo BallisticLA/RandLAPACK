@@ -15,8 +15,7 @@ using namespace std::chrono;
 
 template <typename T>
 static void 
-test_flops(int k, uint32_t seed)
-{
+test_flops(int k, uint32_t seed) {
     printf("|===================================TEST SYSTEM FLOPS BEGIN====================================|\n");
     int size = k * k;
 
@@ -28,8 +27,7 @@ test_flops(int k, uint32_t seed)
     T DUR_sum = 0;
     T GFLOPS_sum = 0;
 
-    for (int i = 0; i < runs; ++i)
-    {
+    for (int i = 0; i < runs; ++i) {
         using namespace blas;
         std::vector<T> A(size, 0.0);
         std::vector<T> B(size, 0.0);
@@ -62,7 +60,7 @@ test_flops(int k, uint32_t seed)
     printf("|=====================================TEST SYSTEM FLOPS END====================================|\n");
 }
 
-int main(int argc, char **argv){
+int main(int argc, char **argv) {
     test_flops<double>(1000, 0);
     return 0;
 }

@@ -1,3 +1,7 @@
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
 /*This is only concerned with what's INSIDE of cholqrcp*/
 
 #include<stdio.h>
@@ -82,8 +86,7 @@ test_speed_helper(int64_t m,
                   int64_t nnz, 
                   int64_t num_threads, 
                   std::tuple<int, T, bool> mat_type, 
-                  uint32_t seed) 
-{
+                  uint32_t seed) {
     using namespace blas;
     using namespace lapack;
 
@@ -154,13 +157,11 @@ test_speed(int r_pow,
            T tol, 
            T k_multiplier, 
            T d_multiplier, 
-           std::tuple<int, T, bool> mat_type)
-{
+           std::tuple<int, T, bool> mat_type) {
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw
     
-    for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
-    {
+    for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
         ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_inner_time_Best_m_"
@@ -206,13 +207,11 @@ test_speed(int r_pow,
     int64_t rows = 0;
     int64_t cols = 0;
 
-    for(; r_pow <= r_pow_max; ++r_pow)
-    {
+    for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols *= 2)
-        {
+        for (; cols <= col_max; cols *= 2) {
             std::vector<long> res;
 
             long t_saso        = 0;
@@ -248,13 +247,11 @@ test_speed(int r_pow,
             T other_mean       = 0;
             T total_mean       = 0;
 
-            for(int i = 0; i < runs; ++i)
-            {
+            for(int i = 0; i < runs; ++i) {
                 res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, i);
 
                 // Skip first iteration, as it tends to produce garbage results
-                if (i != 0)
-                {
+                if (i != 0) {
                     t_saso        += res[0];
                     t_qrcp        += res[1];
                     t_rank_reveal += res[2];
@@ -290,8 +287,7 @@ test_speed(int r_pow,
                          << res[9]  << "\n";
                     
                     // For best timing
-                    if(total_best > res[9] || total_best == 0)
-                    {
+                    if(total_best > res[9] || total_best == 0) {
                         saso_best        = res[0];
                         qrcp_best        = res[1];
                         qrcp_best        = res[1];

@@ -53,8 +53,7 @@ class TestOrth : public ::testing::Test
         Orth<T> Orth(use_CholQRQ, false, false);
 
         // Orthonormalize A
-        if (Orth.call(m, n, A) != 0)
-        {
+        if (Orth.call(m, n, A) != 0) {
             EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
             return;
         }
@@ -101,8 +100,7 @@ class TestOrth : public ::testing::Test
         Orth<T> Orth(use_CholQRQ, false, false);
 
         // Orthonormalize sketch Y
-        if(Orth.call(m, k, Y) != 0)
-        {
+        if(Orth.call(m, k, Y) != 0) {
             EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
             return;
         }

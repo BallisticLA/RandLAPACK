@@ -62,8 +62,7 @@ class CholQRCP : public CholQRCPalg<T>
         uint32_t sd,
         T ep,
         decision_CholQRCP decision
-    )
-    {
+    ) {
         verbosity = verb;
         timing = t;
         seed = sd;
@@ -91,38 +90,34 @@ class CholQRCP : public CholQRCPalg<T>
     );
 
     virtual int call(
-            int64_t m,
-            int64_t n,
-            std::vector<T>& A,
-            int64_t d,
-            std::vector<T>& R,
-            std::vector<int64_t>& J
-    )
-    {
-            int termination = 0;
-            switch(this->decision_cholqrcp)
-            {
-                    case use_cholqrcp1:
-                            termination = CholQRCP1(m, n, A, d, R, J);
-                            break;
-                    case use_cholqrcp2:
-                            //termination = CholQRCP2(m, n, A, d, this->b_sz, Q, R, J);
-                            break;
-            }
+		int64_t m,
+		int64_t n,
+		std::vector<T>& A,
+		int64_t d,
+		std::vector<T>& R,
+		std::vector<int64_t>& J
+    ) {
+		int termination = 0;
+		switch(this->decision_cholqrcp) {
+			case use_cholqrcp1:
+				termination = CholQRCP1(m, n, A, d, R, J);
+				break;
+			case use_cholqrcp2:
+				//termination = CholQRCP2(m, n, A, d, this->b_sz, Q, R, J);
+				break;
+		}
 
-            if(this->verbosity)
-            {
-                    switch(termination)
-                    {
-                    case 1:
-                            printf("\nCholQRCP TERMINATED VIA: 1.\n");
-                            break;
-                    case 0:
-                            printf("\nCholQRCP TERMINATED VIA: normal termination.\n");
-                            break;
-                    }
-            }
-            return termination;
+		if(this->verbosity) {
+			switch(termination) {
+			case 1:
+				printf("\nCholQRCP TERMINATED VIA: 1.\n");
+				break;
+			case 0:
+				printf("\nCholQRCP TERMINATED VIA: normal termination.\n");
+				break;
+			}
+		}
+		return termination;
     }
 };
 #endif

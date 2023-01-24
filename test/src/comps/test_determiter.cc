@@ -34,8 +34,7 @@ class TestDetermiterOLS : public ::testing::Test
         std::vector<double> resid_vec(10*n, -1.0);
 
         std::vector<double> M(n*n, 0.0);
-        for (int64_t i = 0; i < n; ++i)
-        {
+        for (int64_t i = 0; i < n; ++i) {
             M[i + n*i] = 1.0;
         }
 
@@ -48,14 +47,11 @@ class TestDetermiterOLS : public ::testing::Test
         
 
         int64_t iter_count = 0;
-        for (double res: resid_vec)
-        {
-            if (res < 0)
-            {
+        for (double res: resid_vec) {
+            if (res < 0) {
                 break;
             }
-            else 
-            {
+            else {
                 iter_count += 1;
                 std::cout << res << std::endl;
             }
@@ -65,11 +61,9 @@ class TestDetermiterOLS : public ::testing::Test
     }
 };
 
-TEST_F(TestDetermiterOLS, Trivial)
-{
+TEST_F(TestDetermiterOLS, Trivial) {
     //RandLAPACK::comps::determiter::run_pcgls_ex(12, 201);
-    for (int64_t k_idx : {0, 1, 2})
-    {
+    for (int64_t k_idx : {0, 1, 2}) {
         run(k_idx);
     }
 }

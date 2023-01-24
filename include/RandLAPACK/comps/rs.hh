@@ -80,17 +80,14 @@ class RS : public RowSketcher<T>
 		){
 			// Default
 			int termination = 0;
-			switch(this->decision_RS)
-			{
+			switch(this->decision_RS) {
 				case use_rs1:
 					termination = rs1(m, n, A, k, Omega);
 					break;
 			}
 
-			if(this->verbosity)
-			{
-				switch(termination)
-				{
+			if(this->verbosity) {
+				switch(termination) {
 				case 0:
 						printf("\nRS TERMINATED VIA: Normal termination.\n");
 						break;

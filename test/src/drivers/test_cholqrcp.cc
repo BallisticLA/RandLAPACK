@@ -72,9 +72,6 @@ class TestCholQRCP : public ::testing::Test
 /*Subprocess killed exception - reload vscode*/
 TEST_F(TestCholQRCP, SimpleTest)
 { 
-    for (uint32_t seed : {2})//, 1, 2})
-    {
-        //test_CholQRCP1_general<double>(10000, 200, 200, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
-        //test_CholQRCP1_general<double>(10000, 200, 100, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), seed);
-    }
+        //test_CholQRCP1_general<double>(10000, 200, 200, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), 2);
+        //test_CholQRCP1_general<double>(10000, 200, 100, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), 2);
 }

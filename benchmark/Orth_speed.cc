@@ -1,4 +1,8 @@
 /*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
 TODO #1: Switch tuples to vectors.
 */
 
@@ -87,8 +91,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
 template <typename T>
 static void 
-test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
-{
+test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs) {
     int64_t rows = 0;
     int64_t cols = 0;
 
@@ -97,13 +100,11 @@ test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
     T qr_avg = 0;
     T geqr_avg = 0;
 
-    for(; r_pow <= r_pow_max; ++r_pow)
-    {
+    for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
         int c_buf = c_pow;
 
-        for (; c_buf <= c_pow_max; ++c_buf)
-        {
+        for (; c_buf <= c_pow_max; ++c_buf) {
             cols = std::pow(2, c_buf);
 
             std::tuple<long, long, long, long> res;
@@ -118,8 +119,7 @@ test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
             long curr_t_geqr = 0;
 
             std::ofstream file("../../build/test_plots/test_speed/raw_data/test_" + std::to_string(rows) + "_" + std::to_string(cols) + ".dat");
-            for(int i = 0; i < runs; ++i)
-            {
+            for(int i = 0; i < runs; ++i) {
                 res = test_speed_helper<T>(rows, cols, 1);
                 curr_t_chol = std::get<0>(res);
                 curr_t_lu   = std::get<1>(res);
@@ -127,8 +127,7 @@ test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs)
                 curr_t_geqr = std::get<3>(res);
 
                 // Skip first iteration, as it tends to produce garbage results
-                if (i != 0)
-                {
+                if (i != 0) {
                     // Save the output into .dat file
                     file << curr_t_chol << "  " << curr_t_lu << "  " << curr_t_qr << "  " << curr_t_geqr << "\n";
             
@@ -160,8 +159,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 {
 
     // Clear all files
-    for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
-    {
+    for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
         //ofs.open("../../build/test_plots/test_speed/raw_data/test_mean_time_QR_" + std::to_string(rows) + ".dat", std::ofstream::out | std::ofstream::trunc);
@@ -176,13 +174,11 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     T qr_avg = 0;
     T geqr_avg = 0;
 
-    for(; r_pow <= r_pow_max; ++r_pow)
-    {
+    for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols += 64)
-        {
+        for (; cols <= col_max; cols += 64) {
             std::tuple<long, long, long, long> res;
             long t_chol = 0;
             long t_lu   = 0;
@@ -194,8 +190,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             long curr_t_qr   = 0;
             long curr_t_geqr = 0;
 
-            for(int i = 0; i < runs; ++i)
-            {
+            for(int i = 0; i < runs; ++i) {
                 res = test_speed_helper<T>(rows, cols, 1);
                 curr_t_chol = std::get<0>(res);
                 curr_t_lu   = std::get<1>(res);
@@ -203,8 +198,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
                 curr_t_geqr = std::get<3>(res);
 
                 // Skip first iteration, as it tends to produce garbage results
-                if (i != 0)
-                {
+                if (i != 0) {
                     t_chol += curr_t_chol;
                     t_lu   += curr_t_lu;
                     t_qr   += curr_t_qr;
@@ -233,7 +227,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
     }
 }
 
-int main(int argc, char **argv){
+int main(int argc, char **argv) {
     test_speed_mean<double>(12, 12, 64, 64, 3);
     return 0;
 }

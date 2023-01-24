@@ -1,4 +1,8 @@
 /*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
 Compares speeds of inner components within CholQRCP
 */
 #include<stdio.h>
@@ -41,26 +45,16 @@ process_dat()
     vector<string> runs         = {"5"};
     vector<string> num_threads  = {"36"};
 
-    for (int i = 0; i < test_type.size(); ++i)
-    {
-        for (int j = 0; j < rows.size(); ++j)
-        {
-            for (int k = 0; k < d_multiplier.size(); ++k)
-            {
-                for (int l = 0; l < k_multiplier.size(); ++l)
-                {
-                    for (int m = 0; m < log10tol.size(); ++m)
-                    {
-                        for (int n = 0; n < mat_type.size(); ++n)
-                        {
-                            for (int o = 0; o < cond.size(); ++o)
-                            {
-                                for (int p = 0; p < nnz.size(); ++p)
-                                {
-                                    for (int q = 0; q < runs.size(); ++q)
-                                    {
-                                        for (int r = 0; r < num_threads.size(); ++r)
-                                        {
+    for (int i = 0; i < test_type.size(); ++i) {
+        for (int j = 0; j < rows.size(); ++j) {
+            for (int k = 0; k < d_multiplier.size(); ++k) {
+                for (int l = 0; l < k_multiplier.size(); ++l) {
+                    for (int m = 0; m < log10tol.size(); ++m) {
+                        for (int n = 0; n < mat_type.size(); ++n) {
+                            for (int o = 0; o < cond.size(); ++o) {
+                                for (int p = 0; p < nnz.size(); ++p) {
+                                    for (int q = 0; q < runs.size(); ++q) {
+                                        for (int r = 0; r < num_threads.size(); ++r) {
                                             // Clear old file
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQR_vs_GEQP3_" + test_type[i] 
@@ -116,8 +110,7 @@ process_dat()
                                             int64_t numrows = stoi(rows[j]);
                                             int col_multiplier = 1;
                                             int start_col_ratio = 256;
-                                            for( std::string l1; getline(file1, l1);)
-                                            {
+                                            for( std::string l1; getline(file1, l1);) {
                                                 std::stringstream ss1(l1);
                                                 std::istream_iterator<std::string> begin1(ss1);
                                                 std::istream_iterator<std::string> end1;

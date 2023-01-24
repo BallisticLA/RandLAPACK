@@ -29,44 +29,43 @@ int CholQRCP<T>::CholQRCP1(
     //-------TIMING VARS--------/
     high_resolution_clock::time_point saso_t_stop;
     high_resolution_clock::time_point saso_t_start;
-    long saso_t_dur;
+    long saso_t_dur = 0;
 
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
-    long qrcp_t_dur;
+    long qrcp_t_dur = 0;
     
     high_resolution_clock::time_point rank_reveal_t_start;
     high_resolution_clock::time_point rank_reveal_t_stop;
-    long rank_reveal_t_dur;
+    long rank_reveal_t_dur = 0;
 
     high_resolution_clock::time_point cholqrcp_t_start;
     high_resolution_clock::time_point cholqrcp_t_stop;
-    long cholqrcp_t_dur;
+    long cholqrcp_t_dur = 0;
 
     high_resolution_clock::time_point a_mod_piv_t_start;
     high_resolution_clock::time_point a_mod_piv_t_stop;
-    long a_mod_piv_t_dur;
+    long a_mod_piv_t_dur = 0;
 
     high_resolution_clock::time_point a_mod_trsm_t_start;
     high_resolution_clock::time_point a_mod_trsm_t_stop;
-    long a_mod_trsm_t_dur;
+    long a_mod_trsm_t_dur = 0;
 
     high_resolution_clock::time_point copy_t_start;
     high_resolution_clock::time_point copy_t_stop;
-    long copy_t_dur;
+    long copy_t_dur = 0;
 
     high_resolution_clock::time_point resize_t_start;
     high_resolution_clock::time_point resize_t_stop;
-    long resize_t_dur;
+    long resize_t_dur = 0;
 
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
-    long total_t_dur;
+    long total_t_dur = 0;
     //-------TIMING VARS--------/
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         total_t_start = high_resolution_clock::now();
     
         resize_t_start = high_resolution_clock::now();
@@ -80,15 +79,13 @@ int CholQRCP<T>::CholQRCP1(
     int64_t* J_dat = J.data();
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         resize_t_stop = high_resolution_clock::now();
         resize_t_dur = duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
     }
     
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         saso_t_start = high_resolution_clock::now();
     }
     //-------TIMING--------/
@@ -112,11 +109,10 @@ int CholQRCP<T>::CholQRCP1(
     RandBLAS::sparse::SparseSkOp<T> S(DS, this->seed, 0, NULL, NULL, NULL);        
     RandBLAS::sparse::fill_sparse(S);
 
-    lskges(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans, d, n, m, 1.0, S, 0, 0, A_dat, m, 0.0, A_hat_dat, d);
+    RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans, d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d);
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         saso_t_stop = high_resolution_clock::now();
         saso_t_dur = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
 
@@ -128,8 +124,7 @@ int CholQRCP<T>::CholQRCP1(
     geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         qrcp_t_stop = high_resolution_clock::now();
         qrcp_t_dur = duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
 
@@ -141,10 +136,8 @@ int CholQRCP<T>::CholQRCP1(
     int64_t k = n;
     this->rank = k;
     int i;
-    for(i = 0; i < n; ++i)
-    {
-        if(std::abs(A_hat_dat[i * d + i]) < this->eps)
-        {
+    for(i = 0; i < n; ++i) {
+        if(std::abs(A_hat_dat[i * d + i]) < this->eps) {
             // "Rank" is k, but the index should be k - 1
             k = i;
             this->rank = k;
@@ -153,8 +146,7 @@ int CholQRCP<T>::CholQRCP1(
     }
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
         rank_reveal_t_dur = duration_cast<microseconds>(rank_reveal_t_stop - rank_reveal_t_start).count();
 
@@ -164,11 +156,9 @@ int CholQRCP<T>::CholQRCP1(
     
     T* R_sp_dat  = upsize(k * k, this->R_sp);
     T* R_dat     = upsize(k * n, R);
-    T* R_buf_dat = upsize(k * n, this -> R_buf);
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         resize_t_stop = high_resolution_clock::now();
         resize_t_dur += duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
 
@@ -177,19 +167,16 @@ int CholQRCP<T>::CholQRCP1(
 
     // extract k by k R
     // Copy data over to R_sp_dat col by col
-    for(i = 0; i < k; ++i)
-    {
+    for(i = 0; i < k; ++i) {
         copy<T, T>(i + 1, &A_hat_dat[i * d], 1, &R_sp_dat[i * k], 1);
         copy<T, T>(i + 1, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
     }
-    for(i = k; i < n; ++i)
-    {
+    for(i = k; i < n; ++i) {
         copy<T, T>(k, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
     }
     
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         copy_t_stop = high_resolution_clock::now();
         copy_t_dur = duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
 
@@ -201,8 +188,7 @@ int CholQRCP<T>::CholQRCP1(
     col_swap(m, n, k, A, J);
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         a_mod_piv_t_stop = high_resolution_clock::now();
         a_mod_piv_t_dur = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
 
@@ -214,16 +200,14 @@ int CholQRCP<T>::CholQRCP1(
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         a_mod_trsm_t_stop = high_resolution_clock::now();
         a_mod_trsm_t_dur = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
     }
     //-------TIMING--------/
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         cholqrcp_t_start = high_resolution_clock::now();
     }
     //-------TIMING--------/
@@ -235,8 +219,7 @@ int CholQRCP<T>::CholQRCP1(
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         cholqrcp_t_stop = high_resolution_clock::now();
         cholqrcp_t_dur = duration_cast<microseconds>(cholqrcp_t_stop - cholqrcp_t_start).count();
     }
@@ -247,8 +230,7 @@ int CholQRCP<T>::CholQRCP1(
     trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);	
 
     //-------TIMING--------/
-    if(this -> timing)
-    {
+    if(this -> timing) {
         total_t_stop = high_resolution_clock::now();
         total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 

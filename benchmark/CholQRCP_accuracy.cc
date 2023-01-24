@@ -1,4 +1,8 @@
 
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
 #include <blas.hh>
 #include <RandBLAS.hh>
 #include <lapack.hh>
@@ -64,10 +68,8 @@ template <typename T>
         geqp3(m, n, A_1.data(), m, J_1.data(), tau_1.data());
         get_U(m, n, A_1, R_1);
 
-        switch (test_num)
-        {
-            case 1:
-            {
+        switch (test_num) {
+            case 1: {
                 // Clear the file if it exists
                 std::ofstream ofs;
                 ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/R_R_norm_ratio_m_" + std::to_string(m) 
@@ -101,10 +103,8 @@ template <typename T>
                 
                 // || R_qp3[k:, :] || / || R_cqrcp[k:, :] ||
                 // This will have k - 2 data points
-                for(int i = 1; i < n; ++i)
-                {
-                    for(int j = 0; j < n; ++j)
-                    {
+                for(int i = 1; i < n; ++i) {
+                    for(int j = 0; j < n; ++j) {
                         copy(i, &z_buf_dat[0], 1, &R_1_dat[n * j], 1);
                         copy(i, &z_buf_dat[0], 1, &R_dat[k * j], 1);
                     }
@@ -159,8 +159,7 @@ template <typename T>
                                                                                                           + "_OMP_threads_" + std::to_string(36) 
                                                                                                           + ".dat", std::fstream::app);
 
-                for(int i = 0; i < n; ++i)
-                {
+                for(int i = 0; i < n; ++i) {
                     file << std::abs(r[i] / s[i]) << "  " << std::abs(r_1[i] / s[i]) << "\n";
                 }
                 break;

@@ -44,8 +44,7 @@ print_info(int64_t rows,
            T tsqrp_full_time,
            T geqrf_full_time,
            string test_type,
-           int runs)
-{
+           int runs) {
     const char * test_type_print = test_type.c_str();
 
     printf("\n/-------------------------------------QR TIMING INFO BEGIN-------------------------------------/\n");
@@ -61,75 +60,59 @@ print_info(int64_t rows,
             printf("%s timing of TSQRP for %d runs: %57.2f μs. Full timing: %f μs.\n\n",                                 test_type_print, runs - 1, tsqrp_time, tsqrp_time);
 
             /*CholQRCP vs GEQP3*/
-            if(cholqrcp_time < geqp3_time)
-            {
+            if(cholqrcp_time < geqp3_time) {
                 printf("Result: CholQRCP is %33.2f times faster than GEQP3.\n",                         geqp3_time / cholqrcp_time);
             }
-            else
-            {
+            else {
                 printf("Result: CholQRCP is %33.2f times slower than GEQP3.\n",                         cholqrcp_time / geqp3_time);
             }
 
-            if(chol_full_time < geqp3_full_time)
-            {
+            if(chol_full_time < geqp3_full_time) {
                 printf("With space allocation + application: %3.2f times faster than GEQP3.\n\n", geqp3_full_time / chol_full_time);
             }
-            else
-            {
+            else {
                 printf("With space allocation + application: %3.2f times slower than GEQP3.\n\n", chol_full_time / geqp3_full_time);
             }
 
             /*CholQRCP vs TSQRP*/
-            if(cholqrcp_time < tsqrp_time)
-            {
+            if(cholqrcp_time < tsqrp_time) {
                 printf("Result: CholQRCP is %33.2f times faster than TSQRP.\n",                         tsqrp_time / cholqrcp_time);
             }
-            else
-            {
+            else {
                 printf("Result: CholQRCP is %33.2f times slower than TSQRP.\n",                         cholqrcp_time / tsqrp_time);
             }
-            if(chol_full_time < tsqrp_full_time)
-            {
+            if(chol_full_time < tsqrp_full_time) {
                 printf("With space allocation + application: %3.2f times faster than TSQRP.\n\n", tsqrp_full_time / chol_full_time);
             }
-            else
-            {
+            else {
                 printf("With space allocation + application: %3.2f times slower than TSQRP.\n\n", chol_full_time / tsqrp_full_time);
             }
 
             /*CholQRCP vs GEQRF*/
-            if(cholqrcp_time < geqrf_time)
-            {
+            if(cholqrcp_time < geqrf_time) {
                 printf("Result: CholQRCP is %33.2f times faster than GEQRF.\n",                         geqrf_time / cholqrcp_time);
             }
-            else
-            {
+            else {
                 printf("Result: CholQRCP is %33.2f times slower than GEQRF.\n",                         cholqrcp_time / geqrf_time);
             }
-            if(chol_full_time < geqrf_full_time)
-            {
+            if(chol_full_time < geqrf_full_time) {
                 printf("With space allocation + application: %3.2f times faster than GEQRF.\n\n", geqrf_full_time / chol_full_time);
             }
-            else
-            {
+            else {
                 printf("With space allocation + application: %3.2f times slower than GEQRF.\n\n", chol_full_time / geqrf_full_time);
             }
 
             /*CholQRCP vs GEQR*/
-            if(cholqrcp_time < geqr_time)
-            {
+            if(cholqrcp_time < geqr_time) {
                 printf("Result: CholQRCP is %33.2f times faster than GEQR.\n",                          geqr_time / cholqrcp_time);
             }
-            else
-            {
+            else {
                 printf("Result: CholQRCP is %33.2f times slower than GEQR.\n",                          cholqrcp_time / geqr_time);
             }
-            if(chol_full_time < geqr_full_time)
-            {
+            if(chol_full_time < geqr_full_time) {
                 printf("With space allocation + application: %3.2f times faster than GEQR.\n\n",  geqr_full_time / chol_full_time);
             }
-            else
-            {
+            else {
                 printf("With space allocation + application: %3.2f times slower than GEQR.\n\n",  chol_full_time / geqr_full_time);
             }
 
@@ -159,8 +142,7 @@ log_info(int64_t rows,
            T tsqrp_full_time,
            T geqrf_full_time,
            string test_type,
-           int runs)
-{
+           int runs) {
     // Save the output into .dat file
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_" + test_type 
                                                                                               + "_m_"            + std::to_string(rows) 
@@ -208,8 +190,7 @@ test_speed_helper(int64_t m,
                   int64_t nnz, 
                   int64_t num_threads, 
                   std::tuple<int, T, bool> mat_type, 
-                  uint32_t seed) 
-{
+                  uint32_t seed) {
     using namespace blas;
     using namespace lapack;
 
@@ -253,8 +234,7 @@ test_speed_helper(int64_t m,
     
     // Pre-allocation for CholQRCP
     auto start_alloc1 = high_resolution_clock::now();
-    if(log_times)
-    {
+    if(log_times) {
         (CholQRCP.times).resize(10);
     }
     upsize(d * n, (CholQRCP.A_hat));
@@ -273,8 +253,7 @@ test_speed_helper(int64_t m,
     long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
     
     // CholQRCP verbose info print
-    if(log_times)
-    {
+    if(log_times) {
         printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
         printf("SASO time: %33ld μs,\n",                    (CholQRCP.times)[0]);
         printf("QRCP time: %33ld μs,\n",                    (CholQRCP.times)[1]);
@@ -435,8 +414,7 @@ test_speed(int r_pow,
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw
     
-    for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf)
-    {
+    for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
         ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Best_m_"
@@ -482,13 +460,11 @@ test_speed(int r_pow,
     int64_t rows = 0;
     int64_t cols = 0;
 
-    for(; r_pow <= r_pow_max; ++r_pow)
-    {
+    for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
         int64_t cols = col;
 
-        for (; cols <= col_max; cols *= 2)
-        {
+        for (; cols <= col_max; cols *= 2) {
             std::vector<long> res;
 
             long t_alloc1   = 0;
@@ -539,13 +515,11 @@ test_speed(int r_pow,
             T geqrf_mean    = 0;
             T appl5_mean    = 0;
 
-            for(int i = 0; i < runs; ++i)
-            {
+            for(int i = 0; i < runs; ++i) {
                 res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, i);
 
                 // Skip first iteration, as it tends to produce garbage results
-                if (i != 0)
-                {
+                if (i != 0) {
                     t_alloc1   += res[0];
                     t_cholqrcp += res[1];
                     t_appl1    += res[2];
@@ -591,64 +565,49 @@ test_speed(int r_pow,
                          << res[14] << "\n";
                     
                     // For best timing
-                    if(alloc1_best > res[0] || alloc1_best == 0)
-                    {
+                    if(alloc1_best > res[0] || alloc1_best == 0) {
                         alloc1_best = res[0];
                     }
-                    if(cholqrcp_best > res[1] || cholqrcp_best == 0)
-                    {
+                    if(cholqrcp_best > res[1] || cholqrcp_best == 0) {
                         cholqrcp_best = res[1];
                     }
-                    if(appl1_best > res[2] || appl1_best == 0)
-                    {
+                    if(appl1_best > res[2] || appl1_best == 0) {
                         appl1_best = res[2];
                     }
-                    if(alloc2_best > res[3] || alloc2_best == 0)
-                    {
+                    if(alloc2_best > res[3] || alloc2_best == 0) {
                         alloc2_best = res[3];
                     }
-                    if(geqp3_best > res[4] || geqp3_best == 0)
-                    {
+                    if(geqp3_best > res[4] || geqp3_best == 0) {
                         geqp3_best = res[4];
                     }
-                    if(appl2_best > res[5] || appl2_best == 0)
-                    {
+                    if(appl2_best > res[5] || appl2_best == 0) {
                         appl2_best = res[5];
                     }
-                    if(alloc3_best > res[6] || alloc3_best == 0)
-                    {
+                    if(alloc3_best > res[6] || alloc3_best == 0) {
                         alloc3_best = res[6];
                     }
-                    if(geqr_best > res[7] || geqr_best == 0)
-                    {
+                    if(geqr_best > res[7] || geqr_best == 0) {
                         geqr_best = res[7];
                     }
-                    if(appl3_best > res[8] || appl3_best == 0)
-                    {
+                    if(appl3_best > res[8] || appl3_best == 0) {
                         appl3_best = res[8];
                     }
-                    if(alloc4_best > res[9] || alloc4_best == 0)
-                    {
+                    if(alloc4_best > res[9] || alloc4_best == 0) {
                         alloc4_best = res[9];
                     }
-                    if(tsqrp_best > res[10] || tsqrp_best == 0)
-                    {
+                    if(tsqrp_best > res[10] || tsqrp_best == 0) {
                         tsqrp_best = res[10];
                     }
-                    if(appl4_best > res[11] || appl4_best == 0)
-                    {
+                    if(appl4_best > res[11] || appl4_best == 0) {
                         appl4_best = res[11];
                     }
-                    if(alloc5_best > res[12] || alloc5_best == 0)
-                    {
+                    if(alloc5_best > res[12] || alloc5_best == 0) {
                         alloc5_best = res[12];
                     }
-                    if(geqrf_best > res[13] || geqrf_best == 0)
-                    {
+                    if(geqrf_best > res[13] || geqrf_best == 0) {
                         geqrf_best = res[13];
                     }
-                    if(appl5_best > res[14] || appl5_best == 0)
-                    {
+                    if(appl5_best > res[14] || appl5_best == 0) {
                         appl5_best = res[14];
                     }
                 }
