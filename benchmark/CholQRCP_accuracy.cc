@@ -53,7 +53,7 @@ template <typename T>
         std::copy(A.data(), A.data() + size, A_1.data());
         std::copy(A.data(), A.data() + size, A_2.data());
 
-        CholQRCP<T> CholQRCP(false, false, seed, tol, use_cholqrcp1);
+        CholQRCP<T> CholQRCP(false, false, seed, tol);
         CholQRCP.nnz = nnz;
         CholQRCP.num_threads = 32;
 

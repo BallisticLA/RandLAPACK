@@ -8,8 +8,6 @@ namespace RandLAPACK::drivers::cholqrcp {
 #ifndef CholQRCP_CLASS
 #define CholQRCP_CLASS
 
-enum decision_CholQRCP {use_cholqrcp1};
-
 template <typename T>
 class CholQRCPalg {
     public:
@@ -50,22 +48,17 @@ class CholQRCP : public CholQRCPalg<T> {
 
         std::vector<T> Q_cpy;
 
-        // Controls QB version to be used
-        decision_CholQRCP decision_cholqrcp;
-
     // Constructor
     CholQRCP(
         bool verb,
         bool t,
         uint32_t sd,
-        T ep,
-        decision_CholQRCP decision
+        T ep
     ) {
         verbosity = verb;
         timing = t;
         seed = sd;
         eps = ep;
-        decision_cholqrcp = decision;
     }
 
     int CholQRCP1(
@@ -85,12 +78,7 @@ class CholQRCP : public CholQRCPalg<T> {
         std::vector<T>& R,
         std::vector<int64_t>& J
     ) {
-        int termination = 0;
-        switch(this->decision_cholqrcp) {
-            case use_cholqrcp1:
-                termination = CholQRCP1(m, n, A, d, R, J);
-                break;
-        }
+        int termination = CholQRCP1(m, n, A, d, R, J);
 
         if(this->verbosity) {
             switch(termination) {

@@ -101,7 +101,7 @@ test_speed_helper(int64_t m,
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
-    CholQRCP<T> CholQRCP(false, true, seed, tol, use_cholqrcp1);
+    CholQRCP<T> CholQRCP(false, true, seed, tol);
     CholQRCP.nnz         = nnz;
     CholQRCP.num_threads = num_threads;
 

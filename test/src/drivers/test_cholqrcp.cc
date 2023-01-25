@@ -47,7 +47,7 @@ class TestCholQRCP : public ::testing::Test
         T* A_dat = A.data();
         T* A_hat_dat = A_hat.data();
 
-        CholQRCP<T> CholQRCP(false, false, seed, tol, use_cholqrcp1);
+        CholQRCP<T> CholQRCP(false, false, seed, tol);
         CholQRCP.nnz = nnz;
         CholQRCP.num_threads = 32;
 

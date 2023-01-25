@@ -10,8 +10,6 @@ namespace RandLAPACK::drivers::rsvd {
 #ifndef RSVD_CLASS
 #define RSVD_CLASS
 
-enum decision_RSVD {use_rsvd1};
-
 template <typename T>
 class RSVDalg {
     public:
@@ -38,17 +36,12 @@ class RSVD : public RSVDalg<T> {
         std::vector<T> B;
         std::vector<T> U_buf;
 
-        // Controls QB version to be used
-        decision_RSVD decision_rsvd;
-
     // Constructor
     RSVD(
         RandLAPACK::comps::qb::QBalg<T>& qb_obj,
-        bool verb,
-        decision_RSVD decision
+        bool verb
     ) : QB_Obj(qb_obj) {
         verbosity = verb;
-        decision_rsvd = decision;
     }
 
     int RSVD1(
@@ -74,12 +67,7 @@ class RSVD : public RSVDalg<T> {
         std::vector<T>& S,
         std::vector<T>& VT
     ) {
-        int termination = 0;
-        switch(this->decision_rsvd) {
-            case use_rsvd1:
-                termination = RSVD1(m, n, A, k, block_sz, tol, U, S, VT);
-                break;
-        }
+        int termination = RSVD1(m, n, A, k, block_sz, tol, U, S, VT);
 
         if(this->verbosity) {
             switch(termination)

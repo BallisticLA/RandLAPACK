@@ -115,7 +115,7 @@ print_info(int64_t rows,
             printf("\n/---------------------------------------QR TIMING INFO END---------------------------------------/\n\n");
 
 }
-
+CholQRCP
 
 template <typename T>
 static void 
@@ -222,7 +222,7 @@ test_speed_helper(int64_t m,
 
     // CholQRCP constructor
     bool log_times = true;
-    CholQRCP<T> CholQRCP(false, log_times, seed, tol, use_cholqrcp1);
+    CholQRCP<T> CholQRCP(false, log_times, seed, tol);
     CholQRCP.nnz = nnz;
     CholQRCP.num_threads = num_threads;
 
