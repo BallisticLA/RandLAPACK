@@ -16,7 +16,6 @@ using namespace std::chrono;
 namespace RandLAPACK::drivers::cholqrcp {
 
 // This vesrion of the code overwrites matrix A with Q
-// Note that Q is now useless here
 template <typename T>
 int CholQRCP<T>::CholQRCP1(
     int64_t m,
@@ -67,7 +66,6 @@ int CholQRCP<T>::CholQRCP1(
     //-------TIMING--------/
     if(this -> timing) {
         total_t_start = high_resolution_clock::now();
-    
         resize_t_start = high_resolution_clock::now();
     }
     //-------TIMING--------/
@@ -90,32 +88,18 @@ int CholQRCP<T>::CholQRCP1(
     }
     //-------TIMING--------/
 
-    /*
-    Old way of generating and applying SASO
-
-    struct RandBLAS::sasos::SASO sas;
-    sas.n_rows = d; // > n
-    sas.n_cols = m;
-    sas.vec_nnz = this->nnz;
-    sas.rows = new int64_t[sas.vec_nnz * m];
-    sas.cols = new int64_t[sas.vec_nnz * m];
-    sas.vals = new double[sas.vec_nnz * m];
-    RandBLAS::sasos::fill_colwise(sas, this->seed, 0);
-
-    RandBLAS::sasos::sketch_csccol(sas, n, (double*) A_dat, (double*) A_hat_dat, this->num_threads);
-    */
-
     RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};        
     RandBLAS::sparse::SparseSkOp<T> S(DS, this->seed, 0, NULL, NULL, NULL);        
     RandBLAS::sparse::fill_sparse(S);
 
-    RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans, d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d);
+    RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(
+        Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+        d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d);
 
     //-------TIMING--------/
     if(this -> timing) {
         saso_t_stop = high_resolution_clock::now();
         saso_t_dur = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
-
         qrcp_t_start = high_resolution_clock::now();
     }
     //-------TIMING--------/
@@ -133,17 +117,15 @@ int CholQRCP<T>::CholQRCP1(
     //-------TIMING--------/
 
     // Find rank
-    int64_t k = n;
-    this->rank = k;
+    int k = n;
     int i;
     for(i = 0; i < n; ++i) {
         if(std::abs(A_hat_dat[i * d + i]) < this->eps) {
-            // "Rank" is k, but the index should be k - 1
             k = i;
-            this->rank = k;
             break;
         }
     }
+    this->rank = k;
 
     //-------TIMING--------/
     if(this -> timing) {

@@ -337,7 +337,7 @@ template <typename T>
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
         
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
-        if(tol == 0.0) {
+        if(tol == (T) 0.0) {
             // Test Zero Tol Output
             printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
             ASSERT_NEAR(norm_test_1, 0, 1e-12);
@@ -351,10 +351,10 @@ template <typename T>
         printf("|================================TEST QB2 K = min(M, N) END================================|\n");
     }
 };
-/*
-TEST_F(TestQB, SimpleTest)
+
+TEST_F(TestQB, Polynomial_Decay)
 { 
-    for (uint32_t seed : {2})//, 1, 2})
+    for (uint32_t seed : {0, 1, 2})
     {
         // Fast polynomial decay test
         test_QB2_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2025, false), seed);
@@ -362,20 +362,43 @@ TEST_F(TestQB, SimpleTest)
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 6.7, false), seed);
         // Superfast exponential decay test
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2025, false), seed);
-        
-        // A = [A A]
-        //test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
-        
+    }
+}
+
+TEST_F(TestQB, Zero_Mat)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // A = 0
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed); 
+    }
+}
+
+TEST_F(TestQB, Rand_Diag)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // Random diagonal matrix test
         test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed);
+    }
+}
+
+TEST_F(TestQB, Diag_Drop)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
         test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
+    }
+}
+
+TEST_F(TestQB, Varying_Tol)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // test zero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), seed);
         // test nonzero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 1.23, false), seed);
     }
 }
-*/

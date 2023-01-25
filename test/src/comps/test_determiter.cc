@@ -62,7 +62,6 @@ class TestDetermiterOLS : public ::testing::Test
 };
 
 TEST_F(TestDetermiterOLS, Trivial) {
-    //RandLAPACK::comps::determiter::run_pcgls_ex(12, 201);
     for (int64_t k_idx : {0, 1, 2}) {
         run(k_idx);
     }
