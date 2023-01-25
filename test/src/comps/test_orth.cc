@@ -144,7 +144,7 @@ class TestOrth : public ::testing::Test
         T norm_fro = lapack::lange(lapack::Norm::Fro, n, n, I_ref.data(), n);	
 
         printf("FRO NORM OF Q' * Q - I: %e\n", norm_fro);
-        ASSERT_NEAR(norm_fro, 0.0, 1e-10);
+        ASSERT_NEAR(norm_fro, 0.0, (T) 1e-10);
 
         printf("|===================================TEST ORTH SWITCH END===================================|\n");
     }

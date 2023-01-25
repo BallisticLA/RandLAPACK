@@ -63,7 +63,6 @@ class TestRSVD : public ::testing::Test
         T* A_cpy_dat = A_cpy.data();
 
         T* U1_dat = U1.data();
-        T* s1_dat = s1.data();
         T* S1_dat = S1.data();
         T* VT1_dat = VT1.data();
 
@@ -104,17 +103,7 @@ class TestRSVD : public ::testing::Test
         RSVD<T> RSVD(QB, verbosity, use_rsvd1);
 
         // Regular QB2 call
-        RSVD.call(
-            m,
-            n,
-            A,
-            k,
-            block_sz,
-            tol,
-            U1,
-            s1,
-            VT1
-        );
+        RSVD.call(m, n, A, k, block_sz, tol, U1, s1, VT1);
         
         // Construnct A_hat = U1 * S1 * VT1
 
@@ -149,12 +138,11 @@ class TestRSVD : public ::testing::Test
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 };
-/*
+
 TEST_F(TestRSVD, SimpleTest)
 { 
-    for (uint32_t seed : {2})//, 1, 2})
+    for (uint32_t seed : {0, 1, 2})
     {
         test_RSVD1_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2, false), seed);
     }
 }
-*/

@@ -55,7 +55,6 @@ class TestCholQRCP : public ::testing::Test
 
         A_dat = A.data();
         T* R_dat = R.data();
-        int64_t* J_dat = J.data();
         k = CholQRCP.rank;
 
         col_swap(m, n, n, A_hat, J);
@@ -69,9 +68,10 @@ class TestCholQRCP : public ::testing::Test
         printf("|=================================TEST CholQRCP GENERAL END================================|\n");
     }
 };
+
 /*Subprocess killed exception - reload vscode*/
 TEST_F(TestCholQRCP, SimpleTest)
 { 
-        //test_CholQRCP1_general<double>(10000, 200, 200, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), 2);
-        //test_CholQRCP1_general<double>(10000, 200, 100, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), 2);
+    test_CholQRCP1_general<double>(10000, 200, 200, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), 2);
+    test_CholQRCP1_general<double>(10000, 200, 100, 400, 2, std::pow(1.0e-16, 0.75), std::make_tuple(0, 2, false), 2);
 }

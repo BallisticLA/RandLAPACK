@@ -71,7 +71,8 @@ class Orth : public Stabilization<T> {
         ){
             // Default
             int termination = 0;
-            switch(this->decision_orth) {
+            switch(this->decision_orth) 
+            {
                 case use_CholQRQ:
                     if(this->chol_fail) {
                         termination = HQRQ(m, k, Q, this->tau);
@@ -126,7 +127,8 @@ class Stab : public Orth<T>
             std::vector<T>& Q
         ){
             int termination = 0;
-            switch(this->decision_stab) {
+            switch(this->decision_stab) 
+            {
                 case use_CholQRQ:
                     if(this->chol_fail) {
                         termination = PLUL(m, k, Q, this->ipiv);

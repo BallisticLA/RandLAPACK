@@ -47,10 +47,7 @@ int QB<T>::QB2(
         return 1;
     }
 
-    // tolerance check
-    if (tol < 100 * std::numeric_limits<T>::epsilon()) {
-        tol = 100 * std::numeric_limits<T>::epsilon();
-    }
+    tol = std::max(tol, 100 * std::numeric_limits<T>::epsilon());
     
     // If the space allocated for col in Q and row in B is insufficient for any iterations ...
     if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k) {
