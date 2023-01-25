@@ -77,44 +77,44 @@ int Orth<T>::HQRQ(
     std::vector<T>& A,
     std::vector<T>& tau
 ){
-	// Done via regular LAPACK's QR
-	// tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
-	// tau needs to be a vector of all 2's by default
-	using namespace lapack;
+    // Done via regular LAPACK's QR
+    // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
+    // tau needs to be a vector of all 2's by default
+    using namespace lapack;
 
-	upsize<T>(n, tau);
+    upsize<T>(n, tau);
 
-	T* A_dat = A.data();
-	T* tau_dat = tau.data();
-	if(geqrf(m, n, A_dat, m, tau_dat))
-		return 1; // Failure condition
+    T* A_dat = A.data();
+    T* tau_dat = tau.data();
+    if(geqrf(m, n, A_dat, m, tau_dat))
+        return 1; // Failure condition
 
-	ungqr(m, n, n, A_dat, m, tau_dat);
-	return 0;
+    ungqr(m, n, n, A_dat, m, tau_dat);
+    return 0;
 }
 
 #if !defined(__APPLE__)
 // GEQR lacks "unpacking" of Q
 template <typename T> 
 int Orth<T>::GEQR(
-	int64_t m,
-	int64_t n,
-	std::vector<T>& A,
-	std::vector<T>& tvec
+    int64_t m,
+    int64_t n,
+    std::vector<T>& A,
+    std::vector<T>& tvec
 ){
-	using namespace lapack;
+    using namespace lapack;
 
-	tvec.resize(5);
+    tvec.resize(5);
 
-	T* A_dat = A.data();
-	
-	geqr(m, n, A_dat, m, tvec.data(), -1);
-	int64_t tsize = (int64_t) tvec[0]; 
-	tvec.resize(tsize);
-	if(geqr(m, n, A_dat, m, tvec.data(), tsize))
-		return 1;
+    T* A_dat = A.data();
 
-	return 0;
+    geqr(m, n, A_dat, m, tvec.data(), -1);
+    int64_t tsize = (int64_t) tvec[0]; 
+    tvec.resize(tsize);
+    if(geqr(m, n, A_dat, m, tvec.data(), tsize))
+        return 1;
+
+    return 0;
 }
 #endif
 

@@ -66,35 +66,35 @@ class RSVD : public RSVDalg<T>
     );
 
     virtual int call(
-		int64_t m,
-		int64_t n,
-		std::vector<T>& A,
-		int64_t& k,
-		int64_t block_sz,
-		T tol,
-		std::vector<T>& U,
-		std::vector<T>& S,
-		std::vector<T>& VT
+        int64_t m,
+        int64_t n,
+        std::vector<T>& A,
+        int64_t& k,
+        int64_t block_sz,
+        T tol,
+        std::vector<T>& U,
+        std::vector<T>& S,
+        std::vector<T>& VT
     ) {
-		int termination = 0;
-		switch(this->decision_rsvd) {
-			case use_rsvd1:
-				termination = RSVD1(m, n, A, k, block_sz, tol, U, S, VT);
-				break;
-		}
+        int termination = 0;
+        switch(this->decision_rsvd) {
+            case use_rsvd1:
+                termination = RSVD1(m, n, A, k, block_sz, tol, U, S, VT);
+                break;
+        }
 
-		if(this->verbosity) {
-			switch(termination)
-			{
-			case 1:
-				printf("\nQB TERMINATED VIA: QB failed.\n");
-				break;
-			case 0:
-				printf("\nQB TERMINATED VIA: normal termination.\n");
-				break;
-			}
-		}
-		return termination;
+        if(this->verbosity) {
+            switch(termination)
+            {
+            case 1:
+                printf("\nQB TERMINATED VIA: QB failed.\n");
+                break;
+            case 0:
+                printf("\nQB TERMINATED VIA: normal termination.\n");
+                break;
+            }
+        }
+        return termination;
     }
 };
 #endif
