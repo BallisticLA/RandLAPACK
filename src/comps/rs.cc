@@ -42,10 +42,8 @@ int RS<T>::rs1(
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);
 
         ++ p_done;
-        if (p_done % q == 0) {
-            if(this->Stab_Obj.call(n, k, Omega))
-                return 1; // Scheme failure
-        }
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
+            return 1; // Scheme failure
     }
 
     while (p - p_done > 0) {
@@ -56,10 +54,8 @@ int RS<T>::rs1(
         if(this->cond_check)
             this->cond_nums.push_back(cond_num_check<T>(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
 
-        if (p_done % q == 0) {
-            if(this->Stab_Obj.call(m, k, Omega_1))
-                return 1;
-        }
+        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1)))
+            return 1;
 
         // Omega = A' * Omega
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);
@@ -68,10 +64,8 @@ int RS<T>::rs1(
         if (this->cond_check)
             this->cond_nums.push_back(cond_num_check<T>(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
         
-        if (p_done % q == 0) {
-            if(this->Stab_Obj.call(n, k, Omega))
-                return 1;
-        }
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
+            return 1;
     }
     // Increment seed upon termination
     this->seed += m * n;
