@@ -27,22 +27,19 @@ using namespace std::chrono;
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
-using std::string;
-using std::vector;
-
 template <typename T>
 static void 
 process_dat() {
-    vector<string> test_type    = {"Best"};
-    vector<string> rows         = {"131072"}; // {"262144"};
-    vector<string> d_multiplier = {"1.000000"};
-    vector<string> k_multiplier = {"1.000000"};
-    vector<string> log10tol     = {"-12"};
-    vector<string> mat_type     = {"6"};
-    vector<string> cond         = {"0"};
-    vector<string> nnz          = {"1"};
-    vector<string> runs         = {"5"};
-    vector<string> num_threads  = {"36"};
+    std::vector<std::string> test_type    = {"Best"};
+    std::vector<std::string> rows         = {"131072"}; // {"262144"};
+    std::vector<std::string> d_multiplier = {"1.000000"};
+    std::vector<std::string> k_multiplier = {"1.000000"};
+    std::vector<std::string> log10tol     = {"-12"};
+    std::vector<std::string> mat_type     = {"6"};
+    std::vector<std::string> cond         = {"0"};
+    std::vector<std::string> nnz          = {"1"};
+    std::vector<std::string> runs         = {"5"};
+    std::vector<std::string> num_threads  = {"36"};
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
         for (int j = 0; j < (int) rows.size(); ++j) {

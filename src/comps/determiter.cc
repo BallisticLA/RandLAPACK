@@ -11,17 +11,17 @@ template <typename T>
 void pcg(
     int64_t m,
     int64_t n,
-    T* const A,
+    const T* A,
     int64_t lda, 
-    T* const b, // length m
-    T* const c, // length n
+    const T* b, // length m
+    const T* c, // length n
     T delta, // >= 0
     std::vector<T>& resid_vec, // re
     T tol, //  > 0
     int64_t k,
-    T* const M, // n-by-k
+    const T* M, // n-by-k
     int64_t ldm,
-    T* const x0, // length n
+    const T* x0, // length n
     T* x,  // length n
     T* y // length m
     )
@@ -164,10 +164,10 @@ void run_pcgls_ex(int n, int m)
 
 
 // Explicit instantiation of template functions - workaround to avoid header implementations
-template void pcg<float>( int64_t m, int64_t n, float* const A, int64_t lda,  float* const b, float* const c, float delta, 
-std::vector<float>& resid_vec, float tol, int64_t k, float* const M, int64_t ldm, float* const x0, float* x, float* y);
+template void pcg<float>( int64_t m, int64_t n, const float* A, int64_t lda,  const float* b, const float* c, float delta, 
+std::vector<float>& resid_vec, float tol, int64_t k, const float* M, int64_t ldm, const float* x0, float* x, float* y);
 
-template void pcg<double>( int64_t m, int64_t n, double* const A, int64_t lda,  double* const b, double* const c, double delta, 
-std::vector<double>& resid_vec, double tol, int64_t k, double* const M, int64_t ldm, double* const x0, double* x, double* y);
+template void pcg<double>( int64_t m, int64_t n, const double* A, int64_t lda,  const double* b, const double* c, double delta, 
+std::vector<double>& resid_vec, double tol, int64_t k, const double* M, int64_t ldm, const double* x0, double* x, double* y);
 
 } // end namespace RandLAPACK::comps::determiter

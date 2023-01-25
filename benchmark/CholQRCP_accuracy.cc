@@ -24,7 +24,7 @@ using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
 
 template <typename T>
-    static void test_CholQRCP1_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed, int test_num) {
+    static void test_CholQRCP1_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed, int test_num) {
         
         printf("|================================Benchmark CholQRCP Accuracy Begin===============================|\n");
 

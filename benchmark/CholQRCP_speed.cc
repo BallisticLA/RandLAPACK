@@ -28,27 +28,26 @@ using namespace std::chrono;
 
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
-using std::string;
 
 template <typename T>
 static void 
 print_info(int64_t rows, 
-           int64_t cols,
-           T d_multiplier, 
-           int64_t nnz, 
-           int64_t num_threads, 
-           T cholqrcp_time, 
-           T geqp3_time, 
-           T geqr_time, 
-           T tsqrp_time, 
-           T geqrf_time, 
-           T chol_full_time,
-           T geqp3_full_time,
-           T geqr_full_time,
-           T tsqrp_full_time,
-           T geqrf_full_time,
-           string test_type,
-           int runs) {
+    int64_t cols,
+    T d_multiplier, 
+    int64_t nnz, 
+    int64_t num_threads, 
+    T cholqrcp_time, 
+    T geqp3_time, 
+    T geqr_time, 
+    T tsqrp_time, 
+    T geqrf_time, 
+    T chol_full_time,
+    T geqp3_full_time,
+    T geqr_full_time,
+    T tsqrp_full_time,
+    T geqrf_full_time,
+    const std::string& test_type,
+    int runs) {
     const char * test_type_print = test_type.c_str();
 
     printf("\n/-------------------------------------QR TIMING INFO BEGIN-------------------------------------/\n");
@@ -115,7 +114,6 @@ print_info(int64_t rows,
             printf("\n/---------------------------------------QR TIMING INFO END---------------------------------------/\n\n");
 
 }
-CholQRCP
 
 template <typename T>
 static void 
@@ -126,7 +124,7 @@ log_info(int64_t rows,
            T tol,
            int64_t nnz, 
            int64_t num_threads,
-           std::tuple<int, T, bool> mat_type,
+           const std::tuple<int, T, bool>& mat_type,
            T cholqrcp_time, 
            T geqp3_time, 
            T geqr_time, 
@@ -137,7 +135,7 @@ log_info(int64_t rows,
            T geqr_full_time,
            T tsqrp_full_time,
            T geqrf_full_time,
-           string test_type,
+           const std::string& test_type,
            int runs) {
     // Save the output into .dat file
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_" + test_type 
@@ -185,7 +183,7 @@ test_speed_helper(int64_t m,
                   T tol, 
                   int64_t nnz, 
                   int64_t num_threads, 
-                  std::tuple<int, T, bool> mat_type, 
+                  const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
     using namespace blas;
     using namespace lapack;
@@ -405,7 +403,7 @@ test_speed(int r_pow,
            T tol, 
            T k_multiplier, 
            T d_multiplier, 
-           std::tuple<int, T, bool> mat_type)
+           const std::tuple<int, T, bool> & mat_type)
 {
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw

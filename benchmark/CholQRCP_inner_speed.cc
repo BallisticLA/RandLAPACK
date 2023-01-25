@@ -27,7 +27,6 @@ using namespace std::chrono;
 
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
-using std::string;
 
 template <typename T>
 static void 
@@ -37,7 +36,7 @@ log_info(int64_t rows,
            T tol,
            int64_t nnz, 
            int64_t num_threads,
-           std::tuple<int, T, bool> mat_type,
+           const std::tuple<int, T, bool>& mat_type,
            T saso_time, 
            T qrcp_time, 
            T rank_reveal_time, 
@@ -48,7 +47,7 @@ log_info(int64_t rows,
            T resize_time,
            T other_time,
            T total_time,
-           string test_type,
+           const std::string& test_type,
            int runs)
 {
     // Save the output into .dat file
@@ -84,7 +83,7 @@ test_speed_helper(int64_t m,
                   T tol, 
                   int64_t nnz, 
                   int64_t num_threads, 
-                  std::tuple<int, T, bool> mat_type, 
+                  const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
     using namespace blas;
     using namespace lapack;
@@ -156,7 +155,7 @@ test_speed(int r_pow,
            T tol, 
            T k_multiplier, 
            T d_multiplier, 
-           std::tuple<int, T, bool> mat_type) {
+           const std::tuple<int, T, bool>& mat_type) {
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw
     

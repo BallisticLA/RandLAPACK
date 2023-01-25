@@ -47,10 +47,10 @@ void extract_diag(
     int64_t m,
     int64_t n,
     int64_t k, 
-    std::vector<T>& A,
+    const std::vector<T>& A,
     std::vector<T>& buf 
 ) {     
-    T* A_dat = A.data();
+    const T* A_dat = A.data();
     if (k == 0) {
         k = std::min(m, n);
     }
@@ -64,9 +64,9 @@ void disp_diag(
     int64_t m,
     int64_t n,
     int64_t k, 
-    std::vector<T>& A 
+    const std::vector<T>& A 
 ) {     
-    T* A_dat = A.data();
+    const T* A_dat = A.data();
     if (k == 0) {
         k = std::min(m, n);
     }
@@ -109,14 +109,14 @@ template <typename T>
 void get_U(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
+    const std::vector<T>& A,
     std::vector<T>& U // We are assuming U is n by n
 ) {
     using namespace blas;
     // Vector end pointer
     int size = m * n;
 
-    T* A_dat = A.data();
+    const T* A_dat = A.data();
     T* U_dat = U.data();
 
     for(int i = 0, j = 1, k = 0; i < size && j <= m; i += m, k +=n, ++j) {             
@@ -216,7 +216,7 @@ void gen_mat_type(
     std::vector<T>& A,
     int64_t k, 
     int32_t seed,
-    std::tuple<int, T, bool> type
+    const std::tuple<int, T, bool>& type
 ) {  
     using namespace blas;
     T* A_dat = A.data();
@@ -496,17 +496,17 @@ template void eye<double>(int64_t m, int64_t n, std::vector<double>& A );
 template void diag(int64_t m, int64_t n, const std::vector<float>& s, int64_t k, std::vector<float>& S);
 template void diag(int64_t m, int64_t n, const std::vector<double>& s, int64_t k, std::vector<double>& S);
 
-template void extract_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A, std::vector<float>& buf);
-template void extract_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A, std::vector<double>& buf);
+template void extract_diag(int64_t m, int64_t n, int64_t k, const std::vector<float>& A, std::vector<float>& buf);
+template void extract_diag(int64_t m, int64_t n, int64_t k, const std::vector<double>& A, std::vector<double>& buf);
 
-template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<float>& A);
-template void disp_diag(int64_t m, int64_t n, int64_t k, std::vector<double>& A);
+template void disp_diag(int64_t m, int64_t n, int64_t k, const std::vector<float>& A);
+template void disp_diag(int64_t m, int64_t n, int64_t k, const std::vector<double>& A);
 
 template void get_L<float>(int64_t m, int64_t n, std::vector<float>& L);
 template void get_L<double>(int64_t m, int64_t n, std::vector<double>& L);
 
-template void get_U<float>(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& U);
-template void get_U<double>(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& U);
+template void get_U<float>(int64_t m, int64_t n, const std::vector<float>& A, std::vector<float>& U);
+template void get_U<double>(int64_t m, int64_t n, const std::vector<double>& A, std::vector<double>& U);
 
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<float>& A, std::vector<int64_t> idx);
 template void col_swap(int64_t m, int64_t n, int64_t k, std::vector<double>& A, std::vector<int64_t> idx);
@@ -517,8 +517,8 @@ template double* upsize(int64_t target_sz, std::vector<double>& A);
 template float* row_resize(int64_t m, int64_t n, std::vector<float>& A, int64_t k);
 template double* row_resize(int64_t m, int64_t n, std::vector<double>& A, int64_t k);
 
-template void gen_mat_type(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, int32_t seed, std::tuple<int, float, bool> type);
-template void gen_mat_type(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, int32_t seed, std::tuple<int, double, bool> type);
+template void gen_mat_type(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, int32_t seed, const std::tuple<int, float, bool>& type);
+template void gen_mat_type(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, int32_t seed, const std::tuple<int, double, bool>& type);
 
 template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<float>& A, int64_t k, float cond, bool diagon, int32_t seed); 
 template void gen_poly_mat(int64_t& m, int64_t& n, std::vector<double>& A, int64_t k, double cond, bool diagon, int32_t seed);

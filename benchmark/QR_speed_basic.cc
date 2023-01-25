@@ -29,14 +29,13 @@ using namespace std::chrono;
 #define ABSDTOL 1e-12;
 
 using namespace RandLAPACK::comps::util;
-using std::string;
 
 template <typename T>
 static std::vector<long> 
 test_speed_helper(int64_t m, 
                   int64_t n, 
                   int64_t k, 
-                  std::tuple<int, T, bool> mat_type, 
+                  const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
     
     using namespace blas;
@@ -113,8 +112,8 @@ test_speed(int r_pow,
                 int col_max, 
                 T k_multiplier, 
                 int runs, 
-                std::tuple<int, T, bool> mat_type, 
-                string test_type) {
+                const std::tuple<int, T, bool>& mat_type, 
+                const std::string& test_type) {
     printf("\n/-----------------------------------------QR SPEED TEST START-----------------------------------------/\n");
     
     // Clear all files

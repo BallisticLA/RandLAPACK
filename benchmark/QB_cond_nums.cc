@@ -24,7 +24,7 @@ using namespace RandLAPACK::comps::qb;
 typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
 template <typename T>
-static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
+static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed) {
 
     using namespace blas;
     using namespace lapack;

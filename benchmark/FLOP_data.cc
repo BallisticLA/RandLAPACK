@@ -27,23 +27,20 @@ using namespace std::chrono;
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
-using std::string;
-using std::vector;
-
 template <typename T>
 static void 
 compute_and_log(
-    string test_type,
+    const std::string& test_type,
     int64_t rows, 
     int64_t cols,
-    string d_multiplier,
-    string k_multiplier, 
-    string log10tol,
-    string mat_type, 
-    string cond,
-    string nnz,
-    string runs,
-    string num_threads,
+    const std::string& d_multiplier,
+    const std::string& k_multiplier, 
+    const std::string& log10tol,
+    const std::string& mat_type, 
+    const std::string& cond,
+    const std::string& nnz,
+    const std::string& runs,
+    const std::string& num_threads,
     T cholqrcp_time, 
     T geqp3_time, 
     T geqr_time, 
@@ -91,16 +88,16 @@ compute_and_log(
 template <typename T>
 static void 
 process_dat() {
-    vector<string> test_type    = {"Best"};
-    vector<string> rows         = {"131072"}; // {"262144"};
-    vector<string> d_multiplier = {"1.000000"};
-    vector<string> k_multiplier = {"1.000000"};
-    vector<string> log10tol     = {"-12"};
-    vector<string> mat_type     = {"6"};
-    vector<string> cond         = {"0"};
-    vector<string> nnz          = {"1"};
-    vector<string> runs         = {"5"};
-    vector<string> num_threads  = {"36"};
+    std::vector<std::string> test_type    = {"Best"};
+    std::vector<std::string> rows         = {"131072"}; // {"262144"};
+    std::vector<std::string> d_multiplier = {"1.000000"};
+    std::vector<std::string> k_multiplier = {"1.000000"};
+    std::vector<std::string> log10tol     = {"-12"};
+    std::vector<std::string> mat_type     = {"6"};
+    std::vector<std::string> cond         = {"0"};
+    std::vector<std::string> nnz          = {"1"};
+    std::vector<std::string> runs         = {"5"};
+    std::vector<std::string> num_threads  = {"36"};
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
         for (int j = 0; j < (int) rows.size(); ++j) {
