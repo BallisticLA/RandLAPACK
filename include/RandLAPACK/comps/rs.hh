@@ -53,8 +53,7 @@ class RS : public RowSketcher<T>
             bool verb,
             bool cond,
             decision_rs dec
-        ) : Stab_Obj(stab_obj)//, SketchOpGen(sk_gen)
-        {
+        ) : Stab_Obj(stab_obj) { //, SketchOpGen(sk_gen)
             verbosity = verb;
             cond_check = cond;
             seed = s;

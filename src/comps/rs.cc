@@ -33,8 +33,7 @@ int RS<T>::rs1(
         // Fill n by k Omega
         RandBLAS::dense::DenseDist  D{.n_rows = n, .n_cols = k};
         RandBLAS::dense::fill_buff<T>(Omega_dat, D, state);
-    }
-    else {
+    } else {
         // Fill m by k Omega_1
         RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
         RandBLAS::dense::fill_buff<T>(Omega_1_dat, D, state);
@@ -66,7 +65,7 @@ int RS<T>::rs1(
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);
         ++ p_done;
         
-        if(this->cond_check)
+        if (this->cond_check)
             this->cond_nums.push_back(cond_num_check<T>(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
         
         if (p_done % q == 0) {

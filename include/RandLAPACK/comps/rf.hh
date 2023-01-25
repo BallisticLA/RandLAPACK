@@ -14,8 +14,7 @@ namespace RandLAPACK::comps::rf {
 enum decision_rf {use_rf1};
 
 template <typename T>
-class RangeFinder
-{
+class RangeFinder {
     public:
         virtual int call(
             int64_t m,
@@ -27,8 +26,7 @@ class RangeFinder
 };
 
 template <typename T>
-class RF : public RangeFinder<T>
-{
+class RF : public RangeFinder<T> {
     public:
             // Instantiated in the constructor
             RandLAPACK::comps::rs::RowSketcher<T>& RS_Obj;

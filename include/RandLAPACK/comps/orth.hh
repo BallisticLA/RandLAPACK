@@ -11,8 +11,7 @@ namespace RandLAPACK::comps::orth {
 enum decision_orth_stab {use_CholQRQ, use_HQRQ, use_PLUL, use_GEQR};
 
 template <typename T>
-class Stabilization
-{
+class Stabilization {
     public:
         virtual int call(
             int64_t m,
@@ -22,8 +21,7 @@ class Stabilization
 };
 
 template <typename T>
-class Orth : public Stabilization<T>
-{
+class Orth : public Stabilization<T> {
     public:
         std::vector<T> tvec;
         std::vector<T> tau;
@@ -77,9 +75,8 @@ class Orth : public Stabilization<T>
                 case use_CholQRQ:
                     if(this->chol_fail) {
                         termination = HQRQ(m, k, Q, this->tau);
-                    }
-                    else {
-                        //Call it twice for better orthogonality
+                    } else {
+                        //Conventionally, we may call it twice for better orthogonality. Practically, the 2nd call makes no difference.
                         if(CholQRQ(m, k, Q)) {
                                 termination = HQRQ(m, k, Q, this->tau);
                         }
@@ -108,8 +105,7 @@ class Stab : public Orth<T>
         decision_orth_stab decision_stab;
         
         // Constructor
-        Stab(decision_orth_stab dec, bool c_check, bool verb) : Orth<T>::Orth(dec, c_check, verb) 
-        {
+        Stab(decision_orth_stab dec, bool c_check, bool verb) : Orth<T>::Orth(dec, c_check, verb) {
             this->cond_check = c_check;
             this->verbosity = verb;
             decision_stab = dec;
@@ -134,8 +130,7 @@ class Stab : public Orth<T>
                 case use_CholQRQ:
                     if(this->chol_fail) {
                         termination = PLUL(m, k, Q, this->ipiv);
-                    }
-                    else {
+                    } else {
                         // Only call once
                         termination = this->CholQRQ(m, k, Q);
                         if(termination) {

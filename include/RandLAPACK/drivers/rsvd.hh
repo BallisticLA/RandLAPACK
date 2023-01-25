@@ -13,8 +13,7 @@ namespace RandLAPACK::drivers::rsvd {
 enum decision_RSVD {use_rsvd1};
 
 template <typename T>
-class RSVDalg
-{
+class RSVDalg {
     public:
         virtual int call(
             int64_t m,
@@ -30,8 +29,7 @@ class RSVDalg
 };
 
 template <typename T>
-class RSVD : public RSVDalg<T>
-{
+class RSVD : public RSVDalg<T> {
 	public:
         RandLAPACK::comps::qb::QBalg<T>& QB_Obj;
         bool verbosity;

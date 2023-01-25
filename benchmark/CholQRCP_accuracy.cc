@@ -113,8 +113,7 @@ template <typename T>
                 }
                 break;
             }
-            case 2:
-            {
+            case 2: {
                 // For SVD
                 std::vector<T> s(n, 0.0);
                 std::vector<T> U(m * n, 0.0);

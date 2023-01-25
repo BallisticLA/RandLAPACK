@@ -32,8 +32,7 @@ using std::vector;
 
 template <typename T>
 static void 
-process_dat()
-{
+process_dat() {
     vector<string> test_type    = {"Best"};
     vector<string> rows         = {"131072"}; // {"262144"};
     vector<string> d_multiplier = {"1.000000"};

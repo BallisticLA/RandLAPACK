@@ -67,8 +67,7 @@ void pcg(
     int64_t iter = 0;
     T alpha = 0.0;
     T beta = 0.0;
-    while (iter < iter_lim && delta1_new > rel_sq_tol) 
-    {
+    while (iter < iter_lim && delta1_new > rel_sq_tol) {
         resid_vec[iter] = delta1_new;
         
         // q = A'(A d) + delta d 
@@ -84,8 +83,7 @@ void pcg(
         axpy<T>(n, alpha, d.data(), 1, x, 1);
 
         // update r
-        if (iter % 25 == 1)
-        {
+        if (iter % 25 == 1) {
             // r = b1 - (A'(A x) + delta x)
             //		out_a1 = A x
             //		out_at1 = A' out_a1
@@ -97,9 +95,7 @@ void pcg(
             copy<T>(n, b1.data(), 1, r.data(), 1);
             axpy<T>(n, -1.0, out_at1.data(), 1, r.data(), 1 );
             if (reg) axpy<T>(n, -delta, x, 1, r.data(), 1); 
-        }
-        else
-        {
+        } else {
             // r -= alpha q
             axpy<T>(n, -alpha, out_at1.data(), 1, r.data(), 1);
         }
@@ -115,8 +111,7 @@ void pcg(
         delta1_old = delta1_new;
         delta1_new = dot<T>(n, r.data(), 1, out_m1.data(), 1);
         beta = delta1_new / delta1_old;
-        for (int i = 0; i < n; ++i)
-        {
+        for (int i = 0; i < n; ++i) {
             d[i] = beta*d[i] + out_m1[i];
         }
 
@@ -134,19 +129,16 @@ void pcg(
 void run_pcgls_ex(int n, int m)
 {
     std::vector<double> A(m * n);
-    for (uint64_t i = 0; i < A.size(); ++i)
-    {
+    for (uint64_t i = 0; i < A.size(); ++i) {
         A[i] = ((double)i + 1.0) / m;
     }
     std::vector<double> b(m);
-    for (uint64_t i = 0; i < b.size(); ++i)
-    {
+    for (uint64_t i = 0; i < b.size(); ++i) {
         b[i] = 1.0 / ((double) (i+1));
     }
     std::vector<double> c(n, 0.0);
     std::vector<double> M(n * n, 0.0);
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         M[i + n*i] = 1.0;
     }
     std::vector<double> x0(n, 0.0);
@@ -162,8 +154,7 @@ void run_pcgls_ex(int n, int m)
 
     for (double res: resid_vec)
     {
-        if (res < 0)
-        {
+        if (res < 0) {
             break;
         }
         std::cout << res << "\n";

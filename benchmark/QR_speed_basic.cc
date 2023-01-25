@@ -173,8 +173,7 @@ test_speed(int r_pow,
                         t_cholqr += res[0];
                         t_geqp3  += res[1];
                         t_geqrf  += res[2];
-                    }
-                    else {
+                    } else {
                         if(cholqr_total > res[0] || cholqr_total == 0) {
                             cholqr_total = res[0];
                         }

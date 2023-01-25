@@ -11,8 +11,7 @@ namespace RandLAPACK::drivers::cholqrcp {
 enum decision_CholQRCP {use_cholqrcp1};
 
 template <typename T>
-class CholQRCPalg
-{
+class CholQRCPalg {
     public:
         virtual int call(
             int64_t m,
@@ -25,8 +24,7 @@ class CholQRCPalg
 };
 
 template <typename T>
-class CholQRCP : public CholQRCPalg<T>
-{
+class CholQRCP : public CholQRCPalg<T> {
 	public:
         bool verbosity;
         bool timing;

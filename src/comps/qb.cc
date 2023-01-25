@@ -59,8 +59,7 @@ int QB<T>::QB2(
         // No need for data movement in this case
         upsize<T>(m * this->curr_lim, Q);
         upsize<T>(this->curr_lim * n, B);
-    }
-    else {
+    } else {
         this->curr_lim = k;
     }
     

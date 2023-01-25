@@ -22,8 +22,7 @@ namespace RandLAPACK::comps::qb {
 enum decision_qb {use_qb2};
 
 template <typename T>
-class QBalg
-{
+class QBalg {
     public:
         virtual int call(
             int64_t m,
@@ -38,8 +37,7 @@ class QBalg
 };
 
 template <typename T>
-class QB : public QBalg<T>
-{
+class QB : public QBalg<T> {
     public:
             RandLAPACK::comps::rf::RangeFinder<T>& RF_Obj;
             RandLAPACK::comps::orth::Stabilization<T>& Orth_Obj;

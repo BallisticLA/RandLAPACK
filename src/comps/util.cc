@@ -193,9 +193,7 @@ T* row_resize(
             copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
             end += k;
         }
-    }
-    //SIZING UP
-    else {
+    } else { //SIZING UP
         // How many rows are being added: k - m
         A_dat = upsize(k * n, A);
 
@@ -335,8 +333,7 @@ void gen_poly_mat(
             A.resize(k * k);
         }
         lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
-    }
-    else {
+    } else {
         gen_mat<T>(m, n, A, k, S, seed);
     }
 }
@@ -373,16 +370,14 @@ void gen_exp_mat(
 
     // form a diagonal S
     diag<T>(k, k, s, k, S);
-    if (diagon)
-    {
+    if (diagon) {
         if (!(m == k || n == k)) {
                 m = k;
                 n = k;
                 A.resize(k * k);
         }
         lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
-    }
-    else {
+    } else {
         gen_mat<T>(m, n, A, k, S, seed);
     }
 }
@@ -452,8 +447,7 @@ T cond_num_check(
     if (A.size() < A_cpy.size()) {
         // Convert to normal format
         tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
-    }
-    else {
+    } else {
         lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
     }
     gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);

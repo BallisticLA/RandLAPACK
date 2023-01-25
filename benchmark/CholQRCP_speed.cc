@@ -66,57 +66,49 @@ print_info(int64_t rows,
             /*CholQRCP vs GEQP3*/
             if(cholqrcp_time < geqp3_time) {
                 printf("Result: CholQRCP is %33.2f times faster than GEQP3.\n",                         geqp3_time / cholqrcp_time);
-            }
-            else {
+            } else {
                 printf("Result: CholQRCP is %33.2f times slower than GEQP3.\n",                         cholqrcp_time / geqp3_time);
             }
 
             if(chol_full_time < geqp3_full_time) {
                 printf("With space allocation + application: %3.2f times faster than GEQP3.\n\n", geqp3_full_time / chol_full_time);
-            }
-            else {
+            } else {
                 printf("With space allocation + application: %3.2f times slower than GEQP3.\n\n", chol_full_time / geqp3_full_time);
             }
 
             /*CholQRCP vs TSQRP*/
             if(cholqrcp_time < tsqrp_time) {
                 printf("Result: CholQRCP is %33.2f times faster than TSQRP.\n",                         tsqrp_time / cholqrcp_time);
-            }
-            else {
+            } else {
                 printf("Result: CholQRCP is %33.2f times slower than TSQRP.\n",                         cholqrcp_time / tsqrp_time);
             }
             if(chol_full_time < tsqrp_full_time) {
                 printf("With space allocation + application: %3.2f times faster than TSQRP.\n\n", tsqrp_full_time / chol_full_time);
-            }
-            else {
+            } else {
                 printf("With space allocation + application: %3.2f times slower than TSQRP.\n\n", chol_full_time / tsqrp_full_time);
             }
 
             /*CholQRCP vs GEQRF*/
             if(cholqrcp_time < geqrf_time) {
                 printf("Result: CholQRCP is %33.2f times faster than GEQRF.\n",                         geqrf_time / cholqrcp_time);
-            }
-            else {
+            } else {
                 printf("Result: CholQRCP is %33.2f times slower than GEQRF.\n",                         cholqrcp_time / geqrf_time);
             }
             if(chol_full_time < geqrf_full_time) {
                 printf("With space allocation + application: %3.2f times faster than GEQRF.\n\n", geqrf_full_time / chol_full_time);
-            }
-            else {
+            } else {
                 printf("With space allocation + application: %3.2f times slower than GEQRF.\n\n", chol_full_time / geqrf_full_time);
             }
 
             /*CholQRCP vs GEQR*/
             if(cholqrcp_time < geqr_time) {
                 printf("Result: CholQRCP is %33.2f times faster than GEQR.\n",                          geqr_time / cholqrcp_time);
-            }
-            else {
+            } else {
                 printf("Result: CholQRCP is %33.2f times slower than GEQR.\n",                          cholqrcp_time / geqr_time);
             }
             if(chol_full_time < geqr_full_time) {
                 printf("With space allocation + application: %3.2f times faster than GEQR.\n\n",  geqr_full_time / chol_full_time);
-            }
-            else {
+            } else {
                 printf("With space allocation + application: %3.2f times slower than GEQR.\n\n",  chol_full_time / geqr_full_time);
             }
 
@@ -257,7 +249,7 @@ test_speed_helper(int64_t m,
     long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
     
     // CholQRCP verbose info print
-    if(log_times) {
+    if (log_times) {
         printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
         printf("SASO time: %33ld μs,\n",                    (CholQRCP.times)[0]);
         printf("QRCP time: %33ld μs,\n",                    (CholQRCP.times)[1]);
