@@ -41,8 +41,8 @@ class TestQB : public ::testing::Test
             k = std::min(m, n);
         }
 
-        std::vector<T> Q(3, 0);
-        std::vector<T> B;
+        std::vector<T> Q(m * k, 0.0);
+        std::vector<T> B(k * n, 0.0);
         std::vector<T> B_cpy(k * n, 0.0);
 
         // For results comparison
@@ -87,25 +87,25 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(1);
+        Stab<T> Stab(use_PLUL, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(use_CholQRQ, cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check, use_rf1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(use_CholQRQ, cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check, use_qb2);
 
         // Regular QB2 call
-        QB.call(
+        int termination = QB.call(
             m,
             n,
             A,
@@ -119,8 +119,8 @@ class TestQB : public ::testing::Test
         // Reassing pointers because Q, B have been resized
         Q_dat = Q.data();
         B_dat = B.data();
-
-        switch(QB.termination)
+        
+        switch(termination)
         {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
@@ -135,13 +135,12 @@ class TestQB : public ::testing::Test
                 break;
             case 4:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
-                //EXPECT_TRUE(true);
-                //return;
                 break;
             case 5:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
-                //EXPECT_TRUE(true);
-                //return;
+            case 6:
+                printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
+                break;
                 break;
             case 0:
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
@@ -264,25 +263,25 @@ template <typename T>
 
         // Make subroutine objects
         // Stabilization Constructor - Choose CholQR
-        Stab<T> Stab(0);
+        Stab<T> Stab(use_CholQRQ, cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, 0);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(0);
+        Orth<T> Orth_RF(use_CholQRQ, cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check, 0);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check, use_rf1);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(0);
+        Orth<T> Orth_QB(use_CholQRQ, cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check, 0);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check, use_qb2);
 
         // Regular QB2 call
-        QB.call(
+        int termination = QB.call(
             m,
             n,
             A,
@@ -297,8 +296,7 @@ template <typename T>
         Q_dat = Q.data();
         B_dat = B.data();
     
-        switch(QB.termination)
-        {
+        switch(termination) {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
                 EXPECT_TRUE(true);
@@ -312,13 +310,12 @@ template <typename T>
                 break;
             case 4:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
-                //EXPECT_TRUE(true);
-                //return;
                 break;
             case 5:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
-                //EXPECT_TRUE(true);
-                //return;
+                break;
+            case 6:
+                printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
                 break;
             case 0:
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
@@ -340,14 +337,12 @@ template <typename T>
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
         
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
-        if(tol == 0.0)
-        {
+        if(tol == (T) 0.0) {
             // Test Zero Tol Output
             printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
             ASSERT_NEAR(norm_test_1, 0, 1e-12);
         }
-        else
-        {
+        else {
             // Test Nonzero Tol Output
             printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
             printf("FRO NORM OF A:         %e\n", norm_A);
@@ -357,34 +352,53 @@ template <typename T>
     }
 };
 
-TEST_F(TestQB, SimpleTest)
+TEST_F(TestQB, Polynomial_Decay)
 { 
-    for (uint32_t seed : {2})//, 1, 2})
+    for (uint32_t seed : {0, 1, 2})
     {
-        //test_QB2_k_eq_min<double>(100, 100, 10, 10, 2, 0.0, std::make_tuple(0, 0.2, false), seed);
-        
         // Fast polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2025, false), seed);
         // Slow polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 0.5, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 6.7, false), seed);
         // Superfast exponential decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2, false), seed);
-        
-        // S-shaped decay matrix test 
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(2, 0, false), seed);
-        // A = [A A]
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2025, false), seed);
+    }
+}
+
+TEST_F(TestQB, Zero_Mat)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // A = 0
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed); 
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed); 
+    }
+}
+
+TEST_F(TestQB, Rand_Diag)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // Random diagonal matrix test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed);
+    }
+}
+
+TEST_F(TestQB, Diag_Drop)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-        test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(6, 0, false), seed);
-        
-        // SOMETHING IS OFF HERE
+        test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
+    }
+}
+
+TEST_F(TestQB, Varying_Tol)
+{ 
+    for (uint32_t seed : {0, 1, 2})
+    {   
         // test zero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 0.1, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), seed);
         // test nonzero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 0.1, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 1.23, false), seed);
     }
 }

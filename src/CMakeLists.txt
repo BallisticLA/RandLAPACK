@@ -5,6 +5,8 @@ set(RandLAPACK_cxx_srcs
     comps/rs.cc
     comps/util.cc
     comps/orth.cc
+    drivers/rsvd.cc
+    drivers/cholqrcp.cc
 )
 
 set(RandLAPACK_libs
