@@ -142,3 +142,6 @@ class PLUL : public CholQRQ<T>
             return plul(m, k, Q, this->ipiv);
         }
 };
+
+#endif
+} // end namespace RandLAPACK::comps::rs
