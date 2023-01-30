@@ -55,10 +55,10 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // Stabilization Constructor
-    Stab<T> Stab_PLU(use_PLUL, false, false);
-    Orth<T> Orth_CholQR(use_CholQRQ, false, false);
-    Orth<T> Orth_HQR(use_HQRQ, false, false);
-    Orth<T> Orth_GEQR(use_GEQR, false, false);
+    PLUL<T> Stab_PLU(false, false);
+    CholQRQ<T> Orth_CholQR(false, false);
+    HQRQ<T> Orth_HQR(false, false);
+    GEQR<T> Orth_GEQR(false, false);
 
     // PIV LU
     // Stores L, U into Omega

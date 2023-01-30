@@ -82,22 +82,22 @@ class TestRSVD : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(use_PLUL, cond_check, verbosity);
+        PLUL<T> Stab(cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(use_CholQRQ, cond_check, verbosity);
+        CholQRQ<T> Orth_RF(cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check, use_rf1);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(use_CholQRQ, cond_check, verbosity);
+        CholQRQ<T> Orth_QB(cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check, use_qb2);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check);
 
         // RSVD constructor - Choose defaut (RSVD1)
         RSVD<T> RSVD(QB, verbosity);

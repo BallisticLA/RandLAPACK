@@ -50,15 +50,15 @@ class TestOrth : public ::testing::Test
         eye<T>(n, n, I_ref);  
 
         // Orthogonalization Constructor
-        Orth<T> Orth(use_CholQRQ, false, false);
+        CholQRQ<T> CholQRQ(false, false);
 
         // Orthonormalize A
-        if (Orth.call(m, n, A) != 0) {
+        if (CholQRQ.call(m, n, A) != 0) {
             EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality
-        Orth.call(m, n, A);
+        CholQRQ.call(m, n, A);
 
         // Q' * Q  - I = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, -1.0, I_ref_dat, n);
@@ -97,15 +97,15 @@ class TestOrth : public ::testing::Test
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         
         // Orthogonalization Constructor
-        Orth<T> Orth(use_CholQRQ, false, false);
+        CholQRQ<T> CholQRQ(false, false);
 
         // Orthonormalize sketch Y
-        if(Orth.call(m, k, Y) != 0) {
+        if(CholQRQ.call(m, k, Y) != 0) {
             EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality
-        Orth.call(m, k, Y);
+        CholQRQ.call(m, k, Y);
 
         // Q' * Q  - I = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
@@ -134,9 +134,9 @@ class TestOrth : public ::testing::Test
         gen_mat_type<T>(m, n, A, n, seed, std::tuple(1, 2, true));
 
         // Orthogonalization Constructor
-        Orth<T> Orth(use_CholQRQ, true, true);
+        CholQRQ<T> CholQRQ(true, true);
 
-        Orth.call(m, n, A);
+        CholQRQ.call(m, n, A);
 
         // Q' * Q  - I = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A.data(), m, A.data(), m, -1.0, I_ref.data(), n);

@@ -64,19 +64,19 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     Stab<T> Stab(use_CholQRQ, cond_check, verbosity);
 
     // RowSketcher constructor - Choose default (rs1)
-    RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
+    RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
 
     // Orthogonalization Constructor - use HQR
     Orth<T> Orth_RF(use_HQRQ, cond_check, verbosity);
 
     // RangeFinder constructor
-    RF<T> RF(RS, Orth_RF, verbosity, cond_check, use_rf1);
+    RF<T> RF(RS, Orth_RF, verbosity, cond_check);
 
     // Orthogonalization Constructor - use HQR
     Orth<T> Orth_QB(use_HQRQ, cond_check, verbosity);
 
     // QB constructor - Choose QB2_test_mode
-    QB<T> QB(RF, Orth_QB, verbosity, orth_check, use_qb2);
+    QB<T> QB(RF, Orth_QB, verbosity, orth_check);
 
     // Test mode QB2
     QB.call(
