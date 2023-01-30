@@ -1,11 +1,3 @@
-/*
-TODO #1: The QB class probably doesn't need a QB2 function that's separate from call(...). 
-The same goes for RF not needing rf1 separately from call(...). I know that the Orth class has 
-several functions and a call method that chooses among them. That's an okay design pattern in isolation 
-but if we assume it's used in most implementations then that can lead to indirect assumptions about how 
-customized user implementations might behave.
-*/
-
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
