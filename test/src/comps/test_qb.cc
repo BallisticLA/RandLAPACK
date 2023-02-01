@@ -336,7 +336,7 @@ template <typename T>
         
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        if(tol == std::pow(std::numeric_limits<T>::epsilon(), 0.0)) {
+        if(tol == 0.0) {
             // Test Zero Tol Output
             printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
             ASSERT_NEAR(norm_test_1, 0, test_tol);
@@ -397,7 +397,7 @@ TEST_F(TestQB, Varying_Tol)
     for (uint32_t seed : {0, 1, 2})
     {   
         // test zero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0), std::make_tuple(0, 1.23, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), seed);
         // test nonzero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.00625), std::make_tuple(0, 1.23, false), seed);
     }
