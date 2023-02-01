@@ -114,16 +114,17 @@ class GEQR : public Stabilization<T> {
 #endif
 
 template <typename T>
-class PLUL : public CholQRQ<T>
+class PLUL : public Stabilization<T>
 {
     public:
         std::vector<int64_t> ipiv;
+        bool cond_check;
+        bool verbosity;
         
         // Constructor
-        PLUL(bool c_check, bool verb) : CholQRQ<T>::CholQRQ(c_check, verb) {
+        PLUL(bool c_check, bool verb) {
             this->cond_check = c_check;
             this->verbosity = verb;
-            this->chol_fail = false; 
         };
 
         int plul(

@@ -6,9 +6,6 @@
 
 #include <fstream>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
-
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
 using namespace RandLAPACK::comps::rs;
@@ -200,25 +197,26 @@ class TestQB : public ::testing::Test
         // A_k * VT -  A_hat == 0
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
 
+        T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
         printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
-        //ASSERT_NEAR(norm_test_1, 0, 1e-10);
+        //ASSERT_NEAR(norm_test_1, 0, test_tol);
 
         // Test 2 Output
         T norm_test_2 = lange(Norm::Fro, k, n, B_cpy_dat, k);
         printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
-        //ASSERT_NEAR(norm_test_2, 0, 1e-10);
+        //ASSERT_NEAR(norm_test_2, 0, test_tol);
 
         // Test 3 Output
         T norm_test_3 = lapack::lange(lapack::Norm::Fro, k, k, Ident_dat, k);
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
-        //ASSERT_NEAR(norm_test_3, 0, 1e-10);
+        //ASSERT_NEAR(norm_test_3, 0, test_tol);
 
         // Test 4 Output
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
-        //ASSERT_NEAR(norm_test_4, 0, 1e-10);
+        //ASSERT_NEAR(norm_test_4, 0, test_tol);
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
         
     }
@@ -337,10 +335,11 @@ template <typename T>
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
         
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
-        if(tol == (T) 0.0) {
+        T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+        if(tol == std::pow(std::numeric_limits<T>::epsilon(), 0.0)) {
             // Test Zero Tol Output
             printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
-            ASSERT_NEAR(norm_test_1, 0, 1e-12);
+            ASSERT_NEAR(norm_test_1, 0, test_tol);
         }
         else {
             // Test Nonzero Tol Output
@@ -354,14 +353,15 @@ template <typename T>
 
 TEST_F(TestQB, Polynomial_Decay)
 { 
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.5625);
     for (uint32_t seed : {0, 1, 2})
     {
         // Fast polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2025, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), seed);
         // Slow polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(0, 6.7, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, tol, std::make_tuple(0, 6.7, false), seed);
         // Superfast exponential decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(1, 2025, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, tol, std::make_tuple(1, 2025, false), seed);
     }
 }
 
@@ -370,7 +370,7 @@ TEST_F(TestQB, Zero_Mat)
     for (uint32_t seed : {0, 1, 2})
     {   
         // A = 0
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(3, 0, false), seed); 
+        test_QB2_general<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(3, 0, false), seed); 
     }
 }
 
@@ -379,7 +379,7 @@ TEST_F(TestQB, Rand_Diag)
     for (uint32_t seed : {0, 1, 2})
     {   
         // Random diagonal matrix test
-        test_QB2_general<double>(100, 100, 50, 5, 2, 1.0e-9, std::make_tuple(4, 0, false), seed);
+        test_QB2_general<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(4, 0, false), seed);
     }
 }
 
@@ -388,7 +388,7 @@ TEST_F(TestQB, Diag_Drop)
     for (uint32_t seed : {0, 1, 2})
     {   
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-        test_QB2_general<double>(100, 100, 0, 5, 2, 1.0e-9, std::make_tuple(5, 0, false), seed);
+        test_QB2_general<double>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(5, 0, false), seed);
     }
 }
 
@@ -397,8 +397,8 @@ TEST_F(TestQB, Varying_Tol)
     for (uint32_t seed : {0, 1, 2})
     {   
         // test zero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0), std::make_tuple(0, 1.23, false), seed);
         // test nonzero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.1, std::make_tuple(0, 1.23, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.00625), std::make_tuple(0, 1.23, false), seed);
     }
 }

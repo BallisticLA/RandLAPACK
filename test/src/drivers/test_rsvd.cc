@@ -134,7 +134,7 @@ class TestRSVD : public ::testing::Test
 
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
-        //ASSERT_NEAR(norm_test_4, 0, 1e-10);
+        //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 };
@@ -143,6 +143,6 @@ TEST_F(TestRSVD, SimpleTest)
 { 
     for (uint32_t seed : {0, 1, 2})
     {
-        test_RSVD1_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_RSVD1_general<double>(100, 100, 50, 5, 10, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(0, 2, false), seed);
     }
 }

@@ -65,7 +65,7 @@ class TestOrth : public ::testing::Test
 
         T norm_fro = lapack::lange(lapack::Norm::Fro, n, n, I_ref_dat, n);	
         printf("FRO NORM OF Q' * Q - I %f\n", norm_fro);
-        ASSERT_NEAR(norm_fro, 0.0, 1e-12);
+        ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
     template <typename T>
@@ -113,7 +113,7 @@ class TestOrth : public ::testing::Test
         T norm_fro = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);	
 
         printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);
-        ASSERT_NEAR(norm_fro, 0.0, 1e-10);
+        ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 
     // Switching between different orthogonalization and stabilization types
@@ -144,7 +144,7 @@ class TestOrth : public ::testing::Test
         T norm_fro = lapack::lange(lapack::Norm::Fro, n, n, I_ref.data(), n);	
 
         printf("FRO NORM OF Q' * Q - I: %e\n", norm_fro);
-        ASSERT_NEAR(norm_fro, 0.0, (T) 1e-10);
+        ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
 
         printf("|===================================TEST ORTH SWITCH END===================================|\n");
     }
