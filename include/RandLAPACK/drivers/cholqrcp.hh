@@ -39,14 +39,9 @@ class CholQRCP : public CholQRCPalg<T> {
         int64_t nnz;
 
         // Buffers
-        std::vector<T> A_cpy;
-        std::vector<T> Omega;
         std::vector<T> A_hat;
         std::vector<T> tau;
         std::vector<T> R_sp;
-        std::vector<T> R_buf;
-
-        std::vector<T> Q_cpy;
 
     // Constructor
     CholQRCP(

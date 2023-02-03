@@ -15,7 +15,48 @@ using namespace std::chrono;
 
 namespace RandLAPACK::drivers::cholqrcp {
 
-// This vesrion of the code overwrites matrix A with Q
+// -----------------------------------------------------------------------------
+/// Computes a QR factorization with column pivots of the form:
+///     A[:, J] = QR,
+/// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
+/// Detailed description of this algorithm may be found in Section 5.1.2.
+/// of the `Prospectus`.
+///
+/// Templated fpr `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix A, stored in a column-major format.
+///
+/// @param[in] d
+///     Embedding dimension of a sketch, m >= d >= n.
+///
+/// @param[in] R
+///     Represents the upper-triangular R factor of QR factorization.
+///     On entry, is empty and may not have any space allocated for it.
+///
+/// @param[in] J
+///     Represents pivot index vector.
+///     On entry, is empty and may not have any space allocated for it.
+///
+/// @param[out] A
+///     Overwritten by an m-by-k orthogonal Q factor.
+///     Matrix is stored explicitly.
+///
+/// @param[in] R
+///     Stores k-by-n matrix with upper-triangular R factor.
+///     Zero entries are not compressed.
+///
+/// @param[out] J
+///     Stores k integer type pivot index extries. 
+///
+/// @return = 0: successful exit
+///
 template <typename T>
 int CholQRCP<T>::CholQRCP1(
     int64_t m,

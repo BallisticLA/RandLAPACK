@@ -171,19 +171,19 @@ class TestQB : public ::testing::Test
         // Test 1 Output
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
         printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
-        //ASSERT_NEAR(norm_test_1, 0, test_tol);
+        ASSERT_NEAR(norm_test_1, 0, test_tol);
         // Test 2 Output
         T norm_test_2 = lange(Norm::Fro, k, n, B_cpy_dat, k);
         printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
-        //ASSERT_NEAR(norm_test_2, 0, test_tol);
+        ASSERT_NEAR(norm_test_2, 0, test_tol);
         // Test 3 Output
         T norm_test_3 = lapack::lange(lapack::Norm::Fro, k, k, Ident_dat, k);
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
-        //ASSERT_NEAR(norm_test_3, 0, test_tol);
+        ASSERT_NEAR(norm_test_3, 0, test_tol);
         // Test 4 Output
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
-        //ASSERT_NEAR(norm_test_4, 0, test_tol);
+        ASSERT_NEAR(norm_test_4, 0, test_tol);
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 

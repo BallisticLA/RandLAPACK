@@ -13,10 +13,6 @@ using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
 using namespace RandLAPACK::drivers::cholqrcp;
 
-
-/*
-Beware of improper rank k defining.
-*/
 class TestCholQRCP : public ::testing::Test
 {
     protected:
@@ -25,8 +21,12 @@ class TestCholQRCP : public ::testing::Test
 
     virtual void TearDown() {};
 
+
+    /// General test for CholQRCP:
+    /// Computes QR factorzation, and computes A[:, J] - QR.
+
     template <typename T>
-    static void test_CholQRCP1_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
+    static void test_CholQRCP_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|================================TEST CholQRCP GENERAL BEGIN===============================|\n");
 
@@ -69,9 +69,9 @@ class TestCholQRCP : public ::testing::Test
     }
 };
 
-/*Subprocess killed exception - reload vscode*/
+// Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCholQRCP, SimpleTest)
 { 
-    test_CholQRCP1_general<double>(10000, 200, 200, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2);
-    test_CholQRCP1_general<double>(10000, 200, 100, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2);
+    test_CholQRCP_general<double>(10000, 200, 200, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2);
+    test_CholQRCP_general<double>(10000, 200, 100, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2);
 }
