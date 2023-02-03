@@ -6,15 +6,14 @@ TODO #3: Need a test case with switching between different orthogonalization typ
 On early termination, data in B is moved, but not sized down
 */
 
-#include <cstdint>
-#include <limits>
-#include <vector>
-
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 
 #include <math.h>
+#include <cstdint>
+#include <limits>
+#include <vector>
 
 using namespace RandLAPACK::comps::util;
 
@@ -48,7 +47,6 @@ int QB<T>::QB2(
     }
 
     tol = std::max(tol, 100 * std::numeric_limits<T>::epsilon());
-    
     // If the space allocated for col in Q and row in B is insufficient for any iterations ...
     if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k) {
         // ... allocate more!
@@ -114,7 +112,6 @@ int QB<T>::QB2(
             // Q_i = orth(Q_i - Q(Q'Q_i))
             gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, this->curr_lim);
             gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, this->curr_lim, 1.0, Q_i_dat, m);
-
             this->Orth_Obj.call(m, block_sz, this->Q_i);
         }
 

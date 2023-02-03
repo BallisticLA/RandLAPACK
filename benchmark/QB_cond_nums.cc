@@ -8,11 +8,7 @@ If the required folder structure does not exist, the files will not be saved.
 #include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
-
 #include <fstream>
-
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
 
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
@@ -38,7 +34,6 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     if(k == 0) {
         k = std::min(m, n);
     }
-
     int64_t k_est = std::min(m, n);
 
     std::vector<T> Q(m * k_est, 0.0);
@@ -62,19 +57,14 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     // Make subroutine objects
     // Stabilization Constructor - Choose PLU
     Stab<T> Stab(use_CholQRQ, cond_check, verbosity);
-
     // RowSketcher constructor - Choose default (rs1)
     RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
-
     // Orthogonalization Constructor - use HQR
     Orth<T> Orth_RF(use_HQRQ, cond_check, verbosity);
-
     // RangeFinder constructor
     RF<T> RF(RS, Orth_RF, verbosity, cond_check);
-
     // Orthogonalization Constructor - use HQR
     Orth<T> Orth_QB(use_HQRQ, cond_check, verbosity);
-
     // QB constructor - Choose QB2_test_mode
     QB<T> QB(RF, Orth_QB, verbosity, orth_check);
 
@@ -210,7 +200,6 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
 int main() 
 {   
     //test_QB2_plot<double>(10, 10, 2, 2, 2, 2, 0, 2, true);
-
     // Slow_decay
     //test_QB2_plot<double>(1024, 1024, 16, 16, 2, 2, 0, 2, true);
     test_QB2_plot<double>(2048, 2048, 256, 256, 2, 2, 0, 2, true);

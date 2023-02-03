@@ -11,23 +11,14 @@ TODO #1: Switch tuples to vectors.
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
-/*
-Compares speed of various QR algorithms
-*/
-
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
 #include <thread>
-using namespace std::chrono;
-
 #include <fstream>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
-
+using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 
 template <typename T>
@@ -46,17 +37,13 @@ test_speed_helper(int64_t m,
     std::vector<T> A_2(size, 0.0);
     std::vector<T> A_3(size, 0.0);
     std::vector<T> A_4(size, 0.0);
-    
     std::vector<T> R_1_sp(n * n, 0.0);
     std::vector<T> D_1(n, 0.0);
     std::vector<T> T_1(n * n, 0.0);
-
     std::vector<int64_t> J_2(n, 0);
     std::vector<T> tau_2(n, 0);
-
     std::vector<T> R_3(n * n, 0);
     std::vector<T> t_3(5, 0);
-
     std::vector<T> tau_4(n, 0);
 
     // Generate random matrix
@@ -231,17 +218,13 @@ test_speed(int r_pow,
     printf("\n/-----------------------------------------QR SPEED TEST STOP------------------------------------------/\n\n");
 }
 
-int main(){
-
+int main() {
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
     //test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(14, 14, 64, 1024, 1, 5, std::make_tuple(6, 0, false), "Best");
-
     //test_speed<double>(16, 16, 256, 4096, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(16, 16, 256, 4096, 1, 5, std::make_tuple(6, 0, false), "Best");
-
     //test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Mean");
     test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Best");
-    
     return 0;
 }

@@ -7,25 +7,19 @@ Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 */
 #include<stdio.h>
 #include<string.h>
-
 #include <blas.hh>
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
 #include <thread>
-using namespace std::chrono;
-
 #include <fstream>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
-
+using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
 
@@ -191,23 +185,17 @@ test_speed_helper(int64_t m,
     int64_t size = m * n;
     int64_t b_dim = n;
     std::vector<T> A_1(size, 0.0);
-
     std::vector<T> B_1(b_dim * m, 0.0);
-    
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
     std::vector<T> Res_1;
     upsize(b_dim * n, Res_1);
-
     std::vector<int64_t> J_2;
     std::vector<T> tau_2;
-
     std::vector<T> t_3;
-
     std::vector<T> R_3;
     std::vector<T> tau_3;
     std::vector<int64_t> J_3;
-
     std::vector<T> tau_4;
     
     // Generate random matrix
@@ -403,8 +391,8 @@ test_speed(int r_pow,
            T tol, 
            T k_multiplier, 
            T d_multiplier, 
-           const std::tuple<int, T, bool> & mat_type)
-{
+           const std::tuple<int, T, bool> & mat_type) {
+
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw
     
@@ -452,7 +440,6 @@ test_speed(int r_pow,
     }
     
     int64_t rows = 0;
-
     for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
         int64_t cols = col;
@@ -654,16 +641,10 @@ test_speed(int r_pow,
 }
 
 int main(){
-
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    
     //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-
     test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-
     test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
-
     //test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
-
     return 0;
 }

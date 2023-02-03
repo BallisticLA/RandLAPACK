@@ -6,13 +6,10 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
 #include <chrono>
+
 using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
-
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
 
 template <typename T>
 static void 

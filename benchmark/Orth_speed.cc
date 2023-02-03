@@ -11,19 +11,14 @@ TODO #1: Switch tuples to vectors.
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
 #include <thread>
-using namespace std::chrono;
-
 #include <fstream>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
-
+using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
 

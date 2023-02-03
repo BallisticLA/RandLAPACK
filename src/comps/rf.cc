@@ -26,7 +26,6 @@ int RF<T>::rf1(
     if(this->RS_Obj.call(m, n, A, k, this->Omega))
         return 1;
 
-
     // Q = orth(A * Omega)
     gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega_dat, n, 0.0, Q_dat, m);
 

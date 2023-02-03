@@ -29,6 +29,7 @@ int RS<T>::rs1(
     T* Omega_dat = Omega.data();
     T* Omega_1_dat = upsize<T>(m * k, this->Omega_1);
     auto state = RandBLAS::base::RNGState(seed, 0);
+    
     if (p % 2 == 0) {
         // Fill n by k Omega
         RandBLAS::dense::DenseDist  D{.n_rows = n, .n_cols = k};

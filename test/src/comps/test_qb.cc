@@ -68,9 +68,6 @@ class TestQB : public ::testing::Test
         T* s_dat = s.data();
         T* S_dat = S.data();
         T* VT_dat = VT.data();
-        
-        //char name1[] = "A";
-        //RandBLAS::util::print_colmaj(m, n, A.data(), name1);
 
         // Create a copy of the original matrix
         copy(size, A_dat, 1, A_cpy_dat, 1);
@@ -85,22 +82,16 @@ class TestQB : public ::testing::Test
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
         PLUL<T> Stab(cond_check, verbosity);
-
         // RowSketcher constructor - Choose default (rs1)
         RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
-
         // Orthogonalization Constructor - Choose CholQR
         CholQRQ<T> Orth_RF(cond_check, verbosity);
-
         // RangeFinder constructor - Choose default (rf1)
         RF<T> RF(RS, Orth_RF, verbosity, cond_check);
-
         // Orthogonalization Constructor - Choose CholQR
         CholQRQ<T> Orth_QB(cond_check, verbosity);
-
         // QB constructor - Choose defaut (QB2)
         QB<T> QB(RF, Orth_QB, verbosity, orth_check);
-
         // Regular QB2 call
         int termination = QB.call(
             m,
@@ -150,24 +141,15 @@ class TestQB : public ::testing::Test
         T* Ident_dat = Ident.data();
         // Generate a reference identity
         eye<T>(k, k, Ident); 
-        
         // Buffer for testing B
         copy(k * n, B_dat, 1, B_cpy_dat, 1);
-        
-        //char name_3[] = "QB1  output Q";
-        //RandBLAS::util::print_colmaj(m, k, Q.data(), name_3);
-
-        //char name_4[] = "QB1  output B";
-        //RandBLAS::util::print_colmaj(k, n, B.data(), name_4);
         
         // A_hat = Q * B
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q_dat, m, B_dat, k, 1.0, A_dat, m);
-        
         // TEST 2: B - Q'A = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, B_cpy_dat, k);
-
         // TEST 3: Q'Q = I = 0
         gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, -1.0, Q_dat, m, Q_dat, m, 1.0, Ident_dat, k);
 
@@ -180,18 +162,6 @@ class TestQB : public ::testing::Test
         copy(n - k, z_buf_dat, 1, s_dat + k, 1);
         diag<T>(n, n, s, n, S);
 
-        //char name_u[] = "U";
-        //RandBLAS::util::print_colmaj(m, n, U.data(), name_u);
-
-        //char name_s[] = "s";
-        //RandBLAS::util::print_colmaj(n, 1, s.data(), name_s);
-
-        //char name_vt[] = "VT";
-        //RandBLAS::util::print_colmaj(n, n, VT.data(), name_vt);
-
-        //char name_S[] = "S";
-        //RandBLAS::util::print_colmaj(n, n, S.data(), name_S);
-
         // TEST 4: Below is A_k - A_hat = A_k - QB
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
         // A_k * VT -  A_hat == 0
@@ -202,23 +172,19 @@ class TestQB : public ::testing::Test
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
         printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
         //ASSERT_NEAR(norm_test_1, 0, test_tol);
-
         // Test 2 Output
         T norm_test_2 = lange(Norm::Fro, k, n, B_cpy_dat, k);
         printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
         //ASSERT_NEAR(norm_test_2, 0, test_tol);
-
         // Test 3 Output
         T norm_test_3 = lapack::lange(lapack::Norm::Fro, k, k, Ident_dat, k);
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
         //ASSERT_NEAR(norm_test_3, 0, test_tol);
-
         // Test 4 Output
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, test_tol);
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
-        
     }
 
 //Varying tol, k = min(m, n)
@@ -246,10 +212,6 @@ template <typename T>
         T* Q_dat = Q.data();
         T* B_dat = B.data();
         T* A_hat_dat = A_hat.data();
-
-        //char name1[] = "A";
-        //RandBLAS::util::print_colmaj(m, n, A_dat, name1);
-
         // pre-compute norm
         T norm_A = lange(Norm::Fro, m, n, A_dat, m);
 
@@ -262,22 +224,16 @@ template <typename T>
         // Make subroutine objects
         // Stabilization Constructor - Choose CholQR
         PLUL<T> Stab(cond_check, verbosity);
-
         // RowSketcher constructor - Choose default (rs1)
         RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
-
         // Orthogonalization Constructor - Choose CholQR
         CholQRQ<T> Orth_RF(cond_check, verbosity);
-
         // RangeFinder constructor - Choose default (rf1)
         RF<T> RF(RS, Orth_RF, verbosity, cond_check);
-
         // Orthogonalization Constructor - Choose CholQR
         CholQRQ<T> Orth_QB(cond_check, verbosity);
-
         // QB constructor - Choose defaut (QB2)
         QB<T> QB(RF, Orth_QB, verbosity, orth_check);
-
         // Regular QB2 call
         int termination = QB.call(
             m,
@@ -319,18 +275,10 @@ template <typename T>
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
                 break;
         }
-
         printf("Inner dimension of QB: %ld\n", k_est);
-        
-        //char name_3[] = "QB1  output Q";
-        //RandBLAS::util::print_colmaj(m, k_est, Q_dat, name_3);
-
-        //char name_4[] = "QB1  output B";
-        //RandBLAS::util::print_colmaj(k_est, n, B_dat, name_4);
         
         // A_hat = Q * B
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);
-        
         // TEST 1: A = A - Q * B = 0
         gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
         
@@ -364,7 +312,6 @@ TEST_F(TestQB, Polynomial_Decay)
         test_QB2_general<double>(100, 100, 50, 5, 2, tol, std::make_tuple(1, 2025, false), seed);
     }
 }
-
 TEST_F(TestQB, Zero_Mat)
 { 
     for (uint32_t seed : {0, 1, 2})
@@ -373,7 +320,6 @@ TEST_F(TestQB, Zero_Mat)
         test_QB2_general<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(3, 0, false), seed); 
     }
 }
-
 TEST_F(TestQB, Rand_Diag)
 { 
     for (uint32_t seed : {0, 1, 2})
@@ -382,7 +328,6 @@ TEST_F(TestQB, Rand_Diag)
         test_QB2_general<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(4, 0, false), seed);
     }
 }
-
 TEST_F(TestQB, Diag_Drop)
 { 
     for (uint32_t seed : {0, 1, 2})
@@ -391,7 +336,6 @@ TEST_F(TestQB, Diag_Drop)
         test_QB2_general<double>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(5, 0, false), seed);
     }
 }
-
 TEST_F(TestQB, Varying_Tol)
 { 
     for (uint32_t seed : {0, 1, 2})
