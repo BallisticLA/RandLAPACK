@@ -1,11 +1,3 @@
-/*
-TODO #1: Update implementation so that no copy of the original data is needed.
-
-TODO #3: Need a test case with switching between different orthogonalization types
-
-On early termination, data in B is moved, but not sized down
-*/
-
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
@@ -19,6 +11,64 @@ using namespace RandLAPACK::comps::util;
 
 namespace RandLAPACK::comps::qb {
 
+// -----------------------------------------------------------------------------
+/// Iteratively build an approximate QB factorization of A,
+/// which terminates once either of the following conditions
+/// is satisfied
+///   (1)  || A - Q B ||_F <= tol * || A ||_F
+/// or
+///   (2) Q has k columns.
+/// Each iteration involves sketching A from the right by a sketching
+/// matrix with "block_sz" columns.
+///
+/// The number of columns in Q increase by "block_sz" at each iteration, unless
+/// that would bring #cols(Q) > k. In that case, the final iteration only
+/// adds enough columns to Q so that #cols(Q) == k.
+/// The implementation relies on RowSketcher and RangeFinder,
+/// 
+/// This implements a variant of Algorithm 2 from YGL:2018. There are two
+/// main differences.
+///     (1) We allow subspace iteration when building a new block
+///         of the QB factorization.
+///     (2) We have to explicitly update A.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix A, stored in a column-major format.
+///
+/// @param[in] k
+///     Expected rank of the matrix A. If unknown, set k=min(m,n).
+///
+/// @param[in] block_sz
+///     The block size in this blocked QB algorithm. Add this many columns
+///     to Q at each iteration (except possibly the final iteration).
+///
+/// @param[in] tol
+///     Terminate if ||A - Q B||_F <= tol * || A ||_F.
+///
+/// @param[in] Q
+///     Buffer for the Q-factor.
+///     Initially, may not have any space allocated for it.
+///
+/// @param[in] B
+///     Buffer for the B-factor.
+///     Initially, may not have any space allocated for it.
+///
+/// @param[out] Q
+///     Has the same number of rows of A, and orthonormal columns.
+///
+/// @param[out] B
+///     Has the same number of columns of A.
+///
+/// @return = 0: successful exit
+///
 template <typename T>
 int QB<T>::QB2(
     int64_t m,

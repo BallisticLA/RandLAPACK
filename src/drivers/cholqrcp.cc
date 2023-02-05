@@ -22,7 +22,7 @@ namespace RandLAPACK::drivers::cholqrcp {
 /// Detailed description of this algorithm may be found in Section 5.1.2.
 /// of the `Prospectus`.
 ///
-/// Templated fpr `float` and `double` types.
+/// Templated for `float` and `double` types.
 ///
 /// @param[in] m
 ///     The number of rows in the matrix A.
@@ -48,7 +48,7 @@ namespace RandLAPACK::drivers::cholqrcp {
 ///     Overwritten by an m-by-k orthogonal Q factor.
 ///     Matrix is stored explicitly.
 ///
-/// @param[in] R
+/// @param[out] R
 ///     Stores k-by-n matrix with upper-triangular R factor.
 ///     Zero entries are not compressed.
 ///

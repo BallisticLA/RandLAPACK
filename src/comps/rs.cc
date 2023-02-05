@@ -9,6 +9,56 @@ using namespace RandLAPACK::comps::util;
 
 namespace RandLAPACK::comps::rs {
 
+// -----------------------------------------------------------------------------
+/// Return an n-by-k matrix Omega for use in sketching the rows of the m-by-n
+/// matrix A. (I.e., for computing a sketch Q = A @ Omega.) The qualitative goal
+/// is that the range of Omega should be well-aligned with the top-k right
+/// singular vectors of A.
+/// This function works by taking "passes_over_data" steps of a power method that
+/// starts with a random Gaussian matrix, and then makes alternating
+/// applications of A and A.T. We stabilize the power method with a user-defined method.
+///
+///    This implementation is inspired by [ZM:2020, Algorithm 3.3]. The most
+///    significant difference is that this function stops one step "early",
+///    so that it returns a matrix S for use in sketching Q = A @ Omega, rather than
+///    returning an orthonormal basis for a sketched matrix Q. Here are the
+///    differences between this implementation and [ZM:2020, Algorithm 3.3],
+///    assuming the latter algorithm was modified to stop "one step early" like
+///    this algorithm:
+///       (1) We make no assumptions on the distribution of the initial
+///            (oblivious) sketching matrix. [ZM:2020, Algorithm 3.3] uses
+///            a Gaussian distribution.
+///        (2) We allow any number of passes over A, including zero passes.
+///            [ZM2020: Algorithm 3.3] requires at least one pass over A.
+///        (3) We let the user provide the stabilization method. [ZM:2020,
+///            Algorithm 3.3] uses LU for stabilization.
+///        (4) We let the user decide how many applications of A or A.T
+///            can be made between calls to the stabilizer.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix A, stored in a column-major format.
+///
+/// @param[in] k
+///     Expected rank of the matrix A. If unknown, set k=min(m,n).
+///
+/// @param[in] Omega
+///     Sketching operator buffer.
+///
+/// @param[out] Omega
+///     Stores m-by-k matrix, range(Omega) is
+///     "reasonably" well aligned with A's leading left singular vectors.
+///
+/// @return = 0: successful exit
+///
+
 template <typename T>
 int RS<T>::rs1(
     int64_t m,
