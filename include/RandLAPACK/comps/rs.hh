@@ -28,7 +28,6 @@ class RS : public RowSketcher<T>
 {
     public:
         RandLAPACK::comps::orth::Stabilization<T>& Stab_Obj;
-        //void(& SketchOpGen)(int64_t, int64_t, T*, int32_t);
         int32_t seed;
         int64_t passes_over_data;
         int64_t passes_per_stab;
@@ -42,14 +41,14 @@ class RS : public RowSketcher<T>
         std::vector<T> s;
 
         RS(
+            // Requires a stabilization algorithm object.
             RandLAPACK::comps::orth::Stabilization<T>& stab_obj,
-            //void(& sk_gen)(int64_t, int64_t, T*, int32_t),
             int32_t s, 
             int64_t p, 
             int64_t q,
             bool verb,
             bool cond
-        ) : Stab_Obj(stab_obj) { //, SketchOpGen(sk_gen)
+        ) : Stab_Obj(stab_obj) {
             verbosity = verb;
             cond_check = cond;
             seed = s;

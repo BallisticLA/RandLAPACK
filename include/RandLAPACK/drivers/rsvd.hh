@@ -38,6 +38,7 @@ class RSVD : public RSVDalg<T> {
 
     // Constructor
     RSVD(
+        // Requires a QB algorithm object.
         RandLAPACK::comps::qb::QBalg<T>& qb_obj,
         bool verb
     ) : QB_Obj(qb_obj) {

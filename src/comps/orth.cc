@@ -9,7 +9,27 @@ using namespace RandLAPACK::comps::util;
 
 namespace RandLAPACK::comps::orth {
 
-// Perfoms a Cholesky QR factorization
+// -----------------------------------------------------------------------------
+/// Performs Cholesky QR factorization. Outputs the Q-factor only.
+/// Optionally checks the condition number of R-factor before computing the Q-factor.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix Q.
+///
+/// @param[in] k
+///     The number of columns in the matrix Q.
+///
+/// @param[in] Q
+///     The m-by-k matrix, stored in a column-major format.
+///
+/// @param[out] Q
+///     Overwritten with an orthogonal Q-factor.
+///     
+///
+/// @return = 0: successful exit
+///
 template <typename T> 
 int CholQRQ<T>::cholqrq(
     int64_t m,
@@ -45,6 +65,33 @@ int CholQRQ<T>::cholqrq(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+/// Performs an unpivoted LU factorization. Outputs the L-factor only.
+/// Uses L-extraction routine and LASWP().
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix, stored in a column-major format.
+///
+/// @param[in] ipiv
+///     Buffer for the pivot vector.
+///     
+/// @param[out] A
+///     Overwritten by the lower-triangular factor L with interchanged rows,
+///     L[ipiv,:].
+///
+/// @param[out] ipiv
+///     Pivot vector of length n.
+///
+/// @return = 0: successful exit
+///
 template <typename T> 
 int PLUL<T>::plul(
     int64_t m,
@@ -70,6 +117,32 @@ int PLUL<T>::plul(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+/// Performs a Householder QR factorization. Outputs the Q-factor only.
+/// Uses UNGQR() to form Q explicitly.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix, stored in a column-major format.
+///
+/// @param[in] tau
+///     Buffer for the scalar factor array.
+///     
+/// @param[out] A
+///     Overwritten explicitly with an orthogonal Q-factor.
+///
+/// @param[out] tau.
+///     Array of length n.
+///
+/// @return = 0: successful exit
+///
 template <typename T> 
 int HQRQ<T>::hqrq(
     int64_t m,
@@ -94,7 +167,33 @@ int HQRQ<T>::hqrq(
 }
 
 #if !defined(__APPLE__)
-// GEQR lacks "unpacking" of Q
+// -----------------------------------------------------------------------------
+/// Performs a QR factorization. Outputs the implicitly-stored Q and R factors.
+/// This routine is only defined in Intel MKL.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix, stored in a column-major format.
+///
+/// @param[in] tau
+///     Buffer for the scalar factor array.
+///     
+/// @param[out] A
+///     Lower-triangular portion represents householder reflectors. 
+///     Upper- stores the R-factor. 
+///
+/// @param[out] tau.
+///     Array of length n.
+///
+/// @return = 0: successful exit
+///
 template <typename T> 
 int GEQR<T>::geqrq(
     int64_t m,

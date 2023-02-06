@@ -41,11 +41,10 @@ class QB : public QBalg<T> {
             std::vector<T> Q_i;
             std::vector<T> B_i;
 
-            /*
-            This represents how much space is currently allocated for cols of Q and rows of B.
-            This is <= k. We are assuming that the user may not have given "enough"
-            space when allocating Q, B initially.
-            */
+            //This represents how much space is currently allocated for cols of Q and rows of B.
+            //This is <= k. We are assuming that the user may not have given "enough"
+            //space when allocating Q, B initially.
+            
             int64_t curr_lim;
 
             // By how much are we increasing the dimension when we've reached curr_lim
@@ -53,7 +52,9 @@ class QB : public QBalg<T> {
 
         // Constructor
         QB(
+            // Requires a RangeFinder scheme object.
             RandLAPACK::comps::rf::RangeFinder<T>& rf_obj,
+            // Requires a stabilization algorithm object.
             RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
             bool verb,
             bool orth

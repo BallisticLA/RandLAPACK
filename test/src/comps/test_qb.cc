@@ -20,6 +20,12 @@ class TestQB : public ::testing::Test
 
     virtual void TearDown() {};
 
+    /// General test for CholQRCP:
+    /// Computes QB factorzation, and checks: 
+    /// 1. A - QB
+    /// 2. B - \transpose{Q}A
+    /// 3. I - \transpose{Q}Q
+    /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T>
     static void test_QB2_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
@@ -187,8 +193,10 @@ class TestQB : public ::testing::Test
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 
-//Varying tol, k = min(m, n)
-template <typename T>
+    /// k = min(m, n) test for CholQRCP:
+    /// Checks for whether the factorization is exact with tol = 0.
+    // Checks for whether ||A-QB||_F <= tol * ||A||_F if tol > 0.
+    template <typename T>
     static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");

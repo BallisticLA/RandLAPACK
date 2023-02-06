@@ -28,6 +28,8 @@ class TestOrth : public ::testing::Test
 
     virtual void TearDown() {};
 
+    /// Tests orthogonality of the Q-factor output by Cholesky QR.
+    /// Checks I - \transpose{Q}Q.
     template <typename T>
     static void test_Chol_QR(int64_t m, int64_t n, std::tuple<int, T, bool> mat_type, uint32_t seed) {
     
@@ -59,6 +61,8 @@ class TestOrth : public ::testing::Test
         ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
+    /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
+    /// Checks I - \transpose{Q}Q.
     template <typename T>
     static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, uint32_t seed) {
     
@@ -102,39 +106,8 @@ class TestOrth : public ::testing::Test
         printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);
         ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
-
-    // Switching between different orthogonalization and stabilization types
-    template <typename T>
-    static void test_orth_switch(uint32_t seed) 
-    {  
-        printf("|==================================TEST ORTH SWITCH BEGIN==================================|\n");
-        using namespace blas;
-
-        // Chosen so that A is ill-conditioned
-        int64_t m = 15;
-        int64_t n = 15;
-
-        std::vector<T> I_ref(n * n, 0.0);
-        eye<T>(n, n, I_ref);  
-
-        std::vector<T> A(m * n, 0.0); 
-        gen_mat_type<T>(m, n, A, n, seed, std::tuple(1, 2, true));
-
-        // Orthogonalization Constructor
-        CholQRQ<T> CholQRQ(true, true);
-        CholQRQ.call(m, n, A);
-        // Q' * Q  - I = 0
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A.data(), m, A.data(), m, -1.0, I_ref.data(), n);
-
-        T norm_fro = lapack::lange(lapack::Norm::Fro, n, n, I_ref.data(), n);	
-        printf("FRO NORM OF Q' * Q - I: %e\n", norm_fro);
-        ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
-
-        printf("|===================================TEST ORTH SWITCH END===================================|\n");
-    }
 };
 
 TEST_F(TestOrth, SimpleTest)
 {
-    test_orth_switch<double>(0); 
 }

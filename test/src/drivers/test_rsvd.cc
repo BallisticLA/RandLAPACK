@@ -24,6 +24,8 @@ class TestRSVD : public ::testing::Test
 
     virtual void TearDown() {};
 
+    /// General test for RSVD:
+    /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T>
     static void test_RSVD1_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         

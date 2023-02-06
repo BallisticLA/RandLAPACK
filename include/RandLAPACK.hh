@@ -1,6 +1,11 @@
 #ifndef RANDLAPACK_HH
 #define RANDLAPACK_HH
 
+/// For bothe computational routine and driver classes,
+/// we adapt a "one algorithm per class" paradigm. 
+/// We then use a virtual class + anonimous "call"
+/// function interface for universal access of an algroith mype.
+
 // Computational routines
 #include <RandLAPACK/comps/determiter.hh>
 #include <RandLAPACK/comps/qb.hh>

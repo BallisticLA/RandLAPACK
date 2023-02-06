@@ -41,7 +41,9 @@ class RF : public RangeFinder<T> {
 
         // Constructor
         RF(
+            // Requires a RowSketcher scheme object.
             RandLAPACK::comps::rs::RowSketcher<T>& rs_obj,
+            // Requires a stabilization algorithm object.
             RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
             bool verb,
             bool cond

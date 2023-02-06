@@ -21,10 +21,8 @@ class TestCholQRCP : public ::testing::Test
 
     virtual void TearDown() {};
 
-
     /// General test for CholQRCP:
     /// Computes QR factorzation, and computes A[:, J] - QR.
-
     template <typename T>
     static void test_CholQRCP_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
