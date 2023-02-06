@@ -15,7 +15,44 @@ using namespace std::chrono;
 
 namespace RandLAPACK::drivers::cholqrcp {
 
-// This vesrion of the code overwrites matrix A with Q
+// -----------------------------------------------------------------------------
+/// Computes a QR factorization with column pivots of the form:
+///     A[:, J] = QR,
+/// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
+/// Detailed description of this algorithm may be found in Section 5.1.2.
+/// of "the RandLAPACK book".
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix A, stored in a column-major format.
+///
+/// @param[in] d
+///     Embedding dimension of a sketch, m >= d >= n.
+///
+/// @param[in] R
+///     Represents the upper-triangular R factor of QR factorization.
+///     On entry, is empty and may not have any space allocated for it.
+///
+/// @param[out] A
+///     Overwritten by an m-by-k orthogonal Q factor.
+///     Matrix is stored explicitly.
+///
+/// @param[out] R
+///     Stores k-by-n matrix with upper-triangular R factor.
+///     Zero entries are not compressed.
+///
+/// @param[out] J
+///     Stores k integer type pivot index extries. 
+///
+/// @return = 0: successful exit
+///
 template <typename T>
 int CholQRCP<T>::CholQRCP1(
     int64_t m,
@@ -159,7 +196,6 @@ int CholQRCP<T>::CholQRCP1(
     // Do Cholesky QR
     syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
     potrf(Uplo::Upper, k, R_sp_dat, k);
-
     trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
@@ -181,9 +217,8 @@ int CholQRCP<T>::CholQRCP1(
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-
         long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
-
+        
         // Fill the data vector
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqrcp_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
     }

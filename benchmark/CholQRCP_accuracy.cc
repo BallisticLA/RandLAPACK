@@ -8,17 +8,12 @@ If the required folder structure does not exist, the files will not be saved.
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
 #include <thread>
-
 #include <fstream>
-
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
 
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
@@ -58,7 +53,6 @@ template <typename T>
         CholQRCP.num_threads = 32;
 
         CholQRCP.call(m, n, A, d, R, J);
-
         k = CholQRCP.rank;
 
         // Deterministic QRP, explicit extraction of R
@@ -167,13 +161,10 @@ template <typename T>
 
 
 
-int main(){
-        
+int main() {
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
-
     // Large condition number may not work for a small matrix
-    test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 10000, 4, std::pow(1.0e-16, 0.9), std::make_tuple(0, 1e10, false), 1, 1);
-    //test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::pow(1.0e-16, 0.9), std::make_tuple(0, 1e10, false), 1, 2);
-
+    test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 10000, 4, std::pow(std::numeric_limits<double>::epsilon(), 0.5265), std::make_tuple(0, 1e10, false), 1, 1);
+    //test_CholQRCP1_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::pow(std::numeric_limits<double>::epsilon(), 0.5265), std::make_tuple(0, 1e10, false), 1, 2);
     return 0;
 }

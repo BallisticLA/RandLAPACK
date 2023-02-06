@@ -3,28 +3,21 @@ Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
 /*This is only concerned with what's INSIDE of cholqrcp*/
-
 #include<stdio.h>
 #include<string.h>
-
 #include <blas.hh>
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
 #include <thread>
-using namespace std::chrono;
-
 #include <fstream>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
-
+using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
 
@@ -48,8 +41,8 @@ log_info(int64_t rows,
            T other_time,
            T total_time,
            const std::string& test_type,
-           int runs)
-{
+           int runs) {
+
     // Save the output into .dat file
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_inner_time_" + test_type 
                                                                                               + "_m_"            + std::to_string(rows) 
@@ -85,11 +78,11 @@ test_speed_helper(int64_t m,
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
+
     using namespace blas;
     using namespace lapack;
 
     int64_t size  = m * n;
-
     std::vector<T>       A_1(size, 0.0);
     std::vector<T>       R_1;
     std::vector<int64_t> J_1;
@@ -203,7 +196,6 @@ test_speed(int r_pow,
     }
     
     int64_t rows = 0;
-
     for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
         int64_t cols = col;
@@ -344,16 +336,10 @@ test_speed(int r_pow,
 }
 
 int main(){
-
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    
-    //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-
-    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-
-    //test_speed<double>(17, 17, 32, 16384, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 4.0, std::make_tuple(6, 0, false));
-
-    //test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(1.0e-16, 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
-
+    //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
+    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
+    //test_speed<double>(17, 17, 32, 16384, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 4.0, std::make_tuple(6, 0, false));
+    //test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
     return 0;
 }

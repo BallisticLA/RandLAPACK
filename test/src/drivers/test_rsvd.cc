@@ -24,6 +24,8 @@ class TestRSVD : public ::testing::Test
 
     virtual void TearDown() {};
 
+    /// General test for RSVD:
+    /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T>
     static void test_RSVD1_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
@@ -82,28 +84,28 @@ class TestRSVD : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        Stab<T> Stab(use_PLUL, cond_check, verbosity);
+        PLUL<T> Stab(cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check, use_rs1);
+        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_RF(use_CholQRQ, cond_check, verbosity);
+        CholQRQ<T> Orth_RF(cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check, use_rf1);
+        RF<T> RF(RS, Orth_RF, verbosity, cond_check);
 
         // Orthogonalization Constructor - Choose CholQR
-        Orth<T> Orth_QB(use_CholQRQ, cond_check, verbosity);
+        CholQRQ<T> Orth_QB(cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check, use_qb2);
+        QB<T> QB(RF, Orth_QB, verbosity, orth_check);
 
         // RSVD constructor - Choose defaut (RSVD1)
-        RSVD<T> RSVD(QB, verbosity);
+        RSVD<T> RSVD(QB, verbosity, block_sz);
 
         // Regular QB2 call
-        RSVD.call(m, n, A, k, block_sz, tol, U1, s1, VT1);
+        RSVD.call(m, n, A, k, tol, U1, s1, VT1);
         
         // Construnct A_hat = U1 * S1 * VT1
 
@@ -134,7 +136,7 @@ class TestRSVD : public ::testing::Test
 
         T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
-        //ASSERT_NEAR(norm_test_4, 0, 1e-10);
+        //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 };
@@ -143,6 +145,6 @@ TEST_F(TestRSVD, SimpleTest)
 { 
     for (uint32_t seed : {0, 1, 2})
     {
-        test_RSVD1_general<double>(100, 100, 50, 5, 10, 1.0e-9, std::make_tuple(0, 2, false), seed);
+        test_RSVD1_general<double>(100, 100, 50, 5, 10, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(0, 2, false), seed);
     }
 }

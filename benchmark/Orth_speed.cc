@@ -11,21 +11,102 @@ TODO #1: Switch tuples to vectors.
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
 #include <thread>
-using namespace std::chrono;
-
 #include <fstream>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
-
+using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
+
+
+#if !defined(__APPLE__)
+template <typename T>
+class GEQR : public Stabilization<T> {
+    public:
+        std::vector<T> tvec;
+        bool cond_check;
+        bool verbosity;
+
+        // Constructor
+        GEQR(bool c_check, bool verb) {
+            cond_check = c_check;
+            verbosity = verb;
+        };
+
+        int geqrq(
+            int64_t m,
+            int64_t n,
+            std::vector<T>& A,
+            std::vector<T>& tvec
+        );
+
+        int call(
+            int64_t m,
+            int64_t k,
+            std::vector<T>& Q
+        ){
+            return geqrq(m, k, Q, this->tvec);
+        }
+};
+
+// -----------------------------------------------------------------------------
+/// Performs a QR factorization. Outputs the implicitly-stored Q and R factors.
+/// This routine is only defined in Intel MKL.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix, stored in a column-major format.
+///
+/// @param[in] tau
+///     Buffer for the scalar factor array.
+///     
+/// @param[out] A
+///     Lower-triangular portion represents householder reflectors. 
+///     Upper- stores the R-factor. 
+///
+/// @param[out] tau.
+///     Array of length n.
+///
+/// @return = 0: successful exit
+///
+template <typename T> 
+int GEQR<T>::geqrq(
+    int64_t m,
+    int64_t n,
+    std::vector<T>& A,
+    std::vector<T>& tvec
+){
+    using namespace lapack;
+
+    tvec.resize(5);
+
+    T* A_dat = A.data();
+
+    geqr(m, n, A_dat, m, tvec.data(), -1);
+    int64_t tsize = (int64_t) tvec[0]; 
+    tvec.resize(tsize);
+    if(geqr(m, n, A_dat, m, tvec.data(), tsize))
+        return 1;
+
+    return 0;
+}
+#endif
+
+#if !defined(__APPLE__)
+template int GEQR<float>::geqrq(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
+template int GEQR<double>::geqrq(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
+#endif
 
 template <typename T>
 static std::tuple<long, long, long, long> 
@@ -55,10 +136,10 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // Stabilization Constructor
-    Stab<T> Stab_PLU(use_PLUL, false, false);
-    Orth<T> Orth_CholQR(use_CholQRQ, false, false);
-    Orth<T> Orth_HQR(use_HQRQ, false, false);
-    Orth<T> Orth_GEQR(use_GEQR, false, false);
+    PLUL<T> Stab_PLU(false, false);
+    CholQRQ<T> Orth_CholQR(false, false);
+    HQRQ<T> Orth_HQR(false, false);
+    GEQR<T> Orth_GEQR(false, false);
 
     // PIV LU
     // Stores L, U into Omega

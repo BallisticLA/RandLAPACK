@@ -1,25 +1,76 @@
-/*
-TODO #1: Update implementation so that no copy of the original data is needed.
-
-TODO #3: Need a test case with switching between different orthogonalization types
-
-On early termination, data in B is moved, but not sized down
-*/
-
-#include <cstdint>
-#include <limits>
-#include <vector>
-
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 
 #include <math.h>
+#include <cstdint>
+#include <limits>
+#include <vector>
 
 using namespace RandLAPACK::comps::util;
 
 namespace RandLAPACK::comps::qb {
 
+// -----------------------------------------------------------------------------
+/// Iteratively build an approximate QB factorization of A,
+/// which terminates once either of the following conditions
+/// is satisfied
+///   (1)  || A - Q B ||_F <= tol * || A ||_F
+/// or
+///   (2) Q has k columns.
+/// Each iteration involves sketching A from the right by a sketching
+/// matrix with "block_sz" columns.
+///
+/// The number of columns in Q increase by "block_sz" at each iteration, unless
+/// that would bring #cols(Q) > k. In that case, the final iteration only
+/// adds enough columns to Q so that #cols(Q) == k.
+/// The implementation relies on RowSketcher and RangeFinder,
+/// 
+/// This algorithm is shown in "the RandLAPACK book" book as Algorithm 11.
+///
+/// This implements a variant of Algorithm 2 from YGL:2018. There are two
+/// main differences.
+///     (1) We allow subspace iteration when building a new block
+///         of the QB factorization.
+///     (2) We have to explicitly update A.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix A, stored in a column-major format.
+///
+/// @param[in] k
+///     Expected rank of the matrix A. If unknown, set k=min(m,n).
+///
+/// @param[in] block_sz
+///     The block size in this blocked QB algorithm. Add this many columns
+///     to Q at each iteration (except possibly the final iteration).
+///
+/// @param[in] tol
+///     Terminate if ||A - Q B||_F <= tol * || A ||_F.
+///
+/// @param[in] Q
+///     Buffer for the Q-factor.
+///     Initially, may not have any space allocated for it.
+///
+/// @param[in] B
+///     Buffer for the B-factor.
+///     Initially, may not have any space allocated for it.
+///
+/// @param[out] Q
+///     Has the same number of rows of A, and orthonormal columns.
+///
+/// @param[out] B
+///     Has the same number of columns of A.
+///
+/// @return = 0: successful exit
+///
 template <typename T>
 int QB<T>::QB2(
     int64_t m,
@@ -48,7 +99,6 @@ int QB<T>::QB2(
     }
 
     tol = std::max(tol, 100 * std::numeric_limits<T>::epsilon());
-    
     // If the space allocated for col in Q and row in B is insufficient for any iterations ...
     if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k) {
         // ... allocate more!
@@ -114,7 +164,6 @@ int QB<T>::QB2(
             // Q_i = orth(Q_i - Q(Q'Q_i))
             gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, this->curr_lim);
             gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, this->curr_lim, 1.0, Q_i_dat, m);
-
             this->Orth_Obj.call(m, block_sz, this->Q_i);
         }
 

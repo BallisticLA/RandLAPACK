@@ -255,3 +255,29 @@ set(
 target_link_libraries(
     CholQRCP_inner_speed_process PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
 )
+
+set(
+    CholQRCP_embedding_speed_effect_cxx
+    CholQRCP_embedding_speed_effect.cc
+)
+add_executable(
+    CholQRCP_embedding_speed_effect ${CholQRCP_embedding_speed_effect_cxx}
+)
+target_compile_options(
+    CholQRCP_embedding_speed_effect PRIVATE "-g"
+)
+set(
+    RandLAPACK_include_dirs
+    ${RandLAPACK_DIR}/../../include
+    ${RandLAPACK_DIR}/../../include/RandLAPACK
+)
+target_include_directories(
+    CholQRCP_embedding_speed_effect PUBLIC ${Random123_DIR} ${RandLAPACK_include_dirs}
+)
+set(
+    RandLAPACK_lib_file
+    ${RandLAPACK_DIR}/../../lib/libRandLAPACK.a
+)
+target_link_libraries(
+    CholQRCP_embedding_speed_effect PUBLIC ${RandLAPACK_lib_file} RandBLAS blaspp lapackpp
+)

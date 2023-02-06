@@ -7,25 +7,20 @@ Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 */
 #include<stdio.h>
 #include<string.h>
-
 #include <blas.hh>
 #include <RandBLAS.hh>
 #include <lapack.hh>
 #include <RandLAPACK.hh>
 #include <math.h>
-
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
 #include <thread>
-using namespace std::chrono;
-
 #include <fstream>
 #include <iterator>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
+using namespace std::chrono;
 
 template <typename T>
 static void 
@@ -178,10 +173,7 @@ process_dat() {
             }
         }
     }
-
 }
-
-
 
 int main(){ 
     process_dat<double>();

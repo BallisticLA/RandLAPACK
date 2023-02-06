@@ -1,11 +1,3 @@
-/*
-TODO #1: The QB class probably doesn't need a QB2 function that's separate from call(...). 
-The same goes for RF not needing rf1 separately from call(...). I know that the Orth class has 
-several functions and a call method that chooses among them. That's an okay design pattern in isolation 
-but if we assume it's used in most implementations then that can lead to indirect assumptions about how 
-customized user implementations might behave.
-*/
-
 #ifndef BLAS_HH
 #include <blas.hh>
 #define BLAS_HH
@@ -18,8 +10,6 @@ namespace RandLAPACK::comps::qb {
 
 #ifndef QB_CLASS
 #define QB_CLASS
-
-enum decision_qb {use_qb2};
 
 template <typename T>
 class QBalg {
@@ -51,14 +41,10 @@ class QB : public QBalg<T> {
             std::vector<T> Q_i;
             std::vector<T> B_i;
 
-            // Controls QB version to be used
-            decision_qb decision_QB;
-
-            /*
-            This represents how much space is currently allocated for cols of Q and rows of B.
-            This is <= k. We are assuming that the user may not have given "enough"
-            space when allocating Q, B initially.
-            */
+            //This represents how much space is currently allocated for cols of Q and rows of B.
+            //This is <= k. We are assuming that the user may not have given "enough"
+            //space when allocating Q, B initially.
+            
             int64_t curr_lim;
 
             // By how much are we increasing the dimension when we've reached curr_lim
@@ -66,15 +52,15 @@ class QB : public QBalg<T> {
 
         // Constructor
         QB(
+            // Requires a RangeFinder scheme object.
             RandLAPACK::comps::rf::RangeFinder<T>& rf_obj,
+            // Requires a stabilization algorithm object.
             RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
             bool verb,
-            bool orth,
-                        decision_qb decision
+            bool orth
         ) : RF_Obj(rf_obj), Orth_Obj(orth_obj) {
             verbosity = verb;
             orth_check = orth;
-            decision_QB = decision;
             dim_growth_factor = 4;
         }
 
@@ -99,12 +85,7 @@ class QB : public QBalg<T> {
             std::vector<T>& Q,
             std::vector<T>& B
         ) {
-            int termination = 0;
-            switch(this->decision_QB) {
-                case use_qb2:
-                    termination = QB2(m, n, A, k, block_sz, tol, Q, B);
-                    break;
-            }
+            int termination = QB2(m, n, A, k, block_sz, tol, Q, B);
 
             if(this->verbosity) {
                 switch(termination)

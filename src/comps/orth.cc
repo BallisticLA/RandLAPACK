@@ -9,9 +9,29 @@ using namespace RandLAPACK::comps::util;
 
 namespace RandLAPACK::comps::orth {
 
-// Perfoms a Cholesky QR factorization
+// -----------------------------------------------------------------------------
+/// Performs Cholesky QR factorization. Outputs the Q-factor only.
+/// Optionally checks the condition number of R-factor before computing the Q-factor.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix Q.
+///
+/// @param[in] k
+///     The number of columns in the matrix Q.
+///
+/// @param[in] Q
+///     The m-by-k matrix, stored in a column-major format.
+///
+/// @param[out] Q
+///     Overwritten with an orthogonal Q-factor.
+///     
+///
+/// @return = 0: successful exit
+///
 template <typename T> 
-int Orth<T>::CholQRQ(
+int CholQRQ<T>::cholqrq(
     int64_t m,
     int64_t k,
     std::vector<T>& Q
@@ -45,8 +65,32 @@ int Orth<T>::CholQRQ(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+/// Performs an unpivoted LU factorization. Outputs the L-factor only.
+/// Uses L-extraction routine and LASWP().
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix, stored in a column-major format.
+///
+/// @param[in] ipiv
+///     Buffer for the pivot vector.
+///     
+/// @param[out] A
+///     Overwritten by the lower-triangular factor L with interchanged rows,
+///     L[ipiv,:].
+///
+/// @return = 0: successful exit
+///
 template <typename T> 
-int Stab<T>::PLUL(
+int PLUL<T>::plul(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -70,8 +114,31 @@ int Stab<T>::PLUL(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+/// Performs a Householder QR factorization. Outputs the Q-factor only.
+/// Uses UNGQR() to form Q explicitly.
+///
+/// Templated for `float` and `double` types.
+///
+/// @param[in] m
+///     The number of rows in the matrix A.
+///
+/// @param[in] n
+///     The number of columns in the matrix A.
+///
+/// @param[in] A
+///     The m-by-n matrix, stored in a column-major format.
+///
+/// @param[in] tau
+///     Buffer for the scalar factor array.
+///     
+/// @param[out] A
+///     Overwritten explicitly with an orthogonal Q-factor.
+///
+/// @return = 0: successful exit
+///
 template <typename T> 
-int Orth<T>::HQRQ(
+int HQRQ<T>::hqrq(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -93,42 +160,13 @@ int Orth<T>::HQRQ(
     return 0;
 }
 
-#if !defined(__APPLE__)
-// GEQR lacks "unpacking" of Q
-template <typename T> 
-int Orth<T>::GEQR(
-    int64_t m,
-    int64_t n,
-    std::vector<T>& A,
-    std::vector<T>& tvec
-){
-    using namespace lapack;
+template int CholQRQ<float>::cholqrq(int64_t m, int64_t k, std::vector<float>& Q);
+template int CholQRQ<double>::cholqrq(int64_t m, int64_t k, std::vector<double>& Q);
 
-    tvec.resize(5);
+template int PLUL<float>::plul(int64_t m, int64_t n, std::vector<float>& A, std::vector<int64_t>& ipiv);
+template int PLUL<double>::plul(int64_t m, int64_t n, std::vector<double>& A, std::vector<int64_t>& ipiv);
 
-    T* A_dat = A.data();
+template int HQRQ<float>::hqrq(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
+template int HQRQ<double>::hqrq(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
 
-    geqr(m, n, A_dat, m, tvec.data(), -1);
-    int64_t tsize = (int64_t) tvec[0]; 
-    tvec.resize(tsize);
-    if(geqr(m, n, A_dat, m, tvec.data(), tsize))
-        return 1;
-
-    return 0;
-}
-#endif
-
-template int Orth<float>::CholQRQ(int64_t m, int64_t k, std::vector<float>& Q);
-template int Orth<double>::CholQRQ(int64_t m, int64_t k, std::vector<double>& Q);
-
-template int Stab<float>::PLUL(int64_t m, int64_t n, std::vector<float>& A, std::vector<int64_t>& ipiv);
-template int Stab<double>::PLUL(int64_t m, int64_t n, std::vector<double>& A, std::vector<int64_t>& ipiv);
-
-template int Orth<float>::HQRQ(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
-template int Orth<double>::HQRQ(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
-
-#if !defined(__APPLE__)
-template int Orth<float>::GEQR(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
-template int Orth<double>::GEQR(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
-#endif
 } // end namespace orth
