@@ -102,10 +102,10 @@ class TestRSVD : public ::testing::Test
         QB<T> QB(RF, Orth_QB, verbosity, orth_check);
 
         // RSVD constructor - Choose defaut (RSVD1)
-        RSVD<T> RSVD(QB, verbosity);
+        RSVD<T> RSVD(QB, verbosity, block_sz);
 
         // Regular QB2 call
-        RSVD.call(m, n, A, k, block_sz, tol, U1, s1, VT1);
+        RSVD.call(m, n, A, k, tol, U1, s1, VT1);
         
         // Construnct A_hat = U1 * S1 * VT1
 

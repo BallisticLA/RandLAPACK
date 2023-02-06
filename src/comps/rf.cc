@@ -14,6 +14,7 @@ namespace RandLAPACK::comps::rf {
 /// an approximation for the span of A's top k left singular vectors.
 /// Relies on a RowSketcher to do most of the work, then additionally reorthogonalizes RS's output.
 /// Optionally checks for whether the output of RS is ill-conditioned. 
+/// This algorithm is shown in the "the RandLAPACK book" book as Algorithm 9.
 ///
 ///    Conceptually, we compute Q by using [HMT:2011, Algorithm 4.3] and
 ///    [HMT:2011, Algorithm 4.4]. However, is a difference in how we perform
@@ -33,7 +34,7 @@ namespace RandLAPACK::comps::rf {
 ///     The m-by-n matrix A, stored in a column-major format.
 ///
 /// @param[in] k
-///     Expected rank of the matrix A. If unknown, set k=min(m,n).
+///     Column size of the sketch.
 ///
 /// @param[in] Q
 ///     Buffer.

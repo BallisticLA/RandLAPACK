@@ -28,39 +28,6 @@ class TestOrth : public ::testing::Test
 
     virtual void TearDown() {};
 
-    /// Tests orthogonality of the Q-factor output by Cholesky QR.
-    /// Checks I - \transpose{Q}Q.
-    template <typename T>
-    static void test_Chol_QR(int64_t m, int64_t n, std::tuple<int, T, bool> mat_type, uint32_t seed) {
-    
-        using namespace blas;
-
-        int64_t size = m * n;
-        std::vector<T> A(size);
-        std::vector<T> I_ref(n * n, 0.0);
-        T* A_dat = A.data();
-        T* I_ref_dat = I_ref.data();
-        
-        gen_mat_type<T>(m, n, A, n, seed, mat_type);
-        // Generate a reference identity
-        eye<T>(n, n, I_ref);  
-        // Orthogonalization Constructor
-        CholQRQ<T> CholQRQ(false, false);
-        // Orthonormalize A
-        if (CholQRQ.call(m, n, A) != 0) {
-            EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
-            return;
-        }
-        // Call the scheme twice for better orthogonality
-        CholQRQ.call(m, n, A);
-        // Q' * Q  - I = 0
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, -1.0, I_ref_dat, n);
-
-        T norm_fro = lapack::lange(lapack::Norm::Fro, n, n, I_ref_dat, n);	
-        printf("FRO NORM OF Q' * Q - I %f\n", norm_fro);
-        ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
-    }
-
     /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
     /// Checks I - \transpose{Q}Q.
     template <typename T>

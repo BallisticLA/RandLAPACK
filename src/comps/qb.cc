@@ -26,6 +26,8 @@ namespace RandLAPACK::comps::qb {
 /// adds enough columns to Q so that #cols(Q) == k.
 /// The implementation relies on RowSketcher and RangeFinder,
 /// 
+/// This algorithm is shown in the "the RandLAPACK book" book as Algorithm 11.
+///
 /// This implements a variant of Algorithm 2 from YGL:2018. There are two
 /// main differences.
 ///     (1) We allow subspace iteration when building a new block

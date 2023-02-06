@@ -20,14 +20,14 @@ class TestQB : public ::testing::Test
 
     virtual void TearDown() {};
 
-    /// General test for CholQRCP:
+    /// General test for QB:
     /// Computes QB factorzation, and checks: 
     /// 1. A - QB
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T>
-    static void test_QB2_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
+    static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
         using namespace blas;
@@ -99,16 +99,7 @@ class TestQB : public ::testing::Test
         // QB constructor - Choose defaut (QB2)
         QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
-        int termination = QB.call(
-            m,
-            n,
-            A,
-            k,
-            block_sz,
-            tol,
-            Q,
-            B
-        );
+        int termination = QB.call(m, n, A, k, block_sz, tol, Q, B);
 
         // Reassing pointers because Q, B have been resized
         Q_dat = Q.data();
@@ -243,16 +234,7 @@ class TestQB : public ::testing::Test
         // QB constructor - Choose defaut (QB2)
         QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
-        int termination = QB.call(
-            m,
-            n,
-            A,
-            k_est,
-            block_sz,
-            tol,
-            Q,
-            B
-        );
+        int termination = QB.call(m, n, A, k_est, block_sz, tol, Q, B);
 
         // Reassing pointers because Q, B have been resized
         Q_dat = Q.data();
@@ -309,15 +291,15 @@ class TestQB : public ::testing::Test
 
 TEST_F(TestQB, Polynomial_Decay)
 { 
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.5625);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     for (uint32_t seed : {0, 1, 2})
     {
         // Fast polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), seed);
+        test_QB2_low_exact_rank<double>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), seed);
         // Slow polynomial decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, tol, std::make_tuple(0, 6.7, false), seed);
+        test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, tol, std::make_tuple(0, 6.7, false), seed);
         // Superfast exponential decay test
-        test_QB2_general<double>(100, 100, 50, 5, 2, tol, std::make_tuple(1, 2025, false), seed);
+        test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, tol, std::make_tuple(1, 2025, false), seed);
     }
 }
 TEST_F(TestQB, Zero_Mat)
@@ -325,7 +307,7 @@ TEST_F(TestQB, Zero_Mat)
     for (uint32_t seed : {0, 1, 2})
     {   
         // A = 0
-        test_QB2_general<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(3, 0, false), seed); 
+        test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(3, 0, false), seed); 
     }
 }
 TEST_F(TestQB, Rand_Diag)
@@ -333,7 +315,7 @@ TEST_F(TestQB, Rand_Diag)
     for (uint32_t seed : {0, 1, 2})
     {   
         // Random diagonal matrix test
-        test_QB2_general<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(4, 0, false), seed);
+        test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(4, 0, false), seed);
     }
 }
 TEST_F(TestQB, Diag_Drop)
@@ -341,7 +323,7 @@ TEST_F(TestQB, Diag_Drop)
     for (uint32_t seed : {0, 1, 2})
     {   
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-        test_QB2_general<double>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(5, 0, false), seed);
+        test_QB2_low_exact_rank<double>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(5, 0, false), seed);
     }
 }
 TEST_F(TestQB, Varying_Tol)
@@ -351,6 +333,6 @@ TEST_F(TestQB, Varying_Tol)
         // test zero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), seed);
         // test nonzero tol
-        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.00625), std::make_tuple(0, 1.23, false), seed);
+        test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, (double) 0.1, std::make_tuple(0, 1.23, false), seed);
     }
 }

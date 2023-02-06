@@ -20,7 +20,7 @@ namespace RandLAPACK::drivers::cholqrcp {
 ///     A[:, J] = QR,
 /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
 /// Detailed description of this algorithm may be found in Section 5.1.2.
-/// of the `Prospectus`.
+/// of the "the RandLAPACK book".
 ///
 /// Templated for `float` and `double` types.
 ///
@@ -38,10 +38,6 @@ namespace RandLAPACK::drivers::cholqrcp {
 ///
 /// @param[in] R
 ///     Represents the upper-triangular R factor of QR factorization.
-///     On entry, is empty and may not have any space allocated for it.
-///
-/// @param[in] J
-///     Represents pivot index vector.
 ///     On entry, is empty and may not have any space allocated for it.
 ///
 /// @param[out] A

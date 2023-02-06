@@ -82,37 +82,6 @@ class HQRQ : public Stabilization<T> {
         }
 };
 
-#if !defined(__APPLE__)
-template <typename T>
-class GEQR : public Stabilization<T> {
-    public:
-        std::vector<T> tvec;
-        bool cond_check;
-        bool verbosity;
-
-        // Constructor
-        GEQR(bool c_check, bool verb) {
-            cond_check = c_check;
-            verbosity = verb;
-        };
-
-        int geqrq(
-            int64_t m,
-            int64_t n,
-            std::vector<T>& A,
-            std::vector<T>& tvec
-        );
-
-        int call(
-            int64_t m,
-            int64_t k,
-            std::vector<T>& Q
-        ){
-            return geqrq(m, k, Q, this->tvec);
-        }
-};
-#endif
-
 template <typename T>
 class PLUL : public Stabilization<T>
 {

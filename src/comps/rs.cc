@@ -11,17 +11,18 @@ namespace RandLAPACK::comps::rs {
 
 // -----------------------------------------------------------------------------
 /// Return an n-by-k matrix Omega for use in sketching the rows of the m-by-n
-/// matrix A. (I.e., for computing a sketch Q = A @ Omega.) The qualitative goal
+/// matrix A. (I.e., for computing a sketch Y = A @ Omega.) The qualitative goal
 /// is that the range of Omega should be well-aligned with the top-k right
 /// singular vectors of A.
 /// This function works by taking "passes_over_data" steps of a power method that
 /// starts with a random Gaussian matrix, and then makes alternating
 /// applications of A and A.T. We stabilize the power method with a user-defined method.
+/// This algorithm is shown in the "the RandLAPACK book" book as Algorithm 8.
 ///
 ///    This implementation is inspired by [ZM:2020, Algorithm 3.3]. The most
 ///    significant difference is that this function stops one step "early",
-///    so that it returns a matrix S for use in sketching Q = A @ Omega, rather than
-///    returning an orthonormal basis for a sketched matrix Q. Here are the
+///    so that it returns a matrix Omega for use in sketching Y = A @ Omega, rather than
+///    returning an orthonormal basis for a sketched matrix Y. Here are the
 ///    differences between this implementation and [ZM:2020, Algorithm 3.3],
 ///    assuming the latter algorithm was modified to stop "one step early" like
 ///    this algorithm:
@@ -47,7 +48,7 @@ namespace RandLAPACK::comps::rs {
 ///     The m-by-n matrix A, stored in a column-major format.
 ///
 /// @param[in] k
-///     Expected rank of the matrix A. If unknown, set k=min(m,n).
+///     Column size of the sketch.
 ///
 /// @param[in] Omega
 ///     Sketching operator buffer.

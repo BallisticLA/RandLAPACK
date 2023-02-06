@@ -87,9 +87,6 @@ int CholQRQ<T>::cholqrq(
 ///     Overwritten by the lower-triangular factor L with interchanged rows,
 ///     L[ipiv,:].
 ///
-/// @param[out] ipiv
-///     Pivot vector of length n.
-///
 /// @return = 0: successful exit
 ///
 template <typename T> 
@@ -138,9 +135,6 @@ int PLUL<T>::plul(
 /// @param[out] A
 ///     Overwritten explicitly with an orthogonal Q-factor.
 ///
-/// @param[out] tau.
-///     Array of length n.
-///
 /// @return = 0: successful exit
 ///
 template <typename T> 
@@ -166,57 +160,6 @@ int HQRQ<T>::hqrq(
     return 0;
 }
 
-#if !defined(__APPLE__)
-// -----------------------------------------------------------------------------
-/// Performs a QR factorization. Outputs the implicitly-stored Q and R factors.
-/// This routine is only defined in Intel MKL.
-///
-/// Templated for `float` and `double` types.
-///
-/// @param[in] m
-///     The number of rows in the matrix A.
-///
-/// @param[in] n
-///     The number of columns in the matrix A.
-///
-/// @param[in] A
-///     The m-by-n matrix, stored in a column-major format.
-///
-/// @param[in] tau
-///     Buffer for the scalar factor array.
-///     
-/// @param[out] A
-///     Lower-triangular portion represents householder reflectors. 
-///     Upper- stores the R-factor. 
-///
-/// @param[out] tau.
-///     Array of length n.
-///
-/// @return = 0: successful exit
-///
-template <typename T> 
-int GEQR<T>::geqrq(
-    int64_t m,
-    int64_t n,
-    std::vector<T>& A,
-    std::vector<T>& tvec
-){
-    using namespace lapack;
-
-    tvec.resize(5);
-
-    T* A_dat = A.data();
-
-    geqr(m, n, A_dat, m, tvec.data(), -1);
-    int64_t tsize = (int64_t) tvec[0]; 
-    tvec.resize(tsize);
-    if(geqr(m, n, A_dat, m, tvec.data(), tsize))
-        return 1;
-
-    return 0;
-}
-#endif
-
 template int CholQRQ<float>::cholqrq(int64_t m, int64_t k, std::vector<float>& Q);
 template int CholQRQ<double>::cholqrq(int64_t m, int64_t k, std::vector<double>& Q);
 
@@ -226,8 +169,4 @@ template int PLUL<double>::plul(int64_t m, int64_t n, std::vector<double>& A, st
 template int HQRQ<float>::hqrq(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tau);
 template int HQRQ<double>::hqrq(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tau);
 
-#if !defined(__APPLE__)
-template int GEQR<float>::geqrq(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
-template int GEQR<double>::geqrq(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
-#endif
 } // end namespace orth

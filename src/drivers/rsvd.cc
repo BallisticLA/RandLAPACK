@@ -67,14 +67,13 @@ int RSVD<T>::RSVD1(
     int64_t n,
     std::vector<T>& A,
     int64_t& k,
-    int64_t block_sz,
     T tol,
     std::vector<T>& U,
     std::vector<T>& S,
     std::vector<T>& VT
 ){
     // Q and B sizes will be adjusted automatically
-    this->QB_Obj.call(m, n, A, k, block_sz, tol, this->Q, this->B);
+    this->QB_Obj.call(m, n, A, k, this->block_sz, tol, this->Q, this->B);
 
     // Making sure all vectors are large enough
     upsize(m * k, U);
@@ -90,6 +89,6 @@ int RSVD<T>::RSVD1(
     return 0;
 }
 
-template int RSVD<float>::RSVD1(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, int64_t block_sz, float tol, std::vector<float>& U, std::vector<float>& S, std::vector<float>& VT);
-template int RSVD<double>::RSVD1(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, int64_t block_sz, double tol, std::vector<double>& U, std::vector<double>& S, std::vector<double>& VT);
+template int RSVD<float>::RSVD1(int64_t m, int64_t n, std::vector<float>& A, int64_t& k, float tol, std::vector<float>& U, std::vector<float>& S, std::vector<float>& VT);
+template int RSVD<double>::RSVD1(int64_t m, int64_t n, std::vector<double>& A, int64_t& k, double tol, std::vector<double>& U, std::vector<double>& S, std::vector<double>& VT);
 }
