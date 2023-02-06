@@ -17,7 +17,7 @@ namespace RandLAPACK::comps::rs {
 /// This function works by taking "passes_over_data" steps of a power method that
 /// starts with a random Gaussian matrix, and then makes alternating
 /// applications of A and A.T. We stabilize the power method with a user-defined method.
-/// This algorithm is shown in the "the RandLAPACK book" book as Algorithm 8.
+/// This algorithm is shown in "the RandLAPACK book" book as Algorithm 8.
 ///
 ///    This implementation is inspired by [ZM:2020, Algorithm 3.3]. The most
 ///    significant difference is that this function stops one step "early",

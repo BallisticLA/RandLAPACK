@@ -20,7 +20,7 @@ namespace RandLAPACK::drivers::cholqrcp {
 ///     A[:, J] = QR,
 /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
 /// Detailed description of this algorithm may be found in Section 5.1.2.
-/// of the "the RandLAPACK book".
+/// of "the RandLAPACK book".
 ///
 /// Templated for `float` and `double` types.
 ///
