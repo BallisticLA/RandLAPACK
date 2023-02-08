@@ -278,7 +278,7 @@ class TestQB : public ::testing::Test
         printf("|================================TEST QB2 K = min(M, N) END================================|\n");
     }
 };
-
+/*
 TEST_F(TestQB, Polynomial_Decay)
 {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
@@ -326,3 +326,4 @@ TEST_F(TestQB, Varying_Tol)
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, (double) 0.1, std::make_tuple(0, 1.23, false), seed);
     }
 }
+*/

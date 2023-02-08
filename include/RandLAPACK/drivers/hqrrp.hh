@@ -1,10 +1,5 @@
-#ifndef LAPACK_HH
-#include <lapack.hh>
-#define LAPACK_HH
-#endif
 
-#ifndef HQRRP_HH
-#define HQRRP_HH
+
 
 namespace HQRRP {
 
@@ -19,4 +14,3 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, double * buff_A, int64_t ldim_A,
 
 } // end namespace HQRRP
 
-#endif
