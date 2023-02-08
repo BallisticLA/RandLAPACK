@@ -16,7 +16,7 @@ if (GTest_FOUND)
 
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
 
-    target_link_libraries(RandLAPACK_tests OpenMP::OpenMP_CXX RandLAPACK GTest::GTest GTest::Main)
+    target_link_libraries(RandLAPACK_tests RandLAPACK GTest::GTest GTest::Main)
 
     gtest_discover_tests(RandLAPACK_tests)
 

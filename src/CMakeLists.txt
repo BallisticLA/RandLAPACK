@@ -14,8 +14,11 @@ set(RandLAPACK_libs
     lapackpp
     blaspp
     Random123
-    OpenMP::OpenMP_CXX
 )
+
+if (RandLAPACK_HAS_OpenMP)
+    list(APPEND RandLAPACK_libs OpenMP::OpenMP_CXX)
+endif()
 
 add_library(RandLAPACK ${RandLAPACK_cxx_srcs})
 
