@@ -39,7 +39,7 @@ int CholQRQ<T>::cholqrq(
     using namespace blas;
     using namespace lapack;
         
-    T* Q_gram_dat = upsize<T>(k * k, this->Q_gram);
+    T* Q_gram_dat = upsize(k * k, this->Q_gram);
     T* Q_dat = Q.data();
 
     // Find normal equation Q'Q - Just the upper triangular portion        
@@ -56,7 +56,7 @@ int CholQRQ<T>::cholqrq(
 
     // Scheme may succeed, but output garbage
     if(this->cond_check) {
-        if(cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
+        if(cond_num_check(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
         //        return 1;
         }
     }
@@ -108,7 +108,7 @@ int PLUL<T>::plul(
     if(getrf(m, n, A_dat, m, ipiv_dat))
         return 1; // failure condition
 
-    get_L<T>(m, n, A);
+    get_L(m, n, A);
     laswp(n, A_dat, m, 1, n, ipiv_dat, 1);
 
     return 0;
@@ -149,7 +149,7 @@ int HQRQ<T>::hqrq(
     // tau needs to be a vector of all 2's by default
     using namespace lapack;
 
-    upsize<T>(n, tau);
+    upsize(n, tau);
 
     T* A_dat = A.data();
     T* tau_dat = tau.data();

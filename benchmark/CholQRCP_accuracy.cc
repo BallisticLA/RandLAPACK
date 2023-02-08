@@ -33,7 +33,7 @@ template <typename T>
         std::vector<int64_t> J(n, 0);
 
         // Random Gaussian test matrix
-        gen_mat_type<T>(m, n, A, k, seed, mat_type);
+        gen_mat_type(m, n, A, k, seed, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
         std::vector<T> A_1(size, 0.0);

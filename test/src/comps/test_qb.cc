@@ -35,7 +35,7 @@ class TestQB : public ::testing::Test
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        gen_mat_type<T>(m, n, A, k, seed, mat_type);
+        gen_mat_type(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
         // Adjust the expected rank
@@ -137,18 +137,18 @@ class TestQB : public ::testing::Test
         std::vector<T> Ident(k * k, 0.0);
         T* Ident_dat = Ident.data();
         // Generate a reference identity
-        eye<T>(k, k, Ident); 
+        eye(k, k, Ident); 
         // Buffer for testing B
         copy(k * n, B_dat, 1, B_cpy_dat, 1);
         
         // A_hat = Q * B
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q_dat, m, B_dat, k, 1.0, A_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q_dat, m, B_dat, k, 1.0, A_dat, m);
         // TEST 2: B - Q'A = 0
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, B_cpy_dat, k);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, B_cpy_dat, k);
         // TEST 3: Q'Q = I = 0
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, -1.0, Q_dat, m, Q_dat, m, 1.0, Ident_dat, k);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, -1.0, Q_dat, m, Q_dat, m, 1.0, Ident_dat, k);
 
         // Get low-rank SVD
         gesdd(Job::SomeVec, m, n, A_cpy_dat, m, s_dat, U_dat, m, VT_dat, n);
@@ -157,12 +157,12 @@ class TestQB : public ::testing::Test
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
         copy(n - k, z_buf_dat, 1, s_dat + k, 1);
-        diag<T>(n, n, s, n, S);
+        diag(n, n, s, n, S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
         // A_k * VT -  A_hat == 0
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
 
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
@@ -197,7 +197,7 @@ class TestQB : public ::testing::Test
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        gen_mat_type<T>(m, n, A, k, seed, mat_type);
+        gen_mat_type(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
         int64_t k_est = std::min(m, n);
@@ -268,9 +268,9 @@ class TestQB : public ::testing::Test
         printf("Inner dimension of QB: %ld\n", k_est);
         
         // A_hat = Q * B
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
         
         T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);

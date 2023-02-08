@@ -27,7 +27,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     
     // For running QB
     std::vector<T> A(m * n, 0.0);
-    gen_mat_type<T>(m, n, A, k, seed, mat_type);
+    gen_mat_type(m, n, A, k, seed, mat_type);
 
     int64_t size = m * n;
     // Adjust the expected rank

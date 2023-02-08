@@ -88,7 +88,7 @@ test_speed_helper(int64_t m,
     std::vector<int64_t> J_1;
 
     // Generate random matrix
-    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 

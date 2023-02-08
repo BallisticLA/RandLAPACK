@@ -230,18 +230,18 @@ void gen_mat_type(
         case 0:
                 // Generating matrix with polynomially decaying singular values
                 //printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = (i + 1)^-pow (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::comps::util::gen_poly_mat<T>(m, n, A, k, std::get<1>(type), std::get<2>(type), seed); 
+                RandLAPACK::comps::util::gen_poly_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed); 
                 break;
         case 1:
                 // Generating matrix with exponentially decaying singular values
                 //printf("TEST MATRIX: EXPONENTIAL DECAY sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::comps::util::gen_exp_mat<T>(m, n, A, k, std::get<1>(type), std::get<2>(type), seed); 
+                RandLAPACK::comps::util::gen_exp_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed); 
                 break;
         case 2: {
                 // A = [A A]
                 //printf("TEST MATRIX: A = [A A]\n");
                 RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
-                RandBLAS::dense::fill_buff<T>(A_dat, D, state);
+                RandBLAS::dense::fill_buff(A_dat, D, state);
                 if (2 * k <= n)
                 {
                     copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
@@ -257,9 +257,9 @@ void gen_mat_type(
                 //printf("TEST MATRIX: GAUSSIAN RANDOM DIAGONAL\n");
                 std::vector<T> buf(k, 0.0);
                 RandBLAS::dense::DenseDist D{.n_rows = k, .n_cols = 1};
-                RandBLAS::dense::fill_buff<T>(buf.data(), D, state);
+                RandBLAS::dense::fill_buff(buf.data(), D, state);
                 // Fills the first k diagonal elements
-                diag<T>(m, n, buf, k, A);
+                diag(m, n, buf, k, A);
             }
             break;
         case 5: {
@@ -274,14 +274,14 @@ void gen_mat_type(
                             entry -= 0.5;
                     }
                 );
-                diag<T>(m, n, buf, n, A);
+                diag(m, n, buf, n, A);
             }
             break;
         case 6: {
                 // Gaussian random matrix
                 //printf("TEST MATRIX: GAUSSIAN RANDOM\n");
                 RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = n};
-                RandBLAS::dense::fill_buff<T>(A_dat, D, state);
+                RandBLAS::dense::fill_buff(A_dat, D, state);
             }
             break;
         default:
@@ -324,7 +324,7 @@ void gen_poly_mat(
     );
 
     // form a diagonal S
-    diag<T>(k, k, s, k, S);
+    diag(k, k, s, k, S);
 
     if (diagon) {
         if (!(m == k || n == k)) {
@@ -334,7 +334,7 @@ void gen_poly_mat(
         }
         lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
     } else {
-        gen_mat<T>(m, n, A, k, S, seed);
+        gen_mat(m, n, A, k, S, seed);
     }
 }
 
@@ -369,7 +369,7 @@ void gen_exp_mat(
     );
 
     // form a diagonal S
-    diag<T>(k, k, s, k, S);
+    diag(k, k, s, k, S);
     if (diagon) {
         if (!(m == k || n == k)) {
                 m = k;
@@ -378,7 +378,7 @@ void gen_exp_mat(
         }
         lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
     } else {
-        gen_mat<T>(m, n, A, k, S, seed);
+        gen_mat(m, n, A, k, S, seed);
     }
 }
 
@@ -411,8 +411,8 @@ void gen_mat(
     auto state = RandBLAS::base::RNGState(seed, 0);
     RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = k};
     RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = k};
-    state = RandBLAS::dense::fill_buff<T>(U_dat, DU, state);
-    state = RandBLAS::dense::fill_buff<T>(V_dat, DV, state);
+    state = RandBLAS::dense::fill_buff(U_dat, DU, state);
+    state = RandBLAS::dense::fill_buff(V_dat, DV, state);
 
     geqrf(m, k, U_dat, m, tau_dat);
     ungqr(m, k, k, U_dat, m, tau_dat);
@@ -425,7 +425,7 @@ void gen_mat(
         scal(m, S[i + k * i], &Gemm_buf_dat[i * m], 1);
     }
 
-    gemm<T>(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
 }
 
 template <typename T> 

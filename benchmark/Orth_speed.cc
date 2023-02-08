@@ -127,7 +127,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     T* A_cpy_3_dat = A_cpy_3.data();
 
     // Random Gaussian test matrix
-    gen_mat_type<T>(m, n, A, n, seed, std::tuple(6, 0, false));
+    gen_mat_type(m, n, A, n, seed, std::tuple(6, 0, false));
     // Make a copy
     std::copy(A_dat, A_dat + size, A_cpy_dat);
     std::copy(A_dat, A_dat + size, A_cpy_2_dat);

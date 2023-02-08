@@ -47,7 +47,7 @@ test_speed_helper(int64_t m,
     std::vector<T> tau_4(n, 0);
 
     // Generate random matrix
-    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    gen_mat_type(m, n, A_1, k, seed, mat_type);
 
 
     // Make copies

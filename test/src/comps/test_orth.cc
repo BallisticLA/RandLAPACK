@@ -46,16 +46,16 @@ class TestOrth : public ::testing::Test
         T* Omega_dat = Omega.data();
         T* I_ref_dat = I_ref.data();
         
-        gen_mat_type<T>(m, n, A, k, seed, mat_type);
+        gen_mat_type(m, n, A, k, seed, mat_type);
         
         // Fill the gaussian random matrix
         RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
         auto state = RandBLAS::base::RNGState(seed, 0);
-        state = RandBLAS::dense::fill_buff<T>(Omega_dat, D, state);
+        state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
         // Generate a reference identity
-        eye<T>(k, k, I_ref);  
+        eye(k, k, I_ref);  
         // Y = A * Omega
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         // Orthogonalization Constructor
         CholQRQ<T> CholQRQ(false, false);
 
@@ -67,7 +67,7 @@ class TestOrth : public ::testing::Test
         // Call the scheme twice for better orthogonality
         CholQRQ.call(m, k, Y);
         // Q' * Q  - I = 0
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
 
         T norm_fro = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);	
         printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);

@@ -37,7 +37,7 @@ class TestCholQRCP : public ::testing::Test
         std::vector<T> R;
         std::vector<int64_t> J(n, 0);
 
-        gen_mat_type<T>(m, n, A, k, seed, mat_type);
+        gen_mat_type(m, n, A, k, seed, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
         std::copy(A.data(), A.data() + size, A_hat.data());
@@ -58,7 +58,7 @@ class TestCholQRCP : public ::testing::Test
         col_swap(m, n, n, A_hat, J);
 
         // AP - QR
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
 
         T norm_test = lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF AP - QR:  %e\n", norm_test);
