@@ -116,22 +116,6 @@ static int64_t NoFLA_QRP_pivot_G_B_C( int64_t j_max_col,
                int64_t * buff_p,
                double * buff_d, double * buff_e );
 
-
-
-void print_int_vector( char * name, int64_t n_v, int64_t * buff_v )
-{
-  int64_t  i, j;
-
-  printf( "%s = [\n", name );
-  for( i = 0; i < n_v; i++ )
-  {
-    printf( "%d\n", (int) buff_v[ i ] );
-  }
-  printf( "];\n" );
-}
-
-
-
 void _LAPACK_dgeqp3(
   int64_t m, int64_t n, double *A, int64_t lda,
   int64_t * jpvt, double *tau, double *work,
@@ -725,9 +709,6 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, double * buff_A, int64_t ldim_A,
         1, m_Y, buff_Y1, ldim_Y,
         1, buff_T1_T, ldim_W );
 
-    //char * name = "AAAAA";
-    //print_int_vector(name, 5, buff_p);
-
     //
     // Update the rest of the matrix.
     //
@@ -1204,7 +1185,8 @@ static int64_t NoFLA_QRP_pivot_G_B_C( int64_t j_max_col,
 // It pivots matrix G, pivot vector p, and norms vectors d and e.
 // Matrices B and C are optionally pivoted.
 //
-  int64_t     ival, i_one = 1;
+  int64_t     ival = 1; 
+  int64_t i_one = 1;
   double  * ptr_g1, * ptr_g2, * ptr_b1, * ptr_b2, * ptr_c1, * ptr_c2;
 
   // Swap columns of G, pivots, and norms.
@@ -1238,11 +1220,6 @@ static int64_t NoFLA_QRP_pivot_G_B_C( int64_t j_max_col,
     buff_d[ j_max_col ] = buff_d[ 0 ];
     buff_e[ j_max_col ] = buff_e[ 0 ];
   }
-  //printf("j_max_col:%ld \n", j_max_col);
-  //printf("IVAL:%ld \n", ival);
-  //char * name = "Here";
-  //print_int_vector(name, 5, buff_p);
-
   return 0;
 }
 
