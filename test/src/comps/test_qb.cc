@@ -121,9 +121,9 @@ class TestQB : public ::testing::Test
                 break;
             case 5:
                 printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
+                break;
             case 6:
                 printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
-                break;
                 break;
             case 0:
                 printf("\nTERMINATED VIA: Expected tolerance reached.\n");
