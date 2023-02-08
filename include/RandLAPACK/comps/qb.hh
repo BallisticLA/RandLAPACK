@@ -1,15 +1,11 @@
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#ifndef randlapack_comps_qb_h
+#define randlapack_comps_qb_h
 
+#include "blaspp.h"
 #include "orth.hh"
 #include "rf.hh"
 
 namespace RandLAPACK::comps::qb {
-
-#ifndef QB_CLASS
-#define QB_CLASS
 
 template <typename T>
 class QBalg {
@@ -116,5 +112,6 @@ class QB : public QBalg<T> {
             return termination;
         }
 };
-#endif
+
 } // end namespace RandLAPACK::comps::qb
+#endif

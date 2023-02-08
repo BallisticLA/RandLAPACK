@@ -1,7 +1,7 @@
-#ifndef BLAS_HH
+#ifndef randlapack_cholqrcp_h
+#define randlapack_cholqrcp_h
+
 #include <blas.hh>
-#define BLAS_HH
-#endif
 
 namespace RandLAPACK::drivers::cholqrcp {
 
@@ -90,3 +90,4 @@ class CholQRCP : public CholQRCPalg<T> {
 };
 #endif
 } // end namespace RandLAPACK::comps::rsvd
+#endif

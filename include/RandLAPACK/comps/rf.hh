@@ -1,15 +1,11 @@
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#ifndef randlapack_comps_rf_h
+#define randlapack_comps_rf_h
 
 #include "rs.hh"
 #include "orth.hh"
+#include "blaspp.h"
 
 namespace RandLAPACK::comps::rf {
-
-#ifndef RF_CLASS
-#define RF_CLASS
 
 template <typename T>
 class RangeFinder {
@@ -87,5 +83,6 @@ class RF : public RangeFinder<T> {
                 return termination;
             }
 };
-#endif
+
 } // end namespace RandLAPACK::comps::rs
+#endif

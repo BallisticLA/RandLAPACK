@@ -1,9 +1,8 @@
-//#include <vector>
+#ifndef randlapack_comps_determiter_h
+#define randlapack_comps_determiter_h
 
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#include <vector>
+#include <cstdint>
 
 namespace RandLAPACK::comps::determiter {
 
@@ -31,3 +30,4 @@ void pcg(
 void run_pcgls_ex(int n, int m);
 
 } // end namespace RandLAPACK::comps::determiter
+#endif

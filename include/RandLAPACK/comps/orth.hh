@@ -1,12 +1,9 @@
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#ifndef randlapack_comps_orth_h
+#define randlapack_comps_orth_h
+
+#include "blaspp.h"
 
 namespace RandLAPACK::comps::orth {
-
-#ifndef ORTH_CLASS
-#define ORTH_CLASS
 
 template <typename T>
 class Stabilization {
@@ -113,5 +110,5 @@ class PLUL : public Stabilization<T>
         }
 };
 
-#endif
 } // end namespace RandLAPACK::comps::rs
+#endif

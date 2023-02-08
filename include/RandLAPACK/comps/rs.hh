@@ -1,14 +1,10 @@
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#ifndef randlapack_comps_rs_h
+#define randlapack_comps_rs_h
 
+#include "blaspp.h"
 #include "orth.hh"
 
 namespace RandLAPACK::comps::rs {
-
-#ifndef RS_CLASS
-#define RS_CLASS
 
 template <typename T>
 class RowSketcher
@@ -87,5 +83,6 @@ class RS : public RowSketcher<T>
             return termination;
         }
 };
-#endif
+
 } // end namespace RandLAPACK::comps::rs
+#endif
