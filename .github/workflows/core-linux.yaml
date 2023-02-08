@@ -65,17 +65,33 @@ jobs:
               `pwd`/../lapackpp
           make -j2 install
 
-      - name: build RandLAPACK
+      - name: build and test RandLAPACK (Release)
         run: |
           cd ..
           mkdir RandLAPACK-build
           cd RandLAPACK-build
-          cmake -DCMAKE_BUILD_TYPE=Debug \
+          cmake -DCMAKE_BUILD_TYPE=Release \
               -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
               -DRandom123_DIR=`pwd`/../random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
               `pwd`/../RandLAPACK
-          make
-          make install
-          ctest
+          make -j2
+          make -j2 install
+          ctest --output-on-failure
+
+      - name: build and test RandLAPACK (Debug/asan)
+        run: |
+          cd ..
+          mkdir RandLAPACK-build-asan
+          cd RandLAPACK-build-asan
+          cmake -DCMAKE_BUILD_TYPE=Debug \
+              -DSANITIZE_ADDRESS=ON \
+              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
+              -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
+              -DRandom123_DIR=`pwd`/../random123-install/include/ \
+              -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install-asan \
+              `pwd`/../RandLAPACK
+          make -j2
+          make -j2 install
+          ctest --output-on-failure

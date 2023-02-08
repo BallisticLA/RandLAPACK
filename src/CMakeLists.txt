@@ -18,7 +18,13 @@ set(RandLAPACK_libs
 )
 
 add_library(RandLAPACK ${RandLAPACK_cxx_srcs})
-target_compile_options(RandLAPACK PUBLIC -Wall -Wextra)
+
+set(RandLAPACK_cxx_opts -Wall -Wextra)
+if (SANITIZE_ADDRESS)
+    list(APPEND RandLAPACK_cxx_opts -fsanitize=address)
+    target_link_options(RandLAPACK INTERFACE -fsanitize=address)
+endif()
+target_compile_options(RandLAPACK PUBLIC ${RandLAPACK_cxx_opts})
 
 target_include_directories(
     RandLAPACK PUBLIC
