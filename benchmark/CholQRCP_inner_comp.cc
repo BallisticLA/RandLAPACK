@@ -1,16 +1,10 @@
-/*
-Note: this benchmark attempts to save files into a specific location.
-If the required folder structure does not exist, the files will not be saved.
-*/
-/*
-Compares speeds of inner components within CholQRCP
-*/
-#include<stdio.h>
-#include<string.h>
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
+
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <numeric>
 #include <iostream>
@@ -19,6 +13,13 @@ Compares speeds of inner components within CholQRCP
 #include <thread>
 #include <fstream>
 #include <iterator>
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
+Compares speeds of inner components within CholQRCP
+*/
 
 using namespace std::chrono;
 

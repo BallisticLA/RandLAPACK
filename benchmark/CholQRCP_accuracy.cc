@@ -1,12 +1,8 @@
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
 
-/*
-Note: this benchmark attempts to save files into a specific location.
-If the required folder structure does not exist, the files will not be saved.
-*/
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
 #include <math.h>
 #include <numeric>
 #include <iostream>
@@ -15,6 +11,11 @@ If the required folder structure does not exist, the files will not be saved.
 #include <thread>
 #include <fstream>
 
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
 
@@ -22,9 +23,6 @@ template <typename T>
     static void test_CholQRCP1_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed, int test_num) {
         
         printf("|================================Benchmark CholQRCP Accuracy Begin===============================|\n");
-
-        using namespace blas;
-        using namespace lapack;
 
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
@@ -56,7 +54,7 @@ template <typename T>
         k = CholQRCP.rank;
 
         // Deterministic QRP, explicit extraction of R
-        geqp3(m, n, A_1.data(), m, J_1.data(), tau_1.data());
+        lapack::geqp3(m, n, A_1.data(), m, J_1.data(), tau_1.data());
         get_U(m, n, A_1, R_1);
 
         switch (test_num) {
@@ -96,12 +94,12 @@ template <typename T>
                 // This will have k - 2 data points
                 for(int i = 1; i < n; ++i) {
                     for(int j = 0; j < n; ++j) {
-                        copy(i, &z_buf_dat[0], 1, &R_1_dat[n * j], 1);
-                        copy(i, &z_buf_dat[0], 1, &R_dat[k * j], 1);
+                        blas::copy(i, &z_buf_dat[0], 1, &R_1_dat[n * j], 1);
+                        blas::copy(i, &z_buf_dat[0], 1, &R_dat[k * j], 1);
                     }
 
-                    T norm_geqp3 = lange(Norm::Fro, n, n, R_1.data(), n);
-                    T norm_cholqrcp = lange(Norm::Fro, k, n, R.data(), k);
+                    T norm_geqp3 = lapack::lange(Norm::Fro, n, n, R_1.data(), n);
+                    T norm_cholqrcp = lapack::lange(Norm::Fro, k, n, R.data(), k);
 
                     file << norm_geqp3 / norm_cholqrcp << "\n";
                 }
@@ -114,7 +112,7 @@ template <typename T>
                 std::vector<T> VT(n * n, 0.0);
 
                 // Deterministic SVD
-                gesdd(Job::SomeVec, m, n, A_2.data(), m, s.data(), U.data(), m, VT.data(), n);
+                lapack::gesdd(Job::SomeVec, m, n, A_2.data(), m, s.data(), U.data(), m, VT.data(), n);
 
                 // Diagonal  buffers
                 std::vector<T> r(n, 0.0);

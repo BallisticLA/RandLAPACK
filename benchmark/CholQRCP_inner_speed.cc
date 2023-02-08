@@ -1,14 +1,10 @@
-/*
-Note: this benchmark attempts to save files into a specific location.
-If the required folder structure does not exist, the files will not be saved.
-*/
-/*This is only concerned with what's INSIDE of cholqrcp*/
-#include<stdio.h>
-#include<string.h>
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
+
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <numeric>
 #include <iostream>
@@ -17,6 +13,11 @@ If the required folder structure does not exist, the files will not be saved.
 #include <thread>
 #include <fstream>
 
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*This is only concerned with what's INSIDE of cholqrcp*/
 using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::drivers::cholqrcp;
@@ -78,9 +79,6 @@ test_speed_helper(int64_t m,
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
-
-    using namespace blas;
-    using namespace lapack;
 
     int64_t size  = m * n;
     std::vector<T>       A_1(size, 0.0);

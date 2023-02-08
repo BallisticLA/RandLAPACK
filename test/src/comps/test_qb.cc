@@ -1,10 +1,10 @@
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
 
 #include <fstream>
+#include <gtest/gtest.h>
 
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
@@ -30,8 +30,6 @@ class TestQB : public ::testing::Test
     static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
-        using namespace blas;
-        using namespace lapack;
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
@@ -76,8 +74,8 @@ class TestQB : public ::testing::Test
         T* VT_dat = VT.data();
 
         // Create a copy of the original matrix
-        copy(size, A_dat, 1, A_cpy_dat, 1);
-        copy(size, A_dat, 1, A_cpy_2_dat, 1);
+        blas::copy(size, A_dat, 1, A_cpy_dat, 1);
+        blas::copy(size, A_dat, 1, A_cpy_2_dat, 1);
 
         //Subroutine parameters 
         bool verbosity = false;
@@ -139,7 +137,7 @@ class TestQB : public ::testing::Test
         // Generate a reference identity
         eye(k, k, Ident); 
         // Buffer for testing B
-        copy(k * n, B_dat, 1, B_cpy_dat, 1);
+        blas::copy(k * n, B_dat, 1, B_cpy_dat, 1);
         
         // A_hat = Q * B
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
@@ -151,12 +149,12 @@ class TestQB : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, -1.0, Q_dat, m, Q_dat, m, 1.0, Ident_dat, k);
 
         // Get low-rank SVD
-        gesdd(Job::SomeVec, m, n, A_cpy_dat, m, s_dat, U_dat, m, VT_dat, n);
+        lapack::gesdd(Job::SomeVec, m, n, A_cpy_dat, m, s_dat, U_dat, m, VT_dat, n);
         // buffer zero vector
         std::vector<T> z_buf(n, 0.0);
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
-        copy(n - k, z_buf_dat, 1, s_dat + k, 1);
+        blas::copy(n - k, z_buf_dat, 1, s_dat + k, 1);
         diag(n, n, s, n, S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
@@ -166,11 +164,11 @@ class TestQB : public ::testing::Test
 
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
-        T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
+        T norm_test_1 = lapack::lange(Norm::Fro, m, n, A_dat, m);
         printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
         ASSERT_NEAR(norm_test_1, 0, test_tol);
         // Test 2 Output
-        T norm_test_2 = lange(Norm::Fro, k, n, B_cpy_dat, k);
+        T norm_test_2 = lapack::lange(Norm::Fro, k, n, B_cpy_dat, k);
         printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
         ASSERT_NEAR(norm_test_2, 0, test_tol);
         // Test 3 Output
@@ -178,7 +176,7 @@ class TestQB : public ::testing::Test
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
         ASSERT_NEAR(norm_test_3, 0, test_tol);
         // Test 4 Output
-        T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
+        T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         ASSERT_NEAR(norm_test_4, 0, test_tol);
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
@@ -191,9 +189,6 @@ class TestQB : public ::testing::Test
     static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");
-
-        using namespace blas;
-        using namespace lapack;
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
@@ -212,7 +207,7 @@ class TestQB : public ::testing::Test
         T* B_dat = B.data();
         T* A_hat_dat = A_hat.data();
         // pre-compute norm
-        T norm_A = lange(Norm::Fro, m, n, A_dat, m);
+        T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
 
         //Subroutine parameters 
         bool verbosity = false;
@@ -272,7 +267,7 @@ class TestQB : public ::testing::Test
         // TEST 1: A = A - Q * B = 0
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
         
-        T norm_test_1 = lange(Norm::Fro, m, n, A_dat, m);
+        T norm_test_1 = lapack::lange(Norm::Fro, m, n, A_dat, m);
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         if(tol == 0.0) {
             // Test Zero Tol Output

@@ -1,16 +1,10 @@
-/*
-Note: this benchmark attempts to save files into a specific location.
-If the required folder structure does not exist, the files will not be saved.
-*/
-/*
-Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
-*/
-#include<stdio.h>
-#include<string.h>
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
+
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <numeric>
 #include <iostream>
@@ -18,6 +12,13 @@ Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 #include <chrono>
 #include <thread>
 #include <fstream>
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
+Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
+*/
 
 using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
@@ -179,8 +180,6 @@ test_speed_helper(int64_t m,
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
-    using namespace blas;
-    using namespace lapack;
 
     int64_t size = m * n;
     int64_t b_dim = n;
@@ -278,7 +277,7 @@ test_speed_helper(int64_t m,
 
     // GEQP3
     auto start_geqp3 = high_resolution_clock::now();
-    geqp3(m, n, A_1.data(), m, J_2.data(), tau_2.data());
+    lapack::geqp3(m, n, A_1.data(), m, J_2.data(), tau_2.data());
     auto stop_geqp3 = high_resolution_clock::now();
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
@@ -330,7 +329,7 @@ test_speed_helper(int64_t m,
     // GEQP3 on R part
     // We are not timing the pre-allocation of R, as it expected to take very small time
     get_U(m, n, A_1, R_3);
-    geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
+    lapack::geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
 
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count() - dur_appl3;

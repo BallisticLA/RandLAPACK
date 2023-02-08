@@ -1,13 +1,12 @@
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
+
 #include <cstdint>
 #include <vector>
 
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
-
 using namespace RandLAPACK::comps::util;
-using namespace blas;
-using namespace lapack;
 
 namespace RandLAPACK::drivers::rsvd {
 
@@ -82,7 +81,7 @@ int RSVD<T>::RSVD1(
     upsize(k * n, VT);
 
     // SVD of B
-    gesdd(Job::SomeVec, k, n, this->B.data(), k, S.data(), this->U_buf.data(), k, VT.data(), k);
+    lapack::gesdd(Job::SomeVec, k, n, this->B.data(), k, S.data(), this->U_buf.data(), k, VT.data(), k);
     // Adjusting U
     gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, this->Q.data(), m, this->U_buf.data(), k, 0.0, U.data(), m);
     

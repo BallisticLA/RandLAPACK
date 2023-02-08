@@ -1,11 +1,11 @@
-#include <RandLAPACK/comps/util.hh>
+#include "RandLAPACK/comps/util.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
 
 #include <iostream>
 #include <cmath>
-#include <lapack.hh>
 #include <algorithm>
-
-#include <RandBLAS.hh>
 
 namespace RandLAPACK::comps::util {
 
@@ -33,13 +33,12 @@ void diag(
     int64_t k, // size of s, < min(m, n)
     std::vector<T>& S // Assuming S is m by n
 ) {     
-    using namespace blas;
 
     if(k > n) {
         // Throw error
     }
     // size of s
-    copy<T, T>(k, s.data(), 1, S.data(), m + 1);
+    blas::copy(k, s.data(), 1, S.data(), m + 1);
 }
 
 template <typename T> 
@@ -112,7 +111,6 @@ void get_U(
     const std::vector<T>& A,
     std::vector<T>& U // We are assuming U is n by n
 ) {
-    using namespace blas;
     // Vector end pointer
     int size = m * n;
 
@@ -120,7 +118,7 @@ void get_U(
     T* U_dat = U.data();
 
     for(int i = 0, j = 1, k = 0; i < size && j <= m; i += m, k +=n, ++j) {             
-        copy(j, &A_dat[i], 1, &U_dat[k], 1);
+        blas::copy(j, &A_dat[i], 1, &U_dat[k], 1);
     }
 }
 
@@ -134,7 +132,6 @@ void col_swap(
     std::vector<T>& A, 
     std::vector<int64_t> idx 
 ) {
-    using namespace blas;
 
     if(k > n) {
         // Throw error
@@ -146,7 +143,7 @@ void col_swap(
     int64_t i, j, l;
     for (i = 0, j = 0; i < k; ++i) {
         j = idx_dat[i] - 1;
-        swap<T, T>(m, &A_dat[i * m], 1, &A_dat[j * m], 1);
+        blas::swap(m, &A_dat[i * m], 1, &A_dat[j * m], 1);
 
         // swap idx array elements
         // Find idx element with value i and assign it to j
@@ -181,7 +178,6 @@ T* row_resize(
     std::vector<T>& A,
     int64_t k
 ) {
-    using namespace blas;
 
     T* A_dat = A.data();
 
@@ -190,7 +186,7 @@ T* row_resize(
         uint64_t end = k;
         for (int i = 1; i < n; ++i) {
             // Place ith column (of k entries) after the (i - 1)st column
-            copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
+            blas::copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
             end += k;
         }
     } else { //SIZING UP
@@ -200,7 +196,7 @@ T* row_resize(
         int64_t end = k * (n - 1);
         for(int i = n - 1; i > 0; --i) {
             // Copy in reverse order to avoid overwriting
-            copy(m, &A_dat[m * i], -1, &A_dat[end], -1);
+            blas::copy(m, &A_dat[m * i], -1, &A_dat[end], -1);
             std::fill(&A_dat[m * i], &A_dat[end], 0.0);
             end -= k;
         }
@@ -218,7 +214,6 @@ void gen_mat_type(
     int32_t seed,
     const std::tuple<int, T, bool>& type
 ) {  
-    using namespace blas;
     T* A_dat = A.data();
     auto state = RandBLAS::base::RNGState(seed, 0);
 
@@ -244,7 +239,7 @@ void gen_mat_type(
                 RandBLAS::dense::fill_buff(A_dat, D, state);
                 if (2 * k <= n)
                 {
-                    copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
+                    blas::copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
                 }
             }
             break;
@@ -301,7 +296,6 @@ void gen_poly_mat(
     bool diagon,
     int32_t seed
 ) {
-    using namespace lapack;
 
     // Predeclare to all nonzero constants, start decay where needed 
     std::vector<T> s(k, 1.0);
@@ -332,7 +326,7 @@ void gen_poly_mat(
             n = k;
             A.resize(k * k);
         }
-        lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
     } else {
         gen_mat(m, n, A, k, S, seed);
     }
@@ -348,7 +342,6 @@ void gen_exp_mat(
     bool diagon,
     int32_t seed
 ) {
-    using namespace lapack;
 
     std::vector<T> s(k, 1.0);
     std::vector<T> S(k * k, 0.0);
@@ -376,7 +369,7 @@ void gen_exp_mat(
                 n = k;
                 A.resize(k * k);
         }
-        lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
     } else {
         gen_mat(m, n, A, k, S, seed);
     }
@@ -394,8 +387,6 @@ void gen_mat(
     std::vector<T>& S,
     int32_t seed
 ) {   
-    using namespace blas;
-    using namespace lapack;
 
     std::vector<T> U(m * k, 0.0);
     std::vector<T> V(n * k, 0.0);
@@ -414,15 +405,15 @@ void gen_mat(
     state = RandBLAS::dense::fill_buff(U_dat, DU, state);
     state = RandBLAS::dense::fill_buff(V_dat, DV, state);
 
-    geqrf(m, k, U_dat, m, tau_dat);
-    ungqr(m, k, k, U_dat, m, tau_dat);
+    lapack::geqrf(m, k, U_dat, m, tau_dat);
+    lapack::ungqr(m, k, k, U_dat, m, tau_dat);
 
-    geqrf(n, k, V_dat, n, tau_dat);
-    ungqr(n, k, k, V_dat, n, tau_dat);
+    lapack::geqrf(n, k, V_dat, n, tau_dat);
+    lapack::ungqr(n, k, k, V_dat, n, tau_dat);
 
-    copy(m * k, U_dat, 1, Gemm_buf_dat, 1);
+    blas::copy(m * k, U_dat, 1, Gemm_buf_dat, 1);
     for(int i = 0; i < k; ++i) {
-        scal(m, S[i + k * i], &Gemm_buf_dat[i * m], 1);
+        blas::scal(m, S[i + k * i], &Gemm_buf_dat[i * m], 1);
     }
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
@@ -437,7 +428,6 @@ T cond_num_check(
     std::vector<T>& s,
     bool verbosity
 ) {
-    using namespace lapack;
 
     // Copy to avoid any changes
     T* A_cpy_dat = upsize(m * n, A_cpy);
@@ -446,11 +436,11 @@ T cond_num_check(
     // Packed storage check
     if (A.size() < A_cpy.size()) {
         // Convert to normal format
-        tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
+        lapack::tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
     } else {
-        lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
+        lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
     }
-    gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
+    lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
     T cond_num = s_dat[0] / s_dat[n - 1];
 
     if (verbosity)
@@ -469,16 +459,15 @@ bool orthogonality_check(
     std::vector<T>& A_gram,
     bool verbosity
 ) {
-    using namespace lapack;
 
     const T* A_dat = A.data();
     T* A_gram_dat = A_gram.data();
 
-    gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, 0.0, A_gram_dat, n);
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, 0.0, A_gram_dat, n);
     for (int oi = 0; oi < k; ++oi) {
         A_gram_dat[oi * n + oi] -= 1.0;
     }
-    T orth_err = lange(Norm::Fro, n, n, A_gram_dat, k);
+    T orth_err = lapack::lange(Norm::Fro, n, n, A_gram_dat, k);
 
     if(verbosity) {
         printf("Q ERROR:   %e\n\n", orth_err);

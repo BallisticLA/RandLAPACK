@@ -1,10 +1,10 @@
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
+#include "RandBLAS.hh"
+#include "RandLAPACK.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
 
 #include <fstream>
+#include <gtest/gtest.h>
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
@@ -30,8 +30,6 @@ class TestRSVD : public ::testing::Test
     static void test_RSVD1_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
-        using namespace blas;
-        using namespace lapack;
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
@@ -74,7 +72,7 @@ class TestRSVD : public ::testing::Test
         T* VT_dat = VT.data();
 
         // Create a copy of the original matrix
-        copy(size, A_dat, 1, A_cpy_dat, 1);
+        blas::copy(size, A_dat, 1, A_cpy_dat, 1);
 
         //Subroutine parameters 
         bool verbosity = false;
@@ -116,7 +114,7 @@ class TestRSVD : public ::testing::Test
         // A_hat_buf * VT1 =  A_hat
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_hat_buf_dat, m, VT1_dat, k, 0.0, A_hat_dat, m);
 
-        //T norm_test_4 = lange(Norm::Fro, m, n, A_cpy_dat, m);
+        //T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_cpy_dat, m);
         //printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
 
 
@@ -126,7 +124,7 @@ class TestRSVD : public ::testing::Test
         std::vector<T> z_buf(n, 0.0);
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
-        copy(n - k, z_buf_dat, 1, s_dat + k, 1);
+        blas::copy(n - k, z_buf_dat, 1, s_dat + k, 1);
         diag(n, n, s, n, S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
@@ -134,7 +132,7 @@ class TestRSVD : public ::testing::Test
         // A_k * VT -  A_hat == 0
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
 
-        T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
+        T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
         printf("|===================================TEST QB2 GENERAL END===================================|\n");

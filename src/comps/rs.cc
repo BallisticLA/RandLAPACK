@@ -1,9 +1,11 @@
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
+
 #include <cstdint>
 #include <vector>
-
 #include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
 
 using namespace RandLAPACK::comps::util;
 
@@ -68,8 +70,6 @@ int RS<T>::rs1(
     int64_t k,
     std::vector<T>& Omega 
 ){
-    using namespace blas;
-    using namespace lapack;
 
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;

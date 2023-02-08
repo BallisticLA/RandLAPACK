@@ -1,10 +1,10 @@
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
 
 #include <fstream>
+#include <gtest/gtest.h>
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
@@ -27,9 +27,6 @@ class TestCholQRCP : public ::testing::Test
     static void test_CholQRCP_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|================================TEST CholQRCP GENERAL BEGIN===============================|\n");
-
-        using namespace blas;
-        using namespace lapack;
 
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
@@ -60,7 +57,7 @@ class TestCholQRCP : public ::testing::Test
         // AP - QR
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
 
-        T norm_test = lange(Norm::Fro, m, n, A_hat_dat, m);
+        T norm_test = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF AP - QR:  %e\n", norm_test);
         
         printf("|=================================TEST CholQRCP GENERAL END================================|\n");

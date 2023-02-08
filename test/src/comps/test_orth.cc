@@ -1,17 +1,14 @@
-/*
-TODO #1: Switch tuples to vectors.
-*/
+#include "RandBLAS.hh"
+#include "RandLAPACK.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
 
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
-#include <lapack.hh>
 #include <math.h>
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <gtest/gtest.h>
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
@@ -33,8 +30,6 @@ class TestOrth : public ::testing::Test
     template <typename T>
     static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, uint32_t seed) {
     
-        using namespace blas;
-
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
         std::vector<T> Y(m * k, 0.0);

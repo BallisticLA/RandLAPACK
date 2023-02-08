@@ -1,7 +1,8 @@
-#include <RandLAPACK/comps/determiter.hh>
+#include "RandLAPACK/comps/determiter.hh"
+#include "blaspp.h"
+
 #include <iostream>
 #include <vector>
-
 
 namespace RandLAPACK::comps::determiter {
 
@@ -26,9 +27,6 @@ void pcg(
     T* y // length m
     )
 {
-	
-    using namespace blas;
-
     std::vector<T> out_a1(m, 0.0);
     std::vector<T> out_at1(n, 0.0);
     std::vector<T> out_m1(n, 0.0);
@@ -37,7 +35,7 @@ void pcg(
     std::vector<T> b1(n);
 
     //  b1 = A'b - c
-    copy(n, c, 1, b1.data(), 1);
+    blas::copy(n, c, 1, b1.data(), 1);
     blas::gemv(Layout::ColMajor, Op::Trans, m, n, 1.0, A, lda, b, 1, -1.0, b1.data(), 1);
 
     // r = b1 - (A'(A x0) + delta x0)

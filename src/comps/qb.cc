@@ -1,6 +1,7 @@
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
 
 #include <math.h>
 #include <cstdint>
@@ -82,15 +83,13 @@ int QB<T>::QB2(
     std::vector<T>& Q,
     std::vector<T>& B
 ){
-    using namespace blas;
-    using namespace lapack;
 
     int64_t curr_sz = 0;
     int64_t next_sz = 0;
 
     T* A_dat = A.data();
     // pre-compute nrom
-    T norm_A = lange(Norm::Fro, m, n, A_dat, m);
+    T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
     // Immediate termination criteria
     if(norm_A == 0.0) {
         // Zero matrix termination
@@ -113,7 +112,7 @@ int QB<T>::QB2(
     // Copy the initial data to avoid unwanted modification TODO #1
     std::vector<T> A_cpy (m * n, 0.0);
     T* A_cpy_dat = A_cpy.data();
-    lacpy(MatrixType::General, m, n, A_dat, m, A_cpy_dat, m);
+    lapack::lacpy(MatrixType::General, m, n, A_dat, m, A_cpy_dat, m);
 
     T norm_B = 0.0;
     T prev_err = 0.0;
@@ -171,7 +170,7 @@ int QB<T>::QB2(
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
 
         // Updating B norm estimation
-        T norm_B_i = lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
+        T norm_B_i = lapack::lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
         norm_B = hypot(norm_B, norm_B_i);
         // Updating approximation error
         prev_err = approx_err;
@@ -187,8 +186,8 @@ int QB<T>::QB2(
         } 
 
         // Update the matrices Q and B
-        lacpy(MatrixType::General, m, block_sz, &Q_i_dat[0], m, &Q_dat[m * curr_sz], m);	
-        lacpy(MatrixType::General, block_sz, n, &B_i_dat[0], block_sz, &B_dat[curr_sz], this->curr_lim);
+        lapack::lacpy(MatrixType::General, m, block_sz, &Q_i_dat[0], m, &Q_dat[m * curr_sz], m);	
+        lapack::lacpy(MatrixType::General, block_sz, n, &B_i_dat[0], block_sz, &B_dat[curr_sz], this->curr_lim);
         
         if(this->orth_check) {
             if (orthogonality_check(m, this->curr_lim, next_sz, Q, Q_gram, this->verbosity)) {

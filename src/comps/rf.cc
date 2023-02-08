@@ -1,9 +1,10 @@
+#include "RandLAPACK.hh"
+#include "RandBLAS.hh"
+#include "blaspp.h"
+#include "lapackpp.h"
+
 #include <cstdint>
 #include <vector>
-
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
 
 using namespace RandLAPACK::comps::util;
 
@@ -54,8 +55,6 @@ int RF<T>::rf1(
     int64_t k,
     std::vector<T>& Q
 ){
-    using namespace blas;
-    using namespace lapack;
 
     T* Omega_dat = upsize(n * k, this->Omega);
     T* Q_dat = Q.data();
