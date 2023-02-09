@@ -1,6 +1,7 @@
 #include "RandLAPACK.hh"
-#include "RandBLAS.hh"
-#include "blaspp.h"
+#include "blaspp.hh"
+
+#include <RandBLAS.hh>
 
 #include <math.h>
 #include <chrono>

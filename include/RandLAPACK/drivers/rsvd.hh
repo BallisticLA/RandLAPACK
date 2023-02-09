@@ -1,8 +1,7 @@
 #ifndef randlapack_drivers_rsvd_h
 #define randlapack_drivers_rsvd_h
 
-#include "../comps/qb.hh"
-#include "blaspp.h"
+#include "comps/qb.hh"
 
 namespace RandLAPACK::drivers::rsvd {
 

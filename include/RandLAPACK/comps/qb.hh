@@ -1,9 +1,12 @@
 #ifndef randlapack_comps_qb_h
 #define randlapack_comps_qb_h
 
-#include "blaspp.h"
 #include "orth.hh"
 #include "rf.hh"
+
+#include <vector>
+#include <cstdint>
+#include <cstdio>
 
 namespace RandLAPACK::comps::qb {
 

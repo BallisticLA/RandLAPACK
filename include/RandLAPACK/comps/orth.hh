@@ -1,7 +1,8 @@
 #ifndef randlapack_comps_orth_h
 #define randlapack_comps_orth_h
 
-#include "blaspp.h"
+#include <vector>
+#include <cstdint>
 
 namespace RandLAPACK::comps::orth {
 

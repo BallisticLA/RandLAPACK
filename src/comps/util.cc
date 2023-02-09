@@ -1,8 +1,8 @@
 #include "RandLAPACK/comps/util.hh"
-#include "RandBLAS.hh"
-#include "blaspp.h"
-#include "lapackpp.h"
+#include "blaspp.hh"
+#include "lapackpp.hh"
 
+#include <RandBLAS.hh>
 #include <iostream>
 #include <cmath>
 #include <algorithm>

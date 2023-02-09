@@ -1,12 +1,10 @@
-#include "RandLAPACK/comps/determiter.hh"
-#include "blaspp.h"
+#include "comps/determiter.hh"
+#include "blaspp.hh"
 
 #include <iostream>
 #include <vector>
 
 namespace RandLAPACK::comps::determiter {
-
-
 
 template <typename T>
 void pcg(

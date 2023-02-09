@@ -1,8 +1,8 @@
-#include "RandBLAS.hh"
 #include "RandLAPACK.hh"
-#include "blaspp.h"
-#include "lapackpp.h"
+#include "blaspp.hh"
+#include "lapackpp.hh"
 
+#include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
 

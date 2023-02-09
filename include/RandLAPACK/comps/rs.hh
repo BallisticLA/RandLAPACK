@@ -1,8 +1,11 @@
 #ifndef randlapack_comps_rs_h
 #define randlapack_comps_rs_h
 
-#include "blaspp.h"
 #include "orth.hh"
+
+#include <vector>
+#include <cstdint>
+#include <cstdio>
 
 namespace RandLAPACK::comps::rs {
 

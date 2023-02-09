@@ -1,8 +1,9 @@
-#include "RandLAPACK.hh"
-#include "RandBLAS.hh"
-#include "blaspp.h"
-#include "lapackpp.h"
+#include "comps/util.hh"
+#include "comps/qb.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
 
+#include <RandBLAS.hh>
 #include <math.h>
 #include <cstdint>
 #include <limits>

@@ -1,7 +1,8 @@
 #ifndef randlapack_comps_util_h
 #define randlapack_comps_util_h
 
-#include "blaspp.h"
+#include <vector>
+#include <cstdint>
 
 namespace RandLAPACK::comps::util {
 

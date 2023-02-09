@@ -3,7 +3,8 @@
 
 #include "rs.hh"
 #include "orth.hh"
-#include "blaspp.h"
+
+#include <vector>
 
 namespace RandLAPACK::comps::rf {
 
