@@ -103,35 +103,6 @@ test_speed_helper(int64_t m,
     CholQRCP_basic.nnz = nnz;
     CholQRCP_basic.num_threads = num_threads;
 
-    //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
-    
-    // Pre-allocation for CholQRCP
-    auto start_alloc1 = high_resolution_clock::now();
-    if(log_times) {
-        (CholQRCP_basic.times).resize(10);
-    }
-    upsize(d * n, (CholQRCP_basic.A_hat));
-    upsize(n, (CholQRCP_basic.A_hat));
-    J_1.resize(n);
-    upsize(n * n, (CholQRCP_basic.R_sp));
-    upsize(n * n, R_1);
-    auto stop_alloc1 = high_resolution_clock::now();
-    long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
-    
-    // CholQRCP
-    auto start_cholqrcp = high_resolution_clock::now();
-    CholQRCP_basic.call(m, n, A_1, d, R_1, J_1);
-    auto stop_cholqrcp = high_resolution_clock::now();
-    long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
-
-    // Apply Q_1
-    auto start_appl1 = high_resolution_clock::now();
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_1.data(), b_dim);
-    auto stop_appl1 = high_resolution_clock::now();
-    long dur_appl1 = duration_cast<microseconds>(stop_appl1 - start_appl1).count();
-
-    //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
-    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
     // CholQRCP constructor
     CholQRCP<T> CholQRCP_HQRRP(false, log_times, seed, tol);
     
@@ -161,11 +132,42 @@ test_speed_helper(int64_t m,
     long dur_cholqrcp_hqrrp = duration_cast<microseconds>(stop_cholqrcp_hqrrp - start_cholqrcp_hqrrp).count();
 
     // Apply Q_1
-    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl2 = high_resolution_clock::now();
     gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_2.data(), b_dim);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
+
+
+
+    //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
+    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    // Pre-allocation for CholQRCP
+    auto start_alloc1 = high_resolution_clock::now();
+    if(log_times) {
+        (CholQRCP_basic.times).resize(10);
+    }
+    upsize(d * n, (CholQRCP_basic.A_hat));
+    upsize(n, (CholQRCP_basic.A_hat));
+    J_1.resize(n);
+    upsize(n * n, (CholQRCP_basic.R_sp));
+    upsize(n * n, R_1);
+    auto stop_alloc1 = high_resolution_clock::now();
+    long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
+    
+    // CholQRCP
+    auto start_cholqrcp = high_resolution_clock::now();
+    CholQRCP_basic.call(m, n, A_1, d, R_1, J_1);
+    auto stop_cholqrcp = high_resolution_clock::now();
+    long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
+
+    // Apply Q_1
+    auto start_appl1 = high_resolution_clock::now();
+    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_1.data(), b_dim);
+    auto stop_appl1 = high_resolution_clock::now();
+    long dur_appl1 = duration_cast<microseconds>(stop_appl1 - start_appl1).count();
+
+    //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
 
     std::vector<long> res{dur_alloc1, dur_cholqrcp,       dur_appl1, 
                           dur_alloc2, dur_cholqrcp_hqrrp, dur_appl2}; 
