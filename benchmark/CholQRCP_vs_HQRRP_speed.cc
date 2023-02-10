@@ -60,9 +60,6 @@ log_info(int64_t rows,
          << cholqrcp_hqrrp_time << "  "  
          << chol_full_time      << "  " 
          << cholqrcp_hqrrp_full_time << "\n";
-
-
-    printf("Done with size %ld by %ld\n", rows, cols);
 }
 
 template <typename T>
@@ -354,6 +351,8 @@ test_speed(int r_pow,
                      cholqrcp_mean       + alloc1_mean + appl1_mean, 
                      cholqrcp_hqrrp_mean + alloc2_mean + appl2_mean, 
                      "Mean", runs);
+
+            printf("Done with size %ld by %ld\n", rows, cols);
         }
     }
     printf("\n/-----------------------------------------SPEED TEST STOP-----------------------------------------/\n\n");
@@ -362,9 +361,9 @@ test_speed(int r_pow,
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
 
-    for(int num_omp_threads = 8; num_omp_threads <= 8; ++num_omp_threads)
+    for(int num_omp_threads = 4; num_omp_threads <= 4; ++num_omp_threads)
     {
-        test_speed<double>(17, 17, 512, 8192, 5, 256, num_omp_threads, 1, 8, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+        test_speed<double>(17, 17, 512, 8192, 5, 256, num_omp_threads, 1, 4, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
     }
     return 0;
 }
