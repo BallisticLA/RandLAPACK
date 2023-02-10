@@ -7,14 +7,15 @@
 /// function interface for universal access of an algroith mype.
 
 // Computational routines
-#include <RandLAPACK/comps/determiter.hh>
-#include <RandLAPACK/comps/qb.hh>
-#include <RandLAPACK/comps/rf.hh>
-#include <RandLAPACK/comps/rs.hh>
-#include <RandLAPACK/comps/util.hh>
-#include <RandLAPACK/comps/orth.hh>
+#include "RandLAPACK/comps/determiter.hh"
+#include "RandLAPACK/comps/qb.hh"
+#include "RandLAPACK/comps/rf.hh"
+#include "RandLAPACK/comps/rs.hh"
+#include "RandLAPACK/comps/util.hh"
+#include "RandLAPACK/comps/orth.hh"
 
 // Drivers
-#include <RandLAPACK/drivers/rsvd.hh>
-#include <RandLAPACK/drivers/cholqrcp.hh>
+#include "RandLAPACK/drivers/rsvd.hh"
+#include "RandLAPACK/drivers/cholqrcp.hh"
+
 #endif

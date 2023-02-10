@@ -1,3 +1,11 @@
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+
+#include <RandBLAS.hh>
+
+#include <math.h>
+#include <chrono>
+#include <gtest/gtest.h>
 /*
 TODO #1: Resizing tests.
 
@@ -5,14 +13,6 @@ TODO #2: Diagonalization tests.
 
 TODO #4: L & pivotig tests.
 */
-
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
-#include <math.h>
-
-#include <chrono>
 using namespace std::chrono;
 
 #define RELDTOL 1e-10;

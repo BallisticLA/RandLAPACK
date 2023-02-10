@@ -1,14 +1,9 @@
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#ifndef randlapack_drivers_rsvd_h
+#define randlapack_drivers_rsvd_h
 
-#include "../comps/qb.hh"
+#include "comps/qb.hh"
 
 namespace RandLAPACK::drivers::rsvd {
-
-#ifndef RSVD_CLASS
-#define RSVD_CLASS
 
 template <typename T>
 class RSVDalg {
@@ -84,5 +79,6 @@ class RSVD : public RSVDalg<T> {
         return termination;
     }
 };
-#endif
+
 } // end namespace RandLAPACK::comps::rsvd
+#endif

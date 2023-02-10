@@ -1,9 +1,11 @@
+#include "comps/orth.hh"
+#include "comps/util.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
+
+#include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
-
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
 
 using namespace RandLAPACK::comps::util;
 
@@ -36,17 +38,15 @@ int CholQRQ<T>::cholqrq(
     int64_t k,
     std::vector<T>& Q
 ){
-    using namespace blas;
-    using namespace lapack;
         
-    T* Q_gram_dat = upsize<T>(k * k, this->Q_gram);
+    T* Q_gram_dat = upsize(k * k, this->Q_gram);
     T* Q_dat = Q.data();
 
     // Find normal equation Q'Q - Just the upper triangular portion        
-    syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat, k);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat, k);
 
     // Positive definite cholesky factorization
-    if (potrf(Uplo::Upper, k, Q_gram_dat, k)) {
+    if (lapack::potrf(Uplo::Upper, k, Q_gram_dat, k)) {
         if(this->verbosity) {
             printf("CHOLESKY QR FAILED\n");
         }
@@ -56,12 +56,12 @@ int CholQRQ<T>::cholqrq(
 
     // Scheme may succeed, but output garbage
     if(this->cond_check) {
-        if(cond_num_check<T>(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
+        if(cond_num_check(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
         //        return 1;
         }
     }
 
-    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q_dat, m);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q_dat, m);
     return 0;
 }
 
@@ -96,7 +96,6 @@ int PLUL<T>::plul(
     std::vector<T>& A,
     std::vector<int64_t>& ipiv
 ){
-    using namespace lapack;
 
     // Not using utility bc vector of int
     if(ipiv.size() < (uint64_t)n)
@@ -105,11 +104,11 @@ int PLUL<T>::plul(
     T* A_dat = A.data();
     int64_t* ipiv_dat = ipiv.data(); 
 
-    if(getrf(m, n, A_dat, m, ipiv_dat))
+    if(lapack::getrf(m, n, A_dat, m, ipiv_dat))
         return 1; // failure condition
 
-    get_L<T>(m, n, A);
-    laswp(n, A_dat, m, 1, n, ipiv_dat, 1);
+    get_L(m, n, A);
+    lapack::laswp(n, A_dat, m, 1, n, ipiv_dat, 1);
 
     return 0;
 }
@@ -147,16 +146,15 @@ int HQRQ<T>::hqrq(
     // Done via regular LAPACK's QR
     // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
     // tau needs to be a vector of all 2's by default
-    using namespace lapack;
 
-    upsize<T>(n, tau);
+    upsize(n, tau);
 
     T* A_dat = A.data();
     T* tau_dat = tau.data();
-    if(geqrf(m, n, A_dat, m, tau_dat))
+    if(lapack::geqrf(m, n, A_dat, m, tau_dat))
         return 1; // Failure condition
 
-    ungqr(m, n, n, A_dat, m, tau_dat);
+    lapack::ungqr(m, n, n, A_dat, m, tau_dat);
     return 0;
 }
 

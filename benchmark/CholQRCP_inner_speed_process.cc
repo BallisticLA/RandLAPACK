@@ -1,9 +1,10 @@
-#include<stdio.h>
-#include<string.h>
-#include <blas.hh>
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
+
 #include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <numeric>
 #include <iostream>

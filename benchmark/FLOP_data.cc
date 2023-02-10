@@ -1,16 +1,10 @@
-/*
-Note: this benchmark attempts to save files into a specific location.
-If the required folder structure does not exist, the files will not be saved.
-*/
-/*
-Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
-*/
-#include<stdio.h>
-#include<string.h>
-#include <blas.hh>
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
+
 #include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <numeric>
 #include <iostream>
@@ -19,6 +13,13 @@ Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 #include <thread>
 #include <fstream>
 #include <iterator>
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
+Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
+*/
 
 using namespace std::chrono;
 

@@ -1,14 +1,15 @@
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
+
+#include <RandBLAS.hh>
+#include <fstream>
+#include <gtest/gtest.h>
+
 /*
 Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
-
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
-#include <fstream>
 
 using namespace RandLAPACK::comps::util;
 using namespace RandLAPACK::comps::orth;
@@ -22,12 +23,10 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 template <typename T>
 static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed) {
 
-    using namespace blas;
-    using namespace lapack;
     
     // For running QB
     std::vector<T> A(m * n, 0.0);
-    gen_mat_type<T>(m, n, A, k, seed, mat_type);
+    gen_mat_type(m, n, A, k, seed, mat_type);
 
     int64_t size = m * n;
     // Adjust the expected rank
@@ -111,7 +110,7 @@ template <typename T>
 static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon)
 {
     printf("|==================================TEST QB2 K PLOT BEGIN==================================|\n");
-    using namespace blas; 
+
     int32_t seed = 0;
     // Number of repeated runs of the same test
     int runs = 5;
@@ -159,10 +158,10 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
                     // Grab the vetcor of condition numbers
                     vector_pair cond_nums = test_QB2_plot_helper_run<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), ++seed);
                     // Fill RF
-                    copy<T, T>(v_RF_sz, cond_nums.first.data(), 1, all_vecs_RF_dat + (v_RF_sz * i), 1);
+                    blas::copy(v_RF_sz, cond_nums.first.data(), 1, all_vecs_RF_dat + (v_RF_sz * i), 1);
                     // Fill RS
                     if(v_RS_sz > 0) {
-                        copy<T, T>(v_RS_sz, cond_nums.second.data(), 1, all_vecs_RS_dat + (v_RS_sz * i), 1);
+                        blas::copy(v_RS_sz, cond_nums.second.data(), 1, all_vecs_RS_dat + (v_RS_sz * i), 1);
                     }
                 }
                 

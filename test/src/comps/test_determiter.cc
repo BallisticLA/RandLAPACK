@@ -1,8 +1,9 @@
-#include <blas.hh>
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+
 #include <RandBLAS.hh>
-#include <RandLAPACK.hh>
-#include <gtest/gtest.h>
 #include <math.h>
+#include <gtest/gtest.h>
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;

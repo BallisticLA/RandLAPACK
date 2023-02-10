@@ -1,7 +1,8 @@
-#ifndef BLAS_HH
-#include <blas.hh>
-#define BLAS_HH
-#endif
+#ifndef randlapack_comps_util_h
+#define randlapack_comps_util_h
+
+#include <vector>
+#include <cstdint>
 
 namespace RandLAPACK::comps::util {
 
@@ -167,3 +168,4 @@ bool orthogonality_check(
 );
 
 } // end namespace RandLAPACK::comps::rs
+#endif

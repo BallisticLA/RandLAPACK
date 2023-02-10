@@ -1,12 +1,12 @@
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include <RandBLAS.hh>
+
+#include <math.h>
+#include <chrono>
 /*
 Auxillary benchmark routine, computes flops using GEMM for a given system
 */
-
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
-#include <math.h>
-#include <chrono>
 
 using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
@@ -26,7 +26,7 @@ test_flops(int64_t k, uint32_t seed) {
     T GFLOPS_sum = 0;
 
     for (int i = 0; i < runs; ++i) {
-        using namespace blas;
+
         std::vector<T> A(size, 0.0);
         std::vector<T> B(size, 0.0);
         std::vector<T> C(size, 0.0);
@@ -35,8 +35,8 @@ test_flops(int64_t k, uint32_t seed) {
         T* B_dat = B.data();
         T* C_dat = C.data();
 
-        gen_mat_type<T>(k, k, A, k, ++seed, std::tuple(6, 0, false));
-        gen_mat_type<T>(k, k, B, k, ++seed, std::tuple(6, 0, false));
+        gen_mat_type(k, k, A, k, ++seed, std::tuple(6, 0, false));
+        gen_mat_type(k, k, B, k, ++seed, std::tuple(6, 0, false));
 
         // Get the timing
         auto start = high_resolution_clock::now();

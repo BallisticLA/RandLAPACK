@@ -1,3 +1,15 @@
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
+
+#include <RandBLAS.hh>
+#include <math.h>
+#include <numeric>
+#include <iostream>
+#include <fstream>
+#include <chrono>
+#include <thread>
+#include <fstream>
 /*
 Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
@@ -6,17 +18,6 @@ If the required folder structure does not exist, the files will not be saved.
 TODO #1: Switch tuples to vectors.
 */
 
-#include <blas.hh>
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
-#include <math.h>
-#include <numeric>
-#include <iostream>
-#include <fstream>
-#include <chrono>
-#include <thread>
-#include <fstream>
 
 using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
@@ -87,7 +88,6 @@ int GEQR<T>::geqrq(
     std::vector<T>& A,
     std::vector<T>& tvec
 ){
-    using namespace lapack;
 
     tvec.resize(5);
 
@@ -112,9 +112,6 @@ template <typename T>
 static std::tuple<long, long, long, long> 
 test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
-    using namespace blas;
-    using namespace lapack;
-
     int64_t size = m * n;
     std::vector<T> A(size, 0.0);
     std::vector<T> A_cpy(size, 0.0);
@@ -127,7 +124,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     T* A_cpy_3_dat = A_cpy_3.data();
 
     // Random Gaussian test matrix
-    gen_mat_type<T>(m, n, A, n, seed, std::tuple(6, 0, false));
+    gen_mat_type(m, n, A, n, seed, std::tuple(6, 0, false));
     // Make a copy
     std::copy(A_dat, A_dat + size, A_cpy_dat);
     std::copy(A_dat, A_dat + size, A_cpy_2_dat);

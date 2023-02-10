@@ -1,17 +1,15 @@
-/*
-TODO #1: Switch tuples to vectors.
-*/
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
 
-#include <gtest/gtest.h>
-#include <blas.hh>
 #include <RandBLAS.hh>
-#include <RandLAPACK.hh>
-#include <lapack.hh>
+
 #include <math.h>
 #include <numeric>
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <gtest/gtest.h>
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
@@ -33,8 +31,6 @@ class TestOrth : public ::testing::Test
     template <typename T>
     static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, uint32_t seed) {
     
-        using namespace blas;
-
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
         std::vector<T> Y(m * k, 0.0);
@@ -46,16 +42,16 @@ class TestOrth : public ::testing::Test
         T* Omega_dat = Omega.data();
         T* I_ref_dat = I_ref.data();
         
-        gen_mat_type<T>(m, n, A, k, seed, mat_type);
+        gen_mat_type(m, n, A, k, seed, mat_type);
         
         // Fill the gaussian random matrix
         RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
         auto state = RandBLAS::base::RNGState(seed, 0);
-        state = RandBLAS::dense::fill_buff<T>(Omega_dat, D, state);
+        state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
         // Generate a reference identity
-        eye<T>(k, k, I_ref);  
+        eye(k, k, I_ref);  
         // Y = A * Omega
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         // Orthogonalization Constructor
         CholQRQ<T> CholQRQ(false, false);
 
@@ -67,7 +63,7 @@ class TestOrth : public ::testing::Test
         // Call the scheme twice for better orthogonality
         CholQRQ.call(m, k, Y);
         // Q' * Q  - I = 0
-        gemm<T>(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
 
         T norm_fro = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);	
         printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);

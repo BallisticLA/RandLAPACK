@@ -1,10 +1,10 @@
-#include <gtest/gtest.h>
-#include <blas.hh>
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
 
+#include <RandBLAS.hh>
 #include <fstream>
+#include <gtest/gtest.h>
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
@@ -30,12 +30,10 @@ class TestRSVD : public ::testing::Test
     static void test_RSVD1_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
         
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
-        using namespace blas;
-        using namespace lapack;
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        gen_mat_type<T>(m, n, A, k, seed, mat_type);
+        gen_mat_type(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
 
@@ -74,7 +72,7 @@ class TestRSVD : public ::testing::Test
         T* VT_dat = VT.data();
 
         // Create a copy of the original matrix
-        copy(size, A_dat, 1, A_cpy_dat, 1);
+        blas::copy(size, A_dat, 1, A_cpy_dat, 1);
 
         //Subroutine parameters 
         bool verbosity = false;
@@ -110,31 +108,31 @@ class TestRSVD : public ::testing::Test
         // Construnct A_hat = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
-        diag<T>(k, k, s1, k, S1);
+        diag(k, k, s1, k, S1);
         // U1 * S1 = A_hat_buf
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_hat_buf_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_hat_buf_dat, m);
         // A_hat_buf * VT1 =  A_hat
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_hat_buf_dat, m, VT1_dat, k, 0.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_hat_buf_dat, m, VT1_dat, k, 0.0, A_hat_dat, m);
 
-        //T norm_test_4 = lange(Norm::Fro, m, n, A_cpy_dat, m);
+        //T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_cpy_dat, m);
         //printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
 
 
         // Reconstruct  a standard low-rank SVD
-        gesdd(Job::SomeVec, m, n, A_cpy_dat, m, s_dat, U_dat, m, VT_dat, n);
+        lapack::gesdd(Job::SomeVec, m, n, A_cpy_dat, m, s_dat, U_dat, m, VT_dat, n);
         // buffer zero vector
         std::vector<T> z_buf(n, 0.0);
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
-        copy(n - k, z_buf_dat, 1, s_dat + k, 1);
-        diag<T>(n, n, s, n, S);
+        blas::copy(n - k, z_buf_dat, 1, s_dat + k, 1);
+        diag(n, n, s, n, S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
         // A_k * VT -  A_hat == 0
-        gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
 
-        T norm_test_4 = lange(Norm::Fro, m, n, A_hat_dat, m);
+        T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
         printf("|===================================TEST QB2 GENERAL END===================================|\n");

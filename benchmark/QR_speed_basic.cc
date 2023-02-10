@@ -1,15 +1,9 @@
-/*
-Note: this benchmark attempts to save files into a specific location.
-If the required folder structure does not exist, the files will not be saved.
-*/
-/*
-TODO #1: Switch tuples to vectors.
-*/
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
 
-#include <blas.hh>
 #include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+
 #include <math.h>
 #include <numeric>
 #include <iostream>
@@ -17,6 +11,13 @@ TODO #1: Switch tuples to vectors.
 #include <chrono>
 #include <thread>
 #include <fstream>
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*
+TODO #1: Switch tuples to vectors.
+*/
 
 using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
@@ -28,9 +29,6 @@ test_speed_helper(int64_t m,
                   int64_t k, 
                   const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
-    
-    using namespace blas;
-    using namespace lapack;
 
     int64_t size = m * n;
     std::vector<T> A_1(size, 0.0);
@@ -47,7 +45,7 @@ test_speed_helper(int64_t m,
     std::vector<T> tau_4(n, 0);
 
     // Generate random matrix
-    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    gen_mat_type(m, n, A_1, k, seed, mat_type);
 
 
     // Make copies
@@ -59,9 +57,9 @@ test_speed_helper(int64_t m,
     
     // CholQR
     auto start_cholqr = high_resolution_clock::now();
-    syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, R_1_sp.data(), n);
-    potrf(Uplo::Upper, n, R_1_sp.data(), n);
-    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_1_sp.data(), n, A_1.data(), m);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, R_1_sp.data(), n);
+    lapack::potrf(Uplo::Upper, n, R_1_sp.data(), n);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_1_sp.data(), n, A_1.data(), m);
     auto stop_cholqr = high_resolution_clock::now();
     long dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
 
@@ -75,13 +73,13 @@ test_speed_helper(int64_t m,
 
     // GEQP3
     auto start_geqp3 = high_resolution_clock::now();
-    geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
+    lapack::geqp3(m, n, A_2.data(), m, J_2.data(), tau_2.data());
     auto stop_geqp3 = high_resolution_clock::now();
     long dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
-    geqrf(m, n, A_4.data(), m, tau_4.data());
+    blas::geqrf(m, n, A_4.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 

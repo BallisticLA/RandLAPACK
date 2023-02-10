@@ -1,15 +1,13 @@
-#include <cstdint>
-#include <vector>
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
 
 #include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
-
+#include <cstdint>
+#include <vector>
 #include <chrono>
 
 using namespace RandLAPACK::comps::util;
-using namespace blas;
-using namespace lapack;
 
 using namespace std::chrono;
 
@@ -130,7 +128,7 @@ int CholQRCP<T>::CholQRCP1(
     }
     
     // QRCP - add failure condition
-    geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
+    lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
 
     if(this -> timing) {
         qrcp_t_stop = high_resolution_clock::now();
@@ -164,11 +162,11 @@ int CholQRCP<T>::CholQRCP1(
     // extract k by k R
     // Copy data over to R_sp_dat col by col
     for(i = 0; i < k; ++i) {
-        copy<T, T>(i + 1, &A_hat_dat[i * d], 1, &R_sp_dat[i * k], 1);
-        copy<T, T>(i + 1, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
+        blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_sp_dat[i * k], 1);
+        blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
     }
     for(i = k; i < n; ++i) {
-        copy<T, T>(k, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
+        blas::copy(k, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
     }
     
     if(this -> timing) {
@@ -185,7 +183,7 @@ int CholQRCP<T>::CholQRCP1(
     }
 
     // A_sp_pre * R_sp = AP
-    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
         a_mod_trsm_t_stop = high_resolution_clock::now();
@@ -194,16 +192,16 @@ int CholQRCP<T>::CholQRCP1(
         cholqrcp_t_start = high_resolution_clock::now();
 
     // Do Cholesky QR
-    syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
-    potrf(Uplo::Upper, k, R_sp_dat, k);
-    trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
+    lapack::potrf(Uplo::Upper, k, R_sp_dat, k);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
         cholqrcp_t_stop = high_resolution_clock::now();
 
     // Get R
     // trmm
-    trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);	
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);	
 
     if(this -> timing) {
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();

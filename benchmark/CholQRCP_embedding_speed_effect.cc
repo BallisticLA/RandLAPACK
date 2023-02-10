@@ -1,14 +1,10 @@
-/*
-Note: this benchmark attempts to save files into a specific location.
-If the required folder structure does not exist, the files will not be saved.
-*/
-/*This is only concerned with what's INSIDE of cholqrcp*/
-#include<stdio.h>
-#include<string.h>
-#include <blas.hh>
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
+
 #include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
+#include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <numeric>
 #include <iostream>
@@ -16,6 +12,11 @@ If the required folder structure does not exist, the files will not be saved.
 #include <chrono>
 #include <thread>
 #include <fstream>
+/*
+Note: this benchmark attempts to save files into a specific location.
+If the required folder structure does not exist, the files will not be saved.
+*/
+/*This is only concerned with what's INSIDE of cholqrcp*/
 
 using namespace std::chrono;
 using namespace RandLAPACK::comps::util;
@@ -79,16 +80,13 @@ test_speed_helper(int64_t m,
                   const std::tuple<int, T, bool>& mat_type, 
                   uint32_t seed) {
 
-    using namespace blas;
-    using namespace lapack;
-
     int64_t size  = m * n;
     std::vector<T>       A_1(size, 0.0);
     std::vector<T>       R_1;
     std::vector<int64_t> J_1;
 
     // Generate random matrix
-    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 

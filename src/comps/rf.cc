@@ -1,9 +1,10 @@
+#include "RandLAPACK.hh"
+#include "blaspp.hh"
+#include "lapackpp.hh"
+
+#include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
-
-#include <lapack.hh>
-#include <RandBLAS.hh>
-#include <RandLAPACK.hh>
 
 using namespace RandLAPACK::comps::util;
 
@@ -54,21 +55,19 @@ int RF<T>::rf1(
     int64_t k,
     std::vector<T>& Q
 ){
-    using namespace blas;
-    using namespace lapack;
 
-    T* Omega_dat = upsize<T>(n * k, this->Omega);
+    T* Omega_dat = upsize(n * k, this->Omega);
     T* Q_dat = Q.data();
 
     if(this->RS_Obj.call(m, n, A, k, this->Omega))
         return 1;
 
     // Q = orth(A * Omega)
-    gemm<T>(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega_dat, n, 0.0, Q_dat, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega_dat, n, 0.0, Q_dat, m);
 
     if(this->cond_check)
         // Writes into this->cond_nums
-        this->cond_nums.push_back(cond_num_check<T>(m, k, Q, this->Q_cpy, this->s, this->verbosity));
+        this->cond_nums.push_back(cond_num_check(m, k, Q, this->Q_cpy, this->s, this->verbosity));
     
     if(this->Orth_Obj.call(m, k, Q))
         return 2; // Orthogonalization failed
