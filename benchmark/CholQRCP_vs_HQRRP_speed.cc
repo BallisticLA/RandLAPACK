@@ -31,6 +31,8 @@ log_info(int64_t rows,
            T d_multiplier,
            T k_multiplier, 
            T tol,
+           int64_t block_sz,
+           int num_omp_threads,
            int64_t nnz, 
            int64_t num_threads,
            const std::tuple<int, T, bool>& mat_type,
@@ -42,16 +44,18 @@ log_info(int64_t rows,
            int runs) {
     // Save the output into .dat file
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_" + test_type 
-                                                                                              + "_m_"            + std::to_string(rows) 
-                                                                                              + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                              + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                              + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                              + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                              + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                              + "_nnz_"          + std::to_string(nnz)
-                                                                                              + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                              + "_OMP_threads_"  + std::to_string(num_threads) 
-                                                                                              + ".dat", std::fstream::app);
+                                                                                         + "_m_"              + std::to_string(rows) 
+                                                                                         + "_d_multiplier_"   + std::to_string(d_multiplier)
+                                                                                         + "_k_multiplier_"   + std::to_string(k_multiplier)
+                                                                                         + "_log10(tol)_"     + std::to_string(long(log10(tol)))
+                                                                                         + "_hqrrp_block_sz_" + std::to_string(block_sz)
+                                                                                         + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
+                                                                                         + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                                                                         + "_nnz_"            + std::to_string(nnz)
+                                                                                         + "_runs_per_sz_"    + std::to_string(runs)
+                                                                                         + "_OMP_threads_"    + std::to_string(num_omp_threads) 
+                                                                                         + "_SASO_threads_"   + std::to_string(num_threads)
+                                                                                         + ".dat", std::fstream::app);
     file << cholqrcp_time       << "  " 
          << cholqrcp_hqrrp_time << "  "  
          << chol_full_time      << "  " 
@@ -68,6 +72,7 @@ test_speed_helper(int64_t m,
                   int64_t d, 
                   int64_t k, 
                   T tol, 
+                  int64_t block_sz,
                   int64_t nnz, 
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
@@ -109,6 +114,7 @@ test_speed_helper(int64_t m,
     CholQRCP_HQRRP.nnz = nnz;
     CholQRCP_HQRRP.num_threads = num_threads;
     CholQRCP_HQRRP.no_hqrrp = 0;
+    CholQRCP_HQRRP.nb_alg = block_sz;
 
     //-TEST POINT 2 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     
@@ -182,6 +188,8 @@ test_speed(int r_pow,
            int col, 
            int col_max, 
            int runs, 
+           int block_sz,
+           int num_omp_threads,
            int nnz, 
            int num_threads, 
            T tol, 
@@ -196,41 +204,47 @@ test_speed(int r_pow,
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
         ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_Best_m_"
-                                                                                                            + std::to_string(rows) 
-                                                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                         + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                         + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                         + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                         + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                         + "_nnz_"          + std::to_string(nnz)
-                                                                                         + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                         + "_OMP_threads_"  + std::to_string(num_threads) 
+                                                                                                              + std::to_string(rows) 
+                                                                                         + "_d_multiplier_"   + std::to_string(d_multiplier)
+                                                                                         + "_k_multiplier_"   + std::to_string(k_multiplier)
+                                                                                         + "_log10(tol)_"     + std::to_string(long(log10(tol)))
+                                                                                         + "_hqrrp_block_sz_" + std::to_string(block_sz)
+                                                                                         + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
+                                                                                         + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                                                                         + "_nnz_"            + std::to_string(nnz)
+                                                                                         + "_runs_per_sz_"    + std::to_string(runs)
+                                                                                         + "_OMP_threads_"    + std::to_string(num_omp_threads) 
+                                                                                         + "_SASO_threads_"   + std::to_string(num_threads)
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
         ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_Mean_m_"
-                                                                                                            + std::to_string(rows) 
-                                                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                         + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                         + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                         + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                         + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                         + "_nnz_"          + std::to_string(nnz)
-                                                                                         + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                         + "_OMP_threads_"  + std::to_string(num_threads) 
+                                                                                                              + std::to_string(rows) 
+                                                                                         + "_d_multiplier_"   + std::to_string(d_multiplier)
+                                                                                         + "_k_multiplier_"   + std::to_string(k_multiplier)
+                                                                                         + "_log10(tol)_"     + std::to_string(long(log10(tol)))
+                                                                                         + "_hqrrp_block_sz_" + std::to_string(block_sz)
+                                                                                         + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
+                                                                                         + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                                                                         + "_nnz_"            + std::to_string(nnz)
+                                                                                         + "_runs_per_sz_"    + std::to_string(runs)
+                                                                                         + "_OMP_threads_"    + std::to_string(num_omp_threads) 
+                                                                                         + "_SASO_threads_"   + std::to_string(num_threads)
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
         ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_Raw_m_"
-                                                                                                            + std::to_string(rows) 
-                                                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                         + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                         + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                         + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                         + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                         + "_nnz_"          + std::to_string(nnz)
-                                                                                         + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                         + "_OMP_threads_"  + std::to_string(num_threads) 
+                                                                                                              + std::to_string(rows) 
+                                                                                         + "_d_multiplier_"   + std::to_string(d_multiplier)
+                                                                                         + "_k_multiplier_"   + std::to_string(k_multiplier)
+                                                                                         + "_log10(tol)_"     + std::to_string(long(log10(tol)))
+                                                                                         + "_hqrrp_block_sz_" + std::to_string(block_sz)
+                                                                                         + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
+                                                                                         + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                                                                         + "_nnz_"            + std::to_string(nnz)
+                                                                                         + "_runs_per_sz_"    + std::to_string(runs)
+                                                                                         + "_OMP_threads_"    + std::to_string(num_omp_threads) 
+                                                                                         + "_SASO_threads_"   + std::to_string(num_threads) 
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
@@ -265,7 +279,7 @@ test_speed(int r_pow,
             T appl2_mean          = 0;
 
             for(int i = 0; i < runs; ++i) {
-                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, i);
+                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, block_sz, nnz, num_threads, mat_type, i);
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (i != 0) {
@@ -278,15 +292,17 @@ test_speed(int r_pow,
                     
                     // Log every run in the raw data file
                     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_Raw_m_" 
-                                                                                                                         + std::to_string(rows) 
-                                                                                                      + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                                      + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                                      + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                                      + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                                      + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                                      + "_nnz_"          + std::to_string(nnz)
-                                                                                                      + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                                      + "_OMP_threads_"  + std::to_string(num_threads) 
+                                                                                                              + std::to_string(rows) 
+                                                                                         + "_d_multiplier_"   + std::to_string(d_multiplier)
+                                                                                         + "_k_multiplier_"   + std::to_string(k_multiplier)
+                                                                                         + "_log10(tol)_"     + std::to_string(long(log10(tol)))
+                                                                                         + "_hqrrp_block_sz_" + std::to_string(block_sz)
+                                                                                         + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
+                                                                                         + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                                                                         + "_nnz_"            + std::to_string(nnz)
+                                                                                         + "_runs_per_sz_"    + std::to_string(runs)
+                                                                                         + "_OMP_threads_"    + std::to_string(num_omp_threads) 
+                                                                                         + "_SASO_threads_"   + std::to_string(num_threads)
                                                                                                       + ".dat", std::fstream::app);
                     file << res[0]  << "  " 
                          << res[1]  << "  " 
@@ -325,14 +341,14 @@ test_speed(int r_pow,
             cholqrcp_hqrrp_mean  = (T)t_cholqrcp_hqrrp / (T)(runs - 1);
             appl2_mean           = (T)t_appl2          / (T)(runs - 1);
             
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
+            log_info(rows, cols, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
                      cholqrcp_best,
                      cholqrcp_hqrrp_best,
                      cholqrcp_best       + alloc1_best + appl1_best, 
                      cholqrcp_hqrrp_best + alloc2_best + appl2_best, 
                      "Best", runs);
 
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
+            log_info(rows, cols, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
                      cholqrcp_mean,
                      cholqrcp_hqrrp_mean,
                      cholqrcp_mean       + alloc1_mean + appl1_mean, 
@@ -345,9 +361,10 @@ test_speed(int r_pow,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-    //test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
-    //test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+
+    for(int num_omp_threads = 8; num_omp_threads < 8; ++num_omp_threads)
+    {
+        test_speed<double>(17, 17, 512, 8192, 5, 256, num_omp_threads, 1, 8, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+    }
     return 0;
 }
