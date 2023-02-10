@@ -17,7 +17,7 @@ find_package(lapackpp REQUIRED)
 add_subdirectory(RandBLAS)
 
 # compile sources
-add_subdirectory(src)
+add_subdirectory(RandLAPACK)
 add_subdirectory(test)
 
 # export the configuration

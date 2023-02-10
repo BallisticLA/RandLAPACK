@@ -1,6 +1,10 @@
-#include "RandLAPACK.hh"
-#include "blaspp.hh"
-#include "lapackpp.hh"
+#ifndef randlapack_cholqrcp_h
+#define randlapack_cholqrcp_h
+
+#include "rl_cholqrcp.hh"
+#include "rl_util.hh"
+#include "rl_blaspp.hh"
+#include "rl_lapackpp.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -8,49 +12,143 @@
 #include <chrono>
 
 using namespace RandLAPACK::comps::util;
-
 using namespace std::chrono;
 
 namespace RandLAPACK::drivers::cholqrcp {
 
+template <typename T>
+class CholQRCPalg {
+    public:
+
+        virtual ~CholQRCPalg() {}
+
+        virtual int call(
+            int64_t m,
+            int64_t n,
+            std::vector<T>& A,
+            int64_t d,
+            std::vector<T>& R,
+            std::vector<int64_t>& J
+        ) = 0;
+};
+
+template <typename T>
+class CholQRCP : public CholQRCPalg<T> {
+    public:
+
+        // Constructor
+        CholQRCP(
+            bool verb,
+            bool t,
+            uint32_t sd,
+            T ep
+        ) {
+            verbosity = verb;
+            timing = t;
+            seed = sd;
+            eps = ep;
+        }
+
+        /// Computes a QR factorization with column pivots of the form:
+        ///     A[:, J] = QR,
+        /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
+        /// Detailed description of this algorithm may be found in Section 5.1.2.
+        /// of "the RandLAPACK book".
+        ///
+        /// @param[in] m
+        ///     The number of rows in the matrix A.
+        ///
+        /// @param[in] n
+        ///     The number of columns in the matrix A.
+        ///
+        /// @param[in] A
+        ///     The m-by-n matrix A, stored in a column-major format.
+        ///
+        /// @param[in] d
+        ///     Embedding dimension of a sketch, m >= d >= n.
+        ///
+        /// @param[in] R
+        ///     Represents the upper-triangular R factor of QR factorization.
+        ///     On entry, is empty and may not have any space allocated for it.
+        ///
+        /// @param[out] A
+        ///     Overwritten by an m-by-k orthogonal Q factor.
+        ///     Matrix is stored explicitly.
+        ///
+        /// @param[out] R
+        ///     Stores k-by-n matrix with upper-triangular R factor.
+        ///     Zero entries are not compressed.
+        ///
+        /// @param[out] J
+        ///     Stores k integer type pivot index extries.
+        ///
+        /// @return = 0: successful exit
+        ///
+        int CholQRCP1(
+            int64_t m,
+            int64_t n,
+            std::vector<T>& A,
+            int64_t d,
+            std::vector<T>& R,
+            std::vector<int64_t>& J
+        );
+
+        int call(
+            int64_t m,
+            int64_t n,
+            std::vector<T>& A,
+            int64_t d,
+            std::vector<T>& R,
+            std::vector<int64_t>& J
+        ) override;
+
+    public:
+        bool verbosity;
+        bool timing;
+        uint32_t seed;
+        T eps;
+        int64_t rank;
+        int64_t b_sz;
+
+        // 10 entries
+        std::vector<long> times;
+
+        // tuning SASOS
+        int num_threads;
+        int64_t nnz;
+
+        // Buffers
+        std::vector<T> A_hat;
+        std::vector<T> tau;
+        std::vector<T> R_sp;
+};
+
 // -----------------------------------------------------------------------------
-/// Computes a QR factorization with column pivots of the form:
-///     A[:, J] = QR,
-/// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
-/// Detailed description of this algorithm may be found in Section 5.1.2.
-/// of "the RandLAPACK book".
-///
-/// Templated for `float` and `double` types.
-///
-/// @param[in] m
-///     The number of rows in the matrix A.
-///
-/// @param[in] n
-///     The number of columns in the matrix A.
-///
-/// @param[in] A
-///     The m-by-n matrix A, stored in a column-major format.
-///
-/// @param[in] d
-///     Embedding dimension of a sketch, m >= d >= n.
-///
-/// @param[in] R
-///     Represents the upper-triangular R factor of QR factorization.
-///     On entry, is empty and may not have any space allocated for it.
-///
-/// @param[out] A
-///     Overwritten by an m-by-k orthogonal Q factor.
-///     Matrix is stored explicitly.
-///
-/// @param[out] R
-///     Stores k-by-n matrix with upper-triangular R factor.
-///     Zero entries are not compressed.
-///
-/// @param[out] J
-///     Stores k integer type pivot index extries. 
-///
-/// @return = 0: successful exit
-///
+template <typename T>
+int CholQRCP<T>::call(
+    int64_t m,
+    int64_t n,
+    std::vector<T>& A,
+    int64_t d,
+    std::vector<T>& R,
+    std::vector<int64_t>& J
+) {
+    int termination = CholQRCP1(m, n, A, d, R, J);
+
+    if(this->verbosity) {
+        switch(termination) {
+        case 1:
+            printf("\nCholQRCP TERMINATED VIA: 1.\n");
+            break;
+        case 0:
+            printf("\nCholQRCP TERMINATED VIA: normal termination.\n");
+            break;
+        }
+    }
+    return termination;
+}
+
+// -----------------------------------------------------------------------------
 template <typename T>
 int CholQRCP<T>::CholQRCP1(
     int64_t m,
@@ -68,7 +166,7 @@ int CholQRCP<T>::CholQRCP1(
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
     long qrcp_t_dur = 0;
-    
+
     high_resolution_clock::time_point rank_reveal_t_start;
     high_resolution_clock::time_point rank_reveal_t_stop;
     long rank_reveal_t_dur = 0;
@@ -114,8 +212,8 @@ int CholQRCP<T>::CholQRCP1(
         saso_t_start = high_resolution_clock::now();
     }
 
-    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};        
-    RandBLAS::sparse::SparseSkOp<T> S(DS, this->seed, 0, NULL, NULL, NULL);        
+    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};
+    RandBLAS::sparse::SparseSkOp<T> S(DS, this->seed, 0, NULL, NULL, NULL);
     RandBLAS::sparse::fill_sparse(S);
 
     RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(
@@ -126,7 +224,7 @@ int CholQRCP<T>::CholQRCP1(
         saso_t_stop = high_resolution_clock::now();
         qrcp_t_start = high_resolution_clock::now();
     }
-    
+
     // QRCP - add failure condition
     lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
 
@@ -150,7 +248,7 @@ int CholQRCP<T>::CholQRCP1(
         rank_reveal_t_stop = high_resolution_clock::now();
         resize_t_start = high_resolution_clock::now();
     }
-    
+
     T* R_sp_dat  = upsize(k * k, this->R_sp);
     T* R_dat     = upsize(k * n, R);
 
@@ -168,7 +266,7 @@ int CholQRCP<T>::CholQRCP1(
     for(i = k; i < n; ++i) {
         blas::copy(k, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
     }
-    
+
     if(this -> timing) {
         copy_t_stop = high_resolution_clock::now();
         a_mod_piv_t_start = high_resolution_clock::now();
@@ -201,7 +299,7 @@ int CholQRCP<T>::CholQRCP1(
 
     // Get R
     // trmm
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);	
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);
 
     if(this -> timing) {
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
@@ -216,7 +314,7 @@ int CholQRCP<T>::CholQRCP1(
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
-        
+
         // Fill the data vector
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqrcp_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
     }
@@ -224,6 +322,5 @@ int CholQRCP<T>::CholQRCP1(
     return 0;
 }
 
-template int CholQRCP<float>::CholQRCP1(int64_t m, int64_t n, std::vector<float>& A, int64_t d, std::vector<float>& R, std::vector<int64_t>& J);
-template int CholQRCP<double>::CholQRCP1(int64_t m, int64_t n, std::vector<double>& A, int64_t d, std::vector<double>& R, std::vector<int64_t>& J);
-}
+} // end namespace RandLAPACK::comps::rsvd
+#endif

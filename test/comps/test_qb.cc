@@ -1,6 +1,6 @@
 #include "RandLAPACK.hh"
-#include "blaspp.hh"
-#include "lapackpp.hh"
+#include "rl_blaspp.hh"
+#include "rl_lapackpp.hh"
 
 #include <RandBLAS.hh>
 
