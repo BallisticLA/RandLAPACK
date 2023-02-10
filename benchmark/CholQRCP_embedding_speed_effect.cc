@@ -51,7 +51,7 @@ log_info(int64_t rows,
                                                                                         + "_m_"                  + std::to_string(rows) 
                                                                                         + "_n_"                  + std::to_string(col)
                                                                                         + "_d_multiplier_start_" + std::to_string(d_multiplier)
-                                                                                        + "_d_multiplier_end"    + std::to_string(d_multiplier_max)
+                                                                                        + "_d_multiplier_end_"    + std::to_string(d_multiplier_max)
                                                                                         + "_k_multiplier_"       + std::to_string(k_multiplier)
                                                                                         + "_log10(tol)_"         + std::to_string(long(log10(tol)))
                                                                                         + "_mat_type_"           + std::to_string(std::get<0>(mat_type))
@@ -157,7 +157,7 @@ test_speed(int r_pow,
                                                                                                                  + std::to_string(rows) 
                                                                                         + "_n_"                  + std::to_string(col)
                                                                                         + "_d_multiplier_start_" + std::to_string(d_multiplier)
-                                                                                        + "_d_multiplier_end"    + std::to_string(d_multiplier_max)
+                                                                                        + "_d_multiplier_end_"    + std::to_string(d_multiplier_max)
                                                                                         + "_k_multiplier_"       + std::to_string(k_multiplier)
                                                                                         + "_log10(tol)_"         + std::to_string(long(log10(tol)))
                                                                                         + "_mat_type_"           + std::to_string(std::get<0>(mat_type))
@@ -172,7 +172,7 @@ test_speed(int r_pow,
                                                                                                         + std::to_string(rows) 
                                                                                         + "_n_"                  + std::to_string(col)
                                                                                         + "_d_multiplier_start_" + std::to_string(d_multiplier)
-                                                                                        + "_d_multiplier_end"    + std::to_string(d_multiplier_max)
+                                                                                        + "_d_multiplier_end_"    + std::to_string(d_multiplier_max)
                                                                                         + "_k_multiplier_"       + std::to_string(k_multiplier)
                                                                                         + "_log10(tol)_"         + std::to_string(long(log10(tol)))
                                                                                         + "_mat_type_"           + std::to_string(std::get<0>(mat_type))
@@ -187,7 +187,7 @@ test_speed(int r_pow,
                                                                                                         + std::to_string(rows) 
                                                                                         + "_n_"                  + std::to_string(col)
                                                                                         + "_d_multiplier_start_" + std::to_string(d_multiplier)
-                                                                                        + "_d_multiplier_end"    + std::to_string(d_multiplier_max)
+                                                                                        + "_d_multiplier_end_"    + std::to_string(d_multiplier_max)
                                                                                         + "_k_multiplier_"       + std::to_string(k_multiplier)
                                                                                         + "_log10(tol)_"         + std::to_string(long(log10(tol)))
                                                                                         + "_mat_type_"           + std::to_string(std::get<0>(mat_type))
@@ -198,7 +198,7 @@ test_speed(int r_pow,
                                                                                         + ".dat", std::ofstream::out | std::ofstream::trunc);
     ofs.close();
     
-    for (T d_multiplier_curr = d_multiplier; d_multiplier_curr <= d_multiplier_max; ++d_multiplier_curr) {
+    for (T d_multiplier_curr = d_multiplier; d_multiplier_curr <= d_multiplier_max; d_multiplier_curr += 0.5) {
         std::vector<long> res;
 
         long t_saso        = 0;
@@ -255,7 +255,7 @@ test_speed(int r_pow,
                                                                                                                         + std::to_string(rows) 
                                                                                         + "_n_"                  + std::to_string(col)
                                                                                         + "_d_multiplier_start_" + std::to_string(d_multiplier)
-                                                                                        + "_d_multiplier_end"    + std::to_string(d_multiplier_max)
+                                                                                        + "_d_multiplier_end_"    + std::to_string(d_multiplier_max)
                                                                                         + "_k_multiplier_"       + std::to_string(k_multiplier)
                                                                                         + "_log10(tol)_"         + std::to_string(long(log10(tol)))
                                                                                         + "_mat_type_"           + std::to_string(std::get<0>(mat_type))
