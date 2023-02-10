@@ -9,6 +9,19 @@ if(NOT CMAKE_BUILD_TYPE)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
+set(SANITIZE_ADDRESS OFF CACHE BOOL "Add address sanitizer flags to the library")
+
+message(STATUS "Checking for OpenMP ... ")
+find_package(OpenMP COMPONENTS CXX)
+
+set(tmp FALSE)
+if (OpenMP_CXX_FOUND)
+    set(tmp TRUE)
+endif()
+
+set(RandLAPACK_HAS_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
+message(STATUS "Checking for OpenMP ... ${RandBLAS_HAS_OpenMP}")
+
 include(GNUInstallDirs)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_LIBDIR}")
