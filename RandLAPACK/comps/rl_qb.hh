@@ -13,9 +13,7 @@
 #include <limits>
 #include <vector>
 
-using namespace RandLAPACK::comps::util;
-
-namespace RandLAPACK::comps::qb {
+namespace RandLAPACK {
 
 template <typename T>
 class QBalg {
@@ -42,9 +40,9 @@ class QB : public QBalg<T> {
         // Constructor
         QB(
             // Requires a RangeFinder scheme object.
-            RandLAPACK::comps::rf::RangeFinder<T>& rf_obj,
+            RandLAPACK::RangeFinder<T>& rf_obj,
             // Requires a stabilization algorithm object.
-            RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
+            RandLAPACK::Stabilization<T>& orth_obj,
             bool verb,
             bool orth
         ) : RF_Obj(rf_obj), Orth_Obj(orth_obj) {
@@ -135,8 +133,8 @@ class QB : public QBalg<T> {
         ) override;
 
     public:
-        RandLAPACK::comps::rf::RangeFinder<T>& RF_Obj;
-        RandLAPACK::comps::orth::Stabilization<T>& Orth_Obj;
+        RandLAPACK::RangeFinder<T>& RF_Obj;
+        RandLAPACK::Stabilization<T>& Orth_Obj;
         bool verbosity;
         bool orth_check;
 
@@ -231,8 +229,8 @@ int QB<T>::QB2(
         // ... allocate more!
         this->curr_lim = std::min(this->dim_growth_factor * block_sz, k);
         // No need for data movement in this case
-        upsize(m * this->curr_lim, Q);
-        upsize(this->curr_lim * n, B);
+        util::upsize(m * this->curr_lim, Q);
+        util::upsize(this->curr_lim * n, B);
     } else {
         this->curr_lim = k;
     }
@@ -247,13 +245,13 @@ int QB<T>::QB2(
     T approx_err = 0.0;
 
     if(this->orth_check) {
-        upsize(this->curr_lim * this->curr_lim, this->Q_gram);
-        upsize(block_sz * block_sz, this->Q_i_gram);
+        util::upsize(this->curr_lim * this->curr_lim, this->Q_gram);
+        util::upsize(block_sz * block_sz, this->Q_i_gram);
     }
 
-    T* QtQi_dat = upsize(this->curr_lim * block_sz, this->QtQi);
-    T* Q_i_dat = upsize(m * block_sz, this->Q_i);
-    T* B_i_dat = upsize(block_sz * n, this->B_i);
+    T* QtQi_dat = util::upsize(this->curr_lim * block_sz, this->QtQi);
+    T* Q_i_dat = util::upsize(m * block_sz, this->Q_i);
+    T* B_i_dat = util::upsize(block_sz * n, this->B_i);
 
     T* Q_dat = Q.data();
     T* B_dat = B.data();
@@ -266,11 +264,11 @@ int QB<T>::QB2(
         // Make sure we have enough space for everything
         if(next_sz > this->curr_lim) {
             this->curr_lim = std::min(2 * this->curr_lim, k);
-            Q_dat = upsize(this->curr_lim * m, Q);
-            B_dat = row_resize(curr_sz, n, B, this->curr_lim);
-            QtQi_dat = upsize(this->curr_lim * block_sz, QtQi);
+            Q_dat = util::upsize(this->curr_lim * m, Q);
+            B_dat = util::row_resize(curr_sz, n, B, this->curr_lim);
+            QtQi_dat = util::upsize(this->curr_lim * block_sz, QtQi);
             if(this->orth_check)
-                upsize(this->curr_lim * this->curr_lim, Q_gram);
+                util::upsize(this->curr_lim * this->curr_lim, Q_gram);
         }
 
         // Calling RangeFinder
@@ -278,9 +276,9 @@ int QB<T>::QB2(
             return 6; // RF failed
 
         if(this->orth_check) {
-            if (orthogonality_check(m, block_sz, block_sz, Q_i, Q_i_gram, this->verbosity)) {
+            if (util::orthogonality_check(m, block_sz, block_sz, Q_i, Q_i_gram, this->verbosity)) {
                 // Lost orthonormality of Q
-                row_resize(this->curr_lim, n, B, curr_sz);
+                util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
                 return 4;
             }
@@ -308,7 +306,7 @@ int QB<T>::QB2(
         if ((curr_sz > 0) && (approx_err > prev_err)) {
             // Early termination - error growth
             // Only need to move B's data, no resizing
-            row_resize(this->curr_lim, n, B, curr_sz);
+            util::row_resize(this->curr_lim, n, B, curr_sz);
             k = curr_sz;
             return 2;
         }
@@ -318,9 +316,9 @@ int QB<T>::QB2(
         lapack::lacpy(MatrixType::General, block_sz, n, &B_i_dat[0], block_sz, &B_dat[curr_sz], this->curr_lim);
 
         if(this->orth_check) {
-            if (orthogonality_check(m, this->curr_lim, next_sz, Q, Q_gram, this->verbosity)) {
+            if (util::orthogonality_check(m, this->curr_lim, next_sz, Q, Q_gram, this->verbosity)) {
                 // Lost orthonormality of Q
-                row_resize(this->curr_lim, n, B, curr_sz);
+                util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
                 return 5;
             }
@@ -330,7 +328,7 @@ int QB<T>::QB2(
         // Termination criteria
         if (approx_err < tol) {
             // Reached the required error tol
-            row_resize(this->curr_lim, n, B, curr_sz);
+            util::row_resize(this->curr_lim, n, B, curr_sz);
             k = curr_sz;
             return 0;
         }
@@ -343,5 +341,5 @@ int QB<T>::QB2(
     return 3;
 }
 
-} // end namespace RandLAPACK::comps::qb
+} // end namespace RandLAPACK
 #endif

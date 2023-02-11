@@ -13,7 +13,7 @@
 #include <vector>
 #include <cstdio>
 
-namespace RandLAPACK::comps::rf {
+namespace RandLAPACK {
 
 template <typename T>
 class RangeFinder {
@@ -35,9 +35,9 @@ class RF : public RangeFinder<T> {
 
         RF(
             // Requires a RowSketcher scheme object.
-            RandLAPACK::comps::rs::RowSketcher<T>& rs_obj,
+            RandLAPACK::RowSketcher<T>& rs_obj,
             // Requires a stabilization algorithm object.
-            RandLAPACK::comps::orth::Stabilization<T>& orth_obj,
+            RandLAPACK::Stabilization<T>& orth_obj,
             bool verb,
             bool cond
         ) : RS_Obj(rs_obj), Orth_Obj(orth_obj) {
@@ -99,8 +99,8 @@ class RF : public RangeFinder<T> {
 
     public:
        // Instantiated in the constructor
-       RandLAPACK::comps::rs::RowSketcher<T>& RS_Obj;
-       RandLAPACK::comps::orth::Stabilization<T>& Orth_Obj;
+       RandLAPACK::RowSketcher<T>& RS_Obj;
+       RandLAPACK::Stabilization<T>& Orth_Obj;
        bool verbosity;
        bool cond_check;
        std::vector<T> Omega;
@@ -150,7 +150,7 @@ int RF<T>::rf1(
     std::vector<T>& Q
 ){
 
-    T* Omega_dat = upsize(n * k, this->Omega);
+    T* Omega_dat = util::upsize(n * k, this->Omega);
     T* Q_dat = Q.data();
 
     if(this->RS_Obj.call(m, n, A, k, this->Omega))
@@ -161,7 +161,7 @@ int RF<T>::rf1(
 
     if(this->cond_check)
         // Writes into this->cond_nums
-        this->cond_nums.push_back(cond_num_check(m, k, Q, this->Q_cpy, this->s, this->verbosity));
+        this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->Q_cpy, this->s, this->verbosity));
 
     if(this->Orth_Obj.call(m, k, Q))
         return 2; // Orthogonalization failed
@@ -170,5 +170,5 @@ int RF<T>::rf1(
     return 0;
 }
 
-} // end namespace RandLAPACK::comps::rs
+} // end namespace RandLAPACK
 #endif

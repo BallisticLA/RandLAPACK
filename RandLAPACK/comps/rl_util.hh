@@ -12,7 +12,7 @@
 #include <vector>
 #include <cstdint>
 
-namespace RandLAPACK::comps::util {
+namespace RandLAPACK::util {
 
 /// Generates an identity matrix. Assuming col-maj
 template <typename T>
@@ -380,12 +380,12 @@ void gen_mat_type(
         case 0:
                 // Generating matrix with polynomially decaying singular values
                 //printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = (i + 1)^-pow (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::comps::util::gen_poly_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed);
+                RandLAPACK::util::gen_poly_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed);
                 break;
         case 1:
                 // Generating matrix with exponentially decaying singular values
                 //printf("TEST MATRIX: EXPONENTIAL DECAY sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::comps::util::gen_exp_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed);
+                RandLAPACK::util::gen_exp_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed);
                 break;
         case 2: {
                 // A = [A A]

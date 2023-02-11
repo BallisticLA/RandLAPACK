@@ -11,10 +11,9 @@
 #include <vector>
 #include <chrono>
 
-using namespace RandLAPACK::comps::util;
 using namespace std::chrono;
 
-namespace RandLAPACK::drivers::cholqrcp {
+namespace RandLAPACK {
 
 template <typename T>
 class CholQRCPalg {
@@ -201,8 +200,8 @@ int CholQRCP<T>::CholQRCP1(
     }
 
     T* A_dat       = A.data();
-    T* A_hat_dat   = upsize(d * n, this->A_hat);
-    T* tau_dat     = upsize(n, this->tau);
+    T* A_hat_dat   = util::upsize(d * n, this->A_hat);
+    T* tau_dat     = util::upsize(n, this->tau);
     J.resize(n);
     int64_t* J_dat = J.data();
 
@@ -249,8 +248,8 @@ int CholQRCP<T>::CholQRCP1(
         resize_t_start = high_resolution_clock::now();
     }
 
-    T* R_sp_dat  = upsize(k * k, this->R_sp);
-    T* R_dat     = upsize(k * n, R);
+    T* R_sp_dat  = util::upsize(k * k, this->R_sp);
+    T* R_dat     = util::upsize(k * n, R);
 
     if(this -> timing) {
         resize_t_stop = high_resolution_clock::now();
@@ -273,7 +272,7 @@ int CholQRCP<T>::CholQRCP1(
     }
 
     // Swap k columns of A with pivots from J
-    col_swap(m, n, k, A, J);
+    util::col_swap(m, n, k, A, J);
 
     if(this -> timing) {
         a_mod_piv_t_stop = high_resolution_clock::now();
@@ -322,5 +321,5 @@ int CholQRCP<T>::CholQRCP1(
     return 0;
 }
 
-} // end namespace RandLAPACK::comps::rsvd
+} // end namespace RandLAPACK
 #endif

@@ -7,12 +7,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::comps::orth;
-using namespace RandLAPACK::comps::rs;
-using namespace RandLAPACK::comps::rf;
-using namespace RandLAPACK::comps::qb;
-
 class TestQB : public ::testing::Test
 {
     protected:
@@ -22,19 +16,19 @@ class TestQB : public ::testing::Test
     virtual void TearDown() {};
 
     /// General test for QB:
-    /// Computes QB factorzation, and checks: 
+    /// Computes QB factorzation, and checks:
     /// 1. A - QB
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T>
     static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
-        
+
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
-        
+
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
         // Adjust the expected rank
@@ -78,7 +72,7 @@ class TestQB : public ::testing::Test
         blas::copy(size, A_dat, 1, A_cpy_dat, 1);
         blas::copy(size, A_dat, 1, A_cpy_2_dat, 1);
 
-        //Subroutine parameters 
+        //Subroutine parameters
         bool verbosity = false;
         bool cond_check = true;
         bool orth_check = true;
@@ -86,24 +80,24 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        PLUL<T> Stab(cond_check, verbosity);
+        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
-        CholQRQ<T> Orth_RF(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check);
+        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
-        CholQRQ<T> Orth_QB(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Orth_QB(cond_check, verbosity);
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check);
+        RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
         int termination = QB.call(m, n, A, k, block_sz, tol, Q, B);
 
         // Reassing pointers because Q, B have been resized
         Q_dat = Q.data();
         B_dat = B.data();
-        
+
         switch(termination)
         {
             case 1:
@@ -132,14 +126,14 @@ class TestQB : public ::testing::Test
         }
 
         printf("Inner dimension of QB: %-25ld\n", k);
-        
+
         std::vector<T> Ident(k * k, 0.0);
         T* Ident_dat = Ident.data();
         // Generate a reference identity
-        eye(k, k, Ident); 
+        RandLAPACK::util::eye(k, k, Ident);
         // Buffer for testing B
         blas::copy(k * n, B_dat, 1, B_cpy_dat, 1);
-        
+
         // A_hat = Q * B
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
@@ -156,7 +150,7 @@ class TestQB : public ::testing::Test
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
         blas::copy(n - k, z_buf_dat, 1, s_dat + k, 1);
-        diag(n, n, s, n, S);
+        RandLAPACK::util::diag(n, n, s, n, S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
@@ -188,12 +182,12 @@ class TestQB : public ::testing::Test
     // Checks for whether ||A-QB||_F <= tol * ||A||_F if tol > 0.
     template <typename T>
     static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
-        
+
         printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");
-        
+
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
         int64_t k_est = std::min(m, n);
@@ -210,7 +204,7 @@ class TestQB : public ::testing::Test
         // pre-compute norm
         T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
 
-        //Subroutine parameters 
+        //Subroutine parameters
         bool verbosity = false;
         bool cond_check = true;
         bool orth_check = true;
@@ -218,24 +212,24 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose CholQR
-        PLUL<T> Stab(cond_check, verbosity);
+        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
-        CholQRQ<T> Orth_RF(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check);
+        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
-        CholQRQ<T> Orth_QB(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Orth_QB(cond_check, verbosity);
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check);
+        RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
         int termination = QB.call(m, n, A, k_est, block_sz, tol, Q, B);
 
         // Reassing pointers because Q, B have been resized
         Q_dat = Q.data();
         B_dat = B.data();
-    
+
         switch(termination) {
             case 1:
                 printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
@@ -262,12 +256,12 @@ class TestQB : public ::testing::Test
                 break;
         }
         printf("Inner dimension of QB: %ld\n", k_est);
-        
+
         // A_hat = Q * B
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
-        
+
         T norm_test_1 = lapack::lange(Norm::Fro, m, n, A_dat, m);
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         if(tol == 0.0) {
@@ -286,7 +280,7 @@ class TestQB : public ::testing::Test
 };
 
 TEST_F(TestQB, Polynomial_Decay)
-{ 
+{
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     for (uint32_t seed : {0, 1, 2})
     {
@@ -299,33 +293,33 @@ TEST_F(TestQB, Polynomial_Decay)
     }
 }
 TEST_F(TestQB, Zero_Mat)
-{ 
+{
     for (uint32_t seed : {0, 1, 2})
-    {   
+    {
         // A = 0
-        test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(3, 0, false), seed); 
+        test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(3, 0, false), seed);
     }
 }
 TEST_F(TestQB, Rand_Diag)
-{ 
+{
     for (uint32_t seed : {0, 1, 2})
-    {   
+    {
         // Random diagonal matrix test
         test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(4, 0, false), seed);
     }
 }
 TEST_F(TestQB, Diag_Drop)
-{ 
+{
     for (uint32_t seed : {0, 1, 2})
-    {   
+    {
         // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
         test_QB2_low_exact_rank<double>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(5, 0, false), seed);
     }
 }
 TEST_F(TestQB, Varying_Tol)
-{ 
+{
     for (uint32_t seed : {0, 1, 2})
-    {   
+    {
         // test zero tol
         test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), seed);
         // test nonzero tol

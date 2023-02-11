@@ -8,11 +8,10 @@
 #include <vector>
 #include <cstdint>
 
-namespace RandLAPACK::comps::determiter {
+namespace RandLAPACK {
 
 // moved run_pcgls_ex to test 
 // void run_pcgls_ex(int n, int m);
-
 
 template <typename T>
 void pcg(
@@ -129,5 +128,5 @@ void pcg(
     blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, -1.0, A, lda, x, 1, 1.0, y, 1);
 }
 
-} // end namespace RandLAPACK::comps::determiter
+} // end namespace RandLAPACK
 #endif

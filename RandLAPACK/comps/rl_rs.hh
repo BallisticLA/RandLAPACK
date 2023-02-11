@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 
-namespace RandLAPACK::comps::rs {
+namespace RandLAPACK {
 
 template <typename T>
 class RowSketcher
@@ -38,7 +38,7 @@ class RS : public RowSketcher<T>
 
         RS(
             // Requires a stabilization algorithm object.
-            RandLAPACK::comps::orth::Stabilization<T>& stab_obj,
+            RandLAPACK::Stabilization<T>& stab_obj,
             int32_t s,
             int64_t p,
             int64_t q,
@@ -115,7 +115,7 @@ class RS : public RowSketcher<T>
             std::vector<T>& Omega
         ) override;
 
-        RandLAPACK::comps::orth::Stabilization<T>& Stab_Obj;
+        RandLAPACK::Stabilization<T>& Stab_Obj;
         int32_t seed;
         int64_t passes_over_data;
         int64_t passes_per_stab;
@@ -171,7 +171,7 @@ int RS<T>::rs1(
 
     const T* A_dat = A.data();
     T* Omega_dat = Omega.data();
-    T* Omega_1_dat = upsize(m * k, this->Omega_1);
+    T* Omega_1_dat = util::upsize(m * k, this->Omega_1);
     auto state = RandBLAS::base::RNGState(seed, 0);
 
     if (p % 2 == 0) {
@@ -197,7 +197,7 @@ int RS<T>::rs1(
         ++ p_done;
 
         if(this->cond_check)
-            this->cond_nums.push_back(cond_num_check(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
+            this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1)))
             return 1;
@@ -207,7 +207,7 @@ int RS<T>::rs1(
         ++ p_done;
 
         if (this->cond_check)
-            this->cond_nums.push_back(cond_num_check(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
+            this->cond_nums.push_back(util::cond_num_check(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
             return 1;
@@ -218,5 +218,5 @@ int RS<T>::rs1(
     return 0;
 }
 
-} // end namespace RandLAPACK::comps::rs
+} // end namespace RandLAPACK
 #endif

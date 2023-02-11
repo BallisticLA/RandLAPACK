@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace RandLAPACK::drivers::rsvd {
+namespace RandLAPACK {
 
 template <typename T>
 class RSVDalg {
@@ -37,7 +37,7 @@ class RSVD : public RSVDalg<T> {
         // Constructor
         RSVD(
             // Requires a QB algorithm object.
-            RandLAPACK::comps::qb::QBalg<T>& qb_obj,
+            RandLAPACK::QBalg<T>& qb_obj,
             bool verb,
             int64_t b_sz
         ) : QB_Obj(qb_obj) {
@@ -115,7 +115,7 @@ class RSVD : public RSVDalg<T> {
         ) override;
 
     public:
-        RandLAPACK::comps::qb::QBalg<T>& QB_Obj;
+        RandLAPACK::QBalg<T>& QB_Obj;
         bool verbosity;
         int64_t block_sz;
 
@@ -168,10 +168,10 @@ int RSVD<T>::RSVD1(
     this->QB_Obj.call(m, n, A, k, this->block_sz, tol, this->Q, this->B);
 
     // Making sure all vectors are large enough
-    upsize(m * k, U);
-    upsize(k * k, this->U_buf);
-    upsize(k * 1, S);
-    upsize(k * n, VT);
+    util::upsize(m * k, U);
+    util::upsize(k * k, this->U_buf);
+    util::upsize(k * 1, S);
+    util::upsize(k * n, VT);
 
     // SVD of B
     lapack::gesdd(Job::SomeVec, k, n, this->B.data(), k, S.data(), this->U_buf.data(), k, VT.data(), k);
@@ -181,5 +181,5 @@ int RSVD<T>::RSVD1(
     return 0;
 }
 
-} // end namespace RandLAPACK::comps::rsvd
+} // end namespace RandLAPACK
 #endif
