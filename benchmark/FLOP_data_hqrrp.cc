@@ -74,16 +74,16 @@ static void
 process_dat() {
     std::vector<std::string> test_type       = {"Best"};
     std::vector<std::string> rows            = {"131072"}; 
-    std::vector<std::string> d_multiplier    = {"1.000000"};
+    std::vector<std::string> d_multiplier    = {"2.500000"};
     std::vector<std::string> k_multiplier    = {"1.000000"};
     std::vector<std::string> log10tol        = {"-11"};
     std::vector<std::string> mat_type        = {"6"};
     std::vector<std::string> cond            = {"0"};
     std::vector<std::string> nnz             = {"1"};
     std::vector<std::string> runs            = {"5"};
-    std::vector<std::string> num_threads     = {"8"};
+    std::vector<std::string> num_threads     = {"36"};
     std::vector<std::string> block_sz        = {"256"};
-    std::vector<std::string> omp_num_threads = {"8"};
+    std::vector<std::string> omp_num_threads = {"36"};
     printf("HERE\n");
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
