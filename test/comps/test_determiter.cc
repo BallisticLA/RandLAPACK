@@ -1,5 +1,5 @@
 #include "RandLAPACK.hh"
-#include "blaspp.hh"
+#include "rl_blaspp.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -42,7 +42,7 @@ class TestDetermiterOLS : public ::testing::Test
         double delta = 0.1;
 	    double tol = 1e-8;
 
-        RandLAPACK::comps::determiter::pcg<double>(
+        RandLAPACK::pcg(
             m, n, A.data(), m, b.data(), c.data(), delta,
             resid_vec, tol, n, M.data(), n, x0.data(), x.data(), y.data());
         

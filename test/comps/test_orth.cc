@@ -1,6 +1,6 @@
 #include "RandLAPACK.hh"
-#include "blaspp.hh"
-#include "lapackpp.hh"
+#include "rl_blaspp.hh"
+#include "rl_lapackpp.hh"
 
 #include <RandBLAS.hh>
 
@@ -15,8 +15,6 @@
 #define ABSDTOL 1e-12;
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::comps::orth;
 
 class TestOrth : public ::testing::Test
 {
@@ -30,7 +28,7 @@ class TestOrth : public ::testing::Test
     /// Checks I - \transpose{Q}Q.
     template <typename T>
     static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, uint32_t seed) {
-    
+
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
         std::vector<T> Y(m * k, 0.0);
@@ -41,19 +39,19 @@ class TestOrth : public ::testing::Test
         T* Y_dat = Y.data();
         T* Omega_dat = Omega.data();
         T* I_ref_dat = I_ref.data();
-        
-        gen_mat_type(m, n, A, k, seed, mat_type);
-        
+
+        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+
         // Fill the gaussian random matrix
         RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
         auto state = RandBLAS::base::RNGState(seed, 0);
         state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
         // Generate a reference identity
-        eye(k, k, I_ref);  
+        RandLAPACK::util::eye(k, k, I_ref);
         // Y = A * Omega
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega_dat, n, 0.0, Y_dat, m);
         // Orthogonalization Constructor
-        CholQRQ<T> CholQRQ(false, false);
+        RandLAPACK::CholQRQ<T> CholQRQ(false, false);
 
         // Orthonormalize sketch Y
         if(CholQRQ.call(m, k, Y) != 0) {
@@ -65,7 +63,7 @@ class TestOrth : public ::testing::Test
         // Q' * Q  - I = 0
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
 
-        T norm_fro = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);	
+        T norm_fro = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);
         printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);
         ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }

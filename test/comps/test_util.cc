@@ -1,5 +1,5 @@
 #include "RandLAPACK.hh"
-#include "blaspp.hh"
+#include "rl_blaspp.hh"
 
 #include <RandBLAS.hh>
 

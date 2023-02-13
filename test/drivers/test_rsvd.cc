@@ -1,6 +1,6 @@
 #include "RandLAPACK.hh"
-#include "blaspp.hh"
-#include "lapackpp.hh"
+#include "rl_blaspp.hh"
+#include "rl_lapackpp.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -8,13 +8,6 @@
 
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
-
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::comps::orth;
-using namespace RandLAPACK::comps::rs;
-using namespace RandLAPACK::comps::rf;
-using namespace RandLAPACK::comps::qb;
-using namespace RandLAPACK::drivers::rsvd;
 
 class TestRSVD : public ::testing::Test
 {
@@ -33,7 +26,7 @@ class TestRSVD : public ::testing::Test
         
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
 
         int64_t size = m * n;
 
@@ -82,25 +75,25 @@ class TestRSVD : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        PLUL<T> Stab(cond_check, verbosity);
+        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
 
         // Orthogonalization Constructor - Choose CholQR
-        CholQRQ<T> Orth_RF(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
 
         // RangeFinder constructor - Choose default (rf1)
-        RF<T> RF(RS, Orth_RF, verbosity, cond_check);
+        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
 
         // Orthogonalization Constructor - Choose CholQR
-        CholQRQ<T> Orth_QB(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Orth_QB(cond_check, verbosity);
 
         // QB constructor - Choose defaut (QB2)
-        QB<T> QB(RF, Orth_QB, verbosity, orth_check);
+        RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
 
         // RSVD constructor - Choose defaut (RSVD1)
-        RSVD<T> RSVD(QB, verbosity, block_sz);
+        RandLAPACK::RSVD<T> RSVD(QB, verbosity, block_sz);
 
         // Regular QB2 call
         RSVD.call(m, n, A, k, tol, U1, s1, VT1);
@@ -108,7 +101,7 @@ class TestRSVD : public ::testing::Test
         // Construnct A_hat = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
-        diag(k, k, s1, k, S1);
+        RandLAPACK::util::diag(k, k, s1, k, S1);
         // U1 * S1 = A_hat_buf
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_hat_buf_dat, m);
         // A_hat_buf * VT1 =  A_hat
@@ -125,7 +118,7 @@ class TestRSVD : public ::testing::Test
         T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
         blas::copy(n - k, z_buf_dat, 1, s_dat + k, 1);
-        diag(n, n, s, n, S);
+        RandLAPACK::util::diag(n, n, s, n, S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);

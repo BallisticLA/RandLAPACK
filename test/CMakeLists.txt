@@ -3,16 +3,16 @@ find_package(GTest)
 
 set(tmp FALSE)
 if (GTest_FOUND)
-
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
-        src/comps/test_determiter.cc
-        src/comps/test_util.cc
-        src/comps/test_orth.cc
-        src/comps/test_qb.cc
-        src/drivers/test_rsvd.cc
-        src/drivers/test_cholqrcp.cc)
+        comps/test_determiter.cc
+        comps/test_util.cc
+        comps/test_orth.cc
+        comps/test_qb.cc
+        drivers/test_rsvd.cc
+        drivers/test_cholqrcp.cc
+    )
 
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
 
@@ -22,3 +22,8 @@ if (GTest_FOUND)
 
 endif()
 message(STATUS "Checking for regression tests ... ${tmp}")
+
+add_executable(test_pcgls comps/test_pcgls.cpp)
+target_link_libraries(test_pcgls RandLAPACK)
+add_test(NAME test_pcgls COMMAND test_pcgls 100 15)
+
