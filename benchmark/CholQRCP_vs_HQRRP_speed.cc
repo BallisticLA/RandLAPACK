@@ -363,7 +363,7 @@ int main(){
 
     for(int num_omp_threads = 8; num_omp_threads <= 8; ++num_omp_threads)
     {
-        test_speed<double>(17, 17, 512, 8192, 5, 128, num_omp_threads, 1, 8, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+        test_speed<double>(17, 17, 512, 8192, 5, 64, num_omp_threads, 1, 8, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
     }
     return 0;
 }
