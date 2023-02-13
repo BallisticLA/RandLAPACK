@@ -1,5 +1,3 @@
-#configure_file(RandLAPACK_config.h.in RandLAPACK_config.h)
-#install(FILES ${CMAKE_BINARY_DIR}/RandLAPACK_config.h DESTINATION include/RandLAPACK)
 
 configure_file(CMake/RandLAPACKConfig.cmake.in
     ${CMAKE_INSTALL_LIBDIR}/cmake/RandLAPACKConfig.cmake @ONLY)
