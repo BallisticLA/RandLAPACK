@@ -82,7 +82,7 @@ process_dat() {
     std::vector<std::string> nnz             = {"1"};
     std::vector<std::string> runs            = {"5"};
     std::vector<std::string> num_threads     = {"36"};
-    std::vector<std::string> block_sz        = {"8"};
+    std::vector<std::string> block_sz        = {"16"};
     std::vector<std::string> omp_num_threads = {"36"};
     printf("HERE\n");
 
