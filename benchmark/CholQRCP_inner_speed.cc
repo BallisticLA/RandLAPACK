@@ -102,7 +102,6 @@ test_speed_helper(int64_t m,
     J_1.resize(n);
     upsize(n * n, (CholQRCP.R_sp));
     upsize(n * n, R_1);
-    upsize(n * n, (CholQRCP.R_buf));
 
     // CholQRCP
     CholQRCP.call(m, n, A_1, d, R_1, J_1);
