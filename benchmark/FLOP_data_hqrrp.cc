@@ -81,9 +81,9 @@ process_dat() {
     std::vector<std::string> cond            = {"0"};
     std::vector<std::string> nnz             = {"1"};
     std::vector<std::string> runs            = {"5"};
-    std::vector<std::string> num_threads     = {"8"};
+    std::vector<std::string> num_threads     = {"36"};
     std::vector<std::string> block_sz        = {"32"};
-    std::vector<std::string> omp_num_threads = {"8"};
+    std::vector<std::string> omp_num_threads = {"36"};
     printf("HERE\n");
 
     for (int i = 0; i < (int) test_type.size(); ++i) {

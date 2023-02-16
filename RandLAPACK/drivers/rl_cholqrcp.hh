@@ -232,13 +232,19 @@ int CholQRCP<T>::CholQRCP1(
         geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
     }
     else {
-        omp_set_num_threads(8);
+        // Add below line to ensure best HQRRP performance
+        //omp_set_num_threads(8);
         std::iota(J.begin(), J.end(), 1);
         HQRRP::hqrrp(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat, this->nb_alg, 10, 1);
         //HQRRP::dgeqpr(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat);
     }
+<<<<<<< HEAD:RandLAPACK/drivers/rl_cholqrcp.hh
     omp_set_num_threads(36);
 >>>>>>> 39fdf89 (Changing the number of threads used by HQRRP.):src/drivers/cholqrcp.cc
+=======
+    // Continue with the best threading for the remainder of routines
+    //omp_set_num_threads(36);
+>>>>>>> 01b03ab (Preparing to run HQRRP-backed CholQRCP without thread optimization, but with b_sz of 32.):src/drivers/cholqrcp.cc
 
     if(this -> timing) {
         qrcp_t_stop = high_resolution_clock::now();
