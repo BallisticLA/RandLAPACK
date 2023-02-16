@@ -225,7 +225,20 @@ int CholQRCP<T>::CholQRCP1(
     }
 
     // QRCP - add failure condition
+<<<<<<< HEAD:RandLAPACK/drivers/rl_cholqrcp.hh
     lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
+=======
+    if(this->no_hqrrp) {
+        geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
+    }
+    else {
+        omp_set_num_threads(8);
+        std::iota(J.begin(), J.end(), 1);
+        HQRRP::hqrrp(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat, this->nb_alg, 10, 1);
+        //HQRRP::dgeqpr(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat);
+    }
+    omp_set_num_threads(36);
+>>>>>>> 39fdf89 (Changing the number of threads used by HQRRP.):src/drivers/cholqrcp.cc
 
     if(this -> timing) {
         qrcp_t_stop = high_resolution_clock::now();
