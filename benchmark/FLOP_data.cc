@@ -62,7 +62,7 @@ compute_and_log(
     printf("GEQRF GFLOP RATE    %12.1f\n",   geqrf_flop_rate);
 
     printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
-    
+    /*
     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type 
                                                                                           + "_m_"            + std::to_string(rows) 
                                                                                           + "_d_multiplier_" + d_multiplier
@@ -79,6 +79,7 @@ compute_and_log(
          << geqr_flop_rate       << "  "
          << tsqrp_flop_rate      << "  " 
          << geqrf_flop_rate      << "\n";
+    */
 }
 
 template <typename T>
@@ -106,6 +107,7 @@ process_dat() {
                                     for (int q = 0; q < (int) runs.size(); ++q) {
                                         for (int r = 0; r < (int) num_threads.size(); ++r) {
                                             // Clear old flop file   
+                                            /*
                                             std::ofstream ofs;
                                             ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
@@ -119,7 +121,7 @@ process_dat() {
                                                                                                                                   + "_OMP_threads_"  + num_threads[r]
                                                                                                                                   + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
-                                            
+                                            */
                                             // Open data file
                                             std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type[i] 
                                                                                                                                   + "_m_"            + rows[j] 
