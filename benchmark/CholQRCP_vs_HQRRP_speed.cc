@@ -43,7 +43,7 @@ log_info(int64_t rows,
            const std::string& test_type,
            int runs) {
     // Save the output into .dat file
-    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/BEST CASE_CholQRCP_vs_HQRRP_time_" + test_type 
+    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_" + test_type 
                                                                                          + "_m_"              + std::to_string(rows) 
                                                                                          + "_d_multiplier_"   + std::to_string(d_multiplier)
                                                                                          + "_k_multiplier_"   + std::to_string(k_multiplier)
@@ -196,7 +196,7 @@ test_speed(int r_pow,
 
     printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
     // We are now filling 3 types of data - best, mean and raw
-    /*
+    
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
@@ -245,7 +245,7 @@ test_speed(int r_pow,
                                                                                          + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
-    */
+    
     int64_t rows = 0;
     for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
@@ -286,7 +286,7 @@ test_speed(int r_pow,
                     t_alloc2         += res[3];
                     t_cholqrcp_hqrrp += res[4];
                     t_appl2          += res[5];
-                    /*
+                    
                     // Log every run in the raw data file
                     std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_Raw_m_" 
                                                                                                               + std::to_string(rows) 
@@ -307,7 +307,7 @@ test_speed(int r_pow,
                          << res[3]  << "  " 
                          << res[4]  << "  "  
                          << res[5]  << "\n";
-                    */
+                    
                     // For best timing
                     if(alloc1_best > res[0] || alloc1_best == 0) {
                         alloc1_best = res[0];
@@ -344,14 +344,14 @@ test_speed(int r_pow,
                      cholqrcp_best       + alloc1_best + appl1_best, 
                      cholqrcp_hqrrp_best + alloc2_best + appl2_best, 
                      "Best", runs);
-            /*
+
             log_info(rows, cols, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
                      cholqrcp_mean,
                      cholqrcp_hqrrp_mean,
                      cholqrcp_mean       + alloc1_mean + appl1_mean, 
                      cholqrcp_hqrrp_mean + alloc2_mean + appl2_mean, 
                      "Mean", runs);
-            */
+
             printf("Done with size %ld by %ld\n", rows, cols);
         }
     }

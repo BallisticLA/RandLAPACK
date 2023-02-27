@@ -52,7 +52,7 @@ compute_and_log(
 
     printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
     
-    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_HQRRP_FLOP_RATE_" + test_type 
+    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/BEST_CASE_CholQRCP_HQRRP_FLOP_RATE_" + test_type 
                                                                                           + "_m_"              + std::to_string(rows) 
                                                                                           + "_d_multiplier_"   + d_multiplier
                                                                                           + "_k_multiplier_"   + k_multiplier
@@ -80,10 +80,10 @@ process_dat() {
     std::vector<std::string> mat_type        = {"6"};
     std::vector<std::string> cond            = {"0"};
     std::vector<std::string> nnz             = {"1"};
-    std::vector<std::string> runs            = {"5"};
-    std::vector<std::string> num_threads     = {"1"};
+    std::vector<std::string> runs            = {"15"};
+    std::vector<std::string> num_threads     = {"36"};
     std::vector<std::string> block_sz        = {"32"};
-    std::vector<std::string> omp_num_threads = {"1"};
+    std::vector<std::string> omp_num_threads = {"36"};
     printf("HERE\n");
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
@@ -100,6 +100,7 @@ process_dat() {
                                                 for (int t = 0; t < (int) omp_num_threads.size(); ++t) {
                                                     printf("HERE\n");
                                                     // Clear old flop file   
+                                                    /*
                                                     std::ofstream ofs;
                                                     ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_HQRRP_FLOP_RATE_"  + test_type[i] 
                                                                                                                                         + "_m_"              + rows[j] 
@@ -115,11 +116,11 @@ process_dat() {
                                                                                                                                         + "_SASO_threads_"   + num_threads[r]
                                                                                                                                         + ".dat", std::ofstream::out | std::ofstream::trunc);
                                                     ofs.close();
-                                                    
+                                                    */
                                                     //CholQRCP_vs_HQRRP_time_Best_m_131072_d_multiplier_1.000000_k_multiplier_1.000000_log10(tol)_-11_hqrrp_block_sz_256_mat_type_6_cond_0_nnz_1_runs_per_sz_5_OMP_threads_36_SASO_threads_36
                                                     
                                                     // Open data file
-                                                    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_vs_HQRRP_time_" + test_type[i] 
+                                                    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/BEST_CASE_PANEL_OFF_CholQRCP_vs_HQRRP_time_" + test_type[i] 
                                                                                                                                         + "_m_"              + rows[j] 
                                                                                                                                         + "_d_multiplier_"   + d_multiplier[k]
                                                                                                                                         + "_k_multiplier_"   + k_multiplier[l]
