@@ -37,6 +37,7 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <algorithm>
 
 #include <RandBLAS.hh>
 #include <lapack.hh>
@@ -44,9 +45,6 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 
 #include <lapack/fortran.h>
 #include <lapack/config.h>
-
-
-namespace HQRRP {
 
 // Matrices with dimensions larger than THRESHOLD_FOR_DGEQP3 are processed 
 // with the new HQRRP code.
@@ -262,276 +260,10 @@ void _LAPACK_dlarf(
   return;
 }
 
-
-// ============================================================================
-void dgeqpr( int64_t * m, int64_t * n, double * A, int64_t * lda, int64_t * jpvt, double * tau,
-        double * work, int64_t * lwork, int64_t * info ) {
-// 
-// This routine is plug compatible with LAPACK's routine dgeqp3.
-// It computes the new HQRRP while keeping the same header as LAPACK's dgeqp3.
-// It uses dgeqp3 for small matrices. The threshold is defined in the
-// constant THRESHOLD_FOR_DGEQP3.
-//
-// The work parameters (work and lwork) are only used when this routine calls
-//    LAPACK_dgeqp3 (for sufficiently small matrices), and
-//    LAPACK_dgeqrf and LAPACK_dormqr (when jpvt specifies fixed cols on entry).
-// The work parameters do not affect the main randomized algorithm, which is
-// implemented by hqrrp.
-//
-// In particular, the work parameters do not effect algorithm performance when
-// no fixed columns are specified and the smaller dimension of the input matrix
-// is larger than THRESHOLD_FOR_DGEQP3. 
-//   
-  int64_t     INB = 1;
-  int64_t     i_one = 1, i_minus_one = -1, 
-          m_A, n_A, mn_A, ldim_A, lquery, nb, num_factorized_fixed_cols, 
-          minus_info, iws, lwkopt, j, k, num_fixed_cols, n_rest, itmp;
-  int64_t     * previous_jpvt;
-
-  using blas::real;
-
-  // Some initializations.
-  m_A    = * m;
-  n_A    = * n;
-  mn_A   = min( m_A, n_A );
-  ldim_A = * lda;
-
-  int64_t ineg_one = -1;
-
-  // Check input arguments.
-  * info = 0;
-  lquery = ( * lwork == -1 );
-  if( m_A < 0 ) {
-     * info = -1;
-  } else if ( n_A < 0 ) {
-     * info = -2;
-  } else if ( ldim_A < max( 1, m_A ) ) {
-     * info = -4;
-  }
-
-  if( *info == 0 ) {
-    if( mn_A == 0 ) {
-      iws    = 1;
-      lwkopt = 1;
-    } else {
-      /*
-      This code block originally called ilaenv_ in order to find the optimal "nb",
-      then set lwkopt = 2 * n_A + (n_A + 1) * nb.
-      We can't do that because LAPACK++ doesn't expose ILAENV, but we can look at what
-      LAPACK++ does and back out a valid value for "nb".
-      
-          LAPACK++ gets the workspace by calling DGEQRF
-          https://bitbucket.org/icl/lapackpp/src/7f1feb420fd94332200ac0636bab451157cbee6d/src/geqrf.cc#lines-81:92
-          
-          DGEQRF calls ILAENV to get NB, and then sets LWKOPT to N*NB, where N is the number of cols in A
-          https://github.com/Reference-LAPACK/lapack/blob/a066b6a08f23186f2f38f1d9167f6616528ad89f/SRC/dgeqrf.f#L200
-          So we'll call DGEQRF to get LWKOPT_DETERM, assume LWKOPT_DETERM = NB*N, then set NB = LWKOPT_DETERM / N.
-      */
-      iws    = 3 * n_A + 1;
-      double qry_work[1];
-      _LAPACK_dgeqrf(
-          m_A, n_A,
-          A, ldim_A,
-          tau,
-          qry_work, &ineg_one, info );
-      if (*info < 0) {
-          throw blas::Error();
-      }
-      int64_t lwork_determ = real(qry_work[0]);
-      int64_t nb = ((int64_t) lwork_determ) / n_A;
-      lwkopt = 2 * n_A + (n_A + 1) * nb;
-    }
-    work[ 0 ] = ( double ) lwkopt;
-
-    if ( ( * lwork < iws )&&( ! lquery ) ) {
-      * info = -8;
-    }
-  }
-
-  if( * info != 0 ) {
-    throw blas::Error();
-  } else if( lquery ) {
-    return;
-  }
-
-  // Quick return if possible.
-  if( mn_A == 0 ) {
-    return;
-  }
-
-  // Use LAPACK's DGEQP3 for small matrices.
-  if( mn_A < THRESHOLD_FOR_DGEQP3 ) {
-    //// printf( "Calling dgeqp3\n" );
-    _LAPACK_dgeqp3( m_A,
-                    n_A, A,
-                    ldim_A, jpvt, tau, work, lwork, info );
-    return;
-  }
-
-  // Move initial columns up front.
-  num_fixed_cols = 0;
-  for( j = 0; j < n_A; j++ ) {
-    if( jpvt[ j ] != 0 ) {
-      if( j != num_fixed_cols ) {
-        /// printf( "Swapping columns: %d %d \n", (int) j, (int) num_fixed_cols );
-        blas::swap( m_A, & A[ 0 + j              * ldim_A ], i_one, 
-                         & A[ 0 + num_fixed_cols * ldim_A ], i_one );
-        jpvt[ j ] = jpvt[ num_fixed_cols ];
-        jpvt[ num_fixed_cols ] = j + 1;
-      } else {
-        jpvt[ j ] = j + 1 ;
-      }
-      num_fixed_cols++;
-    } else {
-      jpvt[ j ] = j + 1 ;
-    }
-  }
-
-  // Factorize fixed columns at the front.
-  num_factorized_fixed_cols = min( m_A, num_fixed_cols );
-  if( num_factorized_fixed_cols > 0 ) {
-    _LAPACK_dgeqrf( m_A, num_factorized_fixed_cols, A, ldim_A, tau, work, lwork,
-                    info );
-    if( * info != 0 ) {
-      fprintf( stderr, "ERROR in dgeqrf: Info: %d \n", (int) (*info) );
-    }
-    iws = max( iws, ( int64_t ) work[ 0 ] );
-    if( num_factorized_fixed_cols < n_A ) {
-      n_rest = n_A - num_factorized_fixed_cols;
-      _LAPACK_dormqr( blas::Side::Left, lapack::Op::Trans,
-                      m_A, n_rest, num_factorized_fixed_cols,
-                      A, ldim_A, tau,
-                      & A[ 0 + num_factorized_fixed_cols * ldim_A ], ldim_A, 
-                      work, lwork, info);
-      if( * info != 0 ) {
-        fprintf( stderr, "ERROR in dormqr: Info: %d \n", (int) (*info ));
-      }
-
-      iws = max( iws, ( int64_t ) work[ 0 ] );
-    }
-  }
-
-  // Create intermediate jpvt vector.
-  previous_jpvt = ( int64_t * ) malloc( n_A * sizeof( int64_t ) );
-
-  // Save a copy of jpvt vector.
-  if( num_factorized_fixed_cols > 0 ) {
-    // Copy vector.
-    for( j = 0; j < n_A; j++ ) {
-      previous_jpvt[ j ] = jpvt[ j ];
-    }
-  }
-
-  // Factorize free columns at the bottom with default values:
-  // nb_alg = 64, pp = 10, panel_pivoting = 1.
-  if( num_factorized_fixed_cols < mn_A ) {
-    * info = hqrrp( 
-        m_A - num_factorized_fixed_cols, n_A - num_factorized_fixed_cols, 
-        & A[ num_factorized_fixed_cols + num_factorized_fixed_cols * ldim_A ], 
-            ldim_A,
-        & jpvt[ num_factorized_fixed_cols ], 
-        & tau[ num_factorized_fixed_cols ],
-        64, 10, 1 );
-  }
-
-  // Pivot block above factorized block by NoFLA_HQRRP.
-  if( num_factorized_fixed_cols > 0 ) {
-    // Pivot block above factorized block.
-    for( j = num_factorized_fixed_cols; j < n_A; j++ ) {
-      //// printf( "%% Processing j: %d \n", j );
-      for( k = j; k < n_A; k++ ) {
-        if( jpvt[ j ] == previous_jpvt[ k ] ) {
-          //// printf( "%%   Found j: %d  k: %d \n", j, k );
-          break;
-        }
-      }
-      // Swap vector previous_jpvt and block above factorized block.
-      if( k != j ) { 
-        // Swap elements in previous_jpvt.
-        //// printf( "%%   Swapping  j: %d  k: %d \n", j, k );
-        itmp = previous_jpvt[ j ];
-        previous_jpvt[ j ] = previous_jpvt[ k ];
-        previous_jpvt[ k ] = itmp;
-
-        // Swap columns in block above factorized block.
-        blas::swap( num_factorized_fixed_cols,
-                & A[ 0 + j * ldim_A ], i_one,
-                & A[ 0 + k * ldim_A ], i_one );
-      }
-    }
-  }
-
-  // Remove intermediate jpvt vector.
-  free( previous_jpvt );
-
-  // Return workspace length required.
-  work[ 0 ] = iws;
-  return;
-}
-
-
-void dgeqpr(int64_t m, int64_t n, double *A, int64_t lda, int64_t *jpvt, double *tau)
-{
-  // This function is compatible with LAPACK++'s geqp3, provided the matrix A is 
-  // double precision.
-  int64_t info = 0;
-  int64_t lwork = -1;
-  double *buff_wk_qp4 = (double *) malloc( sizeof( double ) );
-  dgeqpr( & m, & n, A, & lda, jpvt, tau, 
-          buff_wk_qp4, & lwork, &info );
-  if (info != 0) throw lapack::Error();
-
-  lwork = (int64_t) *buff_wk_qp4;
-  free(buff_wk_qp4);
-  buff_wk_qp4 = ( double * ) malloc( lwork * sizeof( double ) );
-  dgeqpr( & m, & n, A, & lda, jpvt, tau, 
-          buff_wk_qp4, & lwork, &info );
-  if (info != 0) throw lapack::Error();
-  
-  free(buff_wk_qp4);
-  return;
-}
-
-
 // ============================================================================
 int64_t hqrrp( int64_t m_A, int64_t n_A, double * buff_A, int64_t ldim_A,
         int64_t * buff_jpvt, double * buff_tau,
         int64_t nb_alg, int64_t pp, int64_t panel_pivoting ) {
-//
-// HQRRP: It computes the Householder QR with Randomized Pivoting of matrix A.
-// This routine is almost compatible with LAPACK's dgeqp3.
-// The main difference is that this routine does not manage fixed columns.
-//
-// Main features:
-//   * BLAS-3 based.
-//   * Norm downdating method by Drmac.
-//   * Downdating for computing Y.
-//   * No use of libflame.
-//   * Compact WY transformations are used instead of UT transformations.
-//   * LAPACK's routine dlarfb is used to apply block transformations.
-//
-// Arguments:
-// ----------
-// m_A:            Number of rows of matrix A.
-// n_A:            Number of columns of matrix A.
-// buff_A:         Address/pointer of/to data in matrix A. Matrix A must be 
-//                 stored in column-order.
-// ldim_A:         Leading dimension of matrix A.
-// buff_jpvt:      Input/output vector with the pivots.
-// buff_tau:       Output vector with the tau values of the Householder factors.
-// nb_alg:         Block size. 
-//                 Usual values for nb_alg are 32, 64, etc.
-// pp:             Oversampling size.
-//                 Usual values for pp are 5, 10, etc.
-// panel_pivoting: If panel_pivoting==1, QR with pivoting is applied to 
-//                 factorize the panels of matrix A. Otherwise, QR without 
-//                 pivoting is used. Usual value for panel_pivoting is 1.
-// Final comments:
-// ---------------
-// This code has been created from a libflame code. Hence, you can find some
-// commented calls to libflame routines. We have left them to make it easier
-// to interpret the meaning of the C code.
-//
   int64_t     b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
           m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
           m_A11, n_A11, m_A12, n_A12, m_A21, n_A21, m_A22,
@@ -669,6 +401,7 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, double * buff_A, int64_t ldim_A,
     //// print_double_matrix( "cyr", m_cyr, n_cyr, buff_cyr, ldim_cyr );
     //// print_double_matrix( "y", m_Y, n_Y, buff_Y, ldim_Y );
     sum = 0.0;
+    #pragma omp parallel for
     for( jj = 0; jj < n_cyr; jj++ ) {
       for( ii = 0; ii < m_cyr; ii++ ) {
         aux = buff_Y[ ii + ( j + jj ) * ldim_Y ] -
@@ -758,6 +491,7 @@ static int64_t NoFLA_Normal_random_matrix( int64_t m_A, int64_t n_A,
   int64_t  i, j;
 
   // Main loop.
+  #pragma omp parallel for
   for ( j = 0; j < n_A; j++ ) {
     for ( i = 0; i < m_A; i++ ) {
       buff_A[ i + j * ldim_A ] = NoFLA_Normal_random_number( 0.0, 1.0 );
@@ -855,6 +589,7 @@ static int64_t NoFLA_Downdate_Y(
               d_minus_one, buff_U11, ldim_U11, buff_B, ldim_B );
 
   // B = G1 + B.
+  #pragma omp parallel for
   for( j = 0; j < n_B; j++ ) {
     for( i = 0; i < m_B; i++ ) {
       buff_B[ i + j * ldim_B ] += buff_G1[ i + j * ldim_G1 ];
@@ -1080,6 +815,7 @@ static int64_t NoFLA_QRP_compute_norms(
   int64_t     j, i_one = 1;
 
   // Main loop.
+  #pragma omp parallel for
   for( j = 0; j < n_A; j++ ) {
     * buff_d = blas::nrm2(m_A, buff_A, i_one);
     * buff_e = * buff_d;
@@ -1105,34 +841,6 @@ static int64_t NoFLA_QRP_downdate_partial_norms( int64_t m_A, int64_t n_A,
   double  temp, temp2, temp5, tol3z;
   // double  dnrm2_(), dlamch_();
 
-  /*
-*
-*           Update partial column norms
-*
-          DO 30 J = I + 1, N
-             IF( WORK( J ).NE.ZERO ) THEN
-*
-*                 NOTE: The following 4 lines follow from the analysis in
-*                 Lapack Working Note 176.
-*                 
-                TEMP = ABS( A( I, J ) ) / WORK( J )
-                TEMP = MAX( ZERO, ( ONE+TEMP )*( ONE-TEMP ) )
-                TEMP2 = TEMP*( WORK( J ) / WORK( N+J ) )**2
-                IF( TEMP2 .LE. TOL3Z ) THEN 
-                   IF( M-I.GT.0 ) THEN
-                      WORK( J ) = DNRM2( M-I, A( I+1, J ), 1 )
-                      WORK( N+J ) = WORK( J )
-                   ELSE
-                      WORK( J ) = ZERO
-                      WORK( N+J ) = ZERO
-                   END IF
-                ELSE
-                   WORK( J ) = WORK( J )*SQRT( TEMP )
-                END IF
-             END IF
- 30       CONTINUE
-  */
-
   // Some initializations.
   char dlmach_param = 'E';
   tol3z = sqrt( LAPACK_dlamch( & dlmach_param
@@ -1146,6 +854,7 @@ static int64_t NoFLA_QRP_downdate_partial_norms( int64_t m_A, int64_t n_A,
   ptr_A  = buff_A;
 
   // Main loop.
+  #pragma omp parallel for
   for( j = 0; j < n_A; j++ ) {
     if( * ptr_d != 0.0 ) {
       temp = dabs( * ptr_wt ) / * ptr_d;
@@ -1222,5 +931,3 @@ static int64_t NoFLA_QRP_pivot_G_B_C( int64_t j_max_col,
   }
   return 0;
 }
-
-}  // end namespace HQRRP
