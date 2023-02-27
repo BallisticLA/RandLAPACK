@@ -235,7 +235,7 @@ int CholQRCP<T>::CholQRCP1(
         // Add below line to ensure best HQRRP performance
         omp_set_num_threads(8);
         std::iota(J.begin(), J.end(), 1);
-        HQRRP::hqrrp(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat, this->nb_alg, 10, 0);
+        HQRRP::hqrrp(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting);
         //HQRRP::dgeqpr(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat);
     }
 <<<<<<< HEAD:RandLAPACK/drivers/rl_cholqrcp.hh
