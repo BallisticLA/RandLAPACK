@@ -52,14 +52,7 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <RandBLAS.hh>
 #include <lapack/fortran.h>
 #include <lapack/config.h>
-/*
-#include <RandBLAS.hh>
-#include <lapack.hh>
-#include <RandLAPACK.hh>
 
-#include <lapack/fortran.h>
-#include <lapack/config.h>
-*/
 // Matrices with dimensions larger than THRESHOLD_FOR_DGEQP3 are processed 
 // with the new HQRRP code.
 #define THRESHOLD_FOR_DGEQP3  3
@@ -75,6 +68,8 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 // Compilation declarations.
 
 #undef CHECK_DOWNDATING_OF_Y
+
+namespace RandLAPACK {
 
 // ============================================================================
 // Functions
@@ -181,11 +176,11 @@ static T NoFLA_Normal_random_number( T mu, T sigma ) {
         c2 = -1.0 + 2.0 * ( (T) rand() / RAND_MAX );
         a = c1 * c1 + c2 * c2;
     } while ( ( a == 0 )||( a >= 1 ) );
-        factor = sqrt( ( -2 * log( a ) ) / a );
-        b1 = c1 * factor;
-        b2 = c2 * factor;
-        alternate_calls = ! alternate_calls;
-        return( mu + sigma * b1 );
+    factor = sqrt( ( -2 * log( a ) ) / a );
+    b1 = c1 * factor;
+    b2 = c2 * factor;
+    alternate_calls = ! alternate_calls;
+    return( mu + sigma * b1 );
 }
 
 /* ========================================================================= */
@@ -876,4 +871,6 @@ int64_t hqrrp(
 
     return 0;
 }
+
+} // end namespace RandLAPACK
 #endif

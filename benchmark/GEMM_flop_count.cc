@@ -9,7 +9,7 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 */
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
+using namespace RandLAPACK;
 
 template <typename T>
 static void 
