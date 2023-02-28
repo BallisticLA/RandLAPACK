@@ -35,4 +35,4 @@
 template <typename T>
 int64_t hqrrp( int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
         int64_t * buff_jpvt, T * buff_tau,
-        int64_t nb_alg, int64_t pp, int64_t panel_pivoting );
+        int64_t nb_alg, int64_t pp, int64_t panel_pivoting, uint64_t seed);

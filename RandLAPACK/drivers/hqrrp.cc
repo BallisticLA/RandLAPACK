@@ -54,8 +54,8 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 // ============================================================================
 // Definition of macros.
 
-#define max( a, b )  ( (a) > (b) ? (a) : (b) )
-#define min( a, b )  ( (a) > (b) ? (b) : (a) )
+#define max_untyped( a, b )  ( (a) > (b) ? (a) : (b) )
+#define min_untyped( a, b )  ( (a) > (b) ? (b) : (a) )
 #define dabs( a )    ( (a) >= 0.0 ? (a) : -(a) )
 
 // ============================================================================
@@ -215,7 +215,7 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_TRANSPOSE, B1, & W );
     buff_W = ( T * ) malloc( m_B * n_U * sizeof( T ) );
-    ldim_W = max( 1, m_B );
+    ldim_W = max_untyped( 1, m_B );
 
     // Apply the block transformation. 
     _LAPACK_lafrb(lapack::Side::Right, lapack::Op::NoTrans,
@@ -343,7 +343,7 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_NO_TRANSPOSE, B1, & W );
     buff_W = ( T * ) malloc( n_B * n_U * sizeof( T ) );
-    ldim_W = max( 1, n_B );
+    ldim_W = max_untyped( 1, n_B );
 
     // Apply the block transformation.
     _LAPACK_lafrb(lapack::Side::Left, lapack::Op::Trans,
@@ -418,7 +418,7 @@ static int64_t NoFLA_QRP_downdate_partial_norms(
     for( j = 0; j < n_A; j++ ) {
     if( * ptr_d != 0.0 ) {
         temp = dabs( * ptr_wt ) / * ptr_d;
-        temp = max( 0.0, ( 1.0 + temp ) * ( 1 - temp ) );
+        temp = max_untyped( 0.0, ( 1.0 + temp ) * ( 1 - temp ) );
         temp5 = * ptr_d / * ptr_e;
         temp2 = temp * temp5 * temp5;
         if( temp2 <= tol3z ) {
@@ -522,7 +522,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     //// printf( "NoFLA_QRPmod_WY_unb_var4. pivoting: %d \n", pivoting );
 
     // Some initializations.
-    mn_A    = min( m_A, n_A );
+    mn_A    = min_untyped( m_A, n_A );
 
     // Set the number of stages, if needed.
     if( num_stages < 0 ) {
@@ -567,7 +567,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         n_house_vector = m_a21 + 1;
         lapack::larfg(n_house_vector,
             & buff_A[ j + j * ldim_A ],
-            & buff_A[ min( m_A-1, j+1 ) + j * ldim_A ],
+            & buff_A[ min_untyped( m_A-1, j+1 ) + j * ldim_A ],
             i_one,
             & buff_t[j]
         );
@@ -593,7 +593,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
                 & buff_d[ j+1 ], 1,
                 & buff_e[ j+1 ], 1,
                 & buff_A[ j + ( j+1 ) * ldim_A ], ldim_A,
-                & buff_A[ ( j+1 ) + min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
+                & buff_A[ ( j+1 ) + min_untyped( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
         }
     }
 
@@ -618,7 +618,7 @@ template <typename T>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting ) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, uint64_t seed) {
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -640,12 +640,12 @@ int64_t hqrrp(
         fprintf( stderr, "ERROR in hqrrp: m_A is < 0.\n" );
     } if( n_A < 0 ) {
         fprintf( stderr, "ERROR in hqrrp: n_A is < 0.\n" );
-    } if( ldim_A < max( 1, m_A ) ) {
-        fprintf( stderr, "ERROR in hqrrp: ldim_A is < max( 1, m_A ).\n" );
+    } if( ldim_A < max_untyped( 1, m_A ) ) {
+        fprintf( stderr, "ERROR in hqrrp: ldim_A is < max_untyped( 1, m_A ).\n" );
     }
 
     // Some initializations.
-    mn_A   = min( m_A, n_A );
+    mn_A   = min_untyped( m_A, n_A );
     buff_p = buff_jpvt;
     buff_s = buff_tau;
 
@@ -655,7 +655,7 @@ int64_t hqrrp(
     }
 
     // Initialize the seed for the generator of random numbers.
-    srand( 12 );
+    srand( seed );
 
     // Create auxiliary objects.
     m_Y     = nb_alg + pp;
@@ -687,7 +687,7 @@ int64_t hqrrp(
 
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
-        b = min( nb_alg, min( n_A - j, m_A - j ) );
+        b = min_untyped( nb_alg, min_untyped( n_A - j, m_A - j ) );
 
         // Check whether it is the last iteration.
         last_iter = ( ( ( j + nb_alg >= m_A )||( j + nb_alg >= n_A ) ) ? 1 : 0 );
@@ -713,21 +713,21 @@ int64_t hqrrp(
         buff_A11 = & buff_A[ j + j * ldim_A ];
         n_A11 = b;
 
-        buff_A21 = & buff_A[ min( m_A - 1, j + nb_alg ) + j * ldim_A ];
-        m_A21 = max( 0, m_A - j - b );
+        buff_A21 = & buff_A[ min_untyped( m_A - 1, j + nb_alg ) + j * ldim_A ];
+        m_A21 = max_untyped( 0, m_A - j - b );
 
-        buff_A12 = & buff_A[ j + min( n_A - 1, j + b ) * ldim_A ];
+        buff_A12 = & buff_A[ j + min_untyped( n_A - 1, j + b ) * ldim_A ];
         m_A12 = b;
-        n_A12 = max( 0, n_A - j - b );
+        n_A12 = max_untyped( 0, n_A - j - b );
 
-        //// buff_A22 = & buff_A[ min( m_A - 1, j + b ) + 
-        ////                      min( n_A - 1, j + b ) * ldim_A ];
-        m_A22 = max( 0, m_A - j - b );
-        //// n_A22 = max( 0, n_A - j - b );
+        //// buff_A22 = & buff_A[ min_untyped( m_A - 1, j + b ) + 
+        ////                      min_untyped( n_A - 1, j + b ) * ldim_A ];
+        m_A22 = max_untyped( 0, m_A - j - b );
+        //// n_A22 = max_untyped( 0, n_A - j - b );
 
-        buff_Y2 = & buff_Y[ 0 + min( n_Y - 1, j + b ) * ldim_Y ];
+        buff_Y2 = & buff_Y[ 0 + min_untyped( n_Y - 1, j + b ) * ldim_Y ];
         buff_G1 = & buff_G[ 0 + j * ldim_G ];
-        buff_G2 = & buff_G[ 0 + min( n_G - 1, j + b ) * ldim_G ];
+        buff_G2 = & buff_G[ 0 + min_untyped( n_G - 1, j + b ) * ldim_G ];
             
 #ifdef CHECK_DOWNDATING_OF_Y
         // Check downdating of matrix Y: Compare downdated matrix Y with 
@@ -817,9 +817,9 @@ int64_t hqrrp(
                 m_A21, buff_A21, ldim_A,
                 m_A12, buff_A12, ldim_A,
                 buff_T1_T, ldim_T1_T,
-                m_Y, max( 0, n_Y - j - b ), buff_Y2, ldim_Y,
+                m_Y, max_untyped( 0, n_Y - j - b ), buff_Y2, ldim_Y,
                 m_G, b, buff_G1, ldim_G,
-                max( 0, n_G - j - b ), buff_G2, ldim_G );
+                max_untyped( 0, n_G - j - b ), buff_G2, ldim_G );
         }
     }
 
@@ -835,9 +835,9 @@ int64_t hqrrp(
 template int64_t hqrrp<double>( 
     int64_t m_A, int64_t n_A, double * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, double * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting );
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, uint64_t seed);
 
 template int64_t hqrrp<float>( 
     int64_t m_A, int64_t n_A, float * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, float * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting );
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, uint64_t seed);
