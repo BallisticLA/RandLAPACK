@@ -5,11 +5,13 @@
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_hqrrp.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
 #include <chrono>
+#include <numeric>
 
 using namespace std::chrono;
 
@@ -46,6 +48,10 @@ class CholQRCP : public CholQRCPalg<T> {
             timing = t;
             seed = sd;
             eps = ep;
+            no_hqrrp = 1;
+            nb_alg = 64;
+            oversampling = 10;
+            panel_pivoting = 1;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -120,6 +126,11 @@ class CholQRCP : public CholQRCPalg<T> {
         std::vector<T> A_hat;
         std::vector<T> tau;
         std::vector<T> R_sp;
+
+        int no_hqrrp;
+        int64_t nb_alg;
+        int64_t oversampling;
+        int64_t panel_pivoting;
 };
 
 // -----------------------------------------------------------------------------
@@ -225,30 +236,13 @@ int CholQRCP<T>::CholQRCP1(
     }
 
     // QRCP - add failure condition
-<<<<<<< HEAD:RandLAPACK/drivers/rl_cholqrcp.hh
-    lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
-=======
     if(this->no_hqrrp) {
-        geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
+        lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
     }
     else {
-        // Add below line to ensure best HQRRP performance
-        //omp_set_num_threads(8);
         std::iota(J.begin(), J.end(), 1);
-<<<<<<< HEAD:RandLAPACK/drivers/rl_cholqrcp.hh
-        HQRRP::hqrrp(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat, this->nb_alg, 10, 1);
-        //HQRRP::dgeqpr(d, n, (double *)A_hat_dat, d, J_dat, (double *)tau_dat);
-=======
-        hqrrp<T>(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->seed);
->>>>>>> 99492e9 (For some reason, HQRRP casting was still happening. At the moment, HQRRP need to be made header-only.):src/drivers/cholqrcp.cc
+        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->seed);
     }
-<<<<<<< HEAD:RandLAPACK/drivers/rl_cholqrcp.hh
-    omp_set_num_threads(36);
->>>>>>> 39fdf89 (Changing the number of threads used by HQRRP.):src/drivers/cholqrcp.cc
-=======
-    // Continue with the best threading for the remainder of routines
-    //omp_set_num_threads(36);
->>>>>>> 01b03ab (Preparing to run HQRRP-backed CholQRCP without thread optimization, but with b_sz of 32.):src/drivers/cholqrcp.cc
 
     if(this -> timing) {
         qrcp_t_stop = high_resolution_clock::now();
