@@ -199,9 +199,9 @@ int64_t NoFLA_Normal_random_matrix( int64_t m_A, int64_t n_A,
 // ============================================================================
 template <typename T>
 int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4( 
-               int64_t m_U, int64_t n_U, T * buff_U, int64_t ldim_U,
-               int64_t m_T, int64_t n_T, T * buff_T, int64_t ldim_T,
-               int64_t m_B, int64_t n_B, T * buff_B, int64_t ldim_B ) {
+            int64_t n_U, T * buff_U, int64_t ldim_U,
+            T * buff_T, int64_t ldim_T, int64_t m_B, 
+            int64_t n_B, T * buff_B, int64_t ldim_B ) {
 //
 // It applies a block transformation Q to a matrix B from the right:
 //   B = B * Q
@@ -233,13 +233,13 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
 // ============================================================================
 template <typename T>
 int64_t NoFLA_Downdate_Y( 
-               int64_t m_U11, int64_t n_U11, T * buff_U11, int64_t ldim_U11,
-               int64_t m_U21, int64_t n_U21, T * buff_U21, int64_t ldim_U21,
-               int64_t m_A12, int64_t n_A12, T * buff_A12, int64_t ldim_A12,
-               int64_t m_T, int64_t n_T, T * buff_T, int64_t ldim_T,
+               int64_t n_U11, T * buff_U11, int64_t ldim_U11,
+               int64_t m_U21, T * buff_U21, int64_t ldim_U21,
+               int64_t m_A12, T * buff_A12, int64_t ldim_A12,
+               T * buff_T, int64_t ldim_T,
                int64_t m_Y2, int64_t n_Y2, T * buff_Y2, int64_t ldim_Y2,
                int64_t m_G1, int64_t n_G1, T * buff_G1, int64_t ldim_G1,
-               int64_t m_G2, int64_t n_G2, T * buff_G2, int64_t ldim_G2 ) {
+               int64_t n_G2, T * buff_G2, int64_t ldim_G2 ) {
 //
 // It downdates matrix Y, and updates matrix G.
 // Only Y2 of Y is updated.
@@ -313,9 +313,9 @@ int64_t NoFLA_Downdate_Y(
   // GR = GR * Q
   //
   NoFLA_Apply_Q_WY_rnfc_blk_var4( 
-          m_U11 + m_U21, n_U11, buff_U11, ldim_U11,
-          m_T, n_T, buff_T, ldim_T,
-          m_G1, n_G1 + n_G2, buff_G1, ldim_G1 );
+        n_U11, buff_U11, ldim_U11,
+        buff_T, ldim_T, m_G1, 
+        n_G1 + n_G2, buff_G1, ldim_G1 );
 
   // Remove object B.
   free( buff_B );
@@ -326,9 +326,8 @@ int64_t NoFLA_Downdate_Y(
 // ============================================================================
 template <typename T>
 int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4( 
-               int64_t m_U, int64_t n_U, T * buff_U, int64_t ldim_U,
-               int64_t m_T, int64_t n_T, T * buff_T, int64_t ldim_T,
-               int64_t m_B, int64_t n_B, T * buff_B, int64_t ldim_B ) {
+            int64_t n_U, T * buff_U, int64_t ldim_U,
+            T * buff_T, int64_t ldim_T, int64_t m_B, int64_t n_B, T * buff_B, int64_t ldim_B ) {
 //
 // It applies the transpose of a block transformation Q to a matrix B from 
 // the left:
@@ -569,8 +568,8 @@ int64_t NoFLA_QRPmod_WY_unb_var4( int64_t pivoting, int64_t num_stages,
         & buff_t[j]
     );
 
-    // / a12t \ =  H / a12t \
-    // \ A22  /      \ A22  /
+    // | a12t | =  H | a12t |
+    // | A22  |      | A22  |
     //
     // where H is formed from tau1 and u21.
     diag = buff_A[ j + j * ldim_A ];
@@ -617,7 +616,7 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
         int64_t nb_alg, int64_t pp, int64_t panel_pivoting ) {
   int64_t     b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
           m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
-          m_A11, n_A11, m_A12, n_A12, m_A21, n_A21, m_A22,
+          n_A11, m_A12, n_A12, m_A21, m_A22,
           m_G, n_G, ldim_G;
   T  * buff_Y, * buff_V, * buff_W, * buff_VR, * buff_YR, 
           * buff_s, * buff_sB, * buff_s1, 
@@ -709,12 +708,10 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     ldim_T1_T = ldim_W;
 
     buff_A11 = & buff_A[ j + j * ldim_A ];
-    m_A11 = b;
     n_A11 = b;
 
     buff_A21 = & buff_A[ min( m_A - 1, j + nb_alg ) + j * ldim_A ];
     m_A21 = max( 0, m_A - j - b );
-    n_A21 = b;
 
     buff_A12 = & buff_A[ j + min( n_A - 1, j + b ) * ldim_A ];
     m_A12 = b;
@@ -799,13 +796,13 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     if ( ( j + b ) < n_A ) {
       // Apply the Householder transforms associated with AB1 = [ A11; A21 ] 
       // and T1_T to [ A12; A22 ]:
-      //   / A12 \ := QB1' / A12 \
-      //   \ A22 /         \ A22 /
+      //   | A12 | := QB1' | A12 |
+      //   | A22 |         | A22 |
       // where QB1 is formed from AB1 and T1_T.
       NoFLA_Apply_Q_WY_lhfc_blk_var4( 
-          m_A11 + m_A21, n_A11, buff_A11, ldim_A,
-          b, b, buff_T1_T, ldim_W,
-          m_A12 + m_A22, n_A12, buff_A12, ldim_A );
+        n_A11, buff_A11, ldim_A,
+        buff_T1_T, ldim_W, m_A12 + m_A22, 
+        n_A12, buff_A12, ldim_A );
     }
 
     //
@@ -813,13 +810,13 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     //
     if ( ! last_iter ) {
       NoFLA_Downdate_Y<T>(
-          m_A11, n_A11, buff_A11, ldim_A,
-          m_A21, n_A21, buff_A21, ldim_A,
-          m_A12, n_A12, buff_A12, ldim_A,
-          b, b, buff_T1_T, ldim_T1_T,
+          n_A11, buff_A11, ldim_A,
+          m_A21, buff_A21, ldim_A,
+          m_A12, buff_A12, ldim_A,
+          buff_T1_T, ldim_T1_T,
           m_Y, max( 0, n_Y - j - b ), buff_Y2, ldim_Y,
           m_G, b, buff_G1, ldim_G,
-          m_G, max( 0, n_G - j - b ), buff_G2, ldim_G );
+          max( 0, n_G - j - b ), buff_G2, ldim_G );
     }
   }
 
