@@ -3,19 +3,18 @@
 #include "rl_lapackpp.hh"
 
 #include <RandBLAS.hh>
+#include <math.h>
+#include <numeric>
+#include <iostream>
 #include <fstream>
-#include <gtest/gtest.h>
+#include <chrono>
+#include <thread>
+#include <fstream>
 
 /*
 Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
-
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::comps::orth;
-using namespace RandLAPACK::comps::rs;
-using namespace RandLAPACK::comps::rf;
-using namespace RandLAPACK::comps::qb;
 
 // Define a new return type
 typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
@@ -26,7 +25,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     
     // For running QB
     std::vector<T> A(m * n, 0.0);
-    gen_mat_type(m, n, A, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
 
     int64_t size = m * n;
     // Adjust the expected rank
@@ -40,11 +39,6 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     // For results comparison
     std::vector<T> A_hat(size, 0.0);
 
-    T* A_dat = A.data();
-    T* Q_dat = Q.data();
-    T* B_dat = B.data();
-    T* A_hat_dat = A_hat.data();
-
     //RandLAPACK::comps::util::disp_diag(m, n, k, A);
 
     //Subroutine parameters 
@@ -55,17 +49,17 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
 
     // Make subroutine objects
     // Stabilization Constructor - Choose PLU
-    Stab<T> Stab(use_CholQRQ, cond_check, verbosity);
+    RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
     // RowSketcher constructor - Choose default (rs1)
-    RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+    RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
     // Orthogonalization Constructor - use HQR
-    Orth<T> Orth_RF(use_HQRQ, cond_check, verbosity);
+    RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
     // RangeFinder constructor
-    RF<T> RF(RS, Orth_RF, verbosity, cond_check);
+    RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
     // Orthogonalization Constructor - use HQR
-    Orth<T> Orth_QB(use_HQRQ, cond_check, verbosity);
-    // QB constructor - Choose QB2_test_mode
-    QB<T> QB(RF, Orth_QB, verbosity, orth_check);
+    RandLAPACK::CholQRQ<T> Orth_QB(cond_check, verbosity);
+    // QB constructor - Choose default QB2
+     RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
 
     // Test mode QB2
     QB.call(
@@ -79,27 +73,6 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
         B
     );
 
-    switch(QB.termination)
-    {
-        case 1:
-            printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
-            break;
-        case 2:
-            printf("\nTERMINATED VIA: Early termination due to unexpected error accumulation.\n");
-            break;
-        case 3:
-            printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
-            break;
-        case 4:
-            printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
-            break;
-        case 5:
-            printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
-            break;
-        case 0:
-            printf("\nTERMINATED VIA: Expected tolerance reached.\n");
-            break;
-    }
     printf("Inner dimension of QB: %ld\n", k);
 
     printf("SIZE IS %ld\n", RS.cond_nums.size());
@@ -107,7 +80,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
 }
 
 template <typename T>
-static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon)
+static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS)
 {
     printf("|==================================TEST QB2 K PLOT BEGIN==================================|\n");
 
@@ -166,10 +139,10 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
                 }
                 
                 // Save array as .dat file - generic plot
-                std::string path_RF = "../../build/test_plots/test_cond/raw_data/test_RF_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
-                std::string path_RS = "../../build/test_plots/test_cond/raw_data/test_RS_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
+                std::string full_path_RF = path_RF + "test_RF_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
+                std::string full_path_RS = path_RS + "test_RS_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
 
-                std::ofstream file_RF(path_RF);
+                std::ofstream file_RF(full_path_RF);
                 //unfortunately, cant do below with foreach
                 for (int i = 0; i < v_RF_sz; ++ i) {
                     T* entry = all_vecs_RF_dat + i;
@@ -178,7 +151,7 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
                 }
 
                 if(v_RS_sz > 0) {
-                    std::ofstream file_RS(path_RS);
+                    std::ofstream file_RS(full_path_RS);
                     //unfortunately, cant do below with foreach
                     for (int i = 0; i < v_RS_sz; ++ i) {
                         T* entry = all_vecs_RS_dat + i;
@@ -198,10 +171,8 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
 
 int main() 
 {   
-    //test_QB2_plot<double>(10, 10, 2, 2, 2, 2, 0, 2, true);
     // Slow_decay
-    //test_QB2_plot<double>(1024, 1024, 16, 16, 2, 2, 0, 2, true);
-    test_QB2_plot<double>(2048, 2048, 256, 256, 2, 2, 0, 2, true);
+    test_QB2_plot<double>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../");
     // Fast decay
-    test_QB2_plot<double>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true);
+    test_QB2_plot<double>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true, "../", "../");
 }

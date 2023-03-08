@@ -156,7 +156,6 @@ log_info(int64_t rows,
          << tsqrp_full_time << "  " 
          << geqrf_full_time << "\n";
 
-    /*
     print_info(rows, cols, d_multiplier, nnz, num_threads, 
                cholqrcp_time,
                geqp3_time,
@@ -169,7 +168,6 @@ log_info(int64_t rows,
                tsqrp_full_time, 
                geqrf_full_time,
                test_type, runs);
-    */
 }
 
 template <typename T>

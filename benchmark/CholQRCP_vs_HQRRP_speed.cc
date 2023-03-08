@@ -24,7 +24,6 @@ using namespace std::chrono;
 template <typename T>
 static void 
 log_info(int64_t rows, 
-           int64_t cols,
            T d_multiplier,
            T k_multiplier, 
            T tol,
@@ -348,7 +347,7 @@ test_speed(int r_pow,
             cholqrcp_hqrrp_mean  = (T)t_cholqrcp_hqrrp / (T)(curr_runs);
             appl2_mean           = (T)t_appl2          / (T)(curr_runs);
             
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
+            log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
                      cholqrcp_best,
                      cholqrcp_hqrrp_best,
                      cholqrcp_best       + alloc1_best + appl1_best, 
@@ -358,7 +357,7 @@ test_speed(int r_pow,
                      apply_to_large,
                      path);
 
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
+            log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
                      cholqrcp_mean,
                      cholqrcp_hqrrp_mean,
                      cholqrcp_mean       + alloc1_mean + appl1_mean, 

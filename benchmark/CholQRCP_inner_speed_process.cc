@@ -8,6 +8,8 @@
 #include <thread>
 #include <fstream>
 #include <iterator>
+#include <vector>
+#include <sstream>
 
 using namespace std::chrono;
 

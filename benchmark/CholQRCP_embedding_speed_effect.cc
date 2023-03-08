@@ -324,7 +324,7 @@ test_speed(int r_pow,
                     runs,
                     path);
 
-        printf("Done with size %ld by %ld\n", rows, cols);
+        printf("Done with size %d by %d\n", rows, col);
     }
     printf("\n/-----------------------------------------CholQRCP EMBEDDING EFFECT BENCHMARK STOP-----------------------------------------/\n\n");
 }
