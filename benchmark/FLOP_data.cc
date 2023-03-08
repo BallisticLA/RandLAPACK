@@ -41,9 +41,9 @@ compute_and_log(
     T geqp3_time, 
     T geqr_time, 
     T tsqrp_time, 
-    T geqrf_time)
+    T geqrf_time,
+    std::string path_out)
 {
-
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
 
     printf("\n/----------------------------------------FLOP ITER START----------------------------------------/\n");
@@ -62,24 +62,23 @@ compute_and_log(
     printf("GEQRF GFLOP RATE    %12.1f\n",   geqrf_flop_rate);
 
     printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
-    /*
-    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type 
-                                                                                          + "_m_"            + std::to_string(rows) 
-                                                                                          + "_d_multiplier_" + d_multiplier
-                                                                                          + "_k_multiplier_" + k_multiplier
-                                                                                          + "_log10(tol)_"   + log10tol
-                                                                                          + "_mat_type_"     + mat_type
-                                                                                          + "_cond_"         + cond
-                                                                                          + "_nnz_"          + nnz
-                                                                                          + "_runs_per_sz_"  + runs
-                                                                                          + "_OMP_threads_"  + num_threads 
-                                                                                          + ".dat", std::fstream::app);
+    
+    std::fstream file(path_out + "CholQRCP_FLOP_RATE_" + test_type 
+                                    + "_m_"            + std::to_string(rows) 
+                                    + "_d_multiplier_" + d_multiplier
+                                    + "_k_multiplier_" + k_multiplier
+                                    + "_log10(tol)_"   + log10tol
+                                    + "_mat_type_"     + mat_type
+                                    + "_cond_"         + cond
+                                    + "_nnz_"          + nnz
+                                    + "_runs_per_sz_"  + runs
+                                    + "_OMP_threads_"  + num_threads 
+                                    + ".dat", std::fstream::app);
     file << cholqrcp_flop_rate   << "  " 
          << geqp3_flop_rate      << "  " 
          << geqr_flop_rate       << "  "
          << tsqrp_flop_rate      << "  " 
          << geqrf_flop_rate      << "\n";
-    */
 }
 
 template <typename T>
@@ -95,6 +94,9 @@ process_dat() {
     std::vector<std::string> nnz          = {"1"};
     std::vector<std::string> runs         = {"5"};
     std::vector<std::string> num_threads  = {"36"};
+    std::vector<std::string> apply_to_large  = {"0"};
+    std::string path_in = "../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/";
+    std::string path_out = "../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/";
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
         for (int j = 0; j < (int) rows.size(); ++j) {
@@ -107,36 +109,37 @@ process_dat() {
                                     for (int q = 0; q < (int) runs.size(); ++q) {
                                         for (int r = 0; r < (int) num_threads.size(); ++r) {
                                             // Clear old flop file   
-                                            /*
+                                            
                                             std::ofstream ofs;
-                                            ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/CholQRCP_FLOP_RATE_" + test_type[i] 
-                                                                                                                                  + "_m_"            + rows[j] 
-                                                                                                                                  + "_d_multiplier_" + d_multiplier[k]
-                                                                                                                                  + "_k_multiplier_" + k_multiplier[l]
-                                                                                                                                  + "_log10(tol)_"   + log10tol[m]
-                                                                                                                                  + "_mat_type_"     + mat_type[n]
-                                                                                                                                  + "_cond_"         + cond[o]
-                                                                                                                                  + "_nnz_"          + nnz[p]
-                                                                                                                                  + "_runs_per_sz_"  + runs[q]
-                                                                                                                                  + "_OMP_threads_"  + num_threads[r]
-                                                                                                                                  + ".dat", std::ofstream::out | std::ofstream::trunc);
+                                            ofs.open(path_out + "CholQRCP_FLOP_RATE_"  + test_type[i] 
+                                                                    + "_m_"            + rows[j] 
+                                                                    + "_d_multiplier_" + d_multiplier[k]
+                                                                    + "_k_multiplier_" + k_multiplier[l]
+                                                                    + "_log10(tol)_"   + log10tol[m]
+                                                                    + "_mat_type_"     + mat_type[n]
+                                                                    + "_cond_"         + cond[o]
+                                                                    + "_nnz_"          + nnz[p]
+                                                                    + "_runs_per_sz_"  + runs[q]
+                                                                    + "_OMP_threads_"  + num_threads[r]
+                                                                    + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
-                                            */
+                                            
                                             // Open data file
-                                            std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/CholQRCP_comp_time_" + test_type[i] 
-                                                                                                                                  + "_m_"            + rows[j] 
-                                                                                                                                  + "_d_multiplier_" + d_multiplier[k]
-                                                                                                                                  + "_k_multiplier_" + k_multiplier[l]
-                                                                                                                                  + "_log10(tol)_"   + log10tol[m]
-                                                                                                                                  + "_mat_type_"     + mat_type[n]
-                                                                                                                                  + "_cond_"         + cond[o]
-                                                                                                                                  + "_nnz_"          + nnz[p]
-                                                                                                                                  + "_runs_per_sz_"  + runs[q]
-                                                                                                                                  + "_OMP_threads_"  + num_threads[r]
-                                                                                                                                  + ".dat");
+                                            std::fstream file(path_in + "CholQRCP_comp_time_"  + test_type[i] 
+                                                                            + "_m_"            + rows[j] 
+                                                                            + "_d_multiplier_" + d_multiplier[k]
+                                                                            + "_k_multiplier_" + k_multiplier[l]
+                                                                            + "_log10(tol)_"   + log10tol[m]
+                                                                            + "_mat_type_"     + mat_type[n]
+                                                                            + "_cond_"         + cond[o]
+                                                                            + "_nnz_"          + nnz[p]
+                                                                            + "_runs_per_sz_"  + runs[q]
+                                                                            + "_OMP_threads_"  + num_threads[r]
+                                                                            + ".dat");
                                             
                                             int64_t numrows = stoi(rows[j]);
                                             int col_multiplier = 1;
+                                            // depends on numrows
                                             int start_col_ratio = 256;
                                             for( std::string l; getline(file, l);)
                                             {
@@ -149,7 +152,6 @@ process_dat() {
                                                 compute_and_log(test_type[i],
                                                     numrows, 
                                                     numrows / (start_col_ratio / col_multiplier),
-                                                    //numrows / (128 / col_multiplier),
                                                     d_multiplier[k],
                                                     k_multiplier[k], 
                                                     log10tol[m],
@@ -162,7 +164,8 @@ process_dat() {
                                                     stod(times_per_col_sz[1]), 
                                                     stod(times_per_col_sz[2]),
                                                     stod(times_per_col_sz[3]), 
-                                                    stod(times_per_col_sz[4]));
+                                                    stod(times_per_col_sz[4]),
+                                                    path_out);
 
                                                 col_multiplier *= 2;
                                             }

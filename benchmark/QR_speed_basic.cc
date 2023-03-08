@@ -225,3 +225,4 @@ int main() {
     test_speed<double>(17, 17, 512, 8192, 1, 5, std::make_tuple(6, 0, false), "Best");
     return 0;
 }
+
