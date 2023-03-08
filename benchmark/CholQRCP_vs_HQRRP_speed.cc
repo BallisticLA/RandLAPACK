@@ -20,9 +20,6 @@ Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 #include <fstream>
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::comps::orth;
-using namespace RandLAPACK::drivers::cholqrcp;
 
 template <typename T>
 static void 
@@ -84,29 +81,29 @@ test_speed_helper(int64_t m,
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
     std::vector<T> Res_1;
-    upsize(b_dim * n, Res_1);
+    RandLAPACK::util::upsize(b_dim * n, Res_1);
 
     std::vector<T> R_2;
     std::vector<int64_t> J_2;
     std::vector<T> Res_2;
-    upsize(b_dim * n, Res_2);
+    RandLAPACK::util::upsize(b_dim * n, Res_2);
     
     // Generate random matrix
-    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
 
     // Generate random matrix that we will apply Q to
-    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
     bool log_times = true;
-    CholQRCP<T> CholQRCP_basic(false, log_times, seed, tol);
+    RandLAPACK::CholQRCP<T> CholQRCP_basic(false, log_times, seed, tol);
     CholQRCP_basic.nnz = nnz;
     CholQRCP_basic.num_threads = num_threads;
 
     // CholQRCP constructor
-    CholQRCP<T> CholQRCP_HQRRP(false, log_times, seed, tol);
+    RandLAPACK::CholQRCP<T> CholQRCP_HQRRP(false, log_times, seed, tol);
     
     CholQRCP_HQRRP.nnz = nnz;
     CholQRCP_HQRRP.num_threads = num_threads;
@@ -120,11 +117,11 @@ test_speed_helper(int64_t m,
     if(log_times) {
         (CholQRCP_HQRRP.times).resize(10);
     }
-    upsize(d * n, (CholQRCP_HQRRP.A_hat));
-    upsize(n, (CholQRCP_HQRRP.A_hat));
+    RandLAPACK::util::upsize(d * n, (CholQRCP_HQRRP.A_hat));
+    RandLAPACK::util::upsize(n, (CholQRCP_HQRRP.A_hat));
     J_2.resize(n);
-    upsize(n * n, (CholQRCP_HQRRP.R_sp));
-    upsize(n * n, R_2);
+    RandLAPACK::util::upsize(n * n, (CholQRCP_HQRRP.R_sp));
+    RandLAPACK::util::upsize(n * n, R_2);
     auto stop_alloc2 = high_resolution_clock::now();
     long dur_alloc2 = duration_cast<microseconds>(stop_alloc2 - start_alloc2).count();
     
@@ -136,25 +133,25 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl2 = high_resolution_clock::now();
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_2.data(), b_dim);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_2.data(), b_dim);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
 
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
-    gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
-    gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     // Pre-allocation for CholQRCP
     auto start_alloc1 = high_resolution_clock::now();
     if(log_times) {
         (CholQRCP_basic.times).resize(10);
     }
-    upsize(d * n, (CholQRCP_basic.A_hat));
-    upsize(n, (CholQRCP_basic.A_hat));
+    RandLAPACK::util::upsize(d * n, (CholQRCP_basic.A_hat));
+    RandLAPACK::util::upsize(n, (CholQRCP_basic.A_hat));
     J_1.resize(n);
-    upsize(n * n, (CholQRCP_basic.R_sp));
-    upsize(n * n, R_1);
+    RandLAPACK::util::upsize(n * n, (CholQRCP_basic.R_sp));
+    RandLAPACK::util::upsize(n * n, R_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
@@ -166,7 +163,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
-    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_1.data(), b_dim);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_1.data(), b_dim);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(stop_appl1 - start_appl1).count();
 

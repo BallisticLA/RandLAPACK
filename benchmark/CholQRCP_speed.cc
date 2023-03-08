@@ -21,8 +21,6 @@ Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 */
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::drivers::cholqrcp;
 
 template <typename T>
 static void 
@@ -188,7 +186,7 @@ test_speed_helper(int64_t m,
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
     std::vector<T> Res_1;
-    upsize(b_dim * n, Res_1);
+    RandLAPACK::util::upsize(b_dim * n, Res_1);
     std::vector<int64_t> J_2;
     std::vector<T> tau_2;
     std::vector<T> t_3;
@@ -198,16 +196,16 @@ test_speed_helper(int64_t m,
     std::vector<T> tau_4;
     
     // Generate random matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Generate random matrix that we will apply Q to
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
     bool log_times = true;
-    CholQRCP<T> CholQRCP(false, log_times, seed, tol);
+    RandLAPACK::CholQRCP<T> CholQRCP(false, log_times, seed, tol);
     CholQRCP.nnz = nnz;
     CholQRCP.num_threads = num_threads;
 
@@ -218,11 +216,11 @@ test_speed_helper(int64_t m,
     if(log_times) {
         (CholQRCP.times).resize(10);
     }
-    upsize(d * n, (CholQRCP.A_hat));
-    upsize(n, (CholQRCP.A_hat));
+    RandLAPACK::util::upsize(d * n, (CholQRCP.A_hat));
+    RandLAPACK::util::upsize(n, (CholQRCP.A_hat));
     J_1.resize(n);
-    upsize(n * n, (CholQRCP.R_sp));
-    upsize(n * n, R_1);
+    RandLAPACK::util::upsize(n * n, (CholQRCP.R_sp));
+    RandLAPACK::util::upsize(n * n, R_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
@@ -266,11 +264,11 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Pre-allocation for GEQP3
     auto start_alloc2 = high_resolution_clock::now();
-    upsize(n, tau_2);
+    RandLAPACK::util::upsize(n, tau_2);
     J_2.resize(n);
     auto stop_alloc2 = high_resolution_clock::now();
     long dur_alloc2 = duration_cast<microseconds>(stop_alloc2 - start_alloc2).count();
@@ -283,26 +281,26 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl2 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_2.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_2.data(), B_1.data(), b_dim);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
     //-TEST POINT 2 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Pre-allocation for GEQR
     auto start_alloc3 = high_resolution_clock::now();
-    upsize(5, t_3);
+    RandLAPACK::util::upsize(5, t_3);
     auto stop_alloc3 = high_resolution_clock::now();
     long dur_alloc3 = duration_cast<microseconds>(stop_alloc3 - start_alloc3).count();
 
     // Pre-allocation for GEQP3
     auto start_alloc4 = high_resolution_clock::now();
-    upsize(n * n, R_3);
-    upsize(n, tau_3);
+    RandLAPACK::util::upsize(n * n, R_3);
+    RandLAPACK::util::upsize(n, tau_3);
     J_3.resize(n);
     auto stop_alloc4 = high_resolution_clock::now();
     long dur_alloc4 = duration_cast<microseconds>(stop_alloc4 - start_alloc4).count();
@@ -311,24 +309,24 @@ test_speed_helper(int64_t m,
     auto start_tsqrp = high_resolution_clock::now();
     // GEQR part
     auto sart_geqr = high_resolution_clock::now();
-    geqr(m, n, A_1.data(), m, t_3.data(), -1);
+    lapack::geqr(m, n, A_1.data(), m, t_3.data(), -1);
     int64_t tsize = (int64_t) t_3[0]; 
     t_3.resize(tsize);
-    geqr(m, n, A_1.data(), m, t_3.data(), tsize);
+    lapack::geqr(m, n, A_1.data(), m, t_3.data(), tsize);
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
     // Apply Q_3
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl3 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, t_3.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, t_3.data(), B_1.data(), b_dim);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(stop_appl3 - start_appl3).count();
 
     // GEQP3 on R part
     // We are not timing the pre-allocation of R, as it expected to take very small time
-    get_U(m, n, A_1, R_3);
+    RandLAPACK::util::get_U(m, n, A_1, R_3);
     lapack::geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
 
     auto stop_tsqrp = high_resolution_clock::now();
@@ -336,33 +334,33 @@ test_speed_helper(int64_t m,
 
     // Apply Q_4
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl4 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_3.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_3.data(), B_1.data(), b_dim);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(stop_appl4 - start_appl4).count();
 
     //-TEST POINT 3&4 END-------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Pre-allocation for GEQRF
     auto start_alloc5 = high_resolution_clock::now();
-    upsize(n, tau_4);
+    RandLAPACK::util::upsize(n, tau_4);
     auto stop_alloc5 = high_resolution_clock::now();
     long dur_alloc5 = duration_cast<microseconds>(stop_alloc5 - start_alloc5).count();
 
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
-    geqrf(m, n, A_1.data(), m, tau_4.data());
+    lapack::geqrf(m, n, A_1.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
     // Apply Q_5
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl5 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_4.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_4.data(), B_1.data(), b_dim);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(stop_appl5 - start_appl5).count();
 

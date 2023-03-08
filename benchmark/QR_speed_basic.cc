@@ -20,7 +20,6 @@ TODO #1: Switch tuples to vectors.
 */
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
 
 template <typename T>
 static std::vector<long> 
@@ -45,7 +44,7 @@ test_speed_helper(int64_t m,
     std::vector<T> tau_4(n, 0);
 
     // Generate random matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
 
     // Make copies
@@ -79,7 +78,7 @@ test_speed_helper(int64_t m,
 
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
-    blas::geqrf(m, n, A_4.data(), m, tau_4.data());
+    lapack::geqrf(m, n, A_4.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 

@@ -35,8 +35,8 @@ test_flops(int64_t k, uint32_t seed) {
         T* B_dat = B.data();
         T* C_dat = C.data();
 
-        gen_mat_type(k, k, A, k, ++seed, std::tuple(6, 0, false));
-        gen_mat_type(k, k, B, k, ++seed, std::tuple(6, 0, false));
+        RandLAPACK::util::gen_mat_type(k, k, A, k, ++seed, std::tuple(6, 0., false));
+        RandLAPACK::util::gen_mat_type(k, k, B, k, ++seed, std::tuple(6, 0., false));
 
         // Get the timing
         auto start = high_resolution_clock::now();

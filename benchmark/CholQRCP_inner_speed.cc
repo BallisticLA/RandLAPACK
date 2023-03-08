@@ -19,8 +19,6 @@ If the required folder structure does not exist, the files will not be saved.
 */
 /*This is only concerned with what's INSIDE of cholqrcp*/
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::drivers::cholqrcp;
 
 template <typename T>
 static void 
@@ -86,22 +84,22 @@ test_speed_helper(int64_t m,
     std::vector<int64_t> J_1;
 
     // Generate random matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
-    CholQRCP<T> CholQRCP(false, true, seed, tol);
+    RandLAPACK::CholQRCP<T> CholQRCP(false, true, seed, tol);
     CholQRCP.nnz         = nnz;
     CholQRCP.num_threads = num_threads;
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     
-    upsize(d * n, (CholQRCP.A_hat));
-    upsize(n, (CholQRCP.A_hat));
+    RandLAPACK::util::upsize(d * n, (CholQRCP.A_hat));
+    RandLAPACK::util::upsize(n, (CholQRCP.A_hat));
     J_1.resize(n);
-    upsize(n * n, (CholQRCP.R_sp));
-    upsize(n * n, R_1);
+    RandLAPACK::util::upsize(n * n, (CholQRCP.R_sp));
+    RandLAPACK::util::upsize(n * n, R_1);
 
     // CholQRCP
     CholQRCP.call(m, n, A_1, d, R_1, J_1);

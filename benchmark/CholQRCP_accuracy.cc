@@ -16,9 +16,6 @@ Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
 
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::drivers::cholqrcp;
-
 template <typename T>
     static void test_CholQRCP1_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed, int test_num) {
         
@@ -31,7 +28,7 @@ template <typename T>
         std::vector<int64_t> J(n, 0);
 
         // Random Gaussian test matrix
-        gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
         std::vector<T> A_1(size, 0.0);
@@ -46,7 +43,7 @@ template <typename T>
         std::copy(A.data(), A.data() + size, A_1.data());
         std::copy(A.data(), A.data() + size, A_2.data());
 
-        CholQRCP<T> CholQRCP(false, false, seed, tol);
+        RandLAPACK::CholQRCP<T> CholQRCP(false, false, seed, tol);
         CholQRCP.nnz = nnz;
         CholQRCP.num_threads = 32;
 
@@ -55,7 +52,7 @@ template <typename T>
 
         // Deterministic QRP, explicit extraction of R
         lapack::geqp3(m, n, A_1.data(), m, J_1.data(), tau_1.data());
-        get_U(m, n, A_1, R_1);
+        RandLAPACK::util::get_U(m, n, A_1, R_1);
 
         switch (test_num) {
             case 1: {
@@ -118,8 +115,8 @@ template <typename T>
                 std::vector<T> r(n, 0.0);
                 std::vector<T> r_1(n, 0.0);
 
-                extract_diag(k, n, k, R, r);
-                extract_diag(n, n, n, R_1, r_1);
+                RandLAPACK::util::extract_diag(k, n, k, R, r);
+                RandLAPACK::util::extract_diag(n, n, n, R_1, r_1);
 
                 // Clear the file if it exists
                 std::ofstream ofs;
