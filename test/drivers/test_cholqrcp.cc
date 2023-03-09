@@ -40,7 +40,7 @@ class TestCholQRCP : public ::testing::Test
 
         RandLAPACK::CholQRCP<T> CholQRCP(false, false, seed, tol);
         CholQRCP.nnz = nnz;
-        CholQRCP.num_threads = 32;
+        CholQRCP.num_threads = 4;
         CholQRCP.no_hqrrp = no_hqrrp;
 
         CholQRCP.call(m, n, A, d, R, J);

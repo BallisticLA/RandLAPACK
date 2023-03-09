@@ -155,53 +155,6 @@ void _LAPACK_larf(
     return;
 }
 
-/* ========================================================================= */
-template <typename T>
-static T NoFLA_Normal_random_number( T mu, T sigma ) {
-    static int64_t     alternate_calls = 0;
-    static T  b1, b2;
-    T c1, c2, a, factor;
-
-    // Quick return.
-    if( alternate_calls == 1 ) {
-        alternate_calls = ! alternate_calls;
-        return( mu + sigma * b2 );
-    }
-    // Main loop.
-    do {
-        c1 = -1.0 + 2.0 * ( (T) rand() / RAND_MAX );
-        c2 = -1.0 + 2.0 * ( (T) rand() / RAND_MAX );
-        a = c1 * c1 + c2 * c2;
-    } while ( ( a == 0 )||( a >= 1 ) );
-    factor = sqrt( ( -2 * log( a ) ) / a );
-    b1 = c1 * factor;
-    b2 = c2 * factor;
-    alternate_calls = ! alternate_calls;
-    return( mu + sigma * b1 );
-}
-
-/* ========================================================================= */
-template <typename T>
-int64_t NoFLA_Normal_random_matrix( 
-    int64_t m_A, int64_t n_A, 
-    T * buff_A, int64_t ldim_A ) {
-//
-// It generates a random matrix with normal distribution.
-//
-    int64_t  i, j;
-
-    // Main loop.
-    #pragma omp parallel for
-    for ( j = 0; j < n_A; j++ ) {
-        for ( i = 0; i < m_A; i++ ) {
-            buff_A[ i + j * ldim_A ] = NoFLA_Normal_random_number( 0.0, 1.0 );
-        }
-    }
-
-    return 0;
-}
-
-
 // ============================================================================
 template <typename T>
 int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4( 
@@ -716,7 +669,10 @@ int64_t hqrrp(
     ldim_G  = m_G;
 
     // Initialize matrices G and Y.
-    NoFLA_Normal_random_matrix<T>( nb_alg + pp, m_A, buff_G, ldim_G );
+    auto state = RandBLAS::base::RNGState(seed, 0);
+    RandBLAS::dense::DenseDist  D{.n_rows = nb_alg + pp, .n_cols = m_A};
+    RandBLAS::dense::fill_buff(buff_G, D, state);
+    
     blas::gemm(blas::Layout::ColMajor,
                 blas::Op::NoTrans, blas::Op::NoTrans, m_Y, n_Y, m_A, 
                 d_one, buff_G,  ldim_G, buff_A, ldim_A, 
