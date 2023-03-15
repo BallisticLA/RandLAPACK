@@ -378,7 +378,7 @@ int main(){
     // need to recompile RandLAPACK, run with num_threads = 1, 8, 14, 36
     for(int num_omp_threads = 36; num_omp_threads <= 36; ++num_omp_threads)
     {
-        test_speed<double>(17, 17, 512, 8192, 5, 32, num_omp_threads, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/");
+        test_speed<double>(17, 17, 512, 8192, 5, 32, num_omp_threads, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/BEST_CASE_");
     }
     return 0;
 }
