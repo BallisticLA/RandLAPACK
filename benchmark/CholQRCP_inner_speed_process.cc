@@ -14,7 +14,7 @@
 using namespace std::chrono;
 
 template <typename T>
-static void 
+static int 
 process_dat() {
     std::vector<std::string> test_type    = {"Best"};
     std::vector<std::string> rows         = {"131072"};
@@ -39,32 +39,30 @@ process_dat() {
                                     for (int q = 0; q < (int) runs.size(); ++q) {
                                         for (int r = 0; r < (int) num_threads.size(); ++r) {
 
-                                            // Clear old file
+                                            std::string file_params =     test_type[i] 
+                                                    + "_m_"             + rows[j] 
+                                                    + "_d_multiplier_"  + d_multiplier[k]
+                                                    + "_k_multiplier_"  + k_multiplier[l]
+                                                    + "_log10(tol)_"    + log10tol[m]
+                                                    + "_mat_type_"      + mat_type[n]
+                                                    + "_cond_"          + cond[o]
+                                                    + "_nnz_"           + nnz[p]
+                                                    + "_runs_per_sz_"   + runs[q]
+                                                    + "_OMP_threads_"   + num_threads[r] 
+                                                    + ".dat";
+
+                                            // Clear old output file
                                             std::ofstream ofs;
-                                            ofs.open(path + "CholQRCP_inner_time_processed_" + test_type[i] 
-                                                                         + "_m_"             + rows[j] 
-                                                                         + "_d_multiplier_"  + d_multiplier[k]
-                                                                         + "_k_multiplier_"  + k_multiplier[l]
-                                                                         + "_log10(tol)_"    + log10tol[m]
-                                                                         + "_mat_type_"      + mat_type[n]
-                                                                         + "_cond_"          + cond[o]
-                                                                         + "_nnz_"           + nnz[p]
-                                                                         + "_runs_per_sz_"   + runs[q]
-                                                                         + "_OMP_threads_"   + num_threads[r] 
-                                                                         + ".dat", std::ofstream::out | std::ofstream::trunc);
+                                            ofs.open(path + "CholQRCP_inner_time_processed_" + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
                                             // Open data file
-                                            std::fstream file(path + "CholQRCP_inner_time_" + test_type[i] 
-                                                                         + "_m_"            + rows[j] 
-                                                                         + "_d_multiplier_" + d_multiplier[k]
-                                                                         + "_k_multiplier_" + k_multiplier[l]
-                                                                         + "_log10(tol)_"   + log10tol[m]
-                                                                         + "_mat_type_"     + mat_type[n]
-                                                                         + "_cond_"         + cond[o]
-                                                                         + "_nnz_"          + nnz[p]
-                                                                         + "_runs_per_sz_"  + runs[q]
-                                                                         + "_OMP_threads_"  + num_threads[r]
-                                                                         + ".dat");
+                                            std::ifstream file(path + "CholQRCP_inner_time_"  + file_params + ".dat");
+                                            // Check file existence - terminate with an error if the file is not found.
+                                            if(!file)
+                                            {
+                                                return 1;
+                                            }
+
                                             int col_multiplier = 1;
                                             for( std::string l1; getline(file, l1);) {
                                                 std::stringstream ss(l1);
@@ -72,17 +70,7 @@ process_dat() {
                                                 std::istream_iterator<std::string> end;
                                                 std::vector<std::string> times_per_col_sz(begin, end);
 
-                                                std::fstream file(path + "CholQRCP_inner_time_processed_" + test_type[i] 
-                                                                                      + "_m_"             + rows[j] 
-                                                                                      + "_d_multiplier_"  + d_multiplier[k]
-                                                                                      + "_k_multiplier_"  + k_multiplier[l]
-                                                                                      + "_log10(tol)_"    + log10tol[m]
-                                                                                      + "_mat_type_"      + mat_type[n]
-                                                                                      + "_cond_"          + cond[o]
-                                                                                      + "_nnz_"           + nnz[p]
-                                                                                      + "_runs_per_sz_"   + runs[q]
-                                                                                      + "_OMP_threads_"   + num_threads[r] 
-                                                                                      + ".dat", std::fstream::app);
+                                                std::ofstream file(path + "CholQRCP_inner_time_processed_"  + file_params + ".dat", std::fstream::app);
                                                 file << 100 * (stod(times_per_col_sz[0]) / stod(times_per_col_sz[9])) << "  " 
                                                      << 100 * (stod(times_per_col_sz[1]) / stod(times_per_col_sz[9])) << "  "
                                                      << 100 * (stod(times_per_col_sz[3]) / stod(times_per_col_sz[9])) << "  "
@@ -102,9 +90,18 @@ process_dat() {
             }
         }
     }
+    return 0;
 }
 
 int main(){ 
-    process_dat<double>();
+    switch(process_dat<double>())
+        {
+        case 1:
+            printf("\nTERMINATED VIA: input file not found.\n");
+            break;
+        case 0:
+            printf("\nTERMINATED VIA: normal termination.\n");
+            break;
+        }
     return 0;
 }

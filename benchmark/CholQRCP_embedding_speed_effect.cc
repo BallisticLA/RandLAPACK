@@ -146,7 +146,7 @@ test_speed(int r_pow,
            const std::tuple<int, T, bool>& mat_type,
            std::string path) {
     printf("\n/-----------------------------------------EMBEDDING EFFECT BENCHMARK START-----------------------------------------/\n");
-    int rows = std::pow(r_pow, 2);
+    int rows = std::pow(2, r_pow);
     // This variable is controls an additional iteration, used for initialization work
     int initialization = 1;
     int curr_runs = 0;
