@@ -22,7 +22,6 @@ test_flops(int64_t k, uint32_t seed) {
     long flop_cnt = buf * (2 * k - 1);
 
     int runs = 50;
-    T DUR_sum = 0;
     T GFLOPS_rate_best = 0;
 
     for (int i = 0; i < runs; ++i) {
