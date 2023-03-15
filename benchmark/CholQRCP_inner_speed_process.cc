@@ -20,7 +20,7 @@ process_dat() {
     std::vector<std::string> rows         = {"131072"};
     std::vector<std::string> d_multiplier = {"1.000000"};
     std::vector<std::string> k_multiplier = {"1.000000"};
-    std::vector<std::string> log10tol     = {"-12"};
+    std::vector<std::string> log10tol     = {"-11"};
     std::vector<std::string> mat_type     = {"6"};
     std::vector<std::string> cond         = {"0"};
     std::vector<std::string> nnz          = {"1"};

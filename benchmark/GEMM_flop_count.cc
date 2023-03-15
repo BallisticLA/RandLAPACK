@@ -50,7 +50,7 @@ test_flops(int64_t k, uint32_t seed) {
             GFLOPS_rate_best = GFLOPS_rate;
     }
 
-    printf("THE SYATEM IS CAPABLE OF %f GFLOPs/sec.\n\n", GFLOPS_rate_best);
+    printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec.\n\n", GFLOPS_rate_best);
 
     printf("|=====================================TEST SYSTEM FLOPS END====================================|\n");
 }

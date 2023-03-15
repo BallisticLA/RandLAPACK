@@ -88,7 +88,7 @@ process_dat() {
     std::vector<std::string> rows         = {"131072"}; // {"262144"};
     std::vector<std::string> d_multiplier = {"1.000000"};
     std::vector<std::string> k_multiplier = {"1.000000"};
-    std::vector<std::string> log10tol     = {"-12"};
+    std::vector<std::string> log10tol     = {"-11"};
     std::vector<std::string> mat_type     = {"6"};
     std::vector<std::string> cond         = {"0"};
     std::vector<std::string> nnz          = {"1"};
@@ -125,16 +125,17 @@ process_dat() {
                                             ofs.close();
                                             
                                             // Open data file
-                                            std::fstream file(path_in + "CholQRCP_comp_time_"  + test_type[i] 
-                                                                            + "_m_"            + rows[j] 
-                                                                            + "_d_multiplier_" + d_multiplier[k]
-                                                                            + "_k_multiplier_" + k_multiplier[l]
-                                                                            + "_log10(tol)_"   + log10tol[m]
-                                                                            + "_mat_type_"     + mat_type[n]
-                                                                            + "_cond_"         + cond[o]
-                                                                            + "_nnz_"          + nnz[p]
-                                                                            + "_runs_per_sz_"  + runs[q]
-                                                                            + "_OMP_threads_"  + num_threads[r]
+                                            std::fstream file(path_in + "CholQRCP_comp_time_"   + test_type[i] 
+                                                                            + "_m_"             + rows[j] 
+                                                                            + "_d_multiplier_"  + d_multiplier[k]
+                                                                            + "_k_multiplier_"  + k_multiplier[l]
+                                                                            + "_log10(tol)_"    + log10tol[m]
+                                                                            + "_mat_type_"      + mat_type[n]
+                                                                            + "_cond_"          + cond[o]
+                                                                            + "_nnz_"           + nnz[p]
+                                                                            + "_runs_per_sz_"   + runs[q]
+                                                                            + "_OMP_threads_"   + num_threads[r]
+                                                                            + "_apply_to_large_" + apply_to_large[0]
                                                                             + ".dat");
                                             
                                             int64_t numrows = stoi(rows[j]);
