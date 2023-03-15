@@ -204,6 +204,7 @@ test_speed(int r_pow,
     int curr_runs = 0;
     
     // We are now filling 3 types of data - best, mean and raw
+    /*
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
@@ -251,8 +252,8 @@ test_speed(int r_pow,
                                     + "_apply_to_large_" + std::to_string(apply_to_large)
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
-    }
-    
+    }   
+    */
     int64_t rows = 0;
     for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
@@ -376,9 +377,9 @@ test_speed(int r_pow,
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     // need to recompile RandLAPACK, run with num_threads = 1, 8, 14, 36
-    for(int num_omp_threads = 36; num_omp_threads <= 36; ++num_omp_threads)
+    for(int num_omp_threads = 1; num_omp_threads <= 1; ++num_omp_threads)
     {
-        test_speed<double>(17, 17, 512, 8192, 5, 32, num_omp_threads, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/BEST_CASE_");
+        test_speed<double>(17, 17, 8192, 8192, 5, 32, num_omp_threads, 1, 1, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/BEST_CASE_");
     }
     return 0;
 }
