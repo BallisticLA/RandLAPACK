@@ -157,7 +157,6 @@ test_speed(int r_pow,
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        /*
         ofs.open(path + "CholQRCP_inner_time_Best_m_" + std::to_string(rows) 
                                     + "_d_multiplier_" + std::to_string(d_multiplier)
                                     + "_k_multiplier_" + std::to_string(k_multiplier)
@@ -193,7 +192,6 @@ test_speed(int r_pow,
                                 + "_OMP_threads_"  + std::to_string(num_threads) 
                                 + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
-        */
     }
     
     int64_t rows = 0;
@@ -253,7 +251,7 @@ test_speed(int r_pow,
                     t_resize      += res[7];
                     t_other       += res[8];
                     t_total       += res[9];
-                    /*
+                    
                     // Log every run in the raw data file
                     std::fstream file(path + "CholQRCP_inner_time_Raw_m_" + std::to_string(rows) 
                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
@@ -275,7 +273,6 @@ test_speed(int r_pow,
                          << res[7]  << "  "
                          << res[8]  << "  " 
                          << res[9]  << "\n";
-                    */
                     
                     // For best timing
                     if(total_best > res[9] || total_best == 0) {
@@ -307,7 +304,7 @@ test_speed(int r_pow,
             resize_mean      = (T)t_resize      / (T)(curr_runs);
             other_mean       = (T)t_other       / (T)(curr_runs);
             total_mean       = (T)t_total       / (T)(curr_runs);
-            /*
+            
             log_info(rows, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      saso_best,
                      qrcp_best,
@@ -337,7 +334,7 @@ test_speed(int r_pow,
                      "Mean", 
                      runs,
                      path);
-            */
+
             printf("Done with size %ld by %ld\n", rows, cols);
         }
     }
