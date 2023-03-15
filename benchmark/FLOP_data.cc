@@ -95,8 +95,8 @@ process_dat() {
     std::vector<std::string> runs         = {"5"};
     std::vector<std::string> num_threads  = {"36"};
     std::vector<std::string> apply_to_large  = {"0"};
-    std::string path_in = "../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/";
-    std::string path_out = "../../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/";
+    std::string path_in = "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/";
+    std::string path_out = "../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/";
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
         for (int j = 0; j < (int) rows.size(); ++j) {

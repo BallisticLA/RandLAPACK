@@ -26,7 +26,7 @@ process_dat() {
     std::vector<std::string> nnz          = {"1"};
     std::vector<std::string> runs         = {"5"};
     std::vector<std::string> num_threads  = {"36"};
-    std::string path = "../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/";
+    std::string path = "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/";
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
         for (int j = 0; j < (int) rows.size(); ++j) {
