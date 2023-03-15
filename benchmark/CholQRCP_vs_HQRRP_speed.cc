@@ -337,7 +337,7 @@ test_speed(int r_pow,
                         appl2_best = res[5];
                     }
                 }
-                prontf("Done with iteration %d\n", i);
+                printf("Done with iteration %d\n", i);
                 initialization = 0;
             }
 
