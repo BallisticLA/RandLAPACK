@@ -48,8 +48,7 @@ process_dat() {
                                                     + "_cond_"          + cond[o]
                                                     + "_nnz_"           + nnz[p]
                                                     + "_runs_per_sz_"   + runs[q]
-                                                    + "_OMP_threads_"   + num_threads[r] 
-                                                    + ".dat";
+                                                    + "_OMP_threads_"   + num_threads[r];
 
                                             // Clear old output file
                                             std::ofstream ofs;

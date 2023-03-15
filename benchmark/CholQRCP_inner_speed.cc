@@ -289,8 +289,8 @@ test_speed(int r_pow,
                         other_best       = res[8];
                         total_best       = res[9];
                     }
-                    initialization = 0;
                 }
+                initialization = 0;
             }
 
             // For mean timing
