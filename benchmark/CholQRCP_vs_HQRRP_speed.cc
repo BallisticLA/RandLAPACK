@@ -143,7 +143,7 @@ test_speed_helper(int64_t m,
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
     if (log_times) {
-        printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
+        printf("\n\n/------------CholQRCP-HQRRP TIMING RESULTS BEGIN------------/\n");
         printf("SASO time: %33ld μs,\n",                    (CholQRCP_HQRRP.times)[0]);
         printf("QRCP time: %33ld μs,\n",                    (CholQRCP_HQRRP.times)[1]);
         printf("Rank revealing time: %23ld μs,\n",          (CholQRCP_HQRRP.times)[2]);
@@ -194,6 +194,31 @@ test_speed_helper(int64_t m,
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_1.data(), b_dim);
     auto stop_appl1 = high_resolution_clock::now();
     long dur_appl1 = duration_cast<microseconds>(stop_appl1 - start_appl1).count();
+
+    if (log_times) {
+        printf("\n\n/------------CholQRCP-GEQP3 TIMING RESULTS BEGIN------------/\n");
+        printf("SASO time: %33ld μs,\n",                    (CholQRCP_basic.times)[0]);
+        printf("QRCP time: %33ld μs,\n",                    (CholQRCP_basic.times)[1]);
+        printf("Rank revealing time: %23ld μs,\n",          (CholQRCP_basic.times)[2]);
+        printf("CholQR time: %31ld μs,\n",                  (CholQRCP_basic.times)[3]);
+        printf("A modification pivoting time: %14ld μs,\n", (CholQRCP_basic.times)[4]);
+        printf("A modification TRSM time: %18ld μs,\n",     (CholQRCP_basic.times)[5]);
+        printf("Copying time: %30ld μs,\n",                 (CholQRCP_basic.times)[6]);
+        printf("Resizing time: %29ld μs,\n",                (CholQRCP_basic.times)[7]);
+        printf("Other routines time: %23ld μs,\n",          (CholQRCP_basic.times)[8]);
+        printf("Total time: %32ld μs.\n",                   (CholQRCP_basic.times)[9]);
+
+        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CholQRCP_basic.times)[0] / (double) (CholQRCP_basic.times)[9]));
+        printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CholQRCP_basic.times)[1] / (double) (CholQRCP_basic.times)[9]));
+        printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CholQRCP_basic.times)[2] / (double) (CholQRCP_basic.times)[9]));
+        printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CholQRCP_basic.times)[3] / (double) (CholQRCP_basic.times)[9]));
+        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP_basic.times)[4] / (double) (CholQRCP_basic.times)[9]));
+        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP_basic.times)[5] / (double) (CholQRCP_basic.times)[9]));
+        printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CholQRCP_basic.times)[6] / (double) (CholQRCP_basic.times)[9]));
+        printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP_basic.times)[7] / (double) (CholQRCP_basic.times)[9]));
+        printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CholQRCP_basic.times)[8] / (double) (CholQRCP_basic.times)[9]));
+        printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
+    }
 
     //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
 
@@ -403,7 +428,7 @@ int main(){
     // need to recompile RandLAPACK, run with num_threads = 1, 8, 14, 36
     for(int num_omp_threads = 36; num_omp_threads <= 36; ++num_omp_threads)
     {
-        test_speed<double>(17, 17, 8192, 8192, 15, 32, num_omp_threads, 1, 1, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/");
+        test_speed<double>(17, 17, 512, 8192, 5, 32, num_omp_threads, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/");
     }
     return 0;
 }
