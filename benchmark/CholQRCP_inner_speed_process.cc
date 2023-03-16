@@ -55,10 +55,12 @@ process_dat() {
                                             ofs.open(path + "CholQRCP_inner_time_processed_" + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
                                             // Open data file
-                                            std::ifstream file(path + "CholQRCP_inner_time_"  + file_params + ".dat");
+                                            std::string filename_in = path + "CholQRCP_inner_time_"  + file_params + ".dat";
+                                            std::ifstream file(filename_in);
                                             // Check file existence - terminate with an error if the file is not found.
                                             if(!file)
                                             {
+                                                printf("Looking for filename:\n%s\n", filename_in.c_str());
                                                 return 1;
                                             }
 

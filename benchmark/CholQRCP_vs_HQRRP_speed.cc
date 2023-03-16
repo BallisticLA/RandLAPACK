@@ -142,7 +142,30 @@ test_speed_helper(int64_t m,
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
+    if (log_times) {
+        printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
+        printf("SASO time: %33ld μs,\n",                    (CholQRCP_HQRRP.times)[0]);
+        printf("QRCP time: %33ld μs,\n",                    (CholQRCP_HQRRP.times)[1]);
+        printf("Rank revealing time: %23ld μs,\n",          (CholQRCP_HQRRP.times)[2]);
+        printf("CholQR time: %31ld μs,\n",                  (CholQRCP_HQRRP.times)[3]);
+        printf("A modification pivoting time: %14ld μs,\n", (CholQRCP_HQRRP.times)[4]);
+        printf("A modification TRSM time: %18ld μs,\n",     (CholQRCP_HQRRP.times)[5]);
+        printf("Copying time: %30ld μs,\n",                 (CholQRCP_HQRRP.times)[6]);
+        printf("Resizing time: %29ld μs,\n",                (CholQRCP_HQRRP.times)[7]);
+        printf("Other routines time: %23ld μs,\n",          (CholQRCP_HQRRP.times)[8]);
+        printf("Total time: %32ld μs.\n",                   (CholQRCP_HQRRP.times)[9]);
 
+        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CholQRCP_HQRRP.times)[0] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CholQRCP_HQRRP.times)[1] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CholQRCP_HQRRP.times)[2] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CholQRCP_HQRRP.times)[3] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP_HQRRP.times)[4] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP_HQRRP.times)[5] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CholQRCP_HQRRP.times)[6] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP_HQRRP.times)[7] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CholQRCP_HQRRP.times)[8] / (double) (CholQRCP_HQRRP.times)[9]));
+        printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
+    }
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
@@ -204,7 +227,7 @@ test_speed(int r_pow,
     int curr_runs = 0;
     
     // We are now filling 3 types of data - best, mean and raw
-    /*
+    
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
@@ -253,7 +276,7 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }   
-    */
+    
     int64_t rows = 0;
     for(; r_pow <= r_pow_max; ++r_pow) {
         rows = std::pow(2, r_pow);
@@ -378,9 +401,9 @@ test_speed(int r_pow,
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     // need to recompile RandLAPACK, run with num_threads = 1, 8, 14, 36
-    for(int num_omp_threads = 1; num_omp_threads <= 1; ++num_omp_threads)
+    for(int num_omp_threads = 36; num_omp_threads <= 36; ++num_omp_threads)
     {
-        test_speed<double>(17, 17, 8192, 8192, 5, 32, num_omp_threads, 1, 1, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/BEST_CASE_");
+        test_speed<double>(17, 17, 8192, 8192, 15, 32, num_omp_threads, 1, 1, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/");
     }
     return 0;
 }

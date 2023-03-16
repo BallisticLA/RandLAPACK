@@ -25,22 +25,12 @@ using namespace std::chrono;
 template <typename T>
 static void 
 compute_and_log(
-    const std::string& test_type,
     int64_t rows, 
     int64_t cols,
-    const std::string& d_multiplier,
-    const std::string& k_multiplier, 
-    const std::string& log10tol,
-    const std::string& block_sz,
-    const std::string& mat_type, 
-    const std::string& cond,
-    const std::string& nnz,
-    const std::string& runs,
-    const std::string& omp_num_threads,
-    const std::string& num_threads,
     T cholqrcp_time, 
     T cholqrcp_hqrrp_time,
-    std::string path_out)
+    std::string path_out,
+    std::string file_params)
 {
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
 
@@ -48,25 +38,13 @@ compute_and_log(
     T cholqrcp_flop_rate = geqrf_gflop / (cholqrcp_time / 1e+6);
     T cholqrcp_hqrrp_flop_rate = geqrf_gflop / (cholqrcp_hqrrp_time / 1e+6);
     
-    std::fstream file(path_out + "BEST_CASE_CholQRCP_HQRRP_FLOP_RATE_"   + test_type 
-                                                    + "_m_"              + std::to_string(rows) 
-                                                    + "_d_multiplier_"   + d_multiplier
-                                                    + "_k_multiplier_"   + k_multiplier
-                                                    + "_log10(tol)_"     + log10tol
-                                                    + "_hqrrp_block_sz_" + block_sz
-                                                    + "_mat_type_"       + mat_type
-                                                    + "_cond_"           + cond
-                                                    + "_nnz_"            + nnz
-                                                    + "_runs_per_sz_"    + runs
-                                                    + "_OMP_threads_"    + omp_num_threads
-                                                    + "_SASO_threads_"    + num_threads 
-                                                    + ".dat", std::fstream::app);
+    std::fstream file(path_out + "CholQRCP_HQRRP_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
     file << cholqrcp_flop_rate       << "  " 
          << cholqrcp_hqrrp_flop_rate << "\n";
 }
 
 template <typename T>
-static void 
+static int 
 process_dat() {
     std::vector<std::string> test_type       = {"Best"};
     std::vector<std::string> rows            = {"131072"}; 
@@ -97,10 +75,8 @@ process_dat() {
                                         for (int r = 0; r < (int) num_threads.size(); ++r) {
                                             for (int s = 0; s < (int) block_sz.size(); ++s) {
                                                 for (int t = 0; t < (int) omp_num_threads.size(); ++t) {
-                                                    printf("HERE\n");
-                                                    // Clear old flop file   
-                                                    std::ofstream ofs;
-                                                    ofs.open(path_out + "CholQRCP_HQRRP_FLOP_RATE_"  + test_type[i] 
+                                                    
+                                                    std::string file_params = test_type[i] 
                                                                                 + "_m_"              + rows[j] 
                                                                                 + "_d_multiplier_"   + d_multiplier[k]
                                                                                 + "_k_multiplier_"   + k_multiplier[l]
@@ -111,25 +87,24 @@ process_dat() {
                                                                                 + "_nnz_"            + nnz[p]
                                                                                 + "_runs_per_sz_"    + runs[q]
                                                                                 + "_OMP_threads_"    + omp_num_threads[t]
-                                                                                + "_SASO_threads_"   + num_threads[r]
-                                                                                + ".dat", std::ofstream::out | std::ofstream::trunc);
+                                                                                + "_SASO_threads_"   + num_threads[r];
+
+
+
+                                                    // Clear old flop file   
+                                                    std::ofstream ofs;
+                                                    ofs.open(path_out + "CholQRCP_HQRRP_FLOP_RATE_" + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
                                                     ofs.close();
 
                                                     // Open data file
-                                                    std::fstream file(path_in + "BEST_CASE_PANEL_OFF_CholQRCP_vs_HQRRP_time_"    + test_type[i] 
-                                                                                                            + "_m_"              + rows[j] 
-                                                                                                            + "_d_multiplier_"   + d_multiplier[k]
-                                                                                                            + "_k_multiplier_"   + k_multiplier[l]
-                                                                                                            + "_log10(tol)_"     + log10tol[m]
-                                                                                                            + "_hqrrp_block_sz_" + block_sz[s]
-                                                                                                            + "_mat_type_"       + mat_type[n]
-                                                                                                            + "_cond_"           + cond[o]
-                                                                                                            + "_nnz_"            + nnz[p]
-                                                                                                            + "_runs_per_sz_"    + runs[q]
-                                                                                                            + "_OMP_threads_"    + omp_num_threads[t]
-                                                                                                            + "_SASO_threads_"   + num_threads[r]
-                                                                                                            + "_apply_to_large_" + apply_to_large[0]
-                                                                                                            + ".dat");
+                                                    std::string filename_in = path_in + "CholQRCP_vs_HQRRP_time_" + file_params + "_apply_to_large_" + apply_to_large[0] + ".dat";
+                                                    std::ifstream file(filename_in);
+                                                    // Check file existence - terminate with an error if the file is not found.
+                                                    if(!file)
+                                                    {
+                                                        printf("Looking for filename:\n%s\n", filename_in.c_str());
+                                                        return 1;
+                                                    }
                                                     
                                                     int64_t numrows = stoi(rows[j]);
                                                     int col_multiplier = 1;
@@ -143,22 +118,13 @@ process_dat() {
                                                         std::vector<std::string> times_per_col_sz(begin, end);
                                                         //std::copy(times_per_col_sz.begin(), times_per_col_sz.end(), std::ostream_iterator<std::string>(std::cout, "\n"));
 
-                                                        compute_and_log(test_type[i],
+                                                        compute_and_log(
                                                             numrows, 
                                                             numrows / (start_col_ratio / col_multiplier),
-                                                            d_multiplier[k],
-                                                            k_multiplier[k], 
-                                                            log10tol[m],
-                                                            block_sz[s],
-                                                            mat_type[n], 
-                                                            cond[o],
-                                                            nnz[p],
-                                                            runs[q],
-                                                            omp_num_threads[t],
-                                                            num_threads[r],
                                                             stod(times_per_col_sz[0]), 
                                                             stod(times_per_col_sz[1]),
-                                                            path_out);
+                                                            path_out,
+                                                            file_params);
 
                                                         col_multiplier *= 2;
                                                     }
@@ -174,9 +140,18 @@ process_dat() {
             }
         }
     }
+    return 0;
 }
 
 int main(){ 
-    process_dat<double>();
+    switch(process_dat<double>())
+        {
+        case 1:
+            printf("\nTERMINATED VIA: input file not found.\n");
+            break;
+        case 0:
+            printf("\nTERMINATED VIA: normal termination.\n");
+            break;
+        }
     return 0;
 }
