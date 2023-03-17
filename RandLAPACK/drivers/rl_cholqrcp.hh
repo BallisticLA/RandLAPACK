@@ -241,7 +241,7 @@ int CholQRCP<T>::CholQRCP1(
     }
     else {
         std::iota(J.begin(), J.end(), 1);
-        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->seed);
+        hqrrp(d, n, (double*) A_hat_dat, d, J_dat, (double*) tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting);
     }
 
     if(this -> timing) {
