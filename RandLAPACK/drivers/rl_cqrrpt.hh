@@ -241,9 +241,10 @@ int cqrrpt<T>::cqrrpt1(
     }
     else {
         std::iota(J.begin(), J.end(), 1);
-        omp_set_num_threads(8);
+        // Enable the lines below for HQRRP best case testing
+	//omp_set_num_threads(8);
         hqrrp(d, n, (double*) A_hat_dat, d, J_dat, (double*) tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting);
-        omp_set_num_threads(36);
+        //omp_set_num_threads(36);
     }
 
     if(this -> timing) {
