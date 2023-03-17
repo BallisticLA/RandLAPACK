@@ -27,20 +27,20 @@ static void
 compute_and_log(
     int64_t rows, 
     int64_t cols,
-    T cholqrcp_time, 
-    T cholqrcp_hqrrp_time,
+    T cqrrpt_time, 
+    T cqrrpt_hqrrp_time,
     std::string path_out,
     std::string file_params)
 {
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
 
     // This version finds flop RATES, pretending that geqrf_gflop is the standard num flops
-    T cholqrcp_flop_rate = geqrf_gflop / (cholqrcp_time / 1e+6);
-    T cholqrcp_hqrrp_flop_rate = geqrf_gflop / (cholqrcp_hqrrp_time / 1e+6);
+    T cqrrpt_flop_rate = geqrf_gflop / (cqrrpt_time / 1e+6);
+    T cqrrpt_hqrrp_flop_rate = geqrf_gflop / (cqrrpt_hqrrp_time / 1e+6);
     
     std::fstream file(path_out + "CholQRCP_HQRRP_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
-    file << cholqrcp_flop_rate       << "  " 
-         << cholqrcp_hqrrp_flop_rate << "\n";
+    file << cqrrpt_flop_rate       << "  " 
+         << cqrrpt_hqrrp_flop_rate << "\n";
 }
 
 template <typename T>
@@ -55,12 +55,12 @@ process_dat() {
     std::vector<std::string> cond            = {"0"};
     std::vector<std::string> nnz             = {"1"};
     std::vector<std::string> runs            = {"5"};
-    std::vector<std::string> num_threads     = {"36"};
+    std::vector<std::string> num_threads     = {"8"};
     std::vector<std::string> block_sz        = {"32"};
-    std::vector<std::string> omp_num_threads = {"36"};
+    std::vector<std::string> omp_num_threads = {"8"};
     std::vector<std::string> apply_to_large  = {"0"};
-    std::string path_in = "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/no_o3_data/";
-    std::string path_out = "../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/no_o3_data/";
+    std::string path_in = "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/old_hqrrp/";
+    std::string path_out = "../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/old_hqrrp/";
 
 
     for (int i = 0; i < (int) test_type.size(); ++i) {

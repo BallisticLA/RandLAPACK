@@ -18,7 +18,7 @@ Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
 /*
-Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
+Compares speed of cqrrpt to other pivoted and unpivoted QR factorizations
 */
 
 using namespace std::chrono;
@@ -28,7 +28,7 @@ static void
 compute_and_log(
     int64_t rows, 
     int64_t cols,
-    T cholqrcp_time, 
+    T cqrrpt_time, 
     T geqp3_time, 
     T geqr_time, 
     T tsqrp_time, 
@@ -42,12 +42,12 @@ compute_and_log(
 
     // This version finds flop RATES, pretending that geqrf_gflop is the standard num flops
     T geqrf_flop_rate    = geqrf_gflop / (geqrf_time / 1e+6);
-    T cholqrcp_flop_rate = geqrf_gflop / (cholqrcp_time / 1e+6);
+    T cqrrpt_flop_rate = geqrf_gflop / (cqrrpt_time / 1e+6);
     T geqp3_flop_rate    = geqrf_gflop / (geqp3_time / 1e+6);
     T geqr_flop_rate     = geqrf_gflop / (geqr_time / 1e+6);
     T tsqrp_flop_rate    = geqrf_gflop / (tsqrp_time / 1e+6);
 
-    printf("CholQRCP GFLOP RATE %12.1f\n",   cholqrcp_flop_rate);
+    printf("cqrrpt GFLOP RATE %12.1f\n",   cqrrpt_flop_rate);
     printf("GEQP3 GFLOP RATE    %12.1f\n",   geqp3_flop_rate);
     printf("GEQR GFLOP RATE     %12.1f\n",   geqr_flop_rate);
     printf("TSQRP GFLOP RATE    %12.1f\n",   tsqrp_flop_rate);
@@ -56,7 +56,7 @@ compute_and_log(
     printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
     
     std::fstream file(path_out + "CholQRCP_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
-    file << cholqrcp_flop_rate   << "  " 
+    file << cqrrpt_flop_rate   << "  " 
          << geqp3_flop_rate      << "  " 
          << geqr_flop_rate       << "  "
          << tsqrp_flop_rate      << "  " 
