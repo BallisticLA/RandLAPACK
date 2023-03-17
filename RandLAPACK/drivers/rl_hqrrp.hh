@@ -1,5 +1,3 @@
-
-
 /*
 ===============================================================================
 Authors
@@ -670,7 +668,7 @@ int64_t hqrrp(
 
     // Initialize matrices G and Y.
     auto state = RandBLAS::base::RNGState(seed, 0);
-    RandBLAS::dense::DenseDist  D{.n_rows = nb_alg + pp, .n_cols = m_A};
+    RandBLAS::dense::DenseDist  D{.n_rows = nb_alg + pp, .n_cols = m_A}; // D{.family=DenseDistName::Uniform, .n_rows = nb_alg + pp, .n_cols = m_A}
     RandBLAS::dense::fill_buff(buff_G, D, state);
     
     blas::gemm(blas::Layout::ColMajor,
