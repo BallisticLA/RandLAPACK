@@ -16,7 +16,7 @@
 Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
-/*This is only concerned with what's INSIDE of cholqrcp*/
+/*This is only concerned with what's INSIDE of CQRRPT*/
 
 using namespace std::chrono;
 
@@ -93,47 +93,47 @@ test_speed_helper(int64_t m,
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-    // CholQRCP constructor
-    RandLAPACK::CholQRCP<T> CholQRCP(false, true, seed, tol);
-    CholQRCP.nnz         = nnz;
-    CholQRCP.num_threads = num_threads;
+    // CQRRPT constructor
+    RandLAPACK::CQRRPT<T> CQRRPT(false, true, seed, tol);
+    CQRRPT.nnz         = nnz;
+    CQRRPT.num_threads = num_threads;
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     
-    RandLAPACK::util::upsize(d * n, (CholQRCP.A_hat));
-    RandLAPACK::util::upsize(n, (CholQRCP.A_hat));
+    RandLAPACK::util::upsize(d * n, (CQRRPT.A_hat));
+    RandLAPACK::util::upsize(n, (CQRRPT.A_hat));
     J_1.resize(n);
-    RandLAPACK::util::upsize(n * n, (CholQRCP.R_sp));
+    RandLAPACK::util::upsize(n * n, (CQRRPT.R_sp));
     RandLAPACK::util::upsize(n * n, R_1);
 
-    // CholQRCP
-    CholQRCP.call(m, n, A_1, d, R_1, J_1);
+    // CQRRPT
+    CQRRPT.call(m, n, A_1, d, R_1, J_1);
     
-    // CholQRCP verbose info print
-    printf("\n\n/------------CholQRCP1 TIMING RESULTS BEGIN------------/\n");
-    printf("SASO time: %33ld μs,\n",                    (CholQRCP.times)[0]);
-    printf("QRCP time: %33ld μs,\n",                    (CholQRCP.times)[1]);
-    printf("Rank revealing time: %23ld μs,\n",          (CholQRCP.times)[2]);
-    printf("CholQR time: %31ld μs,\n",                  (CholQRCP.times)[3]);
-    printf("A modification pivoting time: %14ld μs,\n", (CholQRCP.times)[4]);
-    printf("A modification TRSM time: %18ld μs,\n",     (CholQRCP.times)[5]);
-    printf("Copying time: %30ld μs,\n",                 (CholQRCP.times)[6]);
-    printf("Resizing time: %29ld μs,\n",                (CholQRCP.times)[7]);
-    printf("Other routines time: %23ld μs,\n",          (CholQRCP.times)[8]);
-    printf("Total time: %32ld μs.\n",                   (CholQRCP.times)[9]);
+    // CQRRPT verbose info print
+    printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
+    printf("SASO time: %33ld μs,\n",                    (CQRRPT.times)[0]);
+    printf("QRCP time: %33ld μs,\n",                    (CQRRPT.times)[1]);
+    printf("Rank revealing time: %23ld μs,\n",          (CQRRPT.times)[2]);
+    printf("CholQR time: %31ld μs,\n",                  (CQRRPT.times)[3]);
+    printf("A modification pivoting time: %14ld μs,\n", (CQRRPT.times)[4]);
+    printf("A modification TRSM time: %18ld μs,\n",     (CQRRPT.times)[5]);
+    printf("Copying time: %30ld μs,\n",                 (CQRRPT.times)[6]);
+    printf("Resizing time: %29ld μs,\n",                (CQRRPT.times)[7]);
+    printf("Other routines time: %23ld μs,\n",          (CQRRPT.times)[8]);
+    printf("Total time: %32ld μs.\n",                   (CQRRPT.times)[9]);
 
-    printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CholQRCP.times)[0] / (double) (CholQRCP.times)[9]));
-    printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CholQRCP.times)[1] / (double) (CholQRCP.times)[9]));
-    printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CholQRCP.times)[2] / (double) (CholQRCP.times)[9]));
-    printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CholQRCP.times)[3] / (double) (CholQRCP.times)[9]));
-    printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP.times)[4] / (double) (CholQRCP.times)[9]));
-    printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP.times)[5] / (double) (CholQRCP.times)[9]));
-    printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CholQRCP.times)[6] / (double) (CholQRCP.times)[9]));
-    printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP.times)[7] / (double) (CholQRCP.times)[9]));
-    printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CholQRCP.times)[8] / (double) (CholQRCP.times)[9]));
-    printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
+    printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CQRRPT.times)[0] / (double) (CQRRPT.times)[9]));
+    printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CQRRPT.times)[1] / (double) (CQRRPT.times)[9]));
+    printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CQRRPT.times)[2] / (double) (CQRRPT.times)[9]));
+    printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CQRRPT.times)[3] / (double) (CQRRPT.times)[9]));
+    printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CQRRPT.times)[4] / (double) (CQRRPT.times)[9]));
+    printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CQRRPT.times)[5] / (double) (CQRRPT.times)[9]));
+    printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CQRRPT.times)[6] / (double) (CQRRPT.times)[9]));
+    printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CQRRPT.times)[7] / (double) (CQRRPT.times)[9]));
+    printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CQRRPT.times)[8] / (double) (CQRRPT.times)[9]));
+    printf("/-------------CQRRPT TIMING RESULTS END-------------/\n\n");
 
-    return CholQRCP.times;
+    return CQRRPT.times;
 }
 
 template <typename T>
@@ -339,7 +339,7 @@ test_speed(int r_pow,
 
         printf("Done with size %d by %d\n", rows, col);
     }
-    printf("\n/-----------------------------------------CholQRCP EMBEDDING EFFECT BENCHMARK STOP-----------------------------------------/\n\n");
+    printf("\n/-----------------------------------------CQRRPT EMBEDDING EFFECT BENCHMARK STOP-----------------------------------------/\n\n");
 }
 
 int main(){

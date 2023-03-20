@@ -11,7 +11,7 @@ if (GTest_FOUND)
         comps/test_orth.cc
         comps/test_qb.cc
         drivers/test_rsvd.cc
-        drivers/test_cholqrcp.cc
+        drivers/test_cqrrpt.cc
     )
 
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
