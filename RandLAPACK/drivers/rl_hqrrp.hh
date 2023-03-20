@@ -1033,7 +1033,10 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
   ldim_G  = m_G;
 
   // Initialize matrices G and Y.
-  NoFLA_Normal_random_matrix( nb_alg + pp, m_A, buff_G, ldim_G );
+  auto state = RandBLAS::base::RNGState(seed, 0);
+  RandBLAS::dense::DenseDist  D{.n_rows = nb_alg + pp, .n_cols = m_A}; // D{.family=DenseDistName::Uniform, .n_rows = nb_alg + pp, .n_cols = m_A}
+  RandBLAS::dense::fill_buff(buff_G, D, state);
+
   blas::gemm(blas::Layout::ColMajor,
              blas::Op::NoTrans, blas::Op::NoTrans, m_Y, n_Y, m_A, 
              d_one, buff_G,  ldim_G, buff_A, ldim_A, 
