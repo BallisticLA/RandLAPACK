@@ -11,6 +11,6 @@
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
-#include "RandLAPACK/drivers/rl_cholqrcp.hh"
+#include "RandLAPACK/drivers/rl_cqrrpt.hh"
 
 #endif

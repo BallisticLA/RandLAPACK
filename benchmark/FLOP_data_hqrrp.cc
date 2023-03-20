@@ -3,7 +3,7 @@ Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
 /*
-Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
+Compares speed of CQRRPT to other pivoted and unpivoted QR factorizations
 */
 #include<stdio.h>
 #include<string.h>
@@ -27,20 +27,20 @@ static void
 compute_and_log(
     int64_t rows, 
     int64_t cols,
-    T cholqrcp_time, 
-    T cholqrcp_hqrrp_time,
+    T cqrrpt_time, 
+    T cqrrpt_hqrrp_time,
     std::string path_out,
     std::string file_params)
 {
     T geqrf_gflop = (2 * rows * std::pow(cols, 2) - (2 / 3)* std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14 / 3) * cols) / 1e+9;
 
     // This version finds flop RATES, pretending that geqrf_gflop is the standard num flops
-    T cholqrcp_flop_rate = geqrf_gflop / (cholqrcp_time / 1e+6);
-    T cholqrcp_hqrrp_flop_rate = geqrf_gflop / (cholqrcp_hqrrp_time / 1e+6);
+    T cqrrpt_flop_rate = geqrf_gflop / (cqrrpt_time / 1e+6);
+    T cqrrpt_hqrrp_flop_rate = geqrf_gflop / (cqrrpt_hqrrp_time / 1e+6);
     
     std::fstream file(path_out + "CholQRCP_HQRRP_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
-    file << cholqrcp_flop_rate       << "  " 
-         << cholqrcp_hqrrp_flop_rate << "\n";
+    file << cqrrpt_flop_rate       << "  " 
+         << cqrrpt_hqrrp_flop_rate << "\n";
 }
 
 template <typename T>
@@ -93,11 +93,11 @@ process_dat() {
 
                                                     // Clear old flop file   
                                                     std::ofstream ofs;
-                                                    ofs.open(path_out + "CholQRCP_HQRRP_FLOP_RATE_" + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
+                                                    ofs.open(path_out + "CQRRPT_HQRRP_FLOP_RATE_" + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
                                                     ofs.close();
 
                                                     // Open data file
-                                                    std::string filename_in = path_in + "CholQRCP_vs_HQRRP_time_" + file_params + "_apply_to_large_" + apply_to_large[0] + ".dat";
+                                                    std::string filename_in = path_in + "CQRRPT_vs_HQRRP_time_" + file_params + "_apply_to_large_" + apply_to_large[0] + ".dat";
                                                     std::ifstream file(filename_in);
                                                     // Check file existence - terminate with an error if the file is not found.
                                                     if(!file)

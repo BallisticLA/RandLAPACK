@@ -3,7 +3,7 @@ Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
 /*
-Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
+Compares speed of CQRRPT to other pivoted and unpivoted QR factorizations
 */
 #include<stdio.h>
 #include<string.h>
@@ -32,10 +32,10 @@ log_info(int64_t rows,
            int64_t nnz, 
            int64_t num_threads,
            const std::tuple<int, T, bool>& mat_type,
-           T cholqrcp_time, 
-           T cholqrcp_hqrrp_time, 
+           T cqrrpt_time, 
+           T cqrrpt_hqrrp_time, 
            T chol_full_time,
-           T cholqrcp_hqrrp_full_time,
+           T cqrrpt_hqrrp_full_time,
            const std::string& test_type,
            int runs,
            int apply_to_large,
@@ -55,10 +55,10 @@ log_info(int64_t rows,
                                     + "_SASO_threads_"   + std::to_string(num_threads)
                                     + "_apply_to_large_" + std::to_string(apply_to_large)
                                     + ".dat", std::fstream::app);
-    file << cholqrcp_time       << "  " 
-         << cholqrcp_hqrrp_time << "  "  
+    file << cqrrpt_time       << "  " 
+         << cqrrpt_hqrrp_time << "  "  
          << chol_full_time      << "  " 
-         << cholqrcp_hqrrp_full_time << "\n";
+         << cqrrpt_hqrrp_full_time << "\n";
 }
 
 template <typename T>
@@ -101,40 +101,40 @@ test_speed_helper(int64_t m,
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
-    // CholQRCP constructor
+    // CQRRPT constructor
     bool log_times = true;
-    RandLAPACK::CholQRCP<T> CholQRCP_basic(false, log_times, seed, tol);
-    CholQRCP_basic.nnz = nnz;
-    CholQRCP_basic.num_threads = num_threads;
+    RandLAPACK::CQRRPT<T> CQRRPT_basic(false, log_times, seed, tol);
+    CQRRPT_basic.nnz = nnz;
+    CQRRPT_basic.num_threads = num_threads;
 
-    // CholQRCP constructor
-    RandLAPACK::CholQRCP<T> CholQRCP_HQRRP(false, log_times, seed, tol);
+    // CQRRPT constructor
+    RandLAPACK::CQRRPT<T> CQRRPT_HQRRP(false, log_times, seed, tol);
     
-    CholQRCP_HQRRP.nnz = nnz;
-    CholQRCP_HQRRP.num_threads = num_threads;
-    CholQRCP_HQRRP.no_hqrrp = 0;
-    CholQRCP_HQRRP.nb_alg = block_sz;
+    CQRRPT_HQRRP.nnz = nnz;
+    CQRRPT_HQRRP.num_threads = num_threads;
+    CQRRPT_HQRRP.no_hqrrp = 0;
+    CQRRPT_HQRRP.nb_alg = block_sz;
 
     //-TEST POINT 2 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     
-    // Pre-allocation for CholQRCP
+    // Pre-allocation for CQRRPT
     auto start_alloc2 = high_resolution_clock::now();
     if(log_times) {
-        (CholQRCP_HQRRP.times).resize(10);
+        (CQRRPT_HQRRP.times).resize(10);
     }
-    RandLAPACK::util::upsize(d * n, (CholQRCP_HQRRP.A_hat));
-    RandLAPACK::util::upsize(n, (CholQRCP_HQRRP.A_hat));
+    RandLAPACK::util::upsize(d * n, (CQRRPT_HQRRP.A_hat));
+    RandLAPACK::util::upsize(n, (CQRRPT_HQRRP.A_hat));
     J_2.resize(n);
-    RandLAPACK::util::upsize(n * n, (CholQRCP_HQRRP.R_sp));
+    RandLAPACK::util::upsize(n * n, (CQRRPT_HQRRP.R_sp));
     RandLAPACK::util::upsize(n * n, R_2);
     auto stop_alloc2 = high_resolution_clock::now();
     long dur_alloc2 = duration_cast<microseconds>(stop_alloc2 - start_alloc2).count();
     
-    // CholQRCP
-    auto start_cholqrcp_hqrrp = high_resolution_clock::now();
-    CholQRCP_HQRRP.call(m, n, A_1, d, R_2, J_2);
-    auto stop_cholqrcp_hqrrp = high_resolution_clock::now();
-    long dur_cholqrcp_hqrrp = duration_cast<microseconds>(stop_cholqrcp_hqrrp - start_cholqrcp_hqrrp).count();
+    // CQRRPT
+    auto start_cqrrpt_hqrrp = high_resolution_clock::now();
+    CQRRPT_HQRRP.call(m, n, A_1, d, R_2, J_2);
+    auto stop_cqrrpt_hqrrp = high_resolution_clock::now();
+    long dur_cqrrpt_hqrrp = duration_cast<microseconds>(stop_cqrrpt_hqrrp - start_cqrrpt_hqrrp).count();
 
     // Apply Q_1
     auto start_appl2 = high_resolution_clock::now();
@@ -143,51 +143,51 @@ test_speed_helper(int64_t m,
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
     if (log_times) {
-        printf("\n\n/------------CholQRCP-HQRRP TIMING RESULTS BEGIN------------/\n");
-        printf("SASO time: %33ld μs,\n",                    (CholQRCP_HQRRP.times)[0]);
-        printf("QRCP time: %33ld μs,\n",                    (CholQRCP_HQRRP.times)[1]);
-        printf("Rank revealing time: %23ld μs,\n",          (CholQRCP_HQRRP.times)[2]);
-        printf("CholQR time: %31ld μs,\n",                  (CholQRCP_HQRRP.times)[3]);
-        printf("A modification pivoting time: %14ld μs,\n", (CholQRCP_HQRRP.times)[4]);
-        printf("A modification TRSM time: %18ld μs,\n",     (CholQRCP_HQRRP.times)[5]);
-        printf("Copying time: %30ld μs,\n",                 (CholQRCP_HQRRP.times)[6]);
-        printf("Resizing time: %29ld μs,\n",                (CholQRCP_HQRRP.times)[7]);
-        printf("Other routines time: %23ld μs,\n",          (CholQRCP_HQRRP.times)[8]);
-        printf("Total time: %32ld μs.\n",                   (CholQRCP_HQRRP.times)[9]);
+        printf("\n\n/------------CQRRPT-HQRRP TIMING RESULTS BEGIN------------/\n");
+        printf("SASO time: %33ld μs,\n",                    (CQRRPT_HQRRP.times)[0]);
+        printf("QRCP time: %33ld μs,\n",                    (CQRRPT_HQRRP.times)[1]);
+        printf("Rank revealing time: %23ld μs,\n",          (CQRRPT_HQRRP.times)[2]);
+        printf("CholQR time: %31ld μs,\n",                  (CQRRPT_HQRRP.times)[3]);
+        printf("A modification pivoting time: %14ld μs,\n", (CQRRPT_HQRRP.times)[4]);
+        printf("A modification TRSM time: %18ld μs,\n",     (CQRRPT_HQRRP.times)[5]);
+        printf("Copying time: %30ld μs,\n",                 (CQRRPT_HQRRP.times)[6]);
+        printf("Resizing time: %29ld μs,\n",                (CQRRPT_HQRRP.times)[7]);
+        printf("Other routines time: %23ld μs,\n",          (CQRRPT_HQRRP.times)[8]);
+        printf("Total time: %32ld μs.\n",                   (CQRRPT_HQRRP.times)[9]);
 
-        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CholQRCP_HQRRP.times)[0] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CholQRCP_HQRRP.times)[1] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CholQRCP_HQRRP.times)[2] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CholQRCP_HQRRP.times)[3] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP_HQRRP.times)[4] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP_HQRRP.times)[5] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CholQRCP_HQRRP.times)[6] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP_HQRRP.times)[7] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CholQRCP_HQRRP.times)[8] / (double) (CholQRCP_HQRRP.times)[9]));
-        printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
+        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CQRRPT_HQRRP.times)[0] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CQRRPT_HQRRP.times)[1] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CQRRPT_HQRRP.times)[2] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CQRRPT_HQRRP.times)[3] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CQRRPT_HQRRP.times)[4] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CQRRPT_HQRRP.times)[5] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CQRRPT_HQRRP.times)[6] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CQRRPT_HQRRP.times)[7] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CQRRPT_HQRRP.times)[8] / (double) (CQRRPT_HQRRP.times)[9]));
+        printf("/-------------CQRRPT TIMING RESULTS END-------------/\n\n");
     }
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
     RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
-    // Pre-allocation for CholQRCP
+    // Pre-allocation for CQRRPT
     auto start_alloc1 = high_resolution_clock::now();
     if(log_times) {
-        (CholQRCP_basic.times).resize(10);
+        (CQRRPT_basic.times).resize(10);
     }
-    RandLAPACK::util::upsize(d * n, (CholQRCP_basic.A_hat));
-    RandLAPACK::util::upsize(n, (CholQRCP_basic.A_hat));
+    RandLAPACK::util::upsize(d * n, (CQRRPT_basic.A_hat));
+    RandLAPACK::util::upsize(n, (CQRRPT_basic.A_hat));
     J_1.resize(n);
-    RandLAPACK::util::upsize(n * n, (CholQRCP_basic.R_sp));
+    RandLAPACK::util::upsize(n * n, (CQRRPT_basic.R_sp));
     RandLAPACK::util::upsize(n * n, R_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
-    // CholQRCP
-    auto start_cholqrcp = high_resolution_clock::now();
-    CholQRCP_basic.call(m, n, A_1, d, R_1, J_1);
-    auto stop_cholqrcp = high_resolution_clock::now();
-    long dur_cholqrcp = duration_cast<microseconds>(stop_cholqrcp - start_cholqrcp).count();
+    // CQRRPT
+    auto start_cqrrpt = high_resolution_clock::now();
+    CQRRPT_basic.call(m, n, A_1, d, R_1, J_1);
+    auto stop_cqrrpt = high_resolution_clock::now();
+    long dur_cqrrpt = duration_cast<microseconds>(stop_cqrrpt - start_cqrrpt).count();
 
     // Apply Q_1
     auto start_appl1 = high_resolution_clock::now();
@@ -196,34 +196,34 @@ test_speed_helper(int64_t m,
     long dur_appl1 = duration_cast<microseconds>(stop_appl1 - start_appl1).count();
 
     if (log_times) {
-        printf("\n\n/------------CholQRCP-GEQP3 TIMING RESULTS BEGIN------------/\n");
-        printf("SASO time: %33ld μs,\n",                    (CholQRCP_basic.times)[0]);
-        printf("QRCP time: %33ld μs,\n",                    (CholQRCP_basic.times)[1]);
-        printf("Rank revealing time: %23ld μs,\n",          (CholQRCP_basic.times)[2]);
-        printf("CholQR time: %31ld μs,\n",                  (CholQRCP_basic.times)[3]);
-        printf("A modification pivoting time: %14ld μs,\n", (CholQRCP_basic.times)[4]);
-        printf("A modification TRSM time: %18ld μs,\n",     (CholQRCP_basic.times)[5]);
-        printf("Copying time: %30ld μs,\n",                 (CholQRCP_basic.times)[6]);
-        printf("Resizing time: %29ld μs,\n",                (CholQRCP_basic.times)[7]);
-        printf("Other routines time: %23ld μs,\n",          (CholQRCP_basic.times)[8]);
-        printf("Total time: %32ld μs.\n",                   (CholQRCP_basic.times)[9]);
+        printf("\n\n/------------CQRRPT-GEQP3 TIMING RESULTS BEGIN------------/\n");
+        printf("SASO time: %33ld μs,\n",                    (CQRRPT_basic.times)[0]);
+        printf("QRCP time: %33ld μs,\n",                    (CQRRPT_basic.times)[1]);
+        printf("Rank revealing time: %23ld μs,\n",          (CQRRPT_basic.times)[2]);
+        printf("CholQR time: %31ld μs,\n",                  (CQRRPT_basic.times)[3]);
+        printf("A modification pivoting time: %14ld μs,\n", (CQRRPT_basic.times)[4]);
+        printf("A modification TRSM time: %18ld μs,\n",     (CQRRPT_basic.times)[5]);
+        printf("Copying time: %30ld μs,\n",                 (CQRRPT_basic.times)[6]);
+        printf("Resizing time: %29ld μs,\n",                (CQRRPT_basic.times)[7]);
+        printf("Other routines time: %23ld μs,\n",          (CQRRPT_basic.times)[8]);
+        printf("Total time: %32ld μs.\n",                   (CQRRPT_basic.times)[9]);
 
-        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CholQRCP_basic.times)[0] / (double) (CholQRCP_basic.times)[9]));
-        printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CholQRCP_basic.times)[1] / (double) (CholQRCP_basic.times)[9]));
-        printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CholQRCP_basic.times)[2] / (double) (CholQRCP_basic.times)[9]));
-        printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CholQRCP_basic.times)[3] / (double) (CholQRCP_basic.times)[9]));
-        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CholQRCP_basic.times)[4] / (double) (CholQRCP_basic.times)[9]));
-        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CholQRCP_basic.times)[5] / (double) (CholQRCP_basic.times)[9]));
-        printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CholQRCP_basic.times)[6] / (double) (CholQRCP_basic.times)[9]));
-        printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CholQRCP_basic.times)[7] / (double) (CholQRCP_basic.times)[9]));
-        printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CholQRCP_basic.times)[8] / (double) (CholQRCP_basic.times)[9]));
-        printf("/-------------CholQRCP1 TIMING RESULTS END-------------/\n\n");
+        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((double) (CQRRPT_basic.times)[0] / (double) (CQRRPT_basic.times)[9]));
+        printf("QRCP takes %32.2f%% of runtime.\n",                            100 * ((double) (CQRRPT_basic.times)[1] / (double) (CQRRPT_basic.times)[9]));
+        printf("Rank revealing takes %22.2f%% of runtime.\n",                  100 * ((double) (CQRRPT_basic.times)[2] / (double) (CQRRPT_basic.times)[9]));
+        printf("Cholqr takes %30.2f%% of runtime.\n",                          100 * ((double) (CQRRPT_basic.times)[3] / (double) (CQRRPT_basic.times)[9]));
+        printf("Modifying matrix (pivoting) A %13.2f%% of runtime.\n",         100 * ((double) (CQRRPT_basic.times)[4] / (double) (CQRRPT_basic.times)[9]));
+        printf("Modifying matrix (trsm) A %17.2f%% of runtime.\n",             100 * ((double) (CQRRPT_basic.times)[5] / (double) (CQRRPT_basic.times)[9]));
+        printf("Copying takes %29.2f%% of runtime.\n",                         100 * ((double) (CQRRPT_basic.times)[6] / (double) (CQRRPT_basic.times)[9]));
+        printf("Resizing takes %28.2f%% of runtime.\n",                        100 * ((double) (CQRRPT_basic.times)[7] / (double) (CQRRPT_basic.times)[9]));
+        printf("Everything else takes %21.2f%% of runtime.\n",                 100 * ((double) (CQRRPT_basic.times)[8] / (double) (CQRRPT_basic.times)[9]));
+        printf("/-------------CQRRPT TIMING RESULTS END-------------/\n\n");
     }
 
     //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
 
-    std::vector<long> res{dur_alloc1, dur_cholqrcp,       dur_appl1, 
-                          dur_alloc2, dur_cholqrcp_hqrrp, dur_appl2}; 
+    std::vector<long> res{dur_alloc1, dur_cqrrpt,       dur_appl1, 
+                          dur_alloc2, dur_cqrrpt_hqrrp, dur_appl2}; 
 
     return res;
 }
@@ -246,7 +246,7 @@ test_speed(int r_pow,
            int apply_to_large,
            std::string path) {
 
-    printf("\n/-----------------------------------------HQRRP+CholQRCP BENCHMARK START-----------------------------------------/\n");
+    printf("\n/-----------------------------------------HQRRP+CQRRPT BENCHMARK START-----------------------------------------/\n");
     // This variable is controls an additional iteration, used for initialization work
     int initialization = 1;
     int curr_runs = 0;
@@ -311,24 +311,24 @@ test_speed(int r_pow,
             std::vector<long> res;
 
             long t_alloc1         = 0;
-            long t_cholqrcp       = 0;
+            long t_cqrrpt         = 0;
             long t_appl1          = 0;
             long t_alloc2         = 0;
-            long t_cholqrcp_hqrrp = 0;
+            long t_cqrrpt_hqrrp   = 0;
             long t_appl2          = 0;
 
             T alloc1_best         = 0;
-            T cholqrcp_best       = 0;
+            T cqrrpt_best         = 0;
             T appl1_best          = 0;
             T alloc2_best         = 0;
-            T cholqrcp_hqrrp_best = 0;
+            T cqrrpt_hqrrp_best   = 0;
             T appl2_best          = 0;
 
             T alloc1_mean         = 0;
-            T cholqrcp_mean       = 0;
+            T cqrrpt_mean         = 0;
             T appl1_mean          = 0;
             T alloc2_mean         = 0;
-            T cholqrcp_hqrrp_mean = 0;
+            T cqrrpt_hqrrp_mean   = 0;
             T appl2_mean          = 0;
 
             curr_runs = runs + initialization;
@@ -338,10 +338,10 @@ test_speed(int r_pow,
                 // Skip first iteration, as it tends to produce garbage results
                 if (!initialization) {
                     t_alloc1         += res[0];
-                    t_cholqrcp       += res[1];
+                    t_cqrrpt         += res[1];
                     t_appl1          += res[2];
                     t_alloc2         += res[3];
-                    t_cholqrcp_hqrrp += res[4];
+                    t_cqrrpt_hqrrp   += res[4];
                     t_appl2          += res[5];
                     
                     // Log every run in the raw data file
@@ -369,8 +369,8 @@ test_speed(int r_pow,
                     if(alloc1_best > res[0] || alloc1_best == 0) {
                         alloc1_best = res[0];
                     }
-                    if(cholqrcp_best > res[1] || cholqrcp_best == 0) {
-                        cholqrcp_best = res[1];
+                    if(cqrrpt_best > res[1] || cqrrpt_best == 0) {
+                        cqrrpt_best = res[1];
                     }
                     if(appl1_best > res[2] || appl1_best == 0) {
                         appl1_best = res[2];
@@ -378,8 +378,8 @@ test_speed(int r_pow,
                     if(alloc2_best > res[3] || alloc2_best == 0) {
                         alloc2_best = res[3];
                     }
-                    if(cholqrcp_hqrrp_best > res[4] || cholqrcp_hqrrp_best == 0) {
-                        cholqrcp_hqrrp_best = res[4];
+                    if(cqrrpt_hqrrp_best > res[4] || cqrrpt_hqrrp_best == 0) {
+                        cqrrpt_hqrrp_best = res[4];
                     }
                     if(appl2_best > res[5] || appl2_best == 0) {
                         appl2_best = res[5];
@@ -391,27 +391,27 @@ test_speed(int r_pow,
 
             // For mean timing
             alloc1_mean          = (T)t_alloc1         / (T)(curr_runs);
-            cholqrcp_mean        = (T)t_cholqrcp       / (T)(curr_runs);
+            cqrrpt_mean          = (T)t_cqrrpt         / (T)(curr_runs);
             appl1_mean           = (T)t_appl1          / (T)(curr_runs);
             alloc2_mean          = (T)t_alloc2         / (T)(curr_runs);
-            cholqrcp_hqrrp_mean  = (T)t_cholqrcp_hqrrp / (T)(curr_runs);
+            cqrrpt_hqrrp_mean    = (T)t_cqrrpt_hqrrp   / (T)(curr_runs);
             appl2_mean           = (T)t_appl2          / (T)(curr_runs);
             
             log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
-                     cholqrcp_best,
-                     cholqrcp_hqrrp_best,
-                     cholqrcp_best       + alloc1_best + appl1_best, 
-                     cholqrcp_hqrrp_best + alloc2_best + appl2_best, 
+                     cqrrpt_best,
+                     cqrrpt_hqrrp_best,
+                     cqrrpt_best       + alloc1_best + appl1_best, 
+                     cqrrpt_hqrrp_best + alloc2_best + appl2_best, 
                      "Best", 
                      runs,
                      apply_to_large,
                      path);
 
             log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
-                     cholqrcp_mean,
-                     cholqrcp_hqrrp_mean,
-                     cholqrcp_mean       + alloc1_mean + appl1_mean, 
-                     cholqrcp_hqrrp_mean + alloc2_mean + appl2_mean, 
+                     cqrrpt_mean,
+                     cqrrpt_hqrrp_mean,
+                     cqrrpt_mean       + alloc1_mean + appl1_mean, 
+                     cqrrpt_hqrrp_mean + alloc2_mean + appl2_mean, 
                      "Mean", 
                      runs,
                      apply_to_large,
@@ -420,7 +420,7 @@ test_speed(int r_pow,
             printf("Done with size %ld by %ld\n", rows, cols);
         }
     }
-    printf("\n/-----------------------------------------HQRRP+CholQRCP BENCHMARK STOP-----------------------------------------/\n\n");
+    printf("\n/-----------------------------------------HQRRP+CQRRPT BENCHMARK STOP-----------------------------------------/\n\n");
 }
 
 int main(){
