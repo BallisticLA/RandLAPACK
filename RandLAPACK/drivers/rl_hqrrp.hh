@@ -1033,7 +1033,7 @@ int64_t hqrrp( int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
   ldim_G  = m_G;
 
   // Initialize matrices G and Y.
-  auto state = RandBLAS::base::RNGState(seed, 0);
+  auto state = RandBLAS::base::RNGState(0, 0);
   RandBLAS::dense::DenseDist  D{.n_rows = nb_alg + pp, .n_cols = m_A}; // D{.family=DenseDistName::Uniform, .n_rows = nb_alg + pp, .n_cols = m_A}
   RandBLAS::dense::fill_buff(buff_G, D, state);
 
