@@ -254,7 +254,7 @@ int64_t NoFLA_Downdate_Y(
                 d_minus_one, buff_U11, ldim_U11, buff_B, ldim_B );
 
     // B = G1 + B.
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for( j = 0; j < n_B; j++ ) {
         for( i = 0; i < m_B; i++ ) {
             buff_B[ i + j * ldim_B ] += buff_G1[ i + j * ldim_G1 ];
@@ -331,7 +331,7 @@ int64_t NoFLA_QRP_compute_norms(
     int64_t     j, i_one = 1;
 
     // Main loop.
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for( j = 0; j < n_A; j++ ) {
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
         * buff_e = * buff_d;
@@ -372,7 +372,7 @@ static int64_t NoFLA_QRP_downdate_partial_norms(
     ptr_A  = buff_A;
 
     // Main loop.
-    #pragma omp parallel for
+    //#pragma omp parallel for
     for( j = 0; j < n_A; j++ ) {
     if( * ptr_d != 0.0 ) {
         temp = dabs( * ptr_wt ) / * ptr_d;
@@ -745,7 +745,7 @@ int64_t hqrrp(
         //// print_double_matrix( "cyr", m_cyr, n_cyr, buff_cyr, ldim_cyr );
         //// print_double_matrix( "y", m_Y, n_Y, buff_Y, ldim_Y );
         sum = 0.0;
-        #pragma omp parallel for
+        //#pragma omp parallel for
         for( jj = 0; jj < n_cyr; jj++ ) {
             for( ii = 0; ii < m_cyr; ii++ ) {
             aux = buff_Y[ ii + ( j + jj ) * ldim_Y ] -
