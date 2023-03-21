@@ -17,10 +17,9 @@ If the required folder structure does not exist, the files will not be saved.
 */
 
 template <typename T>
-    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed, int test_num, std::string path) {
+    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state, int test_num, std::string path) {
         
         printf("/-----------------------------------------CQRRPT ACCURACY BENCHMARK START-----------------------------------------/\n");
-        auto state = RandBLAS::base::RNGState(0, 0);
         
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
@@ -44,7 +43,7 @@ template <typename T>
         std::copy(A.data(), A.data() + size, A_1.data());
         std::copy(A.data(), A.data() + size, A_2.data());
 
-        RandLAPACK::CQRRPT<T> CQRRPT(false, false, seed, tol);
+        RandLAPACK::CQRRPT<T> CQRRPT(false, false, state, tol);
         CQRRPT.nnz = nnz;
         CQRRPT.num_threads = 32;
 
@@ -160,6 +159,7 @@ template <typename T>
 int main() {
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
     // Large condition number may not work for a small matrix
-    test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 10000, 4, std::pow(std::numeric_limits<double>::epsilon(), 0.5265), std::make_tuple(0, 1e10, false), 1, 1, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    auto state = RandBLAS::base::RNGState(0, 0);
+    test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 10000, 4, std::pow(std::numeric_limits<double>::epsilon(), 0.5265), std::make_tuple(0, 1e10, false), state, 1, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
     return 0;
 }
