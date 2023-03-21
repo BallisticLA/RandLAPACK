@@ -20,7 +20,8 @@ template <typename T>
     static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed, int test_num, std::string path) {
         
         printf("/-----------------------------------------CQRRPT ACCURACY BENCHMARK START-----------------------------------------/\n");
-
+        auto state = RandBLAS::base::RNGState(0, 0);
+        
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
 
@@ -28,7 +29,7 @@ template <typename T>
         std::vector<int64_t> J(n, 0);
 
         // Random Gaussian test matrix
-        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
         std::vector<T> A_1(size, 0.0);

@@ -606,7 +606,7 @@ template <typename T>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, uint64_t seed) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, RandBLAS::base::RNGState<r123::Philox4x32> state) {
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -642,9 +642,6 @@ int64_t hqrrp(
         return 0;
     }
 
-    // Initialize the seed for the generator of random numbers.
-    srand( seed );
-
     // Create auxiliary objects.
     m_Y     = nb_alg + pp;
     n_Y     = n_A;
@@ -667,8 +664,7 @@ int64_t hqrrp(
     ldim_G  = m_G;
 
     // Initialize matrices G and Y.
-    auto state = RandBLAS::base::RNGState(seed, 0);
-    RandBLAS::dense::DenseDist  D{.n_rows = nb_alg + pp, .n_cols = m_A}; // D{.family=DenseDistName::Uniform, .n_rows = nb_alg + pp, .n_cols = m_A}
+    RandBLAS::dense::DenseDist D{.family=RandBLAS::dense::DenseDistName::Uniform, .n_rows = nb_alg + pp, .n_cols = m_A};
     RandBLAS::dense::fill_buff(buff_G, D, state);
     
     blas::gemm(blas::Layout::ColMajor,

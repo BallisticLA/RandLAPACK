@@ -27,7 +27,7 @@ class TestOrth : public ::testing::Test
     /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
     /// Checks I - \transpose{Q}Q.
     template <typename T>
-    static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, uint32_t seed) {
+    static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
 
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
@@ -40,11 +40,10 @@ class TestOrth : public ::testing::Test
         T* Omega_dat = Omega.data();
         T* I_ref_dat = I_ref.data();
 
-        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
         // Fill the gaussian random matrix
         RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
-        auto state = RandBLAS::base::RNGState(seed, 0);
         state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
         // Generate a reference identity
         RandLAPACK::util::eye(k, k, I_ref);

@@ -108,7 +108,7 @@ template int GEQR<double>::geqrq(int64_t m, int64_t n, std::vector<double>& A, s
 
 template <typename T>
 static std::tuple<long, long, long, long> 
-test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
+test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<r123::Philox4x32> state) {
 
     int64_t size = m * n;
     std::vector<T> A(size, 0.0);
@@ -122,7 +122,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     T* A_cpy_3_dat = A_cpy_3.data();
 
     // Random Gaussian test matrix
-    RandLAPACK::util::gen_mat_type(m, n, A, n, seed, std::tuple(6, 0., false));
+    RandLAPACK::util::gen_mat_type(m, n, A, n, state, std::tuple(6, 0., false));
     // Make a copy
     std::copy(A_dat, A_dat + size, A_cpy_dat);
     std::copy(A_dat, A_dat + size, A_cpy_2_dat);
@@ -167,7 +167,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
 template <typename T>
 static void 
-test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs) {
+test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs, RandBLAS::base::RNGState<r123::Philox4x32> state) {
     int64_t rows = 0;
     int64_t cols = 0;
 
@@ -196,7 +196,7 @@ test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs) {
 
             std::ofstream file("../../build/test_plots/test_speed/raw_data/test_" + std::to_string(rows) + "_" + std::to_string(cols) + ".dat");
             for(int i = 0; i < runs; ++i) {
-                res = test_speed_helper<T>(rows, cols, 1);
+                res = test_speed_helper<T>(rows, cols, state);
                 curr_t_chol = std::get<0>(res);
                 curr_t_lu   = std::get<1>(res);
                 curr_t_qr   = std::get<2>(res);
@@ -231,7 +231,7 @@ test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs) {
 
 template <typename T>
 static void 
-test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
+test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, RandBLAS::base::RNGState<r123::Philox4x32> state)
 {
 
     // Clear all files
@@ -266,7 +266,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
             long curr_t_geqr = 0;
 
             for(int i = 0; i < runs; ++i) {
-                res = test_speed_helper<T>(rows, cols, 1);
+                res = test_speed_helper<T>(rows, cols, state);
                 curr_t_chol = std::get<0>(res);
                 curr_t_lu   = std::get<1>(res);
                 curr_t_qr   = std::get<2>(res);
@@ -303,6 +303,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs)
 }
 
 int main() {
-    test_speed_mean<double>(12, 12, 64, 64, 3);
+    auto state = RandBLAS::base::RNGState(0, 0);
+    test_speed_mean<double>(12, 12, 64, 64, 3, state);
     return 0;
 }

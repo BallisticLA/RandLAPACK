@@ -217,15 +217,13 @@ T* row_resize(
 /// Generates left and right singular vectors for the three matrix types above.
 /// Note: Printed matrix A may have different rank from actual generated matrix A
 template <typename T>
-void gen_mat( int64_t m, int64_t n, std::vector<T>& A, int64_t k, std::vector<T>& S, int32_t seed);
-template <typename T>
 void gen_mat(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
     int64_t k,
     std::vector<T>& S,
-    int32_t seed
+    RandBLAS::base::RNGState<r123::Philox4x32> state
 ) {
 
     std::vector<T> U(m * k, 0.0);
@@ -239,7 +237,6 @@ void gen_mat(
     T* tau_dat = tau.data();
     T* Gemm_buf_dat = Gemm_buf.data();
 
-    auto state = RandBLAS::base::RNGState(seed, 0);
     RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = k};
     RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = k};
     state = RandBLAS::dense::fill_buff(U_dat, DU, state);
@@ -272,7 +269,7 @@ void gen_poly_mat(
     int64_t k,
     T cond,
     bool diagon,
-    int32_t seed
+    RandBLAS::base::RNGState<r123::Philox4x32> state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -306,7 +303,7 @@ void gen_poly_mat(
         }
         lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
     } else {
-        gen_mat(m, n, A, k, S, seed);
+        gen_mat(m, n, A, k, S, state);
     }
 }
 
@@ -323,7 +320,7 @@ void gen_exp_mat(
     int64_t k,
     T cond,
     bool diagon,
-    int32_t seed
+    RandBLAS::base::RNGState<r123::Philox4x32> state
 ) {
 
     std::vector<T> s(k, 1.0);
@@ -354,7 +351,7 @@ void gen_exp_mat(
         }
         lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
     } else {
-        gen_mat(m, n, A, k, S, seed);
+        gen_mat(m, n, A, k, S, state);
     }
 }
 
@@ -366,11 +363,10 @@ void gen_mat_type(
     int64_t& n,
     std::vector<T>& A,
     int64_t k,
-    int32_t seed,
+    RandBLAS::base::RNGState<r123::Philox4x32> state,
     const std::tuple<int, T, bool>& type
 ) {
     T* A_dat = A.data();
-    auto state = RandBLAS::base::RNGState(seed, 0);
 
     switch(std::get<0>(type)) {
         /*
@@ -380,12 +376,12 @@ void gen_mat_type(
         case 0:
                 // Generating matrix with polynomially decaying singular values
                 //printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = (i + 1)^-pow (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::util::gen_poly_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed);
+                RandLAPACK::util::gen_poly_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
                 break;
         case 1:
                 // Generating matrix with exponentially decaying singular values
                 //printf("TEST MATRIX: EXPONENTIAL DECAY sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::util::gen_exp_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), seed);
+                RandLAPACK::util::gen_exp_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
                 break;
         case 2: {
                 // A = [A A]

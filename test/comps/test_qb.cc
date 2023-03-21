@@ -25,10 +25,12 @@ class TestQB : public ::testing::Test
     static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
 
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
+        // Generate a random state
+        auto state = RandBLAS::base::RNGState(seed, 0);
 
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
         int64_t size = m * n;
         // Adjust the expected rank
@@ -82,7 +84,7 @@ class TestQB : public ::testing::Test
         // Stabilization Constructor - Choose PLU
         RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
         RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
@@ -184,10 +186,12 @@ class TestQB : public ::testing::Test
     static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
 
         printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");
+        // Generate a random state
+        auto state = RandBLAS::base::RNGState(seed, 0);
 
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
         int64_t size = m * n;
         int64_t k_est = std::min(m, n);
@@ -214,7 +218,7 @@ class TestQB : public ::testing::Test
         // Stabilization Constructor - Choose CholQR
         RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
         RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
