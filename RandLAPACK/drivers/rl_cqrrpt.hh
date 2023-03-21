@@ -126,6 +126,7 @@ class CQRRPT : public CQRRPTalg<T> {
         std::vector<T> A_hat;
         std::vector<T> tau;
         std::vector<T> R_sp;
+        std::vector<T> z_buf;
 
         int no_hqrrp;
         int64_t nb_alg;
@@ -246,33 +247,31 @@ int CQRRPT<T>::CQRRPT1(
 
     if(this -> timing) {
         qrcp_t_stop = high_resolution_clock::now();
+        resize_t_start = high_resolution_clock::now();
+    }
+
+    T* R_dat     = util::upsize(n * n, R);
+    T* z_buf_dat = util::upsize(n, this->z_buf);
+
+    if(this -> timing) {
+        resize_t_stop = high_resolution_clock::now();
         rank_reveal_t_start = high_resolution_clock::now();
+        copy_t_start = high_resolution_clock::now();
     }
-    /*
-    // Find rank
-    int k = n;
-    int i;
-    for(i = 0; i < n; ++i) {
-        if(std::abs(A_hat_dat[i * d + i]) < this->eps) {
-            k = i;
-            break;
-        }
-    }
-    this->rank = k;
-    */
-    /////////////////////////////////////////////////////////////////
-    std::vector<T> buf_R(n * n, 0.0);
-    std::vector<T> z_buf(n, 0.0);
-    T* buf_R_dat = buf_R.data();
-    T* z_buf_dat = z_buf.data();
 
     int i;
     for(i = 0; i < n; ++i) {
         // copy over an upper-triangular matrix R
-        blas::copy(i + 1, &A_hat_dat[i * d], 1, &buf_R_dat[i * n], 1);
+        blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i * n], 1);
     }
+
+    if(this -> timing) {
+        copy_t_stop = high_resolution_clock::now();
+        copy_t_dur  = duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
+    }
+
     // find l2-norm of the full R
-    T norm_R = lapack::lange(Norm::Fro, n, n, buf_R_dat, n);
+    T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
     T norm_R_sub = norm_R;
 
     int k = n;
@@ -281,15 +280,25 @@ int CQRRPT<T>::CQRRPT1(
     // This is done by zeroing out rows in R
     // Termination criteria: ||R[k:, k:]|| <= \tau * ||R||
     for(k = 1; (k < n) && (norm_R_sub > 0.01 * norm_R); ++k) {
-        for(int j = 0; j < n; ++j) {
-            blas::copy(k, &z_buf_dat[0], 1, &buf_R_dat[n * j], 1);
+
+        if(this -> timing) {
+            copy_t_start = high_resolution_clock::now();
         }
+
+        for(int j = 0; j < n; ++j) {
+            blas::copy(k, &z_buf_dat[0], 1, &R_dat[n * j], 1);
+        }
+
+        if(this -> timing) {
+            copy_t_stop = high_resolution_clock::now();
+            copy_t_dur  += duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
+        }
+
         // find l2-norm of a subportion of R
-        norm_R_sub = lapack::lange(Norm::Fro, n, n, buf_R_dat, n);
+        norm_R_sub = lapack::lange(Norm::Fro, n, n, R_dat, n);
     }
 
     this->rank = k;
-    ////////////////////////////////////////////////////////////////
 
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
@@ -297,7 +306,6 @@ int CQRRPT<T>::CQRRPT1(
     }
 
     T* R_sp_dat  = util::upsize(k * k, this->R_sp);
-    T* R_dat     = util::upsize(k * n, R);
 
     if(this -> timing) {
         resize_t_stop = high_resolution_clock::now();
@@ -354,7 +362,7 @@ int CQRRPT<T>::CQRRPT1(
         qrcp_t_dur        = duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
         rank_reveal_t_dur = duration_cast<microseconds>(rank_reveal_t_stop - rank_reveal_t_start).count();
         resize_t_dur     += duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
-        copy_t_dur        = duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
+        copy_t_dur       += duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
         a_mod_piv_t_dur   = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
         cqrrpt_t_dur    = duration_cast<microseconds>(cqrrpt_t_stop - cqrrpt_t_start).count();
