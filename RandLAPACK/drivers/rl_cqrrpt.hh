@@ -251,8 +251,35 @@ int CQRRPT<T>::CQRRPT1(
     }
 
     T* R_dat     = util::upsize(n * n, R);
-    T* z_buf_dat = util::upsize(n, this->z_buf);
+    
+    if(this -> timing) {
+        resize_t_stop = high_resolution_clock::now();
+        rank_reveal_t_start = high_resolution_clock::now();
+    }
+    
+    ///////////////////////////////////////////////////////////////
+    int i;
+    for(i = 0; i < n; ++i) {
+        // copy over an upper-triangular matrix R
+        // from col-maj to row-maj format
+        blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i], n);
+    }
 
+    // find l2-norm of the full R
+    T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
+    T norm_R_sub = norm_R;
+
+    int k = n;
+    for(k = 1; (k < n) && (norm_R_sub > 0.01 * norm_R); ++k) {
+        
+        // find l2-norm of a subportion of R
+        norm_R_sub = lapack::lange(Norm::Fro, n - k, n - k, R_dat, n - k);
+    }
+
+    this->rank = k;
+    // Below code works, but it is super slow.
+    /*
+    ////////////////////////////////////////////////////////////////
     if(this -> timing) {
         resize_t_stop = high_resolution_clock::now();
         copy_t_start = high_resolution_clock::now();
@@ -269,7 +296,7 @@ int CQRRPT<T>::CQRRPT1(
         copy_t_dur  = duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
         rank_reveal_t_start = high_resolution_clock::now();
     }
-
+    
     // find l2-norm of the full R
     T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
     T norm_R_sub = norm_R;
@@ -290,7 +317,8 @@ int CQRRPT<T>::CQRRPT1(
     }
 
     this->rank = k;
-
+    */
+    ////////////////////////////////////////////////////////////////
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
         resize_t_start = high_resolution_clock::now();
