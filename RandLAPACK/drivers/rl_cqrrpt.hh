@@ -248,7 +248,7 @@ int CQRRPT<T>::CQRRPT1(
         qrcp_t_stop = high_resolution_clock::now();
         rank_reveal_t_start = high_resolution_clock::now();
     }
-
+    /*
     // Find rank
     int k = n;
     int i;
@@ -259,6 +259,37 @@ int CQRRPT<T>::CQRRPT1(
         }
     }
     this->rank = k;
+    */
+    /////////////////////////////////////////////////////////////////
+    std::vector<T> buf_R(n * n, 0.0);
+    std::vector<T> z_buf(n, 0.0);
+    T* buf_R_dat = buf_R.data();
+    T* z_buf_dat = z_buf.data();
+
+    int i;
+    for(i = 0; i < n; ++i) {
+        // copy over an upper-triangular matrix R
+        blas::copy(i + 1, &A_hat_dat[i * d], 1, &buf_R_dat[i * n], 1);
+    }
+    // find l2-norm of the full R
+    T norm_R = lapack::lange(Norm::Fro, n, n, buf_R_dat, n);
+    T norm_R_sub = norm_R;
+
+    int k = n;
+
+    // Get || R[k:, :] || (indexing in R is 0-based)
+    // This is done by zeroing out rows in R
+    // Termination criteria: ||R[k:, k:]|| <= \tau * ||R||
+    for(k = 1; (k < n) && (norm_R_sub > 0.01 * norm_R); ++k) {
+        for(int j = 0; j < n; ++j) {
+            blas::copy(k, &z_buf_dat[0], 1, &buf_R_dat[n * j], 1);
+        }
+        // find l2-norm of a subportion of R
+        norm_R_sub = lapack::lange(Norm::Fro, n, n, buf_R_dat, n);
+    }
+
+    this->rank = k;
+    ////////////////////////////////////////////////////////////////
 
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
@@ -273,10 +304,11 @@ int CQRRPT<T>::CQRRPT1(
         copy_t_start = high_resolution_clock::now();
     }
 
-    // extract k by k R
-    // Copy data over to R_sp_dat col by col
+    // performing a copy column by column
     for(i = 0; i < k; ++i) {
+        // extract k by k R
         blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_sp_dat[i * k], 1);
+        // extract full R
         blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
     }
     for(i = k; i < n; ++i) {
