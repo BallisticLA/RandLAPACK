@@ -255,7 +255,6 @@ int CQRRPT<T>::CQRRPT1(
 
     if(this -> timing) {
         resize_t_stop = high_resolution_clock::now();
-        rank_reveal_t_start = high_resolution_clock::now();
         copy_t_start = high_resolution_clock::now();
     }
 
@@ -268,6 +267,7 @@ int CQRRPT<T>::CQRRPT1(
     if(this -> timing) {
         copy_t_stop = high_resolution_clock::now();
         copy_t_dur  = duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
+        rank_reveal_t_start = high_resolution_clock::now();
     }
 
     // find l2-norm of the full R
@@ -281,17 +281,8 @@ int CQRRPT<T>::CQRRPT1(
     // Termination criteria: ||R[k:, k:]|| <= \tau * ||R||
     for(k = 1; (k < n) && (norm_R_sub > 0.01 * norm_R); ++k) {
 
-        if(this -> timing) {
-            copy_t_start = high_resolution_clock::now();
-        }
-
         for(int j = 0; j < n; ++j) {
             blas::copy(k, &z_buf_dat[0], 1, &R_dat[n * j], 1);
-        }
-
-        if(this -> timing) {
-            copy_t_stop = high_resolution_clock::now();
-            copy_t_dur  += duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
         }
 
         // find l2-norm of a subportion of R
