@@ -88,8 +88,10 @@ test_speed_helper(int64_t m,
     std::vector<T>       R_1;
     std::vector<int64_t> J_1;
 
+    auto state = RandBLAS::base::RNGState(0, 0);
+
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 

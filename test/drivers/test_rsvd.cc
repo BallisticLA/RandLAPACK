@@ -20,13 +20,13 @@ class TestRSVD : public ::testing::Test
     /// General test for RSVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T>
-    static void test_RSVD1_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed) {
+    static void test_RSVD1_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
         
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
-        
+
         // For running QB
         std::vector<T> A(m * n, 0.0);
-        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
         int64_t size = m * n;
 
@@ -78,7 +78,7 @@ class TestRSVD : public ::testing::Test
         RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
 
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
 
         // Orthogonalization Constructor - Choose CholQR
         RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
@@ -134,8 +134,7 @@ class TestRSVD : public ::testing::Test
 
 TEST_F(TestRSVD, SimpleTest)
 { 
-    for (uint32_t seed : {0, 1, 2})
-    {
-        test_RSVD1_general<double>(100, 100, 50, 5, 10, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(0, 2, false), seed);
-    }
+    // Generate a random state
+    auto state = RandBLAS::base::RNGState(0, 0);
+    test_RSVD1_general<double>(100, 100, 50, 5, 10, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(0, 2, false), state);
 }

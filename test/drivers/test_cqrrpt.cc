@@ -23,6 +23,8 @@ class TestCQRRPT : public ::testing::Test
     static void test_CQRRPT_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed, uint64_t no_hqrrp) {
 
         printf("|================================TEST CQRRPT GENERAL BEGIN===============================|\n");
+        auto state = RandBLAS::base::RNGState(seed, 0);
+
 
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
@@ -30,7 +32,7 @@ class TestCQRRPT : public ::testing::Test
         std::vector<T> R;
         std::vector<int64_t> J(n, 0);
 
-        RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
         std::vector<T> A_hat(size, 0.0);
         std::copy(A.data(), A.data() + size, A_hat.data());

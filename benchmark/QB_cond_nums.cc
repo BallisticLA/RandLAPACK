@@ -21,11 +21,12 @@ typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
 template <typename T>
 static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed) {
-
+    // Generate a random state
+    auto state = RandBLAS::base::RNGState(seed, 0);
     
     // For running QB
     std::vector<T> A(m * n, 0.0);
-    RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
     int64_t size = m * n;
     // Adjust the expected rank
@@ -51,7 +52,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     // Stabilization Constructor - Choose PLU
     RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
     // RowSketcher constructor - Choose default (rs1)
-    RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+    RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
     // Orthogonalization Constructor - use HQR
     RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
     // RangeFinder constructor

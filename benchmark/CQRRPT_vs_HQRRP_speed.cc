@@ -77,6 +77,8 @@ test_speed_helper(int64_t m,
     using namespace blas;
     using namespace lapack;
 
+    auto state = RandBLAS::base::RNGState(seed, 0);
+
     int64_t size = m * n;
     int64_t b_dim = 10;
     if(apply_to_large)
@@ -94,10 +96,10 @@ test_speed_helper(int64_t m,
     RandLAPACK::util::upsize(b_dim * n, Res_2);
     
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, state, mat_type);
 
     // Generate random matrix that we will apply Q to
-    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, state, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -168,8 +170,8 @@ test_speed_helper(int64_t m,
     }
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
-    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, seed, mat_type);
-    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, state, mat_type);
+    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, state, mat_type);
     // Pre-allocation for CQRRPT
     auto start_alloc1 = high_resolution_clock::now();
     if(log_times) {
