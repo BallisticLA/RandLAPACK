@@ -41,18 +41,17 @@ class CQRRPT : public CQRRPTalg<T> {
         CQRRPT(
             bool verb,
             bool t,
-            uint32_t sd,
+            RandBLAS::base::RNGState<r123::Philox4x32> st,
             T ep
         ) {
             verbosity = verb;
             timing = t;
-            seed = sd;
+            state = st;
             eps = ep;
             no_hqrrp = 1;
             nb_alg = 64;
             oversampling = 10;
             panel_pivoting = 1;
-            state = RandBLAS::base::RNGState(sd, 0);
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -111,7 +110,7 @@ class CQRRPT : public CQRRPTalg<T> {
     public:
         bool verbosity;
         bool timing;
-        uint32_t seed;
+        RandBLAS::base::RNGState<r123::Philox4x32> state;
         T eps;
         int64_t rank;
         int64_t b_sz;
@@ -132,7 +131,6 @@ class CQRRPT : public CQRRPTalg<T> {
         int64_t nb_alg;
         int64_t oversampling;
         int64_t panel_pivoting;
-        RandBLAS::base::RNGState<r123::Philox4x32> state;
 };
 
 // -----------------------------------------------------------------------------
@@ -225,7 +223,7 @@ int CQRRPT<T>::CQRRPT1(
     }
 
     RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};
-    RandBLAS::sparse::SparseSkOp<T> S(DS, this->seed, 0, NULL, NULL, NULL);
+    RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
     RandBLAS::sparse::fill_sparse(S);
 
     RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(

@@ -20,11 +20,9 @@ class TestCQRRPT : public ::testing::Test
     /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T>
-    static void test_CQRRPT_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed, uint64_t no_hqrrp) {
+    static void test_CQRRPT_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state, uint64_t no_hqrrp) {
 
         printf("|================================TEST CQRRPT GENERAL BEGIN===============================|\n");
-        auto state = RandBLAS::base::RNGState(seed, 0);
-
 
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
@@ -40,7 +38,7 @@ class TestCQRRPT : public ::testing::Test
         T* A_dat = A.data();
         T* A_hat_dat = A_hat.data();
 
-        RandLAPACK::CQRRPT<T> CQRRPT(false, false, seed, tol);
+        RandLAPACK::CQRRPT<T> CQRRPT(false, false, state, tol);
         CQRRPT.nnz = nnz;
         CQRRPT.num_threads = 4;
         CQRRPT.no_hqrrp = no_hqrrp;
@@ -66,6 +64,7 @@ class TestCQRRPT : public ::testing::Test
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, SimpleTest)
 {
-    test_CQRRPT_general<double>(10000, 200, 200, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2, 1);
-    test_CQRRPT_general<double>(10000, 200, 100, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2, 0);
+    auto state = RandBLAS::base::RNGState(0, 0);
+    test_CQRRPT_general<double>(10000, 200, 200, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), state, 1);
+    test_CQRRPT_general<double>(10000, 200, 100, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), state, 0);
 }
