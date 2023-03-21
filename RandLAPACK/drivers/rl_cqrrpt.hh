@@ -126,7 +126,6 @@ class CQRRPT : public CQRRPTalg<T> {
         std::vector<T> A_hat;
         std::vector<T> tau;
         std::vector<T> R_sp;
-        std::vector<T> z_buf;
 
         int no_hqrrp;
         int64_t nb_alg;
