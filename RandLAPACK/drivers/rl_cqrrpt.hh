@@ -266,18 +266,20 @@ int CQRRPT<T>::CQRRPT1(
 
     // find l2-norm of the full R
     T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
-    int64_t k = util::rank_search(0, n + 1, std::floor(n / 2), n, norm_R, 0.000001, R_dat);
-    /*
-    T norm_R_sub = norm_R;
-    int k = n;
-    for(k = 1; (k < n) && (norm_R_sub > 0.001 * norm_R); ++k) {
-        
-        // find l2-norm of a subportion of R
-        norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &R_dat[k * n], n - k);
-    }
-    */
 
+    T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
+    int64_t k = 0;
+    // Chek if R is full column rank
+    if ((norm_R_sub > 0.000001 * norm_R))
+    {
+        k = n;
+    } else {
+        k = util::rank_search(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
+    }
     this->rank = k;
+    
+    // Clear R
+    std::fill(R.begin(), R.end(), 0.0);
 
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
