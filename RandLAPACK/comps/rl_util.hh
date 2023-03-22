@@ -497,5 +497,31 @@ bool orthogonality_check(
     return false;
 }
 
+/// Binary search for best rank parameter 
+template <typename T>
+int64_t rank_search(
+    int64_t lo,
+    int64_t hi,
+    int64_t k,
+    int64_t n,
+    T norm_A,
+    T tau_trunc,
+    T* A_dat
+) {
+    T norm_R_sub = lapack::lange(Norm::Fro, n - k, n - k, A_dat, n - k);
+
+    if(k == k + std::floor((k - lo) / 2)) {
+        // Reached the best k
+        return k;
+    } else if (norm_R_sub > tau_trunc * norm_A) {
+        // k is larger
+        rank_search(k, hi, k + std::floor((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+    } else { //(norm_R_sub < tau_trunc * norm_A) {
+        // k is smaller
+        rank_search(lo, k, lo + std::floor((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+    }
+    return k;
+}
+
 } // end namespace util
 #endif

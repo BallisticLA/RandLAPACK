@@ -266,14 +266,19 @@ int CQRRPT<T>::CQRRPT1(
 
     // find l2-norm of the full R
     T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
-    T norm_R_sub = norm_R;
 
+    //int64_t k = util::rank_search(0, n + 1, std::floor(n / 2), n, norm_R, 0.01, R_dat);
+
+    T norm_R_sub = norm_R;
     int k = n;
     for(k = 1; (k < n) && (norm_R_sub > 0.01 * norm_R); ++k) {
         
         // find l2-norm of a subportion of R
         norm_R_sub = lapack::lange(Norm::Fro, n - k, n - k, R_dat, n - k);
     }
+    
+    printf("FOUND RANK %ld\n", k);
+
     this->rank = k;
 
     if(this -> timing) {
