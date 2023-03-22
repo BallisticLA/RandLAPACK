@@ -508,17 +508,22 @@ int64_t rank_search(
     T tau_trunc,
     T* A_dat
 ) {
-    T norm_R_sub = lapack::lange(Norm::Fro, n - k, n - k, A_dat, n - k);
+    T norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
 
-    if(k == k + std::floor((k - lo) / 2)) {
-        // Reached the best k
+    if(k == k + ((k - lo) / 2)) {
+        // Need to make sure we are not underestimating rank
+        while(norm_R_sub > tau_trunc * norm_A)
+        {
+            ++k;
+            norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
+        }
         return k;
     } else if (norm_R_sub > tau_trunc * norm_A) {
         // k is larger
-        rank_search(k, hi, k + std::floor((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+        k = rank_search(k, hi, k + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
     } else { //(norm_R_sub < tau_trunc * norm_A) {
         // k is smaller
-        rank_search(lo, k, lo + std::floor((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+        k = rank_search(lo, k, lo + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
     }
     return k;
 }
