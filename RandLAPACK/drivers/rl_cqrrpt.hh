@@ -37,7 +37,19 @@ template <typename T>
 class CQRRPT : public CQRRPTalg<T> {
     public:
 
-        // Constructor
+        /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
+        /// or through a custom HQRRP function. This decision is controlled through 'no_hqrrp' parameter,
+        /// which defaults to 1.
+        ///
+        /// The algorithm allows for choosing the rank estimation schemeL either naively, through looking at the
+        /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
+        /// This decision is controlled through 'naive_rank_estimate' parameter, which defaults to 1.
+        ///
+        /// The algorithm optionally times all of its subcomponents through a user-defined 'verbosity' parameter.
+        ///
+        /// The algorithm optionally computes a condition number of a preconditioned matrix A through a 'cond_check'
+        /// parameter, which defaults to 0. This requires extra n * (m + 1) * sizeof(T) bytes of space, which will be 
+        /// internally allocated by a utility routine. 
         CQRRPT(
             bool verb,
             bool t,
@@ -60,7 +72,7 @@ class CQRRPT : public CQRRPTalg<T> {
         ///     A[:, J] = QR,
         /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
         /// Detailed description of this algorithm may be found in Section 5.1.2.
-        /// of "the RandLAPACK book".
+        /// of "the RandLAPACK book". 
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
