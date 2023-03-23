@@ -497,7 +497,14 @@ bool orthogonality_check(
     return false;
 }
 
-/// Binary search for best rank parameter 
+/// Uses recursion to find the rank of the matrix pointed to by A_dat.
+/// Does so by attempting to find the smallest k such that 
+/// ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
+/// Finding such k is done via binary search in range [1, n], which is 
+/// controlled by ||A[k:, k:]||_F (<)(>) tau_trunk * ||A||_F. 
+/// We first attempt to find k that results in an expression closest to 
+/// ||A[k:, k:]||_F == tau_trunk * ||A||_F and then ensure that ||A[k:, k:]||_F
+/// is not smaller than tau_trunk * ||A||_F to avoid rank underestimation.
 template <typename T>
 int64_t rank_search(
     int64_t lo,
