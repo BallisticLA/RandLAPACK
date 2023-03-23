@@ -13,7 +13,7 @@ using namespace RandLAPACK;
 
 template <typename T>
 static void 
-test_flops(int64_t k, uint32_t seed) {
+test_flops(int64_t k, RandBLAS::base::RNGState<r123::Philox4x32> state) {
     printf("|===================================TEST SYSTEM FLOPS BEGIN====================================|\n");
     int size = k * k;
 
@@ -34,8 +34,8 @@ test_flops(int64_t k, uint32_t seed) {
         T* B_dat = B.data();
         T* C_dat = C.data();
 
-        RandLAPACK::util::gen_mat_type(k, k, A, k, ++seed, std::tuple(6, 0., false));
-        RandLAPACK::util::gen_mat_type(k, k, B, k, ++seed, std::tuple(6, 0., false));
+        RandLAPACK::util::gen_mat_type(k, k, A, k, state, std::tuple(6, 0., false));
+        RandLAPACK::util::gen_mat_type(k, k, B, k, state, std::tuple(6, 0., false));
 
         // Get the timing
         auto start = high_resolution_clock::now();
@@ -56,6 +56,7 @@ test_flops(int64_t k, uint32_t seed) {
 }
 
 int main() {
-    test_flops<double>(1000, 0);
+    auto state = RandBLAS::base::RNGState(0, 0);
+    test_flops<double>(1000, state);
     return 0;
 }

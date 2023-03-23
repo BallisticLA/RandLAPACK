@@ -180,7 +180,7 @@ test_speed_helper(int64_t m,
                   int64_t nnz, 
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  uint32_t seed,
+                  RandBLAS::base::RNGState<r123::Philox4x32> state,
                   int apply_to_large) {
 
     int64_t size = m * n;
@@ -200,18 +200,18 @@ test_speed_helper(int64_t m,
     std::vector<T> tau_3;
     std::vector<int64_t> J_3;
     std::vector<T> tau_4;
-    
+
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
 
     // Generate random matrix that we will apply Q to
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CQRRPT constructor
     bool log_times = true;
-    RandLAPACK::CQRRPT<T> CQRRPT(false, log_times, seed, tol);
+    RandLAPACK::CQRRPT<T> CQRRPT(false, log_times, state, tol);
     CQRRPT.nnz = nnz;
     CQRRPT.num_threads = num_threads;
 
@@ -270,7 +270,7 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
 
     // Pre-allocation for GEQP3
     auto start_alloc2 = high_resolution_clock::now();
@@ -287,7 +287,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
     auto start_appl2 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_2.data(), B_1.data(), b_dim);
     auto stop_appl2 = high_resolution_clock::now();
@@ -295,7 +295,7 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 2 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
 
     // Pre-allocation for GEQR
     auto start_alloc3 = high_resolution_clock::now();
@@ -326,7 +326,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_3
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
     auto start_appl3 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, t_3.data(), B_1.data(), b_dim);
     auto stop_appl3 = high_resolution_clock::now();
@@ -342,7 +342,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_4
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
     auto start_appl4 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_3.data(), B_1.data(), b_dim);
     auto stop_appl4 = high_resolution_clock::now();
@@ -350,7 +350,7 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 3&4 END-------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
 
     // Pre-allocation for GEQRF
     auto start_alloc5 = high_resolution_clock::now();
@@ -366,7 +366,7 @@ test_speed_helper(int64_t m,
 
     // Apply Q_5
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
     auto start_appl5 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_4.data(), B_1.data(), b_dim);
     auto stop_appl5 = high_resolution_clock::now();
@@ -397,7 +397,8 @@ test_speed(int r_pow,
            T d_multiplier, 
            const std::tuple<int, T, bool> & mat_type,
            int apply_to_large,
-           std::string path) {
+           std::string path,
+           RandBLAS::base::RNGState<r123::Philox4x32> state) {
 
     printf("\n/-----------------------------------------QRCP SPEED BENCHMARK START-----------------------------------------/\n");
     // This variable is controls an additional iteration, used for initialization work
@@ -506,7 +507,7 @@ test_speed(int r_pow,
 
             curr_runs = runs + initialization;
             for(int i = 0; i < curr_runs; ++i) {
-                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, i, apply_to_large);
+                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, state, apply_to_large);
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (!initialization) {
@@ -661,7 +662,8 @@ test_speed(int r_pow,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_to_large/");
-    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/");
+    auto state = RandBLAS::base::RNGState(0, 0);
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_to_large/", state);
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     return 0;
 }

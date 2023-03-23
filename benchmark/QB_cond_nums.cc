@@ -20,12 +20,11 @@ If the required folder structure does not exist, the files will not be saved.
 typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
 template <typename T>
-static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, uint32_t seed) {
+static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
 
-    
     // For running QB
     std::vector<T> A(m * n, 0.0);
-    RandLAPACK::util::gen_mat_type(m, n, A, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
     int64_t size = m * n;
     // Adjust the expected rank
@@ -51,7 +50,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     // Stabilization Constructor - Choose PLU
     RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
     // RowSketcher constructor - Choose default (rs1)
-    RandLAPACK::RS<T> RS(Stab, seed, p, passes_per_iteration, verbosity, cond_check);
+    RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
     // Orthogonalization Constructor - use HQR
     RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
     // RangeFinder constructor
@@ -80,11 +79,10 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
 }
 
 template <typename T>
-static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS)
+static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS, RandBLAS::base::RNGState<r123::Philox4x32> state)
 {
     printf("|==================================TEST QB2 K PLOT BEGIN==================================|\n");
 
-    int32_t seed = 0;
     // Number of repeated runs of the same test
     int runs = 5;
 
@@ -129,7 +127,7 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
             
                 for (int i = 1; i < (runs + 1); ++i) {
                     // Grab the vetcor of condition numbers
-                    vector_pair cond_nums = test_QB2_plot_helper_run<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), ++seed);
+                    vector_pair cond_nums = test_QB2_plot_helper_run<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), state);
                     // Fill RF
                     blas::copy(v_RF_sz, cond_nums.first.data(), 1, all_vecs_RF_dat + (v_RF_sz * i), 1);
                     // Fill RS
@@ -171,8 +169,9 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
 
 int main() 
 {   
+    auto state = RandBLAS::base::RNGState(0, 0);
     // Slow_decay
-    test_QB2_plot<double>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../");
+    test_QB2_plot<double>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../", state);
     // Fast decay
-    test_QB2_plot<double>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true, "../", "../");
+    test_QB2_plot<double>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true, "../", "../", state);
 }

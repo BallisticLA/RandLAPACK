@@ -39,7 +39,7 @@ class RS : public RowSketcher<T>
         RS(
             // Requires a stabilization algorithm object.
             RandLAPACK::Stabilization<T>& stab_obj,
-            int32_t s,
+            RandBLAS::base::RNGState<r123::Philox4x32> s,
             int64_t p,
             int64_t q,
             bool verb,
@@ -47,7 +47,7 @@ class RS : public RowSketcher<T>
         ) : Stab_Obj(stab_obj) {
             verbosity = verb;
             cond_check = cond;
-            seed = s;
+            st = s;
             passes_over_data = p;
             passes_per_stab = q;
         }
@@ -116,7 +116,7 @@ class RS : public RowSketcher<T>
         ) override;
 
         RandLAPACK::Stabilization<T>& Stab_Obj;
-        int32_t seed;
+        RandBLAS::base::RNGState<r123::Philox4x32> st;
         int64_t passes_over_data;
         int64_t passes_per_stab;
         bool verbosity;
@@ -166,13 +166,14 @@ int RS<T>::rs1(
 
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;
-    int32_t seed = this->seed;
     int64_t p_done= 0;
 
     const T* A_dat = A.data();
     T* Omega_dat = Omega.data();
     T* Omega_1_dat = util::upsize(m * k, this->Omega_1);
-    auto state = RandBLAS::base::RNGState(seed, 0);
+    auto state = this->st;
+
+    RandBLAS::base::RNGState<r123::Philox4x32> st;
 
     if (p % 2 == 0) {
         // Fill n by k Omega
@@ -212,8 +213,6 @@ int RS<T>::rs1(
         if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
             return 1;
     }
-    // Increment seed upon termination
-    this->seed += m * n;
     //successful termination
     return 0;
 }
