@@ -52,6 +52,8 @@ class CQRRPT : public CQRRPTalg<T> {
             nb_alg = 64;
             oversampling = 10;
             panel_pivoting = 1;
+            naive_rank_estimate = 1;
+            cond_check = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -110,6 +112,7 @@ class CQRRPT : public CQRRPTalg<T> {
     public:
         bool verbosity;
         bool timing;
+        bool cond_check;
         RandBLAS::base::RNGState<r123::Philox4x32> state;
         T eps;
         int64_t rank;
@@ -127,10 +130,17 @@ class CQRRPT : public CQRRPTalg<T> {
         std::vector<T> tau;
         std::vector<T> R_sp;
 
+        // HQRRP-related
         int no_hqrrp;
         int64_t nb_alg;
         int64_t oversampling;
         int64_t panel_pivoting;
+
+        // Rank estimate-related
+        int naive_rank_estimate;
+
+        // Preconditioning-related
+        T cond_num_A_pre;
 };
 
 // -----------------------------------------------------------------------------
@@ -181,9 +191,9 @@ int CQRRPT<T>::CQRRPT1(
     high_resolution_clock::time_point rank_reveal_t_stop;
     long rank_reveal_t_dur = 0;
 
-    high_resolution_clock::time_point cqrrpt_t_start;
-    high_resolution_clock::time_point cqrrpt_t_stop;
-    long cqrrpt_t_dur = 0;
+    high_resolution_clock::time_point cholqr_t_start;
+    high_resolution_clock::time_point cholqr_t_stop;
+    long cholqr_t_dur = 0;
 
     high_resolution_clock::time_point a_mod_piv_t_start;
     high_resolution_clock::time_point a_mod_piv_t_stop;
@@ -256,30 +266,42 @@ int CQRRPT<T>::CQRRPT1(
         resize_t_dur  += duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
         rank_reveal_t_start = high_resolution_clock::now();
     }
-    
+
+    int64_t k = n;
     int i;
-    for(i = 0; i < n; ++i) {
-        // copy over an upper-triangular matrix R
-        // from col-maj to row-maj format
-        blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i], n);
-    }
-
-    // find l2-norm of the full R
-    T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
-
-    T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
-    int64_t k = 0;
-    // Chek if R is full column rank
-    if ((norm_R_sub > 0.000001 * norm_R))
+    if(this->naive_rank_estimate)
     {
-        k = n;
-    } else {
-        k = util::rank_search(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
+        for(i = 0; i < n; ++i) {
+            if(std::abs(A_hat_dat[i * d + i]) < this->eps) {
+                k = i;
+                break;
+            }
+        }
+        this->rank = k;
     }
-    this->rank = k;
-    
-    // Clear R
-    std::fill(R.begin(), R.end(), 0.0);
+    else {
+        // Oleg's scheme for rank estimation
+        for(i = 0; i < n; ++i) {
+            // copy over an upper-triangular matrix R
+            // from col-maj to row-maj format
+            blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i], n);
+        }
+
+        // find l2-norm of the full R
+        T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
+
+        T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
+        // Chek if R is full column rank
+        if ((norm_R_sub > 0.000001 * norm_R))
+        {
+            k = n;
+        } else {
+            k = util::rank_search(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
+        }
+        this->rank = k;
+        // Clear R
+        std::fill(R.begin(), R.end(), 0.0);
+    }
 
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
@@ -317,14 +339,22 @@ int CQRRPT<T>::CQRRPT1(
         a_mod_trsm_t_start = high_resolution_clock::now();
     }
 
-    // A_sp_pre * R_sp = AP
+    // A_pre * R_sp = AP
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
         a_mod_trsm_t_stop = high_resolution_clock::now();
 
+    // Check the condition number of a A_pre
+    if(this -> cond_check)
+    {
+        std::vector<T> A_pre_cpy;
+        std::vector<T> s;
+        this->cond_num_A_pre = RandLAPACK::util::cond_num_check(m, k, A, A_pre_cpy, s, false);
+    }
+
     if(this -> timing)
-        cqrrpt_t_start = high_resolution_clock::now();
+        cholqr_t_start = high_resolution_clock::now();
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
@@ -332,7 +362,7 @@ int CQRRPT<T>::CQRRPT1(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
-        cqrrpt_t_stop = high_resolution_clock::now();
+        cholqr_t_stop = high_resolution_clock::now();
 
     // Get R
     // trmm
@@ -346,14 +376,14 @@ int CQRRPT<T>::CQRRPT1(
         copy_t_dur       += duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
         a_mod_piv_t_dur   = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
-        cqrrpt_t_dur    = duration_cast<microseconds>(cqrrpt_t_stop - cqrrpt_t_start).count();
+        cholqr_t_dur    = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cqrrpt_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
+        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
 
         // Fill the data vector
-        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cqrrpt_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
+        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
     }
 
     return 0;
