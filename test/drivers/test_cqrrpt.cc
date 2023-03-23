@@ -9,7 +9,7 @@
 #define RELDTOL 1e-10;
 #define ABSDTOL 1e-12;
 
-class TestCholQRCP : public ::testing::Test
+class TestCQRRPT : public ::testing::Test
 {
     protected:
 
@@ -17,12 +17,12 @@ class TestCholQRCP : public ::testing::Test
 
     virtual void TearDown() {};
 
-    /// General test for CholQRCP:
+    /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T>
-    static void test_CholQRCP_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed, uint64_t no_hqrrp) {
+    static void test_CQRRPT_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, std::tuple<int, T, bool> mat_type, uint32_t seed, uint64_t no_hqrrp) {
 
-        printf("|================================TEST CholQRCP GENERAL BEGIN===============================|\n");
+        printf("|================================TEST CQRRPT GENERAL BEGIN===============================|\n");
 
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);
@@ -38,16 +38,16 @@ class TestCholQRCP : public ::testing::Test
         T* A_dat = A.data();
         T* A_hat_dat = A_hat.data();
 
-        RandLAPACK::CholQRCP<T> CholQRCP(false, false, seed, tol);
-        CholQRCP.nnz = nnz;
-        CholQRCP.num_threads = 4;
-        CholQRCP.no_hqrrp = no_hqrrp;
+        RandLAPACK::CQRRPT<T> CQRRPT(false, false, seed, tol);
+        CQRRPT.nnz = nnz;
+        CQRRPT.num_threads = 4;
+        CQRRPT.no_hqrrp = no_hqrrp;
 
-        CholQRCP.call(m, n, A, d, R, J);
+        CQRRPT.call(m, n, A, d, R, J);
 
         A_dat = A.data();
         T* R_dat = R.data();
-        k = CholQRCP.rank;
+        k = CQRRPT.rank;
 
         RandLAPACK::util::col_swap(m, n, n, A_hat, J);
 
@@ -57,13 +57,13 @@ class TestCholQRCP : public ::testing::Test
         T norm_test = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF AP - QR:  %e\n", norm_test);
 
-        printf("|=================================TEST CholQRCP GENERAL END================================|\n");
+        printf("|=================================TEST CQRRPT GENERAL END================================|\n");
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCholQRCP, SimpleTest)
+TEST_F(TestCQRRPT, SimpleTest)
 {
-    test_CholQRCP_general<double>(10000, 200, 200, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2, 1);
-    test_CholQRCP_general<double>(10000, 200, 100, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2, 0);
+    test_CQRRPT_general<double>(10000, 200, 200, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2, 1);
+    test_CQRRPT_general<double>(10000, 200, 100, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), 2, 0);
 }

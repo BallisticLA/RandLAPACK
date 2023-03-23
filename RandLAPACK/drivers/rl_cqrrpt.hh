@@ -1,7 +1,7 @@
-#ifndef randlapack_cholqrcp_h
-#define randlapack_cholqrcp_h
+#ifndef randlapack_cqrrpt_h
+#define randlapack_cqrrpt_h
 
-#include "rl_cholqrcp.hh"
+#include "rl_cqrrpt.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -18,10 +18,10 @@ using namespace std::chrono;
 namespace RandLAPACK {
 
 template <typename T>
-class CholQRCPalg {
+class CQRRPTalg {
     public:
 
-        virtual ~CholQRCPalg() {}
+        virtual ~CQRRPTalg() {}
 
         virtual int call(
             int64_t m,
@@ -34,11 +34,11 @@ class CholQRCPalg {
 };
 
 template <typename T>
-class CholQRCP : public CholQRCPalg<T> {
+class CQRRPT : public CQRRPTalg<T> {
     public:
 
         // Constructor
-        CholQRCP(
+        CQRRPT(
             bool verb,
             bool t,
             uint32_t sd,
@@ -89,7 +89,7 @@ class CholQRCP : public CholQRCPalg<T> {
         ///
         /// @return = 0: successful exit
         ///
-        int CholQRCP1(
+        int CQRRPT1(
             int64_t m,
             int64_t n,
             std::vector<T>& A,
@@ -135,7 +135,7 @@ class CholQRCP : public CholQRCPalg<T> {
 
 // -----------------------------------------------------------------------------
 template <typename T>
-int CholQRCP<T>::call(
+int CQRRPT<T>::call(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -143,15 +143,15 @@ int CholQRCP<T>::call(
     std::vector<T>& R,
     std::vector<int64_t>& J
 ) {
-    int termination = CholQRCP1(m, n, A, d, R, J);
+    int termination = CQRRPT1(m, n, A, d, R, J);
 
     if(this->verbosity) {
         switch(termination) {
         case 1:
-            printf("\nCholQRCP TERMINATED VIA: 1.\n");
+            printf("\nCQRRPT TERMINATED VIA: 1.\n");
             break;
         case 0:
-            printf("\nCholQRCP TERMINATED VIA: normal termination.\n");
+            printf("\nCQRRPT TERMINATED VIA: normal termination.\n");
             break;
         }
     }
@@ -160,7 +160,7 @@ int CholQRCP<T>::call(
 
 // -----------------------------------------------------------------------------
 template <typename T>
-int CholQRCP<T>::CholQRCP1(
+int CQRRPT<T>::CQRRPT1(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -181,9 +181,9 @@ int CholQRCP<T>::CholQRCP1(
     high_resolution_clock::time_point rank_reveal_t_stop;
     long rank_reveal_t_dur = 0;
 
-    high_resolution_clock::time_point cholqrcp_t_start;
-    high_resolution_clock::time_point cholqrcp_t_stop;
-    long cholqrcp_t_dur = 0;
+    high_resolution_clock::time_point cqrrpt_t_start;
+    high_resolution_clock::time_point cqrrpt_t_stop;
+    long cqrrpt_t_dur = 0;
 
     high_resolution_clock::time_point a_mod_piv_t_start;
     high_resolution_clock::time_point a_mod_piv_t_stop;
@@ -303,7 +303,7 @@ int CholQRCP<T>::CholQRCP1(
         a_mod_trsm_t_stop = high_resolution_clock::now();
 
     if(this -> timing)
-        cholqrcp_t_start = high_resolution_clock::now();
+        cqrrpt_t_start = high_resolution_clock::now();
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
@@ -311,7 +311,7 @@ int CholQRCP<T>::CholQRCP1(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
-        cholqrcp_t_stop = high_resolution_clock::now();
+        cqrrpt_t_stop = high_resolution_clock::now();
 
     // Get R
     // trmm
@@ -325,14 +325,14 @@ int CholQRCP<T>::CholQRCP1(
         copy_t_dur        = duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
         a_mod_piv_t_dur   = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
-        cholqrcp_t_dur    = duration_cast<microseconds>(cholqrcp_t_stop - cholqrcp_t_start).count();
+        cqrrpt_t_dur    = duration_cast<microseconds>(cqrrpt_t_stop - cqrrpt_t_start).count();
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqrcp_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
+        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cqrrpt_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
 
         // Fill the data vector
-        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqrcp_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
+        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cqrrpt_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
     }
 
     return 0;
