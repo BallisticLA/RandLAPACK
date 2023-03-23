@@ -291,8 +291,8 @@ int CQRRPT<T>::CQRRPT1(
         T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
 
         T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
-        // Chek if R is full column rank
-        if ((norm_R_sub > 0.000001 * norm_R))
+        // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
+        if ((norm_R_sub > this->eps * norm_R))
         {
             k = n;
         } else {
