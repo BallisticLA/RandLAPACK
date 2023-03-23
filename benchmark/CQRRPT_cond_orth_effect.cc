@@ -17,7 +17,6 @@ template <typename T>
 static void
 test_cond_helper_0(int64_t m, 
                   int64_t n, 
-                  int64_t true_k,
                   const std::tuple<int, T, bool>& mat_type, 
                   RandBLAS::base::RNGState<r123::Philox4x32> state) {
 
@@ -25,7 +24,7 @@ test_cond_helper_0(int64_t m,
     std::vector<T> I_ref(n * n, 0.0);
 
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A, n, state, mat_type);
     RandLAPACK::util::eye(n, n, I_ref);
 
     // CHOL QR
@@ -141,7 +140,7 @@ test_speed(int r_pow,
                 rank_underestimate_cond = cond_start;
             }
         } else {
-            test_cond_helper_0<T>(std::pow(2, r_pow), col, k, mat_type, state);
+            test_cond_helper_0<T>(std::pow(2, r_pow), col, mat_type, state);
         }
     }
     if(!detect_rank_underestimate)
