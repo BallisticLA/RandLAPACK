@@ -134,7 +134,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     RandLAPACK::PLUL<T> Stab_PLU(false, false);
     RandLAPACK::CholQRQ<T> Orth_CholQR(false, false);
     RandLAPACK::HQRQ<T> Orth_HQR(false, false);
-    GEQR<T> Orth_GEQR(false, false);
+    //RandLAPACK::GEQR<T> Orth_GEQR(false, false);
 
     // PIV LU
     // Stores L, U into Omega
@@ -158,7 +158,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     // GEQR
     auto start_geqr = high_resolution_clock::now();
-    Orth_GEQR.call(m, n, A);
+    //Orth_GEQR.call(m, n, A);
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
 

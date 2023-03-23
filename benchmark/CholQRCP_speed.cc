@@ -315,10 +315,12 @@ test_speed_helper(int64_t m,
     auto start_tsqrp = high_resolution_clock::now();
     // GEQR part
     auto sart_geqr = high_resolution_clock::now();
+#if !defined(__APPLE__)
     lapack::geqr(m, n, A_1.data(), m, t_3.data(), -1);
     int64_t tsize = (int64_t) t_3[0]; 
     t_3.resize(tsize);
     lapack::geqr(m, n, A_1.data(), m, t_3.data(), tsize);
+#endif
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
@@ -329,12 +331,12 @@ test_speed_helper(int64_t m,
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, t_3.data(), B_1.data(), b_dim);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(stop_appl3 - start_appl3).count();
-
+#if !defined(__APPLE__)
     // GEQP3 on R part
     // We are not timing the pre-allocation of R, as it expected to take very small time
     RandLAPACK::util::get_U(m, n, A_1, R_3);
     lapack::geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
-
+#endif
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count() - dur_appl3;
 
