@@ -5,11 +5,13 @@
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_hqrrp.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
 #include <chrono>
+#include <numeric>
 
 using namespace std::chrono;
 
@@ -46,6 +48,10 @@ class CholQRCP : public CholQRCPalg<T> {
             timing = t;
             seed = sd;
             eps = ep;
+            no_hqrrp = 1;
+            nb_alg = 64;
+            oversampling = 10;
+            panel_pivoting = 1;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -120,6 +126,11 @@ class CholQRCP : public CholQRCPalg<T> {
         std::vector<T> A_hat;
         std::vector<T> tau;
         std::vector<T> R_sp;
+
+        int no_hqrrp;
+        int64_t nb_alg;
+        int64_t oversampling;
+        int64_t panel_pivoting;
 };
 
 // -----------------------------------------------------------------------------
@@ -225,7 +236,13 @@ int CholQRCP<T>::CholQRCP1(
     }
 
     // QRCP - add failure condition
-    lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
+    if(this->no_hqrrp) {
+        lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
+    }
+    else {
+        std::iota(J.begin(), J.end(), 1);
+        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->seed);
+    }
 
     if(this -> timing) {
         qrcp_t_stop = high_resolution_clock::now();

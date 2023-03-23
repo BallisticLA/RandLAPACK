@@ -20,13 +20,11 @@ TODO #1: Switch tuples to vectors.
 
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::comps::orth;
 
 
 #if !defined(__APPLE__)
 template <typename T>
-class GEQR : public Stabilization<T> {
+class GEQR : public RandLAPACK::Stabilization<T> {
     public:
         std::vector<T> tvec;
         bool cond_check;
@@ -93,10 +91,10 @@ int GEQR<T>::geqrq(
 
     T* A_dat = A.data();
 
-    geqr(m, n, A_dat, m, tvec.data(), -1);
+    lapack::geqr(m, n, A_dat, m, tvec.data(), -1);
     int64_t tsize = (int64_t) tvec[0]; 
     tvec.resize(tsize);
-    if(geqr(m, n, A_dat, m, tvec.data(), tsize))
+    if(lapack::geqr(m, n, A_dat, m, tvec.data(), tsize))
         return 1;
 
     return 0;
@@ -124,7 +122,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     T* A_cpy_3_dat = A_cpy_3.data();
 
     // Random Gaussian test matrix
-    gen_mat_type(m, n, A, n, seed, std::tuple(6, 0, false));
+    RandLAPACK::util::gen_mat_type(m, n, A, n, seed, std::tuple(6, 0., false));
     // Make a copy
     std::copy(A_dat, A_dat + size, A_cpy_dat);
     std::copy(A_dat, A_dat + size, A_cpy_2_dat);
@@ -133,10 +131,10 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
     std::this_thread::sleep_for(std::chrono::seconds(5));
 
     // Stabilization Constructor
-    PLUL<T> Stab_PLU(false, false);
-    CholQRQ<T> Orth_CholQR(false, false);
-    HQRQ<T> Orth_HQR(false, false);
-    GEQR<T> Orth_GEQR(false, false);
+    RandLAPACK::PLUL<T> Stab_PLU(false, false);
+    RandLAPACK::CholQRQ<T> Orth_CholQR(false, false);
+    RandLAPACK::HQRQ<T> Orth_HQR(false, false);
+    //RandLAPACK::GEQR<T> Orth_GEQR(false, false);
 
     // PIV LU
     // Stores L, U into Omega
@@ -160,7 +158,7 @@ test_speed_helper(int64_t m, int64_t n, uint32_t seed) {
 
     // GEQR
     auto start_geqr = high_resolution_clock::now();
-    Orth_GEQR.call(m, n, A);
+    //Orth_GEQR.call(m, n, A);
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
 

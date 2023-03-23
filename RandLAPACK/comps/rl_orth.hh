@@ -192,11 +192,6 @@ int HQRQ<T>::hqrq(
     return 0;
 }
 
-
-
-
-
-
 template <typename T>
 class PLUL : public Stabilization<T> {
     public:

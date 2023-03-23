@@ -9,7 +9,7 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 */
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
+using namespace RandLAPACK;
 
 template <typename T>
 static void 
@@ -21,9 +21,8 @@ test_flops(int64_t k, uint32_t seed) {
     long buf = k * k;
     long flop_cnt = buf * (2 * k - 1);
 
-    int runs = 10;
-    T DUR_sum = 0;
-    T GFLOPS_sum = 0;
+    int runs = 50;
+    T GFLOPS_rate_best = 0;
 
     for (int i = 0; i < runs; ++i) {
 
@@ -35,8 +34,8 @@ test_flops(int64_t k, uint32_t seed) {
         T* B_dat = B.data();
         T* C_dat = C.data();
 
-        gen_mat_type(k, k, A, k, ++seed, std::tuple(6, 0, false));
-        gen_mat_type(k, k, B, k, ++seed, std::tuple(6, 0, false));
+        RandLAPACK::util::gen_mat_type(k, k, A, k, ++seed, std::tuple(6, 0., false));
+        RandLAPACK::util::gen_mat_type(k, k, B, k, ++seed, std::tuple(6, 0., false));
 
         // Get the timing
         auto start = high_resolution_clock::now();
@@ -45,15 +44,13 @@ test_flops(int64_t k, uint32_t seed) {
         long dur = duration_cast<microseconds>(stop - start).count();
     
         T dur_s = dur / 1e+6;
-        T GFLOPS = (flop_cnt / dur_s) / 1e+9;
+        T GFLOPS_rate = (flop_cnt / dur_s) / 1e+9;
 
-        DUR_sum += dur_s;
-        GFLOPS_sum += GFLOPS;
+        if(GFLOPS_rate > GFLOPS_rate_best)
+            GFLOPS_rate_best = GFLOPS_rate;
     }
 
-    printf("\nTHIS GEMM REQUIRES %ld flops.\n", flop_cnt);
-    printf("COMPUTATION TIME: %f sec.\n", DUR_sum / runs);
-    printf("THE SYATEM IS CAPABLE OF %f GFLOPs/sec.\n\n", GFLOPS_sum / runs);
+    printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec.\n\n", GFLOPS_rate_best);
 
     printf("|=====================================TEST SYSTEM FLOPS END====================================|\n");
 }

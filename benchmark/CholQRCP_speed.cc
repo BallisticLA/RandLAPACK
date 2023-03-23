@@ -21,8 +21,6 @@ Compares speed of CholQRCP to other pivoted and unpivoted QR factorizations
 */
 
 using namespace std::chrono;
-using namespace RandLAPACK::comps::util;
-using namespace RandLAPACK::drivers::cholqrcp;
 
 template <typename T>
 static void 
@@ -131,19 +129,22 @@ log_info(int64_t rows,
            T tsqrp_full_time,
            T geqrf_full_time,
            const std::string& test_type,
-           int runs) {
+           int runs,
+           int apply_to_large,
+           std::string path) {
     // Save the output into .dat file
-    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_" + test_type 
-                                                                                              + "_m_"            + std::to_string(rows) 
-                                                                                              + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                              + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                              + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                              + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                              + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                              + "_nnz_"          + std::to_string(nnz)
-                                                                                              + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                              + "_OMP_threads_"  + std::to_string(num_threads) 
-                                                                                              + ".dat", std::fstream::app);
+    std::fstream file(path + "CholQRCP_comp_time_" + test_type 
+                                + "_m_"            + std::to_string(rows) 
+                                + "_d_multiplier_" + std::to_string(d_multiplier)
+                                + "_k_multiplier_" + std::to_string(k_multiplier)
+                                + "_log10(tol)_"   + std::to_string(long(log10(tol)))
+                                + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                + "_nnz_"          + std::to_string(nnz)
+                                + "_runs_per_sz_"  + std::to_string(runs)
+                                + "_OMP_threads_"  + std::to_string(num_threads) 
+                                + "_apply_to_large_" + std::to_string(apply_to_large)
+                                + ".dat", std::fstream::app);
     file << cholqrcp_time   << "  " 
          << geqp3_time      << "  " 
          << geqr_time       << "  "
@@ -179,16 +180,19 @@ test_speed_helper(int64_t m,
                   int64_t nnz, 
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  uint32_t seed) {
+                  uint32_t seed,
+                  int apply_to_large) {
 
     int64_t size = m * n;
-    int64_t b_dim = n;
+    int64_t b_dim = 10;
+    if(apply_to_large)
+        b_dim = n;
     std::vector<T> A_1(size, 0.0);
     std::vector<T> B_1(b_dim * m, 0.0);
     std::vector<T> R_1;
     std::vector<int64_t> J_1;
     std::vector<T> Res_1;
-    upsize(b_dim * n, Res_1);
+    RandLAPACK::util::upsize(b_dim * n, Res_1);
     std::vector<int64_t> J_2;
     std::vector<T> tau_2;
     std::vector<T> t_3;
@@ -198,16 +202,16 @@ test_speed_helper(int64_t m,
     std::vector<T> tau_4;
     
     // Generate random matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Generate random matrix that we will apply Q to
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CholQRCP constructor
     bool log_times = true;
-    CholQRCP<T> CholQRCP(false, log_times, seed, tol);
+    RandLAPACK::CholQRCP<T> CholQRCP(false, log_times, seed, tol);
     CholQRCP.nnz = nnz;
     CholQRCP.num_threads = num_threads;
 
@@ -218,11 +222,11 @@ test_speed_helper(int64_t m,
     if(log_times) {
         (CholQRCP.times).resize(10);
     }
-    upsize(d * n, (CholQRCP.A_hat));
-    upsize(n, (CholQRCP.A_hat));
+    RandLAPACK::util::upsize(d * n, (CholQRCP.A_hat));
+    RandLAPACK::util::upsize(n, (CholQRCP.A_hat));
     J_1.resize(n);
-    upsize(n * n, (CholQRCP.R_sp));
-    upsize(n * n, R_1);
+    RandLAPACK::util::upsize(n * n, (CholQRCP.R_sp));
+    RandLAPACK::util::upsize(n * n, R_1);
     auto stop_alloc1 = high_resolution_clock::now();
     long dur_alloc1 = duration_cast<microseconds>(stop_alloc1 - start_alloc1).count();
     
@@ -266,11 +270,11 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Pre-allocation for GEQP3
     auto start_alloc2 = high_resolution_clock::now();
-    upsize(n, tau_2);
+    RandLAPACK::util::upsize(n, tau_2);
     J_2.resize(n);
     auto stop_alloc2 = high_resolution_clock::now();
     long dur_alloc2 = duration_cast<microseconds>(stop_alloc2 - start_alloc2).count();
@@ -283,26 +287,26 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl2 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_2.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_2.data(), B_1.data(), b_dim);
     auto stop_appl2 = high_resolution_clock::now();
     long dur_appl2 = duration_cast<microseconds>(stop_appl2 - start_appl2).count();
 
     //-TEST POINT 2 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Pre-allocation for GEQR
     auto start_alloc3 = high_resolution_clock::now();
-    upsize(5, t_3);
+    RandLAPACK::util::upsize(5, t_3);
     auto stop_alloc3 = high_resolution_clock::now();
     long dur_alloc3 = duration_cast<microseconds>(stop_alloc3 - start_alloc3).count();
 
     // Pre-allocation for GEQP3
     auto start_alloc4 = high_resolution_clock::now();
-    upsize(n * n, R_3);
-    upsize(n, tau_3);
+    RandLAPACK::util::upsize(n * n, R_3);
+    RandLAPACK::util::upsize(n, tau_3);
     J_3.resize(n);
     auto stop_alloc4 = high_resolution_clock::now();
     long dur_alloc4 = duration_cast<microseconds>(stop_alloc4 - start_alloc4).count();
@@ -311,58 +315,60 @@ test_speed_helper(int64_t m,
     auto start_tsqrp = high_resolution_clock::now();
     // GEQR part
     auto sart_geqr = high_resolution_clock::now();
-    geqr(m, n, A_1.data(), m, t_3.data(), -1);
+#if !defined(__APPLE__)
+    lapack::geqr(m, n, A_1.data(), m, t_3.data(), -1);
     int64_t tsize = (int64_t) t_3[0]; 
     t_3.resize(tsize);
-    geqr(m, n, A_1.data(), m, t_3.data(), tsize);
+    lapack::geqr(m, n, A_1.data(), m, t_3.data(), tsize);
+#endif
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - sart_geqr).count();
 
     // Apply Q_3
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl3 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, t_3.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, t_3.data(), B_1.data(), b_dim);
     auto stop_appl3 = high_resolution_clock::now();
     long dur_appl3 = duration_cast<microseconds>(stop_appl3 - start_appl3).count();
-
+#if !defined(__APPLE__)
     // GEQP3 on R part
     // We are not timing the pre-allocation of R, as it expected to take very small time
-    get_U(m, n, A_1, R_3);
+    RandLAPACK::util::get_U(m, n, A_1, R_3);
     lapack::geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
-
+#endif
     auto stop_tsqrp = high_resolution_clock::now();
     long dur_tsqrp = duration_cast<microseconds>(stop_tsqrp - start_tsqrp).count() - dur_appl3;
 
     // Apply Q_4
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl4 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_3.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_3.data(), B_1.data(), b_dim);
     auto stop_appl4 = high_resolution_clock::now();
     long dur_appl4 = duration_cast<microseconds>(stop_appl4 - start_appl4).count();
 
     //-TEST POINT 3&4 END-------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    gen_mat_type(m, n, A_1, k, seed, mat_type);
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, seed, mat_type);
 
     // Pre-allocation for GEQRF
     auto start_alloc5 = high_resolution_clock::now();
-    upsize(n, tau_4);
+    RandLAPACK::util::upsize(n, tau_4);
     auto stop_alloc5 = high_resolution_clock::now();
     long dur_alloc5 = duration_cast<microseconds>(stop_alloc5 - start_alloc5).count();
 
     // GEQRF
     auto start_geqrf = high_resolution_clock::now();
-    geqrf(m, n, A_1.data(), m, tau_4.data());
+    lapack::geqrf(m, n, A_1.data(), m, tau_4.data());
     auto stop_geqrf = high_resolution_clock::now();
     long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
     // Apply Q_5
     // Re-generate the random matrix
-    gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
+    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, seed + 1, mat_type);
     auto start_appl5 = high_resolution_clock::now();
-    ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_4.data(), B_1.data(), b_dim);
+    lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_4.data(), B_1.data(), b_dim);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(stop_appl5 - start_appl5).count();
 
@@ -389,51 +395,56 @@ test_speed(int r_pow,
            T tol, 
            T k_multiplier, 
            T d_multiplier, 
-           const std::tuple<int, T, bool> & mat_type) {
+           const std::tuple<int, T, bool> & mat_type,
+           int apply_to_large,
+           std::string path) {
 
-    printf("\n/-----------------------------------------SPEED TEST START-----------------------------------------/\n");
-    // We are now filling 3 types of data - best, mean and raw
+    printf("\n/-----------------------------------------QRCP SPEED BENCHMARK START-----------------------------------------/\n");
+    // This variable is controls an additional iteration, used for initialization work
+    int initialization = 1;
+    int curr_runs = 0;
     
+    // We are now filling 3 types of data - best, mean and raw
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Best_m_"
-                                                                                                            + std::to_string(rows) 
-                                                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                         + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                         + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                         + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                         + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                         + "_nnz_"          + std::to_string(nnz)
-                                                                                         + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                         + "_OMP_threads_"  + std::to_string(num_threads) 
-                                                                                         + ".dat", std::ofstream::out | std::ofstream::trunc);
+        ofs.open(path + "CholQRCP_comp_time_Best_m_"   + std::to_string(rows) 
+                                    + "_d_multiplier_" + std::to_string(d_multiplier)
+                                    + "_k_multiplier_" + std::to_string(k_multiplier)
+                                    + "_log10(tol)_"   + std::to_string(long(log10(tol)))
+                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                    + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_nnz_"          + std::to_string(nnz)
+                                    + "_runs_per_sz_"  + std::to_string(runs)
+                                    + "_OMP_threads_"  + std::to_string(num_threads) 
+                                    + "_apply_to_large_" + std::to_string(apply_to_large)
+                                    + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Mean_m_"
-                                                                                                            + std::to_string(rows) 
-                                                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                         + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                         + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                         + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                         + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                         + "_nnz_"          + std::to_string(nnz)
-                                                                                         + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                         + "_OMP_threads_"  + std::to_string(num_threads) 
-                                                                                         + ".dat", std::ofstream::out | std::ofstream::trunc);
+        ofs.open(path + "CholQRCP_comp_time_Mean_m_"   + std::to_string(rows) 
+                                    + "_d_multiplier_" + std::to_string(d_multiplier)
+                                    + "_k_multiplier_" + std::to_string(k_multiplier)
+                                    + "_log10(tol)_"   + std::to_string(long(log10(tol)))
+                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                    + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_nnz_"          + std::to_string(nnz)
+                                    + "_runs_per_sz_"  + std::to_string(runs)
+                                    + "_OMP_threads_"  + std::to_string(num_threads) 
+                                    + "_apply_to_large_" + std::to_string(apply_to_large)
+                                    + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Raw_m_"
-                                                                                                            + std::to_string(rows) 
-                                                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                         + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                         + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                         + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                         + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                         + "_nnz_"          + std::to_string(nnz)
-                                                                                         + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                         + "_OMP_threads_"  + std::to_string(num_threads) 
-                                                                                         + ".dat", std::ofstream::out | std::ofstream::trunc);
+        ofs.open(path + "CholQRCP_comp_time_Raw_m_"    + std::to_string(rows) 
+                                    + "_d_multiplier_" + std::to_string(d_multiplier)
+                                    + "_k_multiplier_" + std::to_string(k_multiplier)
+                                    + "_log10(tol)_"   + std::to_string(long(log10(tol)))
+                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                    + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_nnz_"          + std::to_string(nnz)
+                                    + "_runs_per_sz_"  + std::to_string(runs)
+                                    + "_OMP_threads_"  + std::to_string(num_threads) 
+                                    + "_apply_to_large_" + std::to_string(apply_to_large)
+                                    + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
     }
     
@@ -493,11 +504,12 @@ test_speed(int r_pow,
             T geqrf_mean    = 0;
             T appl5_mean    = 0;
 
-            for(int i = 0; i < runs; ++i) {
-                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, i);
+            curr_runs = runs + initialization;
+            for(int i = 0; i < curr_runs; ++i) {
+                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, i, apply_to_large);
 
                 // Skip first iteration, as it tends to produce garbage results
-                if (i != 0) {
+                if (!initialization) {
                     t_alloc1   += res[0];
                     t_cholqrcp += res[1];
                     t_appl1    += res[2];
@@ -515,17 +527,17 @@ test_speed(int r_pow,
                     t_appl5    += res[14];
                     
                     // Log every run in the raw data file
-                    std::fstream file("../../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/CholQRCP_comp_time_Raw_m_" 
-                                                                                                                         + std::to_string(rows) 
-                                                                                                      + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                                                                      + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                                                                      + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                                                                      + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                                                                      + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                                                                      + "_nnz_"          + std::to_string(nnz)
-                                                                                                      + "_runs_per_sz_"  + std::to_string(runs)
-                                                                                                      + "_OMP_threads_"  + std::to_string(num_threads) 
-                                                                                                      + ".dat", std::fstream::app);
+                    std::fstream file(path + "CholQRCP_comp_time_Raw_m_"   + std::to_string(rows) 
+                                                        + "_d_multiplier_" + std::to_string(d_multiplier)
+                                                        + "_k_multiplier_" + std::to_string(k_multiplier)
+                                                        + "_log10(tol)_"   + std::to_string(long(log10(tol)))
+                                                        + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
+                                                        + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                                        + "_nnz_"          + std::to_string(nnz)
+                                                        + "_runs_per_sz_"  + std::to_string(runs)
+                                                        + "_OMP_threads_"  + std::to_string(num_threads) 
+                                                        + "_apply_to_large_" + std::to_string(apply_to_large)
+                                                        + ".dat", std::fstream::app);
                     file << res[0]  << "  " 
                          << res[1]  << "  " 
                          << res[2]  << "  "
@@ -589,24 +601,25 @@ test_speed(int r_pow,
                         appl5_best = res[14];
                     }
                 }
+                initialization = 0;
             }
 
             // For mean timing
-            alloc1_mean   = (T)t_alloc1   / (T)(runs - 1);
-            cholqrcp_mean = (T)t_cholqrcp / (T)(runs - 1);
-            appl1_mean    = (T)t_appl1    / (T)(runs - 1);
-            alloc2_mean   = (T)t_alloc2   / (T)(runs - 1);
-            geqp3_mean    = (T)t_geqp3    / (T)(runs - 1);
-            appl2_mean    = (T)t_appl2    / (T)(runs - 1);
-            alloc3_mean   = (T)t_alloc3   / (T)(runs - 1);
-            geqr_mean     = (T)t_geqr     / (T)(runs - 1);
-            appl3_mean    = (T)t_appl3    / (T)(runs - 1);
-            alloc4_mean   = (T)t_alloc4   / (T)(runs - 1);
-            tsqrp_mean    = (T)t_tsqrp    / (T)(runs - 1);
-            appl4_mean    = (T)t_appl4    / (T)(runs - 1);
-            alloc5_mean   = (T)t_alloc5   / (T)(runs - 1);
-            geqrf_mean    = (T)t_geqrf    / (T)(runs - 1);
-            appl5_mean    = (T)t_appl5    / (T)(runs - 1);
+            alloc1_mean   = (T)t_alloc1   / (T)(curr_runs);
+            cholqrcp_mean = (T)t_cholqrcp / (T)(curr_runs);
+            appl1_mean    = (T)t_appl1    / (T)(curr_runs);
+            alloc2_mean   = (T)t_alloc2   / (T)(curr_runs);
+            geqp3_mean    = (T)t_geqp3    / (T)(curr_runs);
+            appl2_mean    = (T)t_appl2    / (T)(curr_runs);
+            alloc3_mean   = (T)t_alloc3   / (T)(curr_runs);
+            geqr_mean     = (T)t_geqr     / (T)(curr_runs);
+            appl3_mean    = (T)t_appl3    / (T)(curr_runs);
+            alloc4_mean   = (T)t_alloc4   / (T)(curr_runs);
+            tsqrp_mean    = (T)t_tsqrp    / (T)(curr_runs);
+            appl4_mean    = (T)t_appl4    / (T)(curr_runs);
+            alloc5_mean   = (T)t_alloc5   / (T)(curr_runs);
+            geqrf_mean    = (T)t_geqrf    / (T)(curr_runs);
+            appl5_mean    = (T)t_appl5    / (T)(curr_runs);
             
             log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      cholqrcp_best,
@@ -619,7 +632,10 @@ test_speed(int r_pow,
                      geqr_best     + alloc3_best + appl3_best,
                      tsqrp_best    + alloc4_best + appl4_best, 
                      geqrf_best    + alloc5_best + appl5_best,
-                     "Best", runs);
+                     "Best", 
+                     runs,
+                     apply_to_large,
+                     path);
 
             log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      cholqrcp_mean,
@@ -632,17 +648,20 @@ test_speed(int r_pow,
                      geqr_mean     + alloc3_mean + appl3_mean,
                      tsqrp_mean    + alloc4_mean + appl4_mean, 
                      geqrf_mean    + alloc5_mean + appl5_mean,
-                     "Mean", runs);
+                     "Mean", 
+                     runs,
+                     apply_to_large,
+                     path);
+
+            printf("Done with size %ld by %ld\n", rows, cols);
         }
     }
-    printf("\n/-----------------------------------------SPEED TEST STOP-----------------------------------------/\n\n");
+    printf("\n/-----------------------------------------QRCP SPEED BENCHMARK STOP-----------------------------------------/\n\n");
 }
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    //test_speed<double>(14, 14, 64, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-    test_speed<double>(16, 16, 256, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false)); 
-    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
-    //test_speed<double>(18, 18, 2048, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false));
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_to_large/");
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/");
     return 0;
 }
