@@ -497,5 +497,43 @@ bool orthogonality_check(
     return false;
 }
 
+/// Uses recursion to find the rank of the matrix pointed to by A_dat.
+/// Does so by attempting to find the smallest k such that 
+/// ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
+/// Finding such k is done via binary search in range [1, n], which is 
+/// controlled by ||A[k:, k:]||_F (<)(>) tau_trunk * ||A||_F. 
+/// We first attempt to find k that results in an expression closest to 
+/// ||A[k:, k:]||_F == tau_trunk * ||A||_F and then ensure that ||A[k:, k:]||_F
+/// is not smaller than tau_trunk * ||A||_F to avoid rank underestimation.
+template <typename T>
+int64_t rank_search(
+    int64_t lo,
+    int64_t hi,
+    int64_t k,
+    int64_t n,
+    T norm_A,
+    T tau_trunc,
+    T* A_dat
+) {
+    T norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
+
+    if(((k - lo) / 2) == 0) {
+        // Need to make sure we are not underestimating rank
+        while(norm_R_sub > tau_trunc * norm_A)
+        {
+            ++k;
+            norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
+        }
+        return k;
+    } else if (norm_R_sub > tau_trunc * norm_A) {
+        // k is larger
+        k = rank_search(k, hi, k + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+    } else { //(norm_R_sub < tau_trunc * norm_A) {
+        // k is smaller
+        k = rank_search(lo, k, lo + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+    }
+    return k;
+}
+
 } // end namespace util
 #endif

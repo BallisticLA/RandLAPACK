@@ -80,13 +80,6 @@ class RF : public RangeFinder<T> {
         ///
         /// @return = 0: successful exit
         ///
-        int rf1(
-            int64_t m,
-            int64_t n,
-            const std::vector<T>& A,
-            int64_t k,
-            std::vector<T>& Q
-        );
 
         // Control of RF types calls.
         int call(
@@ -115,34 +108,6 @@ class RF : public RangeFinder<T> {
 // -----------------------------------------------------------------------------
 template <typename T>
 int RF<T>::call(
-    int64_t m,
-    int64_t n,
-    const std::vector<T>& A,
-    int64_t k,
-    std::vector<T>& Q
-) {
-    int termination = rf1(m, n, A, k, Q);
-
-    if(this->verbosity) {
-        switch(termination)
-        {
-        case 0:
-            printf("\nRF TERMINATED VIA: Normal termination.\n");
-            break;
-        case 1:
-            printf("\nRF TERMINATED VIA: RowSketcher failed.\n");
-            break;
-        case 2:
-            printf("\nRF TERMINATED VIA: Orthogonalization failed.\n");
-            break;
-        }
-    }
-    return termination;
-}
-
-// -----------------------------------------------------------------------------
-template <typename T>
-int RF<T>::rf1(
     int64_t m,
     int64_t n,
     const std::vector<T>& A,

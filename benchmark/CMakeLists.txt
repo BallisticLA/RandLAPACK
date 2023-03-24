@@ -21,6 +21,7 @@ add_benchmark(NAME CQRRPT_accuracy CXX_SOURCES CQRRPT_accuracy.cc  LINK_LIBS Ran
 add_benchmark(NAME CQRRPT_inner_speed CXX_SOURCES CQRRPT_inner_speed.cc  LINK_LIBS RandLAPACK)
 add_benchmark(NAME CQRRPT_embedding_speed_effect CXX_SOURCES CQRRPT_embedding_speed_effect.cc  LINK_LIBS RandLAPACK)
 add_benchmark(NAME CQRRPT_vs_HQRRP_speed CXX_SOURCES CQRRPT_vs_HQRRP_speed.cc LINK_LIBS RandLAPACK)
+add_benchmark(NAME CQRRPT_cond_orth_effect CXX_SOURCES CQRRPT_cond_orth_effect.cc LINK_LIBS RandLAPACK)
 
 # Data processing scripts for CQRRPT paper
 add_benchmark(NAME FLOP_data_hqrrp CXX_SOURCES FLOP_data_hqrrp.cc  LINK_LIBS RandLAPACK)

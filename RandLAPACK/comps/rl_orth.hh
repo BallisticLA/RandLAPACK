@@ -54,19 +54,11 @@ class CholQRQ : public Stabilization<T> {
         ///
         /// @return = 0: successful exit
         ///
-        int cholqrq(
-            int64_t m,
-            int64_t k,
-            std::vector<T>& Q
-        );
-
         int call(
             int64_t m,
             int64_t k,
             std::vector<T>& Q
-        ) {
-            return cholqrq(m, k, Q);
-        }
+        );
 
     public:
         bool chol_fail;
@@ -81,7 +73,7 @@ class CholQRQ : public Stabilization<T> {
 
 // -----------------------------------------------------------------------------
 template <typename T>
-int CholQRQ<T>::cholqrq(
+int CholQRQ<T>::call(
     int64_t m,
     int64_t k,
     std::vector<T>& Q
@@ -148,20 +140,12 @@ class HQRQ : public Stabilization<T> {
         ///
         /// @return = 0: successful exit
         ///
-        int hqrq(
-            int64_t m,
-            int64_t n,
-            std::vector<T>& A,
-            std::vector<T>& tau
-        );
 
         int call(
             int64_t m,
             int64_t k,
             std::vector<T>& Q
-        ){
-            return hqrq(m, k, Q, this->tau);;
-        }
+        );
 
     public:
         std::vector<T> tau;
@@ -171,16 +155,16 @@ class HQRQ : public Stabilization<T> {
 
 // -----------------------------------------------------------------------------
 template <typename T>
-int HQRQ<T>::hqrq(
+int HQRQ<T>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
-    std::vector<T>& tau
+    std::vector<T>& A
 ) {
     // Done via regular LAPACK's QR
     // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
     // tau needs to be a vector of all 2's by default
 
+    auto tau = this->tau;
     util::upsize(n, tau);
 
     T* A_dat = A.data();
@@ -224,21 +208,11 @@ class PLUL : public Stabilization<T> {
         ///
         /// @return = 0: successful exit
         ///
-        int plul(
-            int64_t m,
-            int64_t k,
-            std::vector<T>& Q,
-            std::vector<int64_t>& ipiv
-        );
-
-        // Control of Stab types calls.
-        virtual int call(
+        int call(
             int64_t m,
             int64_t k,
             std::vector<T>& Q
-        ){
-            return plul(m, k, Q, this->ipiv);
-        }
+        );
 
     public:
         std::vector<int64_t> ipiv;
@@ -249,13 +223,12 @@ class PLUL : public Stabilization<T> {
 
 // -----------------------------------------------------------------------------
 template <typename T>
-int PLUL<T>::plul(
+int PLUL<T>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
-    std::vector<int64_t>& ipiv
+    std::vector<T>& A
 ){
-
+    auto ipiv = this->ipiv;
     // Not using utility bc vector of int
     if(ipiv.size() < (uint64_t)n)
         ipiv.resize(n);

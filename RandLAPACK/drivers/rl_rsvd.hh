@@ -92,16 +92,6 @@ class RSVD : public RSVDalg<T> {
         ///     Stores k-by-n factor \transpose{V}.
         ///
         /// @returns 0 if successful
-        int RSVD1(
-            int64_t m,
-            int64_t n,
-            std::vector<T>& A,
-            int64_t& k,
-            T tol,
-            std::vector<T>& U,
-            std::vector<T>& S,
-            std::vector<T>& VT
-        );
 
         int call(
             int64_t m,
@@ -127,34 +117,6 @@ class RSVD : public RSVDalg<T> {
 // -----------------------------------------------------------------------------
 template <typename T>
 int RSVD<T>::call(
-    int64_t m,
-    int64_t n,
-    std::vector<T>& A,
-    int64_t& k,
-    T tol,
-    std::vector<T>& U,
-    std::vector<T>& S,
-    std::vector<T>& VT
-) {
-    int termination = RSVD1(m, n, A, k, tol, U, S, VT);
-
-    if(this->verbosity) {
-        switch(termination)
-        {
-        case 1:
-            printf("\nQB TERMINATED VIA: QB failed.\n");
-            break;
-        case 0:
-            printf("\nQB TERMINATED VIA: normal termination.\n");
-            break;
-        }
-    }
-    return termination;
-}
-
-// -----------------------------------------------------------------------------
-template <typename T>
-int RSVD<T>::RSVD1(
     int64_t m,
     int64_t n,
     std::vector<T>& A,

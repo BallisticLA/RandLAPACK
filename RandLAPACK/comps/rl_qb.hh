@@ -110,16 +110,6 @@ class QB : public QBalg<T> {
         ///
         /// @return = 0: successful exit
         ///
-        int QB2(
-            int64_t m,
-            int64_t n,
-            std::vector<T>& A,
-            int64_t& k,
-            int64_t block_sz,
-            T tol,
-            std::vector<T>& Q,
-            std::vector<T>& B
-        );
 
         int call(
             int64_t m,
@@ -157,49 +147,6 @@ class QB : public QBalg<T> {
 // -----------------------------------------------------------------------------
 template <typename T>
 int QB<T>::call(
-    int64_t m,
-    int64_t n,
-    std::vector<T>& A,
-    int64_t& k,
-    int64_t block_sz,
-    T tol,
-    std::vector<T>& Q,
-    std::vector<T>& B
-) {
-    int termination = QB2(m, n, A, k, block_sz, tol, Q, B);
-
-    if(this->verbosity) {
-        switch(termination)
-        {
-        case 1:
-            printf("\nQB TERMINATED VIA: Input matrix of zero entries.\n");
-            break;
-        case 2:
-            printf("\nQB TERMINATED VIA: Early termination due to unexpected error accumulation.\n");
-            break;
-        case 3:
-            printf("\nQB TERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
-            break;
-        case 4:
-            printf("\nQB TERMINATED VIA: Lost orthonormality of Q_i.\n");
-            break;
-        case 5:
-            printf("\nQB TERMINATED VIA: Lost orthonormality of Q.\n");
-            break;
-        case 6:
-            printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
-            break;
-        case 0:
-            printf("\nQB TERMINATED VIA: Normal termination; Expected tolerance reached.\n");
-            break;
-        }
-    }
-    return termination;
-}
-
-// -----------------------------------------------------------------------------
-template <typename T>
-int QB<T>::QB2(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
