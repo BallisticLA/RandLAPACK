@@ -517,7 +517,7 @@ int64_t rank_search(
 ) {
     T norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
 
-    if(!((k - lo) / 2)) {
+    if(((k - lo) / 2) == 0) {
         // Need to make sure we are not underestimating rank
         while(norm_R_sub > tau_trunc * norm_A)
         {

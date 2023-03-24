@@ -41,7 +41,7 @@ class CQRRPT : public CQRRPTalg<T> {
         /// or through a custom HQRRP function. This decision is controlled through 'no_hqrrp' parameter,
         /// which defaults to 1.
         ///
-        /// The algorithm allows for choosing the rank estimation schemeL either naively, through looking at the
+        /// The algorithm allows for choosing the rank estimation scheme either naively, through looking at the
         /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
         /// This decision is controlled through 'naive_rank_estimate' parameter, which defaults to 1.
         ///
@@ -50,6 +50,8 @@ class CQRRPT : public CQRRPTalg<T> {
         /// The algorithm optionally computes a condition number of a preconditioned matrix A through a 'cond_check'
         /// parameter, which defaults to 0. This requires extra n * (m + 1) * sizeof(T) bytes of space, which will be 
         /// internally allocated by a utility routine. 
+        /// A computation is handled by a utility method that finds the l2 condition number by computing all singular
+        /// values of the R-factor via an appropriate LAPACK function.
         CQRRPT(
             bool verb,
             bool t,
