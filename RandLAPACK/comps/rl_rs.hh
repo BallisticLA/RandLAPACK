@@ -99,13 +99,6 @@ class RS : public RowSketcher<T>
         ///
         /// @return = 0: successful exit
         ///
-        int rs1(
-            int64_t m,
-            int64_t n,
-            const std::vector<T>& A,
-            int64_t k,
-            std::vector<T>& Omega
-        );
 
         int call(
             int64_t m,
@@ -132,31 +125,6 @@ class RS : public RowSketcher<T>
 // -----------------------------------------------------------------------------
 template <typename T>
 int RS<T>::call(
-    int64_t m,
-    int64_t n,
-    const std::vector<T>& A,
-    int64_t k,
-    std::vector<T>& Omega
-) {
-    // Default
-    int termination = rs1(m, n, A, k, Omega);
-
-    if(this->verbosity) {
-        switch(termination) {
-        case 0:
-                printf("\nRS TERMINATED VIA: Normal termination.\n");
-                break;
-        case 1:
-                printf("\nRS TERMINATED VIA: Stabilization failed.\n");
-                break;
-        }
-    }
-    return termination;
-}
-
-// -----------------------------------------------------------------------------
-template <typename T>
-int RS<T>::rs1(
     int64_t m,
     int64_t n,
     const std::vector<T>& A,

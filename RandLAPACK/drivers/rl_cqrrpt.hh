@@ -103,14 +103,6 @@ class CQRRPT : public CQRRPTalg<T> {
         ///
         /// @return = 0: successful exit
         ///
-        int CQRRPT1(
-            int64_t m,
-            int64_t n,
-            std::vector<T>& A,
-            int64_t d,
-            std::vector<T>& R,
-            std::vector<int64_t>& J
-        );
 
         int call(
             int64_t m,
@@ -158,31 +150,6 @@ class CQRRPT : public CQRRPTalg<T> {
 // -----------------------------------------------------------------------------
 template <typename T>
 int CQRRPT<T>::call(
-    int64_t m,
-    int64_t n,
-    std::vector<T>& A,
-    int64_t d,
-    std::vector<T>& R,
-    std::vector<int64_t>& J
-) {
-    int termination = CQRRPT1(m, n, A, d, R, J);
-
-    if(this->verbosity) {
-        switch(termination) {
-        case 1:
-            printf("\nCQRRPT TERMINATED VIA: 1.\n");
-            break;
-        case 0:
-            printf("\nCQRRPT TERMINATED VIA: normal termination.\n");
-            break;
-        }
-    }
-    return termination;
-}
-
-// -----------------------------------------------------------------------------
-template <typename T>
-int CQRRPT<T>::CQRRPT1(
     int64_t m,
     int64_t n,
     std::vector<T>& A,

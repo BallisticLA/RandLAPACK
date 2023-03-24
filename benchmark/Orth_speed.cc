@@ -134,8 +134,9 @@ test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<r123::Philox4x3
     RandLAPACK::PLUL<T> Stab_PLU(false, false);
     RandLAPACK::CholQRQ<T> Orth_CholQR(false, false);
     RandLAPACK::HQRQ<T> Orth_HQR(false, false);
-    //RandLAPACK::GEQR<T> Orth_GEQR(false, false);
-
+#if !defined(__APPLE__)
+    RandLAPACK::GEQR<T> Orth_GEQR(false, false);
+#endif
     // PIV LU
     // Stores L, U into Omega
     auto start_lu = high_resolution_clock::now();
@@ -158,7 +159,9 @@ test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<r123::Philox4x3
 
     // GEQR
     auto start_geqr = high_resolution_clock::now();
-    //Orth_GEQR.call(m, n, A);
+#if !defined(__APPLE__)
+    Orth_GEQR.call(m, n, A);
+#endif
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
 
