@@ -36,20 +36,11 @@ class GEQR : public RandLAPACK::Stabilization<T> {
             verbosity = verb;
         };
 
-        int geqrq(
-            int64_t m,
-            int64_t n,
-            std::vector<T>& A,
-            std::vector<T>& tvec
-        );
-
         int call(
             int64_t m,
             int64_t k,
             std::vector<T>& Q
-        ){
-            return geqrq(m, k, Q, this->tvec);
-        }
+        );
 };
 
 // -----------------------------------------------------------------------------
@@ -80,13 +71,12 @@ class GEQR : public RandLAPACK::Stabilization<T> {
 /// @return = 0: successful exit
 ///
 template <typename T> 
-int GEQR<T>::geqrq(
+int GEQR<T>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
-    std::vector<T>& tvec
+    std::vector<T>& A
 ){
-
+    auto tvec = this->tvec;
     tvec.resize(5);
 
     T* A_dat = A.data();
@@ -99,11 +89,6 @@ int GEQR<T>::geqrq(
 
     return 0;
 }
-#endif
-
-#if !defined(__APPLE__)
-template int GEQR<float>::geqrq(int64_t m, int64_t n, std::vector<float>& A, std::vector<float>& tvec);
-template int GEQR<double>::geqrq(int64_t m, int64_t n, std::vector<double>& A, std::vector<double>& tvec); 
 #endif
 
 template <typename T>
@@ -135,7 +120,7 @@ test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<r123::Philox4x3
     RandLAPACK::CholQRQ<T> Orth_CholQR(false, false);
     RandLAPACK::HQRQ<T> Orth_HQR(false, false);
 #if !defined(__APPLE__)
-    RandLAPACK::GEQR<T> Orth_GEQR(false, false);
+    GEQR<T> Orth_GEQR(false, false);
 #endif
     // PIV LU
     // Stores L, U into Omega
