@@ -241,6 +241,9 @@ void gen_mat(
     RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = k};
     state = RandBLAS::dense::fill_buff(U_dat, DU, state);
     state = RandBLAS::dense::fill_buff(V_dat, DV, state);
+    // TEMPORARY
+    //eye(n, k, V);
+
 
     lapack::geqrf(m, k, U_dat, m, tau_dat);
     lapack::ungqr(m, k, k, U_dat, m, tau_dat);
@@ -355,6 +358,89 @@ void gen_exp_mat(
     }
 }
 
+template <typename T>
+void gen_step_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    int64_t k,
+    T cond,
+    bool diagon,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    // Predeclare to all nonzero constants, start decay where needed
+    std::vector<T> s(k, 1.0);
+    std::vector<T> S(k * k, 0.0);
+
+    // We will have 4 steps controlled by the condition number size and starting with 1
+    int offset = (int) (k / 4);
+
+    std::fill(s.begin(), s.begin() + offset, 1);
+    std::fill(s.begin() + offset + 1, s.begin() + 2 * offset, 8.0 / cond);
+    std::fill(s.begin() + 2 * offset + 1, s.begin() + 3 * offset, 4.0 / cond);
+    std::fill(s.begin() + 3 * offset + 1, s.end(), 1.0 / cond);
+
+    // form a diagonal S
+    diag(k, k, s, k, S);
+
+    if (diagon) {
+        if (!(m == k || n == k)) {
+            m = k;
+            n = k;
+            A.resize(k * k);
+        }
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+    } else {
+        gen_mat(m, n, A, k, S, state);
+    }
+}
+
+template <typename T>
+void gen_spiked_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+    
+    T* A_dat = A.data();
+
+    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::LASO, n, m, 1};
+    RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
+    RandBLAS::sparse::fill_sparse(S);
+
+    int start = 0;
+    while(start + n <= m){
+        for(int j = 0; j < n; ++j) {
+            A_dat[start + (m * j) + j] = 1.0;
+        }
+        start += n;
+    }
+
+    start = 0;
+    while (start + m <= m * n) {
+        for(int i = 0; i < n; ++i) {
+            A_dat[start + (S.cols)[i] - 1] *= m;
+        }
+        start += m;
+    }
+    /*
+    std::vector<T> A_hat(m * n, 0.0);
+    std::vector<T> V(n * n, 0.0);
+    std::vector<T> tau(n, 0.0);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+
+    lapack::geqrf(n, n, V.data(), n, tau.data());
+    lapack::ungqr(n, n, n, V.data(), n, tau.data());
+
+    std::copy(A.data(), A.data() + (m * n), A_hat.data());
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_hat.data(), m, V.data(), n, 1.0, A.data(), m);
+    */
+}
+
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
 /// In that case, it would be of size k by k.
 template <typename T>
@@ -430,6 +516,16 @@ void gen_mat_type(
                 RandBLAS::dense::fill_buff(A_dat, D, state);
             }
             break;
+        case 7: {
+                // Generating matrix with a staircase-like spectrum
+                RandLAPACK::util::gen_step_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+            }    
+            break;
+        case 8: {
+                // Generating matrix with a staircase-like spectrum
+                RandLAPACK::util::gen_spiked_mat(m, n, A, state);
+            }    
+            break;
         default:
             throw std::runtime_error(std::string("Unrecognized case."));
             break;
@@ -459,6 +555,7 @@ T cond_num_check(
         lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
     }
     lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
+
     T cond_num = s_dat[0] / s_dat[n - 1];
 
     if (verbosity)

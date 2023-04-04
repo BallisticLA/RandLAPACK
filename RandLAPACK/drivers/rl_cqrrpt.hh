@@ -68,6 +68,7 @@ class CQRRPT : public CQRRPTalg<T> {
             panel_pivoting = 1;
             naive_rank_estimate = 1;
             cond_check = 0;
+            record_A_pre_spectr = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -147,6 +148,8 @@ class CQRRPT : public CQRRPTalg<T> {
 
         // Preconditioning-related
         T cond_num_A_pre;
+        bool record_A_pre_spectr;
+        std::string path;
 };
 
 // -----------------------------------------------------------------------------
@@ -332,6 +335,12 @@ int CQRRPT<T>::call(
         std::vector<T> A_pre_cpy;
         std::vector<T> s;
         this->cond_num_A_pre = RandLAPACK::util::cond_num_check(m, k, A, A_pre_cpy, s, false);
+        if(this -> record_A_pre_spectr) {
+            // Record the singular values
+            for(int j = 0; j < k; ++j) {
+                printf("%f\n", s[j]);
+            }
+        }
     }
 
     if(this -> timing)

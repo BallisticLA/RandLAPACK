@@ -21,26 +21,35 @@ test_cond_helper_0(int64_t m,
                   RandBLAS::base::RNGState<r123::Philox4x32> state) {
 
     std::vector<T> A(m * n, 0.0);
+    std::vector<T> A_hat(m * n, 0.0);
     std::vector<T> I_ref(n * n, 0.0);
+    std::vector<T> R_sp(n * n, 0.0);
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, n, state, mat_type);
     RandLAPACK::util::eye(n, n, I_ref);
 
-    // CHOL QR
-    RandLAPACK::CholQRQ<T> Orth_CholQR(false, false);
-    // Orthonormalize A
-    Orth_CholQR.call(m, n, A);
+    std::copy(A.data(), A.data() + (m * n), A_hat.data());
 
     T* A_dat = A.data();
+    T* A_hat_dat = A_hat.data();
     T* I_ref_dat = I_ref.data();
+    T* R_sp_dat  = R_sp.data();
+
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_dat, m, 0.0, R_sp_dat, n);
+    lapack::potrf(Uplo::Upper, n, R_sp_dat, n);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sp_dat, n, A_dat, m);
 
     // Check orthogonality of Q
     // Q' * Q  - I = 0
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, -1.0, I_ref_dat, n);
     T norm_Q = lapack::lange(lapack::Norm::Fro, n, n, I_ref_dat, n);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_dat, m, R_sp_dat, n, -1.0, A_hat_dat, m);
+    T norm_A = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
+
     printf("COND(A^{pre}): %21e\n", std::get<1>(mat_type));
-    printf("FRO NORM OF Q' * Q - I: %e\n\n", norm_Q);
+    printf("FRO NORM OF Q' * Q - I: %e\n", norm_Q);
+    printf("FRO NORM OF AP - QR: %15e\n\n", norm_A);
 }
 
 template <typename T>
@@ -71,6 +80,8 @@ test_cond_helper_1(int64_t m,
     CQRRPT.num_threads         = 4;
     CQRRPT.cond_check          = cond_check;
     CQRRPT.naive_rank_estimate = naive_rank_estimate;
+    //CQRRPT.record_A_pre_spectr = 1;
+    CQRRPT.path = "../../../"; 
 
     // CQRRPT
     CQRRPT.call(m, n, A, d, R, J);
@@ -132,7 +143,7 @@ test_speed(int r_pow,
     T rank_underestimate_cond = 0;
 
     for (; cond_start <= cond_end; cond_start *= cond_step) {
-        auto mat_type = std::make_tuple(0, cond_start, false);
+        auto mat_type = std::make_tuple(8, cond_start, false);
         if(alg_type) {
             if(test_cond_helper_1<T>(std::pow(2, r_pow), col, k, d, nnz, mat_type, state, naive_rank_estimate, cond_check) && detect_rank_underestimate)
             {
@@ -154,9 +165,13 @@ int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
     auto state = RandBLAS::base::RNGState(0, 0);
     // CholQR check
-    test_speed<double>(17, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 0, 1, 0);
+    //test_speed<double>(17, 1024, 1024, 1024, 1, 10, 10e16, 10, state, 0, 1, 0);
+    //test_speed<double>(10, 5, 5, 5, 1, 10, 10, 10, state, 0, 1, 1);
     // CQRRPT check
-    test_speed<double>(17, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 0, 1, 1);
-    test_speed<double>(17, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 1, 1, 1);
+    //test_speed<double>(17, 1024, 1024, 1024, 1, 1, 1, 10, state, 0, 1, 1);
+    //test_speed<double>(17, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 1, 1, 1);
+    test_speed<double>(17, 2000, 2000, 20000, 1, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 2000, 2000, 20000, 4, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 2000, 2000, 20000, 8, 1, 1, 10, state, 1, 1, 1);
     return 0;
 }

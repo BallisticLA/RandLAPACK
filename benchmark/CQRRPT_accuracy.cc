@@ -30,6 +30,15 @@ template <typename T>
         // Random Gaussian test matrix
         RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
 
+        // Check the specturm
+        std::vector<T> A_cpy;
+        std::vector<T> s;
+        T cond_num_A = RandLAPACK::util::cond_num_check(m, k, A, A_cpy, s, false);
+        // Record the singular values
+        for(int j = 0; j < k; ++j) {
+            printf("%f\n", s[j]);
+        }
+
         std::vector<T> A_hat(size, 0.0);
         std::vector<T> A_1(size, 0.0);
         std::vector<T> A_2(size, 0.0);
@@ -160,6 +169,17 @@ int main() {
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
     // Large condition number may not work for a small matrix
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 10000, 4, std::pow(std::numeric_limits<double>::epsilon(), 0.5265), std::make_tuple(0, 1e10, false), state, 1, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    // Fast polynomial decay
+    //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e10, false), state, 1, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e10, false), state, 2, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    // Slow polynomial decay
+    //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e2, false), state, 1, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e2, false), state, 2, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    // Step spectrum
+    //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(7, 1e10, false), state, 1, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(7, 1e10, false), state, 2, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    // Spiked spectrum
+    test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 1, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
+    //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 2, "../testing/RandLAPACK-Testing/test_benchmark/QR/accuracy/raw_data/");
     return 0;
 }
