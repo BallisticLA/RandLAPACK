@@ -52,6 +52,8 @@ test_cond_helper_0(int64_t m,
     printf("FRO NORM OF AP - QR: %15e\n\n", norm_A);
 }
 
+using namespace std::chrono;
+
 template <typename T>
 static int
 test_cond_helper_1(int64_t m, 
@@ -65,14 +67,32 @@ test_cond_helper_1(int64_t m,
                   int cond_check) {
 
     std::vector<T> A(m * n, 0.0);
-    std::vector<T> A_hat(m * n, 0.0);
+    std::vector<T> A_1(m * n, 0.0);
+    std::vector<T> A_2(m * n, 0.0);
     std::vector<T> R(n * n, 0.0);
     std::vector<int64_t> J;
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
 
-    std::copy(A.data(), A.data() + (m * n), A_hat.data());
+    std::vector<T> A_pre_cpy;
+    std::vector<T> s;
+    RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
+
+
+    auto start = high_resolution_clock::now();
+    T norm_2 = RandLAPACK::util::get_2_norm(m, n, A.data(), state);
+    auto stop = high_resolution_clock::now();
+    long dur = duration_cast<microseconds>(stop - start).count();
+    printf("Time for L2 norm %ld\n", dur);
+
+    printf("THE LARGEST SINGULAR VALUE IS %f\n", s[0]);
+    printf("THE LARGEST SINGULAR VALUE EST IS %f\n", norm_2);
+    
+
+    /*
+    std::copy(A.data(), A.data() + (m * n), A_1.data());
+    std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
     RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
@@ -80,7 +100,6 @@ test_cond_helper_1(int64_t m,
     CQRRPT.num_threads         = 4;
     CQRRPT.cond_check          = cond_check;
     CQRRPT.naive_rank_estimate = naive_rank_estimate;
-    //CQRRPT.record_A_pre_spectr = 1;
     CQRRPT.path = "../../../"; 
 
     // CQRRPT
@@ -93,7 +112,8 @@ test_cond_helper_1(int64_t m,
     int k = CQRRPT.rank;
 
     T* A_dat = A.data();
-    T* A_hat_dat = A_hat.data();
+    T* A_1_dat = A_1.data();
+    T* A_2_dat = A_2.data();
     T* R_dat = R.data();
     std::vector<T> I_ref(k * k, 0.0);
     RandLAPACK::util::eye(k, k, I_ref);
@@ -105,17 +125,34 @@ test_cond_helper_1(int64_t m,
     T norm_Q = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);
 
     // Check approximation quality
-    RandLAPACK::util::col_swap(m, n, n, A_hat, J);
+    RandLAPACK::util::col_swap(m, n, n, A_1, J);
     // AP - QR
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_hat_dat, m);
-    T norm_A = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_1_dat, m);
+    
+    T max_col_norm = 0.0;
+    T col_norm = 0.0;
+    int max_idx = 0;
+    for(int i = 0; i < n; ++i)
+    {
+        col_norm = lapack::lange(Norm::Fro, m, 1, A_1_dat + (m * i), m);
+        if(max_col_norm < col_norm)
+        {
+            max_col_norm = col_norm;
+            max_idx = i;
+        }    
+    }
+    T col_norm_A =  lapack::lange(Norm::Fro, m, 1, A_2_dat + (m * max_idx), m);
 
-    printf("FRO NORM OF AP - QR: %15e\n", norm_A);
+    T norm_APQR = lapack::lange(Norm::Fro, m, n, A_1_dat, m);
+    T norm_A = lapack::lange(Norm::Fro, m, n, A_2_dat, m);
+    
+    printf("REL NORM OF AP - QR: %15e\n", norm_APQR / norm_A);
+    printf("MAX COL NORM METRIC: %15e\n", max_col_norm / col_norm_A);
     printf("FRO NORM OF Q' * Q - I: %2e\n\n", norm_Q);
 
     if(k != true_k)
         return 1;
-
+    */
     return 0;
 }
 
@@ -133,7 +170,7 @@ test_speed(int r_pow,
            int naive_rank_estimate,
            int cond_check,
            int alg_type) {
-    printf("\n/-----------------------------------------CQRRPT CONDITION NUMBER BENCHMARK START-----------------------------------------/\n");
+    //printf("\n/-----------------------------------------CQRRPT CONDITION NUMBER BENCHMARK START-----------------------------------------/\n");
     if(naive_rank_estimate && alg_type) {
         printf("USING NAIVE RANK DETECTION\n\n");
     } else if(alg_type){
@@ -143,7 +180,8 @@ test_speed(int r_pow,
     T rank_underestimate_cond = 0;
 
     for (; cond_start <= cond_end; cond_start *= cond_step) {
-        auto mat_type = std::make_tuple(8, cond_start, false);
+        //auto mat_type = std::make_tuple(8, cond_start, false);
+        auto mat_type = std::make_tuple(6, 0, false);
         if(alg_type) {
             if(test_cond_helper_1<T>(std::pow(2, r_pow), col, k, d, nnz, mat_type, state, naive_rank_estimate, cond_check) && detect_rank_underestimate)
             {
@@ -158,7 +196,7 @@ test_speed(int r_pow,
     {
         printf("FAILED TO ACCURATELY ESTIMATE RANK FOR COND(A): %e\n", rank_underestimate_cond);
     }
-    printf("/-----------------------------------------CQRRPT CONDITION NUMBER EFFECT BENCHMARK STOP-----------------------------------------/\n\n");
+    //printf("/-----------------------------------------CQRRPT CONDITION NUMBER EFFECT BENCHMARK STOP-----------------------------------------/\n\n");
 }
 
 int main(){
@@ -170,8 +208,17 @@ int main(){
     // CQRRPT check
     //test_speed<double>(17, 1024, 1024, 1024, 1, 1, 1, 10, state, 0, 1, 1);
     //test_speed<double>(17, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 1, 1, 1);
-    test_speed<double>(17, 2000, 2000, 20000, 1, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 2000, 2000, 20000, 4, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 2000, 2000, 20000, 8, 1, 1, 10, state, 1, 1, 1);
+
+
+    /*
+    test_speed<double>(17, 2000, 2000, 2000, 1, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 2000, 2000, 3000, 4, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 2000, 2000, 4000, 4, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 2000, 2000, 6000, 4, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 2000, 2000, 8000, 4, 1, 1, 10, state, 1, 1, 1);
+    */
+    test_speed<double>(17, 32, 32, 32, 1, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 32, 32, 32, 1, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 16384, 16384, 16384, 1, 1, 1, 10, state, 1, 1, 1);
     return 0;
 }

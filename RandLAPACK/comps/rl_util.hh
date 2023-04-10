@@ -406,10 +406,13 @@ void gen_spiked_mat(
     
     T* A_dat = A.data();
 
-    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::LASO, n, m, 1};
+    int64_t num_rows_sampled = n / 2;
+
+    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::LASO, num_rows_sampled, m, 1};
     RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
     RandBLAS::sparse::fill_sparse(S);
 
+    // Fill A with stacked identities
     int start = 0;
     while(start + n <= m){
         for(int j = 0; j < n; ++j) {
@@ -418,14 +421,15 @@ void gen_spiked_mat(
         start += n;
     }
 
+    // Scale randomly sampled rows
     start = 0;
     while (start + m <= m * n) {
-        for(int i = 0; i < n; ++i) {
+        for(int i = 0; i < num_rows_sampled; ++i) {
             A_dat[start + (S.cols)[i] - 1] *= m;
         }
         start += m;
     }
-    /*
+    
     std::vector<T> A_hat(m * n, 0.0);
     std::vector<T> V(n * n, 0.0);
     std::vector<T> tau(n, 0.0);
@@ -437,8 +441,7 @@ void gen_spiked_mat(
     lapack::ungqr(n, n, n, V.data(), n, tau.data());
 
     std::copy(A.data(), A.data() + (m * n), A_hat.data());
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_hat.data(), m, V.data(), n, 1.0, A.data(), m);
-    */
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, n, 1.0, A_hat.data(), m, V.data(), n, 0.0, A.data(), m);
 }
 
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
@@ -592,6 +595,40 @@ bool orthogonality_check(
         return true;
 
     return false;
+}
+
+/// Computes an L-2 norm of a given matrix using
+/// 10 steps of power iteration
+template <typename T>
+T get_2_norm(
+    int64_t m,
+    int64_t n,
+    T* A_dat,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    std::vector<T> buf (n, 0.0);
+    std::vector<T> buf1 (n, 0.0);
+    std::vector<T> ATA (m*n, 0.0);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = 1};
+    state = RandBLAS::dense::fill_buff(buf.data(), DV, state);
+
+    // Compute A^T*A
+    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, n, m, 1.0, A_dat, m, 0.0, ATA.data(), n);
+    // Fill the upper triangular part of A^T*A
+    for(int i = 1; i < n; ++i)
+        blas::copy(n - i, ATA.data() + i + ((i-1) * n), 1, ATA.data() + (i - 1) + (i * n), n);
+
+    T prev_norm_inv = 1.0;
+    for(int i = 0; i < 10; ++i)
+    {
+        gemv(Layout::ColMajor, Op::NoTrans, n, n, prev_norm_inv, ATA.data(), n, buf.data(), 1, 0.0, buf1.data(), 1);
+        buf = buf1;
+        prev_norm_inv = 1 / blas::nrm2(n, buf.data(), 1);
+    }
+    
+    return std::sqrt(blas::nrm2(n, buf.data(), 1));
 }
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.

@@ -68,7 +68,6 @@ class CQRRPT : public CQRRPTalg<T> {
             panel_pivoting = 1;
             naive_rank_estimate = 1;
             cond_check = 0;
-            record_A_pre_spectr = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -148,7 +147,6 @@ class CQRRPT : public CQRRPTalg<T> {
 
         // Preconditioning-related
         T cond_num_A_pre;
-        bool record_A_pre_spectr;
         std::string path;
 };
 
@@ -215,7 +213,7 @@ int CQRRPT<T>::call(
         resize_t_dur = duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
         saso_t_start = high_resolution_clock::now();
     }
-
+    
     RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};
     RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
     RandBLAS::sparse::fill_sparse(S);
@@ -223,6 +221,14 @@ int CQRRPT<T>::call(
     RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
         d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d);
+    
+    /*
+    std::vector<T> S (d * m, 0.0);
+    RandBLAS::dense::DenseDist D{.n_rows = d, .n_cols = m};
+    RandBLAS::dense::fill_buff(S.data(), D, state);
+
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S.data(), m, V.data(), n, 0.0, A.data(), m);
+    */
 
     if(this -> timing) {
         saso_t_stop = high_resolution_clock::now();
@@ -335,12 +341,6 @@ int CQRRPT<T>::call(
         std::vector<T> A_pre_cpy;
         std::vector<T> s;
         this->cond_num_A_pre = RandLAPACK::util::cond_num_check(m, k, A, A_pre_cpy, s, false);
-        if(this -> record_A_pre_spectr) {
-            // Record the singular values
-            for(int j = 0; j < k; ++j) {
-                printf("%f\n", s[j]);
-            }
-        }
     }
 
     if(this -> timing)
