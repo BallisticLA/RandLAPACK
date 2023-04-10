@@ -281,7 +281,7 @@ int CQRRPT<T>::call(
         //T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
 
         // find l2 norm of the full R
-        T norm_R = get_2_norm(n, n, R_dat, state);
+        T norm_R = RandLAPACK::util::get_2_norm(n, n, R_dat, state);
 
         T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
         // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
