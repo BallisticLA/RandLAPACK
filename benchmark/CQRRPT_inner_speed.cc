@@ -93,6 +93,7 @@ test_speed_helper(int64_t m,
     RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, tol);
     CQRRPT.nnz         = nnz;
     CQRRPT.num_threads = num_threads;
+    CQRRPT.naive_rank_estimate = 0;
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     
