@@ -640,12 +640,12 @@ T get_2_norm(
 /// ||A[k:, k:]||_F == tau_trunk * ||A||_F and then ensure that ||A[k:, k:]||_F
 /// is not smaller than tau_trunk * ||A||_F to avoid rank underestimation.
 template <typename T>
-int64_t rank_search(
+int64_t rank_search_binary(
     int64_t lo,
     int64_t hi,
     int64_t k,
     int64_t n,
-    T norm_A,
+    T norm_2_A,
     T tau_trunc,
     T* A_dat
 ) {
@@ -653,20 +653,41 @@ int64_t rank_search(
 
     if(((k - lo) / 2) == 0) {
         // Need to make sure we are not underestimating rank
-        while(norm_R_sub > tau_trunc * norm_A)
+        while(norm_R_sub > tau_trunc * norm_2_A)
         {
             ++k;
             norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
         }
         return k;
-    } else if (norm_R_sub > tau_trunc * norm_A) {
+    } else if (norm_R_sub > tau_trunc * norm_2_A) {
         // k is larger
-        k = rank_search(k, hi, k + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
-    } else { //(norm_R_sub < tau_trunc * norm_A) {
+        k = rank_search_binary(k, hi, k + ((k - lo) / 2), n, norm_2_A, tau_trunc, A_dat);
+    } else { //(norm_R_sub < tau_trunc * norm_2_A) {
         // k is smaller
-        k = rank_search(lo, k, lo + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+        k = rank_search_binary(lo, k, lo + ((k - lo) / 2), n, norm_2_A, tau_trunc, A_dat);
     }
     return k;
+}
+
+
+
+template <typename T>
+int64_t rank_search_linear(
+    int64_t n,
+    T norm_2_A,
+    T norm_fro_A,
+    T tau_trunc,
+    T* A_dat
+) {
+    for(int i = n - 1, j = 1; i > 0; --i, ++j)
+    {
+        T norm_A_row = blas::nrm2(j, A_dat + ((n + 1) * i), n);
+
+        if(std::sqrt(std::pow(norm_2_A, 2) - std::pow(norm_A_row, 2)) > tau_trunc * norm_2_A)
+        {
+            return i + 1;
+        }
+    }
 }
 
 } // end namespace util

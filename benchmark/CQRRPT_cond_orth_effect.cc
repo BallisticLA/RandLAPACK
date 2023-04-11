@@ -74,12 +74,16 @@ test_cond_helper_1(int64_t m,
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
-
+    
     std::vector<T> A_pre_cpy;
     std::vector<T> s;
     RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
+    for(int i = 0; i < n; ++i)
+    {
+        printf("%e\n", s[i]);
+    }
 
-
+    /*
     auto start = high_resolution_clock::now();
     T norm_2 = RandLAPACK::util::get_2_norm(m, n, A.data(), state);
     auto stop = high_resolution_clock::now();
@@ -88,14 +92,13 @@ test_cond_helper_1(int64_t m,
 
     printf("THE LARGEST SINGULAR VALUE IS %f\n", s[0]);
     printf("THE LARGEST SINGULAR VALUE EST IS %f\n", norm_2);
-    
+    */
 
-    /*
     std::copy(A.data(), A.data() + (m * n), A_1.data());
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
+    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::pow(std::numeric_limits<double>::epsilon(), 0.75));
     CQRRPT.nnz                 = nnz;
     CQRRPT.num_threads         = 4;
     CQRRPT.cond_check          = cond_check;
@@ -107,7 +110,7 @@ test_cond_helper_1(int64_t m,
 
     printf("COND(A): %27e\n", std::get<1>(mat_type));
     printf("COND(A^{pre}): %21e\n", CQRRPT.cond_num_A_pre);
-    printf("TRUE RANK(A): %14ld\n", n);
+    printf("TRUE RANK(A): %14ld\n", true_k);
     printf("RANK(A) ESTIMATE: %10ld\n", CQRRPT.rank);
     int k = CQRRPT.rank;
 
@@ -152,7 +155,6 @@ test_cond_helper_1(int64_t m,
 
     if(k != true_k)
         return 1;
-    */
     return 0;
 }
 
@@ -181,9 +183,9 @@ test_speed(int r_pow,
 
     for (; cond_start <= cond_end; cond_start *= cond_step) {
         //auto mat_type = std::make_tuple(8, cond_start, false);
-        auto mat_type = std::make_tuple(6, 0, false);
+        auto mat_type = std::make_tuple(0, cond_start, false);
         if(alg_type) {
-            if(test_cond_helper_1<T>(std::pow(2, r_pow), col, k, d, nnz, mat_type, state, naive_rank_estimate, cond_check) && detect_rank_underestimate)
+            if(test_cond_helper_1<T>(10000, col, k, d, nnz, mat_type, state, naive_rank_estimate, cond_check) && detect_rank_underestimate)
             {
                 detect_rank_underestimate = 0;
                 rank_underestimate_cond = cond_start;
@@ -217,8 +219,8 @@ int main(){
     test_speed<double>(17, 2000, 2000, 6000, 4, 1, 1, 10, state, 1, 1, 1);
     test_speed<double>(17, 2000, 2000, 8000, 4, 1, 1, 10, state, 1, 1, 1);
     */
-    test_speed<double>(17, 32, 32, 32, 1, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 32, 32, 32, 1, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 16384, 16384, 16384, 1, 1, 1, 10, state, 1, 1, 1);
+    test_speed<double>(17, 1024, 300, 1024, 1, 10, 10, 10, state, 1, 1, 1);
+    //test_speed<double>(14, 200, 100, 400, 1, 10, 10, 10, state, 1, 1, 1);
+    //test_speed<double>(14, 200, 100, 400, 1, 10, 10, 10, state, 0, 1, 1);
     return 0;
 }

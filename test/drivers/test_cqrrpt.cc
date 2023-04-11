@@ -47,8 +47,9 @@ class TestCQRRPT : public ::testing::Test
 
         A_dat = A.data();
         T* R_dat = R.data();
+        printf("TRUE RANK %ld\n", k);
         k = CQRRPT.rank;
-
+        printf("ESTIMATED RANK %ld\n", k);
         RandLAPACK::util::col_swap(m, n, n, A_hat, J);
 
         // AP - QR
