@@ -598,7 +598,8 @@ bool orthogonality_check(
 }
 
 /// Computes an L-2 norm of a given matrix using
-/// 10 steps of power iteration
+/// 10 steps of power iteration.
+/// Requires additional n * (n + 2) * sizeof(T) bytes of space.
 template <typename T>
 T get_2_norm(
     int64_t m,
@@ -609,7 +610,7 @@ T get_2_norm(
 
     std::vector<T> buf (n, 0.0);
     std::vector<T> buf1 (n, 0.0);
-    std::vector<T> ATA (m*n, 0.0);
+    std::vector<T> ATA (n * n, 0.0);
 
     RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = 1};
     state = RandBLAS::dense::fill_buff(buf.data(), DV, state);
@@ -633,12 +634,12 @@ T get_2_norm(
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
 /// Does so by attempting to find the smallest k such that 
-/// ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
+/// ||A[k:, k:]||_F <= tau_trunk * ||A||_2.
 /// Finding such k is done via binary search in range [1, n], which is 
-/// controlled by ||A[k:, k:]||_F (<)(>) tau_trunk * ||A||_F. 
+/// controlled by ||A[k:, k:]||_F (<)(>) tau_trunk * ||A||_2. 
 /// We first attempt to find k that results in an expression closest to 
-/// ||A[k:, k:]||_F == tau_trunk * ||A||_F and then ensure that ||A[k:, k:]||_F
-/// is not smaller than tau_trunk * ||A||_F to avoid rank underestimation.
+/// ||A[k:, k:]||_F == tau_trunk * ||A||_2 and then ensure that ||A[k:, k:]||_F
+/// is not smaller than tau_trunk * ||A||_2 to avoid rank underestimation.
 template <typename T>
 int64_t rank_search_binary(
     int64_t lo,
@@ -669,8 +670,9 @@ int64_t rank_search_binary(
     return k;
 }
 
-
-
+/// Iterates the upper-triangular matrix A from end to beginning and 
+/// attempts to estimate smallest k such taht ||A[k:, k:]||_F <= tau_trunk * ||A||_2.
+/// Computes matrix Fro norms through vector norm updates.
 template <typename T>
 int64_t rank_search_linear(
     int64_t n,
@@ -679,15 +681,16 @@ int64_t rank_search_linear(
     T tau_trunc,
     T* A_dat
 ) {
-    for(int i = n - 1, j = 1; i > 0; --i, ++j)
-    {
-        T norm_A_row = blas::nrm2(j, A_dat + ((n + 1) * i), n);
+    T norm_A_work = 0.0;
+    T norm_A_row = 0.0;
+    for(int i = n - 1, j = 1; i > 0; --i, ++j) {
+        norm_A_row = blas::nrm2(j, A_dat + ((n + 1) * i), n);
+        norm_A_work = std::sqrt(std::pow(norm_A_work, 2) + std::pow(norm_A_row, 2));
 
-        if(std::sqrt(std::pow(norm_2_A, 2) - std::pow(norm_A_row, 2)) > tau_trunc * norm_2_A)
-        {
+        if(norm_A_work > tau_trunc * norm_2_A)
             return i + 1;
-        }
     }
+    return 1;
 }
 
 } // end namespace util

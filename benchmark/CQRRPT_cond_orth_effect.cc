@@ -74,16 +74,12 @@ test_cond_helper_1(int64_t m,
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
-    
+
+    /*    
     std::vector<T> A_pre_cpy;
     std::vector<T> s;
     RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
-    for(int i = 0; i < n; ++i)
-    {
-        printf("%e\n", s[i]);
-    }
 
-    /*
     auto start = high_resolution_clock::now();
     T norm_2 = RandLAPACK::util::get_2_norm(m, n, A.data(), state);
     auto stop = high_resolution_clock::now();
@@ -219,7 +215,9 @@ int main(){
     test_speed<double>(17, 2000, 2000, 6000, 4, 1, 1, 10, state, 1, 1, 1);
     test_speed<double>(17, 2000, 2000, 8000, 4, 1, 1, 10, state, 1, 1, 1);
     */
-    test_speed<double>(17, 1024, 300, 1024, 1, 10, 10, 10, state, 1, 1, 1);
+    test_speed<double>(17, 1024, 300, 1024, 1, 10, 10, 10, state, 0, 1, 1);
+    test_speed<double>(17, 1024, 1, 1024, 1, 10, 10, 10, state, 0, 1, 1);
+    test_speed<double>(17, 1024, 1024, 1024, 1, 10, 10, 10, state, 0, 1, 1);
     //test_speed<double>(14, 200, 100, 400, 1, 10, 10, 10, state, 1, 1, 1);
     //test_speed<double>(14, 200, 100, 400, 1, 10, 10, 10, state, 0, 1, 1);
     return 0;
