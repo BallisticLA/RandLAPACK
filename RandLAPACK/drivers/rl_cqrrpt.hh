@@ -285,12 +285,12 @@ int CQRRPT<T>::call(
 
         T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
         // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
-        if ((norm_R_sub > this->eps * norm_2_R))
+        if ((norm_R_sub > this->eps * norm_fro_R))
         {
             k = n;
         } else {
-            //k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_2_R, this->eps, R_dat);
-            k = RandLAPACK::util::rank_search_linear(n, norm_2_R, norm_fro_R, this->eps, R_dat );
+            //k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_fro_R, this->eps, R_dat);
+            k = RandLAPACK::util::rank_search_linear(n, norm_fro_R, this->eps, R_dat );
         }
         this->rank = k;
         // Clear R

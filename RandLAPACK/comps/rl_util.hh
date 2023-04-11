@@ -677,7 +677,6 @@ template <typename T>
 int64_t rank_search_linear(
     int64_t n,
     T norm_2_A,
-    T norm_fro_A,
     T tau_trunc,
     T* A_dat
 ) {
