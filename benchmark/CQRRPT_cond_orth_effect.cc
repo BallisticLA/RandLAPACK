@@ -100,7 +100,7 @@ test_cond_helper_1(int64_t m,
     CQRRPT.cond_check          = cond_check;
     CQRRPT.naive_rank_estimate = naive_rank_estimate;
     CQRRPT.path = "../../../"; 
-    CQRRPT.use_fro_norm = 0;
+    CQRRPT.use_fro_norm = 1;
 
     // CQRRPT
     CQRRPT.call(m, n, A, d, R, J);
