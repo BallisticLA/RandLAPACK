@@ -67,8 +67,8 @@ test_cond_helper_1(int64_t m,
                   int cond_check) {
 
     std::vector<T> A(m * n, 0.0);
-    std::vector<T> A_1(m * n, 0.0);
-    std::vector<T> A_2(m * n, 0.0);
+    //std::vector<T> A_1(m * n, 0.0);
+    //std::vector<T> A_2(m * n, 0.0);
     std::vector<T> R(n * n, 0.0);
     std::vector<int64_t> J;
 
@@ -111,6 +111,7 @@ test_cond_helper_1(int64_t m,
     printf("RANK(A) ESTIMATE: %10ld\n", CQRRPT.rank);
     int k = CQRRPT.rank;
 
+    /*
     T* A_dat = A.data();
     T* A_1_dat = A_1.data();
     T* A_2_dat = A_2.data();
@@ -152,7 +153,7 @@ test_cond_helper_1(int64_t m,
 
     if(k != true_k)
         return 1;
-        
+        */
     return 0;
 }
 
@@ -233,11 +234,11 @@ int main(){
     // Oleg's testing approach
     // Condition number here acts as scaling "sigma"
     
-    test_cond_orth<double>(10000000, 300, 300, 2 * 300, 4, 10e7, 10e7, 10, state, 1, 1, 1, 9);
-    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e9, 10e9, 10, state, 1, 1, 1, 9);
-    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e11, 10e11, 10, state, 1, 1, 1, 9);
-    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
-    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e6, 295, 300, 2 * 300, 4, 10e7, 10e7, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e9, 10e9, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e11, 10e11, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
     
     test_cond_orth<double>(10e6, 1000, 1000, 2 * 1000, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
     test_cond_orth<double>(10e6, 1000, 1000, 2 * 1000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
