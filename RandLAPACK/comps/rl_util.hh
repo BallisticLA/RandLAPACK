@@ -474,7 +474,7 @@ void gen_scaled_mat(
     std::vector<T> V(n * n, 0.0);
     std::vector<T> tau1(n, 0.0);
     std::vector<T> tau2(n, 0.0);
-/*
+
     RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = n};
     state = RandBLAS::dense::fill_buff(U.data(), DU, state);
 
@@ -499,7 +499,6 @@ void gen_scaled_mat(
         V_dat[n * i + i] *= scaling_factor_V;
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
-*/
 }
 
 /// Find the condition number of a given matrix A.

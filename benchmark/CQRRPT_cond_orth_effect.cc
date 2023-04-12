@@ -89,7 +89,7 @@ test_cond_helper_1(int64_t m,
     printf("THE LARGEST SINGULAR VALUE IS %f\n", s[0]);
     printf("THE LARGEST SINGULAR VALUE EST IS %f\n", norm_2);
     */
-/*
+
     std::copy(A.data(), A.data() + (m * n), A_1.data());
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
@@ -152,7 +152,7 @@ test_cond_helper_1(int64_t m,
 
     if(k != true_k)
         return 1;
-        */
+        
     return 0;
 }
 
@@ -234,7 +234,6 @@ int main(){
     // Condition number here acts as scaling "sigma"
     
     test_cond_orth<double>(10000000, 300, 300, 2 * 300, 4, 10e7, 10e7, 10, state, 1, 1, 1, 9);
-    /*
     test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e9, 10e9, 10, state, 1, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e11, 10e11, 10, state, 1, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
@@ -245,7 +244,6 @@ int main(){
 
     test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
     test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
-    */
 
     return 0;
 }
