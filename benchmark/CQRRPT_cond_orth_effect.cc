@@ -90,8 +90,8 @@ test_cond_helper_1(int64_t m,
     printf("THE LARGEST SINGULAR VALUE EST IS %f\n", norm_2);
     */
 
-    std::copy(A.data(), A.data() + (m * n), A_1.data());
-    std::copy(A.data(), A.data() + (m * n), A_2.data());
+    //std::copy(A.data(), A.data() + (m * n), A_1.data());
+    //std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
     RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());//std::pow(std::numeric_limits<double>::epsilon(), 0.75));
