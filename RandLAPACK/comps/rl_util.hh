@@ -129,6 +129,20 @@ void get_U(
     }
 }
 
+/// Eliminates the lower-triangular portion of A
+template <typename T>
+void get_U(
+    int64_t m,
+    int64_t n,
+    std::vector<T>& A
+) {
+    T* A_dat = A.data();
+
+    for(int i = 0; i < n - 1; ++i) {
+        std::fill(&A_dat[i * (m + 1) + 1], &A_dat[(i + 1) * m], 0.0);
+    }
+}
+
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
 template <typename T>
@@ -444,6 +458,100 @@ void gen_spiked_mat(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, n, 1.0, A_hat.data(), m, V.data(), n, 0.0, A.data(), m);
 }
 
+template <typename T>
+void gen_scaled_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    T sigma,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+    
+    T scaling_factor_U = sigma;
+    T scaling_factor_V = 10e-15;
+
+    std::vector<T> U(m * n, 0.0);
+    std::vector<T> V(n * n, 0.0);
+    std::vector<T> tau1(n, 0.0);
+    std::vector<T> tau2(n, 0.0);
+/*
+    RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(U.data(), DU, state);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+
+    T* U_dat = U.data();
+    for(int i = 0; i < n; ++i)
+        U_dat[m * i] *= scaling_factor_U;
+
+    lapack::geqrf(m, n, U.data(), m, tau1.data());
+    lapack::ungqr(m, n, n, U.data(), m, tau1.data());
+
+    lapack::geqrf(n, n, V.data(), n, tau2.data());
+    lapack::ungqr(n, n, n, V.data(), n, tau2.data());
+
+    // Grab an upper-triangular portion of V
+    get_U(n, n, V);
+
+    T* V_dat = V.data();
+    for(int i = 1; i < n; ++i)
+        V_dat[n * i + i] *= scaling_factor_V;
+
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
+*/
+}
+
+/// Find the condition number of a given matrix A.
+template <typename T>
+T cond_num_check(
+    int64_t m,
+    int64_t n,
+    const std::vector<T>& A,
+    std::vector<T>& A_cpy,
+    std::vector<T>& s,
+    bool verbosity
+) {
+
+    // Copy to avoid any changes
+    T* A_cpy_dat = upsize(m * n, A_cpy);
+    T* s_dat = upsize(n, s);
+
+    // Packed storage check
+    if (A.size() < A_cpy.size()) {
+        // Convert to normal format
+        lapack::tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
+    } else {
+        lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
+    }
+    lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
+
+    T cond_num = s_dat[0] / s_dat[n - 1];
+
+    if (verbosity)
+        printf("CONDITION NUMBER: %f\n", cond_num);
+
+    return cond_num;
+}
+
+template <typename T>
+int64_t rank_check(
+    int64_t m,
+    int64_t n,
+    const std::vector<T>& A
+) {
+    // Re-compute rank:
+    std::vector<T> A_pre_cpy;
+    std::vector<T> s;
+    RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
+    for(int i = 0; i < n; ++i)
+    {
+        if (s[i] <= std::numeric_limits<double>::epsilon())
+            return i - 1;
+    }
+    return n;
+}
+
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
 /// In that case, it would be of size k by k.
 template <typename T>
@@ -451,7 +559,7 @@ void gen_mat_type(
     int64_t& m, // These may change
     int64_t& n,
     std::vector<T>& A,
-    int64_t k,
+    int64_t& k,
     RandBLAS::base::RNGState<r123::Philox4x32> state,
     const std::tuple<int, T, bool>& type
 ) {
@@ -525,46 +633,21 @@ void gen_mat_type(
             }    
             break;
         case 8: {
-                // Generating matrix with a staircase-like spectrum
+                // This matrix may be numerically rank deficient
                 RandLAPACK::util::gen_spiked_mat(m, n, A, state);
+                k = rank_check(m, n, A);
+            }    
+            break;
+        case 9: {
+                // This matrix may be numerically rank deficient
+                RandLAPACK::util::gen_scaled_mat(m, n, A, std::get<1>(type), state);
+                k = rank_check(m, n, A);
             }    
             break;
         default:
             throw std::runtime_error(std::string("Unrecognized case."));
             break;
     }
-}
-
-/// Find the condition number of a given matrix A.
-template <typename T>
-T cond_num_check(
-    int64_t m,
-    int64_t n,
-    const std::vector<T>& A,
-    std::vector<T>& A_cpy,
-    std::vector<T>& s,
-    bool verbosity
-) {
-
-    // Copy to avoid any changes
-    T* A_cpy_dat = upsize(m * n, A_cpy);
-    T* s_dat = upsize(n, s);
-
-    // Packed storage check
-    if (A.size() < A_cpy.size()) {
-        // Convert to normal format
-        lapack::tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
-    } else {
-        lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
-    }
-    lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
-
-    T cond_num = s_dat[0] / s_dat[n - 1];
-
-    if (verbosity)
-        printf("CONDITION NUMBER: %f\n", cond_num);
-
-    return cond_num;
 }
 
 /// Checks whether matrix A has orthonormal columns.

@@ -89,17 +89,18 @@ test_cond_helper_1(int64_t m,
     printf("THE LARGEST SINGULAR VALUE IS %f\n", s[0]);
     printf("THE LARGEST SINGULAR VALUE EST IS %f\n", norm_2);
     */
-
+/*
     std::copy(A.data(), A.data() + (m * n), A_1.data());
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::pow(std::numeric_limits<double>::epsilon(), 0.75));
+    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());//std::pow(std::numeric_limits<double>::epsilon(), 0.75));
     CQRRPT.nnz                 = nnz;
     CQRRPT.num_threads         = 4;
     CQRRPT.cond_check          = cond_check;
     CQRRPT.naive_rank_estimate = naive_rank_estimate;
     CQRRPT.path = "../../../"; 
+    CQRRPT.use_fro_norm = 0;
 
     // CQRRPT
     CQRRPT.call(m, n, A, d, R, J);
@@ -125,38 +126,39 @@ test_cond_helper_1(int64_t m,
 
     // Check approximation quality
     RandLAPACK::util::col_swap(m, n, n, A_1, J);
+    RandLAPACK::util::col_swap(m, n, n, A_2, J);
     // AP - QR
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_dat, m, R_dat, k, -1.0, A_1_dat, m);
     
+    // Implementing max col norm metric
     T max_col_norm = 0.0;
     T col_norm = 0.0;
     int max_idx = 0;
-    for(int i = 0; i < n; ++i)
-    {
+    for(int i = 0; i < n; ++i) {
         col_norm = lapack::lange(Norm::Fro, m, 1, A_1_dat + (m * i), m);
-        if(max_col_norm < col_norm)
-        {
+        if(max_col_norm < col_norm) {
             max_col_norm = col_norm;
             max_idx = i;
-        }    
+        }
     }
-    T col_norm_A =  lapack::lange(Norm::Fro, m, 1, A_2_dat + (m * max_idx), m);
+    T col_norm_AP =  lapack::lange(Norm::Fro, m, 1, A_2_dat + (m * max_idx), m);
 
     T norm_APQR = lapack::lange(Norm::Fro, m, n, A_1_dat, m);
-    T norm_A = lapack::lange(Norm::Fro, m, n, A_2_dat, m);
+    T norm_AP = lapack::lange(Norm::Fro, m, n, A_2_dat, m);
     
-    printf("REL NORM OF AP - QR: %15e\n", norm_APQR / norm_A);
-    printf("MAX COL NORM METRIC: %15e\n", max_col_norm / col_norm_A);
+    printf("REL NORM OF AP - QR: %15e\n", norm_APQR / norm_AP);
+    printf("MAX COL NORM METRIC: %15e\n", max_col_norm / col_norm_AP);
     printf("FRO NORM OF Q' * Q - I: %2e\n\n", norm_Q);
 
     if(k != true_k)
         return 1;
+        */
     return 0;
 }
 
 template <typename T>
 static void 
-test_speed(int r_pow, 
+test_cond_orth(int row, 
            int col, 
            int64_t k,
            int64_t d,
@@ -167,7 +169,8 @@ test_speed(int r_pow,
            RandBLAS::base::RNGState<r123::Philox4x32> state,
            int naive_rank_estimate,
            int cond_check,
-           int alg_type) {
+           int alg_type,
+           int mat_type_num) {
     //printf("\n/-----------------------------------------CQRRPT CONDITION NUMBER BENCHMARK START-----------------------------------------/\n");
     if(naive_rank_estimate && alg_type) {
         printf("USING NAIVE RANK DETECTION\n\n");
@@ -178,16 +181,16 @@ test_speed(int r_pow,
     T rank_underestimate_cond = 0;
 
     for (; cond_start <= cond_end; cond_start *= cond_step) {
-        //auto mat_type = std::make_tuple(8, cond_start, false);
-        auto mat_type = std::make_tuple(0, cond_start, false);
+        auto mat_type = std::make_tuple(mat_type_num, cond_start, false);
+        //auto mat_type = std::make_tuple(0, cond_start, false);
         if(alg_type) {
-            if(test_cond_helper_1<T>(10000, col, k, d, nnz, mat_type, state, naive_rank_estimate, cond_check) && detect_rank_underestimate)
+            if(test_cond_helper_1<T>(row, col, k, d, nnz, mat_type, state, naive_rank_estimate, cond_check) && detect_rank_underestimate)
             {
                 detect_rank_underestimate = 0;
                 rank_underestimate_cond = cond_start;
             }
         } else {
-            test_cond_helper_0<T>(std::pow(2, r_pow), col, mat_type, state);
+            test_cond_helper_0<T>(row, col, mat_type, state);
         }
     }
     if(!detect_rank_underestimate)
@@ -201,24 +204,48 @@ int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
     auto state = RandBLAS::base::RNGState(0, 0);
     // CholQR check
-    //test_speed<double>(17, 1024, 1024, 1024, 1, 10, 10e16, 10, state, 0, 1, 0);
-    //test_speed<double>(10, 5, 5, 5, 1, 10, 10, 10, state, 0, 1, 1);
+    //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 10, 10e16, 10, state, 0, 1, 0);
+    //test_cond_orth<double>(1024, 5, 5, 5, 1, 10, 10, 10, state, 0, 1, 1);
     // CQRRPT check
-    //test_speed<double>(17, 1024, 1024, 1024, 1, 1, 1, 10, state, 0, 1, 1);
-    //test_speed<double>(17, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 1, 1, 1);
+    //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 1, 1, 10, state, 0, 1, 1);
+    //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 1, 1, 1);
 
-
+    // Spiked data results for Oleg
+    // Condition number parameter here is unused
     /*
-    test_speed<double>(17, 2000, 2000, 2000, 1, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 2000, 2000, 3000, 4, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 2000, 2000, 4000, 4, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 2000, 2000, 6000, 4, 1, 1, 10, state, 1, 1, 1);
-    test_speed<double>(17, 2000, 2000, 8000, 4, 1, 1, 10, state, 1, 1, 1);
+    test_cond_orth<double>(10000, 2000, 2000, 2000, 1, 10e16, 10e16, 10, state, 0, 1, 1, 8);
+    test_cond_orth<double>(10000, 2000, 2000, 3000, 4, 10e16, 10e16, 10, state, 0, 1, 1, 8);
+    test_cond_orth<double>(10000, 2000, 2000, 4000, 4, 10e16, 10e16, 10, state, 0, 1, 1, 8);
+    test_cond_orth<double>(10000, 2000, 2000, 6000, 4, 10e16, 10e16, 10, state, 0, 1, 1, 8);
+    test_cond_orth<double>(10000, 2000, 2000, 8000, 4, 10e16, 10e16, 10, state, 0, 1, 1, 8);
     */
-    test_speed<double>(17, 1024, 300, 1024, 1, 10, 10, 10, state, 0, 1, 1);
-    test_speed<double>(17, 1024, 1, 1024, 1, 10, 10, 10, state, 0, 1, 1);
-    test_speed<double>(17, 1024, 1024, 1024, 1, 10, 10, 10, state, 0, 1, 1);
-    //test_speed<double>(14, 200, 100, 400, 1, 10, 10, 10, state, 1, 1, 1);
-    //test_speed<double>(14, 200, 100, 400, 1, 10, 10, 10, state, 0, 1, 1);
+
+    // Scaled data results for Oleg
+    // Condition number here acts as scaling "sigma"
+    /*
+    test_cond_orth<double>(10000, 2000, 2000, 2000, 1, 10e15, 10e15, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 3000, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 4000, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 6000, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 8000, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
+    */
+
+    // Oleg's testing approach
+    // Condition number here acts as scaling "sigma"
+    
+    test_cond_orth<double>(10000000, 300, 300, 2 * 300, 4, 10e7, 10e7, 10, state, 1, 1, 1, 9);
+    /*
+    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e9, 10e9, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e11, 10e11, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10e6, 300, 300, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    
+    test_cond_orth<double>(10e6, 1000, 1000, 2 * 1000, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10e6, 1000, 1000, 2 * 1000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+
+    test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    */
+
     return 0;
 }

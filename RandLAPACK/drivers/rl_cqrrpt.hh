@@ -42,8 +42,10 @@ class CQRRPT : public CQRRPTalg<T> {
         /// which defaults to 1.
         ///
         /// The algorithm allows for choosing the rank estimation scheme either naively, through looking at the
-        /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
+        /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_x.
         /// This decision is controlled through 'naive_rank_estimate' parameter, which defaults to 1.
+        /// The choice of norm ||A||_x, either 2 or F, is controlled via 'use_fro_norm'. Furthermore, the way the smallest k is computed
+        /// is contolled via use of 'use_binary_search'.
         ///
         /// The algorithm optionally times all of its subcomponents through a user-defined 'verbosity' parameter.
         ///
@@ -67,6 +69,8 @@ class CQRRPT : public CQRRPTalg<T> {
             oversampling = 10;
             panel_pivoting = 1;
             naive_rank_estimate = 1;
+            use_fro_norm = 1;
+            use_binary_search = 1;
             cond_check = 0;
         }
 
@@ -144,6 +148,8 @@ class CQRRPT : public CQRRPTalg<T> {
 
         // Rank estimate-related
         int naive_rank_estimate;
+        int use_fro_norm;
+        int use_binary_search;
 
         // Preconditioning-related
         T cond_num_A_pre;
@@ -221,14 +227,6 @@ int CQRRPT<T>::call(
     RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
         d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d);
-    
-    /*
-    std::vector<T> S (d * m, 0.0);
-    RandBLAS::dense::DenseDist D{.n_rows = d, .n_cols = m};
-    RandBLAS::dense::fill_buff(S.data(), D, state);
-
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S.data(), m, V.data(), n, 0.0, A.data(), m);
-    */
 
     if(this -> timing) {
         saso_t_stop = high_resolution_clock::now();
@@ -277,20 +275,25 @@ int CQRRPT<T>::call(
             blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i], n);
         }
 
-        // find fro norm of the full R
-        T norm_fro_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
-
-        // find l2 norm of the full R
-        T norm_2_R = RandLAPACK::util::get_2_norm(n, n, R_dat, state);
-
-        T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
-        // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
-        if ((norm_R_sub > this->eps * norm_fro_R))
-        {
-            k = n;
+        T norm_R = 0.0;
+        if(this->use_fro_norm) {
+            // find fro norm of the full R
+            norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
         } else {
-            //k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_fro_R, this->eps, R_dat);
-            k = RandLAPACK::util::rank_search_linear(n, norm_fro_R, this->eps, R_dat );
+            // find l2 norm of the full R
+            norm_R = RandLAPACK::util::get_2_norm(n, n, R_dat, state);
+        }
+
+        if(use_binary_search) {
+            T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
+            // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
+            if ((norm_R_sub > this->eps * norm_R)) {
+                k = n;
+            } else {
+                k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
+            }
+        } else {
+            k = RandLAPACK::util::rank_search_linear(n, norm_R, this->eps, R_dat );
         }
         this->rank = k;
         // Clear R
