@@ -100,7 +100,7 @@ test_cond_helper_1(int64_t m,
     CQRRPT.cond_check          = cond_check;
     CQRRPT.naive_rank_estimate = naive_rank_estimate;
     CQRRPT.path = "../../../"; 
-    CQRRPT.use_fro_norm = 1;
+    CQRRPT.use_fro_norm = 0;
 
     // CQRRPT
     CQRRPT.call(m, n, A, d, R, J);
@@ -233,7 +233,7 @@ int main(){
     // Oleg's testing approach
     // Condition number here acts as scaling "sigma"
     
-    test_cond_orth<double>(10e6, 295, 300, 2 * 300, 4, 10e7, 10e7, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e7, 10e7, 10, state, 0, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e9, 10e9, 10, state, 0, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e11, 10e11, 10, state, 0, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e13, 10e13, 10, state, 0, 1, 1, 9);
