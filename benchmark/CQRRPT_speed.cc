@@ -381,10 +381,10 @@ test_speed_helper(int64_t m,
     long dur_alloc5 = duration_cast<microseconds>(stop_alloc5 - start_alloc5).count();
 
     // GEQRF
-    auto start_scholqr = high_resolution_clock::now();
+    auto start_geqrf = high_resolution_clock::now();
     lapack::geqrf(m, n, A_1.data(), m, tau_4.data());
-    auto stop_scholqr = high_resolution_clock::now();
-    long dur_scholqr = duration_cast<microseconds>(stop_scholqr - start_scholqr).count();
+    auto stop_geqrf = high_resolution_clock::now();
+    long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
     // Apply Q_5
     // Re-generate the random matrix
@@ -405,7 +405,7 @@ test_speed_helper(int64_t m,
     long dur_alloc6 = duration_cast<microseconds>(stop_alloc6 - start_alloc6).count();
     
     // Shifted Cholesky QR 3
-    auto start_geqrf = high_resolution_clock::now();
+    auto start_scholqr = high_resolution_clock::now();
     
     T norm_2_A = RandLAPACK::util::get_2_norm(m, n, A_1.data(), state);
     T shift = 11 * (m * n + n * (n + 1)) * std::numeric_limits<double>::epsilon() * norm_2_A;
@@ -425,12 +425,12 @@ test_speed_helper(int64_t m,
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
     
     // CholeskyQR3
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
-    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
+    //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
+    //lapack::potrf(Uplo::Upper, n, ATA.data(), n);
+    //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
     
-    auto stop_geqrf = high_resolution_clock::now();
-    long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
+    auto stop_scholqr = high_resolution_clock::now();
+    long dur_scholqr = duration_cast<microseconds>(stop_scholqr - start_scholqr).count();
 
     // Apply Q_6
     // Re-generate the random matrix

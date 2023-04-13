@@ -33,6 +33,7 @@ compute_and_log(
     T geqr_time, 
     T tsqrp_time, 
     T geqrf_time,
+    T scholqr_time,
     std::string path_out,
     std::string file_params)
 {
@@ -41,26 +42,29 @@ compute_and_log(
     printf("\n/----------------------------------------FLOP ITER START----------------------------------------/\n");
 
     // This version finds flop RATES, pretending that geqrf_gflop is the standard num flops
-    T geqrf_flop_rate    = geqrf_gflop / (geqrf_time / 1e+6);
-    T cqrrpt_flop_rate = geqrf_gflop / (cqrrpt_time / 1e+6);
-    T geqp3_flop_rate    = geqrf_gflop / (geqp3_time / 1e+6);
-    T geqr_flop_rate     = geqrf_gflop / (geqr_time / 1e+6);
-    T tsqrp_flop_rate    = geqrf_gflop / (tsqrp_time / 1e+6);
+    T geqrf_flop_rate   = geqrf_gflop / (geqrf_time / 1e+6);
+    T cqrrpt_flop_rate  = geqrf_gflop / (cqrrpt_time / 1e+6);
+    T geqp3_flop_rate   = geqrf_gflop / (geqp3_time / 1e+6);
+    T geqr_flop_rate    = geqrf_gflop / (geqr_time / 1e+6);
+    T tsqrp_flop_rate   = geqrf_gflop / (tsqrp_time / 1e+6);
+    T scholqr_flop_rate = geqrf_gflop / (scholqr_time / 1e+6);
 
     printf("CQRRPT GFLOP RATE %12.1f\n",   cqrrpt_flop_rate);
     printf("GEQP3 GFLOP RATE    %12.1f\n",   geqp3_flop_rate);
     printf("GEQR GFLOP RATE     %12.1f\n",   geqr_flop_rate);
     printf("TSQRP GFLOP RATE    %12.1f\n",   tsqrp_flop_rate);
     printf("GEQRF GFLOP RATE    %12.1f\n",   geqrf_flop_rate);
+    printf("SCHOLQR GFLOP RATE    %12.1f\n",   scholqr_flop_rate);
 
     printf("/-----------------------------------------FLOP ITER END-----------------------------------------/\n");
     
-    std::fstream file(path_out + "CholQRCP_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
-    file << cqrrpt_flop_rate   << "  " 
-         << geqp3_flop_rate      << "  " 
-         << geqr_flop_rate       << "  "
-         << tsqrp_flop_rate      << "  " 
-         << geqrf_flop_rate      << "\n";
+    std::fstream file(path_out + "CQRRPT_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
+    file << cqrrpt_flop_rate  << "  " 
+         << geqp3_flop_rate   << "  " 
+         << geqr_flop_rate    << "  "
+         << tsqrp_flop_rate   << "  " 
+         << geqrf_flop_rate   << "  "
+         << scholqr_flop_rate << "\n";
 }
 
 template <typename T>
@@ -104,11 +108,11 @@ process_dat() {
                                             
                                             // Clear old flop file
                                             std::ofstream ofs;
-                                            ofs.open(path_out + "CholQRCP_FLOP_RATE_"  + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
+                                            ofs.open(path_out + "CQRRPT_FLOP_RATE_"  + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
                                             
                                             // Open data file
-                                            std::string filename_in = path_in + "CholQRCP_comp_time_"   + file_params + "_apply_to_large_" + apply_to_large[0] + ".dat";
+                                            std::string filename_in = path_in + "CQRRPT_comp_time_"   + file_params + "_apply_to_large_" + apply_to_large[0] + ".dat";
                                             std::fstream file(filename_in);
                                             if(!file)
                                             {
@@ -136,6 +140,7 @@ process_dat() {
                                                     stod(times_per_col_sz[2]),
                                                     stod(times_per_col_sz[3]), 
                                                     stod(times_per_col_sz[4]),
+                                                    stod(times_per_col_sz[5]),
                                                     path_out,
                                                     file_params);
 
