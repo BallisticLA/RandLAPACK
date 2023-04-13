@@ -764,7 +764,7 @@ int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     auto state = RandBLAS::base::RNGState(0, 0);
     
-    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/", state);
+    //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/", state);
     test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     return 0;
 }
