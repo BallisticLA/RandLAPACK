@@ -463,7 +463,7 @@ test_speed_helper(int64_t m,
                             dur_alloc5, dur_geqrf,    dur_appl5,
                             dur_alloc6, dur_scholqr,  dur_appl6}; 
     */
-    std::vector<long> res;
+    std::vector<long> res(18, 0);
     return res;
 }
 
@@ -783,6 +783,6 @@ int main(){
     //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     
     
-        test_speed<double>(17, 17, 4096, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../aaa/", state);
+        test_speed<double>(17, 17, 4096, 8192, 1, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../aaa/", state);
     return 0;
 }
