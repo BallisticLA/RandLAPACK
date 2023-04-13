@@ -67,10 +67,10 @@ test_cond_helper_1(int64_t m,
                   int cond_check) {
 
     std::vector<T> A(m * n, 0.0);
-    //std::vector<T> A_1(m * n, 0.0);
-    //std::vector<T> A_2(m * n, 0.0);
-    //std::vector<T> R(n * n, 0.0);
-    //std::vector<int64_t> J;
+    std::vector<T> A_1(m * n, 0.0);
+    std::vector<T> A_2(m * n, 0.0);
+    std::vector<T> R(n * n, 0.0);
+    std::vector<int64_t> J;
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
@@ -90,9 +90,9 @@ test_cond_helper_1(int64_t m,
     printf("THE LARGEST SINGULAR VALUE EST IS %f\n", norm_2);
     */
 
-    //std::copy(A.data(), A.data() + (m * n), A_1.data());
-    //std::copy(A.data(), A.data() + (m * n), A_2.data());
-/*
+    std::copy(A.data(), A.data() + (m * n), A_1.data());
+    std::copy(A.data(), A.data() + (m * n), A_2.data());
+
     // CQRRPT constructor
     RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());//std::pow(std::numeric_limits<double>::epsilon(), 0.75));
     CQRRPT.nnz                 = nnz;
@@ -110,8 +110,7 @@ test_cond_helper_1(int64_t m,
     printf("TRUE RANK(A): %14ld\n", true_k);
     printf("RANK(A) ESTIMATE: %10ld\n", CQRRPT.rank);
     int k = CQRRPT.rank;
-*/
-    /*
+
     T* A_dat = A.data();
     T* A_1_dat = A_1.data();
     T* A_2_dat = A_2.data();
@@ -153,7 +152,7 @@ test_cond_helper_1(int64_t m,
 
     if(k != true_k)
         return 1;
-    */  
+
     return 0;
 }
 
@@ -242,10 +241,10 @@ int main(){
     */
     // Not enough space for these
     
-    //test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
-    //test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
 
-    test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
     //test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
 
     return 0;
