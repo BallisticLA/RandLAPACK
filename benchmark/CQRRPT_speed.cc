@@ -113,7 +113,7 @@ print_info(int64_t rows,
             } else {
                 printf("Result: CQRRPT is %33.2f times slower than SCHOLQR3.\n",                          cqrrpt_time / scholqr_time);
             }
-            if(chol_full_time < geqr_full_time) {
+            if(chol_full_time < scholqr_full_time) {
                 printf("With space allocation + application: %3.2f times faster than SCHOLQR3.\n\n",  scholqr_full_time / chol_full_time);
             } else {
                 printf("With space allocation + application: %3.2f times slower than SCHOLQR3.\n\n",  chol_full_time / scholqr_full_time);
