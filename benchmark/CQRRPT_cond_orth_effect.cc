@@ -241,8 +241,8 @@ int main(){
     */
     // Not enough space for these
     
-    test_cond_orth<double>(10e6, 1000, 1000, 2 * 1000, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
-    //test_cond_orth<double>(10e6, 1000, 1000, 2 * 1000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
+    //test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
 
     test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
     //test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);

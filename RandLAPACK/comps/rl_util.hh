@@ -640,7 +640,7 @@ void gen_mat_type(
         case 9: {
                 // This matrix may be numerically rank deficient
                 RandLAPACK::util::gen_scaled_mat(m, n, A, std::get<1>(type), state);
-                //k = rank_check(m, n, A);
+                k = rank_check(m, n, A);
             }    
             break;
         default:
