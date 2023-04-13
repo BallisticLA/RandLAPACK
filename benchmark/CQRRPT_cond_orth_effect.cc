@@ -69,8 +69,8 @@ test_cond_helper_1(int64_t m,
     std::vector<T> A(m * n, 0.0);
     //std::vector<T> A_1(m * n, 0.0);
     //std::vector<T> A_2(m * n, 0.0);
-    std::vector<T> R(n * n, 0.0);
-    std::vector<int64_t> J;
+    //std::vector<T> R(n * n, 0.0);
+    //std::vector<int64_t> J;
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
@@ -92,7 +92,7 @@ test_cond_helper_1(int64_t m,
 
     //std::copy(A.data(), A.data() + (m * n), A_1.data());
     //std::copy(A.data(), A.data() + (m * n), A_2.data());
-
+/*
     // CQRRPT constructor
     RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());//std::pow(std::numeric_limits<double>::epsilon(), 0.75));
     CQRRPT.nnz                 = nnz;
@@ -110,6 +110,7 @@ test_cond_helper_1(int64_t m,
     printf("TRUE RANK(A): %14ld\n", true_k);
     printf("RANK(A) ESTIMATE: %10ld\n", CQRRPT.rank);
     int k = CQRRPT.rank;
+*/
     /*
     T* A_dat = A.data();
     T* A_1_dat = A_1.data();
