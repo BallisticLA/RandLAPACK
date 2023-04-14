@@ -40,7 +40,7 @@ void diag(
 ) {
 
     if(k > n) {
-        // Throw error
+        // Throw an error
     }
     // size of s
     blas::copy(k, s.data(), 1, S.data(), m + 1);
@@ -372,6 +372,7 @@ void gen_exp_mat(
     }
 }
 
+/// Generates matrix with a staircase spectrum with 4 steps
 template <typename T>
 void gen_step_mat(
     int64_t& m,
@@ -410,6 +411,8 @@ void gen_step_mat(
     }
 }
 
+/// Generates a matrix with high coherence between the left singular vectors.
+/// Such matrix would be difficult to sketch.
 template <typename T>
 void gen_spiked_mat(
     int64_t& m,
@@ -458,6 +461,8 @@ void gen_spiked_mat(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, n, 1.0, A_hat.data(), m, V.data(), n, 0.0, A.data(), m);
 }
 
+/// Generates a numerically rank-deficient matrix.
+/// Added per Oleg's suggestion.
 template <typename T>
 void gen_scaled_mat(
     int64_t& m,
@@ -533,18 +538,17 @@ T cond_num_check(
     return cond_num;
 }
 
+// Computes the numerical rank of a given matirx
 template <typename T>
 int64_t rank_check(
     int64_t m,
     int64_t n,
     const std::vector<T>& A
 ) {
-    // Re-compute rank:
     std::vector<T> A_pre_cpy;
     std::vector<T> s;
     RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
-    for(int i = 0; i < n; ++i)
-    {
+    for(int i = 0; i < n; ++i) {
         if (s[i] <= std::numeric_limits<double>::epsilon())
             return i - 1;
     }
@@ -634,13 +638,15 @@ void gen_mat_type(
         case 8: {
                 // This matrix may be numerically rank deficient
                 RandLAPACK::util::gen_spiked_mat(m, n, A, state);
-                //k = rank_check(m, n, A);
+                if(std::get<2>(type))
+                    k = rank_check(m, n, A);
             }    
             break;
         case 9: {
                 // This matrix may be numerically rank deficient
                 RandLAPACK::util::gen_scaled_mat(m, n, A, std::get<1>(type), state);
-                //k = rank_check(m, n, A);
+                if(std::get<2>(type))
+                    k = rank_check(m, n, A);
             }    
             break;
         default:
@@ -766,7 +772,8 @@ int64_t rank_search_linear(
     T norm_A_row = 0.0;
     for(int i = n - 1, j = 1; i > 0; --i, ++j) {
         norm_A_row = blas::nrm2(j, A_dat + ((n + 1) * i), n);
-        norm_A_work = std::sqrt(std::pow(norm_A_work, 2) + std::pow(norm_A_row, 2));
+        // Add norm stably
+        norm_A_work = std::hypot(norm_A_work, norm_A_row);
 
         if(norm_A_work > tau_trunc * norm_2_A)
             return i + 1;

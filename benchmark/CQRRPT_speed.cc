@@ -236,7 +236,7 @@ test_speed_helper(int64_t m,
     RandLAPACK::CQRRPT<T> CQRRPT(false, log_times, state, tol);
     CQRRPT.nnz = nnz;
     CQRRPT.num_threads = num_threads;
-    /*
+
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
     
     // Pre-allocation for CQRRPT
@@ -393,7 +393,7 @@ test_speed_helper(int64_t m,
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_4.data(), B_1.data(), b_dim);
     auto stop_appl5 = high_resolution_clock::now();
     long dur_appl5 = duration_cast<microseconds>(stop_appl5 - start_appl5).count();
-    */
+
     //-TEST POINT 5 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
     RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
@@ -432,17 +432,6 @@ test_speed_helper(int64_t m,
     //lapack::potrf(Uplo::Upper, n, ATA.data(), n);
     //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
     
-    std::vector<T> I_ref(n * n, 0.0);
-    RandLAPACK::util::eye(n, n, I_ref);
-    T* I_ref_dat = I_ref.data();
-
-    // Check orthogonality of Q
-    // Q' * Q  - I = 0
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_1.data(), m, A_1.data(), m, -1.0, I_ref_dat, n);
-    T norm_Q = lapack::lange(lapack::Norm::Fro, n, n, I_ref_dat, n);
-    printf("ORTHOGONALITY MEASURE OF Q:%e\n", norm_Q);
-
-    /*
     auto stop_scholqr = high_resolution_clock::now();
     long dur_scholqr = duration_cast<microseconds>(stop_scholqr - start_scholqr).count();
 
@@ -462,8 +451,7 @@ test_speed_helper(int64_t m,
                             dur_alloc4, dur_tsqrp,    dur_appl4,
                             dur_alloc5, dur_geqrf,    dur_appl5,
                             dur_alloc6, dur_scholqr,  dur_appl6}; 
-    */
-    std::vector<long> res(18, 0);
+
     return res;
 }
 
@@ -780,9 +768,6 @@ int main(){
     auto state = RandBLAS::base::RNGState(0, 0);
     
     //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/", state);
-    //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
-    
-    
-        test_speed<double>(17, 17, 4096, 8192, 1, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../aaa/", state);
+    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     return 0;
 }

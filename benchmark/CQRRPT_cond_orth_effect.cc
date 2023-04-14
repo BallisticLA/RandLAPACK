@@ -75,26 +75,11 @@ test_cond_helper_1(int64_t m,
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
 
-    /*    
-    std::vector<T> A_pre_cpy;
-    std::vector<T> s;
-    RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
-
-    auto start = high_resolution_clock::now();
-    T norm_2 = RandLAPACK::util::get_2_norm(m, n, A.data(), state);
-    auto stop = high_resolution_clock::now();
-    long dur = duration_cast<microseconds>(stop - start).count();
-    printf("Time for L2 norm %ld\n", dur);
-
-    printf("THE LARGEST SINGULAR VALUE IS %f\n", s[0]);
-    printf("THE LARGEST SINGULAR VALUE EST IS %f\n", norm_2);
-    */
-
     std::copy(A.data(), A.data() + (m * n), A_1.data());
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());//std::pow(std::numeric_limits<double>::epsilon(), 0.75));
+    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
     CQRRPT.nnz                 = nnz;
     CQRRPT.num_threads         = 4;
     CQRRPT.cond_check          = cond_check;
