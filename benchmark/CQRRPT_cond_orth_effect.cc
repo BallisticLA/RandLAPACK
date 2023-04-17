@@ -241,11 +241,11 @@ int main(){
     // Oleg test - An attempt to get an even higher condition number of A^{pre}
     // Condition number here acts as scaling "sigma"
 
-    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e7, 10e7, 10, state, 0, 1, 1, 9);
-    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e9, 10e9, 10, state, 0, 1, 1, 9);
-    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e11, 10e11, 10, state, 0, 1, 1, 9);
-    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e13, 10e13, 10, state, 0, 1, 1, 9);
-    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e4, 700, 700, 2 * 700, 4, 10e7, 10e7, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e4, 700, 700, 2 * 700, 4, 10e9, 10e9, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e4, 700, 700, 2 * 700, 4, 10e11, 10e11, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e4, 700, 700, 2 * 700, 4, 10e13, 10e13, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e4, 700, 700, 2 * 700, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
 
     return 0;
 }
