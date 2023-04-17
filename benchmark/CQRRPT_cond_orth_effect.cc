@@ -85,7 +85,7 @@ test_cond_helper_1(int64_t m,
     CQRRPT.cond_check          = cond_check;
     CQRRPT.naive_rank_estimate = naive_rank_estimate;
     CQRRPT.path = "../../../"; 
-    CQRRPT.use_fro_norm = 1;
+    CQRRPT.use_fro_norm = 0;
 
     // CQRRPT
     CQRRPT.call(m, n, A, d, R, J);
@@ -166,7 +166,7 @@ test_cond_orth(int row,
     T rank_underestimate_cond = 0;
 
     for (; cond_start <= cond_end; cond_start *= cond_step) {
-        auto mat_type = std::make_tuple(mat_type_num, cond_start, false);
+        auto mat_type = std::make_tuple(mat_type_num, cond_start, true);
         //auto mat_type = std::make_tuple(0, cond_start, false);
         if(alg_type) {
             if(test_cond_helper_1<T>(row, col, k, d, nnz, mat_type, state, naive_rank_estimate, cond_check) && detect_rank_underestimate)
@@ -188,14 +188,16 @@ test_cond_orth(int row,
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
     auto state = RandBLAS::base::RNGState(0, 0);
-    // CholQR check
+    // Old tests
     //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 10, 10e16, 10, state, 0, 1, 0);
     //test_cond_orth<double>(1024, 5, 5, 5, 1, 10, 10, 10, state, 0, 1, 1);
     // CQRRPT check
     //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 1, 1, 10, state, 0, 1, 1);
     //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 1, 10e16, 10, state, 1, 1, 1);
 
-    // Spiked data results for Oleg
+    // Things presented on 04/17/2023
+
+    // Spiked data Max test
     // Condition number parameter here is unused
     /*
     test_cond_orth<double>(10000, 2000, 2000, 2000, 1, 10e16, 10e16, 10, state, 0, 1, 1, 8);
@@ -205,7 +207,7 @@ int main(){
     test_cond_orth<double>(10000, 2000, 2000, 8000, 4, 10e16, 10e16, 10, state, 0, 1, 1, 8);
     */
 
-    // Scaled data results for Oleg
+    // Scaled data Max test
     // Condition number here acts as scaling "sigma"
     /*
     test_cond_orth<double>(10000, 2000, 2000, 2000, 1, 10e15, 10e15, 10, state, 0, 1, 1, 9);
@@ -215,22 +217,35 @@ int main(){
     test_cond_orth<double>(10000, 2000, 2000, 8000, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
     */
 
-    // Oleg's testing approach
+    // Oleg test
     // Condition number here acts as scaling "sigma"
-    
+    /*
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e7, 10e7, 10, state, 0, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e9, 10e9, 10, state, 0, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e11, 10e11, 10, state, 0, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e13, 10e13, 10, state, 0, 1, 1, 9);
     test_cond_orth<double>(10e6, 300, 295, 2 * 300, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
-    
-    // Not enough space for these
-    
-    //test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
-    //test_cond_orth<double>(10e6, 1000, 984, 2 * 1000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    */
 
-    //test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e13, 10e13, 10, state, 1, 1, 1, 9);
-    //test_cond_orth<double>(10e7, 300, 300, 2 * 300, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    // Things to present on 04/14/2023
+
+    // Scaled data Max test - Normalize by ||A|| to get rank estimation.
+    // Condition number here acts as scaling "sigma"
+    /*
+    test_cond_orth<double>(10000, 2000, 2000, 2000, 1, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 3000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 4000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 6000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    test_cond_orth<double>(10000, 2000, 2000, 8000, 4, 10e15, 10e15, 10, state, 1, 1, 1, 9);
+    */
+    // Oleg test - An attempt to get an even higher condition number of A^{pre}
+    // Condition number here acts as scaling "sigma"
+
+    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e7, 10e7, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e9, 10e9, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e11, 10e11, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e13, 10e13, 10, state, 0, 1, 1, 9);
+    test_cond_orth<double>(10e6, 100, 100, 2 * 100, 4, 10e15, 10e15, 10, state, 0, 1, 1, 9);
 
     return 0;
 }

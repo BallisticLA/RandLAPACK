@@ -257,8 +257,7 @@ int CQRRPT<T>::call(
 
     int64_t k = n;
     int i;
-    if(this->naive_rank_estimate)
-    {
+    if(this->naive_rank_estimate) {
         for(i = 0; i < n; ++i) {
             if(std::abs(A_hat_dat[i * d + i]) < this->eps) {
                 k = i;
@@ -299,7 +298,6 @@ int CQRRPT<T>::call(
         // Clear R
         std::fill(R.begin(), R.end(), 0.0);
     }
-
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
         resize_t_start = high_resolution_clock::now();
