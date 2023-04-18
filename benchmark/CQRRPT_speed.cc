@@ -411,7 +411,7 @@ test_speed_helper(int64_t m,
     //T norm_A = RandLAPACK::util::get_2_norm(m, n, A_1.data(), state);
     T norm_A = lapack::lange(Norm::Fro, m, n, A_1.data(), m);
     
-    T shift = 11 * std::numeric_limits<double>::epsilon() * m * std::pow(norm_A, 2);
+    T shift = 11 * std::numeric_limits<double>::epsilon() * n * std::pow(norm_A, 2);
 
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
 
@@ -428,9 +428,9 @@ test_speed_helper(int64_t m,
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
     
     // CholeskyQR3
-    //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
-    //lapack::potrf(Uplo::Upper, n, ATA.data(), n);
-    //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
+    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
     
     auto stop_scholqr = high_resolution_clock::now();
     long dur_scholqr = duration_cast<microseconds>(stop_scholqr - start_scholqr).count();
