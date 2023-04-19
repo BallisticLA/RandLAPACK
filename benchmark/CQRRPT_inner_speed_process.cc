@@ -26,7 +26,7 @@ process_dat() {
     std::vector<std::string> nnz          = {"1"};
     std::vector<std::string> runs         = {"5"};
     std::vector<std::string> num_threads  = {"36"};
-    std::string path = "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/cqrrpt_determine_rank/";
+    std::string path = "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/cqrrpt_determine_rank/";
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
         for (int j = 0; j < (int) rows.size(); ++j) {
@@ -52,10 +52,10 @@ process_dat() {
 
                                             // Clear old output file
                                             std::ofstream ofs;
-                                            ofs.open(path + "CholQRCP_inner_time_processed_" + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
+                                            ofs.open(path + "CQRRPT_inner_time_processed_" + file_params + ".dat", std::ofstream::out | std::ofstream::trunc);
                                             ofs.close();
                                             // Open data file
-                                            std::string filename_in = path + "CholQRCP_inner_time_"  + file_params + ".dat";
+                                            std::string filename_in = path + "CQRRPT_inner_time_"  + file_params + ".dat";
                                             std::ifstream file(filename_in);
                                             // Check file existence - terminate with an error if the file is not found.
                                             if(!file)
@@ -71,7 +71,7 @@ process_dat() {
                                                 std::istream_iterator<std::string> end;
                                                 std::vector<std::string> times_per_col_sz(begin, end);
 
-                                                std::ofstream file(path + "CholQRCP_inner_time_processed_"  + file_params + ".dat", std::fstream::app);
+                                                std::ofstream file(path + "CQRRPT_inner_time_processed_"  + file_params + ".dat", std::fstream::app);
                                                 file << 100 * (stod(times_per_col_sz[0]) / stod(times_per_col_sz[9])) << "  " 
                                                      << 100 * (stod(times_per_col_sz[1]) / stod(times_per_col_sz[9])) << "  "
                                                      << 100 * (stod(times_per_col_sz[3]) / stod(times_per_col_sz[9])) << "  "
