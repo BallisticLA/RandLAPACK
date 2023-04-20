@@ -287,14 +287,14 @@ int main(){
     // Things to present on 04/14/2023
 
     // Checking sCholQR3
-    test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 5, 1});
-    test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 2000, 1});
-    test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 10000, 1});
-    test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * (10000 * 2000 + 2000 * (2000 + 1)), 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 1, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 5, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 2000, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 10000, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * (10000 * 2000 + 2000 * (2000 + 1)), 1});
     
     // Oleg test - An attempt to get an even higher condition number of A^{pre}
     // Condition number here acts as scaling "sigma"
-    //test_cond_orth<double>(10e6, 500, 10e15, 10e21, 100, state, 1, 9, {500, 2 * 500, 4, 4, 0, 1});
+    test_cond_orth<double>(10e6, 500, 10e15, 10e21, 100, state, 1, 9, {500, 2 * 500, 4, 4, 0, 1});
     return 0;
 }
