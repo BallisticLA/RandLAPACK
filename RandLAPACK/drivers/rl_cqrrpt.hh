@@ -259,7 +259,7 @@ int CQRRPT<T>::call(
     int i;
     if(this->naive_rank_estimate) {
         for(i = 0; i < n; ++i) {
-            if(std::abs(A_hat_dat[i * d + i]) < this->eps) {
+            if(std::abs(A_hat_dat[i * d + i]) / std::abs(A_hat_dat[0]) < this->eps) {
                 k = i;
                 break;
             }
