@@ -490,6 +490,9 @@ void gen_scaled_mat(
     for(int i = 0; i < n; ++i) {
         U_dat[m * i] *= scaling_factor_U;
         U_dat[m * i + 1] *= scaling_factor_U;
+        U_dat[m * i + 2] *= scaling_factor_U;
+        U_dat[m * i + 3] *= scaling_factor_U;
+        U_dat[m * i + 4] *= scaling_factor_U;
     }
 
     lapack::geqrf(m, n, U.data(), m, tau1.data());
@@ -502,7 +505,7 @@ void gen_scaled_mat(
     get_U(n, n, V);
 
     T* V_dat = V.data();
-    for(int i = 2; i < n; ++i)
+    for(int i = 5; i < n; ++i)
         V_dat[n * i + i] *= scaling_factor_V;
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
@@ -551,10 +554,8 @@ int64_t rank_check(
     std::vector<T> s;
     RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
     
-    printf("%e\n", std::numeric_limits<double>::epsilon());
-    
     for(int i = 0; i < n; ++i) {
-        if (s[i] <= std::numeric_limits<double>::epsilon())
+        if (s[i] / s[0] <= 5 * std::numeric_limits<double>::epsilon())
             return i - 1;
     }
     return n;
