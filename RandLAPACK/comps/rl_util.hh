@@ -487,9 +487,10 @@ void gen_scaled_mat(
     state = RandBLAS::dense::fill_buff(V.data(), DV, state);
 
     T* U_dat = U.data();
-    for(int i = 0; i < n; ++i)
+    for(int i = 0; i < n; ++i) {
         U_dat[m * i] *= scaling_factor_U;
         U_dat[m * i + 1] *= scaling_factor_U;
+    }
 
     lapack::geqrf(m, n, U.data(), m, tau1.data());
     lapack::ungqr(m, n, n, U.data(), m, tau1.data());
