@@ -488,11 +488,9 @@ void gen_scaled_mat(
 
     T* U_dat = U.data();
     for(int i = 0; i < n; ++i) {
-        U_dat[m * i] *= scaling_factor_U;
-        U_dat[m * i + 1] *= scaling_factor_U;
-        U_dat[m * i + 2] *= scaling_factor_U;
-        U_dat[m * i + 3] *= scaling_factor_U;
-        U_dat[m * i + 4] *= scaling_factor_U;
+        for(int j = 0; j < 50; ++j) {
+            U_dat[m * i + j] *= scaling_factor_U;
+        }
     }
 
     lapack::geqrf(m, n, U.data(), m, tau1.data());
@@ -505,7 +503,7 @@ void gen_scaled_mat(
     get_U(n, n, V);
 
     T* V_dat = V.data();
-    for(int i = 5; i < n; ++i)
+    for(int i = 51; i < n; ++i)
         V_dat[n * i + i] *= scaling_factor_V;
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
