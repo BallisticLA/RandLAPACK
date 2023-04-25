@@ -265,6 +265,8 @@ int CQRRPT<T>::call(
             }
         }
         this->rank = k;
+        this->rank = n;
+        k = n;
     }
     else {
         // Oleg's scheme for rank estimation
@@ -298,8 +300,6 @@ int CQRRPT<T>::call(
         // Clear R
         std::fill(R.begin(), R.end(), 0.0);
     }
-    this->rank = n;
-    k = n;
 
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
