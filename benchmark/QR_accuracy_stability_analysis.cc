@@ -39,13 +39,13 @@ error_check(int64_t m,
     T col_norm = 0.0;
     int max_idx = 0;
     for(int i = 0; i < n; ++i) {
-        col_norm = lapack::lange(Norm::Fro, m, 1, A_dat + (m * i), m);
+        col_norm = blas::nrm2(m, A_dat + (m * i), 1);
         if(max_col_norm < col_norm) {
             max_col_norm = col_norm;
             max_idx = i;
         }
     }
-    T col_norm_A =  lapack::lange(Norm::Fro, m, 1, A_1_dat + (m * max_idx), m);
+    T col_norm_A = blas::nrm2(n, A_1_dat + (m * max_idx), 1);
     T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
     
     printf("REL NORM OF AP - QR: %15e\n", norm_AQR / norm_A);
@@ -163,7 +163,6 @@ scholqr_helper(int64_t m,
     std::vector<T> ATA1(n * n, 0.0);
     std::vector<T> ATA2(n * n, 0.0);
     std::vector<T> ATA_buf(n * n, 0.0);
-    std::vector<T> R(n * n, 0.0);
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
@@ -180,37 +179,79 @@ scholqr_helper(int64_t m,
     }
 
     T shift = std::numeric_limits<double>::epsilon() * shift_c * std::pow(norm_A, 2);
+    // A = A' * A
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
 
+    // A = A + shift * I
     for (int i = 0; i < n; ++i) {
         ATA[i * (n + 1)] += shift;
     }
     
-    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
+    // R_0 = chol(A)
+    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
+        printf("CHOLESKY FAILED\n");
+        return;
+    }
+    // Q = A_orig * R_0^-1
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A.data(), m);
     // Define R1
     std::copy(ATA.data(), ATA.data() + (n * n), ATA1.data());
 
     // CholeskyQR2
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
-    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
+    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
+        printf("CHOLESKY FAILED\n");
+        return;
+    }
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A.data(), m);
     // Define R2
     std::copy(ATA.data(), ATA.data() + (n * n), ATA2.data());
 
     // CholeskyQR3
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
-    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A.data(), m);
+    //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
+    //if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
+    //    printf("CHOLESKY FAILED\n");
+    //    return;
+    //}
+    //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A.data(), m);
 
     // Re-combine R's
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, n, 1.0, ATA.data(), n, ATA2.data(), n, 0.0, ATA_buf.data(), n);
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, n, 1.0, ATA_buf.data(), n, ATA1.data(), n, 0.0, R.data(), n);
+    //blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, ATA.data(), n, ATA2.data(), n);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, ATA2.data(), n, ATA1.data(), n);
 
     std::vector<T> I_ref(n * n, 0.0);
     RandLAPACK::util::eye(n, n, I_ref);
 
-    error_check(m, n, n, norm_A, A_1.data(), A_2.data(), A.data(), R.data(), I_ref.data());
+    //error_check(m, n, n, norm_A, A_1.data(), A_2.data(), A.data(), ATA1.data(), I_ref.data());
+
+    
+    T* A_1_dat = A_1.data();
+    T* A_2_dat = A_2.data();
+    // Check orthogonality of Q
+    // Q' * Q  - I = 0
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, A.data(), m, A.data(), m, -1.0, I_ref.data(), k);
+    T norm_0 = lapack::lange(lapack::Norm::Fro, k, k, I_ref.data(), k);
+
+    // A - QR
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A.data(), m, ATA1.data(), k, -1.0, A_1_dat, m);
+    
+    // Implementing max col norm metric
+    T max_col_norm = 0.0;
+    T col_norm = 0.0;
+    int max_idx = 0;
+    for(int i = 0; i < n; ++i) {
+        col_norm = blas::nrm2(m, A_1_dat + (m * i), 1);
+        if(max_col_norm < col_norm) {
+            max_col_norm = col_norm;
+            max_idx = i;
+        }
+    }
+    T col_norm_A =  blas::nrm2(n, A_2_dat + (m * max_idx), 1);
+    T norm_AQR = lapack::lange(Norm::Fro, m, n, A_1_dat, m);
+    
+    printf("REL NORM OF AP - QR: %15e\n", norm_AQR / norm_A);
+    printf("MAX COL NORM METRIC: %15e\n", max_col_norm / col_norm_A);
+    printf("FRO NORM OF Q' * Q - I: %2e\n\n", norm_0);
 }
 
 template <typename T>
@@ -286,12 +327,12 @@ int main(){
     // Things to present on 04/14/2023
 
     // Checking sCholQR3
-    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 1, 1});
-    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 5, 1});
-    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 2000, 1});
-    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * 10000, 1});
-    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 8, {2000, 11 * (10000 * 2000 + 2000 * (2000 + 1)), 1});
-    
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 9, {2000, 11 * 1, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 9, {2000, 11 * 5, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 9, {2000, 11 * 2000, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 9, {2000, 11 * 10000, 1});
+    //test_cond_orth<double>(10000, 2000, 10e16, 10e16, 10, state, 2, 9, {2000, 11 * (10000 * 2000 + 2000 * (2000 + 1)), 1});
+
     // Oleg test - An attempt to get an even higher condition number of A^{pre}
     // Condition number here acts as scaling "sigma"
     test_cond_orth<double>(10e6, 300, 10e7, 10e15, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 1});

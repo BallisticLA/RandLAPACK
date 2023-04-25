@@ -356,7 +356,12 @@ int CQRRPT<T>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
-    lapack::potrf(Uplo::Upper, k, R_sp_dat, k);
+    if(lapack::potrf(Uplo::Upper, k, R_sp_dat, k)){
+        if(this->verbosity)
+            printf("Cholesky Failed.\n")
+        return 1;
+    }
+
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
