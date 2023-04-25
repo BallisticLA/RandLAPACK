@@ -358,7 +358,7 @@ int CQRRPT<T>::call(
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
     if(lapack::potrf(Uplo::Upper, k, R_sp_dat, k)){
         if(this->verbosity)
-            printf("Cholesky Failed.\n")
+            printf("Cholesky Failed.\n");
         return 1;
     }
 
