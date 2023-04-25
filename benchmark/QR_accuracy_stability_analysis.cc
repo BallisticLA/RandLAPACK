@@ -123,7 +123,7 @@ cqrrpt_helper(int64_t m,
     CQRRPT.cond_check          = additional_params[4];
     CQRRPT.naive_rank_estimate = additional_params[5];
     CQRRPT.path = "../../../"; 
-    CQRRPT.use_fro_norm = = additional_params[6];
+    CQRRPT.use_fro_norm = additional_params[6];
 
     // CQRRPT
     CQRRPT.call(m, n, A, d, R, J);
