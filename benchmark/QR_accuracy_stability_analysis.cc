@@ -208,15 +208,15 @@ scholqr_helper(int64_t m,
     std::copy(ATA.data(), ATA.data() + (n * n), ATA2.data());
 
     // CholeskyQR3
-    //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
-    //if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
-    //    printf("CHOLESKY FAILED\n");
-    //    return;
-    //}
-    //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A.data(), m);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
+    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
+        printf("CHOLESKY FAILED\n");
+        return;
+    }
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A.data(), m);
 
     // Re-combine R's
-    //blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, ATA.data(), n, ATA2.data(), n);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, ATA.data(), n, ATA2.data(), n);
     blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, ATA2.data(), n, ATA1.data(), n);
 
     std::vector<T> I_ref(n * n, 0.0);
@@ -335,6 +335,7 @@ int main(){
 
     // Oleg test - An attempt to get an even higher condition number of A^{pre}
     // Condition number here acts as scaling "sigma"
-    test_cond_orth<double>(10e6, 300, 10e5, 10e7, 100, state, 1, 9, {300, 300, 4, 4, 1, 1});
+    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 300, 4, 4, 1, 1});
+    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 2, 9, {300, 11 * 1, 1});
     return 0;
 }
