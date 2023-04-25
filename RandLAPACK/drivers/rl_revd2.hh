@@ -1,0 +1,161 @@
+#ifndef randlapack_drivers_revd2_h
+#define randlapack_drivers_revd2_h
+
+#include "rl_qb.hh"
+#include "rl_blaspp.hh"
+#include "rl_lapackpp.hh"
+#include "rl_util.hh"
+
+#include <RandBLAS.hh>
+#include <cstdint>
+#include <vector>
+
+namespace RandLAPACK {
+
+template <typename T>
+class REVD2alg {
+    public:
+
+        virtual ~REVD2alg() {}
+
+        virtual int call(
+            int64_t m,
+            std::vector<T>& A,
+            int64_t& k,
+            std::vector<T>& V,
+            std::vector<T>& E
+        ) = 0;
+};
+
+template <typename T>
+class REVD2 : public REVD2alg<T> {
+    public:
+
+        // Constructor
+        REVD2(
+            RandBLAS::base::RNGState<r123::Philox4x32> s,
+            bool verb
+        ) {
+            state = s;
+            verbosity = verb;
+        }
+
+        int call(
+            int64_t m,
+            std::vector<T>& A,
+            int64_t& k,
+            std::vector<T>& V,
+            std::vector<T>& E
+        ) override;
+
+    public:
+        RandBLAS::base::RNGState<r123::Philox4x32> state;
+        bool verbosity;
+
+        std::vector<T> Y;
+        std::vector<T> Omega;
+
+        std::vector<T> R;
+        std::vector<T> V_buf;
+        std::vector<T> S;
+};
+
+// -----------------------------------------------------------------------------
+template <typename T>
+int REVD2<T>::call(
+        int64_t m, // m = n
+        std::vector<T>& A,
+        int64_t& k,
+        std::vector<T>& V,
+        std::vector<T>& E
+){
+
+    char name1 [] = "A";
+    RandBLAS::util::print_colmaj(m, m, A.data(), name1);
+
+    T* A_dat = A.data();
+    T* V_dat = util::upsize(m * k, V);
+    util::upsize(k, E);
+    T* Y_dat = util::upsize(m * k, this->Y);
+    T* Omega_dat = util::upsize(m * k, this->Omega);
+    T* R_dat = util::upsize(k * k, this->R);
+    T* S_dat = util::upsize(k * k, this->S);
+    T* V_buf_dat = util::upsize(k * k, this->V_buf);
+
+    RandBLAS::dense::DenseDist  D{.n_rows = m, .n_cols = k};
+    RandBLAS::dense::fill_buff(Omega_dat, D, this->state);
+
+    char name2 [] = "Omega";
+    RandBLAS::util::print_colmaj(m, k, Omega.data(), name2);
+
+    // Y = A * S
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
+
+    T v = std::sqrt(m) * std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
+
+    // We need Y = Y + vS
+    // We further need R = chol(S' Y)
+    // Solve this as R = chol(S' Y + vS'S)
+    // Compute vS'S - syrk only computes the lower triangular part. Need full
+    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, v, Omega_dat, m, 0.0, R_dat, k);
+    // Fill the upper triangular part of S'S
+    for(int i = 1; i < k; ++i)
+        blas::copy(k - i, R_dat + i + ((i-1) * k), 1, R_dat + (i - 1) + (i * k), k);
+    // Compute S' Y + vS'S
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
+    // Compute R = chol(S' Y + vS'S)
+
+    char name3 [] = "R";
+    RandBLAS::util::print_colmaj(k, k, R.data(), name3);
+
+    // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
+    if(lapack::potrf(Uplo::Lower, k, R_dat, k)){
+        printf("CHOLESKY FAILED\n");
+        return 1;
+    }
+    RandLAPACK::util::get_L(k, k, R, 0);
+
+    RandBLAS::util::print_colmaj(k, k, R.data(), name3);
+
+    // B = Y(R')^-1 - need to transpose R
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
+    
+    char name4 [] = "B";
+    RandBLAS::util::print_colmaj(m, k, Y.data(), name4);
+
+    //[V, S, ~] = SVD(B)
+    // Although we don't need the right singular vectors, we need to give space for those.
+    lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, V_buf_dat, k);
+
+
+    RandBLAS::util::print_colmaj(k, 1, S.data(), name3);
+    
+    // E = diag(S^2)
+    T buf;
+    int64_t r = 0;
+    int i;
+    for(i = 0; i < k; ++i) {
+        buf = std::pow(S[i], 2);
+        E[i] = buf;
+        // r = number of entries in E that are greater than v
+        if(buf > v)
+            ++r;
+    }
+    printf("%ld\n", r);
+
+    // Undo regularlization
+    for(i = 0; i < r; ++i)
+        E[i] -=v;
+    
+    std::fill(V.begin() + m * r, V.end(), 0.0);
+
+    RandBLAS::util::print_colmaj(k, 1, E.data(), name3);
+
+    char name5 [] = "V";
+    RandBLAS::util::print_colmaj(m, k, V.data(), name5);
+    
+    return 0;
+}
+
+} // end namespace RandLAPACK
+#endif

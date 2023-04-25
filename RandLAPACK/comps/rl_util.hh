@@ -82,21 +82,19 @@ void disp_diag(
     }
 }
 
-/// Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
-/// Overwrites the passed-in matrix.
-template <typename T> void get_L( int64_t m, int64_t n, std::vector<T>& L);
-
 template <typename T>
 void get_L(
     int64_t m,
     int64_t n,
-    std::vector<T>& L
+    std::vector<T>& L,
+    int overwrite_diagonal
 ) {
     // Vector end pointer
     int size = m * n;
     // The unit diagonal elements of L were not stored.
     T* L_dat = L.data();
-    L_dat[0] = 1;
+    if(overwrite_diagonal)
+        L_dat[0] = 1;
 
     for(int i = m, j = 1; i < size && j < m; i += m, ++j) {
         std::for_each(&L_dat[i], &L_dat[i + j],
@@ -106,7 +104,8 @@ void get_L(
             }
         );
         // The unit diagonal elements of L were not stored.
-        L_dat[i + j] = 1;
+        if(overwrite_diagonal)
+            L_dat[i + j] = 1;
     }
 }
 
