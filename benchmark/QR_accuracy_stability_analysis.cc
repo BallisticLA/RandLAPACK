@@ -344,9 +344,9 @@ int main(){
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 2, 9, {300, 11 * 1, 1});
     */
     
-    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 1.5 * 300, 4, 4, 1, 0, 1});
-    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 1.5 * 300, 4, 4, 1, 0, 0});
-    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 1.5 * 300, 4, 4, 1, 1});
+    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 0, 1});
+    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 0, 0});
+    test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 1});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 2, 9, {300, 11 * 1, 1});
     
     return 0;
