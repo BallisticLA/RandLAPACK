@@ -473,7 +473,7 @@ void gen_scaled_mat(
 ) {
     
     T scaling_factor_U = sigma;
-    T scaling_factor_V = 10e-5;
+    T scaling_factor_V = 10e-3;
 
     std::vector<T> U(m * n, 0.0);
     std::vector<T> V(n * n, 0.0);
