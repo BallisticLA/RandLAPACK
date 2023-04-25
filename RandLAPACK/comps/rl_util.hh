@@ -489,7 +489,7 @@ void gen_scaled_mat(
     T* U_dat = U.data();
     for(int i = 0; i < n; ++i) {
         //U_dat[m * i + 1] *= scaling_factor_U;
-        for(int j = 0; j < 100; ++j) {
+        for(int j = 0; j < 10; ++j) {
             U_dat[m * i + j] *= scaling_factor_U;
         }
     }
@@ -504,7 +504,7 @@ void gen_scaled_mat(
     get_U(n, n, V);
 
     T* V_dat = V.data();
-    for(int i = 101; i < n; ++i)
+    for(int i = 11; i < n; ++i)
         V_dat[n * i + i] *= scaling_factor_V;
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
