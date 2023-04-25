@@ -54,8 +54,22 @@ class TestREVD2 : public ::testing::Test
 
         //Subroutine parameters 
         bool verbosity = false;
+        bool cond_check = false;
+        int64_t p = 1;
+        int64_t passes_per_iteration = 1;
+
+        // Make subroutine objects
+        // Stabilization Constructor - Choose PLU
+        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
+        // RowSketcher constructor - Choose default (rs1)
+        RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+        // Orthogonalization Constructor - Choose CholQR
+        RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
+        // RangeFinder constructor - Choose default (rf1)
+        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
         // REVD2 constructor
-        RandLAPACK::REVD2<T> REVD2(state, verbosity);
+        RandLAPACK::REVD2<T> REVD2(RF, state, verbosity);
+
         // Regular QB2 call
         REVD2.call(m, A, k, V, e);
         
@@ -69,7 +83,7 @@ class TestREVD2 : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, k, 1.0, Buf_dat, m, V_dat, m, -1.0, A_cpy_dat, m);
 
         T norm_0 = lapack::lange(Norm::Fro, m, m, A_cpy_dat, m);
-        printf("FRO NORM OF A - VEV':  %e\n", norm_0/norm_A);
+        printf("FRO NORM OF A - VEV':  %e\n", norm_0 / norm_A);
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 };
@@ -78,5 +92,5 @@ TEST_F(TestREVD2, SimpleTest)
 { 
     // Generate a random state
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_REVD2_general<double>(1000, 1000, std::make_tuple(0, 2, false), state);
+    test_REVD2_general<double>(1000, 100, std::make_tuple(0, 2, false), state);
 }

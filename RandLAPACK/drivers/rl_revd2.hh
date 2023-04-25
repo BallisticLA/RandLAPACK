@@ -33,9 +33,10 @@ class REVD2 : public REVD2alg<T> {
 
         // Constructor
         REVD2(
+            RandLAPACK::RangeFinder<T>& rf_obj,
             RandBLAS::base::RNGState<r123::Philox4x32> s,
             bool verb
-        ) {
+        ) : RF_Obj(rf_obj) {
             state = s;
             verbosity = verb;
         }
@@ -49,6 +50,7 @@ class REVD2 : public REVD2alg<T> {
         ) override;
 
     public:
+        RandLAPACK::RangeFinder<T>& RF_Obj;
         RandBLAS::base::RNGState<r123::Philox4x32> state;
         bool verbosity;
 
@@ -69,10 +71,6 @@ int REVD2<T>::call(
         std::vector<T>& V,
         std::vector<T>& E
 ){
-
-    char name1 [] = "A";
-    RandBLAS::util::print_colmaj(m, m, A.data(), name1);
-
     T* A_dat = A.data();
     T* V_dat = util::upsize(m * k, V);
     util::upsize(k, E);
@@ -82,11 +80,9 @@ int REVD2<T>::call(
     T* S_dat = util::upsize(k * k, this->S);
     T* V_buf_dat = util::upsize(k * k, this->V_buf);
 
-    RandBLAS::dense::DenseDist  D{.n_rows = m, .n_cols = k};
-    RandBLAS::dense::fill_buff(Omega_dat, D, this->state);
-
-    char name2 [] = "Omega";
-    RandBLAS::util::print_colmaj(m, k, Omega.data(), name2);
+    // Construnct a sketching operator
+    if(this->RF_Obj.call(m, m, A, k, this->Omega))
+        return 2;
 
     // Y = A * S
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
@@ -96,18 +92,15 @@ int REVD2<T>::call(
     // We need Y = Y + vS
     // We further need R = chol(S' Y)
     // Solve this as R = chol(S' Y + vS'S)
-    // Compute vS'S - syrk only computes the lower triangular part. Need full
+    // Compute vS'S - syrk only computes the lower triangular part. Need full.
     blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, v, Omega_dat, m, 0.0, R_dat, k);
     // Fill the upper triangular part of S'S
     for(int i = 1; i < k; ++i)
         blas::copy(k - i, R_dat + i + ((i-1) * k), 1, R_dat + (i - 1) + (i * k), k);
     // Compute S' Y + vS'S
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
+
     // Compute R = chol(S' Y + vS'S)
-
-    char name3 [] = "R";
-    RandBLAS::util::print_colmaj(k, k, R.data(), name3);
-
     // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
     if(lapack::potrf(Uplo::Lower, k, R_dat, k)){
         printf("CHOLESKY FAILED\n");
@@ -115,20 +108,12 @@ int REVD2<T>::call(
     }
     RandLAPACK::util::get_L(k, k, R, 0);
 
-    RandBLAS::util::print_colmaj(k, k, R.data(), name3);
-
     // B = Y(R')^-1 - need to transpose R
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
-    
-    char name4 [] = "B";
-    RandBLAS::util::print_colmaj(m, k, Y.data(), name4);
 
     //[V, S, ~] = SVD(B)
     // Although we don't need the right singular vectors, we need to give space for those.
     lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, V_buf_dat, k);
-
-
-    RandBLAS::util::print_colmaj(k, 1, S.data(), name3);
     
     // E = diag(S^2)
     T buf;
@@ -148,11 +133,6 @@ int REVD2<T>::call(
         E[i] -=v;
     
     std::fill(V.begin() + m * r, V.end(), 0.0);
-
-    RandBLAS::util::print_colmaj(k, 1, E.data(), name3);
-
-    char name5 [] = "V";
-    RandBLAS::util::print_colmaj(m, k, V.data(), name5);
     
     return 0;
 }
