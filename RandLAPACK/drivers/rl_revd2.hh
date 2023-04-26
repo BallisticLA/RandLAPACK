@@ -58,7 +58,6 @@ class REVD2 : public REVD2alg<T> {
         std::vector<T> Omega;
 
         std::vector<T> R;
-        std::vector<T> V_buf;
         std::vector<T> S;
 };
 
@@ -78,8 +77,7 @@ int REVD2<T>::call(
     T* Omega_dat = util::upsize(m * k, this->Omega);
     T* R_dat = util::upsize(k * k, this->R);
     T* S_dat = util::upsize(k * k, this->S);
-    T* V_buf_dat = util::upsize(k * k, this->V_buf);
-
+    
     // Construnct a sketching operator
     if(this->RF_Obj.call(m, m, A, k, this->Omega))
         return 2;
@@ -113,7 +111,8 @@ int REVD2<T>::call(
 
     //[V, S, ~] = SVD(B)
     // Although we don't need the right singular vectors, we need to give space for those.
-    lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, V_buf_dat, k);
+    // Use R as a buffer for that.
+    lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, R_dat, k);
     
     // E = diag(S^2)
     T buf;
@@ -126,7 +125,6 @@ int REVD2<T>::call(
         if(buf > v)
             ++r;
     }
-    printf("%ld\n", r);
 
     // Undo regularlization
     for(i = 0; i < r; ++i)

@@ -117,7 +117,7 @@ cqrrpt_helper(int64_t m,
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, 5 * std::numeric_limits<double>::epsilon());
+    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
     CQRRPT.nnz                 = additional_params[2];
     CQRRPT.num_threads         = additional_params[3];
     CQRRPT.cond_check          = additional_params[4];

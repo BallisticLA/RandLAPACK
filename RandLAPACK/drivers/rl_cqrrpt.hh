@@ -283,6 +283,7 @@ int CQRRPT<T>::call(
         } else {
             // find l2 norm of the full R
             norm_R = RandLAPACK::util::get_2_norm(n, n, R_dat, state);
+            this->eps = 5 * this->eps;
         }
 
         if(use_binary_search) {

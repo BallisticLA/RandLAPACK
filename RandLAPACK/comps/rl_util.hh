@@ -504,7 +504,7 @@ void gen_scaled_mat(
 
     T* V_dat = V.data();
     for(int i = 11; i < n; ++i)
-        V_dat[n * i + i] *= scaling_factor_V;
+        V_dat[n * i + i] = scaling_factor_V;
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
 }
