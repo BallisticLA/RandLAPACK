@@ -117,7 +117,7 @@ cqrrpt_helper(int64_t m,
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
+    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, 5 * std::numeric_limits<double>::epsilon());
     CQRRPT.nnz                 = additional_params[2];
     CQRRPT.num_threads         = additional_params[3];
     CQRRPT.cond_check          = additional_params[4];
@@ -340,14 +340,14 @@ int main(){
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 300, 4, 4, 1, 0, 0});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 300, 4, 4, 1, 1});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 2, 9, {300, 11 * 1, 1});
-
+    printf("\nBREAK\n");
     // Fro
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 1.5 * 300, 4, 4, 1, 0, 1});
     // L2
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 1.5 * 300, 4, 4, 1, 0, 0});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 1.5 * 300, 4, 4, 1, 1});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 2, 9, {300, 11 * 1, 1});
-    
+    printf("\nBREAK\n");
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 0, 1});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 0, 0});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 1});
