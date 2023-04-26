@@ -41,6 +41,43 @@ class REVD2 : public REVD2alg<T> {
             verbosity = verb;
         }
 
+        /// Computes an EVD of a symmetric positive definite matrix:
+        ///     A= V diag(E) V*,
+        /// where V is a matrix of eigenvectors and E is a vector of eigenvalues.
+        /// Detailed description of this algorithm may be found in Section 4.2.2.
+        /// of "the RandLAPACK book". 
+        /// Uses RangeFinder for constructing a sketching operator.
+        /// Has a lot of potential in terms of storage space optimization, 
+        /// which, however, will affect readability.
+        ///
+        /// @param[in] m
+        ///     The number of rows in the matrix A.
+        ///
+        /// @param[in] n
+        ///     The number of columns in the matrix A.
+        ///
+        /// @param[in] A
+        ///     The m-by-m matrix A, stored in a column-major format.
+        ///     Must be SPD.
+        ///
+        /// @param[in] k
+        ///     Column dimension of a sketch, k <= n.
+        ///
+        /// @param[in] V
+        ///     On entry, is empty and may not have any space allocated for it.
+        ///
+        /// @param[in] E
+        ///     On entry, is empty and may not have any space allocated for it.
+        ///
+        /// @param[out] V
+        ///     Stores m-by-k matrix matrix of eigenvectors.
+        ///
+        /// @param[out] E
+        ///     Stores k eigenvalues.
+        ///
+        /// @return = 0: successful exit
+        ///
+
         int call(
             int64_t m,
             std::vector<T>& A,

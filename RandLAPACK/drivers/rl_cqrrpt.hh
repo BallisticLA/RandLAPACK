@@ -109,6 +109,8 @@ class CQRRPT : public CQRRPTalg<T> {
         ///
         /// @return = 0: successful exit
         ///
+        /// @return = 1: cholesky factorization failed
+        ///
 
         int call(
             int64_t m,
