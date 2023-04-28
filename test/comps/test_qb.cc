@@ -46,6 +46,7 @@ class TestQB : public ::testing::Test
         std::vector<T> A_k(size, 0.0);
         std::vector<T> A_cpy (m * n, 0.0);
         std::vector<T> A_cpy_2 (m * n, 0.0);
+        std::vector<T> A_cpy_3 (m * n, 0.0);
 
         // For low-rank SVD
         std::vector<T> s(n, 0.0);
@@ -62,6 +63,7 @@ class TestQB : public ::testing::Test
         T* A_k_dat = A_k.data();
         T* A_cpy_dat = A_cpy.data();
         T* A_cpy_2_dat = A_cpy_2.data();
+        T* A_cpy_3_dat = A_cpy_3.data();
 
         T* U_dat = U.data();
         T* s_dat = s.data();
@@ -71,16 +73,17 @@ class TestQB : public ::testing::Test
         // Create a copy of the original matrix
         blas::copy(size, A_dat, 1, A_cpy_dat, 1);
         blas::copy(size, A_dat, 1, A_cpy_2_dat, 1);
+        blas::copy(size, A_dat, 1, A_cpy_3_dat, 1);
 
         //Subroutine parameters
-        bool verbosity = false;
-        bool cond_check = true;
-        bool orth_check = true;
+        bool verbosity = true;
+        bool cond_check = false;
+        bool orth_check = false;
         int64_t passes_per_iteration = 1;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
         RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
@@ -160,7 +163,8 @@ class TestQB : public ::testing::Test
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
         T norm_test_1 = lapack::lange(Norm::Fro, m, n, A_dat, m);
-        printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
+        T norm_A = lapack::lange(Norm::Fro, m, n, A_cpy_3_dat, m);
+        printf("FRO NORM OF A - QB:    %e\n", norm_test_1 / norm_A);
         ASSERT_NEAR(norm_test_1, 0, test_tol);
         // Test 2 Output
         T norm_test_2 = lapack::lange(Norm::Fro, k, n, B_cpy_dat, k);
@@ -172,7 +176,7 @@ class TestQB : public ::testing::Test
         ASSERT_NEAR(norm_test_3, 0, test_tol);
         // Test 4 Output
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
-        printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
+        printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4 / norm_A);
         ASSERT_NEAR(norm_test_4, 0, test_tol);
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
@@ -212,7 +216,7 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose CholQR
-        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
+        RandLAPACK::CholQRQ<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
         RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
@@ -315,4 +319,11 @@ TEST_F(TestQB, Varying_Tol)
     test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), state);
     // test nonzero tol
     test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, (double) 0.1, std::make_tuple(0, 1.23, false), state);
+}
+TEST_F(TestQB, Oleg_Breaking_Matrix)
+{
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::base::RNGState(0, 0);
+    test_QB2_low_exact_rank<double>(1000, 1000, 50, 5, 50, tol, std::make_tuple(10, std::pow(10, 15), false), state);
+    test_QB2_low_exact_rank<double>(1000, 1000, 50, 5, 10, tol, std::make_tuple(10, std::pow(10, 15), false), state);
 }

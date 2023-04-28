@@ -509,6 +509,51 @@ void gen_scaled_mat(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
 }
 
+/// Per Oleg's suggestion, this matrix is supposed to break QB with Cholesky QR
+template <typename T>
+void gen_break_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    int64_t k, // this is equal to the dimension of a sketching operator
+    T cond,
+    bool diagon,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    std::vector<T> s(n, 1.0);
+    std::vector<T> S(n * n, 0.0);
+
+    // The first k singular values will be =1
+    int offset = k;
+
+    // Then, we start with 10^-8 and decrease exponentially
+    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
+
+    T cnt = 0.0;
+    // apply lambda function to every entry of s
+    // Please make sure that the first singular value is always 1
+    std::for_each(s.begin() + offset, s.end(),
+        // Lambda expression begins
+        [&t, &cnt](T& entry) {
+                entry = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
+        }
+    );
+
+    // form a diagonal S
+    diag(k, k, s, k, S);
+    if (diagon) {
+        if (!(m == k || n == k)) {
+                m = k;
+                n = k;
+                A.resize(k * k);
+        }
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+    } else {
+        gen_mat(m, n, A, k, S, state);
+    }
+}
+
 /// Find the condition number of a given matrix A.
 template <typename T>
 T cond_num_check(
@@ -644,14 +689,19 @@ void gen_mat_type(
                 RandLAPACK::util::gen_spiked_mat(m, n, A, state);
                 if(std::get<2>(type))
                     k = rank_check(m, n, A);
-            }    
+            }
             break;
         case 9: {
                 // This matrix may be numerically rank deficient
                 RandLAPACK::util::gen_scaled_mat(m, n, A, std::get<1>(type), state);
                 if(std::get<2>(type))
                     k = rank_check(m, n, A);
-            }    
+            }
+            break;
+        case 10: {
+                // Per Oleg's suggestion, this is supposed to make QB fail with CholQR for orth/stab
+                RandLAPACK::util::gen_break_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+            }
             break;
         default:
             throw std::runtime_error(std::string("Unrecognized case."));
