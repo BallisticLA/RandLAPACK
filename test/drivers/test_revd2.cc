@@ -20,7 +20,7 @@ class TestREVD2 : public ::testing::Test
     /// General test for RSVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T>
-    static void test_REVD2_general(int64_t m, int64_t k, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+    static void test_REVD2_general(int64_t m, int64_t k, int64_t k_start, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
         
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
 
@@ -38,15 +38,11 @@ class TestREVD2 : public ::testing::Test
         std::vector<T> A_cpy (m * m, 0.0);
         std::vector<T> V(m * k, 0.0);
         std::vector<T> e(k, 0.0);
-        std::vector<T> E(k * k, 0.0);
-        std::vector<T> Buf (m * k, 0.0);
 
         T* A_dat = A.data();
         T* A_cpy_dat = A_cpy.data();
 
         T* V_dat = V.data();
-        T* E_dat = E.data();
-        T* Buf_dat = Buf.data();
 
         // Create a copy of the original matrix
         blas::copy(m * m, A_dat, 1, A_cpy_dat, 1);
@@ -70,8 +66,14 @@ class TestREVD2 : public ::testing::Test
         // REVD2 constructor
         RandLAPACK::REVD2<T> REVD2(RF, state, verbosity);
 
+        k = k_start;
         // Regular QB2 call
         REVD2.call(m, A, k, V, e);
+
+        std::vector<T> E(k * k, 0.0);
+        std::vector<T> Buf (m * k, 0.0);
+        T* E_dat = E.data();
+        T* Buf_dat = Buf.data();
         
         // Construnct A_hat = U1 * S1 * VT1
 
@@ -84,6 +86,7 @@ class TestREVD2 : public ::testing::Test
 
         T norm_0 = lapack::lange(Norm::Fro, m, m, A_cpy_dat, m);
         printf("FRO NORM OF A - VEV':  %e\n", norm_0 / norm_A);
+        
         printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 };
@@ -92,5 +95,5 @@ TEST_F(TestREVD2, SimpleTest)
 { 
     // Generate a random state
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_REVD2_general<double>(1000, 100, std::make_tuple(0, 2, false), state);
+    test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, 2, false), state);
 }

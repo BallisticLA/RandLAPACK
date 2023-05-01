@@ -96,6 +96,8 @@ class REVD2 : public REVD2alg<T> {
 
         std::vector<T> R;
         std::vector<T> S;
+
+        std::vector<T> A_cpy;
 };
 
 // -----------------------------------------------------------------------------
@@ -107,67 +109,97 @@ int REVD2<T>::call(
         std::vector<T>& V,
         std::vector<T>& E
 ){
-    T* A_dat = A.data();
-    T* V_dat = util::upsize(m * k, V);
-    util::upsize(k, E);
-    T* Y_dat = util::upsize(m * k, this->Y);
-    T* Omega_dat = util::upsize(m * k, this->Omega);
-    T* R_dat = util::upsize(k * k, this->R);
-    T* S_dat = util::upsize(k * k, this->S);
-    
-    // Construnct a sketching operator
-    if(this->RF_Obj.call(m, m, A, k, this->Omega))
-        return 2;
+    T norm_A_2 = RandLAPACK::util::get_2_norm(m, m, A.data(), this->state);
+    T err = 0;
+    while(1) {
+        T* A_dat = A.data();
+        T* V_dat = util::upsize(m * k, V);
+        util::upsize(k, E);
+        T* Y_dat = util::upsize(m * k, this->Y);
+        T* Omega_dat = util::upsize(m * k, this->Omega);
+        T* R_dat = util::upsize(k * k, this->R);
+        T* S_dat = util::upsize(k * k, this->S);
 
-    // Y = A * S
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
+        // Construnct a sketching operator
+        if(this->RF_Obj.call(m, m, A, k, this->Omega))
+            return 2;
 
-    T v = std::sqrt(m) * std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
+        // Y = A * S
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
 
-    // We need Y = Y + vS
-    // We further need R = chol(S' Y)
-    // Solve this as R = chol(S' Y + vS'S)
-    // Compute vS'S - syrk only computes the lower triangular part. Need full.
-    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, v, Omega_dat, m, 0.0, R_dat, k);
-    // Fill the upper triangular part of S'S
-    for(int i = 1; i < k; ++i)
-        blas::copy(k - i, R_dat + i + ((i-1) * k), 1, R_dat + (i - 1) + (i * k), k);
-    // Compute S' Y + vS'S
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
+        T v = std::sqrt(m) * std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
 
-    // Compute R = chol(S' Y + vS'S)
-    // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
-    if(lapack::potrf(Uplo::Lower, k, R_dat, k)){
-        printf("CHOLESKY FAILED\n");
-        return 1;
+        // We need Y = Y + vS
+        // We further need R = chol(S' Y)
+        // Solve this as R = chol(S' Y + vS'S)
+        // Compute vS'S - syrk only computes the lower triangular part. Need full.
+        blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, v, Omega_dat, m, 0.0, R_dat, k);
+        // Fill the upper triangular part of S'S
+        for(int i = 1; i < k; ++i)
+            blas::copy(k - i, R_dat + i + ((i-1) * k), 1, R_dat + (i - 1) + (i * k), k);
+        // Compute S' Y + vS'S
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
+
+        // Compute R = chol(S' Y + vS'S)
+        // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
+        if(lapack::potrf(Uplo::Lower, k, R_dat, k)){
+            printf("CHOLESKY FAILED\n");
+            return 1;
+        }
+        RandLAPACK::util::get_L(k, k, R, 0);
+
+        // B = Y(R')^-1 - need to transpose R
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
+
+        //[V, S, ~] = SVD(B)
+        // Although we don't need the right singular vectors, we need to give space for those.
+        // Use R as a buffer for that.
+        lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, R_dat, k);
+        
+        // E = diag(S^2)
+        T buf;
+        int64_t r = 0;
+        int i;
+        for(i = 0; i < k; ++i) {
+            buf = std::pow(S[i], 2);
+            E[i] = buf;
+            // r = number of entries in E that are greater than v
+            if(buf > v)
+                ++r;
+        }
+
+        // Undo regularlization
+        for(i = 0; i < r; ++i)
+            E[i] -=v;
+        
+        std::fill(V.begin() + m * r, V.end(), 0.0);
+
+        // Need to perform Err = norm(A - VEV*, 'l2')
+        // We can try doing a reverse triangle inequality here
+        err = std::abs(norm_A_2 - E[0]) / norm_A_2;
+        
+        /*
+        // idk if there is a standard routine for multiplying by a diagonal
+        // Re-use Omega space here
+        for (int i = 0, j = 0; i < m * k; ++i) {
+            Omega[i] = V[i] * E[j];
+            if(std::mod(i, m) == 0 && i != 0)
+                ++j;
+        }
+        // Re-using Y space here
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, k, 1.0, Omega_dat, m, V_dat, m, -1.0, A_cpy_dat, m);
+
+        err = RandLAPACK::util::get_2_norm(m, m, A_cpy_dat, this->state);
+        */
+
+        if(err <= 5 * std::numeric_limits<double>::epsilon() || k == m) {
+            break;
+        } else if (2 * k > m) {
+            k = m;
+        } else {
+            k = 2 * k;
+        }
     }
-    RandLAPACK::util::get_L(k, k, R, 0);
-
-    // B = Y(R')^-1 - need to transpose R
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
-
-    //[V, S, ~] = SVD(B)
-    // Although we don't need the right singular vectors, we need to give space for those.
-    // Use R as a buffer for that.
-    lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, R_dat, k);
-    
-    // E = diag(S^2)
-    T buf;
-    int64_t r = 0;
-    int i;
-    for(i = 0; i < k; ++i) {
-        buf = std::pow(S[i], 2);
-        E[i] = buf;
-        // r = number of entries in E that are greater than v
-        if(buf > v)
-            ++r;
-    }
-
-    // Undo regularlization
-    for(i = 0; i < r; ++i)
-        E[i] -=v;
-    
-    std::fill(V.begin() + m * r, V.end(), 0.0);
     
     return 0;
 }
