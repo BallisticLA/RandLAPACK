@@ -222,7 +222,6 @@ int CQRRPT<T>::call(
         saso_t_start = high_resolution_clock::now();
     }
     
-    /*
     RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};
     RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
     RandBLAS::sparse::fill_sparse(S);
@@ -230,12 +229,13 @@ int CQRRPT<T>::call(
     RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
         d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d);
-    */
+    
+    /*
     std::vector<T> S (d * m, 0.0);
     RandBLAS::dense::DenseDist  D{.n_rows = d, .n_cols = m};
     RandBLAS::dense::fill_buff(S.data(), D, state);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S.data(), d, A.data(), m, 0.0, A_hat_dat, d);
-
+    */
 
     if(this -> timing) {
         saso_t_stop = high_resolution_clock::now();
@@ -274,6 +274,7 @@ int CQRRPT<T>::call(
             }
         }
         this->rank = k;
+        printf("USING NAIVE\n");
         this->rank = n;
         k = n;
     }

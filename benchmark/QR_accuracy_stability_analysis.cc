@@ -313,13 +313,13 @@ int main(){
 
     // Scaled data Max test
     // Condition number here acts as scaling "sigma"
-    /*
+    
     test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 2000, 1, 4, 1, 1});
     test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 3000, 4, 4, 1, 1});
     test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 4000, 4, 4, 1, 1});
     test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 6000, 4, 4, 1, 1});
     test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 8000, 4, 4, 1, 1});
-    */
+    
     // Oleg test
     // Condition number here acts as scaling "sigma"
     //test_cond_orth<double>(10e6, 300, 10e7, 10e15, 100, state, 1, 9, {295, 2 * 300, 4, 4, 0, 1});
@@ -335,12 +335,13 @@ int main(){
 
     // Oleg test - An attempt to get an even higher condition number of A^{pre}
     // Condition number here acts as scaling "sigma"
-    
+    /*
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 0, 1});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 0, 0});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 2 * 300, 4, 4, 1, 1});
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 2, 9, {300, 11 * 1, 1});
     printf("\nBREAK\n");
+    */
     /*
     // Fro
     test_cond_orth<double>(10e6, 300, 10e7, 10e7, 100, state, 1, 9, {300, 1.5 * 300, 4, 4, 1, 0, 1});
