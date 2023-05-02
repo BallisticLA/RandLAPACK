@@ -50,8 +50,8 @@ class TestREVD2 : public ::testing::Test
         //Subroutine parameters 
         bool verbosity = false;
         bool cond_check = false;
-        int64_t p = 10;
-        int64_t passes_per_iteration = 10;
+        int64_t p = 0;
+        int64_t passes_per_iteration = 0;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
@@ -97,5 +97,5 @@ TEST_F(TestREVD2, SimpleTest)
 { 
     // Generate a random state
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, 2, false), state);
+    test_REVD2_general<double>(1000, 100, 100, std::make_tuple(0, 2, false), state);
 }
