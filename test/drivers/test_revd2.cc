@@ -35,9 +35,6 @@ class TestREVD2 : public ::testing::Test
         for(int i = 1; i < m; ++i)
             blas::copy(m - i, A.data() + i + ((i-1) * m), 1, A.data() + (i - 1) + (i * m), m);
 
-        //char name [] = "A";
-        //RandBLAS::util::print_colmaj(m, m, A.data(), name);
-
         // For results comparison
         std::vector<T> A_cpy (m * m, 0.0);
         std::vector<T> V(m * k, 0.0);
@@ -47,14 +44,14 @@ class TestREVD2 : public ::testing::Test
         T* A_cpy_dat = A_cpy.data();
 
         // Create a copy of the original matrix
-        blas::copy(m * m, A.data(), 1, A_cpy_dat, 1);
+        blas::copy(m * m, A_dat, 1, A_cpy_dat, 1);
         T norm_A = lapack::lange(Norm::Fro, m, m, A_cpy_dat, m);
 
         //Subroutine parameters 
         bool verbosity = false;
         bool cond_check = false;
-        int64_t p = 0;
-        int64_t passes_per_iteration = 1;
+        int64_t p = 10;
+        int64_t passes_per_iteration = 10;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
@@ -66,7 +63,7 @@ class TestREVD2 : public ::testing::Test
         // RangeFinder constructor - Choose default (rf1)
         RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
         // REVD2 constructor
-        RandLAPACK::REVD2<T> REVD2(RF, state, verbosity);
+        RandLAPACK::REVD2<T> REVD2(RF, std::pow(std::numeric_limits<double>::epsilon(), 0.75), state, verbosity);
 
         k = k_start;
         // Regular QB2 call
@@ -100,5 +97,5 @@ TEST_F(TestREVD2, SimpleTest)
 { 
     // Generate a random state
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_REVD2_general<double>(1000, 159, 10, std::make_tuple(0, 2, false), state);
+    test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, 2, false), state);
 }
