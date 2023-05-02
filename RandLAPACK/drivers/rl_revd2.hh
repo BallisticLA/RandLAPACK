@@ -177,20 +177,6 @@ int REVD2<T>::call(
         // Need to perform Err = norm(A - VEV*, 'l2')
         // We can try doing a reverse triangle inequality here
         err = std::abs(norm_A_2 - E[0]) / norm_A_2;
-        
-        /*
-        // idk if there is a standard routine for multiplying by a diagonal
-        // Re-use Omega space here
-        for (int i = 0, j = 0; i < m * k; ++i) {
-            Omega[i] = V[i] * E[j];
-            if(std::mod(i, m) == 0 && i != 0)
-                ++j;
-        }
-        // Re-using Y space here
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, k, 1.0, Omega_dat, m, V_dat, m, -1.0, A_cpy_dat, m);
-
-        err = RandLAPACK::util::get_2_norm(m, m, A_cpy_dat, this->state);
-        */
 
         if(err <= 5 * std::numeric_limits<double>::epsilon() || k == m) {
             break;
