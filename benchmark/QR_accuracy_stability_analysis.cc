@@ -130,6 +130,7 @@ cqrrpt_helper(int64_t m,
 
     printf("COND(A): %27e\n", std::get<1>(mat_type));
     printf("COND(A^{pre}): %21e\n", CQRRPT.cond_num_A_pre);
+    printf("COND(normc(A^{pre})): %14e\n", CQRRPT.cond_num_A_norm_pre);
     printf("TRUE RANK(A): %14ld\n", true_k);
     printf("RANK(A) ESTIMATE: %10ld\n", CQRRPT.rank);
     int k = CQRRPT.rank;

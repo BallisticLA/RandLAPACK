@@ -835,5 +835,24 @@ int64_t rank_search_linear(
     return 1;
 }
 
+/// Normalizes columns of a given matrix, writes the result into a buffer
+template <typename T>
+void normc(
+    int64_t m,
+    int64_t n,
+    std::vector<T>& A,
+    std::vector<T>& A_norm
+) {
+    util::upsize(m * n, A_norm);
+    
+    T col_nrm = 0.0;
+    for(int i = 0; i < n; ++i) {
+        col_nrm = blas::nrm2(m, &A[m * i], 1);
+        for (int j = 0; j < m; ++j) {
+            A_norm[m * i + j] = A[m * i + j] / col_nrm;
+        }
+    }
+}
+
 } // end namespace util
 #endif

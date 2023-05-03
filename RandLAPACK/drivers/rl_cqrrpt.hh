@@ -155,6 +155,7 @@ class CQRRPT : public CQRRPTalg<T> {
 
         // Preconditioning-related
         T cond_num_A_pre;
+        T cond_num_A_norm_pre;
         std::string path;
 };
 
@@ -357,9 +358,17 @@ int CQRRPT<T>::call(
     // Check the condition number of a A_pre
     if(this -> cond_check)
     {
+        // Check cond(A_pre)
         std::vector<T> A_pre_cpy;
         std::vector<T> s;
         this->cond_num_A_pre = RandLAPACK::util::cond_num_check(m, k, A, A_pre_cpy, s, false);
+
+        A_pre_cpy.clear();
+        s.clear();
+        // Check cond(normc(A_pre))
+        std::vector<T> A_norm_pre;
+        RandLAPACK::util::normc(m, k, A, A_norm_pre);
+        this->cond_num_A_norm_pre = RandLAPACK::util::cond_num_check(m, k, A_norm_pre, A_pre_cpy, s, false);
     }
 
     if(this -> timing)
