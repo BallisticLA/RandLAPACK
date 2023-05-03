@@ -239,7 +239,7 @@ int PLUL<T>::call(
     if(lapack::getrf(m, n, A_dat, m, ipiv_dat))
         return 1; // failure condition
 
-    util::get_L(m, n, A);
+    util::get_L(m, n, A, 1);
     lapack::laswp(n, A_dat, m, 1, n, ipiv_dat, 1);
 
     return 0;

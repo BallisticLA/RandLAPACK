@@ -277,7 +277,7 @@ int CQRRPT<T>::call(
         {
             k = n;
         } else {
-            k = util::rank_search(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
+            k = util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
         }
         this->rank = k;
         // Clear R

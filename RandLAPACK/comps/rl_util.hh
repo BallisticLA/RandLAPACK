@@ -40,7 +40,7 @@ void diag(
 ) {
 
     if(k > n) {
-        // Throw error
+        // Throw an error
     }
     // size of s
     blas::copy(k, s.data(), 1, S.data(), m + 1);
@@ -82,21 +82,19 @@ void disp_diag(
     }
 }
 
-/// Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
-/// Overwrites the passed-in matrix.
-template <typename T> void get_L( int64_t m, int64_t n, std::vector<T>& L);
-
 template <typename T>
 void get_L(
     int64_t m,
     int64_t n,
-    std::vector<T>& L
+    std::vector<T>& L,
+    int overwrite_diagonal
 ) {
     // Vector end pointer
     int size = m * n;
     // The unit diagonal elements of L were not stored.
     T* L_dat = L.data();
-    L_dat[0] = 1;
+    if(overwrite_diagonal)
+        L_dat[0] = 1;
 
     for(int i = m, j = 1; i < size && j < m; i += m, ++j) {
         std::for_each(&L_dat[i], &L_dat[i + j],
@@ -106,7 +104,8 @@ void get_L(
             }
         );
         // The unit diagonal elements of L were not stored.
-        L_dat[i + j] = 1;
+        if(overwrite_diagonal)
+            L_dat[i + j] = 1;
     }
 }
 
@@ -126,6 +125,20 @@ void get_U(
 
     for(int i = 0, j = 1, k = 0; i < size && j <= m; i += m, k +=n, ++j) {
         blas::copy(j, &A_dat[i], 1, &U_dat[k], 1);
+    }
+}
+
+/// Eliminates the lower-triangular portion of A
+template <typename T>
+void get_U(
+    int64_t m,
+    int64_t n,
+    std::vector<T>& A
+) {
+    T* A_dat = A.data();
+
+    for(int i = 0; i < n - 1; ++i) {
+        std::fill(&A_dat[i * (m + 1) + 1], &A_dat[(i + 1) * m], 0.0);
     }
 }
 
@@ -355,6 +368,38 @@ void gen_exp_mat(
     }
 }
 
+/// Find the condition number of a given matrix A.
+template <typename T>
+T cond_num_check(
+    int64_t m,
+    int64_t n,
+    const std::vector<T>& A,
+    std::vector<T>& A_cpy,
+    std::vector<T>& s,
+    bool verbosity
+) {
+
+    // Copy to avoid any changes
+    T* A_cpy_dat = upsize(m * n, A_cpy);
+    T* s_dat = upsize(n, s);
+
+    // Packed storage check
+    if (A.size() < A_cpy.size()) {
+        // Convert to normal format
+        lapack::tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
+    } else {
+        lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
+    }
+    lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
+
+    T cond_num = s_dat[0] / s_dat[n - 1];
+
+    if (verbosity)
+        printf("CONDITION NUMBER: %f\n", cond_num);
+
+    return cond_num;
+}
+
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
 /// In that case, it would be of size k by k.
 template <typename T>
@@ -362,7 +407,7 @@ void gen_mat_type(
     int64_t& m, // These may change
     int64_t& n,
     std::vector<T>& A,
-    int64_t k,
+    int64_t& k,
     RandBLAS::base::RNGState<r123::Philox4x32> state,
     const std::tuple<int, T, bool>& type
 ) {
@@ -436,37 +481,6 @@ void gen_mat_type(
     }
 }
 
-/// Find the condition number of a given matrix A.
-template <typename T>
-T cond_num_check(
-    int64_t m,
-    int64_t n,
-    const std::vector<T>& A,
-    std::vector<T>& A_cpy,
-    std::vector<T>& s,
-    bool verbosity
-) {
-
-    // Copy to avoid any changes
-    T* A_cpy_dat = upsize(m * n, A_cpy);
-    T* s_dat = upsize(n, s);
-
-    // Packed storage check
-    if (A.size() < A_cpy.size()) {
-        // Convert to normal format
-        lapack::tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
-    } else {
-        lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
-    }
-    lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
-    T cond_num = s_dat[0] / s_dat[n - 1];
-
-    if (verbosity)
-        printf("CONDITION NUMBER: %f\n", cond_num);
-
-    return cond_num;
-}
-
 /// Checks whether matrix A has orthonormal columns.
 template <typename T>
 bool orthogonality_check(
@@ -499,14 +513,15 @@ bool orthogonality_check(
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
 /// Does so by attempting to find the smallest k such that 
-/// ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
+/// ||A[k:, k:]||_F <= tau_trunk * ||A||.
+/// ||A|| can be either 2 or Fro.
 /// Finding such k is done via binary search in range [1, n], which is 
-/// controlled by ||A[k:, k:]||_F (<)(>) tau_trunk * ||A||_F. 
+/// controlled by ||A[k:, k:]||_F (<)(>) tau_trunk * ||A||. 
 /// We first attempt to find k that results in an expression closest to 
-/// ||A[k:, k:]||_F == tau_trunk * ||A||_F and then ensure that ||A[k:, k:]||_F
-/// is not smaller than tau_trunk * ||A||_F to avoid rank underestimation.
+/// ||A[k:, k:]||_F == tau_trunk * ||A|| and then ensure that ||A[k:, k:]||_F
+/// is not smaller than tau_trunk * ||A|| to avoid rank underestimation.
 template <typename T>
-int64_t rank_search(
+int64_t rank_search_binary(
     int64_t lo,
     int64_t hi,
     int64_t k,
@@ -527,10 +542,10 @@ int64_t rank_search(
         return k;
     } else if (norm_R_sub > tau_trunc * norm_A) {
         // k is larger
-        k = rank_search(k, hi, k + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+        k = rank_search_binary(k, hi, k + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
     } else { //(norm_R_sub < tau_trunc * norm_A) {
         // k is smaller
-        k = rank_search(lo, k, lo + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
+        k = rank_search_binary(lo, k, lo + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
     }
     return k;
 }
