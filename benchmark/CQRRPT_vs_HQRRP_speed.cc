@@ -41,7 +41,7 @@ log_info(int64_t rows,
            int apply_to_large,
            std::string path) {
     // Save the output into .dat file
-    std::fstream file(path + "CholQRCP_vs_HQRRP_time_"   + test_type 
+    std::fstream file(path + "CQRRPT_vs_HQRRP_time_"   + test_type 
                                     + "_m_"              + std::to_string(rows) 
                                     + "_d_multiplier_"   + std::to_string(d_multiplier)
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
@@ -257,7 +257,7 @@ test_speed(int r_pow,
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open(path + "CholQRCP_vs_HQRRP_time_Best_m_" + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_vs_HQRRP_time_Best_m_" + std::to_string(rows) 
                                     + "_d_multiplier_"   + std::to_string(d_multiplier)
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
                                     + "_log10(tol)_"     + std::to_string(long(log10(tol)))
@@ -272,7 +272,7 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open(path + "CholQRCP_vs_HQRRP_time_Mean_m_" + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_vs_HQRRP_time_Mean_m_" + std::to_string(rows) 
                                     + "_d_multiplier_"   + std::to_string(d_multiplier)
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
                                     + "_log10(tol)_"     + std::to_string(long(log10(tol)))
@@ -287,7 +287,7 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open(path + "CholQRCP_vs_HQRRP_time_Raw_m_"  + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_vs_HQRRP_time_Raw_m_"  + std::to_string(rows) 
                                     + "_d_multiplier_"   + std::to_string(d_multiplier)
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
                                     + "_log10(tol)_"     + std::to_string(long(log10(tol)))
@@ -346,7 +346,7 @@ test_speed(int r_pow,
                     t_appl2          += res[5];
                     
                     // Log every run in the raw data file
-                    std::fstream file(path + "CholQRCP_vs_HQRRP_time_Raw_m_" + std::to_string(rows) 
+                    std::fstream file(path + "CQRRPT_vs_HQRRP_time_Raw_m_" + std::to_string(rows) 
                                                         + "_d_multiplier_"   + std::to_string(d_multiplier)
                                                         + "_k_multiplier_"   + std::to_string(k_multiplier)
                                                         + "_log10(tol)_"     + std::to_string(long(log10(tol)))

@@ -38,7 +38,7 @@ compute_and_log(
     T cqrrpt_flop_rate = geqrf_gflop / (cqrrpt_time / 1e+6);
     T cqrrpt_hqrrp_flop_rate = geqrf_gflop / (cqrrpt_hqrrp_time / 1e+6);
     
-    std::fstream file(path_out + "CholQRCP_HQRRP_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
+    std::fstream file(path_out + "CQRRPT_HQRRP_FLOP_RATE_" + file_params + ".dat", std::fstream::app);
     file << cqrrpt_flop_rate       << "  " 
          << cqrrpt_hqrrp_flop_rate << "\n";
 }
@@ -59,8 +59,8 @@ process_dat() {
     std::vector<std::string> block_sz        = {"32"};
     std::vector<std::string> omp_num_threads = {"36"};
     std::vector<std::string> apply_to_large  = {"0"};
-    std::string path_in = "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/no_o3_data/";
-    std::string path_out = "../../testing/RandLAPACK-Testing/test_benchmark/QR/flops/raw_data/no_o3_data/";
+    std::string path_in = "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/no_o3_data/";
+    std::string path_out = "../../testing/RandLAPACK-benchmarking/QR/flops/raw_data/no_o3_data/";
 
 
     for (int i = 0; i < (int) test_type.size(); ++i) {
