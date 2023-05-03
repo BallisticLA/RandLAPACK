@@ -35,19 +35,24 @@ class REVD2 : public REVD2alg<T> {
         REVD2(
             RandLAPACK::RangeFinder<T>& rf_obj,
             T tolerance,
+            int power_iters,
             RandBLAS::base::RNGState<r123::Philox4x32> s,
             bool verb
         ) : RF_Obj(rf_obj) {
             tol = tolerance;
+            p = power_iters;
             state = s;
             verbosity = verb;
         }
 
-        /// Computes an EVD of a symmetric positive definite matrix:
+        /// Computes a rank-k approximation to an EVD of a symmetric positive definite matrix:
         ///     A= V diag(E) V*,
         /// where V is a matrix of eigenvectors and E is a vector of eigenvalues.
-        /// Detailed description of this algorithm may be found in Section 4.2.2.
-        /// of "the RandLAPACK book". 
+        /// Does so adaptively. 
+        /// If the tolerance is not met, increases the rank estimation parameter by 2.
+        /// Tolerance is the maximum of user-specified tol times 5 and computed 'nu' times 5.
+        /// This is motivated by the fact that the approx error will never be smaller than nu.
+        /// This code is identical to ALgorithm E2 from https://arxiv.org/pdf/2110.02820.pdf.
         /// Uses RangeFinder for constructing a sketching operator.
         /// Has a lot of potential in terms of storage space optimization, 
         /// which, however, will affect readability.
@@ -92,6 +97,7 @@ class REVD2 : public REVD2alg<T> {
         RandLAPACK::RangeFinder<T>& RF_Obj;
         RandBLAS::base::RNGState<r123::Philox4x32> state;
         T tol;
+        int p;
         bool verbosity;
 
         std::vector<T> Y;
@@ -132,13 +138,13 @@ int REVD2<T>::call(
         // Y = A * S
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
 
-        T v = std::sqrt(m) * std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
+        T nu = std::sqrt(m) * std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
 
         // We need Y = Y + vS
         // We further need R = chol(S' Y)
         // Solve this as R = chol(S' Y + vS'S)
         // Compute vS'S - syrk only computes the lower triangular part. Need full.
-        blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, v, Omega_dat, m, 0.0, R_dat, k);
+        blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega_dat, m, 0.0, R_dat, k);
         // Fill the upper triangular part of S'S
         for(int i = 1; i < k; ++i)
             blas::copy(k - i, R_dat + i + ((i-1) * k), 1, R_dat + (i - 1) + (i * k), k);
@@ -147,14 +153,14 @@ int REVD2<T>::call(
 
         // Compute R = chol(S' Y + vS'S)
         // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
-        if(lapack::potrf(Uplo::Lower, k, R_dat, k)) {
+        if(lapack::potrf(Uplo::Upper, k, R_dat, k)) {
             printf("CHOLESKY FACTORIZATION FAILED\n");
             return 1;
         }
-        RandLAPACK::util::get_L(k, k, R, 0);
+        RandLAPACK::util::get_U(k, k, R);
 
         // B = Y(R')^-1 - need to transpose R
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
 
         //[V, S, ~] = SVD(B)
         // Although we don't need the right singular vectors, we need to give space for those.
@@ -169,13 +175,13 @@ int REVD2<T>::call(
             buf = std::pow(S[i], 2);
             E[i] = buf;
             // r = number of entries in E that are greater than v
-            if(buf > v)
+            if(buf > nu)
                 ++r;
         }
 
         // Undo regularlization
         for(i = 0; i < r; ++i)
-            E[i] -=v;
+            E[i] -=nu;
         
         std::fill(V.begin() + m * r, V.end(), 0.0);
 
@@ -186,10 +192,7 @@ int REVD2<T>::call(
         RandBLAS::dense::DenseDist  g{.n_rows = m, .n_cols = 1};
         RandBLAS::dense::fill_buff(Omega_dat, g, state);
 
-        // As in the utilities, we hardcode the number of power iterations to 10
-        printf("USING k = %ld\n", k);
-        for(int i = 0; i < 10; ++i)
-        {
+        for(int i = 0; i < this->p; ++i) {
             T g_norm = blas::nrm2(m, Omega_dat, 1);
             // Compute g = g / ||g|| - we need this because dot product does not take in an alpha
             std::for_each(Omega_dat, Omega_dat + m, [g_norm](T &entry) { entry /= g_norm;});
@@ -220,12 +223,9 @@ int REVD2<T>::call(
             err = blas::dot(m, Omega_dat, 1, Omega_dat + 3 * m, 1);	
             // v_0 <- v
             std::copy(Omega_dat + 3 * m, Omega_dat + 4 * m, Omega_dat);
-        
-            printf("ERROR IS %e\n", err);
         }
 
-        if(err <= 5 * tol || k == m) {
-            printf("END CRITERION REACHED\n");
+        if(err <= 5 * std::max(this->tol, nu) || k == m) {
             break;
         } else if (2 * k > m) {
             k = m;

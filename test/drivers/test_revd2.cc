@@ -20,9 +20,9 @@ class TestREVD2 : public ::testing::Test
     /// General test for RSVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T>
-    static void test_REVD2_general(int64_t m, int64_t k, int64_t k_start, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+    static void test_REVD2_general(int64_t m, int64_t k, int64_t k_start, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state, int rank_expectation, T err_expectation) {
         
-        printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
+        printf("|==================================TEST REVD2 GENERAL BEGIN==================================|\n");
 
         // For running QB
         std::vector<T> A_buf(m * m, 0.0);
@@ -50,8 +50,8 @@ class TestREVD2 : public ::testing::Test
         //Subroutine parameters 
         bool verbosity = false;
         bool cond_check = false;
-        int64_t p = 0;
-        int64_t passes_per_iteration = 0;
+        int64_t p = 10;
+        int64_t passes_per_iteration = 10;
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
@@ -63,7 +63,7 @@ class TestREVD2 : public ::testing::Test
         // RangeFinder constructor - Choose default (rf1)
         RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
         // REVD2 constructor
-        RandLAPACK::REVD2<T> REVD2(RF, std::pow(std::numeric_limits<double>::epsilon(), 0.75), state, verbosity);
+        RandLAPACK::REVD2<T> REVD2(RF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
 
         k = k_start;
         // Regular QB2 call
@@ -87,9 +87,11 @@ class TestREVD2 : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, k, 1.0, Buf_dat, m, V_dat, m, -1.0, A_cpy_dat, m);
 
         T norm_0 = lapack::lange(Norm::Fro, m, m, A_cpy_dat, m);
-        printf("FRO NORM OF A - VEV':  %e\n", norm_0 / norm_A);
+        printf("||A - VEV'||_F / ||A||_F:  %e\n", norm_0 / norm_A);
+        ASSERT_NEAR(norm_0 / norm_A, err_expectation, 10 * err_expectation);
+        ASSERT_NEAR(k, rank_expectation, std::numeric_limits<double>::epsilon());
         
-        printf("|===================================TEST QB2 GENERAL END===================================|\n");
+        printf("|===================================TEST REVD2 GENERAL END===================================|\n");
     }
 };
 
@@ -97,5 +99,14 @@ TEST_F(TestREVD2, SimpleTest)
 { 
     // Generate a random state
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_REVD2_general<double>(1000, 100, 100, std::make_tuple(0, 2, false), state);
+    // Rank estimation must be 80 - underestimation - starting with very small rank
+    test_REVD2_general<double>(1000, 100, 1, std::make_tuple(0, std::pow(10, 8), false), state, 64, std::pow(10, -13));
+    // Rank estimation must be 80 - underestimation
+    test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, std::pow(10, 8), false), state, 80, std::pow(10, -13));
+    // Rank estimation must be 60 - overestimation
+    test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
+    // Rank estimation must be 160 - slight overestimation
+    test_REVD2_general<double>(1000, 159, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
+    // Numerically rank deficient matrix - expecting rank estimate = m
+    test_REVD2_general<double>(1000, 1000, 10, std::make_tuple(0, std::pow(10, 2), false), state, 1000, std::pow(10, -13));
 }
