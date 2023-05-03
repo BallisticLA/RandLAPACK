@@ -68,7 +68,6 @@ class TestREVD2 : public ::testing::Test
         k = k_start;
         // Regular QB2 call
         REVD2.call(m, A, k, V, e);
-        printf("COMPUTED K IS %ld\n", k);
 
         std::vector<T> E(k * k, 0.0);
         std::vector<T> Buf (m * k, 0.0);
