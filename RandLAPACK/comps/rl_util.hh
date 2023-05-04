@@ -273,10 +273,9 @@ void gen_mat(
 
 /// Generates matrix with the following singular values:
 /// sigma_i = 1 / (i + 1)^pow (first k * 0.2 sigmas = 1
-/// Can either be a diagonal matrix, or a full one.
+/// Output matrix is m by n of rank k.
 /// In later case, left and right singular vectors are randomly-generated
 /// and orthogonaized.
-/// Parameter 'k' signifies the numer of singular values in the generated matrix.
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
@@ -328,10 +327,9 @@ void gen_poly_mat(
 
 /// Generates matrix with the following singular values:
 /// sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1
-/// Can either be a diagonal matrix, or a full one.
+/// Output matrix is m by n of rank k.
 /// In later case, left and right singular vectors are randomly-generated
 /// and orthogonaized.
-/// Parameter 'k' signifies the numer of singular values in the generated matrix.
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
@@ -378,8 +376,8 @@ void gen_exp_mat(
     }
 }
 
-/// Generates matrix with a staircase spectrum with 4 steps
-/// Parameter 'k' signifies the numer of singular values in the generated matrix.
+/// Generates matrix with a staircase spectrum with 4 steps.
+/// Output matrix is m by n of rank k.
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
@@ -422,6 +420,7 @@ void gen_step_mat(
 }
 
 /// Generates a matrix with high coherence between the left singular vectors.
+/// Output matrix is m by n, full-rank.
 /// Such matrix would be difficult to sketch.
 /// Right singular vectors are sampled uniformly at random.
 template <typename T>
@@ -471,10 +470,12 @@ void gen_spiked_mat(
 
 /// Generates a numerically rank-deficient matrix.
 /// Added per Oleg's suggestion.
+/// Output matrix is m by n of some rank k < n.
 /// Generates a matrix of the form A = UV, where
 /// U is an m by n Gaussian matrix whose first row was scaled by a factor sigma, and that then 
-/// was orthonormalized with a Householder QR. The matrix V is the upper triangular part of an n × n 
-/// orthonormalized Gaussian matrix with modified diagonal entries to diag(V) *= [1, 10^-15, . . . , 10^-15, 10^-15]
+/// was orthonormalized with a Householder QR. 
+/// The matrix V is the upper triangular part of an n × n 
+/// orthonormalized Gaussian matrix with modified diagonal entries to diag(V) *= [1, 10^-15, . . . , 10^-15, 10^-15].
 template <typename T>
 void gen_oleg_adversarial_mat(
     int64_t& m,
@@ -522,8 +523,9 @@ void gen_oleg_adversarial_mat(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
 }
 
-/// Per Oleg's suggestion, this matrix is supposed to break QB with Cholesky QR
-/// Parameter 'k' signifies the dimension of a sketching operator
+/// Per Oleg's suggestion, this matrix is supposed to break QB with Cholesky QR.
+/// Output matrix is m by n, full-rank.
+/// Parameter 'k' signifies the dimension of a sketching operator.
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
@@ -758,10 +760,9 @@ bool orthogonality_check(
 }
 
 /// Computes an L-2 norm of a given matrix using
-/// 10 steps of power iteration.
-/// Requires additional n * (n + 2) * sizeof(T) bytes of space.
+/// p steps of power iteration.
 template <typename T>
-T get_2_norm(
+T estimate_spectral_norm(
     int64_t m,
     int64_t n,
     T* A_dat,
@@ -839,8 +840,10 @@ void normc(
     T col_nrm = 0.0;
     for(int i = 0; i < n; ++i) {
         col_nrm = blas::nrm2(m, &A[m * i], 1);
-        for (int j = 0; j < m; ++j) {
-            A_norm[m * i + j] = A[m * i + j] / col_nrm;
+        if(col_nrm != 0) {
+            for (int j = 0; j < m; ++j) {
+                A_norm[m * i + j] = A[m * i + j] / col_nrm;
+            }
         }
     }
 }
