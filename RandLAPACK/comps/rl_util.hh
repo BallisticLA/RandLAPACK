@@ -826,29 +826,6 @@ int64_t rank_search_binary(
     return k;
 }
 
-/// Iterates the upper-triangular matrix A from end to beginning and 
-/// attempts to estimate smallest k such taht ||A[k:, k:]||_F <= tau_trunk * ||A||_2.
-/// Computes matrix Fro norms through vector norm updates.
-template <typename T>
-int64_t rank_search_linear(
-    int64_t n,
-    T norm_2_A,
-    T tau_trunc,
-    T* A_dat
-) {
-    T norm_A_work = 0.0;
-    T norm_A_row = 0.0;
-    for(int i = n - 1, j = 1; i > 0; --i, ++j) {
-        norm_A_row = blas::nrm2(j, A_dat + ((n + 1) * i), n);
-        // Add norm stably
-        norm_A_work = std::hypot(norm_A_work, norm_A_row);
-
-        if(norm_A_work > tau_trunc * norm_2_A)
-            return i + 1;
-    }
-    return 1;
-}
-
 /// Normalizes columns of a given matrix, writes the result into a buffer
 template <typename T>
 void normc(
