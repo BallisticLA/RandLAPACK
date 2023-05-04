@@ -370,6 +370,189 @@ void gen_exp_mat(
     }
 }
 
+/// Generates matrix with a staircase spectrum with 4 steps
+template <typename T>
+void gen_step_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    int64_t k,
+    T cond,
+    bool diagon,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    // Predeclare to all nonzero constants, start decay where needed
+    std::vector<T> s(k, 1.0);
+    std::vector<T> S(k * k, 0.0);
+
+    // We will have 4 steps controlled by the condition number size and starting with 1
+    int offset = (int) (k / 4);
+
+    std::fill(s.begin(), s.begin() + offset, 1);
+    std::fill(s.begin() + offset + 1, s.begin() + 2 * offset, 8.0 / cond);
+    std::fill(s.begin() + 2 * offset + 1, s.begin() + 3 * offset, 4.0 / cond);
+    std::fill(s.begin() + 3 * offset + 1, s.end(), 1.0 / cond);
+
+    // form a diagonal S
+    diag(k, k, s, k, S);
+
+    if (diagon) {
+        if (!(m == k || n == k)) {
+            m = k;
+            n = k;
+            A.resize(k * k);
+        }
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+    } else {
+        gen_mat(m, n, A, k, S, state);
+    }
+}
+
+/// Generates a matrix with high coherence between the left singular vectors.
+/// Such matrix would be difficult to sketch.
+template <typename T>
+void gen_spiked_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    T* A_dat = A.data();
+
+    int64_t num_rows_sampled = n / 2;
+
+    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::LASO, num_rows_sampled, m, 1};
+    RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
+    RandBLAS::sparse::fill_sparse(S);
+
+    // Fill A with stacked identities
+    int start = 0;
+    while(start + n <= m){
+        for(int j = 0; j < n; ++j) {
+            A_dat[start + (m * j) + j] = 1.0;
+        }
+        start += n;
+    }
+
+    // Scale randomly sampled rows
+    start = 0;
+    while (start + m <= m * n) {
+        for(int i = 0; i < num_rows_sampled; ++i) {
+            A_dat[start + (S.cols)[i] - 1] *= m;
+        }
+        start += m;
+    }
+
+    std::vector<T> A_hat(m * n, 0.0);
+    std::vector<T> V(n * n, 0.0);
+    std::vector<T> tau(n, 0.0);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+
+    lapack::geqrf(n, n, V.data(), n, tau.data());
+    lapack::ungqr(n, n, n, V.data(), n, tau.data());
+
+    std::copy(A.data(), A.data() + (m * n), A_hat.data());
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, n, 1.0, A_hat.data(), m, V.data(), n, 0.0, A.data(), m);
+}
+
+/// Generates a numerically rank-deficient matrix.
+/// Added per Oleg's suggestion.
+template <typename T>
+void gen_scaled_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    T sigma,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    T scaling_factor_U = sigma;
+    T scaling_factor_V = 10e-3;
+
+    std::vector<T> U(m * n, 0.0);
+    std::vector<T> V(n * n, 0.0);
+    std::vector<T> tau1(n, 0.0);
+    std::vector<T> tau2(n, 0.0);
+
+    RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(U.data(), DU, state);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+
+    T* U_dat = U.data();
+    for(int i = 0; i < n; ++i) {
+        //U_dat[m * i + 1] *= scaling_factor_U;
+        for(int j = 0; j < 10; ++j) {
+            U_dat[m * i + j] *= scaling_factor_U;
+        }
+    }
+
+    lapack::geqrf(m, n, U.data(), m, tau1.data());
+    lapack::ungqr(m, n, n, U.data(), m, tau1.data());
+
+    lapack::geqrf(n, n, V.data(), n, tau2.data());
+    lapack::ungqr(n, n, n, V.data(), n, tau2.data());
+
+    // Grab an upper-triangular portion of V
+    get_U(n, n, V);
+
+    T* V_dat = V.data();
+    for(int i = 11; i < n; ++i)
+        V_dat[n * i + i] *= scaling_factor_V;
+
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
+}
+
+/// Per Oleg's suggestion, this matrix is supposed to break QB with Cholesky QR
+template <typename T>
+void gen_break_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    int64_t k, // this is equal to the dimension of a sketching operator
+    T cond,
+    bool diagon,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    std::vector<T> s(n, 1.0);
+    std::vector<T> S(n * n, 0.0);
+
+    // The first k singular values will be =1
+    int offset = k;
+
+    // Then, we start with 10^-8 and decrease exponentially
+    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
+
+    T cnt = 0.0;
+    // apply lambda function to every entry of s
+    // Please make sure that the first singular value is always 1
+    std::for_each(s.begin() + offset, s.end(),
+        // Lambda expression begins
+        [&t, &cnt](T& entry) {
+                entry = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
+        }
+    );
+
+    // form a diagonal S
+    diag(k, k, s, k, S);
+    if (diagon) {
+        if (!(m == k || n == k)) {
+                m = k;
+                n = k;
+                A.resize(k * k);
+        }
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+    } else {
+        gen_mat(m, n, A, k, S, state);
+    }
+}
+
 /// Find the condition number of a given matrix A.
 template <typename T>
 T cond_num_check(
@@ -400,6 +583,24 @@ T cond_num_check(
         printf("CONDITION NUMBER: %f\n", cond_num);
 
     return cond_num;
+}
+
+// Computes the numerical rank of a given matirx
+template <typename T>
+int64_t rank_check(
+    int64_t m,
+    int64_t n,
+    const std::vector<T>& A
+) {
+    std::vector<T> A_pre_cpy;
+    std::vector<T> s;
+    RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
+
+    for(int i = 0; i < n; ++i) {
+        if (s[i] / s[0] <= 5 * std::numeric_limits<double>::epsilon())
+            return i - 1;
+    }
+    return n;
 }
 
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
@@ -477,6 +678,30 @@ void gen_mat_type(
                 RandBLAS::dense::fill_buff(A_dat, D, state);
             }
             break;
+        case 7: {
+                // Generating matrix with a staircase-like spectrum
+                RandLAPACK::util::gen_step_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+            }    
+            break;
+        case 8: {
+                // This matrix may be numerically rank deficient
+                RandLAPACK::util::gen_spiked_mat(m, n, A, state);
+                if(std::get<2>(type))
+                    k = rank_check(m, n, A);
+            }
+            break;
+        case 9: {
+                // This matrix may be numerically rank deficient
+                RandLAPACK::util::gen_scaled_mat(m, n, A, std::get<1>(type), state);
+                if(std::get<2>(type))
+                    k = rank_check(m, n, A);
+            }
+            break;
+        case 10: {
+                // Per Oleg's suggestion, this is supposed to make QB fail with CholQR for orth/stab
+                RandLAPACK::util::gen_break_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+            }
+            break;
         default:
             throw std::runtime_error(std::string("Unrecognized case."));
             break;
@@ -511,6 +736,41 @@ bool orthogonality_check(
         return true;
 
     return false;
+}
+
+/// Computes an L-2 norm of a given matrix using
+/// 10 steps of power iteration.
+/// Requires additional n * (n + 2) * sizeof(T) bytes of space.
+template <typename T>
+T get_2_norm(
+    int64_t m,
+    int64_t n,
+    T* A_dat,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    std::vector<T> buf (n, 0.0);
+    std::vector<T> buf1 (n, 0.0);
+    std::vector<T> ATA (n * n, 0.0);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = 1};
+    state = RandBLAS::dense::fill_buff(buf.data(), DV, state);
+
+    // Compute A^T*A
+    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, n, m, 1.0, A_dat, m, 0.0, ATA.data(), n);
+    // Fill the upper triangular part of A^T*A
+    for(int i = 1; i < n; ++i)
+        blas::copy(n - i, ATA.data() + i + ((i-1) * n), 1, ATA.data() + (i - 1) + (i * n), n);
+
+    T prev_norm_inv = 1.0;
+    for(int i = 0; i < 10; ++i)
+    {
+        gemv(Layout::ColMajor, Op::NoTrans, n, n, prev_norm_inv, ATA.data(), n, buf.data(), 1, 0.0, buf1.data(), 1);
+        buf = buf1;
+        prev_norm_inv = 1 / blas::nrm2(n, buf.data(), 1);
+    }
+
+    return std::sqrt(blas::nrm2(n, buf.data(), 1));
 }
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
@@ -550,6 +810,48 @@ int64_t rank_search_binary(
         k = rank_search_binary(lo, k, lo + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
     }
     return k;
+}
+
+/// Iterates the upper-triangular matrix A from end to beginning and 
+/// attempts to estimate smallest k such taht ||A[k:, k:]||_F <= tau_trunk * ||A||_2.
+/// Computes matrix Fro norms through vector norm updates.
+template <typename T>
+int64_t rank_search_linear(
+    int64_t n,
+    T norm_2_A,
+    T tau_trunc,
+    T* A_dat
+) {
+    T norm_A_work = 0.0;
+    T norm_A_row = 0.0;
+    for(int i = n - 1, j = 1; i > 0; --i, ++j) {
+        norm_A_row = blas::nrm2(j, A_dat + ((n + 1) * i), n);
+        // Add norm stably
+        norm_A_work = std::hypot(norm_A_work, norm_A_row);
+
+        if(norm_A_work > tau_trunc * norm_2_A)
+            return i + 1;
+    }
+    return 1;
+}
+
+/// Normalizes columns of a given matrix, writes the result into a buffer
+template <typename T>
+void normc(
+    int64_t m,
+    int64_t n,
+    std::vector<T>& A,
+    std::vector<T>& A_norm
+) {
+    util::upsize(m * n, A_norm);
+
+    T col_nrm = 0.0;
+    for(int i = 0; i < n; ++i) {
+        col_nrm = blas::nrm2(m, &A[m * i], 1);
+        for (int j = 0; j < m; ++j) {
+            A_norm[m * i + j] = A[m * i + j] / col_nrm;
+        }
+    }
 }
 
 } // end namespace util
