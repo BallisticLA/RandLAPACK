@@ -46,7 +46,7 @@ log_info(int64_t rows,
             std::string path) {
 
     // Save the output into .dat file
-    std::fstream file(path + "CholQRCP_embedding_time_"       + test_type 
+    std::fstream file(path + "CQRRPT_embedding_time_"       + test_type 
                                         + "_m_"               + std::to_string(rows) 
                                         + "_n_"                + std::to_string(cols) 
                                         + "_d_multiplier_min_" + std::to_string(d_multiplier_min)
@@ -157,7 +157,7 @@ test_speed(int r_pow,
     int curr_runs = 0;
 
     std::ofstream ofs;
-    ofs.open(path + "CholQRCP_embedding_time_Best_m_"  + std::to_string(rows) 
+    ofs.open(path + "CQRRPT_embedding_time_Best_m_"  + std::to_string(rows) 
                                 + "_n_"                + std::to_string(col) 
                                 + "_d_multiplier_min_" + std::to_string(d_multiplier)
                                 + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
@@ -171,7 +171,7 @@ test_speed(int r_pow,
                                 + ".dat", std::ofstream::out | std::ofstream::trunc);
     ofs.close();
 
-    ofs.open(path + "CholQRCP_embedding_time_Mean_m_" + std::to_string(rows) 
+    ofs.open(path + "CQRRPT_embedding_time_Mean_m_" + std::to_string(rows) 
                                 + "_n_"                + std::to_string(col) 
                                 + "_d_multiplier_min_" + std::to_string(d_multiplier)
                                 + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
@@ -185,7 +185,7 @@ test_speed(int r_pow,
                                 + ".dat", std::ofstream::out | std::ofstream::trunc);
     ofs.close();
 
-    ofs.open(path + "CholQRCP_embedding_time_Raw_m_"  + std::to_string(rows) 
+    ofs.open(path + "CQRRPT_embedding_time_Raw_m_"  + std::to_string(rows) 
                                 + "_n_"                + std::to_string(col) 
                                 + "_d_multiplier_min_" + std::to_string(d_multiplier)
                                 + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
@@ -254,7 +254,7 @@ test_speed(int r_pow,
                 t_total       += res[9];
                 /*
                 // Log every run in the raw data file
-                std::fstream file(path + "CholQRCP_embedding_time_Raw_m_" + std::to_string(rows) 
+                std::fstream file(path + "CQRRPT_embedding_time_Raw_m_" + std::to_string(rows) 
                                                         + "_d_multiplier_min_" + std::to_string(d_multiplier)
                                                         + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
                                                         + "_k_multiplier_"    + std::to_string(k_multiplier)
@@ -346,8 +346,8 @@ test_speed(int r_pow,
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_speed<double>(17, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
-    test_speed<double>(17, 2048, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
-    test_speed<double>(17, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
+    test_speed<double>(17, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
+    test_speed<double>(17, 2048, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
+    test_speed<double>(17, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
     return 0;
 }

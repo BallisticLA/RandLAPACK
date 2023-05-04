@@ -34,11 +34,13 @@ print_info(int64_t rows,
     T geqr_time, 
     T tsqrp_time, 
     T geqrf_time, 
+    T scholqr_time,
     T chol_full_time,
     T geqp3_full_time,
     T geqr_full_time,
     T tsqrp_full_time,
     T geqrf_full_time,
+    T scholqr_full_time,
     const std::string& test_type,
     int runs) {
     const char * test_type_print = test_type.c_str();
@@ -53,7 +55,8 @@ print_info(int64_t rows,
             printf("%s timing of GEQP3 for %d runs: %57.2f μs. Full timing: %f μs.\n",                                   test_type_print, runs - 1, geqp3_time, geqp3_full_time);
             printf("%s timing of GEQRF for %d runs: %57.2f μs. Full timing: %f μs.\n",                                   test_type_print, runs - 1, geqrf_time, geqrf_full_time);
             printf("%s timing of GEQR for %d runs: %58.2f μs. Full timing: %f μs.\n",                                    test_type_print, runs - 1, geqr_time, geqr_full_time);
-            printf("%s timing of TSQRP for %d runs: %57.2f μs. Full timing: %f μs.\n\n",                                 test_type_print, runs - 1, tsqrp_time, tsqrp_time);
+            printf("%s timing of TSQRP for %d runs: %57.2f μs. Full timing: %f μs.\n\n",                                 test_type_print, runs - 1, tsqrp_time, tsqrp_full_time);
+            printf("%s timing of SCHOLQR3 for %d runs: %54.2f μs. Full timing: %f μs.\n\n",                                 test_type_print, runs - 1, scholqr_time, scholqr_full_time);
 
             /*CQRRPT vs GEQP3*/
             if(cqrrpt_time < geqp3_time) {
@@ -104,6 +107,18 @@ print_info(int64_t rows,
                 printf("With space allocation + application: %3.2f times slower than GEQR.\n\n",  chol_full_time / geqr_full_time);
             }
 
+            /*CQRRPT vs SCHOLQR3*/
+            if(cqrrpt_time < scholqr_time) {
+                printf("Result: CQRRPT is %33.2f times faster than SCHOLQR3.\n",                          scholqr_time / cqrrpt_time);
+            } else {
+                printf("Result: CQRRPT is %33.2f times slower than SCHOLQR3.\n",                          cqrrpt_time / scholqr_time);
+            }
+            if(chol_full_time < scholqr_full_time) {
+                printf("With space allocation + application: %3.2f times faster than SCHOLQR3.\n\n",  scholqr_full_time / chol_full_time);
+            } else {
+                printf("With space allocation + application: %3.2f times slower than SCHOLQR3.\n\n",  chol_full_time / scholqr_full_time);
+            }
+
             printf("\n/---------------------------------------QR TIMING INFO END---------------------------------------/\n\n");
 
 }
@@ -123,11 +138,13 @@ log_info(int64_t rows,
            T geqr_time, 
            T tsqrp_time, 
            T geqrf_time, 
+           T scholqr_time,
            T chol_full_time,
            T geqp3_full_time,
            T geqr_full_time,
            T tsqrp_full_time,
            T geqrf_full_time,
+           T scholqr_full_time,
            const std::string& test_type,
            int runs,
            int apply_to_large,
@@ -145,16 +162,18 @@ log_info(int64_t rows,
                                 + "_OMP_threads_"  + std::to_string(num_threads) 
                                 + "_apply_to_large_" + std::to_string(apply_to_large)
                                 + ".dat", std::fstream::app);
-    file << cqrrpt_time   << "  " 
-         << geqp3_time      << "  " 
-         << geqr_time       << "  "
-         << tsqrp_time      << "  " 
-         << geqrf_time      << "  "  
-         << chol_full_time  << "  " 
-         << geqp3_full_time << "  " 
-         << geqr_full_time  << "  "
-         << tsqrp_full_time << "  " 
-         << geqrf_full_time << "\n";
+    file << cqrrpt_time       << "  " 
+         << geqp3_time        << "  " 
+         << geqr_time         << "  "
+         << tsqrp_time        << "  " 
+         << geqrf_time        << "  "  
+         << scholqr_time      << "  "
+         << chol_full_time    << "  " 
+         << geqp3_full_time   << "  " 
+         << geqr_full_time    << "  "
+         << tsqrp_full_time   << "  " 
+         << geqrf_full_time   << "  "
+         << scholqr_full_time << "\n";
 
     print_info(rows, cols, d_multiplier, nnz, num_threads, 
                cqrrpt_time,
@@ -162,11 +181,13 @@ log_info(int64_t rows,
                geqr_time,
                tsqrp_time,
                geqrf_time,  
+               scholqr_time,
                chol_full_time, 
                geqp3_full_time, 
                geqr_full_time,
                tsqrp_full_time, 
                geqrf_full_time,
+               scholqr_full_time,
                test_type, runs);
 }
 
@@ -200,6 +221,7 @@ test_speed_helper(int64_t m,
     std::vector<T> tau_3;
     std::vector<int64_t> J_3;
     std::vector<T> tau_4;
+    std::vector<T> ATA;
 
     // Generate random matrix
     RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
@@ -210,7 +232,7 @@ test_speed_helper(int64_t m,
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     // CQRRPT constructor
-    bool log_times = true;
+    bool log_times = false;
     RandLAPACK::CQRRPT<T> CQRRPT(false, log_times, state, tol);
     CQRRPT.nnz = nnz;
     CQRRPT.num_threads = num_threads;
@@ -373,12 +395,62 @@ test_speed_helper(int64_t m,
     long dur_appl5 = duration_cast<microseconds>(stop_appl5 - start_appl5).count();
 
     //-TEST POINT 5 END---------------------------------------------------------------------------------------------------------------------------------------------/
+    // Re-generate matrix
+    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
+
+    // Pre-allocation for Shifted Cholesky QR 3
+    auto start_alloc6 = high_resolution_clock::now();
+    RandLAPACK::util::upsize(n * n, ATA);
+    auto stop_alloc6 = high_resolution_clock::now();
+    long dur_alloc6 = duration_cast<microseconds>(stop_alloc6 - start_alloc6).count();
+    
+    // Shifted Cholesky QR 3
+    auto start_scholqr = high_resolution_clock::now();
+    
+    // Below line is impractical
+    //T norm_A = RandLAPACK::util::get_2_norm(m, n, A_1.data(), state);
+    T norm_A = lapack::lange(Norm::Fro, m, n, A_1.data(), m);
+    
+    T shift = 11 * std::numeric_limits<double>::epsilon() * n * std::pow(norm_A, 2);
+
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
+
+    for (int i = 0; i < n; ++i) {
+        ATA[i * (n + 1)] += shift;
+    }
+    
+    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
+
+    // CholeskyQR2
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
+    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
+    
+    // CholeskyQR3
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_1.data(), m, 0.0, ATA.data(), n);
+    lapack::potrf(Uplo::Upper, n, ATA.data(), n);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, ATA.data(), n, A_1.data(), m);
+    
+    auto stop_scholqr = high_resolution_clock::now();
+    long dur_scholqr = duration_cast<microseconds>(stop_scholqr - start_scholqr).count();
+
+    // Apply Q_6
+    // Re-generate the random matrix
+    auto start_appl6 = high_resolution_clock::now();
+    gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_dim, n, m, 1.0, B_1.data(), b_dim, A_1.data(), m, 0.0, Res_1.data(), b_dim);
+    auto stop_appl6 = high_resolution_clock::now();
+    long dur_appl6 = duration_cast<microseconds>(stop_appl6 - start_appl6).count();
+
+
+    //-TEST POINT 6 END---------------------------------------------------------------------------------------------------------------------------------------------/
 
     std::vector<long> res{dur_alloc1, dur_cqrrpt, dur_appl1, 
-                          dur_alloc2, dur_geqp3,    dur_appl2,
-                          dur_alloc3, dur_geqr,     dur_appl3,
-                          dur_alloc4, dur_tsqrp,    dur_appl4,
-                          dur_alloc5, dur_geqrf,    dur_appl5}; 
+                            dur_alloc2, dur_geqp3,    dur_appl2,
+                            dur_alloc3, dur_geqr,     dur_appl3,
+                            dur_alloc4, dur_tsqrp,    dur_appl4,
+                            dur_alloc5, dur_geqrf,    dur_appl5,
+                            dur_alloc6, dur_scholqr,  dur_appl6}; 
 
     return res;
 }
@@ -409,7 +481,7 @@ test_speed(int r_pow,
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open(path + "CholQRCP_comp_time_Best_m_"   + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_comp_time_Best_m_"   + std::to_string(rows) 
                                     + "_d_multiplier_" + std::to_string(d_multiplier)
                                     + "_k_multiplier_" + std::to_string(k_multiplier)
                                     + "_log10(tol)_"   + std::to_string(long(log10(tol)))
@@ -422,7 +494,7 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open(path + "CholQRCP_comp_time_Mean_m_"   + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_comp_time_Mean_m_"   + std::to_string(rows) 
                                     + "_d_multiplier_" + std::to_string(d_multiplier)
                                     + "_k_multiplier_" + std::to_string(k_multiplier)
                                     + "_log10(tol)_"   + std::to_string(long(log10(tol)))
@@ -435,7 +507,7 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open(path + "CholQRCP_comp_time_Raw_m_"    + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_comp_time_Raw_m_"    + std::to_string(rows) 
                                     + "_d_multiplier_" + std::to_string(d_multiplier)
                                     + "_k_multiplier_" + std::to_string(k_multiplier)
                                     + "_log10(tol)_"   + std::to_string(long(log10(tol)))
@@ -472,6 +544,9 @@ test_speed(int r_pow,
             long t_alloc5   = 0;
             long t_geqrf    = 0;
             long t_appl5    = 0;
+            long t_alloc6   = 0;
+            long t_scholqr  = 0;
+            long t_appl6    = 0;
 
             T alloc1_best   = 0;
             T cqrrpt_best = 0;
@@ -488,6 +563,9 @@ test_speed(int r_pow,
             T alloc5_best   = 0;
             T geqrf_best    = 0;
             T appl5_best    = 0;
+            T alloc6_best   = 0;
+            T scholqr_best  = 0;
+            T appl6_best    = 0;
 
             T alloc1_mean   = 0;
             T cqrrpt_mean = 0;
@@ -504,6 +582,9 @@ test_speed(int r_pow,
             T alloc5_mean   = 0;
             T geqrf_mean    = 0;
             T appl5_mean    = 0;
+            T alloc6_mean   = 0;
+            T scholqr_mean  = 0;
+            T appl6_mean    = 0;
 
             curr_runs = runs + initialization;
             for(int i = 0; i < curr_runs; ++i) {
@@ -526,9 +607,12 @@ test_speed(int r_pow,
                     t_alloc5   += res[12];
                     t_geqrf    += res[13];
                     t_appl5    += res[14];
+                    t_alloc6   += res[15];
+                    t_scholqr  += res[16];
+                    t_appl6    += res[17];
                     
                     // Log every run in the raw data file
-                    std::fstream file(path + "CholQRCP_comp_time_Raw_m_"   + std::to_string(rows) 
+                    std::fstream file(path + "CQRRPT_comp_time_Raw_m_"   + std::to_string(rows) 
                                                         + "_d_multiplier_" + std::to_string(d_multiplier)
                                                         + "_k_multiplier_" + std::to_string(k_multiplier)
                                                         + "_log10(tol)_"   + std::to_string(long(log10(tol)))
@@ -553,7 +637,10 @@ test_speed(int r_pow,
                          << res[11] << "  " 
                          << res[12] << "  "
                          << res[13] << "  "
-                         << res[14] << "\n";
+                         << res[14] << "  " 
+                         << res[15] << "  "
+                         << res[16] << "  "
+                         << res[17] << "\n";
                     
                     // For best timing
                     if(alloc1_best > res[0] || alloc1_best == 0) {
@@ -601,26 +688,38 @@ test_speed(int r_pow,
                     if(appl5_best > res[14] || appl5_best == 0) {
                         appl5_best = res[14];
                     }
+                    if(alloc6_best > res[15] || alloc6_best == 0) {
+                        alloc6_best = res[15];
+                    }
+                    if(scholqr_best > res[16] || scholqr_best == 0) {
+                        scholqr_best = res[16];
+                    }
+                    if(appl6_best > res[17] || appl6_best == 0) {
+                        appl6_best = res[17];
+                    }
                 }
                 initialization = 0;
             }
 
             // For mean timing
-            alloc1_mean   = (T)t_alloc1   / (T)(curr_runs);
-            cqrrpt_mean = (T)t_cqrrpt / (T)(curr_runs);
-            appl1_mean    = (T)t_appl1    / (T)(curr_runs);
-            alloc2_mean   = (T)t_alloc2   / (T)(curr_runs);
-            geqp3_mean    = (T)t_geqp3    / (T)(curr_runs);
-            appl2_mean    = (T)t_appl2    / (T)(curr_runs);
-            alloc3_mean   = (T)t_alloc3   / (T)(curr_runs);
-            geqr_mean     = (T)t_geqr     / (T)(curr_runs);
-            appl3_mean    = (T)t_appl3    / (T)(curr_runs);
-            alloc4_mean   = (T)t_alloc4   / (T)(curr_runs);
-            tsqrp_mean    = (T)t_tsqrp    / (T)(curr_runs);
-            appl4_mean    = (T)t_appl4    / (T)(curr_runs);
-            alloc5_mean   = (T)t_alloc5   / (T)(curr_runs);
-            geqrf_mean    = (T)t_geqrf    / (T)(curr_runs);
-            appl5_mean    = (T)t_appl5    / (T)(curr_runs);
+            alloc1_mean   = (T)t_alloc1  / (T)(curr_runs);
+            cqrrpt_mean   = (T)t_cqrrpt  / (T)(curr_runs);
+            appl1_mean    = (T)t_appl1   / (T)(curr_runs);
+            alloc2_mean   = (T)t_alloc2  / (T)(curr_runs);
+            geqp3_mean    = (T)t_geqp3   / (T)(curr_runs);
+            appl2_mean    = (T)t_appl2   / (T)(curr_runs);
+            alloc3_mean   = (T)t_alloc3  / (T)(curr_runs);
+            geqr_mean     = (T)t_geqr    / (T)(curr_runs);
+            appl3_mean    = (T)t_appl3   / (T)(curr_runs);
+            alloc4_mean   = (T)t_alloc4  / (T)(curr_runs);
+            tsqrp_mean    = (T)t_tsqrp   / (T)(curr_runs);
+            appl4_mean    = (T)t_appl4   / (T)(curr_runs);
+            alloc5_mean   = (T)t_alloc5  / (T)(curr_runs);
+            geqrf_mean    = (T)t_geqrf   / (T)(curr_runs);
+            appl5_mean    = (T)t_appl5   / (T)(curr_runs);
+            alloc6_mean   = (T)t_alloc6  / (T)(curr_runs);
+            scholqr_mean  = (T)t_scholqr / (T)(curr_runs);
+            appl6_mean    = (T)t_appl6   / (T)(curr_runs);
             
             log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
                      cqrrpt_best,
@@ -628,11 +727,13 @@ test_speed(int r_pow,
                      geqr_best,
                      tsqrp_best,
                      geqrf_best,  
+                     scholqr_best,
                      cqrrpt_best + alloc1_best + appl1_best, 
                      geqp3_best    + alloc2_best + appl2_best, 
                      geqr_best     + alloc3_best + appl3_best,
                      tsqrp_best    + alloc4_best + appl4_best, 
                      geqrf_best    + alloc5_best + appl5_best,
+                     scholqr_best  + alloc6_best + appl6_best,
                      "Best", 
                      runs,
                      apply_to_large,
@@ -643,17 +744,19 @@ test_speed(int r_pow,
                      geqp3_mean,
                      geqr_mean,
                      tsqrp_mean,
-                     geqrf_mean,  
+                     geqrf_mean,
+                     scholqr_mean,
                      cqrrpt_mean + alloc1_mean + appl1_mean, 
                      geqp3_mean    + alloc2_mean + appl2_mean, 
                      geqr_mean     + alloc3_mean + appl3_mean,
                      tsqrp_mean    + alloc4_mean + appl4_mean, 
                      geqrf_mean    + alloc5_mean + appl5_mean,
+                     scholqr_mean  + alloc6_mean + appl6_mean,
                      "Mean", 
                      runs,
                      apply_to_large,
                      path);
-
+            
             printf("Done with size %ld by %ld\n", rows, cols);
         }
     }
@@ -663,7 +766,8 @@ test_speed(int r_pow,
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_to_large/", state);
+    
+    //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/", state);
     test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     return 0;
 }
