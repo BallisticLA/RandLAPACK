@@ -82,6 +82,8 @@ void disp_diag(
     }
 }
 
+/// Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
+/// Overwrites the passed-in matrix.
 template <typename T>
 void get_L(
     int64_t m,
@@ -128,7 +130,7 @@ void get_U(
     }
 }
 
-/// Eliminates the lower-triangular portion of A
+/// Zeros-out the lower-triangular portion of A
 template <typename T>
 void get_U(
     int64_t m,
@@ -376,7 +378,7 @@ T cond_num_check(
     const std::vector<T>& A,
     std::vector<T>& A_cpy,
     std::vector<T>& s,
-    bool verbosity
+    bool verbose
 ) {
 
     // Copy to avoid any changes
@@ -394,7 +396,7 @@ T cond_num_check(
 
     T cond_num = s_dat[0] / s_dat[n - 1];
 
-    if (verbosity)
+    if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
 
     return cond_num;
@@ -489,7 +491,7 @@ bool orthogonality_check(
     int64_t k,
     const std::vector<T>& A,
     std::vector<T>& A_gram,
-    bool verbosity
+    bool verbose
 ) {
 
     const T* A_dat = A.data();
@@ -501,7 +503,7 @@ bool orthogonality_check(
     }
     T orth_err = lapack::lange(Norm::Fro, n, n, A_gram_dat, k);
 
-    if(verbosity) {
+    if(verbose) {
         printf("Q ERROR:   %e\n\n", orth_err);
     }
 
