@@ -746,6 +746,7 @@ T get_2_norm(
     int64_t m,
     int64_t n,
     T* A_dat,
+    int p,
     RandBLAS::base::RNGState<r123::Philox4x32> state
 ) {
 
@@ -763,7 +764,7 @@ T get_2_norm(
         blas::copy(n - i, ATA.data() + i + ((i-1) * n), 1, ATA.data() + (i - 1) + (i * n), n);
 
     T prev_norm_inv = 1.0;
-    for(int i = 0; i < 10; ++i)
+    for(int i = 0; i < p; ++i)
     {
         gemv(Layout::ColMajor, Op::NoTrans, n, n, prev_norm_inv, ATA.data(), n, buf.data(), 1, 0.0, buf1.data(), 1);
         buf = buf1;
