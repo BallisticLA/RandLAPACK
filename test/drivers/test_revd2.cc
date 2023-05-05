@@ -33,10 +33,6 @@ class TestREVD2 : public ::testing::Test
         for(int i = 1; i < m; ++i)
             blas::copy(m - i, &A_dat[i + ((i-1) * m)], 1, &A_dat[(i - 1) + (i * m)], m);
 
-
-        char name [] = "A";
-        RandBLAS::util::print_colmaj(m, m, A_dat, name);
-
         // For results comparison
         std::vector<T> A_cpy (m * m, 0.0);
         std::vector<T> V(m * k, 0.0);
@@ -68,6 +64,7 @@ class TestREVD2 : public ::testing::Test
 
         k = k_start;
         // Regular QB2 call
+        REVD2.tol = std::pow(10, -14);
         REVD2.call(m, blas::Uplo::Upper, A, k, V, eigvals);
 
         std::vector<T> E(k * k, 0.0);
@@ -98,12 +95,6 @@ class TestREVD2 : public ::testing::Test
 TEST_F(TestREVD2, Underestimation1) { 
     auto state = RandBLAS::base::RNGState(0, 0);
     // Rank estimation must be 80 - underestimation - starting with very small rank
-    test_REVD2_general<double>(10, 10, 1, std::make_tuple(0, std::pow(10, 8), false), state, 8, std::pow(10, -13));
-}
-/*
-TEST_F(TestREVD2, Underestimation1) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
-    // Rank estimation must be 80 - underestimation - starting with very small rank
     test_REVD2_general<double>(1000, 100, 1, std::make_tuple(0, std::pow(10, 8), false), state, 64, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Underestimation2) { 
@@ -126,4 +117,3 @@ TEST_F(TestREVD2, Exactness) {
     // Numerically rank deficient matrix - expecting rank estimate = m
     test_REVD2_general<double>(100, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 100, std::pow(10, -13));
 }
-*/

@@ -113,61 +113,59 @@ class REVD2 : public REVD2alg<T> {
 };
 
 // -----------------------------------------------------------------------------
-
+/// Power scheme for error estimation, based on algorithm E.1 from https://arxiv.org/pdf/2110.02820.pdf.
+/// This routine is too specialized to be included into RandLAPACK::utils
+/// p - number of algorithm iterations
+/// vector_buf - buffer for vector operations
+/// Mat_buf - buffer for matrix operations
+/// All other parameters come from REVD2
 template <typename T>
 T power_error_est(
     int64_t m,
     int64_t k,
     int p,
-    T* Omega_dat,
+    T* vector_buf_dat,
     T* V_dat,
     blas::Uplo uplo,
     T* A_dat,
-    T* Y_dat,
+    T* Mat_buf_dat,
     T* eigvals_dat
 ) {
     T err = 0;
-
-            char name [] = "A";
-        RandBLAS::util::print_colmaj(m, m, A_dat, name);
         
     for(int i = 0; i < p; ++i) {
-        T g_norm = blas::nrm2(m, Omega_dat, 1);
+        T g_norm = blas::nrm2(m, vector_buf_dat, 1);
         // Compute g = g / ||g|| - we need this because dot product does not take in an alpha
-        std::for_each(Omega_dat, Omega_dat + m, [g_norm](T &entry) { entry /= g_norm;});
+        std::for_each(vector_buf_dat, vector_buf_dat + m, [g_norm](T &entry) { entry /= g_norm;});
 
         // Compute V'*g / ||g||
         // Using the second column of Omega as a buffer for matrix-vector product
-        gemv(Layout::ColMajor, Op::Trans, m, k, 1.0, V_dat, m, Omega_dat, 1, 0.0, Omega_dat + m, 1);
+        gemv(Layout::ColMajor, Op::Trans, m, k, 1.0, V_dat, m, vector_buf_dat, 1, 0.0, &vector_buf_dat[m], 1);
 
 
         // Compute V*E, eigvals diag
         // Using Y as a buffer for V*E
         for (int i = 0, j = 0; i < m * k; ++i) {
-            Y_dat[i] = V_dat[i] * eigvals_dat[j];
+            Mat_buf_dat[i] = V_dat[i] * eigvals_dat[j];
             if((i + 1) % m == 0 && i != 0)
                 ++j;
         }
 
         // Compute V*E*V'*g / ||g||
         // Using the third column of Omega as a buffer for matrix-vector product
-        gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Y_dat, m,Omega_dat + m, 1, 0.0, Omega_dat + 2 * m, 1);
+        gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Mat_buf_dat, m, &vector_buf_dat[m], 1, 0.0, &vector_buf_dat[2 * m], 1);
         // Compute A*g / ||g||
         // Using the forth column of Omega as a buffer for matrix-vector product
-        //gemv(Layout::ColMajor, Op::NoTrans, m, m, 1.0, A_dat, m, Omega_dat, 1, 0.0, Omega_dat + 3 * m, 1);
-        symv(Layout::ColMajor, Uplo::Lower, 1.0, m, A_dat, m, Omega_dat, 1, 0.0, Omega_dat + 3 * m, 1);
-        RandBLAS::util::print_colmaj(m, 1, Omega_dat, name);
-        RandBLAS::util::print_colmaj(m, 1, Omega_dat + 3 * m, name);
+        symv(Layout::ColMajor, uplo, m, 1.0, A_dat, m, vector_buf_dat, 1, 0.0, &vector_buf_dat[3 * m], 1);
 
         // Compute A*g / ||g|| - V*E*V'*g / ||g||
         // Result is stored in the 4th column of Omega
-        blas::axpy(m, -1.0, Omega_dat + 2 * m, 1, Omega_dat + 3 * m, 1);
+        blas::axpy(m, -1.0, &vector_buf_dat[2 * m], 1, &vector_buf_dat[3 * m], 1);
         // Compute (g / ||g||)' * (A*g / ||g|| - V*E*V'*g / ||g||) - this is our measure for the error
-        err = blas::dot(m, Omega_dat, 1, Omega_dat + 3 * m, 1);	
+        err = blas::dot(m, vector_buf_dat, 1, &vector_buf_dat[3 * m], 1);	
         // v_0 <- v
-        std::copy(Omega_dat + 3 * m, Omega_dat + 4 * m, Omega_dat);
+        std::copy(&vector_buf_dat[3 * m], &vector_buf_dat[4 * m], vector_buf_dat);
     }
-    printf("%e\n", err);
     return err;
 }
 
@@ -202,7 +200,7 @@ int REVD2<T>::call(
         // Y = A * S
         blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
 
-        T nu = std::sqrt(m) * std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
+        T nu = std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
 
         // We need Y = Y + vS
         // We further need R = chol(S' Y)
