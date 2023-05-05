@@ -42,8 +42,9 @@ class CQRRPT : public CQRRPTalg<T> {
         /// which defaults to 1.
         ///
         /// The algorithm allows for choosing the rank estimation scheme either naively, through looking at the
-        /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_F.
+        /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_x.
         /// This decision is controlled through 'naive_rank_estimate' parameter, which defaults to 1.
+        /// The choice of norm ||A||_x, either 2 or F, is controlled via 'use_fro_norm'.
         ///
         /// The algorithm optionally times all of its subcomponents through a user-defined 'verbosity' parameter.
         ///
@@ -67,6 +68,7 @@ class CQRRPT : public CQRRPTalg<T> {
             oversampling = 10;
             panel_pivoting = 1;
             naive_rank_estimate = 1;
+            use_fro_norm = 1;
             cond_check = 0;
         }
 
@@ -104,6 +106,8 @@ class CQRRPT : public CQRRPTalg<T> {
         ///     Stores k integer type pivot index extries.
         ///
         /// @return = 0: successful exit
+        ///
+        /// @return = 1: cholesky factorization failed
         ///
 
         int call(
@@ -144,9 +148,12 @@ class CQRRPT : public CQRRPTalg<T> {
 
         // Rank estimate-related
         int naive_rank_estimate;
+        int use_fro_norm;
 
         // Preconditioning-related
         T cond_num_A_pre;
+        T cond_num_A_norm_pre;
+        std::string path;
 };
 
 // -----------------------------------------------------------------------------
@@ -212,7 +219,7 @@ int CQRRPT<T>::call(
         resize_t_dur = duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
         saso_t_start = high_resolution_clock::now();
     }
-
+    
     RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::SASO, d, m, this->nnz};
     RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
     RandBLAS::sparse::fill_sparse(S);
@@ -250,10 +257,9 @@ int CQRRPT<T>::call(
 
     int64_t k = n;
     int i;
-    if(this->naive_rank_estimate)
-    {
+    if(this->naive_rank_estimate) {
         for(i = 0; i < n; ++i) {
-            if(std::abs(A_hat_dat[i * d + i]) < this->eps) {
+            if(std::abs(A_hat_dat[i * d + i]) / std::abs(A_hat_dat[0]) < this->eps) {
                 k = i;
                 break;
             }
@@ -268,17 +274,24 @@ int CQRRPT<T>::call(
             blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i], n);
         }
 
-        // find l2-norm of the full R
-        T norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
+        T norm_R = 0.0;
+        if(this->use_fro_norm) {
+            // find fro norm of the full R
+            norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
+        } else {
+            // find l2 norm of the full R
+            norm_R = RandLAPACK::util::estimate_spectral_norm(n, n, R_dat, 10, state);
+            this->eps = 5 * this->eps;
+        }
 
         T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
         // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
-        if ((norm_R_sub > this->eps * norm_R))
-        {
+        if ((norm_R_sub > this->eps * norm_R)) {
             k = n;
         } else {
-            k = util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
+            k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
         }
+
         this->rank = k;
         // Clear R
         std::fill(R.begin(), R.end(), 0.0);
@@ -329,9 +342,17 @@ int CQRRPT<T>::call(
     // Check the condition number of a A_pre
     if(this -> cond_check)
     {
+        // Check cond(A_pre)
         std::vector<T> A_pre_cpy;
         std::vector<T> s;
         this->cond_num_A_pre = RandLAPACK::util::cond_num_check(m, k, A, A_pre_cpy, s, false);
+
+        A_pre_cpy.clear();
+        s.clear();
+        // Check cond(normc(A_pre))
+        std::vector<T> A_norm_pre;
+        RandLAPACK::util::normc(m, k, A, A_norm_pre);
+        this->cond_num_A_norm_pre = RandLAPACK::util::cond_num_check(m, k, A_norm_pre, A_pre_cpy, s, false);
     }
 
     if(this -> timing)
@@ -339,7 +360,12 @@ int CQRRPT<T>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
-    lapack::potrf(Uplo::Upper, k, R_sp_dat, k);
+    if(lapack::potrf(Uplo::Upper, k, R_sp_dat, k)){
+        if(this->verbosity)
+            printf("CHOLESKY FACTORIZATION FAILED.\n");
+        return 1;
+    }
+
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
