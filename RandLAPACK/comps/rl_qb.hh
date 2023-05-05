@@ -244,10 +244,10 @@ int QB<T>::call(
 
         // Updating B norm estimation
         T norm_B_i = lapack::lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
-        norm_B = hypot(norm_B, norm_B_i);
+        norm_B = std::hypot(norm_B, norm_B_i);
         // Updating approximation error
         prev_err = approx_err;
-        approx_err = sqrt(abs(norm_A - norm_B)) * (sqrt(norm_A + norm_B) / norm_A);
+        approx_err = std::sqrt(std::abs(norm_A - norm_B)) * (std::sqrt(norm_A + norm_B) / norm_A);
 
         // Early termination - handling round-off error accumulation
         if ((curr_sz > 0) && (approx_err > prev_err)) {

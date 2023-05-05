@@ -141,8 +141,6 @@ int RS<T>::call(
     T* Omega_1_dat = util::upsize(m * k, this->Omega_1);
     auto state = this->st;
 
-    RandBLAS::base::RNGState<r123::Philox4x32> st;
-
     if (p % 2 == 0) {
         // Fill n by k Omega
         RandBLAS::dense::DenseDist  D{.n_rows = n, .n_cols = k};

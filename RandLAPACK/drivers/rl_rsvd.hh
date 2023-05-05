@@ -132,7 +132,7 @@ int RSVD<T>::call(
     // Making sure all vectors are large enough
     util::upsize(m * k, U);
     util::upsize(k * k, this->U_buf);
-    util::upsize(k * 1, S);
+    util::upsize(k, S);
     util::upsize(k * n, VT);
 
     // SVD of B
