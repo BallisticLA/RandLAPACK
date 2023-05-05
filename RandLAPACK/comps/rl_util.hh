@@ -765,7 +765,7 @@ template <typename T>
 T estimate_spectral_norm(
     int64_t m,
     int64_t n,
-    T* A_dat,
+    T const* A_dat,
     int p,
     RandBLAS::base::RNGState<r123::Philox4x32> state
 ) {
@@ -805,7 +805,7 @@ int64_t rank_search_binary(
     int64_t n,
     T norm_A,
     T tau_trunc,
-    T* A_dat
+    T const* A_dat
 ) {
     T norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
 

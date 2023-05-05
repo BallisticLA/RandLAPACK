@@ -85,11 +85,9 @@ TEST_F(TestUtil, test_spectral_norm) {
 }
 
 TEST_F(TestUtil, test_normc) {
-    auto state = RandBLAS::base::RNGState(0, 0);
     test_normc<double>(1000);
 }
 
 TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
-    auto state = RandBLAS::base::RNGState(0, 0);
     test_binary_rank_search_zero_mat<double>(1000, 100);
 }
