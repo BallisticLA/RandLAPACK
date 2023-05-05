@@ -832,7 +832,7 @@ template <typename T>
 void normc(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
+    const std::vector<T>& A,
     std::vector<T>& A_norm
 ) {
     util::upsize(m * n, A_norm);
