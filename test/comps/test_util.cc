@@ -72,7 +72,7 @@ class TestUtil : public ::testing::Test
         int64_t k = RandLAPACK::util::rank_search_binary(0, m, 0, n, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75), A.data());
 
         printf("K IS %ld\n", k);
-        ASSERT_NEAR(k, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+        ASSERT_EQ(k, 0);
     }
 };
 
