@@ -63,7 +63,6 @@ class TestREVD2 : public ::testing::Test
         RandLAPACK::REVD2<T> REVD2(RF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
 
         k = k_start;
-        // Regular QB2 call
         REVD2.tol = std::pow(10, -14);
         REVD2.call(m, blas::Uplo::Upper, A, k, V, eigvals);
 
