@@ -19,19 +19,19 @@ error_check(int64_t m,
             int64_t n,
             int64_t k,
             T norm_A,
-            T* A_dat,
-            T* A_1_dat,
-            T* Q_dat,
-            T* R_dat,
-            T* I_ref_dat
+            T* A_dat, // Original matrix reference
+            T const* A_1_dat, // Copy of the original matrix reference
+            T const* Q_dat, // Q-factor form an arbitrary QR scheme
+            T const* R_dat, // R-factor from an arbitrary QR scheme
+            T* I_ref_dat // Identity matrix reference
             ) {
 
     // Check orthogonality of Q
     // Q' * Q  - I = 0
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Q_dat, m, Q_dat, m, -1.0, I_ref_dat, k);
-    T norm_0 = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, I_ref_dat, k);
+    T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
 
-    // AP - QR
+    // A - QR
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, k, -1.0, A_dat, m);
     
     // Implementing max col norm metric
@@ -83,8 +83,9 @@ cholqr_helper(int64_t m,
 
     // Check orthogonality of Q
     // Q' * Q  - I = 0
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, -1.0, I_ref_dat, n);
-    T norm_Q = lapack::lange(lapack::Norm::Fro, n, n, I_ref_dat, n);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A_dat, m, -1.0, I_ref_dat, n);
+    T norm_Q = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, n, I_ref_dat, n);
+
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_dat, m, R_sp_dat, n, -1.0, A_hat_dat, m);
     T norm_A = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
 
@@ -122,7 +123,6 @@ cqrrpt_helper(int64_t m,
     CQRRPT.num_threads         = additional_params[3];
     CQRRPT.cond_check          = additional_params[4];
     CQRRPT.naive_rank_estimate = additional_params[5];
-    CQRRPT.path = "../../../"; 
     CQRRPT.use_fro_norm = additional_params[6];
 
     // CQRRPT
@@ -189,7 +189,7 @@ scholqr_helper(int64_t m,
     }
     
     // R_0 = chol(A)
-    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
+    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)) {
         printf("CHOLESKY FAILED\n");
         return;
     }
@@ -200,7 +200,7 @@ scholqr_helper(int64_t m,
 
     // CholeskyQR2
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
-    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
+    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)) {
         printf("CHOLESKY FAILED\n");
         return;
     }
@@ -210,7 +210,7 @@ scholqr_helper(int64_t m,
 
     // CholeskyQR3
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, ATA.data(), n);
-    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)){
+    if(lapack::potrf(Uplo::Upper, n, ATA.data(), n)) {
         printf("CHOLESKY FAILED\n");
         return;
     }

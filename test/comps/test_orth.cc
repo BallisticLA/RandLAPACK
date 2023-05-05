@@ -60,9 +60,10 @@ class TestOrth : public ::testing::Test
         // Call the scheme twice for better orthogonality
         CholQRQ.call(m, k, Y);
         // Q' * Q  - I = 0
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Y_dat, m, Y_dat, m, -1.0, I_ref_dat, k);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Y_dat, m, -1.0, I_ref_dat, k);
+        T norm_fro = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
 
-        T norm_fro = lapack::lange(lapack::Norm::Fro, k, k, I_ref_dat, k);
+
         printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);
         ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }

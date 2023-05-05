@@ -55,12 +55,12 @@ class CQRRPT : public CQRRPTalg<T> {
         /// values of the R-factor via an appropriate LAPACK function.
         CQRRPT(
             bool verb,
-            bool t,
+            bool time_subroutines,
             RandBLAS::base::RNGState<r123::Philox4x32> st,
             T ep
         ) {
             verbosity = verb;
-            timing = t;
+            timing = time_subroutines;
             state = st;
             eps = ep;
             no_hqrrp = 1;
@@ -153,7 +153,6 @@ class CQRRPT : public CQRRPTalg<T> {
         // Preconditioning-related
         T cond_num_A_pre;
         T cond_num_A_norm_pre;
-        std::string path;
 };
 
 // -----------------------------------------------------------------------------
@@ -258,6 +257,8 @@ int CQRRPT<T>::call(
     int64_t k = n;
     int i;
     if(this->naive_rank_estimate) {
+        /// Using R[i,i] to approximate the i-th singular value of A_hat. 
+        /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
         for(i = 0; i < n; ++i) {
             if(std::abs(A_hat_dat[i * d + i]) / std::abs(A_hat_dat[0]) < this->eps) {
                 k = i;

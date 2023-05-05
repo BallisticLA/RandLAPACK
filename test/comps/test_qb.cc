@@ -141,7 +141,7 @@ class TestQB : public ::testing::Test
         // TEST 2: B - Q'A = 0
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, B_cpy_dat, k);
         // TEST 3: Q'Q = I = 0
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, -1.0, Q_dat, m, Q_dat, m, 1.0, Ident_dat, k);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, Ident_dat, k);
 
         // Get low-rank SVD
         lapack::gesdd(Job::SomeVec, m, n, A_cpy_dat, m, s_dat, U_dat, m, VT_dat, n);
@@ -167,7 +167,7 @@ class TestQB : public ::testing::Test
         printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
         ASSERT_NEAR(norm_test_2, 0, test_tol);
         // Test 3 Output
-        T norm_test_3 = lapack::lange(lapack::Norm::Fro, k, k, Ident_dat, k);
+        T norm_test_3 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, Ident_dat, k);
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
         ASSERT_NEAR(norm_test_3, 0, test_tol);
         // Test 4 Output
