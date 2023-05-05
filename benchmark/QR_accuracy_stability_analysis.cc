@@ -39,13 +39,13 @@ error_check(int64_t m,
     T col_norm = 0.0;
     int max_idx = 0;
     for(int i = 0; i < n; ++i) {
-        col_norm = blas::nrm2(m, A_dat + (m * i), 1);
+        col_norm = blas::nrm2(m, &A_dat[m * i], 1);
         if(max_col_norm < col_norm) {
             max_col_norm = col_norm;
             max_idx = i;
         }
     }
-    T col_norm_A = blas::nrm2(n, A_1_dat + (m * max_idx), 1);
+    T col_norm_A = blas::nrm2(n, &A_1_dat[m * max_idx], 1);
     T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
     
     printf("REL NORM OF AP - QR: %15e\n", norm_AQR / norm_A);
