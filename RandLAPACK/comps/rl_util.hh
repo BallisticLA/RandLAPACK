@@ -273,9 +273,12 @@ void gen_mat(
 
 /// Generates matrix with the following singular values:
 /// sigma_i = 1 / (i + 1)^pow (first k * 0.2 sigmas = 1
-/// Can either be a diagonal matrix, or a full one.
+/// Output matrix is m by n of rank k.
 /// In later case, left and right singular vectors are randomly-generated
 /// and orthogonaized.
+/// Boolean parameter 'diag' signifies whether the matrix is to be
+/// generated as diagonal.
+/// Parameter 'cond' signfies the condition number of a generated matrix.
 template <typename T>
 void gen_poly_mat(
     int64_t& m,
@@ -324,9 +327,12 @@ void gen_poly_mat(
 
 /// Generates matrix with the following singular values:
 /// sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1
-/// Can either be a diagonal matrix, or a full one.
+/// Output matrix is m by n of rank k.
 /// In later case, left and right singular vectors are randomly-generated
 /// and orthogonaized.
+/// Boolean parameter 'diag' signifies whether the matrix is to be
+/// generated as diagonal.
+/// Parameter 'cond' signfies the condition number of a generated matrix.
 template <typename T>
 void gen_exp_mat(
     int64_t& m,
@@ -353,6 +359,203 @@ void gen_exp_mat(
         // Lambda expression begins
         [&t, &cnt](T& entry) {
                 entry = (std::exp(++cnt * -t));
+        }
+    );
+
+    // form a diagonal S
+    diag(k, k, s, k, S);
+    if (diagon) {
+        if (!(m == k || n == k)) {
+                m = k;
+                n = k;
+                A.resize(k * k);
+        }
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+    } else {
+        gen_mat(m, n, A, k, S, state);
+    }
+}
+
+/// Generates matrix with a staircase spectrum with 4 steps.
+/// Output matrix is m by n of rank k.
+/// Boolean parameter 'diag' signifies whether the matrix is to be
+/// generated as diagonal.
+/// Parameter 'cond' signfies the condition number of a generated matrix.
+template <typename T>
+void gen_step_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    int64_t k,
+    T cond,
+    bool diagon,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    // Predeclare to all nonzero constants, start decay where needed
+    std::vector<T> s(k, 1.0);
+    std::vector<T> S(k * k, 0.0);
+
+    // We will have 4 steps controlled by the condition number size and starting with 1
+    int offset = (int) (k / 4);
+
+    std::fill(s.begin(), s.begin() + offset, 1);
+    std::fill(s.begin() + offset + 1, s.begin() + 2 * offset, 8.0 / cond);
+    std::fill(s.begin() + 2 * offset + 1, s.begin() + 3 * offset, 4.0 / cond);
+    std::fill(s.begin() + 3 * offset + 1, s.end(), 1.0 / cond);
+
+    // form a diagonal S
+    diag(k, k, s, k, S);
+
+    if (diagon) {
+        if (!(m == k || n == k)) {
+            m = k;
+            n = k;
+            A.resize(k * k);
+        }
+        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+    } else {
+        gen_mat(m, n, A, k, S, state);
+    }
+}
+
+/// Generates a matrix with high coherence between the left singular vectors.
+/// Output matrix is m by n, full-rank.
+/// Such matrix would be difficult to sketch.
+/// Right singular vectors are sampled uniformly at random.
+template <typename T>
+void gen_spiked_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    T spike_scale,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+    T* A_dat = upsize(m * n, A);
+
+    int64_t num_rows_sampled = n / 2;
+
+    /// We use the indices of nonzeros for columns of a num_rows_sampled by m LASO with one nonzero per row.
+    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::LASO, num_rows_sampled, m, 1};
+    RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
+    RandBLAS::sparse::fill_sparse(S);
+
+    std::vector<T> V(n * n, 0.0);
+    std::vector<T> tau(n, 0.0);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+
+    lapack::geqrf(n, n, V.data(), n, tau.data());
+    lapack::ungqr(n, n, n, V.data(), n, tau.data());
+
+    // Fill A with stacked copies of V
+    int start = 0;
+    while(start + n <= m){
+        for(int j = 0; j < n; ++j) {
+            blas::copy(n, &V[m * j], 1, &A[start + (m * j)], 1);
+        }
+        start += n;
+    }
+
+    // Scale randomly sampled rows
+    start = 0;
+    while (start + m <= m * n) {
+        for(int i = 0; i < num_rows_sampled; ++i) {
+            A_dat[start + (S.cols)[i] - 1] *= spike_scale;
+        }
+        start += m;
+    }
+}
+
+/// Generates a numerically rank-deficient matrix.
+/// Added per Oleg's suggestion.
+/// Output matrix is m by n of some rank k < n.
+/// Generates a matrix of the form A = UV, where
+/// U is an m by n Gaussian matrix whose first row was scaled by a factor sigma, and that then 
+/// was orthonormalized with a Householder QR. 
+/// The matrix V is the upper triangular part of an n × n 
+/// orthonormalized Gaussian matrix with modified diagonal entries to diag(V) *= [1, 10^-15, . . . , 10^-15, 10^-15].
+template <typename T>
+void gen_oleg_adversarial_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    T sigma,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    T scaling_factor_U = sigma;
+    T scaling_factor_V = 10e-3;
+
+    std::vector<T> U(m * n, 0.0);
+    std::vector<T> V(n * n, 0.0);
+    std::vector<T> tau1(n, 0.0);
+    std::vector<T> tau2(n, 0.0);
+
+    RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(U.data(), DU, state);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+
+    T* U_dat = U.data();
+    for(int i = 0; i < n; ++i) {
+        //U_dat[m * i + 1] *= scaling_factor_U;
+        for(int j = 0; j < 10; ++j) {
+            U_dat[m * i + j] *= scaling_factor_U;
+        }
+    }
+
+    lapack::geqrf(m, n, U.data(), m, tau1.data());
+    lapack::ungqr(m, n, n, U.data(), m, tau1.data());
+
+    lapack::geqrf(n, n, V.data(), n, tau2.data());
+    lapack::ungqr(n, n, n, V.data(), n, tau2.data());
+
+    // Grab an upper-triangular portion of V
+    get_U(n, n, V);
+
+    T* V_dat = V.data();
+    for(int i = 11; i < n; ++i)
+        V_dat[n * i + i] *= scaling_factor_V;
+
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
+}
+
+/// Per Oleg's suggestion, this matrix is supposed to break QB with Cholesky QR.
+/// Output matrix is m by n, full-rank.
+/// Parameter 'k' signifies the dimension of a sketching operator.
+/// Boolean parameter 'diag' signifies whether the matrix is to be
+/// generated as diagonal.
+/// Parameter 'cond' signfies the condition number of a generated matrix.
+template <typename T>
+void gen_bad_cholqr_mat(
+    int64_t& m,
+    int64_t& n,
+    std::vector<T>& A,
+    int64_t k,
+    T cond,
+    bool diagon,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    std::vector<T> s(n, 1.0);
+    std::vector<T> S(n * n, 0.0);
+
+    // The first k singular values will be =1
+    int offset = k;
+
+    // Then, we start with 10^-8 and decrease exponentially
+    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
+
+    T cnt = 0.0;
+    // apply lambda function to every entry of s
+    // Please make sure that the first singular value is always 1
+    std::for_each(s.begin() + offset, s.end(),
+        // Lambda expression begins
+        [&t, &cnt](T& entry) {
+                entry = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
         }
     );
 
@@ -400,6 +603,24 @@ T cond_num_check(
         printf("CONDITION NUMBER: %f\n", cond_num);
 
     return cond_num;
+}
+
+// Computes the numerical rank of a given matirx
+template <typename T>
+int64_t rank_check(
+    int64_t m,
+    int64_t n,
+    const std::vector<T>& A
+) {
+    std::vector<T> A_pre_cpy;
+    std::vector<T> s;
+    RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
+
+    for(int i = 0; i < n; ++i) {
+        if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
+            return i - 1;
+    }
+    return n;
 }
 
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
@@ -477,6 +698,30 @@ void gen_mat_type(
                 RandBLAS::dense::fill_buff(A_dat, D, state);
             }
             break;
+        case 7: {
+                // Generating matrix with a staircase-like spectrum
+                RandLAPACK::util::gen_step_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+            }    
+            break;
+        case 8: {
+                // This matrix may be numerically rank deficient
+                RandLAPACK::util::gen_spiked_mat(m, n, A, std::get<1>(type), state);
+                if(std::get<2>(type))
+                    k = rank_check(m, n, A);
+            }
+            break;
+        case 9: {
+                // This matrix may be numerically rank deficient
+                RandLAPACK::util::gen_oleg_adversarial_mat(m, n, A, std::get<1>(type), state);
+                if(std::get<2>(type))
+                    k = rank_check(m, n, A);
+            }
+            break;
+        case 10: {
+                // Per Oleg's suggestion, this is supposed to make QB fail with CholQR for orth/stab
+                RandLAPACK::util::gen_bad_cholqr_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+            }
+            break;
         default:
             throw std::runtime_error(std::string("Unrecognized case."));
             break;
@@ -497,7 +742,8 @@ bool orthogonality_check(
     const T* A_dat = A.data();
     T* A_gram_dat = A_gram.data();
 
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, 0.0, A_gram_dat, n);
+    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, n, m, 1.0, A_dat, m, 0.0, A_gram_dat, n);
+
     for (int oi = 0; oi < k; ++oi) {
         A_gram_dat[oi * n + oi] -= 1.0;
     }
@@ -511,6 +757,35 @@ bool orthogonality_check(
         return true;
 
     return false;
+}
+
+/// Computes an L-2 norm of a given matrix using
+/// p steps of power iteration.
+template <typename T>
+T estimate_spectral_norm(
+    int64_t m,
+    int64_t n,
+    T const* A_dat,
+    int p,
+    RandBLAS::base::RNGState<r123::Philox4x32> state
+) {
+
+    std::vector<T> buf (n, 0.0);
+    std::vector<T> buf1 (m, 0.0);
+
+    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = 1};
+    state = RandBLAS::dense::fill_buff(buf.data(), DV, state);
+
+    T prev_norm_inv = 1.0;
+    for(int i = 0; i < p; ++i) {
+        // A * v
+        gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0, A_dat, m, buf.data(), 1, 0.0, buf1.data(), 1);
+        // prev_norm_inv * A' * A * v
+        gemv(Layout::ColMajor, Op::Trans, m, n, prev_norm_inv, A_dat, m, buf1.data(), 1, 0.0, buf.data(), 1);
+        prev_norm_inv = 1 / blas::nrm2(n, buf.data(), 1);
+    }
+
+    return std::sqrt(blas::nrm2(n, buf.data(), 1));
 }
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
@@ -530,7 +805,7 @@ int64_t rank_search_binary(
     int64_t n,
     T norm_A,
     T tau_trunc,
-    T* A_dat
+    T const* A_dat
 ) {
     T norm_R_sub = lapack::lange(Norm::Fro, n - k, n, &A_dat[k * n], n - k);
 
@@ -550,6 +825,27 @@ int64_t rank_search_binary(
         k = rank_search_binary(lo, k, lo + ((k - lo) / 2), n, norm_A, tau_trunc, A_dat);
     }
     return k;
+}
+
+/// Normalizes columns of a given matrix, writes the result into a buffer
+template <typename T>
+void normc(
+    int64_t m,
+    int64_t n,
+    const std::vector<T>& A,
+    std::vector<T>& A_norm
+) {
+    util::upsize(m * n, A_norm);
+
+    T col_nrm = 0.0;
+    for(int i = 0; i < n; ++i) {
+        col_nrm = blas::nrm2(m, &A[m * i], 1);
+        if(col_nrm != 0) {
+            for (int j = 0; j < m; ++j) {
+                A_norm[m * i + j] = A[m * i + j] / col_nrm;
+            }
+        }
+    }
 }
 
 } // end namespace util
