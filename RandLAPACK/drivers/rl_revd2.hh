@@ -20,10 +20,11 @@ class REVD2alg {
 
         virtual int call(
             int64_t m,
+            blas::Uplo uplo,
             std::vector<T>& A,
             int64_t& k,
             std::vector<T>& V,
-            std::vector<T>& E
+            std::vector<T>& eigvals
         ) = 0;
 };
 
@@ -66,6 +67,7 @@ class REVD2 : public REVD2alg<T> {
         /// @param[in] A
         ///     The m-by-m matrix A, stored in a column-major format.
         ///     Must be SPD.
+        ///     We are assuming it is either full or upper-triangular always.
         ///
         /// @param[in] k
         ///     Column dimension of a sketch, k <= n.
@@ -79,7 +81,7 @@ class REVD2 : public REVD2alg<T> {
         /// @param[out] V
         ///     Stores m-by-k matrix matrix of eigenvectors.
         ///
-        /// @param[out] E
+        /// @param[out] eigvals
         ///     Stores k eigenvalues.
         ///
         /// @return = 0: successful exit
@@ -87,10 +89,11 @@ class REVD2 : public REVD2alg<T> {
 
         int call(
             int64_t m,
+            blas::Uplo uplo,
             std::vector<T>& A,
             int64_t& k,
             std::vector<T>& V,
-            std::vector<T>& E
+            std::vector<T>& eigvals
         ) override;
 
     public:
@@ -110,19 +113,80 @@ class REVD2 : public REVD2alg<T> {
 };
 
 // -----------------------------------------------------------------------------
+
+template <typename T>
+T power_error_est(
+    int64_t m,
+    int64_t k,
+    int p,
+    T* Omega_dat,
+    T* V_dat,
+    blas::Uplo uplo,
+    T* A_dat,
+    T* Y_dat,
+    T* eigvals_dat
+) {
+    T err = 0;
+
+            char name [] = "A";
+        RandBLAS::util::print_colmaj(m, m, A_dat, name);
+        
+    for(int i = 0; i < p; ++i) {
+        T g_norm = blas::nrm2(m, Omega_dat, 1);
+        // Compute g = g / ||g|| - we need this because dot product does not take in an alpha
+        std::for_each(Omega_dat, Omega_dat + m, [g_norm](T &entry) { entry /= g_norm;});
+
+        // Compute V'*g / ||g||
+        // Using the second column of Omega as a buffer for matrix-vector product
+        gemv(Layout::ColMajor, Op::Trans, m, k, 1.0, V_dat, m, Omega_dat, 1, 0.0, Omega_dat + m, 1);
+
+
+        // Compute V*E, eigvals diag
+        // Using Y as a buffer for V*E
+        for (int i = 0, j = 0; i < m * k; ++i) {
+            Y_dat[i] = V_dat[i] * eigvals_dat[j];
+            if((i + 1) % m == 0 && i != 0)
+                ++j;
+        }
+
+        // Compute V*E*V'*g / ||g||
+        // Using the third column of Omega as a buffer for matrix-vector product
+        gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Y_dat, m,Omega_dat + m, 1, 0.0, Omega_dat + 2 * m, 1);
+        // Compute A*g / ||g||
+        // Using the forth column of Omega as a buffer for matrix-vector product
+        //gemv(Layout::ColMajor, Op::NoTrans, m, m, 1.0, A_dat, m, Omega_dat, 1, 0.0, Omega_dat + 3 * m, 1);
+        symv(Layout::ColMajor, Uplo::Lower, 1.0, m, A_dat, m, Omega_dat, 1, 0.0, Omega_dat + 3 * m, 1);
+        RandBLAS::util::print_colmaj(m, 1, Omega_dat, name);
+        RandBLAS::util::print_colmaj(m, 1, Omega_dat + 3 * m, name);
+
+        // Compute A*g / ||g|| - V*E*V'*g / ||g||
+        // Result is stored in the 4th column of Omega
+        blas::axpy(m, -1.0, Omega_dat + 2 * m, 1, Omega_dat + 3 * m, 1);
+        // Compute (g / ||g||)' * (A*g / ||g|| - V*E*V'*g / ||g||) - this is our measure for the error
+        err = blas::dot(m, Omega_dat, 1, Omega_dat + 3 * m, 1);	
+        // v_0 <- v
+        std::copy(Omega_dat + 3 * m, Omega_dat + 4 * m, Omega_dat);
+    }
+    printf("%e\n", err);
+    return err;
+}
+
+
+
 template <typename T>
 int REVD2<T>::call(
         int64_t m, // m = n
+        blas::Uplo uplo,
         std::vector<T>& A,
         int64_t& k,
         std::vector<T>& V,
-        std::vector<T>& E
+        std::vector<T>& eigvals
 ){
     T err = 0;
     while(1) {
         T* A_dat = A.data();
         T* V_dat = util::upsize(m * k, V);
-        util::upsize(k, E);
+        util::upsize(k, eigvals);
         T* Y_dat = util::upsize(m * k, this->Y);
         T* Omega_dat = util::upsize(m * k, this->Omega);
         T* R_dat = util::upsize(k * k, this->R);
@@ -136,7 +200,7 @@ int REVD2<T>::call(
         }
 
         // Y = A * S
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
+        blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
 
         T nu = std::sqrt(m) * std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
 
@@ -147,7 +211,7 @@ int REVD2<T>::call(
         blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega_dat, m, 0.0, R_dat, k);
         // Fill the upper triangular part of S'S
         for(int i = 1; i < k; ++i)
-            blas::copy(k - i, R_dat + i + ((i-1) * k), 1, R_dat + (i - 1) + (i * k), k);
+            blas::copy(k - i, &R_dat[i + ((i-1) * k)], 1, &R_dat[(i - 1) + (i * k)], k);
         // Compute S' Y + vS'S
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
 
@@ -167,23 +231,24 @@ int REVD2<T>::call(
         // Use R as a buffer for that.
         lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, R_dat, k);
 
-        // E = diag(S^2)
+        // eigvals = diag(S^2)
         T buf;
         int64_t r = 0;
         int i;
         for(i = 0; i < k; ++i) {
             buf = std::pow(S[i], 2);
-            E[i] = buf;
-            // r = number of entries in E that are greater than v
+            eigvals[i] = buf;
+            // r = number of entries in eigvals that are greater than v
             if(buf > nu)
                 ++r;
         }
 
         // Undo regularlization
+        // Need to make sure no eigenvalue is negative
         for(i = 0; i < r; ++i)
-            E[i] -=nu;
+            (eigvals[i] - nu < 0) ? 0 : eigvals[i] -=nu;
 
-        std::fill(V.begin() + m * r, V.end(), 0.0);
+        std::fill(&V_dat[m * r], &V_dat[m * k], 0.0);
 
         // Error estimation
         // Using the first column of Omega as a buffer for a random vector
@@ -192,38 +257,7 @@ int REVD2<T>::call(
         RandBLAS::dense::DenseDist  g{.n_rows = m, .n_cols = 1};
         RandBLAS::dense::fill_buff(Omega_dat, g, state);
 
-        for(int i = 0; i < this->p; ++i) {
-            T g_norm = blas::nrm2(m, Omega_dat, 1);
-            // Compute g = g / ||g|| - we need this because dot product does not take in an alpha
-            std::for_each(Omega_dat, Omega_dat + m, [g_norm](T &entry) { entry /= g_norm;});
-
-            // Compute V'*g / ||g||
-            // Using the second column of Omega as a buffer for matrix-vector product
-            gemv(Layout::ColMajor, Op::Trans, m, k, 1.0, V_dat, m, Omega_dat, 1, 0.0, Omega_dat + m, 1);
-
-
-            // Compute V*E, E diag
-            // Using Y as a buffer for V*E
-            for (int i = 0, j = 0; i < m * k; ++i) {
-                Y[i] = V[i] * E[j];
-                if((i + 1) % m == 0 && i != 0)
-                    ++j;
-            }
-
-            // Compute V*E*V'*g / ||g||
-            // Using the third column of Omega as a buffer for matrix-vector product
-            gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Y_dat, m,Omega_dat + m, 1, 0.0, Omega_dat + 2 * m, 1);
-            // Compute A*g / ||g||
-            // Using the forth column of Omega as a buffer for matrix-vector product
-            gemv(Layout::ColMajor, Op::NoTrans, m, m, 1.0, A_dat, m, Omega_dat, 1, 0.0, Omega_dat + 3 * m, 1);
-            // Compute A*g / ||g|| - V*E*V'*g / ||g||
-            // Result is stored in the 4th column of Omega
-            blas::axpy(m, -1.0, Omega_dat + 2 * m, 1, Omega_dat + 3 * m, 1);
-            // Compute (g / ||g||)' * (A*g / ||g|| - V*E*V'*g / ||g||) - this is our measure for the error
-            err = blas::dot(m, Omega_dat, 1, Omega_dat + 3 * m, 1);	
-            // v_0 <- v
-            std::copy(Omega_dat + 3 * m, Omega_dat + 4 * m, Omega_dat);
-        }
+        err = power_error_est(m, k, p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 
         if(err <= 5 * std::max(this->tol, nu) || k == m) {
             break;

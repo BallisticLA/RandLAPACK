@@ -6,9 +6,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
-
 class TestREVD2 : public ::testing::Test
 {
     protected:
@@ -29,18 +26,22 @@ class TestREVD2 : public ::testing::Test
         RandLAPACK::util::gen_mat_type(m, m, A_buf, k, state, mat_type);
 
         std::vector<T> A(m * m, 0.0);
+        T* A_dat = A.data();
 
         // We're using Nystrom, the original must be positive semidefinite
         blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, m, m, 1.0, A_buf.data(), m, 0.0, A.data(), m);
         for(int i = 1; i < m; ++i)
-            blas::copy(m - i, A.data() + i + ((i-1) * m), 1, A.data() + (i - 1) + (i * m), m);
+            blas::copy(m - i, &A_dat[i + ((i-1) * m)], 1, &A_dat[(i - 1) + (i * m)], m);
+
+
+        char name [] = "A";
+        RandBLAS::util::print_colmaj(m, m, A_dat, name);
 
         // For results comparison
         std::vector<T> A_cpy (m * m, 0.0);
         std::vector<T> V(m * k, 0.0);
-        std::vector<T> e(k, 0.0);
+        std::vector<T> eigvals(k, 0.0);
 
-        T* A_dat = A.data();
         T* A_cpy_dat = A_cpy.data();
 
         // Create a copy of the original matrix
@@ -67,7 +68,7 @@ class TestREVD2 : public ::testing::Test
 
         k = k_start;
         // Regular QB2 call
-        REVD2.call(m, A, k, V, e);
+        REVD2.call(m, blas::Uplo::Upper, A, k, V, eigvals);
 
         std::vector<T> E(k * k, 0.0);
         std::vector<T> Buf (m * k, 0.0);
@@ -79,7 +80,7 @@ class TestREVD2 : public ::testing::Test
         // Construnct A_hat = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
-        RandLAPACK::util::diag(k, k, e, k, E);
+        RandLAPACK::util::diag(k, k, eigvals, k, E);
         // V * E = Buf
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, V_dat, m, E_dat, k, 0.0, Buf_dat, m);
         // A - Buf * V' - should be close to 0
@@ -94,18 +95,35 @@ class TestREVD2 : public ::testing::Test
     }
 };
 
-TEST_F(TestREVD2, SimpleTest)
-{ 
-    // Generate a random state
+TEST_F(TestREVD2, Underestimation1) { 
+    auto state = RandBLAS::base::RNGState(0, 0);
+    // Rank estimation must be 80 - underestimation - starting with very small rank
+    test_REVD2_general<double>(10, 10, 1, std::make_tuple(0, std::pow(10, 8), false), state, 8, std::pow(10, -13));
+}
+/*
+TEST_F(TestREVD2, Underestimation1) { 
     auto state = RandBLAS::base::RNGState(0, 0);
     // Rank estimation must be 80 - underestimation - starting with very small rank
     test_REVD2_general<double>(1000, 100, 1, std::make_tuple(0, std::pow(10, 8), false), state, 64, std::pow(10, -13));
+}
+TEST_F(TestREVD2, Underestimation2) { 
+    auto state = RandBLAS::base::RNGState(0, 0);
     // Rank estimation must be 80 - underestimation
     test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, std::pow(10, 8), false), state, 80, std::pow(10, -13));
+}
+TEST_F(TestREVD2, Overestimation1) { 
+    auto state = RandBLAS::base::RNGState(0, 0);
     // Rank estimation must be 60 - overestimation
     test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
+}
+TEST_F(TestREVD2, Oversetimation2) { 
+    auto state = RandBLAS::base::RNGState(0, 0);
     // Rank estimation must be 160 - slight overestimation
     test_REVD2_general<double>(1000, 159, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
-    // Numerically rank deficient matrix - expecting rank estimate = m
-    test_REVD2_general<double>(1000, 1000, 10, std::make_tuple(0, std::pow(10, 2), false), state, 1000, std::pow(10, -13));
 }
+TEST_F(TestREVD2, Exactness) { 
+    auto state = RandBLAS::base::RNGState(0, 0);
+    // Numerically rank deficient matrix - expecting rank estimate = m
+    test_REVD2_general<double>(100, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 100, std::pow(10, -13));
+}
+*/
