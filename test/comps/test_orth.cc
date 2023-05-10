@@ -26,8 +26,8 @@ class TestOrth : public ::testing::Test
 
     /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
     /// Checks I - \transpose{Q}Q.
-    template <typename T>
-    static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+    template <typename T, typename RNG>
+    static void test_orth_sketch(int64_t m, int64_t n, int64_t k, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state) {
 
         int64_t size = m * n;
         std::vector<T> A(size, 0.0);

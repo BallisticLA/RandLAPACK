@@ -33,7 +33,7 @@ class CQRRPTalg {
         ) = 0;
 };
 
-template <typename T>
+template <typename T, typename RNG>
 class CQRRPT : public CQRRPTalg<T> {
     public:
 
@@ -56,7 +56,7 @@ class CQRRPT : public CQRRPTalg<T> {
         CQRRPT(
             bool verb,
             bool time_subroutines,
-            RandBLAS::base::RNGState<r123::Philox4x32> st,
+            RandBLAS::base::RNGState<RNG> st,
             T ep
         ) {
             verbosity = verb;
@@ -123,7 +123,7 @@ class CQRRPT : public CQRRPTalg<T> {
         bool verbosity;
         bool timing;
         bool cond_check;
-        RandBLAS::base::RNGState<r123::Philox4x32> state;
+        RandBLAS::base::RNGState<RNG> state;
         T eps;
         int64_t rank;
         int64_t b_sz;
@@ -156,8 +156,8 @@ class CQRRPT : public CQRRPTalg<T> {
 };
 
 // -----------------------------------------------------------------------------
-template <typename T>
-int CQRRPT<T>::call(
+template <typename T, typename RNG>
+int CQRRPT<T, RNG>::call(
     int64_t m,
     int64_t n,
     std::vector<T>& A,

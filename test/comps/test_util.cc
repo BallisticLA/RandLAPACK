@@ -26,9 +26,9 @@ class TestUtil : public ::testing::Test
 
     virtual void TearDown() {};
 
-    template <typename T>
+    template <typename T, typename RNG>
     static void 
-    test_spectral_norm(int64_t m, int64_t n, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+    test_spectral_norm(int64_t m, int64_t n, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state) {
         
         std::vector<T> A(m * n, 0.0);
         std::vector<T> A_cpy(m * n, 0.0);
@@ -78,10 +78,10 @@ class TestUtil : public ::testing::Test
 
 TEST_F(TestUtil, test_spectral_norm) {
     auto state = RandBLAS::base::RNGState(0, 0);
-    test_spectral_norm<double>(1000, 100, std::make_tuple(0, 2, false), state);
-    test_spectral_norm<double>(1000, 100, std::make_tuple(9, std::pow(10, 15), false), state);
-    test_spectral_norm<float>(1000, 100, std::make_tuple(0, 2, false), state);
-    test_spectral_norm<float>(1000, 100, std::make_tuple(9, std::pow(10, 7), false), state);
+    test_spectral_norm<double, r123::Philox4x32>(1000, 100, std::make_tuple(0, 2, false), state);
+    test_spectral_norm<double, r123::Philox4x32>(1000, 100, std::make_tuple(9, std::pow(10, 15), false), state);
+    test_spectral_norm<float, r123::Philox4x32>(1000, 100, std::make_tuple(0, 2, false), state);
+    test_spectral_norm<float, r123::Philox4x32>(1000, 100, std::make_tuple(9, std::pow(10, 7), false), state);
 }
 
 TEST_F(TestUtil, test_normc) {

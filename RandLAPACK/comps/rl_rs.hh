@@ -31,7 +31,7 @@ class RowSketcher
         ) = 0;
 };
 
-template <typename T>
+template <typename T, typename RNG>
 class RS : public RowSketcher<T>
 {
     public:
@@ -39,7 +39,7 @@ class RS : public RowSketcher<T>
         RS(
             // Requires a stabilization algorithm object.
             RandLAPACK::Stabilization<T>& stab_obj,
-            RandBLAS::base::RNGState<r123::Philox4x32> s,
+            RandBLAS::base::RNGState<RNG> s,
             int64_t p,
             int64_t q,
             bool verb,
@@ -109,7 +109,7 @@ class RS : public RowSketcher<T>
         ) override;
 
         RandLAPACK::Stabilization<T>& Stab_Obj;
-        RandBLAS::base::RNGState<r123::Philox4x32> st;
+        RandBLAS::base::RNGState<RNG> st;
         int64_t passes_over_data;
         int64_t passes_per_stab;
         bool verbosity;
@@ -123,8 +123,8 @@ class RS : public RowSketcher<T>
 };
 
 // -----------------------------------------------------------------------------
-template <typename T>
-int RS<T>::call(
+template <typename T, typename RNG>
+int RS<T, RNG>::call(
     int64_t m,
     int64_t n,
     const std::vector<T>& A,

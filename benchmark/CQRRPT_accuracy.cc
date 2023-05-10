@@ -16,8 +16,8 @@ Note: this benchmark attempts to save files into a specific location.
 If the required folder structure does not exist, the files will not be saved.
 */
 
-template <typename T>
-    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state, int test_num, std::string path) {
+template <typename T, typename RNG>
+    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<RNG> state, int test_num, std::string path) {
         
         printf("/-----------------------------------------CQRRPT ACCURACY BENCHMARK START-----------------------------------------/\n");
         
@@ -43,7 +43,7 @@ template <typename T>
         std::copy(A.data(), A.data() + size, A_1.data());
         std::copy(A.data(), A.data() + size, A_2.data());
 
-        RandLAPACK::CQRRPT<T> CQRRPT(false, false, state, tol);
+        RandLAPACK::CQRRPT<T, RNG> CQRRPT(false, false, state, tol);
         CQRRPT.nnz = nnz;
         CQRRPT.num_threads = 32;
 
@@ -175,7 +175,7 @@ int main() {
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     // Spiked spectrum *V good params
-    test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
-    test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
+    test_CQRRPT_approx_qual<double, r123::Philox4x32>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
+    test_CQRRPT_approx_qual<double, r123::Philox4x32>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     return 0;
 }

@@ -103,12 +103,12 @@ test_speed_helper(int64_t m,
 
     // CQRRPT constructor
     bool log_times = true;
-    RandLAPACK::CQRRPT<T> CQRRPT_basic(false, log_times, state, tol);
+    RandLAPACK::CQRRPT<T, RNG> CQRRPT_basic(false, log_times, state, tol);
     CQRRPT_basic.nnz = nnz;
     CQRRPT_basic.num_threads = num_threads;
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT_HQRRP(false, log_times, state, tol);
+    RandLAPACK::CQRRPT<T, RNG> CQRRPT_HQRRP(false, log_times, state, tol);
     
     CQRRPT_HQRRP.nnz = nnz;
     CQRRPT_HQRRP.num_threads = num_threads;
@@ -334,7 +334,7 @@ test_speed(int r_pow,
 
             curr_runs = runs + initialization;
             for(int i = 0; i < curr_runs; ++i) {
-                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, block_sz, nnz, num_threads, mat_type, state, apply_to_large);
+                res = test_speed_helper<T, RNG>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, block_sz, nnz, num_threads, mat_type, state, apply_to_large);
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (!initialization) {

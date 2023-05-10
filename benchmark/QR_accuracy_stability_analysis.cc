@@ -118,7 +118,7 @@ cqrrpt_helper(int64_t m,
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
+    RandLAPACK::CQRRPT<T, RNG> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
     CQRRPT.nnz                 = additional_params[2];
     CQRRPT.num_threads         = additional_params[3];
     CQRRPT.cond_check          = additional_params[4];
@@ -244,11 +244,11 @@ test_cond_orth(int row,
         switch(alg_type) {
             case 0:
                     // CholQR
-                    cholqr_helper<T>(row, col, mat_type, state);
+                    cholqr_helper<T, RNG>(row, col, mat_type, state);
                     break;
             case 1:
                     // CQRRPT
-                    cqrrpt_helper<T>(row, col, mat_type, state, additional_params);
+                    cqrrpt_helper<T, RNG>(row, col, mat_type, state, additional_params);
                     break;
             case 2:
                     // sCholQR
