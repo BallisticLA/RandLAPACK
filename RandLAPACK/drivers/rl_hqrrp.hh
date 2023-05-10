@@ -664,7 +664,7 @@ int64_t hqrrp(
     ldim_G  = m_G;
 
     // Initialize matrices G and Y.
-    RandBLAS::dense::DenseDist D{.family=RandBLAS::dense::DenseDistName::Uniform, .n_rows = nb_alg + pp, .n_cols = m_A};
+    RandBLAS::dense::DenseDist D{.n_rows = nb_alg + pp, .n_cols = m_A, .family=RandBLAS::dense::DenseDistName::Uniform};
     RandBLAS::dense::fill_buff(buff_G, D, state);
     
     blas::gemm(blas::Layout::ColMajor,

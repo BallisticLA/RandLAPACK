@@ -64,7 +64,7 @@ class TestCQRRPT : public ::testing::Test
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, SimpleTest)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     test_CQRRPT_general<double, r123::Philox4x32>(10000, 200, 200, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), state, 1);
     test_CQRRPT_general<double, r123::Philox4x32>(10000, 200, 100, 400, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), state, 0);
     //test_CQRRPT_general<double>(7, 5, 3, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(0, 2, false), state, 0);

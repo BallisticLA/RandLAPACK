@@ -161,7 +161,7 @@ template <typename T, typename RNG>
 int main() {
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
     // Large condition number may not work for a small matrix
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Fast polynomial decay
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e10, false), state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e10, false), state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");

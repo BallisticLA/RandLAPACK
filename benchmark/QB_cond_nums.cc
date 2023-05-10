@@ -169,7 +169,7 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
 
 int main() 
 {   
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Slow_decay
     test_QB2_plot<double, r123::Philox4x32>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../", state);
     // Fast decay

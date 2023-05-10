@@ -291,7 +291,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, RandBL
 }
 
 int main() {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     test_speed_mean<double, r123::Philox4x32>(12, 12, 64, 64, 3, state);
     return 0;
 }

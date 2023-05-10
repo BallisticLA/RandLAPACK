@@ -135,6 +135,6 @@ class TestRSVD : public ::testing::Test
 TEST_F(TestRSVD, SimpleTest)
 { 
     // Generate a random state
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     test_RSVD1_general<double, r123::Philox4x32>(100, 100, 50, 5, 10, std::pow(std::numeric_limits<double>::epsilon(), 0.5625), std::make_tuple(0, 2, false), state);
 }

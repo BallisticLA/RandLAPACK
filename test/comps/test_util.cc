@@ -77,7 +77,7 @@ class TestUtil : public ::testing::Test
 };
 
 TEST_F(TestUtil, test_spectral_norm) {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     test_spectral_norm<double, r123::Philox4x32>(1000, 100, std::make_tuple(0, 2, false), state);
     test_spectral_norm<double, r123::Philox4x32>(1000, 100, std::make_tuple(9, std::pow(10, 15), false), state);
     test_spectral_norm<float, r123::Philox4x32>(1000, 100, std::make_tuple(0, 2, false), state);

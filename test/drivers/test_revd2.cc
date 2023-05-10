@@ -92,27 +92,27 @@ class TestREVD2 : public ::testing::Test
 };
 
 TEST_F(TestREVD2, Underestimation1) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 80 - underestimation - starting with very small rank
     test_REVD2_general<double, r123::Philox4x32>(1000, 100, 1, std::make_tuple(0, std::pow(10, 8), false), state, 64, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Underestimation2) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 80 - underestimation
     test_REVD2_general<double, r123::Philox4x32>(1000, 100, 10, std::make_tuple(0, std::pow(10, 8), false), state, 80, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Overestimation1) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 60 - overestimation
     test_REVD2_general<double, r123::Philox4x32>(1000, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Oversetimation2) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 160 - slight overestimation
     test_REVD2_general<double, r123::Philox4x32>(1000, 159, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Exactness) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Numerically rank deficient matrix - expecting rank estimate = m
     test_REVD2_general<double, r123::Philox4x32>(100, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 100, std::pow(10, -13));
 }

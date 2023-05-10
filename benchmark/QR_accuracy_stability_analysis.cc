@@ -263,7 +263,7 @@ test_cond_orth(int row,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Old tests
     //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 10, 10e16, 10, state, 0, 1, 0);
     //test_cond_orth<double>(1024, 5, 5, 5, 1, 10, 10, 10, state, 0, 1, 1);

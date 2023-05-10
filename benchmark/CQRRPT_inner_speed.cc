@@ -345,7 +345,7 @@ test_speed(int r_pow,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     test_speed<double, r123::Philox4x32>(17, 17, 32, 16384, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/cqrrpt_determine_rank/L2", state);
     return 0;
 }

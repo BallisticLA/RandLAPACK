@@ -436,8 +436,8 @@ void gen_spiked_mat(
     int64_t num_rows_sampled = n / 2;
 
     /// We use the indices of nonzeros for columns of a num_rows_sampled by m LASO with one nonzero per row.
-    RandBLAS::sparse::SparseDist DS = {RandBLAS::sparse::SparseDistName::LASO, num_rows_sampled, m, 1};
-    RandBLAS::sparse::SparseSkOp<T> S(DS, state, NULL, NULL, NULL);
+    RandBLAS::sparse::SparseDist DS = {.n_rows = m, .n_cols = 1, .family = RandBLAS::sparse::SparsityPattern::LASO, .vec_nnz = num_rows_sampled};
+    RandBLAS::sparse::SparseSkOp<T, RNG> S(DS, state, NULL, NULL, NULL);
     RandBLAS::sparse::fill_sparse(S);
 
     std::vector<T> V(n * n, 0.0);

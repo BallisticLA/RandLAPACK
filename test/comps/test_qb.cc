@@ -282,7 +282,7 @@ class TestQB : public ::testing::Test
 TEST_F(TestQB, Polynomial_Decay)
 {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Fast polynomial decay test
     test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), state);
     // Slow polynomial decay test
@@ -292,25 +292,25 @@ TEST_F(TestQB, Polynomial_Decay)
 }
 TEST_F(TestQB, Zero_Mat)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // A = 0
     test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(3, 0, false), state);
 }
 TEST_F(TestQB, Rand_Diag)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Random diagonal matrix test
     test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(4, 0, false), state);
 }
 TEST_F(TestQB, Diag_Drop)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
     test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(5, 0, false), state);
 }
 TEST_F(TestQB, Varying_Tol)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // test zero tol
     test_QB2_k_eq_min<double, r123::Philox4x32>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), state);
     // test nonzero tol
