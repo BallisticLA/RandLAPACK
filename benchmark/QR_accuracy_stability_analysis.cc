@@ -54,12 +54,12 @@ error_check(int64_t m,
 }
 
 
-template <typename T>
+template <typename T, typename RNG>
 static void
 cholqr_helper(int64_t m, 
                   int64_t n, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<r123::Philox4x32> state) {
+                  RandBLAS::base::RNGState<RNG> state) {
 
     std::vector<T> A(m * n, 0.0);
     std::vector<T> A_hat(m * n, 0.0);
@@ -94,12 +94,12 @@ cholqr_helper(int64_t m,
     printf("FRO NORM OF AP - QR: %15e\n\n", norm_A);
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void
 cqrrpt_helper(int64_t m, 
                 int64_t n, 
                 const std::tuple<int, T, bool>& mat_type, 
-                RandBLAS::base::RNGState<r123::Philox4x32> state,
+                RandBLAS::base::RNGState<RNG> state,
                 const std::vector<T>& additional_params) {
 
     int64_t true_k = additional_params[0];
@@ -145,12 +145,12 @@ cqrrpt_helper(int64_t m,
     error_check(m, n, k, lapack::lange(Norm::Fro, m, n, A.data(), m), A_1.data(), A_2.data(), A.data(), R.data(), I_ref.data()); 
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void
 scholqr_helper(int64_t m, 
                   int64_t n, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<r123::Philox4x32> state,
+                  RandBLAS::base::RNGState<RNG> state,
                   const std::vector<T>& additional_params) {
 
     int64_t k = additional_params[0];
@@ -226,14 +226,14 @@ scholqr_helper(int64_t m,
     error_check(m, n, n, norm_A, A_1.data(), A_2.data(), A.data(), ATA1.data(), I_ref.data());
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
 test_cond_orth(int row, 
            int col, 
            T cond_start,
            T cond_end,
            T cond_step,
-           RandBLAS::base::RNGState<r123::Philox4x32> state,
+           RandBLAS::base::RNGState<RNG> state,
            int alg_type,
            int mat_type_num,
            std::vector<T> additional_params) {
@@ -286,11 +286,11 @@ int main(){
     // Scaled data Max test
     // Condition number here acts as scaling "sigma"
     
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 2000, 1, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 3000, 4, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 4000, 4, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 6000, 4, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 8000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 2000, 1, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 3000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 4000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 6000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 8000, 4, 4, 1, 1});
     
     // Oleg test
     // Condition number here acts as scaling "sigma"

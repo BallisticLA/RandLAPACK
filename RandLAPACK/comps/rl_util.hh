@@ -231,14 +231,14 @@ T* row_resize(
 
 /// Generates left and right singular vectors for the three matrix types above.
 /// Note: Printed matrix A may have different rank from actual generated matrix A
-template <typename T>
+template <typename T, typename RNG>
 void gen_mat(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
     int64_t k,
     std::vector<T>& S,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
 
     std::vector<T> U(m * k, 0.0);
@@ -279,7 +279,7 @@ void gen_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T>
+template <typename T, typename RNG>
 void gen_poly_mat(
     int64_t& m,
     int64_t& n,
@@ -287,7 +287,7 @@ void gen_poly_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -333,7 +333,7 @@ void gen_poly_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T>
+template <typename T, typename RNG>
 void gen_exp_mat(
     int64_t& m,
     int64_t& n,
@@ -341,7 +341,7 @@ void gen_exp_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
 
     std::vector<T> s(k, 1.0);
@@ -381,7 +381,7 @@ void gen_exp_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T>
+template <typename T, typename RNG>
 void gen_step_mat(
     int64_t& m,
     int64_t& n,
@@ -389,7 +389,7 @@ void gen_step_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -423,13 +423,13 @@ void gen_step_mat(
 /// Output matrix is m by n, full-rank.
 /// Such matrix would be difficult to sketch.
 /// Right singular vectors are sampled uniformly at random.
-template <typename T>
+template <typename T, typename RNG>
 void gen_spiked_mat(
     int64_t& m,
     int64_t& n,
     std::vector<T>& A,
     T spike_scale,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
     T* A_dat = upsize(m * n, A);
 
@@ -476,13 +476,13 @@ void gen_spiked_mat(
 /// was orthonormalized with a Householder QR. 
 /// The matrix V is the upper triangular part of an n × n 
 /// orthonormalized Gaussian matrix with modified diagonal entries to diag(V) *= [1, 10^-15, . . . , 10^-15, 10^-15].
-template <typename T>
+template <typename T, typename RNG>
 void gen_oleg_adversarial_mat(
     int64_t& m,
     int64_t& n,
     std::vector<T>& A,
     T sigma,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
 
     T scaling_factor_U = sigma;
@@ -529,7 +529,7 @@ void gen_oleg_adversarial_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T>
+template <typename T, typename RNG>
 void gen_bad_cholqr_mat(
     int64_t& m,
     int64_t& n,
@@ -537,7 +537,7 @@ void gen_bad_cholqr_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
 
     std::vector<T> s(n, 1.0);
@@ -625,13 +625,13 @@ int64_t rank_check(
 
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
 /// In that case, it would be of size k by k.
-template <typename T>
+template <typename T, typename RNG>
 void gen_mat_type(
     int64_t& m, // These may change
     int64_t& n,
     std::vector<T>& A,
     int64_t& k,
-    RandBLAS::base::RNGState<r123::Philox4x32> state,
+    RandBLAS::base::RNGState<RNG> state,
     const std::tuple<int, T, bool>& type
 ) {
     T* A_dat = A.data();
@@ -761,13 +761,13 @@ bool orthogonality_check(
 
 /// Computes an L-2 norm of a given matrix using
 /// p steps of power iteration.
-template <typename T>
+template <typename T, typename RNG>
 T estimate_spectral_norm(
     int64_t m,
     int64_t n,
     T const* A_dat,
     int p,
-    RandBLAS::base::RNGState<r123::Philox4x32> state
+    RandBLAS::base::RNGState<RNG> state
 ) {
 
     std::vector<T> buf (n, 0.0);
