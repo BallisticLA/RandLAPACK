@@ -3,6 +3,7 @@
 
 // Computational routines
 #include "RandLAPACK/comps/rl_determiter.hh"
+#include "RandLAPACK/comps/rl_preconditioners.hh"
 #include "RandLAPACK/comps/rl_qb.hh"
 #include "RandLAPACK/comps/rl_rf.hh"
 #include "RandLAPACK/comps/rl_rs.hh"

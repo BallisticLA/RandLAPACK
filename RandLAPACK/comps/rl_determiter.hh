@@ -2,7 +2,6 @@
 #define randlapack_comps_determiter_h
 
 #include "rl_blaspp.hh"
-#include "rl_determiter.hh"
 
 #include <iostream>
 #include <vector>

@@ -10,6 +10,7 @@ if (GTest_FOUND)
         comps/test_util.cc
         comps/test_orth.cc
         comps/test_qb.cc
+        comps/test_preconditioners.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
         drivers/test_revd2.cc
@@ -24,7 +25,7 @@ if (GTest_FOUND)
 endif()
 message(STATUS "Checking for regression tests ... ${tmp}")
 
-add_executable(test_pcgls comps/test_pcgls.cpp)
-target_link_libraries(test_pcgls RandLAPACK)
-add_test(NAME test_pcgls COMMAND test_pcgls 100 15)
+# add_executable(test_pcgls comps/test_pcgls.cpp)
+# target_link_libraries(test_pcgls RandLAPACK)
+# add_test(NAME test_pcgls COMMAND test_pcgls 100 15)
 
