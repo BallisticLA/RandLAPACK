@@ -24,7 +24,7 @@ if (GTest_FOUND)
 endif()
 message(STATUS "Checking for regression tests ... ${tmp}")
 
-add_executable(test_pcgls comps/test_pcgls.cpp)
+add_executable(test_pcgls comps/test_pcgls.cc)
 target_link_libraries(test_pcgls RandLAPACK)
 add_test(NAME test_pcgls COMMAND test_pcgls 100 15)
 
