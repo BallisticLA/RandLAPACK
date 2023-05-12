@@ -16,8 +16,8 @@ class TestREVD2 : public ::testing::Test
 
     /// General test for RSVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
-    template <typename T>
-    static void test_REVD2_general(int64_t m, int64_t k, int64_t k_start, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state, int rank_expectation, T err_expectation) {
+    template <typename T, typename RNG>
+    static void test_REVD2_general(int64_t m, int64_t k, int64_t k_start, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state, int rank_expectation, T err_expectation) {
 
         printf("|==================================TEST REVD2 GENERAL BEGIN==================================|\n");
 
@@ -54,13 +54,13 @@ class TestREVD2 : public ::testing::Test
         // Stabilization Constructor - Choose PLU
         RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose HouseholderQR
         RandLAPACK::HQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
         RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
         // REVD2 constructor
-        RandLAPACK::REVD2<T> REVD2(RF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
+        RandLAPACK::REVD2<T, RNG> REVD2(RF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
 
         k = k_start;
         REVD2.tol = std::pow(10, -14);
@@ -92,27 +92,27 @@ class TestREVD2 : public ::testing::Test
 };
 
 TEST_F(TestREVD2, Underestimation1) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 80 - underestimation - starting with very small rank
-    test_REVD2_general<double>(1000, 100, 1, std::make_tuple(0, std::pow(10, 8), false), state, 64, std::pow(10, -13));
+    test_REVD2_general<double, r123::Philox4x32>(1000, 100, 1, std::make_tuple(0, std::pow(10, 8), false), state, 64, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Underestimation2) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 80 - underestimation
-    test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, std::pow(10, 8), false), state, 80, std::pow(10, -13));
+    test_REVD2_general<double, r123::Philox4x32>(1000, 100, 10, std::make_tuple(0, std::pow(10, 8), false), state, 80, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Overestimation1) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 60 - overestimation
-    test_REVD2_general<double>(1000, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
+    test_REVD2_general<double, r123::Philox4x32>(1000, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Oversetimation2) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Rank estimation must be 160 - slight overestimation
-    test_REVD2_general<double>(1000, 159, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
+    test_REVD2_general<double, r123::Philox4x32>(1000, 159, 10, std::make_tuple(0, std::pow(10, 2), false), state, 160, std::pow(10, -13));
 }
 TEST_F(TestREVD2, Exactness) { 
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Numerically rank deficient matrix - expecting rank estimate = m
-    test_REVD2_general<double>(100, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 100, std::pow(10, -13));
+    test_REVD2_general<double, r123::Philox4x32>(100, 100, 10, std::make_tuple(0, std::pow(10, 2), false), state, 100, std::pow(10, -13));
 }

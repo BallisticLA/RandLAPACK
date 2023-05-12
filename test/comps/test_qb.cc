@@ -21,8 +21,8 @@ class TestQB : public ::testing::Test
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
-    template <typename T>
-    static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+    template <typename T, typename RNG>
+    static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state) {
 
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
 
@@ -82,7 +82,7 @@ class TestQB : public ::testing::Test
         // Stabilization Constructor - Choose PLU
         RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
         RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
@@ -180,8 +180,8 @@ class TestQB : public ::testing::Test
     /// k = min(m, n) test for CholQRCP:
     /// Checks for whether the factorization is exact with tol = 0.
     // Checks for whether ||A-QB||_F <= tol * ||A||_F if tol > 0.
-    template <typename T>
-    static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+    template <typename T, typename RNG>
+    static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state) {
 
         printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");
 
@@ -214,7 +214,7 @@ class TestQB : public ::testing::Test
         // Stabilization Constructor - Choose CholQR
         RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
         RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
@@ -282,37 +282,37 @@ class TestQB : public ::testing::Test
 TEST_F(TestQB, Polynomial_Decay)
 {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Fast polynomial decay test
-    test_QB2_low_exact_rank<double>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), state);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), state);
     // Slow polynomial decay test
-    test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, tol, std::make_tuple(0, 6.7, false), state);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, tol, std::make_tuple(0, 6.7, false), state);
     // Superfast exponential decay test
-    test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, tol, std::make_tuple(1, 2025, false), state);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, tol, std::make_tuple(1, 2025, false), state);
 }
 TEST_F(TestQB, Zero_Mat)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // A = 0
-    test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(3, 0, false), state);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(3, 0, false), state);
 }
 TEST_F(TestQB, Rand_Diag)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Random diagonal matrix test
-    test_QB2_low_exact_rank<double>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(4, 0, false), state);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(4, 0, false), state);
 }
 TEST_F(TestQB, Diag_Drop)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-    test_QB2_low_exact_rank<double>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(5, 0, false), state);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(5, 0, false), state);
 }
 TEST_F(TestQB, Varying_Tol)
 {
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // test zero tol
-    test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), state);
+    test_QB2_k_eq_min<double, r123::Philox4x32>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), state);
     // test nonzero tol
-    test_QB2_k_eq_min<double>(100, 100, 10, 5, 2, (double) 0.1, std::make_tuple(0, 1.23, false), state);
+    test_QB2_k_eq_min<double, r123::Philox4x32>(100, 100, 10, 5, 2, (double) 0.1, std::make_tuple(0, 1.23, false), state);
 }
