@@ -77,6 +77,19 @@ jobs:
           make -j2 install
           ctest --output-on-failure
 
+      - name: build benchmarks
+        run: |
+          cd ..
+          mkdir benchmark-build
+          cd benchmark-build
+          cmake -DCMAKE_BINARY_DIR=`pwd` \
+            -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake \
+            -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
+            -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
+            -DRandom123_DIR=`pwd`/../random123-install/include \
+            ../RandLAPACK/benchmark
+          make
+
       - name: test build and test RandLAPACK (Debug/asan)
         run: |
           cd ..
@@ -93,15 +106,3 @@ jobs:
           make -j2 install
           ctest --output-on-failure
 
-      - name: build benchmarks
-        run: |
-          cd ..
-          mkdir benchmark-build
-          cd benchmark-build
-          cmake -DCMAKE_BINARY_DIR=`pwd` \
-            -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake \
-            -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
-            -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
-            -DRandom123_DIR=`pwd`/../random123-install/include \
-            ../RandLAPACK/benchmark
-          make

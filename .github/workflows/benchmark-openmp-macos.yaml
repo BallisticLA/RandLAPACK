@@ -1,11 +1,11 @@
-name: core-linux
+name: benchmark-openmp-macos
 on:
   pull_request:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2
 
@@ -21,35 +21,33 @@ jobs:
       - name: configure OS
         run: |
           # os level stuff
-          echo `pwd`
-          echo `ls`
+          pwd
+          ls
           set -x
-          export DEBIAN_FRONTEND="noninteractive"
-          export TZ="America/Los_Angeles"
-          sudo apt-get update -qq
-          sudo apt-get install -qq -y git-core gcc g++ gfortran cmake subversion automake m4 libgtest-dev libmkl-dev libopenblas-openmp-dev
+          brew install googletest
+          brew install libomp
 
       - name: install BLAS++
         run: |
           cd ..
-          echo `pwd`
-          echo `ls`
+          pwd
+          ls
           git clone https://bitbucket.org/icl/blaspp.git
           mkdir blaspp-build
           cd blaspp-build
-          cmake -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install \
-              -DCMAKE_BINARY_DIR=`pwd` \
-              -Dbuild_tests=OFF \
-              ../blaspp
+          pwd
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
           make -j2 install
 
       - name: install Random123
         run: |
           cd ..
-          git clone https://github.com/DEShawResearch/random123.git
-          cd random123/
-          make prefix=`pwd`/../random123-install install-include
+          pwd
+          ls
+          git clone https://github.com/DEShawResearch/Random123.git
+          cd Random123/
+          mkdir -p `pwd`/../Random123-install/include
+          cp -rp include/Random123 `pwd`/../Random123-install/include/
 
       - name: install LAPACK++
         run: |
@@ -65,7 +63,7 @@ jobs:
               `pwd`/../lapackpp
           make -j2 install
 
-      - name: build and test RandLAPACK (Release)
+      - name: build RandLAPACK (Release)
         run: |
           cd ..
           mkdir RandLAPACK-build
@@ -76,11 +74,9 @@ jobs:
               -DRandom123_DIR=`pwd`/../random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
               `pwd`/../RandLAPACK
-          make -j2
           make -j2 install
-          ctest --output-on-failure
 
-      - name: build benchmarks
+      - name: build benchmarks (with OpenMP)
         run: |
           cd ..
           mkdir benchmark-build
@@ -93,19 +89,4 @@ jobs:
             ../RandLAPACK/benchmark
           make
 
-      - name: build and test RandLAPACK (Debug/asan)
-        run: |
-          cd ..
-          mkdir RandLAPACK-build-asan
-          cd RandLAPACK-build-asan
-          cmake -DCMAKE_BUILD_TYPE=Debug \
-              -DSANITIZE_ADDRESS=ON \
-              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
-              -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
-              -DRandom123_DIR=`pwd`/../random123-install/include/ \
-              -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install-asan \
-              `pwd`/../RandLAPACK
-          make -j2
-          make -j2 install
-          ctest --output-on-failure
 
