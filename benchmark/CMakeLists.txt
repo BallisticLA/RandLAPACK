@@ -4,7 +4,6 @@ project(benchmark)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-
 message(STATUS "Checking for OpenMP ... ")
 find_package(OpenMP COMPONENTS CXX)
 set(tmp FALSE)
@@ -26,39 +25,9 @@ endif()
 set(HAVE_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
 message(STATUS "Checking for OpenMP ... ${HAVE_OpenMP}")
 
-#set(CMAKE_FIND_DEBUG_MODE TRUE)
 message(STATUS "Checking for RandLAPACK ... ")
 find_package(RandLAPACK REQUIRED)
 message(STATUS "Done checking for RandLAPACK.")
-#set(CMAKE_FIND_DEBUG_MODE FALSE)
-
-set(
-    RandLAPACK_include_dirs
-    ${RandLAPACK_DIR}/../../include
-    ${RandLAPACK_DIR}/../../include/RandLAPACK
-    ${RandLAPACK_DIR}/../../include/RandLAPACK/comps
-    ${RandLAPACK_DIR}/../../include/RandLAPACK/drivers
-)
-
-set(
-    Benchmark_include_dirs
-    ${Random123_DIR}
-    ${RandLAPACK_include_dirs}
-    ${blaspp_DIR}/../../include
-    ${lapackpp_DIR}/../../include
-)
-
-message(STATUS "Checking for RandBLAS ... ")
-find_package(RandBLAS REQUIRED)
-message(STATUS "Done checking for RandBLAS.")
-
-message(STATUS "Looking for BLAS++ ... ")
-find_package(blaspp REQUIRED)
-message(STATUS "Done looking for BLAS++.")
-
-message(STATUS "Looking for LAPACK++ ...")
-find_package(lapackpp REQUIRED)
-message(STATUS "Done looking for LAPACK++.")
 
 function(add_benchmark)
     set(OPTS)
@@ -75,9 +44,6 @@ endfunction()
 set(
     Benchmark_libs
     RandLAPACK
-    RandBLAS
-    blaspp
-    lapackpp
 )
 
 # Bencmarks for Stab/Orth tech report

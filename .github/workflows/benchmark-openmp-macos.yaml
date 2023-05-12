@@ -98,8 +98,5 @@ jobs:
           cd benchmark-build
           cmake -DCMAKE_BINARY_DIR=`pwd` \
             -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake \
-            -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
-            -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
-            -DRandom123_DIR=`pwd`/../random123-install/include \
             ../RandLAPACK/benchmark
-          make
+          make -j2
