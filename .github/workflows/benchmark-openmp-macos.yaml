@@ -31,8 +31,12 @@ jobs:
           #   there should only be one subdirectory
           cd */
           export libomp_dir=`pwd`
+          echo ${libomp_dir}
+          ls
           export CXXFLAGS=-I${libomp_dir}/include
+          echo $CXXFLAGS
           export LDFLAGS=-L${libomp_dir}/lib
+          echo $LDFLAGS
           #   change back to where we started
           cd ${tmp_dir}
 
