@@ -10,6 +10,18 @@ find_package(OpenMP COMPONENTS CXX)
 set(tmp FALSE)
 if (OpenMP_CXX_FOUND)
     set(tmp TRUE)
+elseif(APPLE)
+    message(STATUS
+        "\n\tOpenMP was not found! Try installing it with \
+        \n\n\t    brew install libomp \
+        \n\tor \
+        \n\t    brew reinstall libomp \
+        \n\n\tWhen you do this, Homebrew might suggest that you run \
+        \n\n\t    export CXXFLAGS=-I<absolute path to OpenMP include files> \
+        \n\t    export LDFLAGS=-L<absolute path to OpenMP binaries> \
+        \n\n\tBe sure to follow that suggestion! Once these environment \
+        \n\tvariables are set, CMake should be able to find OpenMP.
+    ")
 endif()
 set(HAVE_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
 message(STATUS "Checking for OpenMP ... ${HAVE_OpenMP}")
