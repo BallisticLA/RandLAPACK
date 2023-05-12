@@ -25,7 +25,16 @@ jobs:
           ls
           set -x
           brew install googletest
-          brew reinstall libomp
+          # install OpenMP
+          export tmp_dir=`pwd`
+          cd /usr/local/Cellar/libomp/
+          #   there should only be one subdirectory
+          cd */
+          export libomp_dir=`pwd`
+          export CXXFLAGS=-I${libomp_dir}/include
+          export LDFLAGS=-L${libomp_dir}/lib
+          #   change back to where we started
+          cd ${tmp_dir}
 
       - name: install BLAS++
         run: |
@@ -74,7 +83,9 @@ jobs:
               -DRandom123_DIR=`pwd`/../random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
               `pwd`/../RandLAPACK
-          make -j2 install
+          make -j2
+          ctest --output-on-failure
+          make install
 
       - name: build benchmarks (with OpenMP)
         run: |
@@ -88,5 +99,3 @@ jobs:
             -DRandom123_DIR=`pwd`/../random123-install/include \
             ../RandLAPACK/benchmark
           make
-
-
