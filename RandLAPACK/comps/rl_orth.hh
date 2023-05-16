@@ -20,7 +20,7 @@ class Stabilization {
         virtual int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            T* Q
         ) = 0;
 };
 
@@ -57,7 +57,7 @@ class CholQRQ : public Stabilization<T> {
         int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            T* Q
         );
 
     public:
@@ -76,14 +76,13 @@ template <typename T>
 int CholQRQ<T>::call(
     int64_t m,
     int64_t k,
-    std::vector<T>& Q
+    T* Q
 ){
 
     T* Q_gram_dat = util::upsize(k * k, this->Q_gram);
-    T* Q_dat = Q.data();
 
     // Find normal equation Q'Q - Just the upper triangular portion
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, 0.0, Q_gram_dat, k);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q, m, 0.0, Q_gram_dat, k);
 
     // Positive definite cholesky factorization
     if (lapack::potrf(Uplo::Upper, k, Q_gram_dat, k)) {
@@ -101,7 +100,7 @@ int CholQRQ<T>::call(
         }
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q_dat, m);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, Q_gram_dat, k, Q, m);
     return 0;
 }
 
@@ -144,7 +143,7 @@ class HQRQ : public Stabilization<T> {
         int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            T* Q
         );
 
     public:
@@ -158,7 +157,7 @@ template <typename T>
 int HQRQ<T>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A
+    T* A
 ) {
     // Done via regular LAPACK's QR
     // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
@@ -167,12 +166,11 @@ int HQRQ<T>::call(
     auto tau = this->tau;
     util::upsize(n, tau);
 
-    T* A_dat = A.data();
     T* tau_dat = tau.data();
-    if(lapack::geqrf(m, n, A_dat, m, tau_dat))
+    if(lapack::geqrf(m, n, A, m, tau_dat))
         return 1; // Failure condition
 
-    lapack::ungqr(m, n, n, A_dat, m, tau_dat);
+    lapack::ungqr(m, n, n, A, m, tau_dat);
     return 0;
 }
 
@@ -211,7 +209,7 @@ class PLUL : public Stabilization<T> {
         int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            T* Q
         );
 
     public:
@@ -226,21 +224,20 @@ template <typename T>
 int PLUL<T>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A
+    T* A
 ){
     auto ipiv = this->ipiv;
     // Not using utility bc vector of int
     if(ipiv.size() < (uint64_t)n)
         ipiv.resize(n);
 
-    T* A_dat = A.data();
     int64_t* ipiv_dat = ipiv.data();
 
-    if(lapack::getrf(m, n, A_dat, m, ipiv_dat))
+    if(lapack::getrf(m, n, A, m, ipiv_dat))
         return 1; // failure condition
 
     util::get_L(m, n, A, 1);
-    lapack::laswp(n, A_dat, m, 1, n, ipiv_dat, 1);
+    lapack::laswp(n, A, m, 1, n, ipiv_dat, 1);
 
     return 0;
 }

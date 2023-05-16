@@ -154,7 +154,7 @@ int RS<T, RNG>::call(
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);
 
         ++ p_done;
-        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega_dat)))
             return 1; // Scheme failure
     }
 
@@ -166,7 +166,7 @@ int RS<T, RNG>::call(
         if(this->cond_check)
             this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
 
-        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1)))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1_dat)))
             return 1;
 
         // Omega = A' * Omega
@@ -176,7 +176,7 @@ int RS<T, RNG>::call(
         if (this->cond_check)
             this->cond_nums.push_back(util::cond_num_check(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
 
-        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega_dat)))
             return 1;
     }
     //successful termination

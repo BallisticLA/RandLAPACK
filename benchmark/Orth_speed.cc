@@ -125,27 +125,27 @@ test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<RNG> state) {
     // PIV LU
     // Stores L, U into Omega
     auto start_lu = high_resolution_clock::now();
-    Stab_PLU.call(m, n, A_cpy);
+    Stab_PLU.call(m, n, A_cpy.data());
     auto stop_lu = high_resolution_clock::now();
     long dur_lu = duration_cast<microseconds>(stop_lu - start_lu).count();
 
     // HQR
     auto start_qr = high_resolution_clock::now();
-    Orth_HQR.call(m, n, A_cpy_2);
+    Orth_HQR.call(m, n, A_cpy_2.data());
     auto stop_qr = high_resolution_clock::now();
     long dur_qr = duration_cast<microseconds>(stop_qr - start_qr).count();
 
     // CHOL QR
     // Orthonormalize A
     auto start_chol = high_resolution_clock::now();
-    Orth_CholQR.call(m, n, A);
+    Orth_CholQR.call(m, n, A.data());
     auto stop_chol = high_resolution_clock::now();
     long dur_chol = duration_cast<microseconds>(stop_chol - start_chol).count();
 
     // GEQR
     auto start_geqr = high_resolution_clock::now();
 #if !defined(__APPLE__)
-    Orth_GEQR.call(m, n, A);
+    Orth_GEQR.call(m, n, A.data());
 #endif
     auto stop_geqr = high_resolution_clock::now();
     long dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();

@@ -53,12 +53,12 @@ class TestOrth : public ::testing::Test
         RandLAPACK::CholQRQ<T> CholQRQ(false, false);
 
         // Orthonormalize sketch Y
-        if(CholQRQ.call(m, k, Y) != 0) {
+        if(CholQRQ.call(m, k, Y.data()) != 0) {
             EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality
-        CholQRQ.call(m, k, Y);
+        CholQRQ.call(m, k, Y.data());
         // Q' * Q  - I = 0
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Y_dat, m, -1.0, I_ref_dat, k);
         T norm_fro = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);

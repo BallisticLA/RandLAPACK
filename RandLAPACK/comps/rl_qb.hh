@@ -236,7 +236,7 @@ int QB<T>::call(
             // Q_i = orth(Q_i - Q(Q'Q_i))
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, this->curr_lim);
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, this->curr_lim, 1.0, Q_i_dat, m);
-            this->Orth_Obj.call(m, block_sz, this->Q_i);
+            this->Orth_Obj.call(m, block_sz, (this->Q_i).data());
         }
 
         //B_i = Q_i' * A

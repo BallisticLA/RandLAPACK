@@ -54,7 +54,7 @@ template <typename T, typename RNG>
 
         // Deterministic QRP, explicit extraction of R
         lapack::geqp3(m, n, A_1.data(), m, J_1.data(), tau_1.data());
-        RandLAPACK::util::get_U(m, n, A_1, R_1);
+        RandLAPACK::util::get_U(m, n, A_1.data(), R_1.data());
 
         switch (test_num) {
             case 1: {

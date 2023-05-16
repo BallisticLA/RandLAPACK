@@ -219,7 +219,7 @@ int REVD2<T, RNG>::call(
             printf("CHOLESKY FACTORIZATION FAILED\n");
             return 1;
         }
-        RandLAPACK::util::get_U(k, k, R);
+        RandLAPACK::util::get_U(k, k, R.data());
 
         // B = Y(R')^-1 - need to transpose R
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);

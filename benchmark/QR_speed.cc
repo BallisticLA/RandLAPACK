@@ -356,7 +356,7 @@ test_speed_helper(int64_t m,
 #if !defined(__APPLE__)
     // GEQP3 on R part
     // We are not timing the pre-allocation of R, as it expected to take very small time
-    RandLAPACK::util::get_U(m, n, A_1, R_3);
+    RandLAPACK::util::get_U(m, n, A_1.data(), R_3.data());
     lapack::geqp3(n, n, R_3.data(), n, J_3.data(), tau_3.data());
 #endif
     auto stop_tsqrp = high_resolution_clock::now();

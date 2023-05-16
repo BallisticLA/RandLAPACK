@@ -162,7 +162,7 @@ int BK<T, RNG>::call(
 
         ++ p_done;
         // Need to take in a pointer
-        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega_dat)))
             return 1; // Scheme failure
     }
 
@@ -177,7 +177,7 @@ int BK<T, RNG>::call(
             this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
 
         // Need to take in a pointer
-        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1)))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1_dat)))
             return 1;
 
         // Omega[:, k * (q_done + 1) : k * (q_done + 2)] = A' * Omega_1
@@ -188,7 +188,7 @@ int BK<T, RNG>::call(
             this->cond_nums.push_back(util::cond_num_check(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
 
         // Need to take in a pointer
-        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega_dat)))
             return 1;
     }
     //successful termination

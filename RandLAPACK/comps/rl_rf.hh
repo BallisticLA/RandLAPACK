@@ -128,7 +128,7 @@ int RF<T>::call(
         // Writes into this->cond_nums
         this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->Q_cpy, this->s, this->verbosity));
 
-    if(this->Orth_Obj.call(m, k, Q))
+    if(this->Orth_Obj.call(m, k, Q_dat))
         return 2; // Orthogonalization failed
 
     // Normal termination

@@ -88,18 +88,17 @@ template <typename T>
 void get_L(
     int64_t m,
     int64_t n,
-    std::vector<T>& L,
+    T* L,
     int overwrite_diagonal
 ) {
     // Vector end pointer
     int size = m * n;
     // The unit diagonal elements of L were not stored.
-    T* L_dat = L.data();
     if(overwrite_diagonal)
-        L_dat[0] = 1;
+        L[0] = 1;
 
     for(int i = m, j = 1; i < size && j < m; i += m, ++j) {
-        std::for_each(&L_dat[i], &L_dat[i + j],
+        std::for_each(&L[i], &L[i + j],
             // Lambda expression begins
             [](T& entry) {
                 entry = 0.0;
@@ -107,7 +106,7 @@ void get_L(
         );
         // The unit diagonal elements of L were not stored.
         if(overwrite_diagonal)
-            L_dat[i + j] = 1;
+            L[i + j] = 1;
     }
 }
 
@@ -116,17 +115,14 @@ template <typename T>
 void get_U(
     int64_t m,
     int64_t n,
-    const std::vector<T>& A,
-    std::vector<T>& U // We are assuming U is n by n
+    T const* A,
+    T* U // We are assuming U is n by n
 ) {
     // Vector end pointer
     int size = m * n;
 
-    const T* A_dat = A.data();
-    T* U_dat = U.data();
-
     for(int i = 0, j = 1, k = 0; i < size && j <= m; i += m, k +=n, ++j) {
-        blas::copy(j, &A_dat[i], 1, &U_dat[k], 1);
+        blas::copy(j, &A[i], 1, &U[k], 1);
     }
 }
 
@@ -135,12 +131,10 @@ template <typename T>
 void get_U(
     int64_t m,
     int64_t n,
-    std::vector<T>& A
+    T* A
 ) {
-    T* A_dat = A.data();
-
     for(int i = 0; i < n - 1; ++i) {
-        std::fill(&A_dat[i * (m + 1) + 1], &A_dat[(i + 1) * m], 0.0);
+        std::fill(&A[i * (m + 1) + 1], &A[(i + 1) * m], 0.0);
     }
 }
 
@@ -514,7 +508,7 @@ void gen_oleg_adversarial_mat(
     lapack::ungqr(n, n, n, V.data(), n, tau2.data());
 
     // Grab an upper-triangular portion of V
-    get_U(n, n, V);
+    get_U(n, n, V.data());
 
     T* V_dat = V.data();
     for(int i = 11; i < n; ++i)
