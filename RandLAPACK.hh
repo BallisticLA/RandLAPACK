@@ -8,6 +8,7 @@
 #include "RandLAPACK/comps/rl_rs.hh"
 #include "RandLAPACK/comps/rl_util.hh"
 #include "RandLAPACK/comps/rl_orth.hh"
+#include "RandLAPACK/comps/rl_bk.hh"
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
