@@ -291,6 +291,8 @@ int BK<T, RNG>::call(
     const T* A_dat = A.data();
     T* Omega_dat = Omega.data();
     auto state = this->st;
+    // BUFFER - CONSIDER REMOVING
+    std::vector<T> Buf(n * n, 0.0);
 
     std::vector<T> A_cpy(m * n, 0.0);
     blas::copy(m * n, A_dat, 1, A_cpy.data(), 1);
@@ -343,11 +345,12 @@ int BK<T, RNG>::call(
         RandBLAS::util::print_colmaj(n, block_sz, Omega.data(), name4);
 
         ++ p_done;
-        ++ q_done;
         // Need to take in a pointer
         if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega_dat)))
             return 1; // Scheme failure
     }
+    // We have placed something into full Omega previously.
+    ++ q_done;
 
     char name3 [] = "qr(A' * Omega)";
     RandBLAS::util::print_colmaj(n, block_sz, Omega.data(), name3);
@@ -360,15 +363,15 @@ int BK<T, RNG>::call(
     // Need a separate variable for it, as k may change at the last iteration.
     int64_t offset = n * k;
     while (p - p_done > 0 && q_done < std::ceil(block_sz / (float) k)) {
-        // Omega_1 = A * Omega[:, k * q_done : k * (q_done + 1)]
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A_dat, m, Omega.data() + offset * q_done, n, 0.0, Omega_1.data(), m);
+        // Buf = A' * A
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, A_dat, m, 0.0, Buf.data(), n);
         ++ p_done;
 
         if(this->cond_check)
-            this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
+            this->cond_nums.push_back(util::cond_num_check(n, n, Buf, this->Omega_1_cpy, this->s, this->verbosity));
 
         // Need to take in a pointer
-        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1.data())))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, n, Buf.data())))
             return 1;
 
         // At the last iteration, we may not be able to fit k columns into block Krylov matrix.
@@ -377,8 +380,8 @@ int BK<T, RNG>::call(
         if ((q_done + 1) * k > block_sz)
             k = block_sz - q_done * k;
 
-        // Omega[:, k * (q_done + 1) : k * (q_done + 2)] = A' * Omega_1
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1.data(), m, 0.0, Omega.data() + offset * q_done, n);
+        // Omega[:, k * (q_done + 1) : k * q_done] = A' * A * Omega[:, k * q_done : k * (q_done - 1)]
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, n, 1.0, Buf.data(), n, Omega.data() + offset * (q_done -1), n, 0.0, Omega.data() + offset * q_done, n);
         ++ p_done;
 
         if (this->cond_check)
