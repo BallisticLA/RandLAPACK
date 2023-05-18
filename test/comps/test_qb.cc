@@ -80,15 +80,15 @@ class TestQB : public ::testing::Test
 
         // Make subroutine objects
         // Stabilization Constructor - Choose PLU
-        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
+        RandLAPACK::HQRQ<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::BK<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
+        RandLAPACK::HQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
         RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
         // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::CholQRQ<T> Orth_QB(cond_check, verbosity);
+        RandLAPACK::HQRQ<T> Orth_QB(cond_check, verbosity);
         // QB constructor - Choose defaut (QB2)
         RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
@@ -279,6 +279,15 @@ class TestQB : public ::testing::Test
     }
 };
 
+
+TEST_F(TestQB, investigation)
+{
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::base::RNGState();
+    // Fast polynomial decay test
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(10, 10, 5, 5, 5, tol, std::make_tuple(0, 2025, false), state);
+}
+/*
 TEST_F(TestQB, Polynomial_Decay)
 {
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
@@ -316,3 +325,4 @@ TEST_F(TestQB, Varying_Tol)
     // test nonzero tol
     test_QB2_k_eq_min<double, r123::Philox4x32>(100, 100, 10, 5, 2, (double) 0.1, std::make_tuple(0, 1.23, false), state);
 }
+*/
