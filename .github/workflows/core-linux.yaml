@@ -44,7 +44,7 @@ jobs:
           cd ..
           git clone https://github.com/DEShawResearch/Random123.git
           cd Random123/
-          make prefix=`pwd`/../random123-install install-include
+          make prefix=`pwd`/../Random123-install install-include
 
       - name: install LAPACK++
         run: |
@@ -68,7 +68,7 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release \
               -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
-              -DRandom123_DIR=`pwd`/../random123-install/include/ \
+              -DRandom123_DIR=`pwd`/../Random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
               `pwd`/../RandLAPACK
           make -j2
@@ -94,7 +94,7 @@ jobs:
               -DSANITIZE_ADDRESS=ON \
               -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
               -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp \
-              -DRandom123_DIR=`pwd`/../random123-install/include/ \
+              -DRandom123_DIR=`pwd`/../Random123-install/include/ \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install-asan \
               `pwd`/../RandLAPACK
           make -j2
