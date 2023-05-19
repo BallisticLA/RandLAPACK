@@ -90,7 +90,7 @@ void rpc_data_svd_saso(
     RandBLAS::sparse::SparseDist D{
         .n_rows = d,
         .n_cols = m,
-        .vec_nnz=k
+        .vec_nnz = k
     };
     RandBLAS::sparse::SparseSkOp<T> S(D, state);
     RandBLAS::sparse::fill_sparse(S);
@@ -104,7 +104,7 @@ void rpc_data_svd_saso(
         lda = m;
         lda_sk = d;
     }
-    blas::scal(d*n, 0.0, buff_A_sk, 1);
+    RandBLAS::util::safe_scal(d*n, 0.0, buff_A_sk, 1);
     RandBLAS::sparse::lskges<T>(
         layout_A,
         blas::Op::NoTrans,
@@ -138,7 +138,7 @@ void rpc_data_svd_saso(
     } else {
         lapack::Job jobu = lapack::Job::NoVec;
         lapack::Job jobvt = lapack::Job::SomeVec;
-        T *Vt = new T[n * n];
+        T *Vt = new T[n * n]{};
         lapack::gesvd(jobu, jobvt, d, n, buff_A_sk, d, sigma_sk.data(), ignore, 1, Vt, n);
         for (int i = 0; i < n; ++i) {
             // buff_A_sk is now just scratch space owned by the std::vector V_sk.
