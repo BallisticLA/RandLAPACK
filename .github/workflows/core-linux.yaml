@@ -50,7 +50,7 @@ jobs:
       - name: install LAPACK++
         run: |
           cd ..
-          git clone https://bitbucket.org/icl/lapackpp.git
+          git clone https://github.com/icl-utk-edu/lapackpp.git
           mkdir lapackpp-build
           cd lapackpp-build
           cmake -DCMAKE_BUILD_TYPE=Debug \
