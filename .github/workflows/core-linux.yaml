@@ -44,8 +44,7 @@ jobs:
           cd ..
           git clone https://github.com/DEShawResearch/Random123.git
           cd Random123/
-          mkdir -p `pwd`/../Random123-install/include
-          cp -rp include/Random123 `pwd`/../Random123-install/include/
+          make prefix=`pwd`/../random123-install install-include
 
       - name: install LAPACK++
         run: |
