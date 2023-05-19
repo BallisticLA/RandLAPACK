@@ -47,7 +47,7 @@ void check_condnum_after_precond(
     // check the result
     //T reltol = std::pow(std::numeric_limits<T>::epsilon(), RELTOL_POWER);
     // EXPECT_EQ(rank, n);
-    T *ignore;
+    T *ignore = nullptr;
     std::vector<T> s(rank, 0.0);
     lapack::gesvd(
         lapack::Job::NoVec,
@@ -191,7 +191,7 @@ class Test_rpc_svd_saso : public ::testing::Test
         
         // check the result
         EXPECT_EQ(rank, n);
-        double *ignore;
+        double *ignore = nullptr;
         std::vector<double> s(n, 0.0);
         lapack::gesvd(
             lapack::Job::NoVec,

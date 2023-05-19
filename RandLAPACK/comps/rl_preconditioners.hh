@@ -116,7 +116,7 @@ void rpc_data_svd_saso(
     );
 
     // step 2: compute SVD of sketch
-    T* ignore;
+    T* ignore = nullptr;
     if (layout_A == blas::Layout::RowMajor) {
         //
         //      buff_A_sk is stored in row-major format; we want its singular values
