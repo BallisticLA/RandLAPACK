@@ -54,12 +54,12 @@ error_check(int64_t m,
 }
 
 
-template <typename T>
+template <typename T, typename RNG>
 static void
 cholqr_helper(int64_t m, 
                   int64_t n, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<r123::Philox4x32> state) {
+                  RandBLAS::base::RNGState<RNG> state) {
 
     std::vector<T> A(m * n, 0.0);
     std::vector<T> A_hat(m * n, 0.0);
@@ -94,12 +94,12 @@ cholqr_helper(int64_t m,
     printf("FRO NORM OF AP - QR: %15e\n\n", norm_A);
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void
 cqrrpt_helper(int64_t m, 
                 int64_t n, 
                 const std::tuple<int, T, bool>& mat_type, 
-                RandBLAS::base::RNGState<r123::Philox4x32> state,
+                RandBLAS::base::RNGState<RNG> state,
                 const std::vector<T>& additional_params) {
 
     int64_t true_k = additional_params[0];
@@ -118,7 +118,7 @@ cqrrpt_helper(int64_t m,
     std::copy(A.data(), A.data() + (m * n), A_2.data());
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
+    RandLAPACK::CQRRPT<T, RNG> CQRRPT(false, true, state, std::numeric_limits<double>::epsilon());
     CQRRPT.nnz                 = additional_params[2];
     CQRRPT.num_threads         = additional_params[3];
     CQRRPT.cond_check          = additional_params[4];
@@ -145,12 +145,12 @@ cqrrpt_helper(int64_t m,
     error_check(m, n, k, lapack::lange(Norm::Fro, m, n, A.data(), m), A_1.data(), A_2.data(), A.data(), R.data(), I_ref.data()); 
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void
 scholqr_helper(int64_t m, 
                   int64_t n, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<r123::Philox4x32> state,
+                  RandBLAS::base::RNGState<RNG> state,
                   const std::vector<T>& additional_params) {
 
     int64_t k = additional_params[0];
@@ -226,14 +226,14 @@ scholqr_helper(int64_t m,
     error_check(m, n, n, norm_A, A_1.data(), A_2.data(), A.data(), ATA1.data(), I_ref.data());
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
 test_cond_orth(int row, 
            int col, 
            T cond_start,
            T cond_end,
            T cond_step,
-           RandBLAS::base::RNGState<r123::Philox4x32> state,
+           RandBLAS::base::RNGState<RNG> state,
            int alg_type,
            int mat_type_num,
            std::vector<T> additional_params) {
@@ -244,11 +244,11 @@ test_cond_orth(int row,
         switch(alg_type) {
             case 0:
                     // CholQR
-                    cholqr_helper<T>(row, col, mat_type, state);
+                    cholqr_helper<T, RNG>(row, col, mat_type, state);
                     break;
             case 1:
                     // CQRRPT
-                    cqrrpt_helper<T>(row, col, mat_type, state, additional_params);
+                    cqrrpt_helper<T, RNG>(row, col, mat_type, state, additional_params);
                     break;
             case 2:
                     // sCholQR
@@ -263,7 +263,7 @@ test_cond_orth(int row,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Old tests
     //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 10, 10e16, 10, state, 0, 1, 0);
     //test_cond_orth<double>(1024, 5, 5, 5, 1, 10, 10, 10, state, 0, 1, 1);
@@ -286,11 +286,11 @@ int main(){
     // Scaled data Max test
     // Condition number here acts as scaling "sigma"
     
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 2000, 1, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 3000, 4, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 4000, 4, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 6000, 4, 4, 1, 1});
-    test_cond_orth<double>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 8000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 2000, 1, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 3000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 4000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 6000, 4, 4, 1, 1});
+    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 8000, 4, 4, 1, 1});
     
     // Oleg test
     // Condition number here acts as scaling "sigma"

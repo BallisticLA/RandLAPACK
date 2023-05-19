@@ -11,9 +11,9 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 using namespace std::chrono;
 using namespace RandLAPACK;
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
-test_flops(int64_t k, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+test_flops(int64_t k, RandBLAS::base::RNGState<RNG> state) {
     printf("|===================================TEST SYSTEM FLOPS BEGIN====================================|\n");
     int size = k * k;
 
@@ -56,7 +56,7 @@ test_flops(int64_t k, RandBLAS::base::RNGState<r123::Philox4x32> state) {
 }
 
 int main() {
-    auto state = RandBLAS::base::RNGState(0, 0);
-    test_flops<double>(1000, state);
+    auto state = RandBLAS::base::RNGState();
+    test_flops<double, r123::Philox4x32>(1000, state);
     return 0;
 }

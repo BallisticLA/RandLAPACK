@@ -28,7 +28,7 @@ class REVD2alg {
         ) = 0;
 };
 
-template <typename T>
+template <typename T, typename RNG>
 class REVD2 : public REVD2alg<T> {
     public:
 
@@ -37,7 +37,7 @@ class REVD2 : public REVD2alg<T> {
             RandLAPACK::RangeFinder<T>& rf_obj,
             T tolerance,
             int power_iters,
-            RandBLAS::base::RNGState<r123::Philox4x32> s,
+            RandBLAS::base::RNGState<RNG> s,
             bool verb
         ) : RF_Obj(rf_obj) {
             tol = tolerance;
@@ -98,7 +98,7 @@ class REVD2 : public REVD2alg<T> {
 
     public:
         RandLAPACK::RangeFinder<T>& RF_Obj;
-        RandBLAS::base::RNGState<r123::Philox4x32> state;
+        RandBLAS::base::RNGState<RNG> state;
         T tol;
         int p;
         bool verbosity;
@@ -171,8 +171,8 @@ T power_error_est(
 
 
 
-template <typename T>
-int REVD2<T>::call(
+template <typename T, typename RNG>
+int REVD2<T, RNG>::call(
         int64_t m, // m = n
         blas::Uplo uplo,
         std::vector<T>& A,

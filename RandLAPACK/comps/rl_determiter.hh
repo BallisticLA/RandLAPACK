@@ -55,7 +55,7 @@ void pcg(
     blas::axpy(n, -1.0, out_at1.data(), 1, r.data(), 1);
 
     // d = M (M' r);
-    std::vector<T> d(n);
+    std::vector<T> d(n, 0.0);
     blas::gemv(Layout::ColMajor, Op::Trans, n, k, 1.0, M, ldm, r.data(), 1, 0.0, out_mt1.data(), 1);
     blas::gemv(Layout::ColMajor, Op::NoTrans, n, k, 1.0, M, ldm, out_mt1.data(), 1, 0.0, d.data(), 1);
 
@@ -123,7 +123,7 @@ void pcg(
     resid_vec[iter] = delta1_new;
 
     // recover y = b - Ax
-    blas::copy(n, b, 1, y, 1);
+    blas::copy(m, b, 1, y, 1);
     blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, -1.0, A, lda, x, 1, 1.0, y, 1);
 }
 

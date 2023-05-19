@@ -19,8 +19,8 @@ If the required folder structure does not exist, the files will not be saved.
 // Define a new return type
 typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
-template <typename T>
-static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+template <typename T, typename RNG>
+static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<RNG> state) {
 
     // For running QB
     std::vector<T> A(m * n, 0.0);
@@ -50,7 +50,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     // Stabilization Constructor - Choose PLU
     RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
     // RowSketcher constructor - Choose default (rs1)
-    RandLAPACK::RS<T> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+    RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
     // Orthogonalization Constructor - use HQR
     RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
     // RangeFinder constructor
@@ -78,8 +78,8 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
     return std::make_pair(RF.cond_nums, RS.cond_nums);
 }
 
-template <typename T>
-static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS, RandBLAS::base::RNGState<r123::Philox4x32> state)
+template <typename T, typename RNG>
+static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS, RandBLAS::base::RNGState<RNG> state)
 {
     printf("|==================================TEST QB2 K PLOT BEGIN==================================|\n");
 
@@ -169,9 +169,9 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
 
 int main() 
 {   
-    auto state = RandBLAS::base::RNGState(0, 0);
+    auto state = RandBLAS::base::RNGState();
     // Slow_decay
-    test_QB2_plot<double>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../", state);
+    test_QB2_plot<double, r123::Philox4x32>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../", state);
     // Fast decay
-    test_QB2_plot<double>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true, "../", "../", state);
+    test_QB2_plot<double, r123::Philox4x32>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true, "../", "../", state);
 }

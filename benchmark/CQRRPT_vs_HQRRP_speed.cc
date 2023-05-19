@@ -61,7 +61,7 @@ log_info(int64_t rows,
          << cqrrpt_hqrrp_full_time << "\n";
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static std::vector<long> 
 test_speed_helper(int64_t m, 
                   int64_t n, 
@@ -72,7 +72,7 @@ test_speed_helper(int64_t m,
                   int64_t nnz, 
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<r123::Philox4x32> state,
+                  RandBLAS::base::RNGState<RNG> state,
                   int apply_to_large) {
     using namespace blas;
     using namespace lapack;
@@ -103,12 +103,12 @@ test_speed_helper(int64_t m,
 
     // CQRRPT constructor
     bool log_times = true;
-    RandLAPACK::CQRRPT<T> CQRRPT_basic(false, log_times, state, tol);
+    RandLAPACK::CQRRPT<T, RNG> CQRRPT_basic(false, log_times, state, tol);
     CQRRPT_basic.nnz = nnz;
     CQRRPT_basic.num_threads = num_threads;
 
     // CQRRPT constructor
-    RandLAPACK::CQRRPT<T> CQRRPT_HQRRP(false, log_times, state, tol);
+    RandLAPACK::CQRRPT<T, RNG> CQRRPT_HQRRP(false, log_times, state, tol);
     
     CQRRPT_HQRRP.nnz = nnz;
     CQRRPT_HQRRP.num_threads = num_threads;
@@ -228,7 +228,7 @@ test_speed_helper(int64_t m,
     return res;
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
 test_speed(int r_pow, 
            int r_pow_max, 
@@ -245,7 +245,7 @@ test_speed(int r_pow,
            const std::tuple<int, T, bool> & mat_type,
            int apply_to_large,
            std::string path,
-           RandBLAS::base::RNGState<r123::Philox4x32> state) {
+           RandBLAS::base::RNGState<RNG> state) {
 
     printf("\n/-----------------------------------------HQRRP+CQRRPT BENCHMARK START-----------------------------------------/\n");
     // This variable is controls an additional iteration, used for initialization work
@@ -334,7 +334,7 @@ test_speed(int r_pow,
 
             curr_runs = runs + initialization;
             for(int i = 0; i < curr_runs; ++i) {
-                res = test_speed_helper<T>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, block_sz, nnz, num_threads, mat_type, state, apply_to_large);
+                res = test_speed_helper<T, RNG>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, block_sz, nnz, num_threads, mat_type, state, apply_to_large);
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (!initialization) {
@@ -426,7 +426,7 @@ test_speed(int r_pow,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    auto state = RandBLAS::base::RNGState(0, 0);
-    test_speed<double>(17, 17, 512, 8192, 5, 32, 36, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
+    auto state = RandBLAS::base::RNGState();
+    test_speed<double, r123::Philox4x32>(17, 17, 512, 8192, 5, 32, 36, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     return 0;
 }

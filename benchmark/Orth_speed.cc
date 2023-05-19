@@ -91,9 +91,9 @@ int GEQR<T>::call(
 }
 #endif
 
-template <typename T>
+template <typename T, typename RNG>
 static std::tuple<long, long, long, long> 
-test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<RNG> state) {
 
     int64_t size = m * n;
     std::vector<T> A(size, 0.0);
@@ -153,9 +153,9 @@ test_speed_helper(int64_t m, int64_t n, RandBLAS::base::RNGState<r123::Philox4x3
     return std::make_tuple(dur_chol, dur_lu, dur_qr, dur_geqr);
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
-test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs, RandBLAS::base::RNGState<r123::Philox4x32> state) {
+test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs, RandBLAS::base::RNGState<RNG> state) {
     int64_t rows = 0;
     int64_t cols = 0;
 
@@ -217,9 +217,9 @@ test_speed(int r_pow, int r_pow_max, int c_pow, int c_pow_max, int runs, RandBLA
     }
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
-test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, RandBLAS::base::RNGState<r123::Philox4x32> state)
+test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, RandBLAS::base::RNGState<RNG> state)
 {
 
     // Clear all files
@@ -291,7 +291,7 @@ test_speed_mean(int r_pow, int r_pow_max, int col, int col_max, int runs, RandBL
 }
 
 int main() {
-    auto state = RandBLAS::base::RNGState(0, 0);
-    test_speed_mean<double>(12, 12, 64, 64, 3, state);
+    auto state = RandBLAS::base::RNGState();
+    test_speed_mean<double, r123::Philox4x32>(12, 12, 64, 64, 3, state);
     return 0;
 }
