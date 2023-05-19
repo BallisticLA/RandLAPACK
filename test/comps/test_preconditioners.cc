@@ -93,12 +93,7 @@ class Test_rpc_svd_saso : public ::testing::Test
         int key_index,
         int nnz_index,
         blas::Layout layout
-    ){
-        uint64_t a_seed = 99;
-        int64_t k = vec_nnzs[nnz_index];
-        uint64_t seed_key = keys[key_index];
-        uint32_t seed_ctr = 0;
-        
+    ){  
         // construct "A" with cond(A) >= sqrt_cond^2.
         std::vector<T> A(m*n, 0.0);
         T *a = A.data();
@@ -107,8 +102,8 @@ class Test_rpc_svd_saso : public ::testing::Test
             .n_rows = m,
             .n_cols = n
         };
-        auto state = RandBLAS::base::RNGState(a_seed, 0);
-        auto next_a_state = RandBLAS::dense::fill_buff(a, D, state);
+        auto state = RandBLAS::base::RNGState(99);
+        RandBLAS::dense::fill_buff(a, D, state); // dead-store the next state
     
         if (layout == blas::Layout::RowMajor) {
             // scale first row up by sqrt_cond
@@ -125,13 +120,13 @@ class Test_rpc_svd_saso : public ::testing::Test
         }
 
         // apply the function under test (rpc_svd_saso)
-
+        auto alg_state = RandBLAS::base::RNGState((uint32_t) keys[key_index]);
+        int64_t k = vec_nnzs[nnz_index];
         std::vector<T> M_wk(d*n, 0.0);
-        int64_t threads = 1;
         int64_t rank;
         rank = RandLAPACK::rpc_svd_saso(
             layout, m, n, d, k,
-            A, M_wk, (T) 0.0, threads, seed_key, seed_ctr  
+            A, M_wk, (T) 0.0, alg_state
         );
         check_condnum_after_precond<T>(A, M_wk, rank, m, n, layout);
     }
@@ -151,12 +146,7 @@ class Test_rpc_svd_saso : public ::testing::Test
     virtual void test_full_rank_after_reg(
         uint64_t key_index,
         uint64_t nnz_index
-    ){
-        uint64_t a_seed = 99;
-        int64_t k = vec_nnzs[nnz_index];
-        uint64_t seed_key = keys[key_index];
-        uint32_t seed_ctr = 0;
-        
+    ){    
         // construct an ill-conditioned matrix, then zero out first column.
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
@@ -165,8 +155,8 @@ class Test_rpc_svd_saso : public ::testing::Test
             .n_rows = m,
             .n_cols = n
         };
-        auto state = RandBLAS::base::RNGState(a_seed, 0);
-        auto next_a_state = RandBLAS::dense::fill_buff(a, D, state);
+        auto state = RandBLAS::base::RNGState(99);
+        RandBLAS::dense::fill_buff(a, D, state);  // dead-store
                       
         blas::scal(n, sqrt_cond, a, 1);
         double invscale = 1.0 / sqrt_cond;
@@ -175,10 +165,11 @@ class Test_rpc_svd_saso : public ::testing::Test
 
         // apply the function under test (rpc_svd_saso)
         std::vector<double> M_wk(d*n, 0.0);
-        int64_t rank;
-        rank = RandLAPACK::rpc_svd_saso(
+        auto alg_state = RandBLAS::base::RNGState(keys[key_index]);
+        int64_t k = vec_nnzs[nnz_index];
+        int64_t rank = RandLAPACK::rpc_svd_saso(
             blas::Layout::RowMajor, m, n, d, k,
-            A, M_wk, mu, 1, seed_key, seed_ctr    
+            A, M_wk, mu, alg_state    
         );
         std::vector<double> A_aug_pc((m + n)*n, 0.0);
         double *a_aug_pc = A_aug_pc.data(); // interpret as column-major

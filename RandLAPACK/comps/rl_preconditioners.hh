@@ -61,8 +61,6 @@ namespace RandLAPACK {
  *      read in column-major format.
  * @param[in] sigma_sk
  *      We require sigma_sk.size() >= n.
- * @param[in] threads
- *      The number of OpenMP threads used during sketching.
  * @param[in] seed_key
  *      The key provided to an underlying counter-based random number generator.
  * @param[inout] seed_ctr
@@ -71,7 +69,7 @@ namespace RandLAPACK {
  * @returns
  *      void
  */
-template <typename T>
+template <typename T, typename RNG>
 void rpc_data_svd_saso(
     blas::Layout layout_A,
     int64_t m, // number of rows in A
@@ -81,9 +79,7 @@ void rpc_data_svd_saso(
     std::vector<T>& A, // buffer of size m*n.
     std::vector<T>& V_sk, // length at least d*n 
     std::vector<T>& sigma_sk, // length at least n
-    int64_t threads, // number of OpenMP threads to use in sketching.
-    uint64_t seed_key,
-    uint32_t seed_ctr
+    RandBLAS::base::RNGState<RNG> state
 ) {
     T* buff_A = A.data();
     if (V_sk.size() < d*n)
@@ -96,7 +92,6 @@ void rpc_data_svd_saso(
         .n_cols = m,
         .vec_nnz=k
     };
-    auto state = RandBLAS::base::RNGState(seed_key, seed_ctr);
     RandBLAS::sparse::SparseSkOp<T> S(D, state);
     RandBLAS::sparse::fill_sparse(S);
 
@@ -157,7 +152,7 @@ void rpc_data_svd_saso(
     return;
 }
 
-template <typename T>
+template <typename T, typename RNG>
 int64_t rpc_svd_saso(
     blas::Layout layout_A,
     int64_t m,
@@ -167,12 +162,10 @@ int64_t rpc_svd_saso(
     std::vector<T>& A,
     std::vector<T>& M,
     T mu,
-    int64_t threads,
-    uint64_t seed_key,
-    uint32_t seed_ctr
+    RandBLAS::base::RNGState<RNG> state
 ) {
     std::vector<T> sigma_sk(n, 0.0);
-    rpc_data_svd_saso(layout_A, m, n, d, k, A, M, sigma_sk, threads, seed_key, seed_ctr);
+    rpc_data_svd_saso(layout_A, m, n, d, k, A, M, sigma_sk, state);
     // step 3: define preconditioner
     //
     //      3.1: Modify the singular values, in case mu > 0.
