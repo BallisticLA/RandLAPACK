@@ -29,24 +29,18 @@ jobs:
       - name: install BLAS++
         run: |
           cd ..
-          pwd
-          ls
-          git clone https://bitbucket.org/icl/blaspp.git
+          git clone https://github.com/icl-utk-edu/blaspp.git
           mkdir blaspp-build
           cd blaspp-build
-          pwd
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install -Dbuild_tests=OFF ../blaspp
           make -j2 install
 
       - name: install Random123
         run: |
           cd ..
-          pwd
-          ls
           git clone https://github.com/DEShawResearch/Random123.git
           cd Random123/
-          mkdir -p `pwd`/../Random123-install/include
-          cp -rp include/Random123 `pwd`/../Random123-install/include/
+          make prefix=`pwd`/../Random123-install install-include
 
       - name: install LAPACK++
         run: |
