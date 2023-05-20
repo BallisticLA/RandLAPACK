@@ -34,10 +34,14 @@ namespace RandLAPACK {
  * 
  * can easily be solved by unpreconditioned iterative methods.
  * 
+ * Warning: if A is in column-major format, then this function
+ * will internally allocate (and subsequently deallocate) a 
+ * workspace buffer of size n^2.
+ * 
  * @param[in] layout_A
  *      Either blas::Layout::RowMajor or blas::Layout::ColMajor.
  * @param[in] m
- *      The number of rows in A.
+ *      The number of rows in A; should be >> n.
  * @param[in] n
  *      The number of columns in A (and rows in M).
  * @param[in] d
@@ -51,9 +55,9 @@ namespace RandLAPACK {
  *      parameter. If layout_A=RowMajor, then we would say that lda=n.
  *      If layout_A=ColMajor, then we would say that lda=m.
  * @param[out] V_sk
- *      We require that V_sk.size() >= d*n. On exit, stores the right
- *      singular vectors of a sketch of A, represented in column-major
- *      format with leading dimension d.
+ *      We require that V_sk.size() >= d*n for workspace reasons.
+ *      On exit, stores all n right singular vectors of a sketch of A,
+ *      represented in column-major format with leading dimension n.
  * @param[in] sigma_sk
  *      We require sigma_sk.size() >= n.
  * @param[in] state
