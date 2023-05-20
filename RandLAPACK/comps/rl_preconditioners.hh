@@ -19,33 +19,27 @@
 namespace RandLAPACK {
 
 /**
- * Use sketching to produce data for a right-preconditioner for tall
- * matrices of the form A_aug = [A; sqrt(mu) * I]. This is useful for ...
+ * Use sketching to produce data for a right-preconditioner of a
+ * tall matrix A, or a regularized version thereof.
  * 
- *      Overdetermined and underdetermined least squares
- *      ------------------------------------------------
- *      It makes A_pre = A_aug*M well-conditioned, so that
+ * The data consists of column-orthonormal matrix matrix "V_sk" and
+ * a vector "sigma_sk" of nonnegative nonincreasing values.
+ * 
+ * If no regularization is needed, then the preconditioner is the 
+ * matrix "M" obtained by dividing column i of V_sk by sigma_sk[i];
+ * this matrix M should make A_pre = A * M well-conditioned. This
+ * makes it so that
+ * 
  *      min{||A_pre * z - b ||} and min{ ||y|| s.t. A_pre' y = c }
- *      can easily be solved by unpreconditioned iterative methods.
  * 
- *      Solving linear systems with G = A'A + mu*I
- *      ------------------------------------------
- *      It makes M'GM well-conditioned, so that M'GM z = M'h
- *      can easily be solved by CG without preconditioning.
- * 
- * The input matrix A must be contiguous; no "LDA" is allowed.
- * 
- * On exit, the preconditioner with mu=0 would be defined by
- * taking the columns of V_sk and scaling them by 1/sigma_sk.
- * We do not perform this scaling ourselves, since other values
- * of mu might be intended.
+ * can easily be solved by unpreconditioned iterative methods.
  * 
  * @param[in] layout_A
  *      Either blas::Layout::RowMajor or blas::Layout::ColMajor.
  * @param[in] m
- *      The number of rows in A
+ *      The number of rows in A.
  * @param[in] n
- *      The number of columns in A (and rows in M)
+ *      The number of columns in A (and rows in M).
  * @param[in] d
  *      The number of rows in the sketched data matrix; must be >= n.
  * @param[in] k
@@ -53,24 +47,23 @@ namespace RandLAPACK {
  *      A common value is k=8 when n is on the order of a couple thousand.
  * @param[in] A
  *      A buffer for an m \times n matrix A. Interpreted in 
- *      "layout_A" order.
+ *      "layout_A" order. This function does not allow a separate "lda"
+ *      parameter. If layout_A=RowMajor, then we would say that lda=n.
+ *      If layout_A=ColMajor, then we would say that lda=m.
  * @param[out] V_sk
- *      We require that V_sk.size() >= d*n. Letting "r" denote the return
- *      value of this function, on exit the orthogonal factor of the preconditioner
- *      is identified with the first n*r entries in V_sk.data(),
- *      read in column-major format.
+ *      We require that V_sk.size() >= d*n. On exit, stores the right
+ *      singular vectors of a sketch of A, represented in column-major
+ *      format with leading dimension d.
  * @param[in] sigma_sk
  *      We require sigma_sk.size() >= n.
- * @param[in] seed_key
- *      The key provided to an underlying counter-based random number generator.
- * @param[inout] seed_ctr
- *      A 32-bit counter provided to the underlying counter-based random number
- *      generator. This value is incremented by m*k on-exit.
+ * @param[in] state
+ *      The RNGState used to generate the sketching operator.
  * @returns
- *      void
+ *      An RNGState that the calling function should use the next
+ *      time it needs an RNGState.
  */
 template <typename T, typename RNG>
-void rpc_data_svd_saso(
+RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     blas::Layout layout_A,
     int64_t m, // number of rows in A
     int64_t n, // number of columns in A
@@ -93,7 +86,7 @@ void rpc_data_svd_saso(
         .vec_nnz = k
     };
     RandBLAS::sparse::SparseSkOp<T> S(D, state);
-    RandBLAS::sparse::fill_sparse(S);
+    auto next_state = RandBLAS::sparse::fill_sparse(S);
 
     // step 1.2: sketch the data matrix
     int64_t lda, lda_sk;
@@ -149,7 +142,7 @@ void rpc_data_svd_saso(
         }
         delete[] Vt;
     }
-    return;
+    return next_state;
 }
 
 template <typename T, typename RNG>
@@ -179,15 +172,15 @@ int64_t rpc_svd_saso(
             sigma_sk[i] = (T) std::hypot((double) sigma_sk[i], sqrtmu); // sqrt(s[i]^2 + mu)
         }
     }
-    // 3.2
-    int64_t rank = 0; 
+    // 3.2 
+    if (sigma_sk[0] == 0.0)
+        throw std::runtime_error("The rank of the regularized sketch must be at least one.");
+    int64_t rank = 0;
     while (rank < n) {
        ++rank;
        if (sigma_sk[rank - 1] < sigma_sk[0]*n*std::numeric_limits<T>::epsilon())
             break;
     }
-    if (sigma_sk[rank - 1] == 0.0)
-        throw std::runtime_error("The rank of the regularized sketch must be at least one.");
     // 3.3
     T *buff_V = M.data(); // interpret as column-major
     for (int64_t i = 0; i < rank; ++i) {

@@ -151,9 +151,9 @@ class Test_rpc_svd_saso : public ::testing::Test
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
         RandBLAS::dense::DenseDist D{
-            .family = RandBLAS::dense::DenseDistName::Uniform,
             .n_rows = m,
-            .n_cols = n
+            .n_cols = n,
+            .family = RandBLAS::dense::DenseDistName::Uniform
         };
         auto state = RandBLAS::base::RNGState(99);
         RandBLAS::dense::fill_buff(a, D, state);  // dead-store
