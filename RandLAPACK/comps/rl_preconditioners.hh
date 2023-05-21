@@ -149,49 +149,30 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     return next_state;
 }
 
-
-template <typename T, typename RNG>
-int64_t rpc_svd_saso(
-    blas::Layout layout_A,
-    int64_t m,
+template <typename T>
+int64_t make_rpc_svd_explicit(
     int64_t n,
-    int64_t d,
-    int64_t k,
-    std::vector<T>& A,
-    std::vector<T>& M,
-    T mu,
-    RandBLAS::base::RNGState<RNG> state
+    T* V_sk,
+    T* sigma_sk,
+    T mu
 ) {
-    std::vector<T> sigma_sk(n, 0.0);
-    int64_t lda = (layout_A == blas::Layout::ColMajor) ? m : n;
-    rpc_data_svd_saso(layout_A, m, n, d, k, A.data(), lda, M.data(), sigma_sk.data(), state);
-    // step 3: define preconditioner
-    //
-    //      3.1: Modify the singular values, in case mu > 0.
-    //      3.2: Decide numerical rank.
-    //      3.3: Scale columns of the matrix of right singular vectors.
-    //
-    // 3.1
+    if ((sigma_sk[0] == 0.0) & (mu == 0))
+        throw std::runtime_error("The preconditioner must have rank at least one.");
     if (mu > 0) {
         double sqrtmu = std::sqrt((double) mu);
         for (int i = 0; i < n; ++i) {
             sigma_sk[i] = (T) std::hypot((double) sigma_sk[i], sqrtmu); // sqrt(s[i]^2 + mu)
         }
     }
-    // 3.2 
-    if (sigma_sk[0] == 0.0)
-        throw std::runtime_error("The rank of the regularized sketch must be at least one.");
     int64_t rank = 0;
     while (rank < n) {
        ++rank;
        if (sigma_sk[rank - 1] < sigma_sk[0]*n*std::numeric_limits<T>::epsilon())
             break;
     }
-    // 3.3
-    T *buff_V = M.data(); // interpret as column-major
     for (int64_t i = 0; i < rank; ++i) {
         T scale = 1.0 / sigma_sk[i];
-        blas::scal(n, scale, &buff_V[i*n], 1);
+        blas::scal(n, scale, &V_sk[i*n], 1);
     }
     return rank;
 }

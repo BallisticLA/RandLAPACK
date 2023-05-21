@@ -119,15 +119,16 @@ class Test_rpc_svd_saso : public ::testing::Test
             blas::scal(m, invscale, &a[m], 1);
         }
 
-        // apply the function under test (rpc_svd_saso)
+        // apply the function under test (rpc_data_svd_saso)
         auto alg_state = RandBLAS::base::RNGState((uint32_t) keys[key_index]);
         int64_t k = vec_nnzs[nnz_index];
         std::vector<T> M_wk(d*n, 0.0);
-        int64_t rank;
-        rank = RandLAPACK::rpc_svd_saso(
-            layout, m, n, d, k,
-            A, M_wk, (T) 0.0, alg_state
-        );
+        std::vector<T> sigma_sk(n, 0.0);
+        int64_t lda = (layout == blas::Layout::ColMajor) ? m : n;
+        RandLAPACK::rpc_data_svd_saso(layout, m, n, d, k, A.data(), lda, M_wk.data(), sigma_sk.data(), alg_state);
+        int64_t rank = RandLAPACK::make_rpc_svd_explicit(n, M_wk.data(), sigma_sk.data(), 0.0);
+
+        // Check for correct output
         check_condnum_after_precond<T>(A, M_wk, rank, m, n, layout);
     }
 
@@ -165,12 +166,16 @@ class Test_rpc_svd_saso : public ::testing::Test
 
         // apply the function under test (rpc_svd_saso)
         std::vector<double> M_wk(d*n, 0.0);
+        std::vector<double> sigma_sk(n, 0.0);
         auto alg_state = RandBLAS::base::RNGState(keys[key_index]);
         int64_t k = vec_nnzs[nnz_index];
-        int64_t rank = RandLAPACK::rpc_svd_saso(
+
+        RandLAPACK::rpc_data_svd_saso(
             blas::Layout::RowMajor, m, n, d, k,
-            A, M_wk, mu, alg_state    
+            A.data(), n, M_wk.data(), sigma_sk.data(), alg_state
         );
+        int64_t rank = RandLAPACK::make_rpc_svd_explicit(n, M_wk.data(), sigma_sk.data(), mu);
+        
         std::vector<double> A_aug_pc((m + n)*n, 0.0);
         double *a_aug_pc = A_aug_pc.data(); // interpret as column-major
         double *at = A.data(); // interpret as transpose in column-major
