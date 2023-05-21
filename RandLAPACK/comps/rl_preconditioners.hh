@@ -41,9 +41,10 @@ namespace RandLAPACK {
  * @param[in] layout_A
  *      Either blas::Layout::RowMajor or blas::Layout::ColMajor.
  * @param[in] m
- *      The number of rows in A; should be >> n.
+ *      The number of rows in A; this must be at least as large
+ *      as "n" and it should be much larger.
  * @param[in] n
- *      The number of columns in A (and rows in M).
+ *      The number of columns in A (and rows in V_sk).
  * @param[in] d
  *      The number of rows in the sketched data matrix; must be >= n.
  * @param[in] k
@@ -51,15 +52,17 @@ namespace RandLAPACK {
  *      A common value is k=8 when n is on the order of a couple thousand.
  * @param[in] A
  *      A buffer for an m \times n matrix A. Interpreted in 
- *      "layout_A" order. This function does not allow a separate "lda"
- *      parameter. If layout_A=RowMajor, then we would say that lda=n.
- *      If layout_A=ColMajor, then we would say that lda=m.
+ *      "layout_A" order.
+ * @param[in] lda
+ *      Leading dimension of A. This parameter, together with layout_A,
+ *      m, n, and A itself define the m-by-n matrix mat(A).
  * @param[out] V_sk
- *      We require that V_sk.size() >= d*n for workspace reasons.
- *      On exit, stores all n right singular vectors of a sketch of A,
+ *      A buffer of size >= d*n.
+ *      On exit, contains all n right singular vectors of a sketch of A,
  *      represented in column-major format with leading dimension n.
- * @param[in] sigma_sk
- *      We require sigma_sk.size() >= n.
+ * @param[out] sigma_sk
+ *      A buffer of size >= n.
+ *      On exit, contains all n singular values of a sketch of A.
  * @param[in] state
  *      The RNGState used to generate the sketching operator.
  * @returns
@@ -73,15 +76,16 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     int64_t n, // number of columns in A
     int64_t d, // number of rows in sketch of A
     int64_t k, // number of nonzeros in each column of the sketching operator
-    std::vector<T>& A, // buffer of size m*n.
-    std::vector<T>& V_sk, // length at least d*n 
-    std::vector<T>& sigma_sk, // length at least n
+    T *A, // buffer of size at least m*n.
+    int64_t lda, // leading dimension for mat(A).
+    T *V_sk, // buffer of size at least d*n.
+    T *sigma_sk, //buffer of size at least n.
     RandBLAS::base::RNGState<RNG> state
 ) {
-    T* buff_A = A.data();
-    if (V_sk.size() < d*n)
-        throw std::invalid_argument("V_sk must be of size at least d*n.");
-    T* buff_A_sk = V_sk.data();
+    T* buff_A = A;
+    T* buff_A_sk = V_sk;
+    if (m < n)
+        throw std::invalid_argument("Input matrix A must have at least as many rows as columns.");
     
     // step 1.1: define the sketching operator
     RandBLAS::sparse::SparseDist D{
@@ -93,12 +97,12 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     auto next_state = RandBLAS::sparse::fill_sparse(S);
 
     // step 1.2: sketch the data matrix
-    int64_t lda, lda_sk;
+    int64_t lda_sk;
     if (layout_A == blas::Layout::RowMajor) {
-        lda = n;
+        assert(lda >= n);
         lda_sk = n;
     } else {
-        lda = m;
+        assert(lda >= m);
         lda_sk = d;
     }
     RandBLAS::util::safe_scal(d*n, 0.0, buff_A_sk, 1);
@@ -124,21 +128,17 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
         //      So we'll tell LAPACK that we want the singular values and left
         //      singular vectors of tranpose(A_sk).
         //
-        //      TODO: check that rank(A_sk) == rank(A). This can be done by 
-        //      taking a basis "B" for the kernel of A_sk and checking if
-        //      if A*B == 0 (up to some tolerance).   
-        //
         lapack::Job jobu = lapack::Job::OverwriteVec;
         lapack::Job jobvt = lapack::Job::NoVec;
-        lapack::gesvd(jobu, jobvt, n, d, buff_A_sk, n, sigma_sk.data(), ignore, 1, ignore, 1);
+        lapack::gesvd(jobu, jobvt, n, d, buff_A_sk, n, sigma_sk, ignore, 1, ignore, 1);
         // interpret buff_A_sk in row-major
     } else {
         lapack::Job jobu = lapack::Job::NoVec;
         lapack::Job jobvt = lapack::Job::SomeVec;
         T *Vt = new T[n * n]{};
-        lapack::gesvd(jobu, jobvt, d, n, buff_A_sk, d, sigma_sk.data(), ignore, 1, Vt, n);
+        lapack::gesvd(jobu, jobvt, d, n, buff_A_sk, d, sigma_sk, ignore, 1, Vt, n);
         for (int i = 0; i < n; ++i) {
-            // buff_A_sk is now just scratch space owned by the std::vector V_sk.
+            // buff_A_sk is now just scratch space that points to V_sk.
             // We just computed its SVD as a d-by-n matrix in column-major order.
             // Now we want to write to the first n^2 elements of buff_A_sk with
             // n "n-vectors" in column-major order.
@@ -148,6 +148,7 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     }
     return next_state;
 }
+
 
 template <typename T, typename RNG>
 int64_t rpc_svd_saso(
@@ -162,7 +163,8 @@ int64_t rpc_svd_saso(
     RandBLAS::base::RNGState<RNG> state
 ) {
     std::vector<T> sigma_sk(n, 0.0);
-    rpc_data_svd_saso(layout_A, m, n, d, k, A, M, sigma_sk, state);
+    int64_t lda = (layout_A == blas::Layout::ColMajor) ? m : n;
+    rpc_data_svd_saso(layout_A, m, n, d, k, A.data(), lda, M.data(), sigma_sk.data(), state);
     // step 3: define preconditioner
     //
     //      3.1: Modify the singular values, in case mu > 0.
