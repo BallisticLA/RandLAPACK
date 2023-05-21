@@ -149,30 +149,63 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     return next_state;
 }
 
+
+/**
+ * Accepts the right singular vectors and singular values of some tall
+ * matrix "T", along with a regularization parameter mu.
+ * 
+ * This function overwrites the the provided right singular vectors with
+ * a matrix "M" so that if
+ * 
+ *          T_aug := [T; sqrt(mu)*I]
+ * 
+ * then T_aug * M is column-orthonormal. Such a matrix M is called an
+ * _orthogonalizer_ of T_aug.
+ * 
+ * A thresholding scheme is applied to infer numerical rank of T_aug.
+ * 
+ * @param[in] n
+ *      The number of rows and columns in V.
+ * 
+ * @param[in,out] V
+ *      A buffer of size >= n*n, read in column-major order.
+ * 
+ *      On entry, the columns of V are the right singular vectors of some
+ *      tall matrix T.
+ * 
+ *      On exit, the i-th column of V is scaled down by
+ *              1/sqrt(sigma[i]^2 + mu)
+ *      up until i = rank-1, where rank is the return value of this function.
+ * 
+ * @param[in] sigma
+ *      A buffer of size >= n, containing the singular values of some tall
+ *      matrix T.
+ * 
+ * @returns
+ *      The number of columns in V that define the orthogonalizer.
+ */
 template <typename T>
-int64_t make_rpc_svd_explicit(
+int64_t make_right_orthogonalizer(
     int64_t n,
-    T* V_sk,
-    T* sigma_sk,
+    T* V,
+    T* sigma,
     T mu
 ) {
-    if ((sigma_sk[0] == 0.0) & (mu == 0))
-        throw std::runtime_error("The preconditioner must have rank at least one.");
-    if (mu > 0) {
-        double sqrtmu = std::sqrt((double) mu);
-        for (int i = 0; i < n; ++i) {
-            sigma_sk[i] = (T) std::hypot((double) sigma_sk[i], sqrtmu); // sqrt(s[i]^2 + mu)
-        }
-    }
+    double sqrtmu = std::sqrt((double) mu);
+    auto regularized = [sqrtmu](T s) {
+        return (sqrtmu == 0) ? s : (T) std::hypot((double) s, sqrtmu);
+    };
+    T curr_s = regularized(sigma[0]);
+    T abstol = curr_s * n * std::numeric_limits<T>::epsilon();
+    
     int64_t rank = 0;
     while (rank < n) {
-       ++rank;
-       if (sigma_sk[rank - 1] < sigma_sk[0]*n*std::numeric_limits<T>::epsilon())
+        curr_s = regularized(sigma[rank]);
+        if (curr_s < abstol)
             break;
-    }
-    for (int64_t i = 0; i < rank; ++i) {
-        T scale = 1.0 / sigma_sk[i];
-        blas::scal(n, scale, &V_sk[i*n], 1);
+        T scale = 1.0 / curr_s;
+        blas::scal(n, scale, &V[rank*n], 1);
+        rank = rank + 1;
     }
     return rank;
 }

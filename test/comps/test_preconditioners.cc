@@ -126,7 +126,7 @@ class Test_rpc_svd_saso : public ::testing::Test
         std::vector<T> sigma_sk(n, 0.0);
         int64_t lda = (layout == blas::Layout::ColMajor) ? m : n;
         RandLAPACK::rpc_data_svd_saso(layout, m, n, d, k, A.data(), lda, M_wk.data(), sigma_sk.data(), alg_state);
-        int64_t rank = RandLAPACK::make_rpc_svd_explicit(n, M_wk.data(), sigma_sk.data(), 0.0);
+        int64_t rank = RandLAPACK::make_right_orthogonalizer(n, M_wk.data(), sigma_sk.data(), 0.0);
 
         // Check for correct output
         check_condnum_after_precond<T>(A, M_wk, rank, m, n, layout);
@@ -174,7 +174,9 @@ class Test_rpc_svd_saso : public ::testing::Test
             blas::Layout::RowMajor, m, n, d, k,
             A.data(), n, M_wk.data(), sigma_sk.data(), alg_state
         );
-        int64_t rank = RandLAPACK::make_rpc_svd_explicit(n, M_wk.data(), sigma_sk.data(), mu);
+        int64_t rank = RandLAPACK::make_right_orthogonalizer(
+            n, M_wk.data(), sigma_sk.data(), mu
+        );
         
         std::vector<double> A_aug_pc((m + n)*n, 0.0);
         double *a_aug_pc = A_aug_pc.data(); // interpret as column-major
