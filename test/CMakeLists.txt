@@ -10,6 +10,7 @@ if (GTest_FOUND)
         comps/test_util.cc
         comps/test_orth.cc
         comps/test_qb.cc
+        comps/test_preconditioners.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
         drivers/test_revd2.cc
