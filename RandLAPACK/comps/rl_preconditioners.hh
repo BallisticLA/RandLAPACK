@@ -152,17 +152,17 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
 
 /**
  * Accepts the right singular vectors and singular values of some tall
- * matrix "T", along with a regularization parameter mu.
+ * matrix "H", along with a regularization parameter mu.
  * 
- * This function overwrites the the provided right singular vectors with
+ * This function overwrites the provided right singular vectors with
  * a matrix "M" so that if
  * 
- *          T_aug := [T; sqrt(mu)*I]
+ *          H_aug := [H; sqrt(mu)*I]
  * 
- * then T_aug * M is column-orthonormal. Such a matrix M is called an
- * _orthogonalizer_ of T_aug.
+ * then H_aug * M is column-orthonormal. Such a matrix M is called an
+ * _orthogonalizer_ of H_aug.
  * 
- * A thresholding scheme is applied to infer numerical rank of T_aug.
+ * A thresholding scheme is applied to infer numerical rank of H_aug.
  * 
  * @param[in] n
  *      The number of rows and columns in V.
@@ -171,15 +171,15 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
  *      A buffer of size >= n*n, read in column-major order.
  * 
  *      On entry, the columns of V are the right singular vectors of some
- *      tall matrix T.
+ *      tall matrix H.
  * 
  *      On exit, the i-th column of V is scaled down by
  *              1/sqrt(sigma[i]^2 + mu)
- *      up until i = rank-1, where rank is the return value of this function.
+ *      for i in {0, 1, ..., rank-1}, where rank is the return value of this function.
  * 
  * @param[in] sigma
  *      A buffer of size >= n, containing the singular values of some tall
- *      matrix T.
+ *      matrix H.
  * 
  * @returns
  *      The number of columns in V that define the orthogonalizer.
