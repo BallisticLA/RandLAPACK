@@ -49,7 +49,7 @@ class TestQB : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void computational_helper(int64_t m, int64_t n, T& norm_A, QBTestData<T>& all_data) {
+    static void computational_helper(int64_t m, int64_t n, QBTestData<T>& all_data) {
         
         // Create a copy of the original matrix
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy.data(), 1);
@@ -58,6 +58,10 @@ class TestQB : public ::testing::Test
 
         // Get low-rank SVD
         lapack::gesdd(Job::SomeVec, m, n, all_data.A_cpy.data(), m, all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
+    }
+
+    template <typename T, typename RNG>
+    static void computational_helper(int64_t m, int64_t n, T& norm_A, QBTestData<T>& all_data) {
 
         // pre-compute norm
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
@@ -233,46 +237,76 @@ class TestQB : public ::testing::Test
         printf("|================================TEST QB2 K = min(M, N) END================================|\n");
     }
 };
-/*
-TEST_F(TestQB, Polynomial_Decay)
+
+TEST_F(TestQB, Polynomial_Decay_general1)
 {
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
+    int64_t block_sz = 10;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
-    // Fast polynomial decay test
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), state);
-    // Slow polynomial decay test
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, tol, std::make_tuple(0, 6.7, false), state);
-    // Superfast exponential decay test
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, tol, std::make_tuple(1, 2025, false), state);
+
+    QBTestData<double> all_data(m, n, k);
+    
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
 }
-TEST_F(TestQB, Zero_Mat)
+
+TEST_F(TestQB, Polynomial_Decay_general2)
 {
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
+    int64_t block_sz = 2;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
-    // A = 0
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(3, 0, false), state);
+
+    QBTestData<double> all_data(m, n, k);
+    
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 6.7, false));
+    computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
 }
-TEST_F(TestQB, Rand_Diag)
+
+TEST_F(TestQB, Zero_Mat_general)
 {
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
+    int64_t block_sz = 2;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
-    // Random diagonal matrix test
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 50, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(4, 0, false), state);
+
+    QBTestData<double> all_data(m, n, k);
+    
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(3, 0, false));
+    computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
 }
-TEST_F(TestQB, Diag_Drop)
+
+TEST_F(TestQB, Rand_diag_general)
 {
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
+    int64_t block_sz = 2;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
-    // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(100, 100, 0, 5, 2, std::pow(std::numeric_limits<double>::epsilon(), 0.75), std::make_tuple(5, 0, false), state);
+
+    QBTestData<double> all_data(m, n, k);
+    
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
+    computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
 }
-TEST_F(TestQB, Varying_Tol)
-{
-    auto state = RandBLAS::base::RNGState();
-    // test zero tol
-    test_QB2_k_eq_min<double, r123::Philox4x32>(100, 100, 10, 5, 2, 0.0, std::make_tuple(0, 1.23, false), state);
-    // test nonzero tol
-    test_QB2_k_eq_min<double, r123::Philox4x32>(100, 100, 10, 5, 2, (double) 0.1, std::make_tuple(0, 1.23, false), state);
-}
-*/
-TEST_F(TestQB, Polynomial_Decay)
+
+TEST_F(TestQB, Polynomial_Decay_zero_tol1)
 {
     int64_t m = 100;
     int64_t n = 100;
@@ -280,19 +314,30 @@ TEST_F(TestQB, Polynomial_Decay)
     int64_t p = 5;
     int64_t block_sz = 10;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    double tol = (double) 0.1;
     auto state = RandBLAS::base::RNGState();
 
     QBTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     computational_helper<double, r123::Philox4x32>(m, n, norm_A, all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
+    test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, p, block_sz, tol, state, norm_A, all_data);
+}
 
-    // Reset data - mandatory
-    all_data.Q.clear();
-    all_data.B.clear();
-    std::fill(all_data.A_hat.begin(), all_data.A_hat.end(), 0.0);
+TEST_F(TestQB, Polynomial_Decay_zero_tol2)
+{
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
+    int64_t block_sz = 10;
+    double norm_A = 0;
+    double tol = 0.0;
+    auto state = RandBLAS::base::RNGState();
 
+    QBTestData<double> all_data(m, n, k);
+    
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    computational_helper<double, r123::Philox4x32>(m, n, norm_A, all_data);
     test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, p, block_sz, tol, state, norm_A, all_data);
 }
