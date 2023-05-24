@@ -17,19 +17,19 @@ class TestQB : public ::testing::Test
 
     template <typename T>
     struct QBTestData {
-        std::vector<T>& A;
-        std::vector<T>& Q;
-        std::vector<T>& B;
-        std::vector<T>& B_cpy;
-        std::vector<T>& A_hat;
-        std::vector<T>& A_k;
-        std::vector<T>& A_cpy;
-        std::vector<T>& A_cpy_2;
-        std::vector<T>& A_cpy_3;
-        std::vector<T>& s;
-        std::vector<T>& S;
-        std::vector<T>& U;
-        std::vector<T>& VT;
+        std::vector<T> A;
+        std::vector<T> Q;
+        std::vector<T> B;
+        std::vector<T> B_cpy;
+        std::vector<T> A_hat;
+        std::vector<T> A_k;
+        std::vector<T> A_cpy;
+        std::vector<T> A_cpy_2;
+        std::vector<T> A_cpy_3;
+        std::vector<T> s;
+        std::vector<T> S;
+        std::vector<T> U;
+        std::vector<T> VT;
 
         QBTestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0), 
@@ -284,9 +284,8 @@ TEST_F(TestQB, Polynomial_Decay)
     auto state = RandBLAS::base::RNGState();
 
     QBTestData<double> all_data(m, n, k);
-
+    
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    /*
     computational_helper<double, r123::Philox4x32>(m, n, norm_A, &all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, &all_data);
 
@@ -296,5 +295,4 @@ TEST_F(TestQB, Polynomial_Decay)
     std::fill(all_data.A_hat.begin(), all_data.A_hat.end(), 0.0);
 
     test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, p, block_sz, tol, state, norm_A, & all_data);
-    */
 }
