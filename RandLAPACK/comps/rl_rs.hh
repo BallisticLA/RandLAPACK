@@ -9,9 +9,6 @@
 #include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
-
-#include <vector>
-#include <cstdint>
 #include <cstdio>
 
 namespace RandLAPACK {
@@ -39,7 +36,7 @@ class RS : public RowSketcher<T>
         RS(
             // Requires a stabilization algorithm object.
             RandLAPACK::Stabilization<T>& stab_obj,
-            RandBLAS::base::RNGState<RNG> s,
+            RandBLAS::base::RNGState<RNG> state,
             int64_t p,
             int64_t q,
             bool verb,
@@ -47,7 +44,7 @@ class RS : public RowSketcher<T>
         ) : Stab_Obj(stab_obj) {
             verbosity = verb;
             cond_check = cond;
-            st = s;
+            st = state;
             passes_over_data = p;
             passes_per_stab = q;
         }

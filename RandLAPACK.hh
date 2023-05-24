@@ -7,6 +7,8 @@
 #include "RandLAPACK/comps/rl_qb.hh"
 #include "RandLAPACK/comps/rl_rf.hh"
 #include "RandLAPACK/comps/rl_rs.hh"
+#include "RandLAPACK/comps/rl_syps.hh"
+#include "RandLAPACK/comps/rl_syrf.hh"
 #include "RandLAPACK/comps/rl_util.hh"
 #include "RandLAPACK/comps/rl_orth.hh"
 

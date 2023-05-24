@@ -17,7 +17,12 @@ class TestREVD2 : public ::testing::Test
     /// General test for RSVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T, typename RNG>
-    static void test_REVD2_general(int64_t m, int64_t k, int64_t k_start, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state, int rank_expectation, T err_expectation) {
+    static void test_REVD2_general(
+        int64_t m, int64_t k, int64_t k_start,
+        std::tuple<int, T, bool> mat_type,
+        RandBLAS::base::RNGState<RNG> state,
+        int rank_expectation, T err_expectation
+    ) {
 
         printf("|==================================TEST REVD2 GENERAL BEGIN==================================|\n");
 
@@ -54,17 +59,18 @@ class TestREVD2 : public ::testing::Test
         // Stabilization Constructor - Choose PLU
         RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::SYPS<T, RNG> SYPS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose HouseholderQR
         RandLAPACK::HQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
-        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
+        RandLAPACK::SYRF<T> SYRF(SYPS, Orth_RF, verbosity, cond_check);
         // REVD2 constructor
-        RandLAPACK::REVD2<T, RNG> REVD2(RF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
+        RandLAPACK::REVD2<T, RNG> REVD2(SYRF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
 
         k = k_start;
         REVD2.tol = std::pow(10, -14);
-        REVD2.call(m, blas::Uplo::Upper, A, k, V, eigvals);
+        RandBLAS::base::RNGState<RNG> alg_state;
+        REVD2.call(blas::Uplo::Upper, m, A, k, V, eigvals, alg_state);
 
         std::vector<T> E(k * k, 0.0);
         std::vector<T> Buf (m * k, 0.0);
