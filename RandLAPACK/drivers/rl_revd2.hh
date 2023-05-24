@@ -175,6 +175,8 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
     T err = 0;
     std::vector<T> symrf_work(0);
     auto next_state = state;
+    RandBLAS::base::RNGState<RNG> error_est_state(state.counter, state.key);
+    error_est_state.key.incr(1);
     while(1) {
         T* A_dat = A.data();
         T* V_dat = util::upsize(m * k, V);
@@ -242,7 +244,7 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         // To perform the following safely, need to make sure Omega has at least 4 columns
         Omega_dat = util::upsize(m * 4, this->Omega);
         RandBLAS::dense::DenseDist  g{.n_rows = m, .n_cols = 1};
-        next_state = RandBLAS::dense::fill_buff(Omega_dat, g, next_state);
+        error_est_state = RandBLAS::dense::fill_buff(Omega_dat, g, error_est_state);
 
         err = power_error_est(m, k, p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 
