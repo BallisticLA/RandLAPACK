@@ -30,31 +30,23 @@ class TestQB : public ::testing::Test
         std::vector<T>& S;
         std::vector<T>& U;
         std::vector<T>& VT;
+
+        QBTestData(int64_t m, int64_t n, int64_t k) :
+        A(m * n, 0.0), 
+        Q(m * k, 0.0), 
+        B(k * n, 0.0), 
+        B_cpy(k * n, 0.0), 
+        A_hat(m * n, 0.0),
+        A_k(m * n, 0.0),  
+        A_cpy(m * n, 0.0),  
+        A_cpy_2(m * n, 0.0),
+        A_cpy_3(m * n, 0.0),
+        s(n, 0.0),
+        S(n * n, 0.0),
+        U(m * n, 0.0),
+        VT(n * n, 0.0)
+        {}
     };
-
-    template <typename T>
-    static QBTestData<T> allocation_helper(int64_t m, int64_t n,  int64_t k) {
-
-        // For running QB
-        std::vector<double> A    (m * n, 0.0);
-        std::vector<double> Q    (m * k, 0.0);
-        std::vector<double> B    (k * n, 0.0);
-        std::vector<double> B_cpy(k * n, 0.0);
-        // For results comparison
-        std::vector<double> A_hat   (m * n, 0.0);
-        std::vector<double> A_k     (m * n, 0.0);
-        std::vector<double> A_cpy   (m * n, 0.0);
-        std::vector<double> A_cpy_2 (m * n, 0.0);
-        std::vector<double> A_cpy_3 (m * n, 0.0);
-        // For low-rank SVD
-        std::vector<double> s (n, 0.0);
-        std::vector<double> S (n * n, 0.0);
-        std::vector<double> U (m * n, 0.0);
-        std::vector<double> VT(n * n, 0.0);
-
-        QBTestData<double> all_data =  {A, Q, B, B_cpy, A_hat, A_k, A_cpy, A_cpy_2, A_cpy_3, s, S, U, VT};
-        return all_data;
-    }
 
     template <typename T, typename RNG>
     static void computational_helper(int64_t m, int64_t n, T& norm_A, QBTestData<T>* all_data) {
@@ -291,7 +283,7 @@ TEST_F(TestQB, Polynomial_Decay)
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
 
-    QBTestData<double> all_data = allocation_helper<double>(m, n, k);
+    QBTestData<double> all_data(m, n, k);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     /*
