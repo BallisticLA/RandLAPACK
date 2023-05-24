@@ -206,7 +206,7 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
 
         // Compute R = chol(Omega' Y + v Omega' Omega)
         // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
-        if(lapack::potrf(Uplo::Upper, k, R_dat, k)) {
+        if(lapack::potrf(Uplo::Upper, k, R_dat, k))
             throw std::runtime_error("Cholesky decomposition failed.");
         RandLAPACK::util::get_U(k, k, R);
 
