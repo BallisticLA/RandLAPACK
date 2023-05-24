@@ -54,7 +54,7 @@ class TestOrth : public ::testing::Test
 
         // Orthonormalize sketch Y
         if(CholQRQ.call(m, k, Y) != 0) {
-            EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
+            EXPECT_TRUE(false) << "\nPOTRF FAILED DUE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality
@@ -71,4 +71,5 @@ class TestOrth : public ::testing::Test
 
 TEST_F(TestOrth, SimpleTest)
 {
+    test_orth_sketch(5, 5, 2, std::tuple(1, 2.0, true), RandBLAS::base::RNGState(0));
 }
