@@ -88,13 +88,12 @@ template <typename T>
 void get_L(
     int64_t m,
     int64_t n,
-    std::vector<T>& L,
+    T* L_dat,
     int overwrite_diagonal
 ) {
     // Vector end pointer
     int size = m * n;
     // The unit diagonal elements of L were not stored.
-    T* L_dat = L.data();
     if(overwrite_diagonal)
         L_dat[0] = 1;
 
@@ -109,6 +108,16 @@ void get_L(
         if(overwrite_diagonal)
             L_dat[i + j] = 1;
     }
+}
+
+template <typename T>
+void get_L(
+    int64_t m,
+    int64_t n,
+    std::vector<T> &L,
+    int overwrite_diagonal
+) {
+    get_L(m, n, L.data(), overwrite_diagonal);
 }
 
 /// Stores the upper-triangualr portion of A in U.

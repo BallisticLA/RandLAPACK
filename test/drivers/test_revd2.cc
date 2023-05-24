@@ -56,16 +56,14 @@ class TestREVD2 : public ::testing::Test
         int64_t passes_per_iteration = 10;
 
         // Make subroutine objects
-        // Stabilization Constructor - Choose PLU
-        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
         // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::SYPS<T, RNG> SYPS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
+        RandLAPACK::SYPS<T, RNG> SYPS(p, passes_per_iteration, verbosity, cond_check);
         // Orthogonalization Constructor - Choose HouseholderQR
         RandLAPACK::HQRQ<T> Orth_RF(cond_check, verbosity);
         // RangeFinder constructor - Choose default (rf1)
-        RandLAPACK::SYRF<T> SYRF(SYPS, Orth_RF, verbosity, cond_check);
+        RandLAPACK::SYRF<T, RNG> SYRF(SYPS, Orth_RF, verbosity, cond_check);
         // REVD2 constructor
-        RandLAPACK::REVD2<T, RNG> REVD2(SYRF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
+        RandLAPACK::REVD2<T, RNG> REVD2(SYRF, std::numeric_limits<double>::epsilon(), 10, verbosity);
 
         k = k_start;
         REVD2.tol = std::pow(10, -14);

@@ -112,9 +112,9 @@ RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
         work_buff = new T[m * k];
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 
-    T* A_dat = A.data();
+    const T* A_dat = A.data();
     T* Q_dat = util::upsize(m * k, Q);
-    auto S = SYPS_Obj.call(uplo, m, A_dat, m, k, state, work_buff, Q_dat);
+    auto S = SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q_dat);
     blas::symm(Layout::ColMajor, blas::Side::Right, uplo, m, k, 1.0, A_dat, m, S.buff, m, 0.0, Q_dat, m);
 
     if(this->cond_check) {

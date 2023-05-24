@@ -150,7 +150,7 @@ RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     }
     delete[] ipiv;
     if (p % 2 == 1)
-        blas::copy(m * k, work_buff, 1, skop_buff);
+        blas::copy(m * k, work_buff, 1, skop_buff, 1);
 
     auto S = RandBLAS::dense::DenseSkOp(D, state, skop_buff, blas::Layout::ColMajor);
     S.next_state = next_state;
