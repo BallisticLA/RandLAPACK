@@ -15,61 +15,58 @@ class TestQB : public ::testing::Test
 
     virtual void TearDown() {};
 
+    template <typename T>
+    struct data {
+        std::vector<T>& A;
+        std::vector<T>& Q;
+        std::vector<T>& B;
+        std::vector<T>& B_cpy;
+        std::vector<T>& A_hat;
+        std::vector<T>& A_k;
+        std::vector<T>& A_cpy;
+        std::vector<T>& A_cpy_2;
+        std::vector<T>& A_cpy_3;
+        std::vector<T>& s;
+        std::vector<T>& S;
+        std::vector<T>& U;
+        std::vector<T>& VT;
+    };
+
+    template <typename T, typename RNG>
+    static void computational_helper(int64_t m, int64_t n, T& norm_A, data<T>* all_data) {
+        
+        // Create a copy of the original matrix
+        blas::copy(m * n, all_data -> A.data(), 1, all_data -> A_cpy.data(), 1);
+        blas::copy(m * n, all_data -> A.data(), 1, all_data -> A_cpy_2.data(), 1);
+        blas::copy(m * n, all_data -> A.data(), 1, all_data -> A_cpy_3.data(), 1);
+
+        // Get low-rank SVD
+        lapack::gesdd(Job::SomeVec, m, n, all_data -> A_cpy.data(), m, all_data -> s.data(), all_data -> U.data(), m, all_data -> VT.data(), n);
+
+        // pre-compute norm
+        norm_A = lapack::lange(Norm::Fro, m, n, all_data -> A.data(), m);
+    }
+
     /// General test for QB:
     /// Computes QB factorzation, and checks:
     /// 1. A - QB
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
-
     template <typename T, typename RNG>
-    static void computational_helper(int64_t m, int64_t n,
-    T& norm_A,
-    std::vector<T>& A, 
-    std::vector<T>& A_cpy, 
-    std::vector<T>& A_cpy_2, 
-    std::vector<T>& A_cpy_3,
-    std::vector<T>& s, 
-    std::vector<T>& U, 
-    std::vector<T>& VT) {
-        
-        // Create a copy of the original matrix
-        blas::copy(m * n, A.data(), 1, A_cpy.data(), 1);
-        blas::copy(m * n, A.data(), 1, A_cpy_2.data(), 1);
-        blas::copy(m * n, A.data(), 1, A_cpy_3.data(), 1);
-
-        // Get low-rank SVD
-        lapack::gesdd(Job::SomeVec, m, n, A_cpy.data(), m, s.data(), U.data(), m, VT.data(), n);
-
-        // pre-compute norm
-        norm_A = lapack::lange(Norm::Fro, m, n, A.data(), m);
-    }
-
-    template <typename T, typename RNG>
-    static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, RandBLAS::base::RNGState<RNG> state,
-    std::vector<T>& A,
-    std::vector<T>& Q,
-    std::vector<T>& B, 
-    std::vector<T>& B_cpy, 
-    std::vector<T>& A_hat, 
-    std::vector<T>& A_k, 
-    std::vector<T>& A_cpy_2, 
-    std::vector<T>& s, 
-    std::vector<T>& S, 
-    std::vector<T>& U, 
-    std::vector<T>& VT) {
+    static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, RandBLAS::base::RNGState<RNG> state, data<T>* all_data) {
 
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
 
-        T* A_dat = A.data();
-        T* A_hat_dat = A_hat.data();
-        T* A_k_dat = A_k.data();
-        T* A_cpy_2_dat = A_cpy_2.data();
+        T* A_dat = all_data -> A.data();
+        T* A_hat_dat = all_data -> A_hat.data();
+        T* A_k_dat = all_data -> A_k.data();
+        T* A_cpy_2_dat = all_data -> A_cpy_2.data();
 
-        T* U_dat = U.data();
-        T* s_dat = s.data();
-        T* S_dat = S.data();
-        T* VT_dat = VT.data();
+        T* U_dat = all_data -> U.data();
+        T* s_dat = all_data -> s.data();
+        T* S_dat = all_data -> S.data();
+        T* VT_dat = all_data -> VT.data();
 
         //Subroutine parameters
         bool verbosity = false;
@@ -91,12 +88,12 @@ class TestQB : public ::testing::Test
         // QB constructor - Choose defaut (QB2)
         RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
-        QB.call(m, n, A, k, block_sz, tol, Q, B);
+        QB.call(m, n, all_data -> A, k, block_sz, tol, all_data -> Q, all_data -> B);
 
         // Reassing pointers because Q, B have been resized
-        T* Q_dat = Q.data();
-        T* B_dat = B.data();
-        T* B_cpy_dat = B_cpy.data();
+        T* Q_dat = all_data -> Q.data();
+        T* B_dat = all_data -> B.data();
+        T* B_cpy_dat = all_data -> B_cpy.data();
 
         printf("Inner dimension of QB: %-25ld\n", k);
 
@@ -121,7 +118,7 @@ class TestQB : public ::testing::Test
         std::vector<T> z_buf(n, 0.0);
         // zero out the trailing singular values
         blas::copy(n - k, z_buf.data(), 1, s_dat + k, 1);
-        RandLAPACK::util::diag(n, n, s, n, S);
+        RandLAPACK::util::diag(n, n, all_data -> s, n, all_data -> S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
@@ -160,19 +157,16 @@ class TestQB : public ::testing::Test
         T tol, 
         RandBLAS::base::RNGState<RNG> state,
         T& norm_A, 
-        std::vector<T>& A,
-        std::vector<T>& Q,
-        std::vector<T>& B,
-        std::vector<T>& A_hat) {
+        data<T>* all_data) {
 
         printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");
 
         int64_t k_est = std::min(m, n);
 
-        T* A_dat = A.data();
-        T* Q_dat = Q.data();
-        T* B_dat = B.data();
-        T* A_hat_dat = A_hat.data();
+        T* A_dat = all_data -> A.data();
+        T* Q_dat = all_data -> Q.data();
+        T* B_dat = all_data -> B.data();
+        T* A_hat_dat = all_data -> A_hat.data();
 
         //Subroutine parameters
         bool verbosity = false;
@@ -194,11 +188,11 @@ class TestQB : public ::testing::Test
         // QB constructor - Choose defaut (QB2)
         RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
-        QB.call(m, n, A, k_est, block_sz, tol, Q, B);
+        QB.call(m, n, all_data -> A, k_est, block_sz, tol, all_data -> Q, all_data -> B);
 
         // Reassing pointers because Q, B have been resized
-        Q_dat = Q.data();
-        B_dat = B.data();
+        Q_dat = all_data -> Q.data();
+        B_dat = all_data -> B.data();
 
         printf("Inner dimension of QB: %ld\n", k_est);
 
@@ -273,8 +267,9 @@ TEST_F(TestQB, Polynomial_Decay)
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
 
+
     // For running QB
-    std::vector<double> A(m * n, 0.0);
+    std::vector<double> A    (m * n, 0.0);
     std::vector<double> Q    (m * k, 0.0);
     std::vector<double> B    (k * n, 0.0);
     std::vector<double> B_cpy(k * n, 0.0);
@@ -290,15 +285,16 @@ TEST_F(TestQB, Polynomial_Decay)
     std::vector<double> U (m * n, 0.0);
     std::vector<double> VT(n * n, 0.0);
 
+    data<double> all_data = {A, Q, B, B_cpy, A_hat, A_k, A_cpy, A_cpy_2, A_cpy_3, s, S, U, VT};
+
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, A, k, state, std::make_tuple(0, 2025, false));
-    computational_helper<double, r123::Philox4x32>(m, n, norm_A, A, A_cpy, A_cpy_2, A_cpy_3, s, U, VT);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, A, Q, B, B_cpy, A_hat, A_k, A_cpy_2, s, S, U, VT);
-    
+    computational_helper<double, r123::Philox4x32>(m, n, norm_A, &all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, &all_data);
+
     // Reset data - mandatory
-    Q.clear();
-    B.clear();
-    std::fill(A_hat.begin(), A_hat.end(), 0.0);
+    all_data.Q.clear();
+    all_data.B.clear();
+    std::fill(all_data.A_hat.begin(), all_data.A_hat.end(), 0.0);
 
-    test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, p, block_sz, tol, state, norm_A, A_cpy_3, Q, B, A_hat);
-
+    test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, p, block_sz, tol, state, norm_A, & all_data);
 }
