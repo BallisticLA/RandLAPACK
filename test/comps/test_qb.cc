@@ -22,54 +22,54 @@ class TestQB : public ::testing::Test
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
 
-        template <typename T, typename RNG>
-    static void test_computational_helper(int64_t m, int64_t n, int64_t k, 
-    std::vector<T> A,
-    std::vector<T> Q,
-    std::vector<T> B, 
-    std::vector<T> B_cpy, 
-    std::vector<T> A_hat, 
-    std::vector<T> A_k, 
-    std::vector<T> A_cpy, 
-    std::vector<T> A_cpy_2, 
-    std::vector<T> s, 
-    std::vector<T> S, 
-    std::vector<T> U, 
-    std::vector<T> VT) {
+    template <typename T, typename RNG>
+    static void computational_helper(int64_t m, int64_t n,
+    T& norm_A,
+    std::vector<T>& A, 
+    std::vector<T>& A_cpy, 
+    std::vector<T>& A_cpy_2, 
+    std::vector<T>& A_cpy_3,
+    std::vector<T>& s, 
+    std::vector<T>& U, 
+    std::vector<T>& VT) {
+        
+        // Create a copy of the original matrix
+        blas::copy(m * n, A.data(), 1, A_cpy.data(), 1);
+        blas::copy(m * n, A.data(), 1, A_cpy_2.data(), 1);
+        blas::copy(m * n, A.data(), 1, A_cpy_3.data(), 1);
 
+        // Get low-rank SVD
+        lapack::gesdd(Job::SomeVec, m, n, A_cpy.data(), m, s.data(), U.data(), m, VT.data(), n);
+
+        // pre-compute norm
+        norm_A = lapack::lange(Norm::Fro, m, n, A.data(), m);
     }
 
     template <typename T, typename RNG>
     static void test_QB2_low_exact_rank(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, RandBLAS::base::RNGState<RNG> state,
-    std::vector<T> A,
-    std::vector<T> Q,
-    std::vector<T> B, 
-    std::vector<T> B_cpy, 
-    std::vector<T> A_hat, 
-    std::vector<T> A_k, 
-    std::vector<T> A_cpy, 
-    std::vector<T> A_cpy_2, 
-    std::vector<T> s, 
-    std::vector<T> S, 
-    std::vector<T> U, 
-    std::vector<T> VT) {
+    std::vector<T>& A,
+    std::vector<T>& Q,
+    std::vector<T>& B, 
+    std::vector<T>& B_cpy, 
+    std::vector<T>& A_hat, 
+    std::vector<T>& A_k, 
+    std::vector<T>& A_cpy_2, 
+    std::vector<T>& s, 
+    std::vector<T>& S, 
+    std::vector<T>& U, 
+    std::vector<T>& VT) {
 
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
 
         T* A_dat = A.data();
         T* A_hat_dat = A_hat.data();
         T* A_k_dat = A_k.data();
-        T* A_cpy_dat = A_cpy.data();
         T* A_cpy_2_dat = A_cpy_2.data();
 
         T* U_dat = U.data();
         T* s_dat = s.data();
         T* S_dat = S.data();
         T* VT_dat = VT.data();
-
-        // Create a copy of the original matrix
-        blas::copy(m * n, A_dat, 1, A_cpy_dat, 1);
-        blas::copy(m * n, A_dat, 1, A_cpy_2_dat, 1);
 
         //Subroutine parameters
         bool verbosity = false;
@@ -91,7 +91,7 @@ class TestQB : public ::testing::Test
         // QB constructor - Choose defaut (QB2)
         RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
-        int termination = QB.call(m, n, A, k, block_sz, tol, Q, B);
+        QB.call(m, n, A, k, block_sz, tol, Q, B);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = Q.data();
@@ -116,13 +116,11 @@ class TestQB : public ::testing::Test
         // TEST 3: Q'Q = I
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, Ident_dat, k);
 
-        // Get low-rank SVD
-        lapack::gesdd(Job::SomeVec, m, n, A_cpy_dat, m, s_dat, U_dat, m, VT_dat, n);
+        // buffer zero vector
         // buffer zero vector
         std::vector<T> z_buf(n, 0.0);
-        T* z_buf_dat = z_buf.data();
         // zero out the trailing singular values
-        blas::copy(n - k, z_buf_dat, 1, s_dat + k, 1);
+        blas::copy(n - k, z_buf.data(), 1, s_dat + k, 1);
         RandLAPACK::util::diag(n, n, s, n, S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
@@ -154,28 +152,27 @@ class TestQB : public ::testing::Test
     /// Checks for whether the factorization is exact with tol = 0.
     // Checks for whether ||A-QB||_F <= tol * ||A||_F if tol > 0.
     template <typename T, typename RNG>
-    static void test_QB2_k_eq_min(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state) {
+    static void test_QB2_k_eq_min(
+        int64_t m, 
+        int64_t n, 
+        int64_t p, 
+        int64_t block_sz, 
+        T tol, 
+        RandBLAS::base::RNGState<RNG> state,
+        T& norm_A, 
+        std::vector<T>& A,
+        std::vector<T>& Q,
+        std::vector<T>& B,
+        std::vector<T>& A_hat) {
 
         printf("|===============================TEST QB2 K = min(M, N) BEGIN===============================|\n");
 
-        // For running QB
-        std::vector<T> A(m * n, 0.0);
-        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
-
-        int64_t size = m * n;
         int64_t k_est = std::min(m, n);
-
-        std::vector<T> Q;
-        std::vector<T> B;
-        // For results comparison
-        std::vector<T> A_hat(size, 0.0);
 
         T* A_dat = A.data();
         T* Q_dat = Q.data();
         T* B_dat = B.data();
         T* A_hat_dat = A_hat.data();
-        // pre-compute norm
-        T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
 
         //Subroutine parameters
         bool verbosity = false;
@@ -197,37 +194,12 @@ class TestQB : public ::testing::Test
         // QB constructor - Choose defaut (QB2)
         RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
         // Regular QB2 call
-        int termination = QB.call(m, n, A, k_est, block_sz, tol, Q, B);
+        QB.call(m, n, A, k_est, block_sz, tol, Q, B);
 
         // Reassing pointers because Q, B have been resized
         Q_dat = Q.data();
         B_dat = B.data();
 
-        switch(termination) {
-            case 1:
-                printf("\nTERMINATED VIA: Input matrix of zero entries.\n");
-                EXPECT_TRUE(true);
-                return;
-                break;
-            case 2:
-                printf("\nTERMINATED VIA: Early termination due to unexpected error accumulation.\n");
-                break;
-            case 3:
-                printf("\nTERMINATED VIA: Reached the expected rank without achieving the specified tolerance.\n");
-                break;
-            case 4:
-                printf("\nTERMINATED VIA: Lost orthonormality of Q_i.\n");
-                break;
-            case 5:
-                printf("\nTERMINATED VIA: Lost orthonormality of Q.\n");
-                break;
-            case 6:
-                printf("\nQB TERMINATED VIA: RangeFinder failed.\n");
-                break;
-            case 0:
-                printf("\nTERMINATED VIA: Expected tolerance reached.\n");
-                break;
-        }
         printf("Inner dimension of QB: %ld\n", k_est);
 
         // A_hat = Q * B
@@ -297,6 +269,7 @@ TEST_F(TestQB, Polynomial_Decay)
     int64_t k = 50;
     int64_t p = 5;
     int64_t block_sz = 10;
+    double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
 
@@ -304,12 +277,13 @@ TEST_F(TestQB, Polynomial_Decay)
     std::vector<double> A(m * n, 0.0);
     std::vector<double> Q    (m * k, 0.0);
     std::vector<double> B    (k * n, 0.0);
-    // For results comparison
     std::vector<double> B_cpy(k * n, 0.0);
+    // For results comparison
     std::vector<double> A_hat   (m * n, 0.0);
     std::vector<double> A_k     (m * n, 0.0);
     std::vector<double> A_cpy   (m * n, 0.0);
     std::vector<double> A_cpy_2 (m * n, 0.0);
+    std::vector<double> A_cpy_3 (m * n, 0.0);
     // For low-rank SVD
     std::vector<double> s (n, 0.0);
     std::vector<double> S (n * n, 0.0);
@@ -317,6 +291,14 @@ TEST_F(TestQB, Polynomial_Decay)
     std::vector<double> VT(n * n, 0.0);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, A, k, state, std::make_tuple(0, 2025, false));
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, A, Q, B, B_cpy, A_hat, A_k, A_cpy, A_cpy_2, s, S, U, VT);
+    computational_helper<double, r123::Philox4x32>(m, n, norm_A, A, A_cpy, A_cpy_2, A_cpy_3, s, U, VT);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, A, Q, B, B_cpy, A_hat, A_k, A_cpy_2, s, S, U, VT);
+    
+    // Reset data - mandatory
+    Q.clear();
+    B.clear();
+    std::fill(A_hat.begin(), A_hat.end(), 0.0);
+
+    test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, p, block_sz, tol, state, norm_A, A_cpy_3, Q, B, A_hat);
 
 }
