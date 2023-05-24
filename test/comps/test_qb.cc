@@ -16,31 +16,23 @@ class TestQB : public ::testing::Test
     virtual void TearDown() {};
 
     template <typename T, typename RNG>
-    static void test_helper(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, std::tuple<int, T, bool> mat_type, RandBLAS::base::RNGState<RNG> state) {
-        
-        std::vector<T> A(m * n, 0.0);
-        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
+    static void test_helper(
+        int64_t m, 
+        int64_t n, 
+        int64_t k, 
+        std::vector<T> A,
+        std::vector<T> A_cpy,
+        std::vector<T> A_cpy_2,
+        std::vector<T> U,
+        std::vector<T> s,
+        std::vector<T> VT,
+        std::vector<T> S,
+        std::vector<T> A_k) {
 
         int64_t size = m * n;
         // Adjust the expected rank
         if(k == 0)
             k = std::min(m, n);
-
-        std::vector<T> Q(m * k, 0.0);
-        std::vector<T> B(k * n, 0.0);
-        std::vector<T> B_cpy(k * n, 0.0);
-
-        // For results comparison
-        std::vector<T> A_hat(size, 0.0);
-        std::vector<T> A_k(size, 0.0);
-        std::vector<T> A_cpy (m * n, 0.0);
-        std::vector<T> A_cpy_2 (m * n, 0.0);
-
-        // For low-rank SVD
-        std::vector<T> s(n, 0.0);
-        std::vector<T> S(n * n, 0.0);
-        std::vector<T> U(m * n, 0.0);
-        std::vector<T> VT(n * n, 0.0);
 
         // Create a copy of the original matrix
         blas::copy(size, A.data(), 1, A_cpy.data(), 1);
@@ -54,24 +46,6 @@ class TestQB : public ::testing::Test
         blas::copy(n - k, z_buf.data(), 1, s.data() + k, 1);
         RandLAPACK::util::diag(n, n, s, n, S);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, S.data(), n, 1.0, A_k.data(), m);
-
-        // A = 0
-        test_QB2_low_exact_rank<double, r123::Philox4x32>(
-            m, 
-            n, 
-            k, 
-            p, 
-            block_sz, 
-            tol, 
-            state,
-            A,
-            Q,
-            B,
-            B_cpy,
-            A_hat,
-            A_k,
-            VT,
-            A_cpy_2);
     }
 
     /// General test for QB:
@@ -308,9 +282,35 @@ TEST_F(TestQB, Diag_Drop)
 */
 TEST_F(TestQB, Polynomial_Decay)
 {
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
+    int64_t block_sz = 10;
+    
     auto state = RandBLAS::base::RNGState();
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    test_helper<double, r123::Philox4x32>(100, 100, 50, 5, 10, tol, std::make_tuple(0, 2025, false), state);
+
+    std::vector<double> A(m * n, 0.0);
+    std::vector<double> Q(m * k, 0.0);
+    std::vector<double> B(k * n, 0.0);
+    std::vector<double> B_cpy(k * n, 0.0);
+
+    // For results comparison
+    std::vector<double> A_hat(m * n, 0.0);
+    std::vector<double> A_k(m * n, 0.0);
+    std::vector<double> A_cpy (m * n, 0.0);
+    std::vector<double> A_cpy_2 (m * n, 0.0);
+
+    // For low-rank SVD
+    std::vector<double> s(n, 0.0);
+    std::vector<double> S(n * n, 0.0);
+    std::vector<double> U(m * n, 0.0);
+    std::vector<double> VT(n * n, 0.0);
+
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, A, k, state, std::make_tuple(0, 2025, false));
+    test_helper<double, r123::Philox4x32>(m, n, k, A, A_cpy, A_cpy_2, U, s, VT, S, A_k);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, A, Q, B, B_cpy, A_hat, A_k, VT, A_cpy_2);
 }
 
 TEST_F(TestQB, Varying_Tol)
