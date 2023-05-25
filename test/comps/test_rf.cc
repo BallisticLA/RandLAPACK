@@ -112,6 +112,10 @@ class TestRF : public ::testing::Test
         T norm2_test_2 = lapack::lange(Norm::Fro, m, k, Q_cpy_dat, m);
         printf("FRO NORM OF QQ' * Q_hat - Q_hat:   %e\n", norm1_test_2);
         printf("FRO NORM OF Q_hat Q_hat' * Q = Q:   %e\n", norm2_test_2);
+        if(k == n) {
+            ASSERT_NEAR(norm1_test_2, 0, test_tol);
+            ASSERT_NEAR(norm1_test_2, 0, test_tol);
+        }
     }
 };
 
@@ -119,7 +123,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
 {
     int64_t m = 100;
     int64_t n = 100;
-    int64_t k = 50;
+    int64_t k = 100;
     int64_t p = 5;
     auto state = RandBLAS::base::RNGState();
 
@@ -129,7 +133,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     computational_helper<double, r123::Philox4x32>(m, n, all_data);
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
 }
-/*
+
 TEST_F(TestRF, Polynomial_Decay_general2)
 {
     int64_t m = 100;
@@ -157,4 +161,3 @@ TEST_F(TestRF, Rand_diag_general)
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
 }
-*/
