@@ -16,11 +16,11 @@ class TestRF : public ::testing::Test
     virtual void TearDown() {};
 
     template <typename T>
-    struct QBTestData {
+    struct RFTestData {
         std::vector<T> A;
         std::vector<T> Q;
 
-        QBTestData(int64_t m, int64_t n, int64_t k) :
+        RFTestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0), 
         Q(m * k, 0.0) 
         {}
@@ -33,7 +33,7 @@ class TestRF : public ::testing::Test
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T, typename RNG>
-    static void test_RF_general(int64_t m, int64_t n, int64_t k, int64_t p, RandBLAS::base::RNGState<RNG> state, QBTestData<T>& all_data) {
+    static void test_RF_general(int64_t m, int64_t n, int64_t k, int64_t p, RandBLAS::base::RNGState<RNG> state, RFTestData<T>& all_data) {
 
         printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
 
@@ -81,7 +81,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     int64_t p = 5;
     auto state = RandBLAS::base::RNGState();
 
-    QBTestData<double> all_data(m, n, k);
+    RFTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
@@ -95,7 +95,7 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     int64_t p = 5;
     auto state = RandBLAS::base::RNGState();
 
-    QBTestData<double> all_data(m, n, k);
+    RFTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 6.7, false));
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
@@ -109,7 +109,7 @@ TEST_F(TestRF, Rand_diag_general)
     int64_t p = 5;
     auto state = RandBLAS::base::RNGState();
 
-    QBTestData<double> all_data(m, n, k);
+    RFTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
