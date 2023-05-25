@@ -55,7 +55,7 @@ class TestOrth : public ::testing::Test
     /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
     /// Checks I - \transpose{Q}Q.
     template <typename T, typename RNG>
-    static void test_orth_sketch(int64_t m, int64_t n, int64_t k, RandBLAS::base::RNGState<RNG> state, OrthTestData<T>& all_data) {
+    static void test_orth_sketch(int64_t m, int64_t k, OrthTestData<T>& all_data) {
 
         T* Y_dat = all_data.Y.data();
         T* I_ref_dat = all_data.I_ref.data();
@@ -90,5 +90,5 @@ TEST_F(TestOrth, Test_CholQRQ)
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
     computational_helper<double, r123::Philox4x32>(m, n, k, state, all_data);
-    test_orth_sketch<double, r123::Philox4x32>(m, n, k, state, all_data);
+    test_orth_sketch<double, r123::Philox4x32>(m, k, all_data);
 }

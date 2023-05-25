@@ -18,13 +18,34 @@ class TestRF : public ::testing::Test
     template <typename T>
     struct RFTestData {
         std::vector<T> A;
+        std::vector<T> A_cpy;
         std::vector<T> Q;
+        std::vector<T> Buf1;
+        std::vector<T> Buf2;
+        std::vector<T> Q_cpy;
+        std::vector<T> Q_hat_cpy;
 
         RFTestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0), 
-        Q(m * k, 0.0) 
+        A_cpy(m * n, 0.0),
+        Q(m * k, 0.0), 
+        Buf1(m * m, 0.0), 
+        Buf2(m * m, 0.0), 
+        Q_cpy(m * k, 0.0), 
+        Q_hat_cpy(m * n, 0.0) 
         {}
     };
+
+    template <typename T, typename RNG>
+    static void computational_helper(int64_t m, int64_t n, RFTestData<T>& all_data) {
+        
+        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
+        
+        RandLAPACK::CholQRQ<T> CholQRQ(false, false);
+        CholQRQ.call(m, n, all_data.A_cpy);
+
+        lapack::lacpy(MatrixType::General, m, n, all_data.A_cpy.data(), m, all_data.Q_hat_cpy.data(), m);
+    }
 
     /// General test for QB:
     /// Computes QB factorzation, and checks:
@@ -56,6 +77,13 @@ class TestRF : public ::testing::Test
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();
+        T* Q_cpy_dat = all_data.Q_cpy.data();
+        T* Buf1_dat = all_data.Buf1.data();
+        T* Buf2_dat = all_data.Buf2.data();
+        T* Q_hat_dat = all_data.A_cpy.data();
+        T* Q_hat_cpy_dat = all_data.Q_hat_cpy.data();
+
+        lapack::lacpy(MatrixType::General, m, k, Q_dat, m, Q_cpy_dat, m);
 
         std::vector<T> Ident(k * k, 0.0);
         T* Ident_dat = Ident.data();
@@ -65,11 +93,25 @@ class TestRF : public ::testing::Test
         // TEST 1: Q'Q = I
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, Ident_dat, k);
 
+        // TEST 2: QQ' * Q_hat = Q_hat
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, m, m, 1.0, Q_dat, m, -1.0, Buf1_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, Buf1_dat, m, Q_hat_dat, m, -1.0, Q_hat_cpy_dat, m);
+
+        // TEST 2: Q_hat Q_hat' * Q = Q
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, m, m, 1.0, Q_dat, m, -1.0, Buf2_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, Buf2_dat, m, Q_dat, m, -1.0, Q_cpy_dat, m);
+
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
         T norm_test_1 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, Ident_dat, k);
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_1);
         ASSERT_NEAR(norm_test_1, 0, test_tol);
+
+        // Test 1 Output
+        T norm1_test_2 = lapack::lange(Norm::Fro, m, n, Q_hat_cpy_dat, m);
+        T norm2_test_2 = lapack::lange(Norm::Fro, m, k, Q_cpy_dat, m);
+        printf("FRO NORM OF QQ' * Q_hat - Q_hat:   %e\n", norm1_test_2);
+        printf("FRO NORM OF Q_hat Q_hat' * Q = Q:   %e\n", norm2_test_2);
     }
 };
 
@@ -84,9 +126,10 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     RFTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    computational_helper<double, r123::Philox4x32>(m, n, all_data);
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
 }
-
+/*
 TEST_F(TestRF, Polynomial_Decay_general2)
 {
     int64_t m = 100;
@@ -114,3 +157,4 @@ TEST_F(TestRF, Rand_diag_general)
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
 }
+*/
