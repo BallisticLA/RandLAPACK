@@ -31,11 +31,6 @@ class TestCQRRPT : public ::testing::Test
         {}
     };
 
-    template <typename T, typename RNG>
-    static void computational_helper(int64_t m, int64_t n, CQRRPTTestData<T>& all_data) {
-        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    }
-
     /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T, typename RNG>
@@ -77,7 +72,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
     CQRRPTTestData<double> all_data(m, n);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
     test_CQRRPT_general<double, r123::Philox4x32>(m, n, k, d, nnz, tol, state, no_hqrrp, all_data);
 }
 
@@ -94,6 +89,6 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
     CQRRPTTestData<double> all_data(m, n);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
     test_CQRRPT_general<double, r123::Philox4x32>(m, n, k, d, nnz, tol, state, no_hqrrp, all_data);
 }

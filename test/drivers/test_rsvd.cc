@@ -132,10 +132,8 @@ class TestRSVD : public ::testing::Test
         //T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_cpy_dat, m);
         //printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
 
-        // buffer zero vector
-        std::vector<T> z_buf(n, 0.0);
         // zero out the trailing singular values
-        blas::copy(n - k, z_buf.data(), 1, s_dat + k, 1);
+        std::fill(s_dat + k, s_dat + n, 0.0);
         RandLAPACK::util::diag(n, n, all_data.s, n, all_data.S);
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
@@ -146,7 +144,6 @@ class TestRSVD : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
-        printf("|===================================TEST QB2 GENERAL END===================================|\n");
     }
 };
 

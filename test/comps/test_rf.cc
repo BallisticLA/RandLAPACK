@@ -37,7 +37,7 @@ class TestRF : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void computational_helper(int64_t m, int64_t n, RFTestData<T>& all_data) {
+    static void orth_and_copy_computational_helper(int64_t m, int64_t n, RFTestData<T>& all_data) {
         
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
         
@@ -55,8 +55,6 @@ class TestRF : public ::testing::Test
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T, typename RNG>
     static void test_RF_general(int64_t m, int64_t n, int64_t k, int64_t p, RandBLAS::base::RNGState<RNG> state, RFTestData<T>& all_data) {
-
-        printf("|==================================TEST QB2 GENERAL BEGIN==================================|\n");
 
         //Subroutine parameters
         bool verbosity = false;
@@ -130,7 +128,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     RFTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
 }
 
@@ -145,6 +143,7 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     RFTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 6.7, false));
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
 }
 
@@ -159,5 +158,6 @@ TEST_F(TestRF, Rand_diag_general)
     RFTestData<double> all_data(m, n, k);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
     test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
 }

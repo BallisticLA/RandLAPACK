@@ -36,7 +36,7 @@ class TestREVD2 : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void computational_helper(int64_t m, T& norm_A, REVD2TestData<T>& all_data) {
+    static void symm_mat_and_copy_computational_helper(int64_t m, T& norm_A, REVD2TestData<T>& all_data) {
 
         // We're using Nystrom, the original must be positive semidefinite
         blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, m, m, 1.0, all_data.A_buf.data(), m, 0.0, all_data.A.data(), m);
@@ -113,7 +113,7 @@ TEST_F(TestREVD2, Underestimation1) {
     REVD2TestData<double> all_data(m, k);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 8), false));
-    computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
+    symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
     test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
 }
 
@@ -130,7 +130,7 @@ TEST_F(TestREVD2, Underestimation2) {
     REVD2TestData<double> all_data(m, k);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 8), false));
-    computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
+    symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
     test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
 }
 
@@ -147,7 +147,7 @@ TEST_F(TestREVD2, Overestimation1) {
     REVD2TestData<double> all_data(m, k);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 2), false));
-    computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
+    symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
     test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
 }
 
@@ -164,7 +164,7 @@ TEST_F(TestREVD2, Oversetimation2) {
     REVD2TestData<double> all_data(m, k);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 2), false));
-    computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
+    symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
     test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
 }
 
@@ -181,6 +181,6 @@ TEST_F(TestREVD2, Exactness) {
     REVD2TestData<double> all_data(m, k);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 2), false));
-    computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
+    symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
     test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
 }

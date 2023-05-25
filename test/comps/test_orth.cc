@@ -40,7 +40,7 @@ class TestOrth : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void computational_helper(int64_t m, int64_t n, int64_t k, RandBLAS::base::RNGState<RNG> state, OrthTestData<T>& all_data) {
+    static void sketch_and_copy_computational_helper(int64_t m, int64_t n, int64_t k, RandBLAS::base::RNGState<RNG> state, OrthTestData<T>& all_data) {
         // Fill the gaussian random matrix
         RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
         state = RandBLAS::dense::fill_buff(all_data.Omega.data(), D, state);
@@ -89,6 +89,6 @@ TEST_F(TestOrth, Test_CholQRQ)
     OrthTestData<double> all_data(m, n, k);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    computational_helper<double, r123::Philox4x32>(m, n, k, state, all_data);
+    sketch_and_copy_computational_helper<double, r123::Philox4x32>(m, n, k, state, all_data);
     test_orth_sketch<double, r123::Philox4x32>(m, k, all_data);
 }
