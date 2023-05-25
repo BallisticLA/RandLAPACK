@@ -107,7 +107,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 15), false));
     computational_helper<double, r123::Philox4x32>(m, n, all_data);
-    test_spectral_norm<double, r123::Philox4x32>(1000, 100, state, all_data);
+    test_spectral_norm<double, r123::Philox4x32>(m, n, state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
@@ -131,7 +131,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
 
     RandLAPACK::util::gen_mat_type<float, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 7), false));
     computational_helper<float, r123::Philox4x32>(m, n, all_data);
-    test_spectral_norm<float, r123::Philox4x32>(1000, 100, state, all_data);
+    test_spectral_norm<float, r123::Philox4x32>(m, n, state, all_data);
 }
 
 TEST_F(TestUtil, test_normc) {
@@ -147,5 +147,5 @@ TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     int64_t n = 100;
     UtilTestData<double> all_data(m, n);
 
-    test_binary_rank_search_zero_mat<double>(1000, 100, all_data);
+    test_binary_rank_search_zero_mat<double>(m, n, all_data);
 }
