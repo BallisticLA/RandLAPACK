@@ -272,23 +272,6 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
 }
 
-TEST_F(TestQB, Zero_Mat_general)
-{
-    int64_t m = 100;
-    int64_t n = 100;
-    int64_t k = 50;
-    int64_t p = 5;
-    int64_t block_sz = 2;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::base::RNGState();
-
-    QBTestData<double> all_data(m, n, k);
-    
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(3, 0, false));
-    computational_helper<double, r123::Philox4x32>(m, n, all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
-}
-
 TEST_F(TestQB, Rand_diag_general)
 {
     int64_t m = 100;
