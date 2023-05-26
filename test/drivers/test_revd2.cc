@@ -36,6 +36,27 @@ class TestREVD2 : public ::testing::Test
     };
 
     template <typename T, typename RNG>
+    struct algorithm_objects {
+        RandLAPACK::PLUL<T> Stab;
+        RandLAPACK::RS<T, RNG> RS;
+        RandLAPACK::HQRQ<T> Orth_RF;
+        RandLAPACK::RF<T> RF;
+        RandLAPACK::REVD2<T, RNG> REVD2;
+
+        algorithm_objects(bool verbosity, 
+                            bool cond_check, 
+                            int64_t p, 
+                            int64_t passes_per_iteration, 
+                            RandBLAS::base::RNGState<RNG> state) :
+                            Stab(cond_check, verbosity),
+                            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+                            Orth_RF(cond_check, verbosity),
+                            RF(RS, Orth_RF, verbosity, cond_check),
+                            REVD2(RF, state, verbosity)
+                            {}
+    };
+
+    template <typename T, typename RNG>
     static void symm_mat_and_copy_computational_helper(int64_t m, T& norm_A, REVD2TestData<T>& all_data) {
 
         // We're using Nystrom, the original must be positive semidefinite
@@ -54,27 +75,20 @@ class TestREVD2 : public ::testing::Test
     /// General test for REVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T, typename RNG>
-    static void test_REVD2_general(int64_t m, int64_t k, int64_t k_start, int64_t p, int64_t passes_per_iteration, RandBLAS::base::RNGState<RNG> state, int rank_expectation, T err_expectation, T& norm_A, REVD2TestData<T>& all_data) {
-
-        //Subroutine parameters 
-        bool verbosity = false;
-        bool cond_check = false;
-
-        // Make subroutine objects
-        // Stabilization Constructor - Choose PLU
-        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
-        // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
-        // Orthogonalization Constructor - Choose HouseholderQR
-        RandLAPACK::HQRQ<T> Orth_RF(cond_check, verbosity);
-        // RangeFinder constructor - Choose default (rf1)
-        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
-        // REVD2 constructor
-        RandLAPACK::REVD2<T, RNG> REVD2(RF, std::numeric_limits<double>::epsilon(), 10, state, verbosity);
+    static void test_REVD2_general(
+        int64_t m, 
+        int64_t k, 
+        int64_t k_start, 
+        T tol,
+        int p,
+        int rank_expectation, 
+        T err_expectation, 
+        T& norm_A, 
+        REVD2TestData<T>& all_data,
+        algorithm_objects<T, RNG>& all_algs) {
 
         k = k_start;
-        REVD2.tol = std::pow(10, -14);
-        REVD2.call(m, blas::Uplo::Upper, all_data.A, k, all_data.V, all_data.eigvals);
+        all_algs.REVD2.call(m, blas::Uplo::Upper, all_data.A, k, tol, p, all_data.V, all_data.eigvals);
 
         RandLAPACK::util::upsize(k * k, all_data.E);
         RandLAPACK::util::upsize(m * k, all_data.Buf);
@@ -107,14 +121,21 @@ TEST_F(TestREVD2, Underestimation1) {
     int64_t rank_expectation = 64;
     double norm_A = 0;
     int64_t p = 10;
+    double tol = std::pow(10, -14);
     int64_t passes_per_iteration = 10;
     double err_expectation =std::pow(10, -13);
     auto state = RandBLAS::base::RNGState();
+
+    //Subroutine parameters 
+    bool verbosity = false;
+    bool cond_check = false;
+
     REVD2TestData<double> all_data(m, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 8), false));
     symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
-    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
+    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, tol, p, rank_expectation, err_expectation, norm_A, all_data, all_algs);
 }
 
 TEST_F(TestREVD2, Underestimation2) { 
@@ -124,14 +145,20 @@ TEST_F(TestREVD2, Underestimation2) {
     int64_t rank_expectation = 80;
     double norm_A = 0;
     int64_t p = 10;
+    double tol = std::pow(10, -14);
     int64_t passes_per_iteration = 10;
     double err_expectation =std::pow(10, -13);
     auto state = RandBLAS::base::RNGState();
+    //Subroutine parameters 
+    bool verbosity = false;
+    bool cond_check = false;
+
     REVD2TestData<double> all_data(m, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 8), false));
     symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
-    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
+    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, tol, p, rank_expectation, err_expectation, norm_A, all_data, all_algs);
 }
 
 TEST_F(TestREVD2, Overestimation1) { 
@@ -141,14 +168,20 @@ TEST_F(TestREVD2, Overestimation1) {
     int64_t rank_expectation = 160;
     double norm_A = 0;
     int64_t p = 10;
+    double tol = std::pow(10, -14);
     int64_t passes_per_iteration = 10;
     double err_expectation =std::pow(10, -13);
     auto state = RandBLAS::base::RNGState();
+    //Subroutine parameters 
+    bool verbosity = false;
+    bool cond_check = false;
+
     REVD2TestData<double> all_data(m, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 2), false));
     symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
-    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
+    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, tol, p, rank_expectation, err_expectation, norm_A, all_data, all_algs);
 }
 
 TEST_F(TestREVD2, Oversetimation2) { 
@@ -158,14 +191,20 @@ TEST_F(TestREVD2, Oversetimation2) {
     int64_t rank_expectation = 160;
     double norm_A = 0;
     int64_t p = 10;
+    double tol = std::pow(10, -14);
     int64_t passes_per_iteration = 10;
     double err_expectation =std::pow(10, -13);
     auto state = RandBLAS::base::RNGState();
+    //Subroutine parameters 
+    bool verbosity = false;
+    bool cond_check = false;
+
     REVD2TestData<double> all_data(m, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 2), false));
     symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
-    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
+    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, tol, p, rank_expectation, err_expectation, norm_A, all_data, all_algs);
 }
 
 TEST_F(TestREVD2, Exactness) { 
@@ -175,12 +214,18 @@ TEST_F(TestREVD2, Exactness) {
     int64_t rank_expectation = 100;
     double norm_A = 0;
     int64_t p = 10;
+    double tol = std::pow(10, -14);
     int64_t passes_per_iteration = 10;
     double err_expectation =std::pow(10, -13);
     auto state = RandBLAS::base::RNGState();
+    //Subroutine parameters 
+    bool verbosity = false;
+    bool cond_check = false;
+
     REVD2TestData<double> all_data(m, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_buf, k, state, std::make_tuple(0, std::pow(10, 2), false));
     symm_mat_and_copy_computational_helper<double, r123::Philox4x32>(m, norm_A, all_data);
-    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, p, passes_per_iteration, state, rank_expectation, err_expectation, norm_A, all_data);
+    test_REVD2_general<double, r123::Philox4x32>(m, k, k_start, tol, p, rank_expectation, err_expectation, norm_A, all_data, all_algs);
 }

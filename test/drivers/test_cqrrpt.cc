@@ -34,12 +34,13 @@ class TestCQRRPT : public ::testing::Test
     /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T, typename RNG>
-    static void test_CQRRPT_general(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, RandBLAS::base::RNGState<RNG> state, uint64_t no_hqrrp, CQRRPTTestData<T>& all_data) {
-
-        RandLAPACK::CQRRPT<T, RNG> CQRRPT(false, false, state, tol);
-        CQRRPT.nnz = nnz;
-        CQRRPT.num_threads = 4;
-        CQRRPT.no_hqrrp = no_hqrrp;
+    static void test_CQRRPT_general(
+        int64_t m, 
+        int64_t n, 
+        int64_t k, 
+        int64_t d, 
+        CQRRPTTestData<T>& all_data,
+        RandLAPACK::CQRRPT<T, RNG>& CQRRPT) {
 
         CQRRPT.call(m, n, all_data.A, d, all_data.R, all_data.J);
 
@@ -65,15 +66,18 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
     int64_t n = 200;
     int64_t k = 200;
     int64_t d = 400;
-    int64_t nnz = 2;
-    uint64_t no_hqrrp = 1; 
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
+
     CQRRPTTestData<double> all_data(m, n);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
+    CQRRPT.nnz = 2;
+    CQRRPT.num_threads = 4;
+    CQRRPT.no_hqrrp = 1;
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_CQRRPT_general<double, r123::Philox4x32>(m, n, k, d, nnz, tol, state, no_hqrrp, all_data);
+    test_CQRRPT_general<double, r123::Philox4x32>(m, n, k, d, all_data, CQRRPT);
 }
 
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
@@ -82,13 +86,16 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
     int64_t n = 200;
     int64_t k = 100;
     int64_t d = 400;
-    int64_t nnz = 2;
-    uint64_t no_hqrrp = 0; 
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
+
     CQRRPTTestData<double> all_data(m, n);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
+    CQRRPT.nnz = 2;
+    CQRRPT.num_threads = 4;
+    CQRRPT.no_hqrrp = 0;
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_CQRRPT_general<double, r123::Philox4x32>(m, n, k, d, nnz, tol, state, no_hqrrp, all_data);
+    test_CQRRPT_general<double, r123::Philox4x32>(m, n, k, d, all_data, CQRRPT);
 }

@@ -55,13 +55,14 @@ class TestOrth : public ::testing::Test
     /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
     /// Checks I - \transpose{Q}Q.
     template <typename T, typename RNG>
-    static void test_orth_sketch(int64_t m, int64_t k, OrthTestData<T>& all_data) {
+    static void test_orth_sketch(
+        int64_t m, 
+        int64_t k, 
+        OrthTestData<T>& all_data, 
+        RandLAPACK::CholQRQ<T>& CholQRQ) {
 
         T* Y_dat = all_data.Y.data();
         T* I_ref_dat = all_data.I_ref.data();
-
-        // Orthogonalization Constructor
-        RandLAPACK::CholQRQ<T> CholQRQ(false, false);
 
         // Orthonormalize sketch Y
         if(CholQRQ.call(m, k, all_data.Y) != 0) {
@@ -86,9 +87,12 @@ TEST_F(TestOrth, Test_CholQRQ)
     int64_t n = 200;
     int64_t k = 200;
     auto state = RandBLAS::base::RNGState();
+    
     OrthTestData<double> all_data(m, n, k);
+    // Orthogonalization Constructor
+    RandLAPACK::CholQRQ<double> CholQRQ(false, false);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
     sketch_and_copy_computational_helper<double, r123::Philox4x32>(m, n, k, state, all_data);
-    test_orth_sketch<double, r123::Philox4x32>(m, k, all_data);
+    test_orth_sketch<double, r123::Philox4x32>(m, k, all_data, CholQRQ);
 }

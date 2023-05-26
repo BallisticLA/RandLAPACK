@@ -37,6 +37,25 @@ class TestRF : public ::testing::Test
     };
 
     template <typename T, typename RNG>
+    struct algorithm_objects {
+        RandLAPACK::PLUL<T> Stab;
+        RandLAPACK::RS<T, RNG> RS;
+        RandLAPACK::HQRQ<T> Orth_RF;
+        RandLAPACK::RF<T> RF;
+
+        algorithm_objects(bool verbosity, 
+                            bool cond_check, 
+                            int64_t p, 
+                            int64_t passes_per_iteration, 
+                            RandBLAS::base::RNGState<RNG> state) :
+                            Stab(cond_check, verbosity),
+                            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+                            Orth_RF(cond_check, verbosity),
+                            RF(RS, Orth_RF, verbosity, cond_check)
+                            {}
+    };
+
+    template <typename T, typename RNG>
     static void orth_and_copy_computational_helper(int64_t m, int64_t n, RFTestData<T>& all_data) {
         
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
@@ -54,24 +73,14 @@ class TestRF : public ::testing::Test
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T, typename RNG>
-    static void test_RF_general(int64_t m, int64_t n, int64_t k, int64_t p, RandBLAS::base::RNGState<RNG> state, RFTestData<T>& all_data) {
+    static void test_RF_general(
+        int64_t m, 
+        int64_t n, 
+        int64_t k, 
+        RFTestData<T>& all_data, 
+        algorithm_objects<T, RNG>& all_algs) {
 
-        //Subroutine parameters
-        bool verbosity = false;
-        bool cond_check = true;
-        int64_t passes_per_iteration = 1;
-
-        // Make subroutine objects
-        // Stabilization Constructor - Choose PLU
-        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
-        // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
-        // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::HQRQ<T> Orth_RF(cond_check, verbosity);
-        // RangeFinder constructor - Choose default (rf1)
-        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
-
-        RF.call(m, n, all_data.A, k, all_data.Q);
+        all_algs.RF.call(m, n, all_data.A, k, all_data.Q);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();
@@ -123,13 +132,20 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     int64_t n = 100;
     int64_t k = 100;
     int64_t p = 5;
+    int64_t passes_per_iteration = 1;
     auto state = RandBLAS::base::RNGState();
 
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+
     RFTestData<double> all_data(m, n, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
-    test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
+    
+    test_RF_general<double, r123::Philox4x32>(m, n, k, all_data, all_algs);
 }
 
 TEST_F(TestRF, Polynomial_Decay_general2)
@@ -138,13 +154,20 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     int64_t n = 100;
     int64_t k = 50;
     int64_t p = 5;
+    int64_t passes_per_iteration = 1;
     auto state = RandBLAS::base::RNGState();
 
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+
     RFTestData<double> all_data(m, n, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 6.7, false));
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
-    test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
+    
+    test_RF_general<double, r123::Philox4x32>(m, n, k, all_data, all_algs);
 }
 
 TEST_F(TestRF, Rand_diag_general)
@@ -153,11 +176,18 @@ TEST_F(TestRF, Rand_diag_general)
     int64_t n = 100;
     int64_t k = 50;
     int64_t p = 5;
+    int64_t passes_per_iteration = 1;
     auto state = RandBLAS::base::RNGState();
 
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+
     RFTestData<double> all_data(m, n, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
-    test_RF_general<double, r123::Philox4x32>(m, n, k, p, state, all_data);
+    
+    test_RF_general<double, r123::Philox4x32>(m, n, k, all_data, all_algs);
 }

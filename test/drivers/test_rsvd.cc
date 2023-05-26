@@ -62,6 +62,33 @@ class TestRSVD : public ::testing::Test
     };
 
     template <typename T, typename RNG>
+    struct algorithm_objects {
+        RandLAPACK::PLUL<T> Stab;
+        RandLAPACK::RS<T, RNG> RS;
+        RandLAPACK::CholQRQ<T> Orth_RF;
+        RandLAPACK::RF<T> RF;
+        RandLAPACK::CholQRQ<T> Orth_QB;
+        RandLAPACK::QB<T> QB;
+        RandLAPACK::RSVD<T> RSVD;
+
+        algorithm_objects(bool verbosity, 
+                            bool cond_check, 
+                            bool orth_check, 
+                            int64_t p, 
+                            int64_t passes_per_iteration, 
+                            int64_t block_sz,
+                            RandBLAS::base::RNGState<RNG> state) :
+                            Stab(cond_check, verbosity),
+                            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+                            Orth_RF(cond_check, verbosity),
+                            RF(RS, Orth_RF, verbosity, cond_check),
+                            Orth_QB(cond_check, verbosity),
+                            QB(RF, Orth_QB, verbosity, orth_check),
+                            RSVD(QB, verbosity, block_sz)
+                            {}
+    };
+
+    template <typename T>
     static void computational_helper(int64_t m, int64_t n, RSVDTestData<T>& all_data) {
         
         // Create a copy of the original matrix
@@ -74,7 +101,13 @@ class TestRSVD : public ::testing::Test
     /// General test for RSVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T, typename RNG>
-    static void test_RSVD1_general(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, RandBLAS::base::RNGState<RNG> state, RSVDTestData<T>& all_data) {
+    static void test_RSVD1_general(
+        int64_t m, 
+        int64_t n, 
+        int64_t k, 
+        T tol, 
+        RSVDTestData<T>& all_data,
+        algorithm_objects<T, RNG>& all_algs) {
 
         T* A_hat_dat = all_data.A_hat.data();
         T* A_hat_buf_dat = all_data.A_hat_buf.data();
@@ -89,36 +122,8 @@ class TestRSVD : public ::testing::Test
         T* S_dat = all_data.S.data();
         T* VT_dat = all_data.VT.data();
 
-        //Subroutine parameters 
-        bool verbosity = false;
-        bool cond_check = true;
-        bool orth_check = true;
-        int64_t passes_per_iteration = 1;
-
-        // Make subroutine objects
-        // Stabilization Constructor - Choose PLU
-        RandLAPACK::PLUL<T> Stab(cond_check, verbosity);
-
-        // RowSketcher constructor - Choose default (rs1)
-        RandLAPACK::RS<T, RNG> RS(Stab, state, p, passes_per_iteration, verbosity, cond_check);
-
-        // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::CholQRQ<T> Orth_RF(cond_check, verbosity);
-
-        // RangeFinder constructor - Choose default (rf1)
-        RandLAPACK::RF<T> RF(RS, Orth_RF, verbosity, cond_check);
-
-        // Orthogonalization Constructor - Choose CholQR
-        RandLAPACK::CholQRQ<T> Orth_QB(cond_check, verbosity);
-
-        // QB constructor - Choose defaut (QB2)
-        RandLAPACK::QB<T> QB(RF, Orth_QB, verbosity, orth_check);
-
-        // RSVD constructor - Choose defaut (RSVD1)
-        RandLAPACK::RSVD<T> RSVD(QB, verbosity, block_sz);
-
         // Regular QB2 call
-        RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1);
+        all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1);
         
         // Construnct A_hat = U1 * S1 * VT1
 
@@ -153,12 +158,20 @@ TEST_F(TestRSVD, SimpleTest)
     int64_t n = 100;
     int64_t k = 5;
     int64_t p = 10;
+    int64_t passes_per_iteration = 1;
     int64_t block_sz = 2;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.5625);
     auto state = RandBLAS::base::RNGState();
+
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+    bool orth_check = true;
+
     RSVDTestData<double> all_data(m, n, k);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, block_sz, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    computational_helper<double, r123::Philox4x32>(m, n, all_data);
-    test_RSVD1_general<double, r123::Philox4x32>(m, n, k, p, block_sz, tol, state, all_data);
+    computational_helper<double>(m, n, all_data);
+    test_RSVD1_general<double, r123::Philox4x32>(m, n, k, tol, all_data, all_algs);
 }
