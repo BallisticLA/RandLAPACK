@@ -23,6 +23,8 @@ class REVD2alg {
             blas::Uplo uplo,
             std::vector<T>& A,
             int64_t& k,
+            T tol,
+            int p,
             std::vector<T>& V,
             std::vector<T>& eigvals
         ) = 0;
@@ -35,13 +37,9 @@ class REVD2 : public REVD2alg<T> {
         // Constructor
         REVD2(
             RandLAPACK::RangeFinder<T>& rf_obj,
-            T tolerance,
-            int power_iters,
             RandBLAS::base::RNGState<RNG> s,
             bool verb
         ) : RF_Obj(rf_obj) {
-            tol = tolerance;
-            p = power_iters;
             state = s;
             verbosity = verb;
         }
@@ -92,6 +90,8 @@ class REVD2 : public REVD2alg<T> {
             blas::Uplo uplo,
             std::vector<T>& A,
             int64_t& k,
+            T tol,
+            int p,
             std::vector<T>& V,
             std::vector<T>& eigvals
         ) override;
@@ -99,8 +99,6 @@ class REVD2 : public REVD2alg<T> {
     public:
         RandLAPACK::RangeFinder<T>& RF_Obj;
         RandBLAS::base::RNGState<RNG> state;
-        T tol;
-        int p;
         bool verbosity;
 
         std::vector<T> Y;
@@ -173,10 +171,12 @@ T power_error_est(
 
 template <typename T, typename RNG>
 int REVD2<T, RNG>::call(
-        int64_t m, // m = n
+        int64_t m,
         blas::Uplo uplo,
         std::vector<T>& A,
         int64_t& k,
+        T tol,
+        int p,
         std::vector<T>& V,
         std::vector<T>& eigvals
 ){
@@ -257,7 +257,7 @@ int REVD2<T, RNG>::call(
 
         err = power_error_est(m, k, p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 
-        if(err <= 5 * std::max(this->tol, nu) || k == m) {
+        if(err <= 5 * std::max(tol, nu) || k == m) {
             break;
         } else if (2 * k > m) {
             k = m;
