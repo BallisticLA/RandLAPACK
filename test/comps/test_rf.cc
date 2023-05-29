@@ -17,6 +17,9 @@ class TestRF : public ::testing::Test
 
     template <typename T>
     struct RFTestData {
+        int64_t row;
+        int64_t col;
+        int64_t rank;
         std::vector<T> A;
         std::vector<T> A_cpy;
         std::vector<T> Q;
@@ -33,7 +36,11 @@ class TestRF : public ::testing::Test
         Buf2(m * m, 0.0), 
         Q_cpy(m * k, 0.0), 
         Q_hat_cpy(m * n, 0.0) 
-        {}
+        {
+            row = m;
+            col = n;
+            rank = k;
+        }
     };
 
     template <typename T, typename RNG>
@@ -58,8 +65,11 @@ class TestRF : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void orth_and_copy_computational_helper(int64_t m, int64_t n, RFTestData<T>& all_data) {
+    static void orth_and_copy_computational_helper(RFTestData<T>& all_data) {
         
+        auto m = all_data.row;
+        auto n = all_data.col;
+
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
         
         RandLAPACK::CholQRQ<T> CholQRQ(false, false);
@@ -76,11 +86,12 @@ class TestRF : public ::testing::Test
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T, typename RNG>
     static void test_RF_general(
-        int64_t m, 
-        int64_t n, 
-        int64_t k, 
         RFTestData<T>& all_data, 
         algorithm_objects<T, RNG>& all_algs) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        auto k = all_data.rank;
 
         all_algs.RF.call(m, n, all_data.A, k, all_data.Q);
 
@@ -145,9 +156,9 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
-    test_RF_general<double, r123::Philox4x32>(m, n, k, all_data, all_algs);
+    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
 }
 
 TEST_F(TestRF, Polynomial_Decay_general2)
@@ -167,9 +178,9 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
-    test_RF_general<double, r123::Philox4x32>(m, n, k, all_data, all_algs);
+    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
 }
 
 TEST_F(TestRF, Rand_diag_general)
@@ -189,7 +200,7 @@ TEST_F(TestRF, Rand_diag_general)
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(m, n, all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
-    test_RF_general<double, r123::Philox4x32>(m, n, k, all_data, all_algs);
+    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
 }

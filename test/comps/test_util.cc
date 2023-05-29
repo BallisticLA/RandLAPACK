@@ -28,6 +28,8 @@ class TestUtil : public ::testing::Test
 
     template <typename T>
     struct SpectralTestData {
+        int64_t row;
+        int64_t col;
         std::vector<T> A;
         std::vector<T> A_cpy;
         std::vector<T> s;
@@ -36,23 +38,34 @@ class TestUtil : public ::testing::Test
         A(m * n, 0.0),
         A_cpy(m * n, 0.0), 
         s(n, 0.0)
-        {}
+        {
+            row = m;
+            col = n;
+        }
     };
 
     template <typename T>
     struct NormcTestData {
+        int64_t row;
+        int64_t col;
         std::vector<T> A;
         std::vector<T> A_norm;
 
         NormcTestData(int64_t m, int64_t n) :
         A(m * n, 0.0), 
         A_norm(m * n, 0.0) 
-        {}
+        {
+            row = m;
+            col = n;
+        }
     };
 
     template <typename T, typename RNG>
     static void 
-    test_spectral_norm(int64_t m, int64_t n, RandBLAS::base::RNGState<RNG> state, SpectralTestData<T>& all_data) {
+    test_spectral_norm(RandBLAS::base::RNGState<RNG> state, SpectralTestData<T>& all_data) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
 
         T norm = RandLAPACK::util::estimate_spectral_norm(m, n, all_data.A.data(), 10000, state);
         // Get an SVD -> first singular value == 2_norm
@@ -64,8 +77,10 @@ class TestUtil : public ::testing::Test
 
     template <typename T>
     static void 
-    test_normc(int64_t m, NormcTestData<T>& all_data) {
+    test_normc(NormcTestData<T>& all_data) {
         
+        auto m = all_data.row;
+
         int cnt = 0;
         // we have a vector with entries 10:m, first 10 entries = 0
         std::for_each(all_data.A.begin() + 10, all_data.A.end(), [&cnt](T &entry) { entry = ++cnt;});
@@ -99,7 +114,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_double_precision) {
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(0, 2025, false));
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double, r123::Philox4x32>(m, n, state, all_data);
+    test_spectral_norm<double, r123::Philox4x32>(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
@@ -111,7 +126,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 15), false));
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double, r123::Philox4x32>(m, n, state, all_data);
+    test_spectral_norm<double, r123::Philox4x32>(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
@@ -123,7 +138,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
 
     RandLAPACK::util::gen_mat_type<float, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(0, 2, false));
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float, r123::Philox4x32>(m, n, state, all_data);
+    test_spectral_norm<float, r123::Philox4x32>(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
@@ -135,7 +150,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
 
     RandLAPACK::util::gen_mat_type<float, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 7), false));
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float, r123::Philox4x32>(m, n, state, all_data);
+    test_spectral_norm<float, r123::Philox4x32>(state, all_data);
 }
 
 TEST_F(TestUtil, test_normc) {
@@ -143,7 +158,7 @@ TEST_F(TestUtil, test_normc) {
     int64_t n = 1;
     NormcTestData<double> all_data(m, n);
 
-    test_normc<double>(m, all_data);
+    test_normc<double>(all_data);
 }
 
 TEST_F(TestUtil, test_binary_rank_search_zero_mat) {

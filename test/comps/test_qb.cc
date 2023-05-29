@@ -17,6 +17,9 @@ class TestQB : public ::testing::Test
 
     template <typename T>
     struct QBTestData {
+        int64_t row;
+        int64_t col;
+        int64_t rank;
         std::vector<T> A;
         std::vector<T> Q;
         std::vector<T> B;
@@ -45,7 +48,11 @@ class TestQB : public ::testing::Test
             S(n * n, 0.0),
             U(m * n, 0.0),
             VT(n * n, 0.0)
-            {}
+            {
+                row = m;
+                col = n;
+                rank = k;
+            }
     };
 
     template <typename T, typename RNG>
@@ -73,8 +80,11 @@ class TestQB : public ::testing::Test
     };
 
     template <typename T>
-    static void svd_and_copy_computational_helper(int64_t m, int64_t n, QBTestData<T>& all_data) {
+    static void svd_and_copy_computational_helper(QBTestData<T>& all_data) {
         
+        auto m = all_data.row;
+        auto n = all_data.col;
+
         // Create a copy of the original matrix
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy.data(), 1);
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_2.data(), 1);
@@ -92,13 +102,14 @@ class TestQB : public ::testing::Test
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T, typename RNG>
     static void test_QB2_low_exact_rank(
-        int64_t m, 
-        int64_t n, 
-        int64_t k,  
         int64_t block_sz, 
         T tol,  
         QBTestData<T>& all_data,
         algorithm_objects<T, RNG>& all_algs) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        auto k = all_data.rank;
 
         T* A_dat = all_data.A.data();
         T* A_hat_dat = all_data.A_hat.data();
@@ -169,13 +180,14 @@ class TestQB : public ::testing::Test
     // Checks for whether ||A-QB||_F <= tol * ||A||_F if tol > 0.
     template <typename T, typename RNG>
     static void test_QB2_k_eq_min(
-        int64_t m, 
-        int64_t n,  
         int64_t block_sz, 
         T tol, 
         T& norm_A, 
         QBTestData<T>& all_data,
         algorithm_objects<T, RNG>& all_algs) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
 
         int64_t k_est = std::min(m, n);
 
@@ -234,8 +246,8 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    svd_and_copy_computational_helper<double>(m, n, all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, block_sz, tol, all_data, all_algs);
+    svd_and_copy_computational_helper<double>(all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }
 
 TEST_F(TestQB, Polynomial_Decay_general2)
@@ -258,8 +270,8 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 6.7, false));
-    svd_and_copy_computational_helper<double>(m, n, all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, block_sz, tol, all_data, all_algs);
+    svd_and_copy_computational_helper<double>(all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }
 
 TEST_F(TestQB, Rand_diag_general)
@@ -282,8 +294,8 @@ TEST_F(TestQB, Rand_diag_general)
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
-    svd_and_copy_computational_helper<double>(m, n, all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(m, n, k, block_sz, tol, all_data, all_algs);
+    svd_and_copy_computational_helper<double>(all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }
 
 TEST_F(TestQB, Polynomial_Decay_zero_tol1)
@@ -307,7 +319,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-    test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, block_sz, tol, norm_A, all_data, all_algs);
+    test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, all_data, all_algs);
 }
 
 TEST_F(TestQB, Polynomial_Decay_zero_tol2)
@@ -331,5 +343,5 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-    test_QB2_k_eq_min<double, r123::Philox4x32>(m, n, block_sz, tol, norm_A, all_data, all_algs);
+    test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, all_data, all_algs);
 }

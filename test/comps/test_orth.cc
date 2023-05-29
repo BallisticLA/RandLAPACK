@@ -26,6 +26,9 @@ class TestOrth : public ::testing::Test
 
     template <typename T>
     struct OrthTestData {
+        int64_t row;
+        int64_t col;
+        int64_t rank;
         std::vector<T> A;
         std::vector<T> Y;
         std::vector<T> Omega;
@@ -36,11 +39,20 @@ class TestOrth : public ::testing::Test
             Y(m * k, 0.0),
             Omega(n * k, 0.0),
             I_ref(k * k, 0.0)
-            {}
+            {
+                row = m;
+                col = n;
+                rank = k;
+            }
     };
 
     template <typename T, typename RNG>
-    static void sketch_and_copy_computational_helper(int64_t m, int64_t n, int64_t k, RandBLAS::base::RNGState<RNG> state, OrthTestData<T>& all_data) {
+    static void sketch_and_copy_computational_helper(RandBLAS::base::RNGState<RNG> state, OrthTestData<T>& all_data) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        auto k = all_data.rank;
+
         // Fill the gaussian random matrix
         RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
         state = RandBLAS::dense::fill_buff(all_data.Omega.data(), D, state);
@@ -56,10 +68,11 @@ class TestOrth : public ::testing::Test
     /// Checks I - \transpose{Q}Q.
     template <typename T, typename RNG>
     static void test_orth_sketch(
-        int64_t m, 
-        int64_t k, 
         OrthTestData<T>& all_data, 
         RandLAPACK::CholQRQ<T>& CholQRQ) {
+
+        auto m = all_data.row;
+        auto k = all_data.rank;
 
         T* Y_dat = all_data.Y.data();
         T* I_ref_dat = all_data.I_ref.data();
@@ -93,6 +106,6 @@ TEST_F(TestOrth, Test_CholQRQ)
     RandLAPACK::CholQRQ<double> CholQRQ(false, false);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    sketch_and_copy_computational_helper<double, r123::Philox4x32>(m, n, k, state, all_data);
-    test_orth_sketch<double, r123::Philox4x32>(m, k, all_data, CholQRQ);
+    sketch_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
+    test_orth_sketch<double, r123::Philox4x32>(all_data, CholQRQ);
 }

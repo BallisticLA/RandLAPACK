@@ -19,20 +19,20 @@ class TestRSVD : public ::testing::Test
 
     template <typename T>
     struct RSVDTestData {
-
+        int64_t row;
+        int64_t col;
+        int64_t rank;
         std::vector<T> A;
         // For results comparison
         std::vector<T> A_approx_determ;
         std::vector<T> A_approx_determ_duf;
         std::vector<T> A_k;
         std::vector<T> A_cpy;
-
         // For RSVD
         std::vector<T> s1;
         std::vector<T> S1;
         std::vector<T> U1;
         std::vector<T> VT1;
-
         // For low-rank SVD
         std::vector<T> s;
         std::vector<T> S;
@@ -58,7 +58,11 @@ class TestRSVD : public ::testing::Test
         S(n * n, 0.0),
         U(m * n, 0.0),
         VT(n * n, 0.0)
-        {}
+        {
+            row = m;
+            col = n;
+            rank = k;
+        }
     };
 
     template <typename T, typename RNG>
@@ -91,11 +95,13 @@ class TestRSVD : public ::testing::Test
     };
 
     template <typename T>
-    static void computational_helper(int64_t m, int64_t n, RSVDTestData<T>& all_data) {
+    static void computational_helper(RSVDTestData<T>& all_data) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
         
         // Create a copy of the original matrix
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy.data(), 1);
-
         // Get low-rank SVD
         lapack::gesdd(Job::SomeVec, m, n, all_data.A_cpy.data(), m, all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
     }
@@ -104,12 +110,13 @@ class TestRSVD : public ::testing::Test
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T, typename RNG>
     static void test_RSVD1_general(
-        int64_t m, 
-        int64_t n, 
-        int64_t k, 
         T tol, 
         RSVDTestData<T>& all_data,
         algorithm_objects<T, RNG>& all_algs) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        auto k = all_data.rank;
 
         T* A_approx_determ_dat = all_data.A_approx_determ.data();
         T* A_approx_determ_duf_dat = all_data.A_approx_determ_duf.data();
@@ -174,6 +181,6 @@ TEST_F(TestRSVD, SimpleTest)
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, block_sz, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    computational_helper<double>(m, n, all_data);
-    test_RSVD1_general<double, r123::Philox4x32>(m, n, k, tol, all_data, all_algs);
+    computational_helper<double>(all_data);
+    test_RSVD1_general<double, r123::Philox4x32>(tol, all_data, all_algs);
 }
