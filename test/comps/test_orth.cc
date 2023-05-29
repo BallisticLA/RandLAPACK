@@ -32,11 +32,11 @@ class TestOrth : public ::testing::Test
         std::vector<T> I_ref;
 
         OrthTestData(int64_t m, int64_t n, int64_t k) :
-        A(m * n, 0.0),
-        Y(m * k, 0.0),
-        Omega(n * k, 0.0),
-        I_ref(k * k, 0.0)
-        {}
+            A(m * n, 0.0),
+            Y(m * k, 0.0),
+            Omega(n * k, 0.0),
+            I_ref(k * k, 0.0)
+            {}
     };
 
     template <typename T, typename RNG>

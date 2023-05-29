@@ -43,16 +43,18 @@ class TestRF : public ::testing::Test
         RandLAPACK::HQRQ<T> Orth_RF;
         RandLAPACK::RF<T> RF;
 
-        algorithm_objects(bool verbosity, 
-                            bool cond_check, 
-                            int64_t p, 
-                            int64_t passes_per_iteration, 
-                            RandBLAS::base::RNGState<RNG> state) :
-                            Stab(cond_check, verbosity),
-                            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
-                            Orth_RF(cond_check, verbosity),
-                            RF(RS, Orth_RF, verbosity, cond_check)
-                            {}
+        algorithm_objects(
+            bool verbosity, 
+            bool cond_check, 
+            int64_t p, 
+            int64_t passes_per_iteration, 
+            RandBLAS::base::RNGState<RNG> state
+        ) :
+            Stab(cond_check, verbosity),
+            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+            Orth_RF(cond_check, verbosity),
+            RF(RS, Orth_RF, verbosity, cond_check)
+            {}
     };
 
     template <typename T, typename RNG>

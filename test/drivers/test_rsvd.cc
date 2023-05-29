@@ -22,8 +22,8 @@ class TestRSVD : public ::testing::Test
 
         std::vector<T> A;
         // For results comparison
-        std::vector<T> A_hat;
-        std::vector<T> A_hat_buf;
+        std::vector<T> A_approx_determ;
+        std::vector<T> A_approx_determ_duf;
         std::vector<T> A_k;
         std::vector<T> A_cpy;
 
@@ -42,8 +42,8 @@ class TestRSVD : public ::testing::Test
         RSVDTestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0),
         // For results comparison
-        A_hat(m * n, 0.0),
-        A_hat_buf (m * k, 0.0),
+        A_approx_determ(m * n, 0.0),
+        A_approx_determ_duf (m * k, 0.0),
         A_k(m * n, 0.0),
         A_cpy (m * n, 0.0),
 
@@ -71,21 +71,23 @@ class TestRSVD : public ::testing::Test
         RandLAPACK::QB<T> QB;
         RandLAPACK::RSVD<T> RSVD;
 
-        algorithm_objects(bool verbosity, 
-                            bool cond_check, 
-                            bool orth_check, 
-                            int64_t p, 
-                            int64_t passes_per_iteration, 
-                            int64_t block_sz,
-                            RandBLAS::base::RNGState<RNG> state) :
-                            Stab(cond_check, verbosity),
-                            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
-                            Orth_RF(cond_check, verbosity),
-                            RF(RS, Orth_RF, verbosity, cond_check),
-                            Orth_QB(cond_check, verbosity),
-                            QB(RF, Orth_QB, verbosity, orth_check),
-                            RSVD(QB, verbosity, block_sz)
-                            {}
+        algorithm_objects(
+            bool verbosity, 
+            bool cond_check, 
+            bool orth_check, 
+            int64_t p, 
+            int64_t passes_per_iteration, 
+            int64_t block_sz,
+            RandBLAS::base::RNGState<RNG> state
+        ) :
+            Stab(cond_check, verbosity),
+            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+            Orth_RF(cond_check, verbosity),
+            RF(RS, Orth_RF, verbosity, cond_check),
+            Orth_QB(cond_check, verbosity),
+            QB(RF, Orth_QB, verbosity, orth_check),
+            RSVD(QB, verbosity, block_sz)
+            {}
     };
 
     template <typename T>
@@ -109,8 +111,8 @@ class TestRSVD : public ::testing::Test
         RSVDTestData<T>& all_data,
         algorithm_objects<T, RNG>& all_algs) {
 
-        T* A_hat_dat = all_data.A_hat.data();
-        T* A_hat_buf_dat = all_data.A_hat_buf.data();
+        T* A_approx_determ_dat = all_data.A_approx_determ.data();
+        T* A_approx_determ_duf_dat = all_data.A_approx_determ_duf.data();
         T* A_k_dat = all_data.A_k.data();
 
         T* U1_dat = all_data.U1.data();
@@ -125,14 +127,14 @@ class TestRSVD : public ::testing::Test
         // Regular QB2 call
         all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1);
         
-        // Construnct A_hat = U1 * S1 * VT1
+        // Construnct A_approx_determ = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
         RandLAPACK::util::diag(k, k, all_data.s1, k, all_data.S1);
-        // U1 * S1 = A_hat_buf
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_hat_buf_dat, m);
-        // A_hat_buf * VT1 =  A_hat
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_hat_buf_dat, m, VT1_dat, k, 0.0, A_hat_dat, m);
+        // U1 * S1 = A_approx_determ_duf
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_approx_determ_duf_dat, m);
+        // A_approx_determ_duf * VT1 =  A_approx_determ
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_approx_determ_duf_dat, m, VT1_dat, k, 0.0, A_approx_determ_dat, m);
 
         //T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_cpy_dat, m);
         //printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
@@ -141,12 +143,12 @@ class TestRSVD : public ::testing::Test
         std::fill(s_dat + k, s_dat + n, 0.0);
         RandLAPACK::util::diag(n, n, all_data.s, n, all_data.S);
 
-        // TEST 4: Below is A_k - A_hat = A_k - QB
+        // TEST 4: Below is A_k - A_approx_determ = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
         // A_k * VT -  A_hat == 0
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_approx_determ_dat, m);
 
-        T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
+        T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_approx_determ_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }

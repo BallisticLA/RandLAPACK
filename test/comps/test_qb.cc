@@ -32,20 +32,20 @@ class TestQB : public ::testing::Test
         std::vector<T> VT;
 
         QBTestData(int64_t m, int64_t n, int64_t k) :
-                    A(m * n, 0.0), 
-                    Q(m * k, 0.0), 
-                    B(k * n, 0.0), 
-                    B_cpy(k * n, 0.0), 
-                    A_hat(m * n, 0.0),
-                    A_k(m * n, 0.0),  
-                    A_cpy(m * n, 0.0),  
-                    A_cpy_2(m * n, 0.0),
-                    A_cpy_3(m * n, 0.0),
-                    s(n, 0.0),
-                    S(n * n, 0.0),
-                    U(m * n, 0.0),
-                    VT(n * n, 0.0)
-                    {}
+            A(m * n, 0.0), 
+            Q(m * k, 0.0), 
+            B(k * n, 0.0), 
+            B_cpy(k * n, 0.0), 
+            A_hat(m * n, 0.0),
+            A_k(m * n, 0.0),  
+            A_cpy(m * n, 0.0),  
+            A_cpy_2(m * n, 0.0),
+            A_cpy_3(m * n, 0.0),
+            s(n, 0.0),
+            S(n * n, 0.0),
+            U(m * n, 0.0),
+            VT(n * n, 0.0)
+            {}
     };
 
     template <typename T, typename RNG>
