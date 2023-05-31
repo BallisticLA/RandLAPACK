@@ -110,8 +110,8 @@ RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
     //bool callers_work_buff = work_buff != nullptr;
     //if (!callers_work_buff)
     //    work_buff = new T[m * k];
-    //std::vector<T> Buf(m * k, 0.0);
-    //work_buff = Buf.data();
+    std::vector<T> Buf(m * k, 0.0);
+    work_buff = Buf.data();
 
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 

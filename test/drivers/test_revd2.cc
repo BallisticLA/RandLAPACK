@@ -123,7 +123,7 @@ class TestREVD2 : public ::testing::Test
         ASSERT_NEAR(k, rank_expectation, std::numeric_limits<T>::epsilon());
     }
 };
-/*
+
 TEST_F(TestREVD2, Underestimation1) { 
     using RNG = r123::Philox4x32;
 
@@ -295,4 +295,3 @@ TEST_F(TestREVD2, Exactness) {
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
-*/

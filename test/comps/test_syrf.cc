@@ -141,7 +141,7 @@ class TestSYRF : public ::testing::Test
         ASSERT_NEAR(std::min(norm1_test_2, norm2_test_2), 0, test_tol);
     }
 };
-/*
+
 TEST_F(TestSYRF, Polynomial_Decay_general1)
 {
     int64_t m = 100;
@@ -159,12 +159,12 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     orth_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
     test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
 }
-*/
+
 TEST_F(TestSYRF, Polynomial_Decay_general2)
 {
     int64_t m = 100;
     int64_t k = 50;
-    int64_t p = 0;
+    int64_t p = 5;
     int64_t passes_per_iteration = 1;
     auto state = RandBLAS::base::RNGState();
 
@@ -177,7 +177,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     orth_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
     test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
 }
-/*
+
 TEST_F(TestSYRF, Rand_diag_general)
 {
     int64_t m = 100;
@@ -195,4 +195,3 @@ TEST_F(TestSYRF, Rand_diag_general)
     orth_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
     test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
 }
-*/

@@ -130,8 +130,6 @@ RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     //bool callers_skop_buff = skop_buff != nullptr;
     //if (!callers_skop_buff)
     //    skop_buff = new T[m * k];
-    std::vector<T> Buf1(m * k, 0.0);
-    skop_buff = Buf1.data();
 
     RandBLAS::dense::DenseDist D{m, k};
     auto next_state = RandBLAS::dense::fill_buff(skop_buff, D, state);
@@ -139,8 +137,6 @@ RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     //bool callers_work_buff = work_buff != nullptr;
     //if (!callers_work_buff)
     //    work_buff = new T[m * k];
-    std::vector<T> Buf2(m * k, 0.0);
-    work_buff = Buf2.data();
 
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 
@@ -149,25 +145,27 @@ RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     //int64_t* ipiv = new int64_t[k]{};
     std::vector<int64_t> piv(k, 0);
     int64_t* ipiv = piv.data();
-/*
+
     while (p - p_done > 0) {
         blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, symm_in, m, 0.0, symm_out, m);
         ++p_done;
+        /*
         if (p_done % q == 0) {
                 if(lapack::getrf(m, k, symm_out, m, ipiv))
                     throw std::runtime_error("Sketch did not have an LU decomposition.");
                 util::get_L(m, k, symm_out, 1);
                 lapack::laswp(m, symm_out, m, 1, k, ipiv, 1);
         }
+        */
         symm_out = (p_done % 2 == 1) ? skop_buff : work_buff;
         symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff; 
     }
     //delete[] ipiv;
-  */
+  
     if (p % 2 == 1)
         blas::copy(m * k, work_buff, 1, skop_buff, 1);
 
-    auto S = RandBLAS::dense::DenseSkOp(D, state, symm_out, blas::Layout::ColMajor);
+    auto S = RandBLAS::dense::DenseSkOp(D, state, work_buff, blas::Layout::ColMajor);
     S.next_state = next_state;
 
     //if (!callers_work_buff)
