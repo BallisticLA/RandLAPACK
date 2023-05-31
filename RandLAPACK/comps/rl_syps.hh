@@ -28,7 +28,12 @@ class SymmetricPowerSketch {
             RandBLAS::base::RNGState<RNG> state,
             T* skop_buff = nullptr,
             T* work_buff = nullptr
-        );
+        ) {
+            UNUSED(uplo); UNUSED(m); UNUSED(A); UNUSED(lda);
+            UNUSED(k); UNUSED(state); UNUSED(skop_buff); UNUSED(work_buff);
+            throw std::logic_error("Abstract method called.");
+        };
+
 };
 
 
