@@ -3,7 +3,6 @@
 
 #include <RandBLAS.hh>
 
-using namespace std::chrono;
 using namespace RandLAPACK;
 
 template <typename T, typename RNG>
