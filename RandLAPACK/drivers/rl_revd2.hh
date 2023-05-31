@@ -24,6 +24,8 @@ class REVD2alg {
             int64_t m,
             std::vector<T>& A,
             int64_t& k,
+            T tol,
+            int p,
             std::vector<T>& V,
             std::vector<T>& eigvals,
             RandBLAS::base::RNGState<RNG> state
@@ -88,6 +90,8 @@ class REVD2 : public REVD2alg<T, RNG> {
             int64_t m,
             std::vector<T>& A,
             int64_t& k,
+            T tol,
+            int p,
             std::vector<T>& V,
             std::vector<T>& eigvals,
             RandBLAS::base::RNGState<RNG> state
@@ -168,6 +172,8 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         int64_t m,
         std::vector<T>& A,
         int64_t& k,
+        T tol,
+        int p,
         std::vector<T>& V,
         std::vector<T>& eigvals,
         RandBLAS::base::RNGState<RNG> state
@@ -248,7 +254,7 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
 
         err = power_error_est(m, k, p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 
-        if(err <= 5 * std::max(this->tol, nu) || k == m) {
+        if(err <= 5 * std::max(tol, nu) || k == m) {
             break;
         } else if (2 * k > m) {
             k = m;
