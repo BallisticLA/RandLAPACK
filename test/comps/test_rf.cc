@@ -32,8 +32,8 @@ class TestRF : public ::testing::Test
         A(m * n, 0.0), 
         A_cpy(m * n, 0.0),
         Q(m * k, 0.0), 
-        Buf1(m * m, 0.0), 
-        Buf2(m * m, 0.0), 
+        Buf1(k * n, 0.0), 
+        Buf2(n * m, 0.0), 
         Q_cpy(m * k, 0.0), 
         Q_hat_cpy(m * n, 0.0) 
         {
@@ -72,8 +72,8 @@ class TestRF : public ::testing::Test
 
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
         
-        RandLAPACK::CholQRQ<T> CholQRQ(false, false);
-        CholQRQ.call(m, n, all_data.A_cpy);
+        RandLAPACK::HQRQ<T> HQRQ(false, false);
+        HQRQ.call(m, n, all_data.A_cpy);
 
         lapack::lacpy(MatrixType::General, m, n, all_data.A_cpy.data(), m, all_data.Q_hat_cpy.data(), m);
     }
@@ -113,13 +113,16 @@ class TestRF : public ::testing::Test
         // TEST 1: Q'Q = I
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, Ident_dat, k);
 
-        // TEST 2: QQ' * Q_hat = Q_hat
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, m, m, 1.0, Q_dat, m, -1.0, Buf1_dat, m);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, Buf1_dat, m, Q_hat_dat, m, -1.0, Q_hat_cpy_dat, m);
+        // TEST 2:
+        // Q' * Q_hat = Buf1
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, 1.0, Q_dat, m, Q_hat_dat, m, 0.0, Buf1_dat, k);
+        // Q * Buf1 - Q_hat
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q_dat, m, Buf1_dat, k, -1.0, Q_hat_cpy_dat, m);
 
-        // TEST 2: Q_hat Q_hat' * Q = Q
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, m, m, 1.0, Q_dat, m, -1.0, Buf2_dat, m);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, m, 1.0, Buf2_dat, m, Q_dat, m, -1.0, Q_cpy_dat, m);
+        // Q_hat' * Q = Buf2
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, Q_hat_dat, m, Q_dat, m, 0.0, Buf2_dat, n);
+        // Q_hat * Buf2 - Q
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Q_hat_dat, m, Buf2_dat, n, -1.0, Q_cpy_dat, m);
 
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
@@ -132,10 +135,7 @@ class TestRF : public ::testing::Test
         T norm2_test_2 = lapack::lange(Norm::Fro, m, k, Q_cpy_dat, m);
         printf("FRO NORM OF QQ' * Q_hat - Q_hat:   %e\n", norm1_test_2);
         printf("FRO NORM OF Q_hat Q_hat' * Q = Q:   %e\n", norm2_test_2);
-        if(k == n) {
-            ASSERT_NEAR(norm1_test_2, 0, test_tol);
-            ASSERT_NEAR(norm1_test_2, 0, test_tol);
-        }
+        ASSERT_NEAR(std::min(norm1_test_2, norm2_test_2), 0, test_tol);
     }
 };
 

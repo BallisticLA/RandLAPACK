@@ -45,8 +45,9 @@ class RF : public RangeFinder<T> {
             cond_check = cond;
         }
 
-        /// RangeFinder - Return a matrix Q with k orthonormal columns, where Range(Q) is
-        /// an approximation for the span of A's top k left singular vectors.
+        /// RangeFinder - Return a matrix Q with k orthonormal columns, where range(Q) either subset of the range(A)
+        /// if rank(A) >= k or
+        /// range(A) is a subset of the range(Q) if rank(A) < k.
         /// Relies on a RowSketcher to do most of the work, then additionally reorthogonalizes RS's output.
         /// Optionally checks for whether the output of RS is ill-conditioned.
         /// This algorithm is shown in "the RandLAPACK book" book as Algorithm 9.
