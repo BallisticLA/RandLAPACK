@@ -2,11 +2,6 @@
 #include "rl_blaspp.hh"
 
 #include <RandBLAS.hh>
-#include <math.h>
-#include <chrono>
-/*
-Auxillary benchmark routine, computes flops using GEMM for a given system
-*/
 
 using namespace std::chrono;
 using namespace RandLAPACK;
@@ -42,13 +37,8 @@ chol_check(int64_t m, int64_t k, RandBLAS::base::RNGState<RNG> state) {
     if(lapack::potrf(Uplo::Upper, m, A_dat, m)) 
         printf("CHOLESKY FAILED AS EXPECTED\n");
 
-    //char name_R [] = "R"; 
-    //RandBLAS::util::print_colmaj(m, m, A_dat, name_R);
-
     // Copy the k by k portion of the R factor
     lapack::lacpy(MatrixType::Upper, k, k, A_dat, m, R_buf_dat, k);
-
-    //RandBLAS::util::print_colmaj(k, k, R_buf_dat, name_R);
 
     // Doing this through GEMM to perform subtraction immediately
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, k, 1.0, R_buf_dat, k, R_buf_dat, k, -1.0, A_symm_dat, k);
