@@ -23,10 +23,9 @@ if (GTest_FOUND)
 
     gtest_discover_tests(RandLAPACK_tests)
 
+    add_executable(test_pcgls comps/test_pcgls.cc)
+    target_link_libraries(test_pcgls RandLAPACK GTest::GTest)
+    add_test(NAME test_pcgls COMMAND test_pcgls 15 100)
 endif()
 message(STATUS "Checking for regression tests ... ${tmp}")
-
-add_executable(test_pcgls comps/test_pcgls.cc)
-target_link_libraries(test_pcgls RandLAPACK)
-add_test(NAME test_pcgls COMMAND test_pcgls 100 15)
 

@@ -18,6 +18,67 @@
 
 namespace RandLAPACK {
 
+// Note: This function is not intended for end-users at this time.
+// We have it here to simplify unittests later on.
+template <typename T, typename SKOP>
+void rpc_data_svd(
+    blas::Layout layout,
+    int64_t m, // number of rows in A
+    int64_t n, // number of columns in A
+    T *A, // buffer of size at least m*n
+    int64_t lda, // leading dimension for mat(A).
+    SKOP &S, // d-by-m sketching operator.
+    T *V_sk, // buffer of size at least d*n.
+    T *sigma_sk //buffer of size at least n.
+) {
+    int64_t d = S.dist.n_rows;
+    randblas_require(d >= n);
+    T* A_sk = V_sk;
+    if (m < n)
+        throw std::invalid_argument("Input matrix A must have at least as many rows as columns.");
+
+    // step 1
+    int64_t lda_sk;
+    if (layout == blas::Layout::RowMajor) {
+        randblas_require(lda >= n);
+        lda_sk = n;
+    } else {
+        randblas_require(lda >= m);
+        lda_sk = d;
+    }
+    RandBLAS::util::safe_scal(d*n, 0.0, A_sk, 1);
+    RandBLAS::ramm::ramm_general_left(
+        layout,
+        blas::Op::NoTrans,
+        blas::Op::NoTrans,
+        d, n, m,
+        1.0, S, 0, 0,
+        A, lda,
+        0.0, A_sk, lda_sk
+    );
+
+    // step 2: apply an LAPACK SVD function to A_sk and process the output.
+    if (layout == blas::Layout::ColMajor) {
+        auto jobu = lapack::Job::NoVec;
+        auto jobvt = lapack::Job::OverwriteVec;
+        lapack::gesvd(jobu, jobvt, d, n, A_sk, d, sigma_sk, nullptr, 1, nullptr, 1);
+        RandLAPACK::util::eat_lda_slack(A_sk, n, n, d);
+    } else {
+        auto jobu = lapack::Job::OverwriteVec;
+        auto jobvt = lapack::Job::NoVec;
+        lapack::gesvd(jobu, jobvt, n, d, A_sk, n, sigma_sk, nullptr, 1, nullptr, 1);
+    }
+    // memory(A_sk, 1,..., n^2) is the transposed right singular vectors, represented in
+    // "layout" order. We need the _untransposed_ singular vectors in "layout" order.
+    //
+    // In-place transpose of a square matrix can (easily) be done in a way that's
+    // layout-independent, as long as we don't care about cache efficiency. Since it's
+    // an O(d n^2) operation to compute A_sk up to now and only O(n^2) to transpose,
+    // the lack of cache efficiency shouldn't matter in this context.
+    RandLAPACK::util::transpose_square(A_sk, n);
+    return;
+}
+
 /**
  * Use sketching to produce data for a right-preconditioner of a
  * tall matrix A, or a regularized version thereof.
@@ -34,11 +95,7 @@ namespace RandLAPACK {
  * 
  * can easily be solved by unpreconditioned iterative methods.
  * 
- * Warning: if A is in column-major format, then this function
- * will internally allocate (and subsequently deallocate) a 
- * workspace buffer of size n^2.
- * 
- * @param[in] layout_A
+ * @param[in] layout
  *      Either blas::Layout::RowMajor or blas::Layout::ColMajor.
  * @param[in] m
  *      The number of rows in A; this must be at least as large
@@ -52,14 +109,14 @@ namespace RandLAPACK {
  *      A common value is k=8 when n is on the order of a couple thousand.
  * @param[in] A
  *      A buffer for an m \times n matrix A. Interpreted in 
- *      "layout_A" order.
+ *      "layout" order.
  * @param[in] lda
- *      Leading dimension of A. This parameter, together with layout_A,
+ *      Leading dimension of A. This parameter, together with layout,
  *      m, n, and A itself define the m-by-n matrix mat(A).
  * @param[out] V_sk
  *      A buffer of size >= d*n.
  *      On exit, contains all n right singular vectors of a sketch of A,
- *      represented in column-major format with leading dimension n.
+ *      represented in "layout" format with leading dimension n.
  * @param[out] sigma_sk
  *      A buffer of size >= n.
  *      On exit, contains all n singular values of a sketch of A.
@@ -71,7 +128,7 @@ namespace RandLAPACK {
  */
 template <typename T, typename RNG>
 RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
-    blas::Layout layout_A,
+    blas::Layout layout,
     int64_t m, // number of rows in A
     int64_t n, // number of columns in A
     int64_t d, // number of rows in sketch of A
@@ -82,12 +139,6 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     T *sigma_sk, //buffer of size at least n.
     RandBLAS::base::RNGState<RNG> state
 ) {
-    T* buff_A = A;
-    T* buff_A_sk = V_sk;
-    if (m < n)
-        throw std::invalid_argument("Input matrix A must have at least as many rows as columns.");
-    
-    // step 1.1: define the sketching operator
     RandBLAS::sparse::SparseDist D{
         .n_rows = d,
         .n_cols = m,
@@ -95,60 +146,9 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     };
     RandBLAS::sparse::SparseSkOp<T> S(D, state);
     auto next_state = RandBLAS::sparse::fill_sparse(S);
-
-    // step 1.2: sketch the data matrix
-    int64_t lda_sk;
-    if (layout_A == blas::Layout::RowMajor) {
-        assert(lda >= n);
-        lda_sk = n;
-    } else {
-        assert(lda >= m);
-        lda_sk = d;
-    }
-    RandBLAS::util::safe_scal(d*n, 0.0, buff_A_sk, 1);
-    RandBLAS::sparse::lskges<T>(
-        layout_A,
-        blas::Op::NoTrans,
-        blas::Op::NoTrans,
-        d, n, m,
-        1.0, S, 0, 0,
-        buff_A, lda,
-        0.0, buff_A_sk, lda_sk
-    );
-
-    // step 2: compute SVD of sketch
-    T* ignore = nullptr;
-    if (layout_A == blas::Layout::RowMajor) {
-        //
-        //      buff_A_sk is stored in row-major format; we want its singular values
-        //      and right singular vectors.
-        //
-        //      We get around LAPACK's column-major restriction by using the fact that
-        //          memory(A_sk, RowMajor) == memory(transpose(A_sk), ColumnMajor).
-        //      So we'll tell LAPACK that we want the singular values and left
-        //      singular vectors of tranpose(A_sk).
-        //
-        lapack::Job jobu = lapack::Job::OverwriteVec;
-        lapack::Job jobvt = lapack::Job::NoVec;
-        lapack::gesvd(jobu, jobvt, n, d, buff_A_sk, n, sigma_sk, ignore, 1, ignore, 1);
-        // interpret buff_A_sk in row-major
-    } else {
-        lapack::Job jobu = lapack::Job::NoVec;
-        lapack::Job jobvt = lapack::Job::SomeVec;
-        T *Vt = new T[n * n]{};
-        lapack::gesvd(jobu, jobvt, d, n, buff_A_sk, d, sigma_sk, ignore, 1, Vt, n);
-        for (int i = 0; i < n; ++i) {
-            // buff_A_sk is now just scratch space that points to V_sk.
-            // We just computed its SVD as a d-by-n matrix in column-major order.
-            // Now we want to write to the first n^2 elements of buff_A_sk with
-            // n "n-vectors" in column-major order.
-            blas::copy(n, &Vt[i], n,  &buff_A_sk[i*n], 1);
-        }
-        delete[] Vt;
-    }
+    rpc_data_svd(layout, m, n, A, lda, S, V_sk, sigma_sk);
     return next_state;
 }
-
 
 /**
  * Accepts the right singular vectors and singular values of some tall
@@ -164,11 +164,15 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
  * 
  * A thresholding scheme is applied to infer numerical rank of H_aug.
  * 
+ * @param[in] layout
+ *      blas::Layout::RowMajor or blas::Layout::ColMajor.
+ *      The storage order for V.
+ * 
  * @param[in] n
  *      The number of rows and columns in V.
  * 
  * @param[in,out] V
- *      A buffer of size >= n*n, read in column-major order.
+ *      A buffer of size >= n*n.
  * 
  *      On entry, the columns of V are the right singular vectors of some
  *      tall matrix H.
@@ -186,6 +190,7 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
  */
 template <typename T>
 int64_t make_right_orthogonalizer(
+    blas::Layout layout,
     int64_t n,
     T* V,
     T* sigma,
@@ -199,12 +204,14 @@ int64_t make_right_orthogonalizer(
     T abstol = curr_s * n * std::numeric_limits<T>::epsilon();
     
     int64_t rank = 0;
+    int64_t inter_col_stride = (layout == blas::Layout::ColMajor) ? n : 1;
+    int64_t intra_col_stride = (layout == blas::Layout::ColMajor) ? 1 : n;
     while (rank < n) {
         curr_s = regularized(sigma[rank]);
         if (curr_s < abstol)
             break;
         T scale = 1.0 / curr_s;
-        blas::scal(n, scale, &V[rank*n], 1);
+        blas::scal(n, scale, &V[rank * inter_col_stride], intra_col_stride);
         rank = rank + 1;
     }
     return rank;

@@ -2,6 +2,7 @@
 #include "rl_blaspp.hh"
 
 #include <RandBLAS.hh>
+#include <RandBLAS/test_util.hh>
 
 #include <math.h>
 #include <chrono>
@@ -167,4 +168,40 @@ TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     std::vector<double> A(m * n, 0.0); 
 
     test_binary_rank_search_zero_mat<double>(m, n, A);
+}
+
+
+class Test_Inplace_Square_Transpose : public ::testing::Test
+{
+    protected:
+
+    virtual void SetUp() {};
+
+    virtual void TearDown() {};
+
+    virtual void apply(blas::Layout layout) {
+        int64_t n = 37;
+        RandBLAS::dense::DenseDist D{n, n};
+        RandBLAS::base::RNGState state(1);
+        double *A1 = new double[n*n];
+        state = RandBLAS::dense::fill_buff(A1, D, state);
+        double *A2 = new double[n*n];
+        blas::copy(n*n, A1, 1, A2, 1);
+        RandLAPACK::util::transpose_square(A2, n);
+        RandBLAS_Testing::Util::matrices_approx_equal(
+            layout, blas::Op::Trans, n, n, A1, n, A2, n, 
+            __PRETTY_FUNCTION__, __FILE__, __LINE__
+        );
+        delete [] A1;
+        delete [] A2;
+    }
+
+};
+
+TEST_F(Test_Inplace_Square_Transpose, random_matrix_colmajor) {
+    apply(blas::Layout::ColMajor);
+}
+
+TEST_F(Test_Inplace_Square_Transpose, random_matrix_rowmajor) {
+    apply(blas::Layout::RowMajor);
 }
