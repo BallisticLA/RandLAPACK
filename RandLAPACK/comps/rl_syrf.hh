@@ -107,15 +107,23 @@ RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
     RandBLAS::base::RNGState<RNG> state,
     T* work_buff
 ){
-    bool callers_work_buff = work_buff != nullptr;
-    if (!callers_work_buff)
-        work_buff = new T[m * k];
+    //bool callers_work_buff = work_buff != nullptr;
+    //if (!callers_work_buff)
+    //    work_buff = new T[m * k];
+    //std::vector<T> Buf(m * k, 0.0);
+    //work_buff = Buf.data();
+
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 
     const T* A_dat = A.data();
     T* Q_dat = util::upsize(m * k, Q);
     auto S = SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q_dat);
     blas::symm(Layout::ColMajor, blas::Side::Right, uplo, m, k, 1.0, A_dat, m, S.buff, m, 0.0, Q_dat, m);
+
+    //std::vector<T> S (m*k, 0.0);
+    //RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
+    //RandBLAS::dense::fill_buff(S.data(), D, state);
+    //blas::symm(Layout::ColMajor, blas::Side::Right, uplo, m, k, 1.0, A_dat, m, S.data(), m, 0.0, Q_dat, m);
 
     if(this->cond_check) {
         util::upsize(m * k, this->cond_work_mat);
@@ -125,13 +133,14 @@ RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
         );
     }
 
-    if (!callers_work_buff)
-        delete[] work_buff;
+    //if (!callers_work_buff)
+    //    delete[] work_buff;
 
     if(this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
 
     return S.next_state;
+    //return state;
 }
 
 } // end namespace RandLAPACK
