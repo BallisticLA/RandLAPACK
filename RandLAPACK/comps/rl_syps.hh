@@ -96,7 +96,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
             RandBLAS::base::RNGState<RNG> state,
             T* skop_buff,
             T* work_buff
-        ) override;
+        );
     
         int64_t passes_over_data;
         int64_t passes_per_stab;

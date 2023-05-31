@@ -25,7 +25,6 @@ class REVD2alg {
             std::vector<T>& A,
             int64_t& k,
             T tol,
-            int p,
             std::vector<T>& V,
             std::vector<T>& eigvals,
             RandBLAS::base::RNGState<RNG> state
@@ -39,12 +38,10 @@ class REVD2 : public REVD2alg<T, RNG> {
         // Constructor
         REVD2(
             RandLAPACK::SymmetricRangeFinder<T, RNG>& syrf_obj,
-            T tolerance,
-            int power_iters,
+            int error_est_power_iters,
             bool verb = false
         ) : SYRF_Obj(syrf_obj) {
-            tol = tolerance;
-            p = power_iters;
+            error_est_p = error_est_power_iters;
             verbose = verb;
         }
 
@@ -91,7 +88,6 @@ class REVD2 : public REVD2alg<T, RNG> {
             std::vector<T>& A,
             int64_t& k,
             T tol,
-            int p,
             std::vector<T>& V,
             std::vector<T>& eigvals,
             RandBLAS::base::RNGState<RNG> state
@@ -99,8 +95,7 @@ class REVD2 : public REVD2alg<T, RNG> {
 
     public:
         RandLAPACK::SymmetricRangeFinder<T, RNG>& SYRF_Obj;
-        T tol;
-        int p;
+        int error_est_p;
         bool verbose;
 
         std::vector<T> Y;
@@ -165,7 +160,6 @@ T power_error_est(
 }
 
 
-
 template <typename T, typename RNG>
 RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         blas::Uplo uplo,
@@ -173,7 +167,6 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         std::vector<T>& A,
         int64_t& k,
         T tol,
-        int p,
         std::vector<T>& V,
         std::vector<T>& eigvals,
         RandBLAS::base::RNGState<RNG> state
@@ -252,7 +245,7 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         RandBLAS::dense::DenseDist  g{.n_rows = m, .n_cols = 1};
         error_est_state = RandBLAS::dense::fill_buff(Omega_dat, g, error_est_state);
 
-        err = power_error_est(m, k, p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
+        err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 
         if(err <= 5 * std::max(tol, nu) || k == m) {
             break;
