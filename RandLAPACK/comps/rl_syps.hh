@@ -19,15 +19,15 @@ class SymmetricPowerSketch {
     public:
         virtual ~SymmetricPowerSketch() {}
 
-        virtual RandBLAS::dense::DenseSkOp<T,RNG> call(
+        virtual RandBLAS::base::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
             int64_t lda,
             int64_t k,
             RandBLAS::base::RNGState<RNG> state,
-            T* skop_buff = nullptr,
-            T* work_buff = nullptr
+            T* skop_buff,
+            T* work_buff
         ) {
             UNUSED(uplo); UNUSED(m); UNUSED(A); UNUSED(lda);
             UNUSED(k); UNUSED(state); UNUSED(skop_buff); UNUSED(work_buff);
@@ -92,7 +92,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         ///     An RNGState that the calling function should use the next
         ///     time it needs an RNGState.
         ///
-        RandBLAS::dense::DenseSkOp<T,RNG> call(
+        RandBLAS::base::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
@@ -112,7 +112,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
+RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
     const std::vector<T>& A,
@@ -127,20 +127,20 @@ RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     int64_t p_done = 0;
     const T* A_dat = A.data();
 
-    bool callers_skop_buff = skop_buff != nullptr;
-    if (!callers_skop_buff)
-        skop_buff = new T[m * k];
+    // bool callers_skop_buff = skop_buff != nullptr;
+    // if (!callers_skop_buff)
+    //     skop_buff = new T[m * k];
     RandBLAS::dense::DenseDist D{m, k};
     auto next_state = RandBLAS::dense::fill_buff(skop_buff, D, state);
 
-    bool callers_work_buff = work_buff != nullptr;
-    if (!callers_work_buff)
-        work_buff = new T[m * k];
+    // bool callers_work_buff = work_buff != nullptr;
+    // if (!callers_work_buff)
+    //     work_buff = new T[m * k];
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 
     T *symm_out = work_buff;
     T *symm_in  = skop_buff;
-    int64_t* ipiv = new int64_t[k]{};
+    int64_t* ipiv = new int64_t[m]{};
     while (p - p_done > 0) {
         blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, symm_in, m, 0.0, symm_out, m);
         ++p_done;
@@ -157,13 +157,10 @@ RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     if (p % 2 == 1)
         blas::copy(m * k, work_buff, 1, skop_buff, 1);
 
-    auto S = RandBLAS::dense::DenseSkOp(D, state, skop_buff, blas::Layout::ColMajor);
-    S.next_state = next_state;
+    // if (!callers_work_buff)
+    //     delete[] work_buff;
 
-    if (!callers_work_buff)
-        delete[] work_buff;
-
-    return S;
+    return next_state;
 }
 
 

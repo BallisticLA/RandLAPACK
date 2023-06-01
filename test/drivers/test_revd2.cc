@@ -95,18 +95,17 @@ class TestREVD2 : public ::testing::Test
     ) {
         
         auto m = all_data.dim;
-        auto k = all_data.rank;
+        auto rank = all_data.rank;
 
-        k = k_start;
+        int64_t k = k_start;
         all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A, k, tol, all_data.V, all_data.eigvals, state);
+        ASSERT_TRUE(k <= rank);
 
-        RandLAPACK::util::upsize(k * k, all_data.E);
-        RandLAPACK::util::upsize(m * k, all_data.Buf);
+        T* E_dat = RandLAPACK::util::upsize(k * k, all_data.E);
+        T* Buf_dat = RandLAPACK::util::upsize(m * k, all_data.Buf);
 
         T* A_cpy_dat = all_data.A_cpy.data();
         T* V_dat = all_data.V.data();
-        T* E_dat = all_data.E.data();
-        T* Buf_dat = all_data.Buf.data();
 
         // Construnct A_hat = U1 * S1 * VT1
 
@@ -209,7 +208,7 @@ TEST_F(TestREVD2, Overestimation1) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::base::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;
@@ -242,7 +241,7 @@ TEST_F(TestREVD2, Oversetimation2) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::base::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;
@@ -273,11 +272,11 @@ TEST_F(TestREVD2, Exactness) {
     int64_t rank_expectation = 100;
     double norm_A = 0;
     double tol = std::pow(10, -14);
-    double err_expectation =std::pow(10, -13);
+    double err_expectation = std::pow(10, -13);
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::base::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;

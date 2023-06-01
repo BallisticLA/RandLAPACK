@@ -28,7 +28,7 @@ class SymmetricRangeFinder {
             int64_t k,
             std::vector<T>& Q,
             RandBLAS::base::RNGState<RNG> state,
-            T* work_buff = nullptr
+            T* work_buff
         ) = 0;
 };
 
@@ -107,15 +107,14 @@ RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
     RandBLAS::base::RNGState<RNG> state,
     T* work_buff
 ){
-    bool callers_work_buff = work_buff != nullptr;
-    if (!callers_work_buff)
-        work_buff = new T[m * k];
+    // bool callers_work_buff = work_buff != nullptr;
+    // // if (!callers_work_buff)
+    // work_buff = new T[m * k];
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 
-    const T* A_dat = A.data();
-    T* Q_dat = util::upsize(m * k, Q);
-    auto S = SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q_dat);
-    blas::symm(Layout::ColMajor, blas::Side::Right, uplo, m, k, 1.0, A_dat, m, S.buff, m, 0.0, Q_dat, m);
+    // T* Q_dat = util::upsize(m * k, Q);
+    auto next_state = SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q.data());
+    blas::symm(Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A.data(), m, work_buff, m, 0.0, Q.data(), m);
 
     if(this->cond_check) {
         util::upsize(m * k, this->cond_work_mat);
@@ -125,13 +124,13 @@ RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
         );
     }
 
-    if (!callers_work_buff)
-        delete[] work_buff;
+    //if (!callers_work_buff)
+    // delete[] work_buff;
 
     if(this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
 
-    return S.next_state;
+    return next_state;
 }
 
 } // end namespace RandLAPACK
