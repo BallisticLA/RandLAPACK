@@ -97,26 +97,6 @@ void get_L(
         if(overwrite_diagonal)
             A[i + m * i] = 1.0;
     }
-
-    /*
-    // Vector end pointer
-    int size = m * n;
-    // The unit diagonal elements of L were not stored.
-    if(overwrite_diagonal)
-        L_dat[0] = 1;
-
-    for(int i = m, j = 1; i < size && j < m; i += m, ++j) {
-        std::for_each(&L_dat[i], &L_dat[i + j],
-            // Lambda expression begins
-            [](T& entry) {
-                entry = 0.0;
-            }
-        );
-        // The unit diagonal elements of L were not stored.
-        if(overwrite_diagonal)
-            L_dat[i + j] = 1;
-    }
-    */
 }
 
 template <typename T>
