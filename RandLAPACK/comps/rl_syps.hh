@@ -119,59 +119,23 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     int64_t lda,
     int64_t k,
     RandBLAS::base::RNGState<RNG> state,
-    T* Omega_dat,
-    T* Q_dat // treat this as free workspace
-){
-
-    int64_t p = this->passes_over_data;
-    int64_t q = this->passes_per_stab;
-    int64_t p_done = 0;
-    std::vector<T> tau (k, 0.0);
-    std::vector<int64_t> piv(k, 0);
-    const T* A_dat = A.data();
-
-    RandBLAS::dense::DenseDist D{m, k};
-    auto next_state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
-
-    T* input_dat = Omega_dat;
-    T* output_dat = Q_dat;
-
-    blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, input_dat, m, 0.0, output_dat, m);
-    ++p_done;
-
-    if (p_done % q == 0) {
-        //lapack::geqrf(m, k, output_dat, m, tau.data());
-        //lapack::ungqr(m, k, k, output_dat, m, tau.data());
-
-        // For some reason, this causes issues
-        lapack::getrf(m, k, output_dat, m, piv.data());
-        util::get_L(m, k, output_dat, 1);
-        lapack::laswp(k, output_dat, m, 1, k, piv.data(), 1);
-
-        // Switch pointers input and output pointers; 
-        T* buffer_prt = output_dat;
-        output_dat = input_dat;
-        input_dat = buffer_prt;
-    }
-
-    Omega_dat = output_dat;
-
-
-    /*
+    T* skop_buff,
+    T* work_buff // treat this as free workspace
+){    
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;
     int64_t p_done = 0;
     const T* A_dat = A.data();
 
-    // bool callers_skop_buff = skop_buff != nullptr;
-    // if (!callers_skop_buff)
-    //     skop_buff = new T[m * k];
+     bool callers_skop_buff = skop_buff != nullptr;
+     if (!callers_skop_buff)
+         skop_buff = new T[m * k];
     RandBLAS::dense::DenseDist D{m, k};
     auto next_state = RandBLAS::dense::fill_buff(skop_buff, D, state);
 
-    // bool callers_work_buff = work_buff != nullptr;
-    // if (!callers_work_buff)
-    //     work_buff = new T[m * k];
+     bool callers_work_buff = work_buff != nullptr;
+     if (!callers_work_buff)
+         work_buff = new T[m * k];
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 
     T *symm_out = work_buff;
@@ -184,7 +148,7 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
                 if(lapack::getrf(m, k, symm_out, m, ipiv))
                     throw std::runtime_error("Sketch did not have an LU decomposition.");
                 util::get_L(m, k, symm_out, 1);
-                lapack::laswp(m, symm_out, m, 1, k, ipiv, 1);
+                lapack::laswp(k, symm_out, m, 1, k, ipiv, 1);
         }
         symm_out = (p_done % 2 == 1) ? skop_buff : work_buff;
         symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff; 
@@ -193,11 +157,9 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     if (p % 2 == 1)
         blas::copy(m * k, work_buff, 1, skop_buff, 1);
 
-    // if (!callers_work_buff)
-    //     delete[] work_buff;
+    if (!callers_work_buff)
+        delete[] work_buff;
 
-    return next_state;
-    */
    return next_state;
 }
 
