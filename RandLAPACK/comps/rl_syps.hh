@@ -134,13 +134,15 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     RandBLAS::dense::DenseDist D{m, k};
     auto next_state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
 
-    /*
     blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, Omega_dat, m, 0.0, Q_dat, m);
 
-    lapack::getrf(m, k, Q_dat, m, ipiv);
-    util::get_L(m, k, Q_dat, 1);
-    lapack::laswp(m, Q_dat, m, 1, k, ipiv, 1);
-    */
+    std::vector<T> tau (k, 0.0);
+    lapack::geqrf(m, k, Q_dat, m, tau.data());
+    lapack::ungqr(m, k, k, Q_dat, m, tau.data());
+
+    //lapack::getrf(m, k, Q_dat, m, ipiv);
+    //util::get_L(m, k, Q_dat, 1);
+    //lapack::laswp(m, Q_dat, m, 1, k, ipiv, 1);
 
 
 
