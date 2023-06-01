@@ -317,10 +317,20 @@ TEST_F(TestREVD2, SanityCheck) {
         RandBLAS::dense::fill_buff(B.data(), D2, next_state);
         RandLAPACK::util::get_L(m, m, B.data(), 1);
 
+        char name [] = "A";
+        RandBLAS::util::print_colmaj(m, m, B.data(), name);
+
         lapack::getrf(m, k, A.data(), m, piv.data());
         RandLAPACK::util::get_L(m, k, A.data(), 1);
+
+        RandBLAS::util::print_colmaj(m, k, A.data(), name);
+
+        for(int i = 0; i < k; ++i) {
+            printf("%ld\n", piv[i]);
+        }
+
         lapack::laswp(m, A.data(), m, 1, k, piv.data(), 1);
 
-        blas::symm(Layout::ColMajor, Side::Left, Uplo::Lower, m, k, 1.0, B.data(), m, A.data(), m, 0.0, C.data(), m);
+        //blas::symm(Layout::ColMajor, Side::Left, Uplo::Lower, m, k, 1.0, B.data(), m, A.data(), m, 0.0, C.data(), m);
 
 }

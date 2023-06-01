@@ -88,9 +88,17 @@ template <typename T>
 void get_L(
     int64_t m,
     int64_t n,
-    T* L_dat,
+    T* A,
     int overwrite_diagonal
 ) {
+    for(int i = 0; i < n; ++i) {
+        std::fill(&A[m * i], &A[i + m * i], 0.0);
+        
+        if(overwrite_diagonal)
+            A[i + m * i] = 1.0;
+    }
+
+    /*
     // Vector end pointer
     int size = m * n;
     // The unit diagonal elements of L were not stored.
@@ -108,6 +116,7 @@ void get_L(
         if(overwrite_diagonal)
             L_dat[i + j] = 1;
     }
+    */
 }
 
 template <typename T>
