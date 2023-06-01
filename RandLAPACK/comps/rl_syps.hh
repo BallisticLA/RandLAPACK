@@ -126,25 +126,35 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;
     int64_t p_done = 0;
+    std::vector<T> tau (k, 0.0);
     std::vector<int64_t> piv(k, 0);
-
     const T* A_dat = A.data();
-    int64_t* ipiv = piv.data();
 
     RandBLAS::dense::DenseDist D{m, k};
     auto next_state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
 
-    blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, Omega_dat, m, 0.0, Q_dat, m);
+    T* input_dat = Omega_dat;
+    T* output_dat = Q_dat;
 
-    std::vector<T> tau (k, 0.0);
-    lapack::geqrf(m, k, Q_dat, m, tau.data());
-    lapack::ungqr(m, k, k, Q_dat, m, tau.data());
+    blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, input_dat, m, 0.0, output_dat, m);
+    ++p_done;
 
-    //lapack::getrf(m, k, Q_dat, m, ipiv);
-    //util::get_L(m, k, Q_dat, 1);
-    //lapack::laswp(m, Q_dat, m, 1, k, ipiv, 1);
+    if (p_done % q == 0) {
+        lapack::geqrf(m, k, output_dat, m, tau.data());
+        lapack::ungqr(m, k, k, output_dat, m, tau.data());
 
+        // For some reason, this causes issues
+        //lapack::getrf(m, k, output_dat, m, piv.data());
+        //util::get_L(m, k, output_dat, 1);
+        //lapack::laswp(m, output_dat, m, 1, k, piv.data(), 1);
 
+        // Switch pointers input and output pointers; 
+        T* buffer_prt = output_dat;
+        output_dat = input_dat;
+        input_dat = buffer_prt;
+    }
+
+    Omega_dat = output_dat;
 
 
     /*

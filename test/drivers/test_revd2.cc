@@ -296,3 +296,31 @@ TEST_F(TestREVD2, Exactness) {
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
+
+
+
+TEST_F(TestREVD2, SanityCheck) { 
+
+        int64_t m = 10;
+        int64_t k = 5;
+        std::vector<double> A (m*k, 0.0);
+        std::vector<double> B (m*m, 0.0);
+        std::vector<double> C (m*k, 0.0);
+        std::vector<int64_t> piv(k, 0);
+
+        auto state = RandBLAS::base::RNGState(0);
+        RandBLAS::dense::DenseDist D1{m, k};
+        auto next_state = RandBLAS::dense::fill_buff(A.data(), D1, state);
+
+
+        RandBLAS::dense::DenseDist D2{m, m};
+        RandBLAS::dense::fill_buff(B.data(), D2, next_state);
+        RandLAPACK::util::get_L(m, m, B.data(), 1);
+
+        lapack::getrf(m, k, A.data(), m, piv.data());
+        RandLAPACK::util::get_L(m, k, A.data(), 1);
+        lapack::laswp(m, A.data(), m, 1, k, piv.data(), 1);
+
+        blas::symm(Layout::ColMajor, Side::Left, Uplo::Lower, m, k, 1.0, B.data(), m, A.data(), m, 0.0, C.data(), m);
+
+}
