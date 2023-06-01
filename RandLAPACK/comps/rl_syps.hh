@@ -119,9 +119,33 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     int64_t lda,
     int64_t k,
     RandBLAS::base::RNGState<RNG> state,
-    T* skop_buff,
-    T* work_buff
+    T* Omega_dat,
+    T* Q_dat // treat this as free workspace
 ){
+
+    int64_t p = this->passes_over_data;
+    int64_t q = this->passes_per_stab;
+    int64_t p_done = 0;
+    std::vector<int64_t> piv(k, 0);
+
+    const T* A_dat = A.data();
+    int64_t* ipiv = piv.data();
+
+    RandBLAS::dense::DenseDist D{m, k};
+    auto next_state = RandBLAS::dense::fill_buff(Omega_dat, D, state);
+
+    /*
+    blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, Omega_dat, m, 0.0, Q_dat, m);
+
+    lapack::getrf(m, k, Q_dat, m, ipiv);
+    util::get_L(m, k, Q_dat, 1);
+    lapack::laswp(m, Q_dat, m, 1, k, ipiv, 1);
+    */
+
+
+
+
+    /*
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;
     int64_t p_done = 0;
@@ -161,6 +185,8 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     //     delete[] work_buff;
 
     return next_state;
+    */
+   return next_state;
 }
 
 

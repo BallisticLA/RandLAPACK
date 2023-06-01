@@ -112,11 +112,11 @@ RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
     T* Omega_dat = util::upsize(m * k, Omega);
     T* Q_dat = Q.data();
 
+    // Basic version-works
+    //RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
+    //RandBLAS::dense::fill_buff(Omega_dat, D, state);
 
-    RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
-    RandBLAS::dense::fill_buff(Omega_dat, D, state);
-
-    //auto next_state = SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q.data());
+    auto next_state = SYPS_Obj.call(uplo, m, A, m, k, state, Omega_dat, Q.data());
 
     // Q = orth(A * Omega)
     blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A.data(), m, Omega_dat, m, 0.0, Q_dat, m);
