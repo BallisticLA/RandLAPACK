@@ -19,15 +19,15 @@ class SymmetricPowerSketch {
     public:
         virtual ~SymmetricPowerSketch() {}
 
-        virtual RandBLAS::base::RNGState<RNG> call(
+        virtual RandBLAS::dense::DenseSkOp<T,RNG> call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
             int64_t lda,
             int64_t k,
             RandBLAS::base::RNGState<RNG> state,
-            T* skop_buff,
-            T* work_buff
+            T* skop_buff = nullptr,
+            T* work_buff = nullptr
         ) {
             UNUSED(uplo); UNUSED(m); UNUSED(A); UNUSED(lda);
             UNUSED(k); UNUSED(state); UNUSED(skop_buff); UNUSED(work_buff);
@@ -92,7 +92,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         ///     An RNGState that the calling function should use the next
         ///     time it needs an RNGState.
         ///
-        RandBLAS::base::RNGState<RNG> call(
+        RandBLAS::dense::DenseSkOp<T,RNG> call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
@@ -112,7 +112,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
+RandBLAS::dense::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
     const std::vector<T>& A,
@@ -120,8 +120,8 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     int64_t k,
     RandBLAS::base::RNGState<RNG> state,
     T* skop_buff,
-    T* work_buff // treat this as free workspace
-){    
+    T* work_buff
+){
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;
     int64_t p_done = 0;
@@ -157,10 +157,13 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     if (p % 2 == 1)
         blas::copy(m * k, work_buff, 1, skop_buff, 1);
 
+    auto S = RandBLAS::dense::DenseSkOp(D, state, skop_buff, blas::Layout::ColMajor);
+    S.next_state = next_state;
+
     if (!callers_work_buff)
         delete[] work_buff;
 
-   return next_state;
+   return S;
 }
 
 
