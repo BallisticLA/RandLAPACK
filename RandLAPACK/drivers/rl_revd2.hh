@@ -95,12 +95,13 @@ class REVD2 : public REVD2alg<T, RNG> {
 
     public:
         RandLAPACK::SymmetricRangeFinder<T, RNG>& SYRF_Obj;
-        // std::vector<T> Y;
-        // std::vector<T> Omega;
-        // std::vector<T> R;
-        // std::vector<T> S;
         int error_est_p;
         bool verbose;
+
+        std::vector<T> Y;
+        std::vector<T> Omega;
+        std::vector<T> R;
+        std::vector<T> S;
 };
 
 // -----------------------------------------------------------------------------
@@ -170,29 +171,24 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         std::vector<T>& eigvals,
         RandBLAS::base::RNGState<RNG> state
 ){
-    int64_t fake_k = m;
-    std::vector<T> symrf_work(m * fake_k, 0.0);
-    std::vector<T> Y(m * fake_k, 0.0);
-    std::vector<T> R(k * fake_k, 0.0);
-    std::vector<T> Omega(m * fake_k, 0.0);
-    std::vector<T> S(fake_k, 0.0);
-
-    T* A_dat = A.data();
-    T* symrf_work_dat = symrf_work.data();
-    T* Y_dat = Y.data();
-    T* R_dat = R.data();
-    T* Omega_dat = Omega.data();
-    T* S_dat = S.data();
-    T* V_dat = V.data();
-
+    T err = 0;
+    std::vector<T> symrf_work(0);
     auto next_state = state;
     RandBLAS::base::RNGState<RNG> error_est_state(state.counter, state.key);
     error_est_state.key.incr(1);
-    
     while(1) {
+        T* A_dat = A.data();
+        T* V_dat = util::upsize(m * k, V);
+        util::upsize(k, eigvals);
+        T* Y_dat = util::upsize(m * k, this->Y);
+        T* Omega_dat = util::upsize(m * k, this->Omega);
+        T* R_dat = util::upsize(k * k, this->R);
+        T* S_dat = util::upsize(k * k, this->S);
+        T* symrf_work_buff = util::upsize(m * k, symrf_work);
+
         // Construnct a sketching operator
         // If CholeskyQR is used for stab/orth here, RF can fail
-        next_state = this->SYRF_Obj.call(uplo, m, A, k, Omega, next_state, symrf_work_dat);
+        next_state = this->SYRF_Obj.call(uplo, m, A, k, this->Omega, next_state, symrf_work_buff);
 
         // Y = A * Omega
         blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
@@ -224,17 +220,20 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, R_dat, k);
 
         // eigvals = diag(S^2)
+        T buf;
         int64_t r = 0;
-        for(int i = 0; i < k; ++i) {
-            eigvals[i] = std::pow(S[i], 2);
+        int i;
+        for(i = 0; i < k; ++i) {
+            buf = std::pow(S[i], 2);
+            eigvals[i] = buf;
             // r = number of entries in eigvals that are greater than v
-            if(eigvals[i] > nu)
+            if(buf > nu)
                 ++r;
         }
 
         // Undo regularlization
         // Need to make sure no eigenvalue is negative
-        for(int i = 0; i < r; ++i)
+        for(i = 0; i < r; ++i)
             (eigvals[i] - nu < 0) ? 0 : eigvals[i] -=nu;
 
         std::fill(&V_dat[m * r], &V_dat[m * k], 0.0);
@@ -242,11 +241,11 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         // Error estimation
         // Using the first column of Omega as a buffer for a random vector
         // To perform the following safely, need to make sure Omega has at least 4 columns
-        Omega_dat = util::upsize(m * 4, Omega);
+        Omega_dat = util::upsize(m * 4, this->Omega);
         RandBLAS::dense::DenseDist  g{.n_rows = m, .n_cols = 1};
         error_est_state = RandBLAS::dense::fill_buff(Omega_dat, g, error_est_state);
 
-        T err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
+        err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 
         if(err <= 5 * std::max(tol, nu) || k == m) {
             break;
@@ -255,13 +254,6 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         } else {
             k = 2 * k;
         }
-        // util::upsize(k, eigvals);
-        // V_dat = util::upsize(m * k, V);
-        // Y_dat = util::upsize(m * k, Y);
-        // Omega_dat = util::upsize(m * k, Omega);
-        // R_dat = util::upsize(k * k, R);
-        // S_dat = util::upsize(k, S);
-        // symrf_work_dat = util::upsize(m * k, symrf_work);
     }
     return 0;
 }
