@@ -95,13 +95,9 @@ class TestREVD2 : public ::testing::Test
     ) {
         
         auto m = all_data.dim;
-        auto rank = all_data.rank;
 
         int64_t k = k_start;
         all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A, k, tol, all_data.V, all_data.eigvals, state);
-        
-        
-        //ASSERT_TRUE(k <= rank);
 
         T* E_dat = RandLAPACK::util::upsize(k * k, all_data.E);
         T* Buf_dat = RandLAPACK::util::upsize(m * k, all_data.Buf);
