@@ -140,13 +140,13 @@ RandBLAS::base::RNGState<RNG> SYPS<T, RNG>::call(
     ++p_done;
 
     if (p_done % q == 0) {
-        lapack::geqrf(m, k, output_dat, m, tau.data());
-        lapack::ungqr(m, k, k, output_dat, m, tau.data());
+        //lapack::geqrf(m, k, output_dat, m, tau.data());
+        //lapack::ungqr(m, k, k, output_dat, m, tau.data());
 
         // For some reason, this causes issues
-        //lapack::getrf(m, k, output_dat, m, piv.data());
-        //util::get_L(m, k, output_dat, 1);
-        //lapack::laswp(m, output_dat, m, 1, k, piv.data(), 1);
+        lapack::getrf(m, k, output_dat, m, piv.data());
+        util::get_L(m, k, output_dat, 1);
+        lapack::laswp(k, output_dat, m, 1, k, piv.data(), 1);
 
         // Switch pointers input and output pointers; 
         T* buffer_prt = output_dat;
