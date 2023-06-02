@@ -3,7 +3,6 @@
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
-#include "rl_util.hh"
 
 #include <RandBLAS.hh>
 #include <iostream>
@@ -847,6 +846,45 @@ void normc(
         }
     }
 }
+
+
+/**
+ * In-place transpose of square matrix of order n, with leading dimension n.
+ * Turns out that "layout" doesn't matter here.
+*/
+template <typename T>
+void transpose_square(T* H, int64_t n) {
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            T val_ij = H[i + j*n];
+            T val_ji = H[j + i*n];
+            H[i + j*n] = val_ji;
+            H[j + i*n] = val_ij;
+        }
+    }
+    return;
+}
+
+/**
+ * 
+*/
+template <typename T>
+void eat_lda_slack(
+    T* buff,
+    int64_t vec_len,
+    int64_t num_vecs,
+    int64_t inter_vec_stride
+) {
+    if (vec_len == inter_vec_stride)
+        return;
+    T* work = new T[vec_len]{};
+    for (int i = 0; i < num_vecs; ++i) {
+        blas::copy(vec_len, &buff[i*inter_vec_stride], 1, work, 1);
+        blas::copy(vec_len, work, 1, &buff[i*vec_len], 1);
+    }
+    delete [] work;
+}
+
 
 } // end namespace util
 #endif
