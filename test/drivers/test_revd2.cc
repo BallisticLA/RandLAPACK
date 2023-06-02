@@ -115,15 +115,16 @@ class TestREVD2 : public ::testing::Test
     template <typename T, typename RNG>
     static void uplo_computational_helper(REVD2UploTestData<T>& all_data) {
         auto m = all_data.dim;
-        // Filling the upper-triangular matrix
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, all_data.work.data(), m, 0.0, all_data.A_u.data(), m);
-        // Filling the lower-triangular matrix
-        blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, m, m, 1.0, all_data.work.data(), m, 0.0, all_data.A_l.data(), m);
-
-        // Fill the unused space with NANs
         T* A_u_dat = all_data.A_u.data();
         T* A_l_dat = all_data.A_l.data();
 
+       // Filling the lower-triangular matrix
+        blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, m, m, 1.0, all_data.work.data(), m, 0.0, A_l_dat, m);
+        // Filling the upper-triangular matrix
+        for(int i = 0; i < m; ++i)
+            blas::copy(m - i, &A_l_dat[i + (i * m)], 1, &A_u_dat[i + (i * m)], m);
+
+        // Fill the unused space with NANs
         std::fill(&A_u_dat[1], &A_u_dat[m], NAN);
         for(int i = 1; i < m; ++i) {
             std::fill(&A_l_dat[m * i], &A_l_dat[i + m * i], NAN);
