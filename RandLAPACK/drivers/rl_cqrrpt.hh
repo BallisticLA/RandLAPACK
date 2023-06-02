@@ -367,6 +367,21 @@ int CQRRPT<T, RNG>::call(
         return 1;
     }
 
+    // Re-estimate rank after we have the R-factor form Cholesky QR
+    // The strategy here is the same as in naive rank estimation
+    int64_t new_rank = k;
+    for(i = 0; i < k; ++i) {
+        if(std::abs(R_sp_dat[i * k + i]) / std::abs(R_sp_dat[0]) < this->eps) {
+            new_rank = i;
+            break;
+        }
+    }
+    // Beware of that R_sp_dat is k by k and needs to be downsized by rows
+    RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
+
+    k = new_rank;
+    this->rank = new_rank;
+
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
