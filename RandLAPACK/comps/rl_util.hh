@@ -883,6 +883,5 @@ void eat_lda_slack(
     delete [] work;
 }
 
-
 } // end namespace util
 #endif

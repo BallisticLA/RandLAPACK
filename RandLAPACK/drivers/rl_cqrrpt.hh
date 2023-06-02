@@ -367,8 +367,9 @@ int CQRRPT<T, RNG>::call(
         return 1;
     }
 
-    // Re-estimate rank after we have the R-factor form Cholesky QR
-    // The strategy here is the same as in naive rank estimation
+    // Re-estimate rank after we have the R-factor form Cholesky QR.
+    // The strategy here is the same as in naive rank estimation.
+    // This also automatically takes care of any potentical failures in Cholesky factorization.
     int64_t new_rank = k;
     for(i = 0; i < k; ++i) {
         if(std::abs(R_sp_dat[i * k + i]) / std::abs(R_sp_dat[0]) < this->eps) {
