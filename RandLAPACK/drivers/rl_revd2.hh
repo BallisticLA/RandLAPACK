@@ -45,7 +45,7 @@ class REVD2 : public REVD2alg<T, RNG> {
             verbose = verb;
         }
 
-        /// Computes a rank-k approximation to an EVD of a symmetric positive definite matrix:
+        /// Computes a rank-k approximation to an EVD of a symmetric positive semidefinite matrix:
         ///     A_hat = V diag(eigvals) V^*,
         /// where V is a matrix of eigenvectors and eigvals is a vector of eigenvalues.
         /// 
