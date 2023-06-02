@@ -1,7 +1,8 @@
 #ifndef randlapack_drivers_revd2_h
 #define randlapack_drivers_revd2_h
 
-#include "rl_qb.hh"
+#include "rl_syps.hh"
+#include "rl_syrf.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
@@ -12,106 +13,99 @@
 
 namespace RandLAPACK {
 
-template <typename T>
+template <typename T, typename RNG>
 class REVD2alg {
     public:
 
         virtual ~REVD2alg() {}
 
-        virtual int call(
-            int64_t m,
+        virtual RandBLAS::base::RNGState<RNG> call(
             blas::Uplo uplo,
+            int64_t m,
             std::vector<T>& A,
             int64_t& k,
             T tol,
-            int p,
             std::vector<T>& V,
-            std::vector<T>& eigvals
+            std::vector<T>& eigvals,
+            RandBLAS::base::RNGState<RNG> state
         ) = 0;
 };
 
 template <typename T, typename RNG>
-class REVD2 : public REVD2alg<T> {
+class REVD2 : public REVD2alg<T, RNG> {
     public:
 
         // Constructor
         REVD2(
-            RandLAPACK::RangeFinder<T>& rf_obj,
-            RandBLAS::base::RNGState<RNG> s,
-            bool verb
-        ) : RF_Obj(rf_obj) {
-            state = s;
-            verbosity = verb;
+            RandLAPACK::SymmetricRangeFinder<T, RNG>& syrf_obj,
+            int error_est_power_iters,
+            bool verb = false
+        ) : SYRF_Obj(syrf_obj) {
+            error_est_p = error_est_power_iters;
+            verbose = verb;
         }
 
-        /// Computes a rank-k approximation to an EVD of a symmetric positive definite matrix:
-        ///     A= V diag(E) V*,
-        /// where V is a matrix of eigenvectors and E is a vector of eigenvalues.
-        /// Does so adaptively. 
-        /// If the tolerance is not met, increases the rank estimation parameter by 2.
-        /// Tolerance is the maximum of user-specified tol times 5 and computed 'nu' times 5.
-        /// This is motivated by the fact that the approx error will never be smaller than nu.
-        /// This code is identical to ALgorithm E2 from https://arxiv.org/pdf/2110.02820.pdf.
-        /// Uses RangeFinder for constructing a sketching operator.
-        /// Has a lot of potential in terms of storage space optimization, 
+        /// Computes a rank-k approximation to an EVD of a symmetric positive semidefinite matrix:
+        ///     A_hat = V diag(eigvals) V^*,
+        /// where V is a matrix of eigenvectors and eigvals is a vector of eigenvalues.
+        /// 
+        /// This function is adaptive. If the tolerance is not met, increases the rank
+        /// estimation parameter by 2. Tolerance is the maximum of user-specified tol times
+        /// 5 and computed 'nu' times 5. This is motivated by the fact that the approximation
+        /// error will never be smaller than nu.
+        /// 
+        /// This code is identical to Algorithm E2 from https://arxiv.org/pdf/2110.02820.pdf.
+        /// It uses a SymmetricRangeFinder for constructing a sketching operator.
+        /// It has a lot of potential in terms of storage space optimization, 
         /// which, however, will affect readability.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
         ///
-        /// @param[in] n
-        ///     The number of columns in the matrix A.
-        ///
         /// @param[in] A
         ///     The m-by-m matrix A, stored in a column-major format.
         ///     Must be SPD.
-        ///     We are assuming it is either full or upper-triangular always.
         ///
         /// @param[in] k
         ///     Column dimension of a sketch, k <= n.
         ///
-        /// @param[in] V
+        /// @param[in, out] V
         ///     On entry, is empty and may not have any space allocated for it.
+        ///     On exit, stores m-by-k matrix matrix of (approximate) eigenvectors.
         ///
-        /// @param[in] E
+        /// @param[in, out] eigvals
         ///     On entry, is empty and may not have any space allocated for it.
+        ///     On exit, stores k eigenvalues.
         ///
-        /// @param[out] V
-        ///     Stores m-by-k matrix matrix of eigenvectors.
-        ///
-        /// @param[out] eigvals
-        ///     Stores k eigenvalues.
-        ///
-        /// @return = 0: successful exit
+        /// @returns
+        ///     An RNGState that the calling function should use the next
+        ///     time it needs an RNGState.
         ///
 
-        int call(
-            int64_t m,
+        RandBLAS::base::RNGState<RNG> call(
             blas::Uplo uplo,
+            int64_t m,
             std::vector<T>& A,
             int64_t& k,
             T tol,
-            int p,
             std::vector<T>& V,
-            std::vector<T>& eigvals
+            std::vector<T>& eigvals,
+            RandBLAS::base::RNGState<RNG> state
         ) override;
 
     public:
-        RandLAPACK::RangeFinder<T>& RF_Obj;
-        RandBLAS::base::RNGState<RNG> state;
-        bool verbosity;
+        RandLAPACK::SymmetricRangeFinder<T, RNG>& SYRF_Obj;
+        int error_est_p;
+        bool verbose;
 
         std::vector<T> Y;
         std::vector<T> Omega;
-
         std::vector<T> R;
         std::vector<T> S;
-
-        std::vector<T> A_cpy;
 };
 
 // -----------------------------------------------------------------------------
-/// Power scheme for error estimation, based on algorithm E.1 from https://arxiv.org/pdf/2110.02820.pdf.
+/// Power scheme for error estimation, based on Algorithm E.1 from https://arxiv.org/pdf/2110.02820.pdf.
 /// This routine is too specialized to be included into RandLAPACK::utils
 /// p - number of algorithm iterations
 /// vector_buf - buffer for vector operations
@@ -130,36 +124,34 @@ T power_error_est(
     T* eigvals
 ) {
     T err = 0;
-        
     for(int i = 0; i < p; ++i) {
         T g_norm = blas::nrm2(m, vector_buf, 1);
         // Compute g = g / ||g|| - we need this because dot product does not take in an alpha
         blas::scal(m, 1 / g_norm, vector_buf, 1);
 
-        // Compute V'*g / ||g||
-        // Using the second column of Omega as a buffer for matrix-vector product
+        // Compute V' * g / ||g||
+        // Using the second column of vector_buff as a buffer for matrix-vector product
         gemv(Layout::ColMajor, Op::Trans, m, k, 1.0, V, m, vector_buf, 1, 0.0, &vector_buf[m], 1);
 
-
         // Compute V*E, eigvals diag
-        // Using Y as a buffer for V*E
+        // Using Mat_buf as a buffer for V * diag(eigvals).
         for (int i = 0, j = 0; i < m * k; ++i) {
             Mat_buf[i] = V[i] * eigvals[j];
             if((i + 1) % m == 0 && i != 0)
                 ++j;
         }
 
-        // Compute V*E*V'*g / ||g||
-        // Using the third column of Omega as a buffer for matrix-vector product
+        // Compute V * diag(eigvals) * V' * g / ||g||
+        // Using the third column of vector_buf as a buffer for matrix-vector product
         gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Mat_buf, m, &vector_buf[m], 1, 0.0, &vector_buf[2 * m], 1);
-        // Compute A*g / ||g||
-        // Using the forth column of Omega as a buffer for matrix-vector product
+        // Compute A * g / ||g||
+        // Using the forth column of vector_buff as a buffer for matrix-vector product
         symv(Layout::ColMajor, uplo, m, 1.0, A, m, vector_buf, 1, 0.0, &vector_buf[3 * m], 1);
 
-        // Compute A*g / ||g|| - V*E*V'*g / ||g||
-        // Result is stored in the 4th column of Omega
+        // Compute w = (A * g / ||g|| - V * diag(eigvals) * V' * g / ||g||)
+        // Result is stored in the 4th column of vector_buf
         blas::axpy(m, -1.0, &vector_buf[2 * m], 1, &vector_buf[3 * m], 1);
-        // Compute (g / ||g||)' * (A*g / ||g|| - V*E*V'*g / ||g||) - this is our measure for the error
+        // Compute (g / ||g||)' * w - this is our measure for the error
         err = blas::dot(m, vector_buf, 1, &vector_buf[3 * m], 1);	
         // v_0 <- v
         std::copy(&vector_buf[3 * m], &vector_buf[4 * m], vector_buf);
@@ -168,19 +160,22 @@ T power_error_est(
 }
 
 
-
 template <typename T, typename RNG>
-int REVD2<T, RNG>::call(
-        int64_t m,
+RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         blas::Uplo uplo,
+        int64_t m,
         std::vector<T>& A,
         int64_t& k,
         T tol,
-        int p,
         std::vector<T>& V,
-        std::vector<T>& eigvals
+        std::vector<T>& eigvals,
+        RandBLAS::base::RNGState<RNG> state
 ){
     T err = 0;
+    std::vector<T> symrf_work(0);
+    auto next_state = state;
+    RandBLAS::base::RNGState<RNG> error_est_state(state.counter, state.key);
+    error_est_state.key.incr(1);
     while(1) {
         T* A_dat = A.data();
         T* V_dat = util::upsize(m * k, V);
@@ -189,36 +184,31 @@ int REVD2<T, RNG>::call(
         T* Omega_dat = util::upsize(m * k, this->Omega);
         T* R_dat = util::upsize(k * k, this->R);
         T* S_dat = util::upsize(k * k, this->S);
+        T* symrf_work_buff = util::upsize(m * k, symrf_work);
 
         // Construnct a sketching operator
-        // If CholeskyQR is used for stab/orth here, RF fails
-        if(this->RF_Obj.call(m, m, A, k, this->Omega)) {
-            printf("RF/RS FAILED\n");
-            return 2;
-        }
+        // If CholeskyQR is used for stab/orth here, RF can fail
+        next_state = this->SYRF_Obj.call(uplo, m, A, k, this->Omega, next_state, symrf_work_buff);
 
-        // Y = A * S
+        // Y = A * Omega
         blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
 
-        T nu = std::numeric_limits<double>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
+        T nu = std::numeric_limits<T>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
 
-        // We need Y = Y + vS
-        // We further need R = chol(S' Y)
-        // Solve this as R = chol(S' Y + vS'S)
-        // Compute vS'S - syrk only computes the lower triangular part. Need full.
+        // We need Y = Y + v Omega
+        // We further need R = chol(Omega' Y)
+        // Solve this as R = chol(Omega' Y + v Omega'Omega)
+        // Compute v Omega' Omega; syrk only computes the lower triangular part. Need full.
         blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega_dat, m, 0.0, R_dat, k);
-        // Fill the upper triangular part of S'S
         for(int i = 1; i < k; ++i)
             blas::copy(k - i, &R_dat[i + ((i-1) * k)], 1, &R_dat[(i - 1) + (i * k)], k);
-        // Compute S' Y + vS'S
+        // Compute Omega' Y + v Omega' Omega
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
 
-        // Compute R = chol(S' Y + vS'S)
+        // Compute R = chol(Omega' Y + v Omega' Omega)
         // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
-        if(lapack::potrf(Uplo::Upper, k, R_dat, k)) {
-            printf("CHOLESKY FACTORIZATION FAILED\n");
-            return 1;
-        }
+        if(lapack::potrf(Uplo::Upper, k, R_dat, k))
+            throw std::runtime_error("Cholesky decomposition failed.");
         RandLAPACK::util::get_U(k, k, R);
 
         // B = Y(R')^-1 - need to transpose R
@@ -253,9 +243,9 @@ int REVD2<T, RNG>::call(
         // To perform the following safely, need to make sure Omega has at least 4 columns
         Omega_dat = util::upsize(m * 4, this->Omega);
         RandBLAS::dense::DenseDist  g{.n_rows = m, .n_cols = 1};
-        RandBLAS::dense::fill_buff(Omega_dat, g, state);
+        error_est_state = RandBLAS::dense::fill_buff(Omega_dat, g, error_est_state);
 
-        err = power_error_est(m, k, p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
+        err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 
         if(err <= 5 * std::max(tol, nu) || k == m) {
             break;

@@ -87,27 +87,25 @@ template <typename T>
 void get_L(
     int64_t m,
     int64_t n,
-    std::vector<T>& L,
+    T* A,
     int overwrite_diagonal
 ) {
-    // Vector end pointer
-    int size = m * n;
-    // The unit diagonal elements of L were not stored.
-    T* L_dat = L.data();
-    if(overwrite_diagonal)
-        L_dat[0] = 1;
-
-    for(int i = m, j = 1; i < size && j < m; i += m, ++j) {
-        std::for_each(&L_dat[i], &L_dat[i + j],
-            // Lambda expression begins
-            [](T& entry) {
-                entry = 0.0;
-            }
-        );
-        // The unit diagonal elements of L were not stored.
+    for(int i = 0; i < n; ++i) {
+        std::fill(&A[m * i], &A[i + m * i], 0.0);
+        
         if(overwrite_diagonal)
-            L_dat[i + j] = 1;
+            A[i + m * i] = 1.0;
     }
+}
+
+template <typename T>
+void get_L(
+    int64_t m,
+    int64_t n,
+    std::vector<T> &L,
+    int overwrite_diagonal
+) {
+    get_L(m, n, L.data(), overwrite_diagonal);
 }
 
 /// Stores the upper-triangualr portion of A in U.

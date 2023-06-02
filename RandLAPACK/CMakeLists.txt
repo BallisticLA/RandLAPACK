@@ -10,6 +10,8 @@ set(RandLAPACK_cxx_sources
     rl_determiter.hh
     rl_rs.hh
     rl_rf.hh
+    rl_syps.hh
+    rl_syrf.hh
     rl_blaspp.hh
 )
 

@@ -34,20 +34,25 @@ class TestOrth : public ::testing::Test
         std::vector<T> Omega;
         std::vector<T> I_ref;
 
-        OrthTestData(int64_t m, int64_t n, int64_t k) :
+        OrthTestData(
+            int64_t m, int64_t n, int64_t k
+        ) :
             A(m * n, 0.0),
             Y(m * k, 0.0),
             Omega(n * k, 0.0),
             I_ref(k * k, 0.0)
-            {
-                row = m;
-                col = n;
-                rank = k;
-            }
+        {
+            row = m;
+            col = n;
+            rank = k;
+        }
     };
 
     template <typename T, typename RNG>
-    static void sketch_and_copy_computational_helper(RandBLAS::base::RNGState<RNG> state, OrthTestData<T>& all_data) {
+    static void sketch_and_copy_computational_helper(
+        RandBLAS::base::RNGState<RNG> state,
+        OrthTestData<T>& all_data
+    ) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -69,7 +74,8 @@ class TestOrth : public ::testing::Test
     template <typename T, typename RNG>
     static void test_orth_sketch(
         OrthTestData<T>& all_data, 
-        RandLAPACK::CholQRQ<T>& CholQRQ) {
+        RandLAPACK::CholQRQ<T>& CholQRQ
+    ) {
 
         auto m = all_data.row;
         auto k = all_data.rank;
