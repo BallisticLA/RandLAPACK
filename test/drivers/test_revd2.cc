@@ -124,17 +124,11 @@ class TestREVD2 : public ::testing::Test
         T* A_u_dat = all_data.A_u.data();
         T* A_l_dat = all_data.A_l.data();
 
-        /*
-        std::fill(&A_u_dat[1], &A_u_dat[m], 0.0);
+        std::fill(&A_u_dat[1], &A_u_dat[m], NAN);
         for(int i = 1; i < m; ++i) {
-            std::fill(&A_l_dat[m * i], &A_l_dat[i + m * i], 0.0);
-            std::fill(&A_u_dat[i + m * i], &A_u_dat[m * (i + 1)], 0.0);
+            std::fill(&A_l_dat[m * i], &A_l_dat[i + m * i], NAN);
+            std::fill(&A_u_dat[i + 1 + m * i], &A_u_dat[m * (i + 1)], NAN);
         }
-        */
-
-        char name [] = "A";
-        RandBLAS::util::print_colmaj(m, m, all_data.A_u.data(), name);
-        RandBLAS::util::print_colmaj(m, m, all_data.A_l.data(), name);
     }
 
     /// General test for REVD:
@@ -397,8 +391,8 @@ TEST_F(TestREVD2, Exactness) {
 TEST_F(TestREVD2, Uplo) { 
     using RNG = r123::Philox4x32;
 
-    int64_t m = 10;
-    int64_t k = 5;
+    int64_t m = 100;
+    int64_t k = 50;
     int64_t k_start = 1;
     double tol = std::pow(10, -14);
     double err_expectation = std::pow(10, -13);
