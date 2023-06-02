@@ -58,6 +58,7 @@ add_benchmark(NAME CQRRPT_inner_speed CXX_SOURCES CQRRPT_inner_speed.cc  LINK_LI
 add_benchmark(NAME CQRRPT_embedding_speed_effect CXX_SOURCES CQRRPT_embedding_speed_effect.cc  LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRPT_vs_HQRRP_speed CXX_SOURCES CQRRPT_vs_HQRRP_speed.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME QR_accuracy_stability_analysis CXX_SOURCES QR_accuracy_stability_analysis.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME Chol_check CXX_SOURCES Chol_check.cc LINK_LIBS ${Benchmark_libs})
 
 # Data processing scripts for CQRRPT paper
 add_benchmark(NAME CQRRPT_vs_HQRRP_flops CXX_SOURCES CQRRPT_vs_HQRRP_flops.cc  LINK_LIBS ${Benchmark_libs})
