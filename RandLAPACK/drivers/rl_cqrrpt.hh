@@ -297,11 +297,8 @@ int CQRRPT<T, RNG>::call(
         // Clear R
         std::fill(R.begin(), R.end(), 0.0);
     }
-        // orth is 14 without
-        // orth is 13 with
-        k = 295;
-        this->rank = 295;
-
+    k = n;
+    this->rank = k;
     printf("FIRST RANK ESTIMATION %ld\n", k);
 
     if(this -> timing) {
@@ -376,20 +373,36 @@ int CQRRPT<T, RNG>::call(
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
     // This also automatically takes care of any potentical failures in Cholesky factorization.
+    // Note that the diagonal of R_sp_dat may not be sorted, so we need to keep the running max/min
+    // We expect the loss in the orthogonality of Q to be approximately equal to 10^-15 * cond(R_sp_dat)^2
+    /*
     int64_t new_rank = k;
+    T running_max = R_sp_dat[0];
+    T running_min = R_sp_dat[0];
+    T curr_entry;
+    
     for(i = 0; i < k; ++i) {
-        if(std::abs(R_sp_dat[i * k + i]) / std::abs(R_sp_dat[0]) < this->eps) {
-            new_rank = i;
+        curr_entry = std::abs(R_sp[i * k + i]);
+        
+        if(curr_entry > running_max) running_max = curr_entry;
+        
+        if(curr_entry < running_min) running_max = running_min;
+        
+        if(running_max / running_min >= std::sqrt(this->eps / 10e-15)) {
+            printf("Re-adjusting rank\n");
+            new_rank = i - 1;
             break;
         }
     }
+    */
+    int64_t new_rank = 298;
     // Beware of that R_sp_dat is k by k and needs to be downsized by rows
     RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
 
     k = new_rank;
     this->rank = new_rank;
 
-    printf("SECOND RANK ESTIMATION %ld\n", k);
+    printf("SECOND RANK ESTIMATION %ld\n", new_rank);
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 

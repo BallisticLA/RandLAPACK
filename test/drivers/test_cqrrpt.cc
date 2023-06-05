@@ -124,8 +124,9 @@ class TestCQRRPT : public ::testing::Test
         error_check(norm_A, all_data); 
     }
 };
-/*
+
 // Note: If Subprocess killed exception -> reload vscode
+/*
 TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
 {
     int64_t m = 10000;
@@ -146,7 +147,8 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
-
+*/
+/*
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
 {
     int64_t m = 10000;
@@ -168,6 +170,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
 */
+
 TEST_F(TestCQRRPT, CQRRPT_bad_orth)
 {
     int64_t m = 10e4;
@@ -188,3 +191,22 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth)
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
+
+/*
+//shows that row_resize works well
+TEST_F(TestCQRRPT, sanity_check)
+{
+    int64_t m = 5;
+    int64_t n = 5;
+    int64_t k = 5;
+    auto state = RandBLAS::base::RNGState();
+    std::vector<double> A (m * n, 0.0);
+
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, A, k, state, std::make_tuple(0, 2, false));
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, A.data(), name);
+    RandLAPACK::util::row_resize(m, n, A, 3);
+    RandBLAS::util::print_colmaj(3, n, A.data(), name);
+    
+}
+*/
