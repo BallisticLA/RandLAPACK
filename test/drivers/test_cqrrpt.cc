@@ -117,6 +117,7 @@ class TestCQRRPT : public ::testing::Test
         CQRRPT.call(m, n, all_data.A, d, all_data.R, all_data.J);
 
         all_data.rank = CQRRPT.rank;
+        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2, all_data.J);
@@ -148,7 +149,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
 */
-/*
+
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
 {
     int64_t m = 10000;
@@ -169,8 +170,8 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
-*/
 
+/*
 TEST_F(TestCQRRPT, CQRRPT_bad_orth)
 {
     int64_t m = 10e4;
@@ -191,7 +192,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth)
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
-
+*/
 /*
 //shows that row_resize works well
 TEST_F(TestCQRRPT, sanity_check)

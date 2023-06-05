@@ -395,10 +395,13 @@ int CQRRPT<T, RNG>::call(
         }
     }
     */
-    int64_t new_rank = 298;
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(k, k, R_sp.data(), name);
+    new_rank = 100;
     // Beware of that R_sp_dat is k by k and needs to be downsized by rows
     RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
-
+    RandBLAS::util::print_colmaj(new_rank, new_rank, R_sp.data(), name);
+    
     k = new_rank;
     this->rank = new_rank;
 
