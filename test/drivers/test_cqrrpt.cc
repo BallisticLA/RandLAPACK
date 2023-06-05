@@ -62,6 +62,8 @@ class TestCQRRPT : public ::testing::Test
         auto n = all_data.col;
         auto k = all_data.rank;
 
+        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
+
         RandLAPACK::util::upsize(k * k, all_data.I_ref);
         RandLAPACK::util::eye(k, k, all_data.I_ref);
 
