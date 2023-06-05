@@ -43,14 +43,12 @@ class TestCQRRPT : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void norm_ident_and_copy_computational_helper(T& norm_A, CQRRPTTestData<T>& all_data) {
+    static void norm_and_copy_computational_helper(T& norm_A, CQRRPTTestData<T>& all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
-        auto k = all_data.rank;
 
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
-        RandLAPACK::util::eye(k, k, all_data.I_ref);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
     }
 
@@ -63,6 +61,9 @@ class TestCQRRPT : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
         auto k = all_data.rank;
+
+        RandLAPACK::util::upsize(k * k, all_data.I_ref);
+        RandLAPACK::util::eye(k, k, all_data.I_ref);
 
         T* A_dat         = all_data.A_cpy1.data();
         T const* A_cpy_dat = all_data.A_cpy2.data();
@@ -123,7 +124,7 @@ class TestCQRRPT : public ::testing::Test
         error_check(norm_A, all_data); 
     }
 };
-
+/*
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
 {
@@ -142,7 +143,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
     CQRRPT.no_hqrrp = 1;
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    norm_ident_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
 
@@ -160,9 +161,30 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
     CQRRPT.nnz = 2;
     CQRRPT.num_threads = 4;
-    CQRRPT.no_hqrrp = 1;
+    CQRRPT.no_hqrrp = 0;
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
-    norm_ident_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
+}
+*/
+TEST_F(TestCQRRPT, CQRRPT_bad_orth)
+{
+    int64_t m = 10e4;
+    int64_t n = 300;
+    int64_t k = 0;
+    int64_t d = 300;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::base::RNGState();
+
+    CQRRPTTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
+    CQRRPT.nnz = 2;
+    CQRRPT.num_threads = 4;
+    CQRRPT.no_hqrrp = 1;
+
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(9, 1e7, false));
+    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }

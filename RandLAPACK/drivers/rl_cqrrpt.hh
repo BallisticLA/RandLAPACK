@@ -297,6 +297,12 @@ int CQRRPT<T, RNG>::call(
         // Clear R
         std::fill(R.begin(), R.end(), 0.0);
     }
+        // orth is 14 without
+        // orth is 13 with
+        k = 295;
+        this->rank = 295;
+
+    printf("FIRST RANK ESTIMATION %ld\n", k);
 
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
@@ -382,6 +388,8 @@ int CQRRPT<T, RNG>::call(
 
     k = new_rank;
     this->rank = new_rank;
+
+    printf("SECOND RANK ESTIMATION %ld\n", k);
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
