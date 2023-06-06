@@ -122,20 +122,13 @@ class TestCQRRPT : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2, all_data.J);
 
-        int64_t k = all_data.rank;
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, all_data.A.data(), m, all_data.R.data(), k, -1.0, all_data.A_cpy1.data(), m);
-        T norm_AQR = lapack::lange(Norm::Fro, m, n, all_data.A_cpy1.data(), m);
-        printf("REL NORM OF AP - QR: %15e\n", norm_AQR / norm_A);
-        ASSERT_NEAR(norm_AQR / norm_A,         0.0, 10 * std::pow(10, -13));
-
-        //error_check(norm_A, all_data); 
+        error_check(norm_A, all_data); 
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 /*
-TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
-{
+TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     int64_t m = 10000;
     int64_t n = 200;
     int64_t k = 200;
@@ -154,19 +147,12 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
-*/
 
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
-    /*
     int64_t m = 10000;
     int64_t n = 200;
     int64_t k = 100;
     int64_t d = 400;
-    */
-    int64_t m = 10;
-    int64_t n = 7;
-    int64_t k = 5;
-    int64_t d = 10;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
@@ -181,16 +167,18 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
+*/
 
-/*
-TEST_F(TestCQRRPT, CQRRPT_bad_orth)
-{
+// Using L2 norm rank estimation here is similar to using raive estimation. 
+// Fro norm underestimates rank even worse. 
+TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     int64_t m = 10e4;
     int64_t n = 300;
     int64_t k = 0;
     int64_t d = 300;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.95);
+    printf("TOL IS %e\n", tol);
     auto state = RandBLAS::base::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
@@ -203,22 +191,3 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth)
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
-*/
-/*
-//shows that row_resize works well
-TEST_F(TestCQRRPT, sanity_check)
-{
-    int64_t m = 5;
-    int64_t n = 5;
-    int64_t k = 5;
-    auto state = RandBLAS::base::RNGState();
-    std::vector<double> A (m * n, 0.0);
-
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, A, k, state, std::make_tuple(0, 2, false));
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, A.data(), name);
-    RandLAPACK::util::row_resize(m, n, A, 3);
-    RandBLAS::util::print_colmaj(3, n, A.data(), name);
-    
-}
-*/

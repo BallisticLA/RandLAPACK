@@ -297,9 +297,8 @@ int CQRRPT<T, RNG>::call(
         // Clear R
         std::fill(R.begin(), R.end(), 0.0);
     }
-    k = n;
-    this->rank = k;
-    printf("FIRST RANK ESTIMATION %ld\n", k);
+
+    printf("INITIAL RANK ESTIMATION %ld\n", k);
 
     if(this -> timing) {
         rank_reveal_t_stop = high_resolution_clock::now();
@@ -375,7 +374,6 @@ int CQRRPT<T, RNG>::call(
     // This also automatically takes care of any potentical failures in Cholesky factorization.
     // Note that the diagonal of R_sp_dat may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to 10^-15 * cond(R_sp_dat)^2
-    /*
     int64_t new_rank = k;
     T running_max = R_sp_dat[0];
     T running_min = R_sp_dat[0];
@@ -388,29 +386,20 @@ int CQRRPT<T, RNG>::call(
         
         if(curr_entry < running_min) running_max = running_min;
         
-        if(running_max / running_min >= std::sqrt(this->eps / 10e-15)) {
-            printf("Re-adjusting rank\n");
-            new_rank = i - 1;
-            break;
-        }
+        printf("%e\n", std::sqrt(10e-14 / 10e-16));
+        //if(running_max / running_min >= std::sqrt(this->eps / 10e-16)) {
+        //    printf("Re-adjusting rank, cond is %e\n", running_max/running_min);
+            //new_rank = i - 1;
+            //break;
+        //}
     }
-    
-
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(k, k, R_sp_dat, name);
-*/
-    int64_t new_rank = 5;
+    new_rank = 2;
     // Beware of that R_sp_dat is k by k and needs to be downsized by rows
     RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
     RandLAPACK::util::row_resize(k, n, R, new_rank);
     
     k = new_rank;
     this->rank = k;
-    
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(k, k, R_sp_dat, name);
-
-    //printf("SECOND RANK ESTIMATION %ld\n", new_rank);
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
@@ -420,8 +409,6 @@ int CQRRPT<T, RNG>::call(
     // Get R
     // trmm
     blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);
-
-    RandBLAS::util::print_colmaj(k, n, R_dat, name);
 
     if(this -> timing) {
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
@@ -440,7 +427,6 @@ int CQRRPT<T, RNG>::call(
         // Fill the data vector
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
     }
-
     return 0;
 }
 
