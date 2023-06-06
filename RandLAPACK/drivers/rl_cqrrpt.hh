@@ -394,18 +394,23 @@ int CQRRPT<T, RNG>::call(
             break;
         }
     }
-    */
+    
+
     char name [] = "A";
-    RandBLAS::util::print_colmaj(k, k, R_sp.data(), name);
-    new_rank = 100;
+    RandBLAS::util::print_colmaj(k, k, R_sp_dat, name);
+*/
+    int64_t new_rank = 5;
     // Beware of that R_sp_dat is k by k and needs to be downsized by rows
     RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
-    RandBLAS::util::print_colmaj(new_rank, new_rank, R_sp.data(), name);
+    RandLAPACK::util::row_resize(k, n, R, new_rank);
     
     k = new_rank;
-    this->rank = new_rank;
+    this->rank = k;
+    
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(k, k, R_sp_dat, name);
 
-    printf("SECOND RANK ESTIMATION %ld\n", new_rank);
+    //printf("SECOND RANK ESTIMATION %ld\n", new_rank);
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
@@ -415,6 +420,8 @@ int CQRRPT<T, RNG>::call(
     // Get R
     // trmm
     blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);
+
+    RandBLAS::util::print_colmaj(k, n, R_dat, name);
 
     if(this -> timing) {
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();

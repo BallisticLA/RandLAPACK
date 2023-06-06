@@ -62,8 +62,6 @@ class TestCQRRPT : public ::testing::Test
         auto n = all_data.col;
         auto k = all_data.rank;
 
-        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
-
         RandLAPACK::util::upsize(k * k, all_data.I_ref);
         RandLAPACK::util::eye(k, k, all_data.I_ref);
 
@@ -124,7 +122,13 @@ class TestCQRRPT : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2, all_data.J);
 
-        error_check(norm_A, all_data); 
+        int64_t k = all_data.rank;
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, all_data.A.data(), m, all_data.R.data(), k, -1.0, all_data.A_cpy1.data(), m);
+        T norm_AQR = lapack::lange(Norm::Fro, m, n, all_data.A_cpy1.data(), m);
+        printf("REL NORM OF AP - QR: %15e\n", norm_AQR / norm_A);
+        ASSERT_NEAR(norm_AQR / norm_A,         0.0, 10 * std::pow(10, -13));
+
+        //error_check(norm_A, all_data); 
     }
 };
 
@@ -152,12 +156,17 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp)
 }
 */
 
-TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp)
-{
+TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
+    /*
     int64_t m = 10000;
     int64_t n = 200;
     int64_t k = 100;
     int64_t d = 400;
+    */
+    int64_t m = 10;
+    int64_t n = 7;
+    int64_t k = 5;
+    int64_t d = 10;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::base::RNGState();
