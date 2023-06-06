@@ -256,11 +256,12 @@ int CQRRPT<T, RNG>::call(
 
     int64_t k = n;
     int i;
+    T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
     if(this->naive_rank_estimate) {
         /// Using R[i,i] to approximate the i-th singular value of A_hat. 
         /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
         for(i = 0; i < n; ++i) {
-            if(std::abs(A_hat_dat[i * d + i]) / std::abs(A_hat_dat[0]) < this->eps) {
+            if(std::abs(A_hat_dat[i * d + i]) / std::abs(A_hat_dat[0]) < eps_initial_rank_estimation) {
                 k = i;
                 break;
             }
@@ -282,15 +283,15 @@ int CQRRPT<T, RNG>::call(
         } else {
             // find l2 norm of the full R
             norm_R = RandLAPACK::util::estimate_spectral_norm(n, n, R_dat, 10, state);
-            this->eps = 5 * this->eps;
+            eps_initial_rank_estimation = 5 * eps_initial_rank_estimation;
         }
 
         T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
         // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
-        if ((norm_R_sub > this->eps * norm_R)) {
+        if ((norm_R_sub > eps_initial_rank_estimation * norm_R)) {
             k = n;
         } else {
-            k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_R, this->eps, R_dat);
+            k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_R, eps_initial_rank_estimation, R_dat);
         }
 
         this->rank = k;
@@ -367,6 +368,36 @@ int CQRRPT<T, RNG>::call(
         return 1;
     }
 
+    // Re-estimate rank after we have the R-factor form Cholesky QR.
+    // The strategy here is the same as in naive rank estimation.
+    // This also automatically takes care of any potentical failures in Cholesky factorization.
+    // Note that the diagonal of R_sp_dat may not be sorted, so we need to keep the running max/min
+    // We expect the loss in the orthogonality of Q to be approximately equal to 10^-15 * cond(R_sp_dat)^2
+    int64_t new_rank = k;
+    T running_max = R_sp_dat[0];
+    T running_min = R_sp_dat[0];
+    T curr_entry;
+    
+    for(i = 0; i < k; ++i) {
+        curr_entry = std::abs(R_sp[i * k + i]);
+        
+        if(curr_entry > running_max) running_max = curr_entry;
+        if(curr_entry < running_min) running_max = running_min;
+
+        if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
+            new_rank = i - 1;
+            break;
+        }
+    }
+    //new_rank = 100;
+
+    // Beware of that R_sp and R have k rows and need to be downsized by rows
+    RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
+    RandLAPACK::util::row_resize(k, n, R, new_rank);
+    
+    k = new_rank;
+    this->rank = k;
+
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
@@ -384,16 +415,15 @@ int CQRRPT<T, RNG>::call(
         copy_t_dur       += duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
         a_mod_piv_t_dur   = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
-        cholqr_t_dur    = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
+        cholqr_t_dur      = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
+        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
 
         // Fill the data vector
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
     }
-
     return 0;
 }
 
