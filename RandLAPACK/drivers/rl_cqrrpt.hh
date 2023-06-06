@@ -256,7 +256,7 @@ int CQRRPT<T, RNG>::call(
 
     int64_t k = n;
     int i;
-    T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<double>::epsilon(), 0.95);
+    T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
     if(this->naive_rank_estimate) {
         /// Using R[i,i] to approximate the i-th singular value of A_hat. 
         /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
@@ -384,7 +384,7 @@ int CQRRPT<T, RNG>::call(
         if(curr_entry > running_max) running_max = curr_entry;
         if(curr_entry < running_min) running_max = running_min;
 
-        if(running_max / running_min >= std::sqrt(this->eps / 10e-16)) {
+        if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
             new_rank = i - 1;
             break;
         }
