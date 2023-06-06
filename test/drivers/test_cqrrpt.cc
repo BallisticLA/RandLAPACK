@@ -127,7 +127,6 @@ class TestCQRRPT : public ::testing::Test
 };
 
 // Note: If Subprocess killed exception -> reload vscode
-/*
 TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     int64_t m = 10000;
     int64_t n = 200;
@@ -167,7 +166,6 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
 }
-*/
 
 // Using L2 norm rank estimation here is similar to using raive estimation. 
 // Fro norm underestimates rank even worse. 
@@ -177,7 +175,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     int64_t k = 0;
     int64_t d = 300;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.95);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     printf("TOL IS %e\n", tol);
     auto state = RandBLAS::base::RNGState();
 
