@@ -256,7 +256,7 @@ int CQRRPT<T, RNG>::call(
 
     int64_t k = n;
     int i;
-    T eps_initial_rank_estimation = 2 * std::numeric_limits<double>::epsilon();
+    T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<double>::epsilon(), 0.95);
     if(this->naive_rank_estimate) {
         /// Using R[i,i] to approximate the i-th singular value of A_hat. 
         /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
@@ -389,6 +389,8 @@ int CQRRPT<T, RNG>::call(
             break;
         }
     }
+    //new_rank = 100;
+
     // Beware of that R_sp and R have k rows and need to be downsized by rows
     RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
     RandLAPACK::util::row_resize(k, n, R, new_rank);

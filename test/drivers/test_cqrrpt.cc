@@ -133,7 +133,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     int64_t k = 200;
     int64_t d = 400;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::base::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
@@ -153,7 +153,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     int64_t k = 100;
     int64_t d = 400;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::base::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
@@ -176,7 +176,6 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     int64_t d = 300;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    printf("TOL IS %e\n", tol);
     auto state = RandBLAS::base::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
