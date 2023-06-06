@@ -143,7 +143,7 @@ class TestREVD2 : public ::testing::Test
         T& norm_A, 
         REVD2TestData<T>& all_data,
         algorithm_objects<T, RNG>& all_algs,
-        RandBLAS::base::RNGState<RNG> state
+        RandBLAS::RNGState<RNG> state
     ) {
         
         auto m = all_data.dim;
@@ -181,7 +181,7 @@ class TestREVD2 : public ::testing::Test
         T err_expectation, 
         REVD2UploTestData<T>& all_data,
         algorithm_objects<T, RNG>& all_algs,
-        RandBLAS::base::RNGState<RNG> state
+        RandBLAS::RNGState<RNG> state
     ) {
         
         auto m = all_data.dim;
@@ -230,7 +230,7 @@ TEST_F(TestREVD2, Underestimation1) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState(0);
+    auto state = RandBLAS::RNGState(0);
 
     //Subroutine parameters 
     bool verbose = false;
@@ -266,7 +266,7 @@ TEST_F(TestREVD2, Underestimation2) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState(0);
+    auto state = RandBLAS::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;
@@ -301,7 +301,7 @@ TEST_F(TestREVD2, Overestimation1) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState(0);
+    auto state = RandBLAS::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;
@@ -334,7 +334,7 @@ TEST_F(TestREVD2, Oversetimation2) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState(0);
+    auto state = RandBLAS::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;
@@ -369,7 +369,7 @@ TEST_F(TestREVD2, Exactness) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState(0);
+    auto state = RandBLAS::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;
@@ -400,7 +400,7 @@ TEST_F(TestREVD2, Uplo) {
     int64_t num_syps_passes = 3;
     int64_t passes_per_syps_stabilization = 1;
     int64_t num_steps_power_iter_error_est = 10;
-    auto state = RandBLAS::base::RNGState(0);
+    auto state = RandBLAS::RNGState(0);
     //Subroutine parameters 
     bool verbose = false;
     bool cond_check = false;

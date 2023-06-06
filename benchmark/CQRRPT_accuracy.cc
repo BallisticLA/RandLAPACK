@@ -17,7 +17,7 @@ If the required folder structure does not exist, the files will not be saved.
 */
 
 template <typename T, typename RNG>
-    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<RNG> state, int test_num, std::string path) {
+    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::RNGState<RNG> state, int test_num, std::string path) {
         
         printf("/-----------------------------------------CQRRPT ACCURACY BENCHMARK START-----------------------------------------/\n");
         
@@ -161,7 +161,7 @@ template <typename T, typename RNG>
 int main() {
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename
     // Large condition number may not work for a small matrix
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     // Fast polynomial decay
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e10, false), state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(0, 1e10, false), state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");

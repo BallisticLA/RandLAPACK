@@ -19,7 +19,7 @@ class REVD2alg {
 
         virtual ~REVD2alg() {}
 
-        virtual RandBLAS::base::RNGState<RNG> call(
+        virtual RandBLAS::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
             std::vector<T>& A,
@@ -27,7 +27,7 @@ class REVD2alg {
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
-            RandBLAS::base::RNGState<RNG> state
+            RandBLAS::RNGState<RNG> state
         ) = 0;
 };
 
@@ -82,7 +82,7 @@ class REVD2 : public REVD2alg<T, RNG> {
         ///     time it needs an RNGState.
         ///
 
-        RandBLAS::base::RNGState<RNG> call(
+        RandBLAS::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
             std::vector<T>& A,
@@ -90,7 +90,7 @@ class REVD2 : public REVD2alg<T, RNG> {
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
-            RandBLAS::base::RNGState<RNG> state
+            RandBLAS::RNGState<RNG> state
         ) override;
 
     public:
@@ -161,7 +161,7 @@ T power_error_est(
 
 
 template <typename T, typename RNG>
-RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
+RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         blas::Uplo uplo,
         int64_t m,
         std::vector<T>& A,
@@ -169,12 +169,12 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         T tol,
         std::vector<T>& V,
         std::vector<T>& eigvals,
-        RandBLAS::base::RNGState<RNG> state
+        RandBLAS::RNGState<RNG> state
 ){
     T err = 0;
     std::vector<T> symrf_work(0);
     auto next_state = state;
-    RandBLAS::base::RNGState<RNG> error_est_state(state.counter, state.key);
+    RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
     error_est_state.key.incr(1);
     while(1) {
         T* A_dat = A.data();
@@ -242,8 +242,8 @@ RandBLAS::base::RNGState<RNG> REVD2<T, RNG>::call(
         // Using the first column of Omega as a buffer for a random vector
         // To perform the following safely, need to make sure Omega has at least 4 columns
         Omega_dat = util::upsize(m * 4, this->Omega);
-        RandBLAS::dense::DenseDist  g{.n_rows = m, .n_cols = 1};
-        error_est_state = RandBLAS::dense::fill_buff(Omega_dat, g, error_est_state);
+        RandBLAS::DenseDist  g{.n_rows = m, .n_cols = 1};
+        error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state);
 
         err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
 

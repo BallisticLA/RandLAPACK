@@ -81,7 +81,7 @@ test_speed_helper(int64_t m,
                   int64_t nnz, 
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<RNG> state) {
+                  RandBLAS::RNGState<RNG> state) {
 
     int64_t size  = m * n;
     std::vector<T>       A_1(size, 0.0);
@@ -149,7 +149,7 @@ test_speed(int r_pow,
            T d_multiplier_max, 
            const std::tuple<int, T, bool>& mat_type,
            std::string path,
-           RandBLAS::base::RNGState<RNG> state) {
+           RandBLAS::RNGState<RNG> state) {
     printf("\n/-----------------------------------------EMBEDDING EFFECT BENCHMARK START-----------------------------------------/\n");
     int rows = std::pow(2, r_pow);
     // This variable is controls an additional iteration, used for initialization work
@@ -345,7 +345,7 @@ test_speed(int r_pow,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     test_speed<double, r123::Philox4x32>(17, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
     test_speed<double, r123::Philox4x32>(17, 2048, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
     test_speed<double, r123::Philox4x32>(17, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);

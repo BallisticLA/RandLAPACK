@@ -56,7 +56,7 @@ class CQRRPT : public CQRRPTalg<T> {
         CQRRPT(
             bool verb,
             bool time_subroutines,
-            RandBLAS::base::RNGState<RNG> st,
+            RandBLAS::RNGState<RNG> st,
             T ep
         ) {
             verbosity = verb;
@@ -123,7 +123,7 @@ class CQRRPT : public CQRRPTalg<T> {
         bool verbosity;
         bool timing;
         bool cond_check;
-        RandBLAS::base::RNGState<RNG> state;
+        RandBLAS::RNGState<RNG> state;
         T eps;
         int64_t rank;
         int64_t b_sz;
@@ -219,13 +219,14 @@ int CQRRPT<T, RNG>::call(
         saso_t_start = high_resolution_clock::now();
     }
     
-    RandBLAS::sparse::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
-    RandBLAS::sparse::SparseSkOp<T, RNG> S(DS, state, NULL, NULL, NULL);
-    RandBLAS::sparse::fill_sparse(S);
+    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
+    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+    RandBLAS::fill_sparse(S);
 
-    RandBLAS::sparse::lskges<T, RandBLAS::sparse::SparseSkOp<T>>(
+    RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d);
+        d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d
+    );
 
     if(this -> timing) {
         saso_t_stop = high_resolution_clock::now();

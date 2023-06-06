@@ -21,13 +21,13 @@ class SymmetricRangeFinder {
     public:
         virtual ~SymmetricRangeFinder() {}
 
-        virtual RandBLAS::base::RNGState<RNG> call(
+        virtual RandBLAS::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
             int64_t k,
             std::vector<T>& Q,
-            RandBLAS::base::RNGState<RNG> state,
+            RandBLAS::RNGState<RNG> state,
             T* work_buff
         ) = 0;
 };
@@ -75,13 +75,13 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
         ///     An RNGState that the calling function should use the next
         ///     time it needs an RNGState.
         ///
-        RandBLAS::base::RNGState<RNG> call(
+        RandBLAS::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
             int64_t k,
             std::vector<T>& Q,
-            RandBLAS::base::RNGState<RNG> state,
+            RandBLAS::RNGState<RNG> state,
             T* work_buff
         ) override;
 
@@ -98,13 +98,13 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-RandBLAS::base::RNGState<RNG> SYRF<T, RNG>::call(
+RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
     const std::vector<T>& A,
     int64_t k,
     std::vector<T>& Q,
-    RandBLAS::base::RNGState<RNG> state,
+    RandBLAS::RNGState<RNG> state,
     T* work_buff
 ){
 

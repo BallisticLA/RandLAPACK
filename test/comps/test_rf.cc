@@ -55,7 +55,7 @@ class TestRF : public ::testing::Test
             bool cond_check, 
             int64_t p, 
             int64_t passes_per_iteration, 
-            RandBLAS::base::RNGState<RNG> state
+            RandBLAS::RNGState<RNG> state
         ) :
             Stab(cond_check, verbosity),
             RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
@@ -146,7 +146,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     int64_t k = 100;
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;
@@ -168,7 +168,7 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     int64_t k = 50;
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;
@@ -190,7 +190,7 @@ TEST_F(TestRF, Rand_diag_general)
     int64_t k = 50;
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;

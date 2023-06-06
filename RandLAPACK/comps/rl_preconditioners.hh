@@ -47,7 +47,7 @@ void rpc_data_svd(
         lda_sk = d;
     }
     RandBLAS::util::safe_scal(d*n, 0.0, A_sk, 1);
-    RandBLAS::ramm::ramm_general_left(
+    RandBLAS::sketch_general(
         layout,
         blas::Op::NoTrans,
         blas::Op::NoTrans,
@@ -127,7 +127,7 @@ void rpc_data_svd(
  *      time it needs an RNGState.
  */
 template <typename T, typename RNG>
-RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
+RandBLAS::RNGState<RNG> rpc_data_svd_saso(
     blas::Layout layout,
     int64_t m, // number of rows in A
     int64_t n, // number of columns in A
@@ -137,15 +137,15 @@ RandBLAS::base::RNGState<RNG> rpc_data_svd_saso(
     int64_t lda, // leading dimension for mat(A).
     T *V_sk, // buffer of size at least d*n.
     T *sigma_sk, //buffer of size at least n.
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
-    RandBLAS::sparse::SparseDist D{
+    RandBLAS::SparseDist D{
         .n_rows = d,
         .n_cols = m,
         .vec_nnz = k
     };
-    RandBLAS::sparse::SparseSkOp<T> S(D, state);
-    auto next_state = RandBLAS::sparse::fill_sparse(S);
+    RandBLAS::SparseSkOp<T> S(D, state);
+    auto next_state = RandBLAS::fill_sparse(S);
     rpc_data_svd(layout, m, n, A, lda, S, V_sk, sigma_sk);
     return next_state;
 }

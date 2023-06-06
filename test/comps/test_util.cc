@@ -16,8 +16,6 @@ TODO #4: L & pivotig tests.
 */
 using namespace std::chrono;
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
 
 class TestUtil : public ::testing::Test
 {
@@ -63,7 +61,7 @@ class TestUtil : public ::testing::Test
 
     template <typename T, typename RNG>
     static void 
-    test_spectral_norm(RandBLAS::base::RNGState<RNG> state, SpectralTestData<T>& all_data) {
+    test_spectral_norm(RandBLAS::RNGState<RNG> state, SpectralTestData<T>& all_data) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -110,7 +108,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_double_precision) {
     
     int64_t m = 1000;
     int64_t n = 100;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     SpectralTestData<double> all_data(m, n);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(0, 2025, false));
@@ -122,7 +120,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
     
     int64_t m = 1000;
     int64_t n = 100;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     SpectralTestData<double> all_data(m, n);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 15), false));
@@ -134,7 +132,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
     
     int64_t m = 1000;
     int64_t n = 100;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     SpectralTestData<float> all_data(m, n);
 
     RandLAPACK::util::gen_mat_type<float, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(0, 2, false));
@@ -146,7 +144,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
     
     int64_t m = 1000;
     int64_t n = 100;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     SpectralTestData<float> all_data(m, n);
 
     RandLAPACK::util::gen_mat_type<float, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 7), false));
@@ -181,10 +179,10 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
 
     virtual void apply(blas::Layout layout) {
         int64_t n = 37;
-        RandBLAS::dense::DenseDist D{n, n};
-        RandBLAS::base::RNGState state(1);
+        RandBLAS::DenseDist D{n, n};
+        RandBLAS::RNGState state(1);
         double *A1 = new double[n*n];
-        state = RandBLAS::dense::fill_buff(A1, D, state);
+        state = RandBLAS::fill_dense(D, A1, state);
         double *A2 = new double[n*n];
         blas::copy(n*n, A1, 1, A2, 1);
         RandLAPACK::util::transpose_square(A2, n);
