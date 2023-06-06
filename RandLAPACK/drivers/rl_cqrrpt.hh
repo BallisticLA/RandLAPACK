@@ -372,7 +372,7 @@ int CQRRPT<T, RNG>::call(
     // The strategy here is the same as in naive rank estimation.
     // This also automatically takes care of any potentical failures in Cholesky factorization.
     // Note that the diagonal of R_sp_dat may not be sorted, so we need to keep the running max/min
-    // We expect the loss in the orthogonality of Q to be approximately equal to 10^-15 * cond(R_sp_dat)^2
+    // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp_dat)^2, where u is the unit roundoff for the numerical type T.
     int64_t new_rank = k;
     T running_max = R_sp_dat[0];
     T running_min = R_sp_dat[0];
@@ -389,7 +389,6 @@ int CQRRPT<T, RNG>::call(
             break;
         }
     }
-    //new_rank = 100;
 
     // Beware of that R_sp and R have k rows and need to be downsized by rows
     RandLAPACK::util::row_resize(k, k, R_sp, new_rank);

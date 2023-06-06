@@ -31,7 +31,7 @@ class TestCQRRPT : public ::testing::Test
 
         CQRRPTTestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0), 
-        J(n, 0.0),  
+        J(n, 0),  
         A_cpy1(m * n, 0.0),
         A_cpy2(m * n, 0.0),
         I_ref(k * k, 0.0) 
