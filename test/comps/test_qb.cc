@@ -69,7 +69,7 @@ class TestQB : public ::testing::Test
                             bool orth_check, 
                             int64_t p, 
                             int64_t passes_per_iteration, 
-                            RandBLAS::base::RNGState<RNG> state) :
+                            RandBLAS::RNGState<RNG> state) :
                             Stab(cond_check, verbosity),
                             RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
                             Orth_RF(cond_check, verbosity),
@@ -235,7 +235,7 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     int64_t passes_per_iteration = 1;
     int64_t block_sz = 10;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     
     //Subroutine parameters
     bool verbosity = false;
@@ -259,7 +259,7 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     int64_t passes_per_iteration = 1;
     int64_t block_sz = 2;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     
     //Subroutine parameters
     bool verbosity = false;
@@ -283,7 +283,7 @@ TEST_F(TestQB, Rand_diag_general)
     int64_t passes_per_iteration = 1;
     int64_t block_sz = 2;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;
@@ -307,7 +307,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     int64_t passes_per_iteration = 1;
     int64_t block_sz = 10;
     double tol = (double) 0.1;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;
@@ -331,7 +331,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     int64_t passes_per_iteration = 1;
     int64_t block_sz = 10;
     double tol = 0.0;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;

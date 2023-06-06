@@ -201,7 +201,7 @@ test_speed_helper(int64_t m,
                   int64_t nnz, 
                   int64_t num_threads, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<RNG> state,
+                  RandBLAS::RNGState<RNG> state,
                   int apply_to_large) {
 
     int64_t size = m * n;
@@ -470,7 +470,7 @@ test_speed(int r_pow,
            const std::tuple<int, T, bool> & mat_type,
            int apply_to_large,
            std::string path,
-           RandBLAS::base::RNGState<RNG> state) {
+           RandBLAS::RNGState<RNG> state) {
 
     printf("\n/-----------------------------------------QRCP SPEED BENCHMARK START-----------------------------------------/\n");
     // This variable is controls an additional iteration, used for initialization work
@@ -765,7 +765,7 @@ test_speed(int r_pow,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     
     //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/", state);
     test_speed<double, r123::Philox4x32>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);

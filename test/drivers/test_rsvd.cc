@@ -6,8 +6,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
 
 class TestRSVD : public ::testing::Test
 {
@@ -82,7 +80,7 @@ class TestRSVD : public ::testing::Test
             int64_t p, 
             int64_t passes_per_iteration, 
             int64_t block_sz,
-            RandBLAS::base::RNGState<RNG> state
+            RandBLAS::RNGState<RNG> state
         ) :
             Stab(cond_check, verbosity),
             RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
@@ -170,7 +168,7 @@ TEST_F(TestRSVD, SimpleTest)
     int64_t passes_per_iteration = 1;
     int64_t block_sz = 2;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.5625);
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;

@@ -20,7 +20,7 @@ If the required folder structure does not exist, the files will not be saved.
 typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
 template <typename T, typename RNG>
-static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::base::RNGState<RNG> state) {
+static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::RNGState<RNG> state) {
 
     // For running QB
     std::vector<T> A(m * n, 0.0);
@@ -79,7 +79,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
 }
 
 template <typename T, typename RNG>
-static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS, RandBLAS::base::RNGState<RNG> state)
+static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS, RandBLAS::RNGState<RNG> state)
 {
     printf("|==================================TEST QB2 K PLOT BEGIN==================================|\n");
 
@@ -169,7 +169,7 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
 
 int main() 
 {   
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     // Slow_decay
     test_QB2_plot<double, r123::Philox4x32>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../", state);
     // Fast decay

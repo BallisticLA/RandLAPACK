@@ -61,7 +61,7 @@ class TestSYRF : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void orth_and_copy_computational_helper(RandBLAS::base::RNGState<RNG> state, SYRFTestData<T>& all_data) {
+    static void orth_and_copy_computational_helper(RandBLAS::RNGState<RNG> state, SYRFTestData<T>& all_data) {
         
         auto m = all_data.row;
         auto k = all_data.rank;
@@ -89,7 +89,7 @@ class TestSYRF : public ::testing::Test
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T, typename RNG>
     static void test_SYRF_general(
-        RandBLAS::base::RNGState<RNG> state,
+        RandBLAS::RNGState<RNG> state,
         SYRFTestData<T>& all_data, 
         algorithm_objects<T, RNG>& all_algs) {
 
@@ -148,7 +148,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     int64_t k = 100;
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;
@@ -166,7 +166,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     int64_t k = 50;
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;
@@ -184,7 +184,7 @@ TEST_F(TestSYRF, Rand_diag_general)
     int64_t k = 50;
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
     bool verbosity = false;

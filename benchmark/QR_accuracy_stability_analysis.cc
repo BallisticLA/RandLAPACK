@@ -59,7 +59,7 @@ static void
 cholqr_helper(int64_t m, 
                   int64_t n, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<RNG> state) {
+                  RandBLAS::RNGState<RNG> state) {
 
     std::vector<T> A(m * n, 0.0);
     std::vector<T> A_hat(m * n, 0.0);
@@ -99,7 +99,7 @@ static void
 cqrrpt_helper(int64_t m, 
                 int64_t n, 
                 const std::tuple<int, T, bool>& mat_type, 
-                RandBLAS::base::RNGState<RNG> state,
+                RandBLAS::RNGState<RNG> state,
                 const std::vector<T>& additional_params) {
 
     int64_t true_k = additional_params[0];
@@ -150,7 +150,7 @@ static void
 scholqr_helper(int64_t m, 
                   int64_t n, 
                   const std::tuple<int, T, bool>& mat_type, 
-                  RandBLAS::base::RNGState<RNG> state,
+                  RandBLAS::RNGState<RNG> state,
                   const std::vector<T>& additional_params) {
 
     int64_t k = additional_params[0];
@@ -233,7 +233,7 @@ test_cond_orth(int row,
            T cond_start,
            T cond_end,
            T cond_step,
-           RandBLAS::base::RNGState<RNG> state,
+           RandBLAS::RNGState<RNG> state,
            int alg_type,
            int mat_type_num,
            std::vector<T> additional_params) {
@@ -263,7 +263,7 @@ test_cond_orth(int row,
 
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     // Old tests
     //test_cond_orth<double>(10000, 1024, 1024, 1024, 1, 10, 10e16, 10, state, 0, 1, 0);
     //test_cond_orth<double>(1024, 5, 5, 5, 1, 10, 10, 10, state, 0, 1, 1);

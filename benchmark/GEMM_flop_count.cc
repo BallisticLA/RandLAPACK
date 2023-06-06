@@ -13,7 +13,7 @@ using namespace RandLAPACK;
 
 template <typename T, typename RNG>
 static void 
-test_flops(int64_t k, RandBLAS::base::RNGState<RNG> state) {
+test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
     printf("|===================================TEST SYSTEM FLOPS BEGIN====================================|\n");
     int size = k * k;
 
@@ -56,7 +56,7 @@ test_flops(int64_t k, RandBLAS::base::RNGState<RNG> state) {
 }
 
 int main() {
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     test_flops<double, r123::Philox4x32>(1000, state);
     return 0;
 }

@@ -6,8 +6,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
 
 class TestCQRRPT : public ::testing::Test
 {
@@ -93,13 +91,14 @@ class TestCQRRPT : public ::testing::Test
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF AP - QR: %15e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC: %15e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF Q' * Q - I: %2e\n\n", norm_0);
+        printf("REL NORM OF AP - QR:    %15e\n", norm_AQR / norm_A);
+        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
+        printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
 
-        ASSERT_NEAR(norm_AQR / norm_A,         0.0, 10 * std::pow(10, -13));
-        ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, 10 * std::pow(10, -13));
-        ASSERT_NEAR(norm_0,                    0.0, 10 * std::pow(10, -13));
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+        ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
+        ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
+        ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
     }
 
     /// General test for CQRRPT:
@@ -134,7 +133,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     int64_t d = 400;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
@@ -154,7 +153,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     int64_t d = 400;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
@@ -176,7 +175,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     int64_t d = 300;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);

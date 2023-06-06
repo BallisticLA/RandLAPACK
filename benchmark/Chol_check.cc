@@ -7,7 +7,7 @@ using namespace RandLAPACK;
 
 template <typename T, typename RNG>
 static void 
-chol_check(int64_t m, int64_t k, RandBLAS::base::RNGState<RNG> state) {
+chol_check(int64_t m, int64_t k, RandBLAS::RNGState<RNG> state) {
 
     std::vector<T> A(m * m, 0.0);
     std::vector<T> A_leading_submat_symm(k * k, 0.0);
@@ -48,7 +48,7 @@ chol_check(int64_t m, int64_t k, RandBLAS::base::RNGState<RNG> state) {
 
 int main() {
     for(int i = 0; i < 10; ++i) {
-        auto state = RandBLAS::base::RNGState(i);
+        auto state = RandBLAS::RNGState(i);
         chol_check<double, r123::Philox4x32>(1000, 500, state);
     }
     return 0;

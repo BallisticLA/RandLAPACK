@@ -77,13 +77,13 @@ class Test_rpc_svd : public ::testing::Test
         // construct "A" with cond(A) >= sqrt_cond^2.
         std::vector<T> A(m*n, 0.0);
         T *a = A.data();
-        RandBLAS::dense::DenseDist D{
+        RandBLAS::DenseDist D{
             .n_rows = m,
             .n_cols = n,
-            .family = RandBLAS::dense::DenseDistName::Uniform
+            .family = RandBLAS::DenseDistName::Uniform
         };
-        auto state = RandBLAS::base::RNGState(99);
-        RandBLAS::dense::fill_buff(a, D, state);
+        auto state = RandBLAS::RNGState(99);
+        RandBLAS::fill_dense(D, a, state);
     
         if (layout == blas::Layout::RowMajor) {
             // scale first row up by sqrt_cond
@@ -100,13 +100,13 @@ class Test_rpc_svd : public ::testing::Test
         }
 
         // apply the function under test (rpc_data_svd_saso)
-        auto alg_state = RandBLAS::base::RNGState((uint32_t) keys[key_index]);
+        auto alg_state = RandBLAS::RNGState((uint32_t) keys[key_index]);
         std::vector<T> M_wk(d*n, 0.0);
         std::vector<T> sigma_sk(n, 0.0);
         int64_t lda = (layout == blas::Layout::ColMajor) ? m : n;
-        RandBLAS::sparse::SparseDist SDist{.n_rows=d, .n_cols=m, .vec_nnz=8};
-        RandBLAS::sparse::SparseSkOp<T> S(SDist, alg_state);
-        RandBLAS::sparse::fill_sparse(S);
+        RandBLAS::SparseDist SDist{.n_rows=d, .n_cols=m, .vec_nnz=8};
+        RandBLAS::SparseSkOp<T> S(SDist, alg_state);
+        RandBLAS::fill_sparse(S);
         
         RandLAPACK::rpc_data_svd(
             layout, m, n, A.data(), lda, S, M_wk.data(), sigma_sk.data()
@@ -138,13 +138,13 @@ class Test_rpc_svd : public ::testing::Test
         // After regularization the augmented matrix will still be full-rank.
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
-        RandBLAS::dense::DenseDist D{
+        RandBLAS::DenseDist D{
             .n_rows = m,
             .n_cols = n,
-            .family = RandBLAS::dense::DenseDistName::Uniform
+            .family = RandBLAS::DenseDistName::Uniform
         };
-        auto state = RandBLAS::base::RNGState(99);
-        RandBLAS::dense::fill_buff(a, D, state);
+        auto state = RandBLAS::RNGState(99);
+        RandBLAS::fill_dense(D, a, state);
                       
         blas::scal(n, sqrt_cond, a, 1);
         double invscale = 1.0 / sqrt_cond;
@@ -154,7 +154,7 @@ class Test_rpc_svd : public ::testing::Test
         // apply the function under test (rpc_svd_saso)
         std::vector<double> M_wk(d*n, 0.0);
         std::vector<double> sigma_sk(n, 0.0);
-        auto alg_state = RandBLAS::base::RNGState(keys[key_index]);
+        auto alg_state = RandBLAS::RNGState(keys[key_index]);
         RandLAPACK::rpc_data_svd_saso(
             blas::Layout::RowMajor, m, n, d, 8,
             A.data(), n, M_wk.data(), sigma_sk.data(), alg_state

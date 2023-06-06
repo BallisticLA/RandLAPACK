@@ -235,7 +235,7 @@ void gen_mat(
     std::vector<T>& A,
     int64_t k,
     std::vector<T>& S,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
 
     std::vector<T> U(m * k, 0.0);
@@ -249,10 +249,10 @@ void gen_mat(
     T* tau_dat = tau.data();
     T* Gemm_buf_dat = Gemm_buf.data();
 
-    RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = k};
-    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = k};
-    state = RandBLAS::dense::fill_buff(U_dat, DU, state);
-    state = RandBLAS::dense::fill_buff(V_dat, DV, state);
+    RandBLAS::DenseDist DU{.n_rows = m, .n_cols = k};
+    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = k};
+    state = RandBLAS::fill_dense(DU, U_dat, state);
+    state = RandBLAS::fill_dense(DV, V_dat, state);
 
     lapack::geqrf(m, k, U_dat, m, tau_dat);
     lapack::ungqr(m, k, k, U_dat, m, tau_dat);
@@ -284,7 +284,7 @@ void gen_poly_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -338,7 +338,7 @@ void gen_exp_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
 
     std::vector<T> s(k, 1.0);
@@ -386,7 +386,7 @@ void gen_step_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -426,22 +426,22 @@ void gen_spiked_mat(
     int64_t& n,
     std::vector<T>& A,
     T spike_scale,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
     T* A_dat = upsize(m * n, A);
 
     int64_t num_rows_sampled = n / 2;
 
-    /// We use the indices of nonzeros for columns of a num_rows_sampled by m LASO with one nonzero per row.
-    RandBLAS::sparse::SparseDist DS = {.n_rows = m, .n_cols = 1, .family = RandBLAS::sparse::SparsityPattern::LASO, .vec_nnz = num_rows_sampled};
-    RandBLAS::sparse::SparseSkOp<T, RNG> S(DS, state, NULL, NULL, NULL);
-    RandBLAS::sparse::fill_sparse(S);
+    /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
+    RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
+    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+    RandBLAS::fill_sparse(S);
 
     std::vector<T> V(n * n, 0.0);
     std::vector<T> tau(n, 0.0);
 
-    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
-    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::fill_dense(DV, V.data(), state);
 
     lapack::geqrf(n, n, V.data(), n, tau.data());
     lapack::ungqr(n, n, n, V.data(), n, tau.data());
@@ -479,7 +479,7 @@ void gen_oleg_adversarial_mat(
     int64_t& n,
     std::vector<T>& A,
     T sigma,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
 
     T scaling_factor_U = sigma;
@@ -490,11 +490,11 @@ void gen_oleg_adversarial_mat(
     std::vector<T> tau1(n, 0.0);
     std::vector<T> tau2(n, 0.0);
 
-    RandBLAS::dense::DenseDist DU{.n_rows = m, .n_cols = n};
-    state = RandBLAS::dense::fill_buff(U.data(), DU, state);
+    RandBLAS::DenseDist DU{.n_rows = m, .n_cols = n};
+    state = RandBLAS::fill_dense(DU, U.data(), state);
 
-    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = n};
-    state = RandBLAS::dense::fill_buff(V.data(), DV, state);
+    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = n};
+    state = RandBLAS::fill_dense(DV, V.data(), state);
 
     T* U_dat = U.data();
     for(int i = 0; i < n; ++i) {
@@ -534,7 +534,7 @@ void gen_bad_cholqr_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
 
     std::vector<T> s(n, 1.0);
@@ -628,7 +628,7 @@ void gen_mat_type(
     int64_t& n,
     std::vector<T>& A,
     int64_t& k,
-    RandBLAS::base::RNGState<RNG> state,
+    RandBLAS::RNGState<RNG> state,
     const std::tuple<int, T, bool>& type
 ) {
     T* A_dat = A.data();
@@ -651,8 +651,8 @@ void gen_mat_type(
         case 2: {
                 // A = [A A]
                 //printf("TEST MATRIX: A = [A A]\n");
-                RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = k};
-                RandBLAS::dense::fill_buff(A_dat, D, state);
+                RandBLAS::DenseDist D{.n_rows = m, .n_cols = k};
+                RandBLAS::fill_dense(D, A_dat, state);
                 if (2 * k <= n)
                 {
                     blas::copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
@@ -667,8 +667,8 @@ void gen_mat_type(
                 // Random diagonal A of rank k
                 //printf("TEST MATRIX: GAUSSIAN RANDOM DIAGONAL\n");
                 std::vector<T> buf(k, 0.0);
-                RandBLAS::dense::DenseDist D{.n_rows = k, .n_cols = 1};
-                RandBLAS::dense::fill_buff(buf.data(), D, state);
+                RandBLAS::DenseDist D{.n_rows = k, .n_cols = 1};
+                RandBLAS::fill_dense(D, buf.data(), state);
                 // Fills the first k diagonal elements
                 diag(m, n, buf, k, A);
             }
@@ -691,8 +691,8 @@ void gen_mat_type(
         case 6: {
                 // Gaussian random matrix
                 //printf("TEST MATRIX: GAUSSIAN RANDOM\n");
-                RandBLAS::dense::DenseDist D{.n_rows = m, .n_cols = n};
-                RandBLAS::dense::fill_buff(A_dat, D, state);
+                RandBLAS::DenseDist D{.n_rows = m, .n_cols = n};
+                RandBLAS::fill_dense(D, A_dat, state);
             }
             break;
         case 7: {
@@ -764,14 +764,14 @@ T estimate_spectral_norm(
     int64_t n,
     T const* A_dat,
     int p,
-    RandBLAS::base::RNGState<RNG> state
+    RandBLAS::RNGState<RNG> state
 ) {
 
     std::vector<T> buf (n, 0.0);
     std::vector<T> buf1 (m, 0.0);
 
-    RandBLAS::dense::DenseDist DV{.n_rows = n, .n_cols = 1};
-    state = RandBLAS::dense::fill_buff(buf.data(), DV, state);
+    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = 1};
+    state = RandBLAS::fill_dense(DV, buf.data(), state);
 
     T prev_norm_inv = 1.0;
     for(int i = 0; i < p; ++i) {

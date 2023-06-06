@@ -11,8 +11,6 @@
 #include <chrono>
 #include <gtest/gtest.h>
 
-#define RELDTOL 1e-10;
-#define ABSDTOL 1e-12;
 
 using namespace std::chrono;
 
@@ -50,7 +48,7 @@ class TestOrth : public ::testing::Test
 
     template <typename T, typename RNG>
     static void sketch_and_copy_computational_helper(
-        RandBLAS::base::RNGState<RNG> state,
+        RandBLAS::RNGState<RNG> state,
         OrthTestData<T>& all_data
     ) {
 
@@ -59,8 +57,8 @@ class TestOrth : public ::testing::Test
         auto k = all_data.rank;
 
         // Fill the gaussian random matrix
-        RandBLAS::dense::DenseDist D{.n_rows = n, .n_cols = k};
-        state = RandBLAS::dense::fill_buff(all_data.Omega.data(), D, state);
+        RandBLAS::DenseDist D{.n_rows = n, .n_cols = k};
+        state = RandBLAS::fill_dense(D, all_data.Omega.data(), state);
         
         // Generate a reference identity
         RandLAPACK::util::eye(k, k, all_data.I_ref);
@@ -105,7 +103,7 @@ TEST_F(TestOrth, Test_CholQRQ)
     int64_t m = 1000;
     int64_t n = 200;
     int64_t k = 200;
-    auto state = RandBLAS::base::RNGState();
+    auto state = RandBLAS::RNGState();
     
     OrthTestData<double> all_data(m, n, k);
     // Orthogonalization Constructor
