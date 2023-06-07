@@ -206,6 +206,7 @@ int BK<T, RNG>::call(
     int64_t numcols = 0;
     // Number of Krylov iterations done
     int64_t iters_done = 0;
+    char name [] = "A";
     if (p % 2 == 0) {
         // Compute the sketch size from the number of passes & block size.
         // In this case, we have an expression x = randn(m, numcols), K = [x, AA'x, ...].
@@ -235,6 +236,8 @@ int BK<T, RNG>::call(
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
             throw std::runtime_error("Stabilization failed.");
     }
+    printf("NUMCOLS IS %ld\n", numcols);
+    RandBLAS::util::print_colmaj(m, k, Q_dat, name);
     // We have placed something into full Omega previously.
     ++ iters_done;
 
@@ -264,12 +267,15 @@ int BK<T, RNG>::call(
         // At the last iteration, we may not be able to fit numcols columns into block Krylov matrix.
         // We then need to alter numcols.
         // Computation above is still done for a full numcols.
-        if ((iters_done + 1) * numcols > k)
+        if ((iters_done + 1) * numcols > k) {
             numcols = k - (iters_done * numcols);
-
+            printf("NUMCOLS IS NOW %ld\n", numcols);
+        }
         // A * A' * prev, write into K
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, numcols, n, 1.0, A_dat, m, Work_dat, n, 0.0, Q_dat + offset * iters_done, m);
         ++ p_done;
+        ++ iters_done;
+        RandBLAS::util::print_colmaj(m, k, Q_dat, name);
     }
 
     // Orthogonalization

@@ -269,10 +269,10 @@ TEST_F(TestRF, Polynomial_Decay_general2)
 
 TEST_F(TestRF, Polynomial_Decay_Krylov)
 {
-    int64_t m = 100;
-    int64_t n = 100;
-    int64_t k = 100;
-    int64_t p = 5;
+    int64_t m = 10;
+    int64_t n = 10;
+    int64_t k = 10;
+    int64_t p = 4;
     int64_t passes_per_iteration = 1;
     auto state = RandBLAS::RNGState();
 
