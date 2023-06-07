@@ -136,5 +136,149 @@ int RF<T>::call(
     return 0;
 }
 
+
+template <typename T, typename RNG>
+class BK : public RangeFinder<T>
+{
+    public:
+
+        BK(
+            // Requires a stabilization algorithm object.
+            RandLAPACK::Stabilization<T>& stab_obj,
+            RandLAPACK::Stabilization<T>& orth_obj,
+            RandBLAS::RNGState<RNG> s,
+            int64_t p,
+            int64_t q,
+            bool verb,
+            bool cond
+        ) : Stab_Obj(stab_obj), Orth_Obj(orth_obj) {
+            verbosity = verb;
+            cond_check = cond;
+            st = s;
+            passes_over_data = p;
+            passes_per_stab = q;
+        }
+
+        int call(
+            int64_t m,
+            int64_t n,
+            const std::vector<T>& A,
+            int64_t k,
+            std::vector<T>& Q
+        ) override;
+
+        RandLAPACK::Stabilization<T>& Stab_Obj;
+        RandLAPACK::Stabilization<T>& Orth_Obj;
+        RandBLAS::RNGState<RNG> st;
+        int64_t passes_over_data;
+        int64_t passes_per_stab;
+        bool verbosity;
+        bool cond_check;
+
+        std::vector<T> Work;
+        std::vector<T> Work_2;
+        std::vector<T> s;
+
+        // Implementation-specific vars
+       std::vector<T> cond_nums; // Condition nubers of sketches
+};
+
+// -----------------------------------------------------------------------------
+template <typename T, typename RNG>
+int BK<T, RNG>::call(
+    int64_t m,
+    int64_t n,
+    const std::vector<T>& A,
+    int64_t k,
+    std::vector<T>& Q
+){
+
+    int64_t p = this->passes_over_data;
+    int64_t q = this->passes_per_stab;
+    int64_t p_done = 0;
+
+    const T* A_dat = A.data();
+    T* Q_dat       = RandLAPACK::util::upsize(m * k, Q);
+    T* Work_dat    = RandLAPACK::util::upsize(n * k, this->Work);
+    auto state     = this->st;
+
+    // Number of columns in a sketching operator
+    int64_t numcols = 0;
+    // Number of Krylov iterations done
+    int64_t iters_done = 0;
+    if (p % 2 == 0) {
+        // Compute the sketch size from the number of passes & block size.
+        // In this case, we have an expression x = randn(m, numcols), K = [x, AA'x, ...].
+        // Even number of passes over data, so numcols = ceil(k / ((p / 2) + 1).
+        numcols = (int64_t) std::ceil((float) k / ((p / 2) + 1));
+
+        // Place an n by numcols Sketching operator buffer into the full Omega matrix, n by block_sz
+        RandBLAS::DenseDist  D{.n_rows = m, .n_cols = numcols};
+        RandBLAS::fill_dense(D, Q_dat, state);
+    } else {
+        // Compute the sketch size from the number of passes & block size.
+        // In this case, we have an expression x = randn(n, numcols), x = Ax, K = [x AA'x, ...].
+        // Odd number of passes over data, so numcols = ceil(k / ((p - 1) / 2)).
+        // When block_sz is not evenly divisible by q+1, we allow for 
+        // a portion of the last (A'A)^q AS to be written into Krylov matrix.
+        numcols = (int64_t) std::ceil((float) 2 * k / (p - 1));
+
+        // Fill m by numcols Work buffer - we already have more space than we can ever need
+        RandBLAS::DenseDist D{.n_rows = n, .n_cols = numcols};
+        RandBLAS::fill_dense(D, Work_dat, state);
+
+        // Write an n by k product of A' Omega_1 into the full Omega matrix
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, numcols, n, 1.0, A_dat, m, Work_dat, n, 0.0, Q_dat, m);
+        ++ p_done;
+
+        // Need to take in a pointer
+        if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
+            throw std::runtime_error("Stabilization failed.");
+    }
+    // We have placed something into full Omega previously.
+    ++ iters_done;
+
+    // In case with (A'A)^q S, we will be performing block_sz / k iterations.
+    // In case with (A'A)^q A'S, we will be performing block_sz / k - 1 iterations,
+    // we account for that inside of a previous if statement.
+    // We always allow for an additional iteration of the loop below
+    // 'offset' - size of a matrix by which shift in the block Krylov matrix.
+    // Need a separate variable for it, as k may change at the last iteration.
+    int64_t offset = m * numcols;
+    while (p - p_done > 0) {
+
+        // A' * prev, write into workspace buffer
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, numcols, m, 1.0, A_dat, m, Q_dat + offset * (iters_done - 1), m, 0.0, Work_dat, n);
+        ++p_done;
+
+        // Optional condition number check
+        if(this->cond_check) {
+            RandLAPACK::util::upsize(n * k, this->Work_2);
+            this->cond_nums.push_back(util::cond_num_check(n, numcols, this->Work, this->Work_2, this->s, this->verbosity));
+        }
+
+        // Stabilizaton
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, numcols, Work)))
+            throw std::runtime_error("Stabilzation failed.");
+
+        // At the last iteration, we may not be able to fit numcols columns into block Krylov matrix.
+        // We then need to alter numcols.
+        // Computation above is still done for a full numcols.
+        if ((iters_done + 1) * numcols > k)
+            numcols = k - (iters_done * numcols);
+
+        // A * A' * prev, write into K
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, numcols, n, 1.0, A_dat, m, Work_dat, n, 0.0, Q_dat + offset * iters_done, m);
+        ++ p_done;
+    }
+
+    // Orthogonalization
+    if (this->Stab_Obj.call(m, k, Q))
+        throw std::runtime_error("Orthogonalization failed.");
+
+    //successful termination
+    return 0;
+}
+
 } // end namespace RandLAPACK
 #endif
