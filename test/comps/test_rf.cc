@@ -267,7 +267,7 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
 }
 
-TEST_F(TestRF, Polynomial_Decay_Krylov)
+TEST_F(TestRF, Polynomial_Decay1_Krylov)
 {
     int64_t m = 100;
     int64_t n = 100;
@@ -285,6 +285,28 @@ TEST_F(TestRF, Polynomial_Decay_Krylov)
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+
+    test_RF_krylov<double, r123::Philox4x32>(all_data, all_algs);
+}
+
+TEST_F(TestRF, Polynomial_Decay2_Krylov)
+{
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 4;
+    int64_t passes_per_iteration = 1;
+    auto state = RandBLAS::RNGState();
+
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+
+    RFTestData<double> all_data(m, n, k);
+    algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+
     test_RF_krylov<double, r123::Philox4x32>(all_data, all_algs);
 }
