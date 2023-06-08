@@ -155,7 +155,11 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     RFTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    RandLAPACK::util::mat_gen_info<double> m_info(m, n, RandLAPACK::util::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    RandLAPACK::util::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
     test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
@@ -177,29 +181,11 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     RFTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
-    
-    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
-}
+    RandLAPACK::util::mat_gen_info<double> m_info(m, n, RandLAPACK::util::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    RandLAPACK::util::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
-TEST_F(TestRF, Rand_diag_general)
-{
-    int64_t m = 100;
-    int64_t n = 100;
-    int64_t k = 50;
-    int64_t p = 5;
-    int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::RNGState();
-
-    //Subroutine parameters
-    bool verbosity = false;
-    bool cond_check = true;
-
-    RFTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
-    
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
     test_RF_general<double, r123::Philox4x32>(all_data, all_algs);

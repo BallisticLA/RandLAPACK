@@ -620,14 +620,14 @@ int64_t rank_check(
     return n;
 }
 
-enum mat_type {polynomial, exponential, gaussian, step, spiked, oleg_advers, bad_cholqr};
+enum mat_type {polynomial, exponential, gaussian, step, spiked, adverserial, bad_cholqr};
 
 template <typename T>
 struct mat_gen_info {
     int64_t rows;
     int64_t cols;
     int64_t rank;
-    mat_type type;
+    mat_type m_type;
     T cond_num;
     T scaling;
     bool diag;
@@ -636,7 +636,9 @@ struct mat_gen_info {
     mat_gen_info(int64_t m, int64_t n, mat_type t) {
         rows = m;
         cols = n;
-        type = t;
+        m_type = t;
+        diag = false;
+        rank = n;
     }
 };
 
@@ -644,7 +646,7 @@ struct mat_gen_info {
 /// In that case, it would be of size k by k.
 template <typename T, typename RNG>
 void mat_gen(
-    mat_gen_info info,
+    mat_gen_info<T> info,
     std::vector<T>& A,
     RandBLAS::RNGState<RNG> state
 ) {
@@ -654,7 +656,7 @@ void mat_gen(
     int64_t k = info.rank;
     T* A_dat = A.data();
 
-    switch(info.mat_type) {
+    switch(info.m_type) {
         /*
         First 3 cases are identical, varying ony in the entry generation function.
         is there a way to propagate the lambda expression or somehowe pass several parameners into a undary function in foreach?
@@ -686,7 +688,7 @@ void mat_gen(
                     k = rank_check(m, n, A);
             }
             break;
-        case oleg_advers: {
+        case adverserial: {
                 // This matrix may be numerically rank deficient
                 RandLAPACK::util::gen_oleg_adversarial_mat(m, n, A, info.scaling, state);
                 if(info.check_true_rank)

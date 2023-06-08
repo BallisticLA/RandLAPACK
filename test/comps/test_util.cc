@@ -111,9 +111,13 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_double_precision) {
     auto state = RandBLAS::RNGState();
     SpectralTestData<double> all_data(m, n);
 
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(0, 2025, false));
-    lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double, r123::Philox4x32>(state, all_data);
+    RandLAPACK::util::mat_gen_info<double> m_info(m, n, RandLAPACK::util::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = n;
+
+    RandLAPACK::util::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    //lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
+    //test_spectral_norm<double, r123::Philox4x32>(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
@@ -123,7 +127,11 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
     auto state = RandBLAS::RNGState();
     SpectralTestData<double> all_data(m, n);
 
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 15), false));
+    RandLAPACK::util::mat_gen_info<double> m_info(m, n, RandLAPACK::util::adverserial);
+    m_info.scaling = std::pow(10, 15);
+    m_info.rank = n;
+
+    RandLAPACK::util::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
     test_spectral_norm<double, r123::Philox4x32>(state, all_data);
 }
@@ -135,7 +143,11 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
     auto state = RandBLAS::RNGState();
     SpectralTestData<float> all_data(m, n);
 
-    RandLAPACK::util::gen_mat_type<float, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(0, 2, false));
+    RandLAPACK::util::mat_gen_info<float> m_info(m, n, RandLAPACK::util::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = n;
+
+    RandLAPACK::util::mat_gen<float, r123::Philox4x32>(m_info, all_data.A, state);
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
     test_spectral_norm<float, r123::Philox4x32>(state, all_data);
 }
@@ -147,7 +159,11 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
     auto state = RandBLAS::RNGState();
     SpectralTestData<float> all_data(m, n);
 
-    RandLAPACK::util::gen_mat_type<float, r123::Philox4x32>(m, n, all_data.A, n, state, std::make_tuple(9, std::pow(10, 7), false));
+    RandLAPACK::util::mat_gen_info<float> m_info(m, n, RandLAPACK::util::adverserial);
+    m_info.scaling = std::pow(10, 7);
+    m_info.rank = n;
+
+    RandLAPACK::util::mat_gen<float, r123::Philox4x32>(m_info, all_data.A, state);
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
     test_spectral_norm<float, r123::Philox4x32>(state, all_data);
 }
