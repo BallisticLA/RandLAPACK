@@ -620,103 +620,82 @@ int64_t rank_check(
     return n;
 }
 
+enum mat_type {polynomial, exponential, gaussian, step, spiked, oleg_advers, bad_cholqr};
+
+template <typename T>
+struct mat_gen_info {
+    int64_t rows;
+    int64_t cols;
+    int64_t rank;
+    mat_type type;
+    T cond_num;
+    T scaling;
+    bool diag;
+    bool check_true_rank;
+
+    mat_gen_info(int64_t m, int64_t n, mat_type t) {
+        rows = m;
+        cols = n;
+        type = t;
+    }
+};
+
 /// Dimensions m and n may change if we want the diagonal matrix of rank k < min(m, n).
 /// In that case, it would be of size k by k.
 template <typename T, typename RNG>
-void gen_mat_type(
-    int64_t& m, // These may change
-    int64_t& n,
+void mat_gen(
+    mat_gen_info info,
     std::vector<T>& A,
-    int64_t& k,
-    RandBLAS::RNGState<RNG> state,
-    const std::tuple<int, T, bool>& type
+    RandBLAS::RNGState<RNG> state
 ) {
+    // Base parameters
+    int64_t m = info.rows;
+    int64_t n = info.cols;
+    int64_t k = info.rank;
     T* A_dat = A.data();
 
-    switch(std::get<0>(type)) {
+    switch(info.mat_type) {
         /*
         First 3 cases are identical, varying ony in the entry generation function.
         is there a way to propagate the lambda expression or somehowe pass several parameners into a undary function in foreach?
         */
-        case 0:
+        case polynomial:
                 // Generating matrix with polynomially decaying singular values
-                //printf("TEST MATRIX: POLYNOMIAL DECAY sigma_i = (i + 1)^-pow (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::util::gen_poly_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+                RandLAPACK::util::gen_poly_mat(m, n, A, k, info.cond_num, info.diag, state);
                 break;
-        case 1:
+        case exponential:
                 // Generating matrix with exponentially decaying singular values
-                //printf("TEST MATRIX: EXPONENTIAL DECAY sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1)\n");
-                RandLAPACK::util::gen_exp_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+                RandLAPACK::util::gen_exp_mat(m, n, A, k, info.cond_num, info.diag, state);
                 break;
-        case 2: {
-                // A = [A A]
-                //printf("TEST MATRIX: A = [A A]\n");
-                RandBLAS::DenseDist D{.n_rows = m, .n_cols = k};
-                RandBLAS::fill_dense(D, A_dat, state);
-                if (2 * k <= n)
-                {
-                    blas::copy(m * (n / 2), &A_dat[0], 1, &A_dat[(n / 2) * m], 1);
-                }
-            }
             break;
-        case 3:
-                // Zero matrix
-                //printf("TEST MATRIX: ZERO\n");
-                break;
-        case 4: {
-                // Random diagonal A of rank k
-                //printf("TEST MATRIX: GAUSSIAN RANDOM DIAGONAL\n");
-                std::vector<T> buf(k, 0.0);
-                RandBLAS::DenseDist D{.n_rows = k, .n_cols = 1};
-                RandBLAS::fill_dense(D, buf.data(), state);
-                // Fills the first k diagonal elements
-                diag(m, n, buf, k, A);
-            }
-            break;
-        case 5: {
-                // A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n
-                // In the case below, sigma = 1 | 0.5
-                //printf("TEST MATRIX: A = diag(sigma), where sigma_1 = ... = sigma_l > sigma_{l + 1} = ... = sigma_n\n");
-                std::vector<T> buf(n, 1.0);
-                std::for_each(buf.begin() + (n / 2), buf.end(),
-                    // Lambda expression begins
-                    [](T& entry)
-                    {
-                            entry -= 0.5;
-                    }
-                );
-                diag(m, n, buf, n, A);
-            }
-            break;
-        case 6: {
+        case gaussian: {
                 // Gaussian random matrix
-                //printf("TEST MATRIX: GAUSSIAN RANDOM\n");
                 RandBLAS::DenseDist D{.n_rows = m, .n_cols = n};
                 RandBLAS::fill_dense(D, A_dat, state);
             }
             break;
-        case 7: {
+        case step: {
                 // Generating matrix with a staircase-like spectrum
-                RandLAPACK::util::gen_step_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+                RandLAPACK::util::gen_step_mat(m, n, A, k, info.cond_num, info.diag, state);
             }    
             break;
-        case 8: {
+        case spiked: {
                 // This matrix may be numerically rank deficient
-                RandLAPACK::util::gen_spiked_mat(m, n, A, std::get<1>(type), state);
-                if(std::get<2>(type))
+                RandLAPACK::util::gen_spiked_mat(m, n, A, info.scaling, state);
+                if(info.check_true_rank)
                     k = rank_check(m, n, A);
             }
             break;
-        case 9: {
+        case oleg_advers: {
                 // This matrix may be numerically rank deficient
-                RandLAPACK::util::gen_oleg_adversarial_mat(m, n, A, std::get<1>(type), state);
-                if(std::get<2>(type))
+                RandLAPACK::util::gen_oleg_adversarial_mat(m, n, A, info.scaling, state);
+                if(info.check_true_rank)
                     k = rank_check(m, n, A);
             }
             break;
-        case 10: {
+        case bad_cholqr: {
                 // Per Oleg's suggestion, this is supposed to make QB fail with CholQR for orth/stab
-                RandLAPACK::util::gen_bad_cholqr_mat(m, n, A, k, std::get<1>(type), std::get<2>(type), state);
+                RandLAPACK::util::gen_bad_cholqr_mat(m, n, A, k, info.cond_num, info.diag, state);
             }
             break;
         default:

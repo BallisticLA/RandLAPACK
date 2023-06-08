@@ -274,30 +274,6 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }
 
-TEST_F(TestQB, Rand_diag_general)
-{
-    int64_t m = 100;
-    int64_t n = 100;
-    int64_t k = 50;
-    int64_t p = 5;
-    int64_t passes_per_iteration = 1;
-    int64_t block_sz = 2;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::RNGState();
-
-    //Subroutine parameters
-    bool verbosity = false;
-    bool cond_check = true;
-    bool orth_check = true;
-
-    QBTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
-    
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
-    svd_and_copy_computational_helper<double>(all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
-}
-
 TEST_F(TestQB, Polynomial_Decay_zero_tol1)
 {
     int64_t m = 100;
