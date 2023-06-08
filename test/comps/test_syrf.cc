@@ -1,6 +1,7 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_gen.hh"
 
 #include <RandBLAS.hh>
 
@@ -154,10 +155,10 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
 
     SYRFTestData<double> all_data(m, k);
 
-    RandLAPACK::util::mat_gen_info<double> m_info(m, m, RandLAPACK::util::polynomial);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
-    RandLAPACK::util::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
@@ -178,10 +179,10 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
 
     SYRFTestData<double> all_data(m, k);
 
-    RandLAPACK::util::mat_gen_info<double> m_info(m, m, RandLAPACK::util::polynomial);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
-    RandLAPACK::util::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);

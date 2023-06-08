@@ -1,6 +1,7 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_gen.hh"
 
 #include <RandBLAS.hh>
 
@@ -109,10 +110,10 @@ TEST_F(TestOrth, Test_CholQRQ)
     // Orthogonalization Constructor
     RandLAPACK::CholQRQ<double> CholQRQ(false, false);
 
-    RandLAPACK::util::mat_gen_info<double> m_info(m, n, RandLAPACK::util::polynomial);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
-    RandLAPACK::util::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     sketch_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
     test_orth_sketch<double, r123::Philox4x32>(all_data, CholQRQ);
