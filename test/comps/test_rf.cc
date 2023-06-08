@@ -269,10 +269,10 @@ TEST_F(TestRF, Polynomial_Decay_general2)
 
 TEST_F(TestRF, Polynomial_Decay_Krylov)
 {
-    int64_t m = 10;
-    int64_t n = 10;
-    int64_t k = 10;
-    int64_t p = 4;
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
     int64_t passes_per_iteration = 1;
     auto state = RandBLAS::RNGState();
 
@@ -284,9 +284,6 @@ TEST_F(TestRF, Polynomial_Decay_Krylov)
     algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
     test_RF_krylov<double, r123::Philox4x32>(all_data, all_algs);
