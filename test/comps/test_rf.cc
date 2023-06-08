@@ -67,7 +67,7 @@ class TestRF : public ::testing::Test
 
     template <typename T, typename RNG>
     struct algorithm_objects_krylov {
-        RandLAPACK::PLUL<T> Stab;
+        RandLAPACK::HQRQ<T> Stab;
         RandLAPACK::HQRQ<T> Orth;
         RandLAPACK::BK<T, RNG> RF;
 
@@ -284,6 +284,9 @@ TEST_F(TestRF, Polynomial_Decay_Krylov)
     algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
     test_RF_krylov<double, r123::Philox4x32>(all_data, all_algs);

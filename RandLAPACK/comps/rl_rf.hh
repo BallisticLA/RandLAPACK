@@ -254,6 +254,9 @@ int BK<T, RNG>::call(
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, numcols, m, 1.0, A_dat, m, Q_dat + offset * (iters_done - 1), m, 0.0, Work_dat, n);
         ++p_done;
 
+        char buf_space [] = "WORKSPACE";
+         RandBLAS::util::print_colmaj(n, k, Work_dat, buf_space);
+
         // Optional condition number check
         if(this->cond_check) {
             RandLAPACK::util::upsize(n * k, this->Work_2);
