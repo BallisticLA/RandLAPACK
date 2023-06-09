@@ -166,7 +166,6 @@ T* upsize(
 
 
 /// Changes the number of rows of a column-major matrix.
-/// Resulting array is to be k by n - THIS IS SIZING DOWN
 template <typename T>
 T* row_resize(
     int64_t m,
