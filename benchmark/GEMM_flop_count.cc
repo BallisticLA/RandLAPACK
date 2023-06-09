@@ -34,8 +34,9 @@ test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
         T* B_dat = B.data();
         T* C_dat = C.data();
 
-        RandLAPACK::util::gen_mat_type(k, k, A, k, state, std::tuple(6, 0., false));
-        RandLAPACK::util::gen_mat_type(k, k, B, k, state, std::tuple(6, 0., false));
+        RandLAPACK::gen::mat_gen_info<double> m_info(k, k, RandLAPACK::gen::gaussian);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B, state);
 
         // Get the timing
         auto start = high_resolution_clock::now();

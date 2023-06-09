@@ -20,11 +20,12 @@ If the required folder structure does not exist, the files will not be saved.
 typedef std::pair<std::vector<double>, std::vector<double>>  vector_pair;
 
 template <typename T, typename RNG>
-static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::RNGState<RNG> state) {
+static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int64_t p, int64_t block_sz, T tol, RandLAPACK::gen::mat_gen_info<T>& m_info, RandBLAS::RNGState<RNG> state) {
 
     // For running QB
     std::vector<T> A(m * n, 0.0);
-    RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
 
     int64_t size = m * n;
     // Adjust the expected rank
@@ -79,7 +80,7 @@ static vector_pair test_QB2_plot_helper_run(int64_t m, int64_t n, int64_t k, int
 }
 
 template <typename T, typename RNG>
-static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, int mat_type, T decay, bool diagon, std::string path_RF, std::string path_RS, RandBLAS::RNGState<RNG> state)
+static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t max_b_sz, int64_t p, int64_t max_p, RandLAPACK::gen::mat_gen_info<T>& m_info, std::string path_RF, std::string path_RS, RandBLAS::RNGState<RNG> state)
 {
     printf("|==================================TEST QB2 K PLOT BEGIN==================================|\n");
 
@@ -127,7 +128,7 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
             
                 for (int i = 1; i < (runs + 1); ++i) {
                     // Grab the vetcor of condition numbers
-                    vector_pair cond_nums = test_QB2_plot_helper_run<T>(k, k, k, p, block_sz, 0, std::make_tuple(mat_type, decay, diagon), state);
+                    vector_pair cond_nums = test_QB2_plot_helper_run<T>(k, k, k, p, block_sz, 0, m_info, state);
                     // Fill RF
                     blas::copy(v_RF_sz, cond_nums.first.data(), 1, all_vecs_RF_dat + (v_RF_sz * i), 1);
                     // Fill RS
@@ -137,8 +138,8 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
                 }
                 
                 // Save array as .dat file - generic plot
-                std::string full_path_RF = path_RF + "test_RF_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
-                std::string full_path_RS = path_RS + "test_RS_" + std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
+                std::string full_path_RF = path_RF + "test_RF_"; //+ std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
+                std::string full_path_RS = path_RS + "test_RS_"; //+ std::to_string(k) + "_" + std::to_string(block_sz) + "_" + std::to_string(p) + "_" + std::to_string(int(decay)) + ".dat";
 
                 std::ofstream file_RF(full_path_RF);
                 //unfortunately, cant do below with foreach
@@ -170,8 +171,11 @@ static void test_QB2_plot(int64_t k, int64_t max_k, int64_t block_sz, int64_t ma
 int main() 
 {   
     auto state = RandBLAS::RNGState();
+    RandLAPACK::gen::mat_gen_info<double> m_info(2048, 2048, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    
     // Slow_decay
-    test_QB2_plot<double, r123::Philox4x32>(2048, 2048, 256, 256, 2, 2, 0, 2, true, "../", "../", state);
+    test_QB2_plot<double, r123::Philox4x32>(2048, 2048, 256, 256, 2, 2, m_info, "../", "../", state);
     // Fast decay
-    test_QB2_plot<double, r123::Philox4x32>(1024, 2048, 256, 256, 0, 2, 0, 0.5, true, "../", "../", state);
+    test_QB2_plot<double, r123::Philox4x32>(1024, 2048, 256, 256, 0, 2, m_info, "../", "../", state);
 }

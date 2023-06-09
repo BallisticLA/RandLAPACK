@@ -17,7 +17,7 @@ If the required folder structure does not exist, the files will not be saved.
 */
 
 template <typename T, typename RNG>
-    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, const std::tuple<int, T, bool>& mat_type, RandBLAS::RNGState<RNG> state, int test_num, std::string path) {
+    static void test_CQRRPT_approx_qual(int64_t m, int64_t n, int64_t k, int64_t d, int64_t nnz, T tol, RandLAPACK::gen::mat_gen_info<T>& m_info, RandBLAS::RNGState<RNG> state, int test_num, std::string path) {
         
         printf("/-----------------------------------------CQRRPT ACCURACY BENCHMARK START-----------------------------------------/\n");
         
@@ -28,7 +28,8 @@ template <typename T, typename RNG>
         std::vector<int64_t> J(n, 0);
 
         // Random Gaussian test matrix
-        RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
+        m_info.rank = k;
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
 
         std::vector<T> A_hat(size, 0.0);
         std::vector<T> A_1(size, 0.0);
@@ -65,8 +66,8 @@ template <typename T, typename RNG>
                                 + "_k_"           + std::to_string(k) 
                                 + "_d_"           + std::to_string(d) 
                                 + "_log10(tol)_"  + std::to_string(long(log10(tol)))
-                                + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                + "_cond_"        + std::to_string(long(std::get<1>(mat_type)))
+                                + "_mat_type_"    + std::to_string(m_info.m_type)
+                                + "_cond_"        + std::to_string(m_info.cond_num)
                                 + "_nnz_"         + std::to_string(nnz)
                                 + "_OMP_threads_" + std::to_string(36) 
                                 + ".dat", std::ofstream::out | std::ofstream::trunc);
@@ -78,8 +79,8 @@ template <typename T, typename RNG>
                                             + "_k_"           + std::to_string(k) 
                                             + "_d_"           + std::to_string(d) 
                                             + "_log10(tol)_"  + std::to_string(long(log10(tol)))
-                                            + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                            + "_cond_"        + std::to_string(long(std::get<1>(mat_type)))
+                                            + "_mat_type_"    + std::to_string(m_info.m_type)
+                                            + "_cond_"        + std::to_string(m_info.cond_num)
                                             + "_nnz_"         + std::to_string(nnz)
                                             + "_OMP_threads_" + std::to_string(36) 
                                             + ".dat", std::fstream::app);
@@ -127,21 +128,21 @@ template <typename T, typename RNG>
                                 + "_k_"           + std::to_string(k) 
                                 + "_d_"           + std::to_string(d) 
                                 + "_log10(tol)_"  + std::to_string(long(log10(tol)))
-                                + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                + "_cond_"        + std::to_string(long(std::get<1>(mat_type)))
+                                + "_mat_type_"    + std::to_string(m_info.m_type)
+                                + "_cond_"        + std::to_string(m_info.cond_num)
                                 + "_nnz_"         + std::to_string(nnz)
                                 + "_OMP_threads_" + std::to_string(36) 
                                 + ".dat", std::ofstream::out | std::ofstream::trunc);
                 ofs.close();
 
                 // Open a new file
-                std::fstream file(path + "r_s_ratio_m_"    + std::to_string(m) 
+                std::fstream file(path + "r_s_ratio_m_"   + std::to_string(m) 
                                         + "_n_"           + std::to_string(n) 
                                         + "_k_"           + std::to_string(k) 
                                         + "_d_"           + std::to_string(d) 
                                         + "_log10(tol)_"  + std::to_string(long(log10(tol)))
-                                        + "_mat_type_"    + std::to_string(std::get<0>(mat_type))
-                                        + "_cond_"        + std::to_string(long(std::get<1>(mat_type)))
+                                        + "_mat_type_"    + std::to_string(m_info.m_type)
+                                        + "_cond_"        + std::to_string(m_info.cond_num)
                                         + "_nnz_"         + std::to_string(nnz)
                                         + "_OMP_threads_" + std::to_string(36) 
                                         + ".dat", std::fstream::app);
@@ -175,7 +176,9 @@ int main() {
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     //test_CQRRPT_approx_qual<double>(131072, 2000, 2000, 2000, 1, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     // Spiked spectrum *V good params
-    test_CQRRPT_approx_qual<double, r123::Philox4x32>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
-    test_CQRRPT_approx_qual<double, r123::Philox4x32>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), std::make_tuple(8, 1e10, false), state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
+    RandLAPACK::gen::mat_gen_info<double> m_info(131072, 2000, RandLAPACK::gen::spiked);
+    m_info.cond_num = 1e10;
+    test_CQRRPT_approx_qual<double, r123::Philox4x32>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), m_info, state, 1, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
+    test_CQRRPT_approx_qual<double, r123::Philox4x32>(131072, 2000, 2000, 6000, 4, std::numeric_limits<double>::epsilon(), m_info, state, 2, "../testing/RandLAPACK-benchmarking/QR/accuracy/raw_data/");
     return 0;
 }

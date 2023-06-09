@@ -30,7 +30,7 @@ log_info(int64_t rows,
             T tol,
             int64_t nnz, 
             int64_t num_threads,
-            const std::tuple<int, T, bool>& mat_type,
+            RandLAPACK::gen::mat_gen_info<T>& m_info,
             T saso_time, 
             T qrcp_time, 
             T rank_reveal_time, 
@@ -53,8 +53,8 @@ log_info(int64_t rows,
                                         + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
                                         + "_k_multiplier_"     + std::to_string(k_multiplier)
                                         + "_log10(tol)_"       + std::to_string(long(log10(tol)))
-                                        + "_mat_type_"         + std::to_string(std::get<0>(mat_type))
-                                        + "_cond_"             + std::to_string(long(std::get<1>(mat_type)))
+                                        + "_mat_type_"         + std::to_string(m_info.m_type)
+                                        + "_cond_"             + std::to_string(m_info.cond_num)
                                         + "_nnz_"              + std::to_string(nnz)
                                         + "_runs_per_sz_"      + std::to_string(runs)
                                         + "_OMP_threads_"      + std::to_string(num_threads)
@@ -80,7 +80,7 @@ test_speed_helper(int64_t m,
                   T tol, 
                   int64_t nnz, 
                   int64_t num_threads, 
-                  const std::tuple<int, T, bool>& mat_type, 
+                  RandLAPACK::gen::mat_gen_info<T>& m_info, 
                   RandBLAS::RNGState<RNG> state) {
 
     int64_t size  = m * n;
@@ -89,7 +89,9 @@ test_speed_helper(int64_t m,
     std::vector<int64_t> J_1;
 
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
+    m_info.cols = n;
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -147,7 +149,7 @@ test_speed(int r_pow,
            T k_multiplier, 
            T d_multiplier,
            T d_multiplier_max, 
-           const std::tuple<int, T, bool>& mat_type,
+           RandLAPACK::gen::mat_gen_info<T>& m_info,
            std::string path,
            RandBLAS::RNGState<RNG> state) {
     printf("\n/-----------------------------------------EMBEDDING EFFECT BENCHMARK START-----------------------------------------/\n");
@@ -163,8 +165,8 @@ test_speed(int r_pow,
                                 + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
                                 + "_k_multiplier_"     + std::to_string(k_multiplier)
                                 + "_log10(tol)_"       + std::to_string(long(log10(tol)))
-                                + "_mat_type_"         + std::to_string(std::get<0>(mat_type))
-                                + "_cond_"             + std::to_string(long(std::get<1>(mat_type)))
+                                + "_mat_type_"         + std::to_string(m_info.m_type)
+                                + "_cond_"             + std::to_string(m_info.cond_num)
                                 + "_nnz_"              + std::to_string(nnz)
                                 + "_runs_per_sz_"      + std::to_string(runs)
                                 + "_OMP_threads_"      + std::to_string(num_threads) 
@@ -177,8 +179,8 @@ test_speed(int r_pow,
                                 + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
                                 + "_k_multiplier_"     + std::to_string(k_multiplier)
                                 + "_log10(tol)_"       + std::to_string(long(log10(tol)))
-                                + "_mat_type_"         + std::to_string(std::get<0>(mat_type))
-                                + "_cond_"             + std::to_string(long(std::get<1>(mat_type)))
+                                + "_mat_type_"         + std::to_string(m_info.m_type)
+                                + "_cond_"             + std::to_string(m_info.cond_num)
                                 + "_nnz_"              + std::to_string(nnz)
                                 + "_runs_per_sz_"      + std::to_string(runs)
                                 + "_OMP_threads_"      + std::to_string(num_threads)
@@ -191,8 +193,8 @@ test_speed(int r_pow,
                                 + "_d_multiplier_max_" + std::to_string(d_multiplier_max)
                                 + "_k_multiplier_"     + std::to_string(k_multiplier)
                                 + "_log10(tol)_"       + std::to_string(long(log10(tol)))
-                                + "_mat_type_"         + std::to_string(std::get<0>(mat_type))
-                                + "_cond_"             + std::to_string(long(std::get<1>(mat_type)))
+                                + "_mat_type_"         + std::to_string(m_info.m_type)
+                                + "_cond_"             + std::to_string(m_info.cond_num)
                                 + "_nnz_"              + std::to_string(nnz)
                                 + "_runs_per_sz_"      + std::to_string(runs)
                                 + "_OMP_threads_"      + std::to_string(num_threads)
@@ -238,7 +240,7 @@ test_speed(int r_pow,
 
         curr_runs = runs + initialization;
         for(int i = 0; i < curr_runs; ++i) {
-            res = test_speed_helper<T, RNG>(rows, col, d_multiplier * col, k_multiplier * col, tol, nnz, num_threads, mat_type, state);
+            res = test_speed_helper<T, RNG>(rows, col, d_multiplier * col, k_multiplier * col, tol, nnz, num_threads, m_info, state);
 
             // Skip first iteration, as it tends to produce garbage results
             if (!initialization) {
@@ -308,7 +310,7 @@ test_speed(int r_pow,
         other_mean       = (T)t_other       / (T)(curr_runs);
         total_mean       = (T)t_total       / (T)(curr_runs);
         
-        log_info(rows, col, d_multiplier_min, d_multiplier_max, k_multiplier, tol, nnz, num_threads, mat_type, 
+        log_info(rows, col, d_multiplier_min, d_multiplier_max, k_multiplier, tol, nnz, num_threads, m_info, 
                     saso_best,
                     qrcp_best,
                     rank_reveal_best,
@@ -323,7 +325,7 @@ test_speed(int r_pow,
                     runs,
                     path);
 
-        log_info(rows, col, d_multiplier_min, d_multiplier_max, k_multiplier, tol, nnz, num_threads, mat_type, 
+        log_info(rows, col, d_multiplier_min, d_multiplier_max, k_multiplier, tol, nnz, num_threads, m_info, 
                     saso_mean,
                     qrcp_mean,
                     rank_reveal_mean,
@@ -343,11 +345,12 @@ test_speed(int r_pow,
     printf("\n/-----------------------------------------CQRRPT EMBEDDING EFFECT BENCHMARK STOP-----------------------------------------/\n\n");
 }
 
-int main(){
+int main() {
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
     auto state = RandBLAS::RNGState();
-    test_speed<double, r123::Philox4x32>(17, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
-    test_speed<double, r123::Philox4x32>(17, 2048, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
-    test_speed<double, r123::Philox4x32>(17, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, std::make_tuple(6, 0, false), "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
+    RandLAPACK::gen::mat_gen_info<double> m_info(131072, 1024, RandLAPACK::gen::gaussian);
+    test_speed<double, r123::Philox4x32>(17, 1024, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, m_info, "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
+    test_speed<double, r123::Philox4x32>(17, 2048, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, m_info, "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
+    test_speed<double, r123::Philox4x32>(17, 4096, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, 4.0, m_info, "../../testing/RandLAPACK-benchmarking/QR/speed/raw_data/", state);
     return 0;
 }

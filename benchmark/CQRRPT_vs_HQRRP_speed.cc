@@ -31,7 +31,7 @@ log_info(int64_t rows,
            int num_omp_threads,
            int64_t nnz, 
            int64_t num_threads,
-           const std::tuple<int, T, bool>& mat_type,
+           RandLAPACK::gen::mat_gen_info<T>& m_info,
            T cqrrpt_time, 
            T cqrrpt_hqrrp_time, 
            T chol_full_time,
@@ -47,8 +47,8 @@ log_info(int64_t rows,
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
                                     + "_log10(tol)_"     + std::to_string(long(log10(tol)))
                                     + "_hqrrp_block_sz_" + std::to_string(block_sz)
-                                    + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
-                                    + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_mat_type_"       + std::to_string(m_info.m_type)
+                                    + "_cond_"           + std::to_string(m_info.cond_num)
                                     + "_nnz_"            + std::to_string(nnz)
                                     + "_runs_per_sz_"    + std::to_string(runs)
                                     + "_OMP_threads_"    + std::to_string(num_omp_threads) 
@@ -71,7 +71,7 @@ test_speed_helper(int64_t m,
                   int64_t block_sz,
                   int64_t nnz, 
                   int64_t num_threads, 
-                  const std::tuple<int, T, bool>& mat_type, 
+                  RandLAPACK::gen::mat_gen_info<T>& m_info,
                   RandBLAS::RNGState<RNG> state,
                   int apply_to_large) {
     using namespace blas;
@@ -94,10 +94,12 @@ test_speed_helper(int64_t m,
     RandLAPACK::util::upsize(b_dim * n, Res_2);
     
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, state, mat_type);
-
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
+    m_info.rows = b_dim;
+    m_info.cols =  m;
+    m_info.rank = k;
     // Generate random matrix that we will apply Q to
-    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, state, mat_type);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B_1, state);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -168,8 +170,15 @@ test_speed_helper(int64_t m,
     }
 
     //-TEST POINT 1 BEGIN-------------------------------------------------------------------------------------------------------------------------------------------/
-    RandLAPACK::util::gen_mat_type<T>(m, n, A_1, k, state, mat_type);
-    RandLAPACK::util::gen_mat_type<T>(b_dim, m, B_1, b_dim, state, mat_type);
+    // Re-generate data
+    // Generate random matrix
+    m_info.rows = m;
+    m_info.cols = n;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
+    m_info.rows = b_dim;
+    m_info.cols =  m;
+    // Generate random matrix that we will apply Q to
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B_1, state);
     // Pre-allocation for CQRRPT
     auto start_alloc1 = high_resolution_clock::now();
     if(log_times) {
@@ -242,7 +251,7 @@ test_speed(int r_pow,
            T tol, 
            T k_multiplier, 
            T d_multiplier, 
-           const std::tuple<int, T, bool> & mat_type,
+           RandLAPACK::gen::mat_gen_info<T>& m_info,
            int apply_to_large,
            std::string path,
            RandBLAS::RNGState<RNG> state) {
@@ -257,13 +266,13 @@ test_speed(int r_pow,
     for(int r_buf = r_pow; r_buf <= r_pow_max; ++r_buf) {
         int rows = std::pow(2, r_buf);
         std::ofstream ofs;
-        ofs.open(path + "CQRRPT_vs_HQRRP_time_Best_m_" + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_vs_HQRRP_time_Best_m_"   + std::to_string(rows) 
                                     + "_d_multiplier_"   + std::to_string(d_multiplier)
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
                                     + "_log10(tol)_"     + std::to_string(long(log10(tol)))
                                     + "_hqrrp_block_sz_" + std::to_string(block_sz)
-                                    + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
-                                    + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_mat_type_"       + std::to_string(m_info.m_type)
+                                    + "_cond_"           + std::to_string(m_info.cond_num)
                                     + "_nnz_"            + std::to_string(nnz)
                                     + "_runs_per_sz_"    + std::to_string(runs)
                                     + "_OMP_threads_"    + std::to_string(num_omp_threads) 
@@ -272,13 +281,13 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open(path + "CQRRPT_vs_HQRRP_time_Mean_m_" + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_vs_HQRRP_time_Mean_m_"   + std::to_string(rows) 
                                     + "_d_multiplier_"   + std::to_string(d_multiplier)
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
                                     + "_log10(tol)_"     + std::to_string(long(log10(tol)))
                                     + "_hqrrp_block_sz_" + std::to_string(block_sz)
-                                    + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
-                                    + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_mat_type_"       + std::to_string(m_info.m_type)
+                                    + "_cond_"           + std::to_string(m_info.cond_num)
                                     + "_nnz_"            + std::to_string(nnz)
                                     + "_runs_per_sz_"    + std::to_string(runs)
                                     + "_OMP_threads_"    + std::to_string(num_omp_threads) 
@@ -287,13 +296,13 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open(path + "CQRRPT_vs_HQRRP_time_Raw_m_"  + std::to_string(rows) 
+        ofs.open(path + "CQRRPT_vs_HQRRP_time_Raw_m_"    + std::to_string(rows) 
                                     + "_d_multiplier_"   + std::to_string(d_multiplier)
                                     + "_k_multiplier_"   + std::to_string(k_multiplier)
                                     + "_log10(tol)_"     + std::to_string(long(log10(tol)))
                                     + "_hqrrp_block_sz_" + std::to_string(block_sz)
-                                    + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
-                                    + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_mat_type_"       + std::to_string(m_info.m_type)
+                                    + "_cond_"           + std::to_string(m_info.cond_num)
                                     + "_nnz_"            + std::to_string(nnz)
                                     + "_runs_per_sz_"    + std::to_string(runs)
                                     + "_OMP_threads_"    + std::to_string(num_omp_threads) 
@@ -334,7 +343,7 @@ test_speed(int r_pow,
 
             curr_runs = runs + initialization;
             for(int i = 0; i < curr_runs; ++i) {
-                res = test_speed_helper<T, RNG>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, block_sz, nnz, num_threads, mat_type, state, apply_to_large);
+                res = test_speed_helper<T, RNG>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, block_sz, nnz, num_threads, m_info, state, apply_to_large);
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (!initialization) {
@@ -346,13 +355,13 @@ test_speed(int r_pow,
                     t_appl2          += res[5];
                     
                     // Log every run in the raw data file
-                    std::fstream file(path + "CQRRPT_vs_HQRRP_time_Raw_m_" + std::to_string(rows) 
+                    std::fstream file(path + "CQRRPT_vs_HQRRP_time_Raw_m_"   + std::to_string(rows) 
                                                         + "_d_multiplier_"   + std::to_string(d_multiplier)
                                                         + "_k_multiplier_"   + std::to_string(k_multiplier)
                                                         + "_log10(tol)_"     + std::to_string(long(log10(tol)))
                                                         + "_hqrrp_block_sz_" + std::to_string(block_sz)
-                                                        + "_mat_type_"       + std::to_string(std::get<0>(mat_type))
-                                                        + "_cond_"           + std::to_string(long(std::get<1>(mat_type)))
+                                                        + "_mat_type_"       + std::to_string(m_info.m_type)
+                                                        + "_cond_"           + std::to_string(m_info.cond_num)
                                                         + "_nnz_"            + std::to_string(nnz)
                                                         + "_runs_per_sz_"    + std::to_string(runs)
                                                         + "_OMP_threads_"    + std::to_string(num_omp_threads) 
@@ -398,7 +407,7 @@ test_speed(int r_pow,
             cqrrpt_hqrrp_mean    = (T)t_cqrrpt_hqrrp   / (T)(curr_runs);
             appl2_mean           = (T)t_appl2          / (T)(curr_runs);
             
-            log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
+            log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, m_info, 
                      cqrrpt_best,
                      cqrrpt_hqrrp_best,
                      cqrrpt_best       + alloc1_best + appl1_best, 
@@ -408,7 +417,7 @@ test_speed(int r_pow,
                      apply_to_large,
                      path);
 
-            log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, mat_type, 
+            log_info(rows, d_multiplier, k_multiplier, tol, block_sz, num_omp_threads, nnz, num_threads, m_info, 
                      cqrrpt_mean,
                      cqrrpt_hqrrp_mean,
                      cqrrpt_mean       + alloc1_mean + appl1_mean, 
@@ -427,6 +436,7 @@ test_speed(int r_pow,
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename 
     auto state = RandBLAS::RNGState();
-    test_speed<double, r123::Philox4x32>(17, 17, 512, 8192, 5, 32, 36, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
+    RandLAPACK::gen::mat_gen_info<double> m_info(131072, 512, RandLAPACK::gen::gaussian);
+    test_speed<double, r123::Philox4x32>(17, 17, 512, 8192, 5, 32, 36, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, m_info, 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     return 0;
 }

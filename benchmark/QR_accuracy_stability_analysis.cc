@@ -58,7 +58,7 @@ template <typename T, typename RNG>
 static void
 cholqr_helper(int64_t m, 
                   int64_t n, 
-                  const std::tuple<int, T, bool>& mat_type, 
+                  RandLAPACK::gen::mat_gen_info<T>& m_info, 
                   RandBLAS::RNGState<RNG> state) {
 
     std::vector<T> A(m * n, 0.0);
@@ -67,7 +67,7 @@ cholqr_helper(int64_t m,
     std::vector<T> R_sp(n * n, 0.0);
 
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A, n, state, mat_type);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
     RandLAPACK::util::eye(n, n, I_ref);
 
     std::copy(A.data(), A.data() + (m * n), A_hat.data());
@@ -89,7 +89,7 @@ cholqr_helper(int64_t m,
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_dat, m, R_sp_dat, n, -1.0, A_hat_dat, m);
     T norm_A = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
 
-    printf("COND(A^{pre}): %21e\n", std::get<1>(mat_type));
+    printf("COND(A^{pre}): %21e\n", m_info.cond_num);
     printf("FRO NORM OF Q' * Q - I: %e\n", norm_Q);
     printf("FRO NORM OF AP - QR: %15e\n\n", norm_A);
 }
@@ -98,7 +98,7 @@ template <typename T, typename RNG>
 static void
 cqrrpt_helper(int64_t m, 
                 int64_t n, 
-                const std::tuple<int, T, bool>& mat_type, 
+                RandLAPACK::gen::mat_gen_info<T>& m_info, 
                 RandBLAS::RNGState<RNG> state,
                 const std::vector<T>& additional_params) {
 
@@ -112,7 +112,8 @@ cqrrpt_helper(int64_t m,
     std::vector<int64_t> J;
 
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A, true_k, state, mat_type);
+    m_info.rank = true_k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
 
     std::copy(A.data(), A.data() + (m * n), A_1.data());
     std::copy(A.data(), A.data() + (m * n), A_2.data());
@@ -128,7 +129,7 @@ cqrrpt_helper(int64_t m,
     // CQRRPT
     CQRRPT.call(m, n, A, d, R, J);
 
-    printf("COND(A): %27e\n", std::get<1>(mat_type));
+    printf("COND(A): %27e\n", m_info.cond_num);
     printf("COND(A^{pre}): %21e\n", CQRRPT.cond_num_A_pre);
     printf("COND(normc(A^{pre})): %14e\n", CQRRPT.cond_num_A_norm_pre);
     printf("TRUE RANK(A): %14ld\n", true_k);
@@ -149,7 +150,7 @@ template <typename T, typename RNG>
 static void
 scholqr_helper(int64_t m, 
                   int64_t n, 
-                  const std::tuple<int, T, bool>& mat_type, 
+                  RandLAPACK::gen::mat_gen_info<T>& m_info, 
                   RandBLAS::RNGState<RNG> state,
                   const std::vector<T>& additional_params) {
 
@@ -166,7 +167,7 @@ scholqr_helper(int64_t m,
     std::vector<T> ATA_buf(n * n, 0.0);
 
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A, k, state, mat_type);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
 
     std::copy(A.data(), A.data() + (m * n), A_1.data());
     std::copy(A.data(), A.data() + (m * n), A_2.data());
@@ -225,7 +226,7 @@ scholqr_helper(int64_t m,
 
     error_check(m, n, n, norm_A, A_1.data(), A_2.data(), A.data(), ATA1.data(), I_ref.data());
 }
-
+/*
 template <typename T, typename RNG>
 static void 
 test_cond_orth(int row, 
@@ -235,7 +236,7 @@ test_cond_orth(int row,
            T cond_step,
            RandBLAS::RNGState<RNG> state,
            int alg_type,
-           int mat_type_num,
+           RandLAPACK::gen::mat_type m_type,
            std::vector<T> additional_params) {
 
     for (; cond_start <= cond_end; cond_start *= cond_step) {
@@ -244,15 +245,15 @@ test_cond_orth(int row,
         switch(alg_type) {
             case 0:
                     // CholQR
-                    cholqr_helper<T, RNG>(row, col, mat_type, state);
+                    cholqr_helper<T, RNG>(row, col, m_info, state);
                     break;
             case 1:
                     // CQRRPT
-                    cqrrpt_helper<T, RNG>(row, col, mat_type, state, additional_params);
+                    cqrrpt_helper<T, RNG>(row, col, m_info, state, additional_params);
                     break;
             case 2:
                     // sCholQR
-                    scholqr_helper(row, col, mat_type, state, additional_params);
+                    scholqr_helper(row, col, m_info, state, additional_params);
                     break;
             default:
             throw std::runtime_error(std::string("Unrecognized case."));
@@ -260,7 +261,7 @@ test_cond_orth(int row,
         }
     }
 }
-
+*/
 int main(){
     // Run with env OMP_NUM_THREADS=36 numactl --interleave all ./filename  
     auto state = RandBLAS::RNGState();
@@ -286,11 +287,11 @@ int main(){
     // Scaled data Max test
     // Condition number here acts as scaling "sigma"
     
-    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 2000, 1, 4, 1, 1});
-    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 3000, 4, 4, 1, 1});
-    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 4000, 4, 4, 1, 1});
-    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 6000, 4, 4, 1, 1});
-    test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 8000, 4, 4, 1, 1});
+    //test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 2000, 1, 4, 1, 1});
+    //test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 3000, 4, 4, 1, 1});
+    //test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 4000, 4, 4, 1, 1});
+    //test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 6000, 4, 4, 1, 1});
+    //test_cond_orth<double, r123::Philox4x32>(10000, 2000, 10e15, 10e15, 10, state, 1, 9, {2000, 8000, 4, 4, 1, 1});
     
     // Oleg test
     // Condition number here acts as scaling "sigma"

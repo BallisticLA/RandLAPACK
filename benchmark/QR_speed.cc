@@ -132,7 +132,7 @@ log_info(int64_t rows,
            T tol,
            int64_t nnz, 
            int64_t num_threads,
-           const std::tuple<int, T, bool>& mat_type,
+           RandLAPACK::gen::mat_gen_info<T>& m_info,
            T cqrrpt_time, 
            T geqp3_time, 
            T geqr_time, 
@@ -155,8 +155,8 @@ log_info(int64_t rows,
                                 + "_d_multiplier_" + std::to_string(d_multiplier)
                                 + "_k_multiplier_" + std::to_string(k_multiplier)
                                 + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                + "_mat_type_"       + std::to_string(m_info.m_type)
+                                + "_cond_"           + std::to_string(m_info.cond_num)
                                 + "_nnz_"          + std::to_string(nnz)
                                 + "_runs_per_sz_"  + std::to_string(runs)
                                 + "_OMP_threads_"  + std::to_string(num_threads) 
@@ -200,7 +200,7 @@ test_speed_helper(int64_t m,
                   T tol, 
                   int64_t nnz, 
                   int64_t num_threads, 
-                  const std::tuple<int, T, bool>& mat_type, 
+                  RandLAPACK::gen::mat_gen_info<T>& m_info, 
                   RandBLAS::RNGState<RNG> state,
                   int apply_to_large) {
 
@@ -224,10 +224,14 @@ test_speed_helper(int64_t m,
     std::vector<T> ATA;
 
     // Generate random matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
 
     // Generate random matrix that we will apply Q to
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
+    m_info.rows = b_dim;
+    m_info.cols = m;
+    m_info.rank = b_dim;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B_1, state);
 
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
@@ -292,7 +296,10 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 1 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
+    m_info.rows = m;
+    m_info.cols = n;
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
 
     // Pre-allocation for GEQP3
     auto start_alloc2 = high_resolution_clock::now();
@@ -309,7 +316,10 @@ test_speed_helper(int64_t m,
 
     // Apply Q_2
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
+    m_info.rows = b_dim;
+    m_info.cols = m;
+    m_info.rank = b_dim;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B_1, state);
     auto start_appl2 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_2.data(), B_1.data(), b_dim);
     auto stop_appl2 = high_resolution_clock::now();
@@ -317,7 +327,10 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 2 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
+    m_info.rows = m;
+    m_info.cols = n;
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
 
     // Pre-allocation for GEQR
     auto start_alloc3 = high_resolution_clock::now();
@@ -348,7 +361,10 @@ test_speed_helper(int64_t m,
 
     // Apply Q_3
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
+    m_info.rows = b_dim;
+    m_info.cols = m;
+    m_info.rank = b_dim;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B_1, state);
     auto start_appl3 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, t_3.data(), B_1.data(), b_dim);
     auto stop_appl3 = high_resolution_clock::now();
@@ -364,7 +380,10 @@ test_speed_helper(int64_t m,
 
     // Apply Q_4
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
+    m_info.rows = b_dim;
+    m_info.cols = m;
+    m_info.rank = b_dim;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B_1, state);
     auto start_appl4 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_3.data(), B_1.data(), b_dim);
     auto stop_appl4 = high_resolution_clock::now();
@@ -372,7 +391,10 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 3&4 END-------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
+    m_info.rows = m;
+    m_info.cols = n;
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
 
     // Pre-allocation for GEQRF
     auto start_alloc5 = high_resolution_clock::now();
@@ -388,7 +410,10 @@ test_speed_helper(int64_t m,
 
     // Apply Q_5
     // Re-generate the random matrix
-    RandLAPACK::util::gen_mat_type(b_dim, m, B_1, b_dim, state, mat_type);
+    m_info.rows = b_dim;
+    m_info.cols = m;
+    m_info.rank = b_dim;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B_1, state);
     auto start_appl5 = high_resolution_clock::now();
     lapack::ormqr(Side::Right, Op::NoTrans, b_dim, m, b_dim, A_1.data(), m, tau_4.data(), B_1.data(), b_dim);
     auto stop_appl5 = high_resolution_clock::now();
@@ -396,7 +421,10 @@ test_speed_helper(int64_t m,
 
     //-TEST POINT 5 END---------------------------------------------------------------------------------------------------------------------------------------------/
     // Re-generate matrix
-    RandLAPACK::util::gen_mat_type(m, n, A_1, k, state, mat_type);
+    m_info.rows = m;
+    m_info.cols = n;
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A_1, state);
 
     // Pre-allocation for Shifted Cholesky QR 3
     auto start_alloc6 = high_resolution_clock::now();
@@ -467,7 +495,7 @@ test_speed(int r_pow,
            T tol, 
            T k_multiplier, 
            T d_multiplier, 
-           const std::tuple<int, T, bool> & mat_type,
+           RandLAPACK::gen::mat_gen_info<T>& m_info,
            int apply_to_large,
            std::string path,
            RandBLAS::RNGState<RNG> state) {
@@ -485,8 +513,8 @@ test_speed(int r_pow,
                                     + "_d_multiplier_" + std::to_string(d_multiplier)
                                     + "_k_multiplier_" + std::to_string(k_multiplier)
                                     + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                    + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_mat_type_"       + std::to_string(m_info.m_type)
+                                    + "_cond_"           + std::to_string(m_info.cond_num)
                                     + "_nnz_"          + std::to_string(nnz)
                                     + "_runs_per_sz_"  + std::to_string(runs)
                                     + "_OMP_threads_"  + std::to_string(num_threads) 
@@ -498,8 +526,8 @@ test_speed(int r_pow,
                                     + "_d_multiplier_" + std::to_string(d_multiplier)
                                     + "_k_multiplier_" + std::to_string(k_multiplier)
                                     + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                    + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
+                                    + "_mat_type_"       + std::to_string(m_info.m_type)
+                                    + "_cond_"           + std::to_string(m_info.cond_num)
                                     + "_nnz_"          + std::to_string(nnz)
                                     + "_runs_per_sz_"  + std::to_string(runs)
                                     + "_OMP_threads_"  + std::to_string(num_threads) 
@@ -507,15 +535,15 @@ test_speed(int r_pow,
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
 
-        ofs.open(path + "CQRRPT_comp_time_Raw_m_"    + std::to_string(rows) 
-                                    + "_d_multiplier_" + std::to_string(d_multiplier)
-                                    + "_k_multiplier_" + std::to_string(k_multiplier)
-                                    + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                    + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                    + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                    + "_nnz_"          + std::to_string(nnz)
-                                    + "_runs_per_sz_"  + std::to_string(runs)
-                                    + "_OMP_threads_"  + std::to_string(num_threads) 
+        ofs.open(path + "CQRRPT_comp_time_Raw_m_"        + std::to_string(rows) 
+                                    + "_d_multiplier_"   + std::to_string(d_multiplier)
+                                    + "_k_multiplier_"   + std::to_string(k_multiplier)
+                                    + "_log10(tol)_"     + std::to_string(long(log10(tol)))
+                                    + "_mat_type_"       + std::to_string(m_info.m_type)
+                                    + "_cond_"           + std::to_string(m_info.cond_num)
+                                    + "_nnz_"            + std::to_string(nnz)
+                                    + "_runs_per_sz_"    + std::to_string(runs)
+                                    + "_OMP_threads_"    + std::to_string(num_threads) 
                                     + "_apply_to_large_" + std::to_string(apply_to_large)
                                     + ".dat", std::ofstream::out | std::ofstream::trunc);
         ofs.close();
@@ -588,7 +616,7 @@ test_speed(int r_pow,
 
             curr_runs = runs + initialization;
             for(int i = 0; i < curr_runs; ++i) {
-                res = test_speed_helper<T, RNG>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, mat_type, state, apply_to_large);
+                res = test_speed_helper<T, RNG>(rows, cols, d_multiplier * cols, k_multiplier * cols, tol, nnz, num_threads, m_info, state, apply_to_large);
 
                 // Skip first iteration, as it tends to produce garbage results
                 if (!initialization) {
@@ -612,15 +640,15 @@ test_speed(int r_pow,
                     t_appl6    += res[17];
                     
                     // Log every run in the raw data file
-                    std::fstream file(path + "CQRRPT_comp_time_Raw_m_"   + std::to_string(rows) 
-                                                        + "_d_multiplier_" + std::to_string(d_multiplier)
-                                                        + "_k_multiplier_" + std::to_string(k_multiplier)
-                                                        + "_log10(tol)_"   + std::to_string(long(log10(tol)))
-                                                        + "_mat_type_"     + std::to_string(std::get<0>(mat_type))
-                                                        + "_cond_"         + std::to_string(long(std::get<1>(mat_type)))
-                                                        + "_nnz_"          + std::to_string(nnz)
-                                                        + "_runs_per_sz_"  + std::to_string(runs)
-                                                        + "_OMP_threads_"  + std::to_string(num_threads) 
+                    std::fstream file(path + "CQRRPT_comp_time_Raw_m_"       + std::to_string(rows) 
+                                                        + "_d_multiplier_"   + std::to_string(d_multiplier)
+                                                        + "_k_multiplier_"   + std::to_string(k_multiplier)
+                                                        + "_log10(tol)_"     + std::to_string(long(log10(tol)))
+                                                        + "_mat_type_"       + std::to_string(m_info.m_type)
+                                                        + "_cond_"           + std::to_string(m_info.cond_num)
+                                                        + "_nnz_"            + std::to_string(nnz)
+                                                        + "_runs_per_sz_"    + std::to_string(runs)
+                                                        + "_OMP_threads_"    + std::to_string(num_threads) 
                                                         + "_apply_to_large_" + std::to_string(apply_to_large)
                                                         + ".dat", std::fstream::app);
                     file << res[0]  << "  " 
@@ -721,7 +749,7 @@ test_speed(int r_pow,
             scholqr_mean  = (T)t_scholqr / (T)(curr_runs);
             appl6_mean    = (T)t_appl6   / (T)(curr_runs);
             
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
+            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, m_info, 
                      cqrrpt_best,
                      geqp3_best,
                      geqr_best,
@@ -739,7 +767,7 @@ test_speed(int r_pow,
                      apply_to_large,
                      path);
 
-            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, mat_type, 
+            log_info(rows, cols, d_multiplier, k_multiplier, tol, nnz, num_threads, m_info, 
                      cqrrpt_mean,
                      geqp3_mean,
                      geqr_mean,
@@ -768,6 +796,7 @@ int main(){
     auto state = RandBLAS::RNGState();
     
     //test_speed<double>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 1, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/apply_Q_to_large/", state);
-    test_speed<double, r123::Philox4x32>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, std::make_tuple(6, 0, false), 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
+    RandLAPACK::gen::mat_gen_info<double> m_info(131072, 512, RandLAPACK::gen::gaussian);
+    test_speed<double, r123::Philox4x32>(17, 17, 512, 8192, 5, 1, 36, std::pow(std::numeric_limits<double>::epsilon(), 0.75), 1.0, 1.0, m_info, 0, "../../testing/RandLAPACK-Testing/test_benchmark/QR/speed/raw_data/", state);
     return 0;
 }

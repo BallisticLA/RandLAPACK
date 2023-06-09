@@ -47,7 +47,7 @@ class GEQR : public RandLAPACK::Stabilization<T> {
 /// Performs a QR factorization. Outputs the implicitly-stored Q and R factors.
 /// This routine is only defined in Intel MKL.
 ///
-/// Templated for `float` and `double` types.
+/// Templated for `double` and `double` types.
 ///
 /// @param[in] m
 ///     The number of rows in the matrix A.
@@ -107,7 +107,8 @@ test_speed_helper(int64_t m, int64_t n, RandBLAS::RNGState<RNG> state) {
     T* A_cpy_3_dat = A_cpy_3.data();
 
     // Random Gaussian test matrix
-    RandLAPACK::util::gen_mat_type(m, n, A, n, state, std::tuple(6, 0., false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
     // Make a copy
     std::copy(A_dat, A_dat + size, A_cpy_dat);
     std::copy(A_dat, A_dat + size, A_cpy_2_dat);
