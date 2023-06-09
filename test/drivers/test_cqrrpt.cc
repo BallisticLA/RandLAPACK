@@ -145,6 +145,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
@@ -169,6 +170,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);

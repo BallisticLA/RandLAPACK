@@ -115,6 +115,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_double_precision) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = n;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
     
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
@@ -147,6 +148,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
     RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = n;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A, state);
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);

@@ -246,9 +246,10 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     QBTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
 
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::exponential);
     m_info.cond_num = 2025;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
     
     svd_and_copy_computational_helper<double>(all_data);
@@ -277,6 +278,7 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 6.7;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     svd_and_copy_computational_helper<double>(all_data);
@@ -305,6 +307,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
@@ -333,6 +336,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);

@@ -36,6 +36,7 @@ struct mat_gen_info {
     mat_type m_type;
     T cond_num;
     T scaling;
+    T exponent;
     bool diag;
     bool check_true_rank;
 
@@ -48,6 +49,7 @@ struct mat_gen_info {
         rank = n;
         cond_num = 1.0;
         scaling = 1.0;
+        exponent = 1.0;
     }
 };
 
@@ -62,7 +64,6 @@ void gen_singvec(
     std::vector<T>& S,
     RandBLAS::RNGState<RNG> state
 ) {
-
     std::vector<T> U(m * k, 0.0);
     std::vector<T> V(n * k, 0.0);
     std::vector<T> tau(k, 2.0);
@@ -86,9 +87,8 @@ void gen_singvec(
     lapack::ungqr(n, k, k, V_dat, n, tau_dat);
 
     blas::copy(m * k, U_dat, 1, Gemm_buf_dat, 1);
-    for(int i = 0; i < k; ++i) {
+    for(int i = 0; i < k; ++i)
         blas::scal(m, S[i + k * i], &Gemm_buf_dat[i * m], 1);
-    }
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
 }
@@ -108,6 +108,7 @@ void gen_poly_mat(
     std::vector<T>& A,
     int64_t k,
     T cond,
+    T p,
     bool diagon,
     RandBLAS::RNGState<RNG> state
 ) {
@@ -116,19 +117,18 @@ void gen_poly_mat(
     std::vector<T> s(k, 1.0);
     std::vector<T> S(k * k, 0.0);
 
-    // The first 10% of the singular values will be =1
+    // The first 10% of the singular values will be equal to one
     int offset = (int) floor(k * 0.1);
-
-    // We have a set condition number, so need to find an exponent parameter
-    // The higher the value, the faster the decay
-    T t = log2(cond) / log2(k - offset);
-
-    T cnt = 0.0;
+    T first_entry = 1.0;
+    T last_entry = first_entry / cond;
+    T a = std::pow((std::pow(last_entry, -1 / p) - std::pow(first_entry, -1 / p)) / (k - offset), p);
+    T b = std::pow(a * first_entry, -1 / p) - offset;
     // apply lambda function to every entry of s
     std::for_each(s.begin() + offset, s.end(),
         // Lambda expression begins
-        [&t, &cnt](T& entry) {
-                entry = 1 / std::pow(++cnt, t);
+        [&p, &offset, &a, &b](T& entry) {
+                entry = 1 / (a * std::pow(offset + b, p));
+                ++offset;
         }
     );
 
@@ -409,7 +409,7 @@ void mat_gen(
     switch(info.m_type) {
         case polynomial:
                 // Generating matrix with polynomially decaying singular values
-                RandLAPACK::gen::gen_poly_mat(m, n, A, k, info.cond_num, info.diag, state);
+                RandLAPACK::gen::gen_poly_mat(m, n, A, k, info.cond_num, info.exponent, info.diag, state);
                 break;
         case exponential:
                 // Generating matrix with exponentially decaying singular values

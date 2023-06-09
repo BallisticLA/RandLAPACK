@@ -224,7 +224,7 @@ TEST_F(TestREVD2, Underestimation1) {
     int64_t m = 1000;
     int64_t k = 100;
     int64_t k_start = 1;
-    int64_t rank_expectation = 64;
+    int64_t rank_expectation = 32;
     double norm_A = 0;
     double tol = std::pow(10, -14);
     double err_expectation = std::pow(10, -13);
@@ -248,6 +248,7 @@ TEST_F(TestREVD2, Underestimation1) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 8);
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
@@ -262,7 +263,7 @@ TEST_F(TestREVD2, Underestimation2) {
     int64_t m = 1000;
     int64_t k = 100;
     int64_t k_start = 10;
-    int64_t rank_expectation = 80;
+    int64_t rank_expectation = 40;
     double norm_A = 0;
     double tol = std::pow(10, -14);
     double err_expectation = std::pow(10, -13);
@@ -285,6 +286,7 @@ TEST_F(TestREVD2, Underestimation2) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 8);
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
@@ -322,6 +324,7 @@ TEST_F(TestREVD2, Overestimation1) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
@@ -359,6 +362,7 @@ TEST_F(TestREVD2, Oversetimation2) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
@@ -396,6 +400,7 @@ TEST_F(TestREVD2, Exactness) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
@@ -431,6 +436,7 @@ TEST_F(TestREVD2, Uplo) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.work, state);
 
     uplo_computational_helper<double, RNG>(all_data);

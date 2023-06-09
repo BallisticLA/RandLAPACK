@@ -158,6 +158,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
@@ -182,6 +183,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
