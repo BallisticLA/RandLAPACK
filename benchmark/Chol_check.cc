@@ -13,7 +13,9 @@ chol_check(int64_t m, int64_t k, RandBLAS::RNGState<RNG> state) {
     std::vector<T> A_leading_submat_symm(k * k, 0.0);
     std::vector<T> R_submat(k * k, 0.0);
 
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, A, m, state, std::make_tuple(0, std::pow(10, 8), false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
+    m_info.cond_num = std::pow(10, 8);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
 
     T* A_dat = A.data();
     T* A_leading_submat_symm_dat = A_leading_submat_symm.data();

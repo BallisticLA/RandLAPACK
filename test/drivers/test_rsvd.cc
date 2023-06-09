@@ -1,6 +1,7 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_gen.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -178,7 +179,11 @@ TEST_F(TestRSVD, SimpleTest)
     RSVDTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, block_sz, state);
 
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2, false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
     computational_helper<double>(all_data);
     test_RSVD1_general<double, r123::Philox4x32>(tol, all_data, all_algs);
 }

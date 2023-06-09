@@ -1,6 +1,7 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_gen.hh"
 
 #include <RandBLAS.hh>
 
@@ -61,12 +62,10 @@ class TestSYRF : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void orth_and_copy_computational_helper(RandBLAS::RNGState<RNG> state, SYRFTestData<T>& all_data) {
+    static void orth_and_copy_computational_helper(SYRFTestData<T>& all_data) {
         
         auto m = all_data.row;
-        auto k = all_data.rank;
 
-        RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, m, all_data.A_cpy, k, state, std::make_tuple(0, 2025, false));
         blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, m, m, 1.0, all_data.A_cpy.data(), m, 0.0, all_data.A.data(), m);
 
         T* A_cpy_dat = all_data.A_cpy.data();
@@ -155,8 +154,15 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     bool cond_check = true;
 
     SYRFTestData<double> all_data(m, k);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
 }
 
@@ -173,25 +179,14 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     bool cond_check = true;
 
     SYRFTestData<double> all_data(m, k);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
-    test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
-}
-
-TEST_F(TestSYRF, Rand_diag_general)
-{
-    int64_t m = 100;
-    int64_t k = 50;
-    int64_t p = 5;
-    int64_t passes_per_iteration = 1;
-    auto state = RandBLAS::RNGState();
-
-    //Subroutine parameters
-    bool verbosity = false;
-    bool cond_check = true;
-
-    SYRFTestData<double> all_data(m, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
 }

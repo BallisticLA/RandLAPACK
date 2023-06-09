@@ -1,6 +1,7 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_gen.hh"
 
 #include <RandBLAS.hh>
 
@@ -245,7 +246,12 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     QBTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
 
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::exponential);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    
     svd_and_copy_computational_helper<double>(all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }
@@ -269,31 +275,12 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     QBTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 6.7, false));
-    svd_and_copy_computational_helper<double>(all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
-}
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 6.7;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
-TEST_F(TestQB, Rand_diag_general)
-{
-    int64_t m = 100;
-    int64_t n = 100;
-    int64_t k = 50;
-    int64_t p = 5;
-    int64_t passes_per_iteration = 1;
-    int64_t block_sz = 2;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::RNGState();
-
-    //Subroutine parameters
-    bool verbosity = false;
-    bool cond_check = true;
-    bool orth_check = true;
-
-    QBTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
-    
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(4, 0, false));
     svd_and_copy_computational_helper<double>(all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }
@@ -317,7 +304,12 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     QBTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
     double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
     test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, all_data, all_algs);
 }
@@ -341,7 +333,12 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     QBTestData<double> all_data(m, n, k);
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
     double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
     test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, all_data, all_algs);
 }

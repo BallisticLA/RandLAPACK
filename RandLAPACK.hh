@@ -17,4 +17,7 @@
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_revd2.hh"
 
+// Matrix generators 
+#include "RandLAPACK/rl_gen.hh"
+
 #endif
