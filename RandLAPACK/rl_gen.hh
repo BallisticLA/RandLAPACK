@@ -93,14 +93,12 @@ void gen_singvec(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
 }
 
-/// Generates matrix with the following singular values:
-/// sigma_i = 1 / (i + 1)^pow (first k * 0.2 sigmas = 1
-/// Output matrix is m by n of rank k.
-/// In later case, left and right singular vectors are randomly-generated
-/// and orthogonaized.
-/// Boolean parameter 'diag' signifies whether the matrix is to be
-/// generated as diagonal.
-/// Parameter 'cond' signfies the condition number of a generated matrix.
+/// Generates a matrix with polynomially-decaying spectrum of the following form:
+/// s_i = a(i + b)^p, where p is the user-defined exponent constant, a and b are computed
+/// using p and the user-defined condition number parameter and the first 10 percent of the 
+/// singular values are equal to one.
+/// User can optionally choose for the matrix to be diagonal.
+/// The output matrix has k singular values. 
 template <typename T, typename RNG>
 void gen_poly_mat(
     int64_t& m,
@@ -147,14 +145,11 @@ void gen_poly_mat(
     }
 }
 
-/// Generates matrix with the following singular values:
-/// sigma_i = e^((i + 1) * -pow) (first k * 0.2 sigmas = 1
-/// Output matrix is m by n of rank k.
-/// In later case, left and right singular vectors are randomly-generated
-/// and orthogonaized.
-/// Boolean parameter 'diag' signifies whether the matrix is to be
-/// generated as diagonal.
-/// Parameter 'cond' signfies the condition number of a generated matrix.
+/// Generates a matrix with exponentially-decaying spectrum of the following form:
+/// s_i = e^((i + 1) * -t), where t is computed using the user-defined cndition number parameter;
+/// the first 10 percent of the singular values are equal to one.
+/// User can optionally choose for the matrix to be diagonal.
+/// The output matrix has k singular values. 
 template <typename T, typename RNG>
 void gen_exp_mat(
     int64_t& m,
@@ -451,6 +446,5 @@ void mat_gen(
             break;
     }
 }
-
 }
 #endif
