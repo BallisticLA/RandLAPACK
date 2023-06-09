@@ -14,7 +14,6 @@ using namespace RandLAPACK;
 template <typename T, typename RNG>
 static void 
 test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
-    printf("|===================================TEST SYSTEM FLOPS BEGIN====================================|\n");
     int size = k * k;
 
     // Flops in gemm of given size - overflows
@@ -52,8 +51,6 @@ test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
     }
 
     printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec.\n\n", GFLOPS_rate_best);
-
-    printf("|=====================================TEST SYSTEM FLOPS END====================================|\n");
 }
 
 int main() {

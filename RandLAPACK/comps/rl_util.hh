@@ -20,11 +20,9 @@ void eye(
     int64_t n,
     std::vector<T>& A
 ) {
-    T* A_dat = A.data();
     int64_t min = std::min(m, n);
-    for(int j = 0; j < min; ++j) {
-        A_dat[(m * j) + j] = 1.0;
-    }
+    for(int j = 0; j < min; ++j)
+        A[(m * j) + j] = 1.0;
 }
 
 /// Diagonalization - turns a vector into a diagonal matrix. Overwrites the
@@ -38,9 +36,8 @@ void diag(
     std::vector<T>& S // Assuming S is m by n
 ) {
 
-    if(k > n) {
-        // Throw an error
-    }
+    if(k > std::min(m, n)) 
+        throw std::runtime_error("Incorrect rank parameter.");
     // size of s
     blas::copy(k, s.data(), 1, S.data(), m + 1);
 }
@@ -54,31 +51,10 @@ void extract_diag(
     const std::vector<T>& A,
     std::vector<T>& buf
 ) {
-    const T* A_dat = A.data();
-    if (k == 0) {
-        k = std::min(m, n);
-    }
-    for(int i = 0; i < k; ++i) {
-        buf[i] = A_dat[(i * m) + i];
-    }
-}
-
-/// Displays the first k diagonal elements.
-template <typename T>
-void disp_diag(
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    const std::vector<T>& A
-) {
-    const T* A_dat = A.data();
-    if (k == 0) {
-        k = std::min(m, n);
-    }
-    printf("DISPLAYING THE MAIN DIAGONAL OF A GIVEN MATRIX: \n");
-    for(int i = 0; i < k; ++i) {
-        printf("ELEMENT %d: %f\n", i, *(A_dat + (i * m) + i));
-    }
+    if(k > std::min(m, n)) 
+        throw std::runtime_error("Incorrect rank parameter.");
+    for(int i = 0; i < k; ++i)
+        buf[i] = A[(i * m) + i];
 }
 
 /// Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
@@ -135,7 +111,6 @@ void get_U(
     std::vector<T>& A
 ) {
     T* A_dat = A.data();
-
     for(int i = 0; i < n - 1; ++i) {
         std::fill(&A_dat[i * (m + 1) + 1], &A_dat[(i + 1) * m], 0.0);
     }
@@ -152,9 +127,8 @@ void col_swap(
     std::vector<int64_t> idx
 ) {
 
-    if(k > n) {
-        // Throw error
-    }
+    if(k > std::min(m, n)) 
+        throw std::runtime_error("Incorrect rank parameter.");
 
     int64_t* idx_dat = idx.data();
     T* A_dat = A.data();
@@ -177,7 +151,8 @@ void col_swap(
 }
 
 
-/// Checks if the given size is larger than available. If so, resizes the vector.
+/// Checks if the given size is larger than available. 
+/// If so, resizes the vector.
 template <typename T>
 T* upsize(
     int64_t target_sz,
