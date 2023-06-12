@@ -85,7 +85,7 @@ class TestQB : public ::testing::Test
         RandLAPACK::HQRQ<T> Stab;
         RandLAPACK::HQRQ<T> Orth;
         RandLAPACK::BK<T, RNG> RF;
-        RandLAPACK::CholQRQ<T> Orth_QB;
+        RandLAPACK::HQRQ<T> Orth_QB;
         RandLAPACK::QB<T> QB;
 
         algorithm_objects_krylov(bool verbosity, 
@@ -251,12 +251,12 @@ class TestQB : public ::testing::Test
 
 TEST_F(TestQB, Polynomial_Decay_general1)
 {
-    int64_t m = 100;
-    int64_t n = 100;
-    int64_t k = 100;
+    int64_t m = 10;
+    int64_t n = 10;
+    int64_t k = 10;
     int64_t p = 4;
     int64_t passes_per_iteration = 1;
-    int64_t block_sz = 100;
+    int64_t block_sz = 5;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::RNGState();
     
@@ -269,6 +269,10 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
 
     RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+    
     svd_and_copy_computational_helper<double>(all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }
