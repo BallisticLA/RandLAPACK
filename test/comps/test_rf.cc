@@ -309,4 +309,9 @@ TEST_F(TestRF, Polynomial_Decay2_Krylov)
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
 
     test_RF_krylov<double, r123::Philox4x32>(all_data, all_algs);
+
+    double nrm_A = 1.000000000000090;
+    double nrm_B = 1.000000000000089;
+    printf("%.15e\n", std::sqrt((nrm_A - nrm_B) * (nrm_A + nrm_B)) / nrm_A);
+    
 }

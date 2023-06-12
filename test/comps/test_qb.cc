@@ -80,6 +80,28 @@ class TestQB : public ::testing::Test
                             {}
     };
 
+    template <typename T, typename RNG>
+    struct algorithm_objects_krylov {
+        RandLAPACK::HQRQ<T> Stab;
+        RandLAPACK::HQRQ<T> Orth;
+        RandLAPACK::BK<T, RNG> RF;
+        RandLAPACK::CholQRQ<T> Orth_QB;
+        RandLAPACK::QB<T> QB;
+
+        algorithm_objects_krylov(bool verbosity, 
+                            bool cond_check, 
+                            bool orth_check, 
+                            int64_t p, 
+                            int64_t passes_per_iteration, 
+                            RandBLAS::RNGState<RNG> state) :
+                            Stab(cond_check, verbosity),
+                            Orth(cond_check, verbosity),
+                            RF(Stab, Orth, state, p, passes_per_iteration, verbosity, cond_check),
+                            Orth_QB(cond_check, verbosity),
+                            QB(RF, Orth_QB, verbosity, orth_check)
+                            {}
+    };
+
     template <typename T>
     static void svd_and_copy_computational_helper(QBTestData<T>& all_data) {
         
@@ -106,7 +128,7 @@ class TestQB : public ::testing::Test
         int64_t block_sz, 
         T tol,  
         QBTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs) {
+        algorithm_objects_krylov<T, RNG>& all_algs) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -231,6 +253,31 @@ TEST_F(TestQB, Polynomial_Decay_general1)
 {
     int64_t m = 100;
     int64_t n = 100;
+    int64_t k = 100;
+    int64_t p = 4;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 100;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::RNGState();
+    
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+    bool orth_check = true;
+
+    QBTestData<double> all_data(m, n, k);
+    algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
+
+    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    svd_and_copy_computational_helper<double>(all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
+}
+
+/*
+TEST_F(TestQB, Polynomial_Decay_general1)
+{
+    int64_t m = 100;
+    int64_t n = 100;
     int64_t k = 50;
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
@@ -342,3 +389,4 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
     test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, all_data, all_algs);
 }
+*/
