@@ -151,12 +151,11 @@ class BK : public RangeFinder<T>
             int64_t q,
             bool verb,
             bool cond
-        ) : Stab_Obj(stab_obj), Orth_Obj(orth_obj), st(s) {
-            verbosity = verb;
-            cond_check = cond;
-            //st = s;
+        ) : Stab_Obj(stab_obj), Orth_Obj(orth_obj), state(s) {
+            verbosity        = verb;
+            cond_check       = cond;
             passes_over_data = p;
-            passes_per_stab = q;
+            passes_per_stab  = q;
         }
 
         int call(
@@ -169,7 +168,7 @@ class BK : public RangeFinder<T>
 
         RandLAPACK::Stabilization<T>& Stab_Obj;
         RandLAPACK::Stabilization<T>& Orth_Obj;
-        RandBLAS::RNGState<RNG>& st;
+        RandBLAS::RNGState<RNG>& state;
         int64_t passes_over_data;
         int64_t passes_per_stab;
         bool verbosity;
@@ -202,7 +201,6 @@ int BK<T, RNG>::call(
     Q.clear();
     T* Q_dat       = RandLAPACK::util::upsize(m * k, Q);
     T* Work_dat    = RandLAPACK::util::upsize(n * k, this->Work);
-    auto state     = this->st;
 
     // Number of columns in a sketching operator
     int64_t numcols = 0;
@@ -216,8 +214,7 @@ int BK<T, RNG>::call(
 
         // Place an n by numcols Sketching operator buffer into the full K matrix, m by numcols
         RandBLAS::DenseDist  D{.n_rows = m, .n_cols = numcols};
-        state = RandBLAS::fill_dense(D, Q_dat, state);
-        this->st = state;
+        this->state = RandBLAS::fill_dense(D, Q_dat, this->state);
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
             throw std::runtime_error("Stabilization failed.");
@@ -233,8 +230,7 @@ int BK<T, RNG>::call(
 
         // Fill m by numcols Work buffer - we already have more space than we can ever need
         RandBLAS::DenseDist D{.n_rows = n, .n_cols = numcols};
-        state = RandBLAS::fill_dense(D, Work_dat, state);
-        this->st = state;
+        this->state = RandBLAS::fill_dense(D, Work_dat, this->state);
 
         // Write an m by k product of A Work into the full K matrix
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, numcols, n, 1.0, A_dat, m, Work_dat, n, 0.0, Q_dat, m);
