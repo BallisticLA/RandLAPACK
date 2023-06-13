@@ -249,7 +249,7 @@ class TestQB : public ::testing::Test
     }
 };
 
-TEST_F(TestQB, Polynomial_Decay_general1)
+TEST_F(TestQB, Polynomial_Decay_Krylov1)
 {
     int64_t m = 10;
     int64_t n = 10;
@@ -268,7 +268,12 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     QBTestData<double> all_data(m, n, k);
     algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
 
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::exponential);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    
     svd_and_copy_computational_helper<double>(all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
 }

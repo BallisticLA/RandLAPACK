@@ -283,9 +283,14 @@ TEST_F(TestRF, Polynomial_Decay1_Krylov)
     RFTestData<double> all_data(m, n, k);
     algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+    
     test_RF_krylov<double, r123::Philox4x32>(all_data, all_algs);
 }
 
@@ -305,13 +310,14 @@ TEST_F(TestRF, Polynomial_Decay2_Krylov)
     RFTestData<double> all_data(m, n, k);
     algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
     
-    RandLAPACK::util::gen_mat_type<double, r123::Philox4x32>(m, n, all_data.A, k, state, std::make_tuple(0, 2025, false));
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
-
+    
     test_RF_krylov<double, r123::Philox4x32>(all_data, all_algs);
-
-    double nrm_A = 1.000000000000090;
-    double nrm_B = 1.000000000000089;
-    printf("%.15e\n", std::sqrt((nrm_A - nrm_B) * (nrm_A + nrm_B)) / nrm_A);
     
 }
