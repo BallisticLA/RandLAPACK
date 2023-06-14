@@ -218,10 +218,6 @@ int BK<T, RNG>::call(
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
             throw std::runtime_error("Stabilization failed.");
-
-        char name [] = "S";
-        RandBLAS::util::print_colmaj(m, k, Q_dat, name);
-
     } else {
         // Compute the sketch size from the number of passes & block size.
         // In this case, we have an expression x = randn(n, numcols), x = Ax, K = [x AA'x, ...].
@@ -239,14 +235,10 @@ int BK<T, RNG>::call(
         // Need to take in a pointer
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
             throw std::runtime_error("Stabilization failed.");
-
-        char name [] = "S";
-        RandBLAS::util::print_colmaj(m, k, Q_dat, name);
     }
     // We have placed something into full Omega previously.
     ++ iters_done;
 
-    char name2 [] = "Work";
     int64_t offset = m * numcols;
     while (p - p_done > 0) {
 
@@ -264,8 +256,6 @@ int BK<T, RNG>::call(
         if ((p_done % q == 0) && (this->Stab_Obj.call(n, numcols, Work)))
             throw std::runtime_error("Stabilzation failed.");
 
-        RandBLAS::util::print_colmaj(n, numcols, Work_dat, name2);
-
         // At the last iteration, we may not be able to fit numcols columns into block Krylov matrix.
         // We then need to alter numcols.
         // Computation above is still done for a full numcols.
@@ -278,9 +268,6 @@ int BK<T, RNG>::call(
         ++ iters_done;
     }
 
-    char name3 [] = "K before qr";
-    RandBLAS::util::print_colmaj(m, k, Q_dat, name3);
-
     // Orthogonalization
     if (this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
@@ -288,10 +275,6 @@ int BK<T, RNG>::call(
     // Reorthogonalization - intended for CholQRQ
     if (this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
-
-    char name1 [] = "K";
-    RandBLAS::util::print_colmaj(m, k, Q_dat, name1);
-
 
     //successful termination
     return 0;
