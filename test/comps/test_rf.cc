@@ -67,8 +67,8 @@ class TestRF : public ::testing::Test
 
     template <typename T, typename RNG>
     struct algorithm_objects_krylov {
-        RandLAPACK::HQRQ<T> Stab;
-        RandLAPACK::HQRQ<T> Orth;
+        RandLAPACK::PLUL<T> Stab;
+        RandLAPACK::CholQRQ<T> Orth;
         RandLAPACK::BK<T, RNG> RF;
 
         algorithm_objects_krylov(

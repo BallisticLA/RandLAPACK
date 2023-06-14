@@ -251,12 +251,12 @@ class TestQB : public ::testing::Test
 
 TEST_F(TestQB, Polynomial_Decay_Krylov1)
 {
-    int64_t m = 10;
-    int64_t n = 10;
-    int64_t k = 10;
-    int64_t p = 4;
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 100;
+    int64_t p = 7;
     int64_t passes_per_iteration = 1;
-    int64_t block_sz = 5;
+    int64_t block_sz = 50;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::RNGState();
     

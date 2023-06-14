@@ -210,7 +210,7 @@ int BK<T, RNG>::call(
         // Compute the sketch size from the number of passes & block size.
         // In this case, we have an expression x = randn(m, numcols), K = [x, AA'x, ...].
         // Even number of passes over data, so numcols = ceil(k / ((p / 2) + 1).
-        numcols = (int64_t) std::ceil((float) k / ((p / 2) + 1));
+        numcols = (int64_t) std::ceil((float) k / ((p / 2.0) + 1));
 
         // Place an n by numcols Sketching operator buffer into the full K matrix, m by numcols
         RandBLAS::DenseDist  D{.n_rows = m, .n_cols = numcols};
@@ -226,7 +226,7 @@ int BK<T, RNG>::call(
         // Compute the sketch size from the number of passes & block size.
         // In this case, we have an expression x = randn(n, numcols), x = Ax, K = [x AA'x, ...].
         // Odd number of passes over data, so numcols = ceil(k / ((p - 1) / 2)).
-        numcols = (int64_t) std::ceil((float) 2 * k / (p - 1));
+        numcols = (int64_t) std::ceil(2.0 * k / (p - 1)) - 1;
 
         // Fill m by numcols Work buffer - we already have more space than we can ever need
         RandBLAS::DenseDist D{.n_rows = n, .n_cols = numcols};
@@ -239,6 +239,9 @@ int BK<T, RNG>::call(
         // Need to take in a pointer
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
             throw std::runtime_error("Stabilization failed.");
+
+        char name [] = "S";
+        RandBLAS::util::print_colmaj(m, k, Q_dat, name);
     }
     // We have placed something into full Omega previously.
     ++ iters_done;
@@ -279,9 +282,12 @@ int BK<T, RNG>::call(
     RandBLAS::util::print_colmaj(m, k, Q_dat, name3);
 
     // Orthogonalization
-    if (this->Stab_Obj.call(m, k, Q))
+    if (this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
 
+    // Reorthogonalization - intended for CholQRQ
+    if (this->Orth_Obj.call(m, k, Q))
+        throw std::runtime_error("Orthogonalization failed.");
 
     char name1 [] = "K";
     RandBLAS::util::print_colmaj(m, k, Q_dat, name1);
