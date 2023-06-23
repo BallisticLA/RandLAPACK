@@ -1,11 +1,13 @@
 #ifndef randlapack_comps_preconditioners_h
 #define randlapack_comps_preconditioners_h
 
-#include "rl_orth.hh"
-#include "rl_rf.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_orth.hh"
+#include "rl_syps.hh"
+#include "rl_syrf.hh"
+#include "rl_revd2.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -215,6 +217,27 @@ int64_t make_right_orthogonalizer(
         rank = rank + 1;
     }
     return rank;
+}
+
+template <typename T, typename RNG>
+RandBLAS::RNGState<RNG> nystrom_pc_data(
+    blas::Uplo uplo,
+    const T* A,
+    int64_t m,
+    std::vector<T> &V,
+    std::vector<T> &eigvals,
+    int64_t &k,
+    T mu_min,
+    RandBLAS::RNGState<RNG> state,
+    int64_t num_syps_passes = 3,
+    int64_t num_steps_power_iter_error_est = 10
+) {
+    T tol = mu_min / 5;
+    RandLAPACK::SYPS<T, RNG> SYPS(num_syps_passes, 1, false, false);
+    RandLAPACK::HQRQ<T> Orth_RF(false, false); 
+    RandLAPACK::SYRF<T, RNG> SYRF(SYPS, Orth_RF, false, false);
+    RandLAPACK::REVD2<T, RNG> NystromAlg(SYRF, num_steps_power_iter_error_est, false);
+    return NystromAlg.call(uplo, m, A, k, tol, V, eigvals, state);
 }
 
 }  // end namespace RandLAPACK

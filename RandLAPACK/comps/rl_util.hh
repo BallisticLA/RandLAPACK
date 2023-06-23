@@ -21,6 +21,8 @@ void eye(
     std::vector<T>& A
 ) {
     int64_t min = std::min(m, n);
+    for (int i = 0; i < m*n; ++i)
+        A[i] = 0.0;
     for(int j = 0; j < min; ++j)
         A[(m * j) + j] = 1.0;
 }

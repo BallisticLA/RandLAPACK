@@ -22,7 +22,18 @@ class REVD2alg {
         virtual RandBLAS::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
-            std::vector<T>& A,
+            const std::vector<T>& A,
+            int64_t& k,
+            T tol,
+            std::vector<T>& V,
+            std::vector<T>& eigvals,
+            RandBLAS::RNGState<RNG> state
+        ) = 0;
+
+        virtual RandBLAS::RNGState<RNG> call(
+            blas::Uplo uplo,
+            int64_t m,
+            const T* A,
             int64_t& k,
             T tol,
             std::vector<T>& V,
@@ -85,12 +96,23 @@ class REVD2 : public REVD2alg<T, RNG> {
         RandBLAS::RNGState<RNG> call(
             blas::Uplo uplo,
             int64_t m,
-            std::vector<T>& A,
+            const std::vector<T>& A,
             int64_t& k,
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
             RandBLAS::RNGState<RNG> state
+        ) override;
+
+        RandBLAS::RNGState<RNG> call(
+                blas::Uplo uplo,
+                int64_t m,
+                const T* A,
+                int64_t& k,
+                T tol,
+                std::vector<T>& V,
+                std::vector<T>& eigvals,
+                RandBLAS::RNGState<RNG> state
         ) override;
 
     public:
@@ -102,6 +124,7 @@ class REVD2 : public REVD2alg<T, RNG> {
         std::vector<T> Omega;
         std::vector<T> R;
         std::vector<T> S;
+        std::vector<T> symrf_work;
 };
 
 // -----------------------------------------------------------------------------
@@ -119,7 +142,7 @@ T power_error_est(
     T* vector_buf,
     T* V,
     blas::Uplo uplo,
-    T* A,
+    const T* A,
     T* Mat_buf,
     T* eigvals
 ) {
@@ -164,34 +187,32 @@ template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         blas::Uplo uplo,
         int64_t m,
-        std::vector<T>& A,
+        const T* A,
         int64_t& k,
         T tol,
         std::vector<T>& V,
         std::vector<T>& eigvals,
         RandBLAS::RNGState<RNG> state
-){
+) {
     T err = 0;
-    std::vector<T> symrf_work(0);
     auto next_state = state;
     RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
     error_est_state.key.incr(1);
-    while(1) {
-        T* A_dat = A.data();
-        T* V_dat = util::upsize(m * k, V);
+    while(true) {
         util::upsize(k, eigvals);
+        T* V_dat = util::upsize(m * k, V);
         T* Y_dat = util::upsize(m * k, this->Y);
         T* Omega_dat = util::upsize(m * k, this->Omega);
         T* R_dat = util::upsize(k * k, this->R);
         T* S_dat = util::upsize(k * k, this->S);
-        T* symrf_work_buff = util::upsize(m * k, symrf_work);
+        T* symrf_work_dat = util::upsize(m * k, this->symrf_work);
 
         // Construnct a sketching operator
         // If CholeskyQR is used for stab/orth here, RF can fail
-        next_state = this->SYRF_Obj.call(uplo, m, A, k, this->Omega, next_state, symrf_work_buff);
+        next_state = this->SYRF_Obj.call(uplo, m, A, k, this->Omega, next_state, symrf_work_dat);
 
         // Y = A * Omega
-        blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
+        blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A, m, Omega_dat, m, 0.0, Y_dat, m);
 
         T nu = std::numeric_limits<T>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
 
@@ -245,7 +266,7 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         RandBLAS::DenseDist  g{.n_rows = m, .n_cols = 1};
         error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state);
 
-        err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
+        err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A, Y_dat, eigvals.data()); 
 
         if(err <= 5 * std::max(tol, nu) || k == m) {
             break;
@@ -256,6 +277,20 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         }
     }
     return 0;
+}
+
+template <typename T, typename RNG>
+RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
+        blas::Uplo uplo,
+        int64_t m,
+        const std::vector<T>& A,
+        int64_t& k,
+        T tol,
+        std::vector<T>& V,
+        std::vector<T>& eigvals,
+        RandBLAS::RNGState<RNG> state
+) {
+    return this->call(uplo, m, A.data(), k, tol, V, eigvals, state);
 }
 
 } // end namespace RandLAPACK

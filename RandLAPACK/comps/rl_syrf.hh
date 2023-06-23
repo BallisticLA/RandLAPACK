@@ -30,6 +30,16 @@ class SymmetricRangeFinder {
             RandBLAS::RNGState<RNG> state,
             T* work_buff
         ) = 0;
+
+        virtual RandBLAS::RNGState<RNG> call(
+            blas::Uplo uplo,
+            int64_t m,
+            const T* A,
+            int64_t k,
+            std::vector<T>& Q,
+            RandBLAS::RNGState<RNG> state,
+            T* work_buff
+        ) = 0;
 };
 
 template <typename T, typename RNG>
@@ -85,6 +95,16 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
             T* work_buff
         ) override;
 
+        RandBLAS::RNGState<RNG> call(
+            blas::Uplo uplo,
+            int64_t m,
+            const T* A,
+            int64_t k,
+            std::vector<T>& Q,
+            RandBLAS::RNGState<RNG> state,
+            T* work_buff
+        ) override;
+
     public:
        // Instantiated in the constructor
        RandLAPACK::SymmetricPowerSketch<T, RNG>& SYPS_Obj;
@@ -101,13 +121,12 @@ template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
-    const std::vector<T>& A,
+    const T* A,
     int64_t k,
     std::vector<T>& Q,
     RandBLAS::RNGState<RNG> state,
     T* work_buff
-){
-
+) {
     bool callers_work_buff = work_buff != nullptr;
     if (!callers_work_buff)
         work_buff = new T[m * k];
@@ -118,7 +137,7 @@ RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
     auto S = SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q_dat);
 
     // Q = orth(A * Omega)
-    blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A.data(), m, S.buff, m, 0.0, Q_dat, m);
+    blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A, m, S.buff, m, 0.0, Q_dat, m);
 
     if(this->cond_check) {
         util::upsize(m * k, this->cond_work_mat);
@@ -135,6 +154,20 @@ RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
         throw std::runtime_error("Orthogonalization failed.");
 
     return S.next_state;
+}
+
+// -----------------------------------------------------------------------------
+template <typename T, typename RNG>
+RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
+    blas::Uplo uplo,
+    int64_t m,
+    const std::vector<T>& A,
+    int64_t k,
+    std::vector<T>& Q,
+    RandBLAS::RNGState<RNG> state,
+    T* work_buff
+) {
+    return this->call(uplo, m, A.data(), k, Q, state, work_buff);
 }
 
 } // end namespace RandLAPACK
