@@ -203,7 +203,7 @@ RandBLAS::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
     T* skop_buff,
     T* work_buff
 ) {
-    this->call(uplo, m, A.data(), lda, k, state, skop_buff, work_buff);
+    return this->call(uplo, m, A.data(), lda, k, state, skop_buff, work_buff);
 }
 
 

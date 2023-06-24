@@ -18,13 +18,22 @@ template <typename T>
 void eye(
     int64_t m,
     int64_t n,
-    std::vector<T>& A
+    T* A
 ) {
     int64_t min = std::min(m, n);
     for (int i = 0; i < m*n; ++i)
         A[i] = 0.0;
     for(int j = 0; j < min; ++j)
         A[(m * j) + j] = 1.0;
+}
+
+template <typename T>
+void eye(
+    int64_t m,
+    int64_t n,
+    std::vector<T> &A
+) {
+    eye(m, n, A.data());
 }
 
 /// Diagonalization - turns a vector into a diagonal matrix. Overwrites the
