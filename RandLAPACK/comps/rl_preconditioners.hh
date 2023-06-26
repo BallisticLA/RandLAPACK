@@ -219,6 +219,65 @@ int64_t make_right_orthogonalizer(
     return rank;
 }
 
+/**
+ * Construct data (V, eigvals) for a Nystrom preconditioner of regularized linear
+ * systems involving a PSD matrix A.
+ * 
+ *      If our regularized linear system is 
+ *          (A + mu*I)x= b,
+ *      then the preconditioner would be
+ *          P^{-1} = V diag(eigvals + mu)^{-1} V' + (I - VV') / (min(eigvals) + mu).
+ * 
+ *      Such a preconditioners will lead to (A + mu*I)*P^{-1} being well-conditioned
+ *      if the spectral norm error || A - V diag(eigvals) V' || is no larger than mu.
+ * 
+ * This function computes (V, eigvals) in an iterative process. The matrix V has "k_in"
+ * columns at the first iteration, where "k_in" the value of k on entry. Each iteration
+ * ends by computing an estimate for || A - V diag(eigvals) V' ||. If this estimate
+ * falls below tol = mu_min/5, then we return. Otherwise, we double k and try again.
+ * 
+ * Optional arguments to this function can trade-off greater computational cost
+ * with (1) better approximations A_hat = V diag(eigvals) V' for fixed k and (2)
+ * better estimates of the spectral norm error ||A - A_hat||.
+ * 
+ * @param[in] uplo
+ *      blas::Uplo::Lower or blas::Uplo::Upper. Specifies the triangular
+ *      part of A that we access while computing (V, eigvals).
+ * @param[in] A
+ *      A buffer for an m \times m positive semidefinite matrix A.
+ * @param[in] m
+ *      The number of rows and columns in A.
+ * @param[out] V
+ *      A std::vector that gives a column-major representation of an m-by-k_out
+ *      column-orthgonal matrix, where k_out is the value of k on exit.
+  * @param[out] eigvals
+ *      A std::vector of length k_out, where k_out is the value of k on exit.
+ *      The entries of this vector are positive and they define the eigenvalues
+ *      of A_hat = V diag(eigvals) V'.
+ * @param[in,out] k
+ *      On entry: the number of columns to be used in V for the first iteration.
+ *      On exit: the number of columns in V.
+ * @param[in] mu_min
+ *      The smallest value of mu for which we want (V, eigvals) to define a useful
+ *      preconditioner for regularized linear systems (A + mu*I)x = b.
+ * @param[in] state
+ *      The RNGState used for random sketching inside the algorithm.
+ * 
+ * @param[in] num_syps_passes
+ *      A very small nonnegative integer. Optional; defaults to 3. 
+ *      This controls the number of power iterations used in computing a sketch of A.
+ *      Increasing the value would reduce |A - V diag(eigvals) V'|| when the number
+ *      of columns in V is fixed.
+ * @param[in] num_steps_power_iter_error_est
+ *      A small positive integer. Optional; defaults to 10.
+ *      This controls the number of power iterations used to estimate the spectral
+ *      norm of A - V diag(eigvals) V'. If this value is too small then (V, eigvals)
+ *      might not lead to good preconditioners for A+mu*I even when mu is >= mu_min.
+ * 
+ * @returns
+ *      An RNGState that the calling function should use the next
+ *      time it needs an RNGState.
+ */
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
     blas::Uplo uplo,
@@ -232,11 +291,27 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
-    T tol = mu_min / 5;
     RandLAPACK::SYPS<T, RNG> SYPS(num_syps_passes, 1, false, false);
-    RandLAPACK::HQRQ<T> Orth_RF(false, false); 
-    RandLAPACK::SYRF<T, RNG> SYRF(SYPS, Orth_RF, false, false);
+    // ^ Define a symmetric power sketch algorithm.
+    //      (*) Stabilize power iteration with pivoted-LU after every
+    //          mulitplication with A.
+    //      (*) Do not check condition numbers or log to std::out.
+    RandLAPACK::HQRQ<T> Orth(false, false); 
+    // ^ Define an orthogonalizer for a symmetric rangefinder.
+    //      (*) Get a dense representation of Q from Householder QR.
+    //      (*) Do not check condition numbers or log to std::out.
+    RandLAPACK::SYRF<T, RNG> SYRF(SYPS, Orth, false, false);
+    // ^ Define the symmetric rangefinder algorithm.
+    //      (*) Use power sketching followed by Householder orthogonalization.
+    //      (*) Do not check condition numbers or log to std::out.
     RandLAPACK::REVD2<T, RNG> NystromAlg(SYRF, num_steps_power_iter_error_est, false);
+    // ^ Define the algorithm for low-rank approximation via Nystrom.
+    //      (*) Handle accuracy requests by estimating ||A - V diag(eigvals) V'||
+    //          with "num_steps_power_iter_error_est" steps of power iteration.
+    //      (*) Do not log to std::out.
+    T tol = mu_min / 5;
+    // ^ Set tolerance to something materially smaller than the smallest
+    //   regularization parameter the user claims to need.
     return NystromAlg.call(uplo, m, A, k, tol, V, eigvals, state);
 }
 
