@@ -28,12 +28,7 @@ class SymmetricPowerSketch {
             RandBLAS::RNGState<RNG> state,
             T* skop_buff = nullptr,
             T* work_buff = nullptr
-        ) { // TODO: try to remove this implementation and set = 0.
-            // I don't remember why we needed a concrete implementation.
-            UNUSED(uplo); UNUSED(m); UNUSED(A); UNUSED(lda);
-            UNUSED(k); UNUSED(state); UNUSED(skop_buff); UNUSED(work_buff);
-            throw std::logic_error("Abstract method called.");
-        };
+        ) = 0;
 
         virtual RandBLAS::DenseSkOp<T,RNG> call(
             blas::Uplo uplo,
@@ -44,11 +39,7 @@ class SymmetricPowerSketch {
             RandBLAS::RNGState<RNG> state,
             T* skop_buff = nullptr,
             T* work_buff = nullptr
-        ) {
-            UNUSED(uplo); UNUSED(m); UNUSED(A); UNUSED(lda);
-            UNUSED(k); UNUSED(state); UNUSED(skop_buff); UNUSED(work_buff);
-            throw std::logic_error("Abstract method called.");
-        };
+        ) = 0;
 
 };
 
