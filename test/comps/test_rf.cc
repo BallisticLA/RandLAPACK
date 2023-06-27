@@ -85,10 +85,10 @@ class TestRF : public ::testing::Test
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
-    template <typename T, typename RNG>
+    template <typename T, typename RNG, typename alg_type>
     static void test_RF_general(
         RFTestData<T>& all_data, 
-        algorithm_objects<T, RNG>& all_algs) {
+        alg_type& all_algs) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -153,18 +153,21 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     bool verbosity = false;
     bool cond_check = true;
 
-    RFTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
+    auto all_data = new RFTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
 
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(*all_data);
     
-    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
+    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(*all_data, *all_algs);
+
+    delete all_data;
+    delete all_algs;
 }
 
 TEST_F(TestRF, Polynomial_Decay_general2)
@@ -180,16 +183,19 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     bool verbosity = false;
     bool cond_check = true;
 
-    RFTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration, state);
+    auto all_data = new RFTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration, state);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
 
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+    orth_and_copy_computational_helper<double, r123::Philox4x32>(*all_data);
     
-    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
+    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(*all_data, *all_algs);
+
+    delete all_data;
+    delete all_algs;
 }
