@@ -41,9 +41,10 @@ class RS : public RowSketcher<T>
             int64_t q,
             bool verb,
             bool cond
-        ) : Stab_Obj(stab_obj), state(s) {
+        ) : Stab_Obj(stab_obj) {
             verbosity = verb;
             cond_check = cond;
+            state = s;
             passes_over_data = p;
             passes_per_stab = q;
         }
@@ -105,7 +106,7 @@ class RS : public RowSketcher<T>
         ) override;
 
         RandLAPACK::Stabilization<T>& Stab_Obj;
-        RandBLAS::RNGState<RNG>& state;
+        RandBLAS::RNGState<RNG> state;
         int64_t passes_over_data;
         int64_t passes_per_stab;
         bool verbosity;
