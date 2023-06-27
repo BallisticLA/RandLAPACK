@@ -15,7 +15,7 @@
 
 namespace RandLAPACK {
 
-template <typename T>
+template <typename T, typename RNG>
 class QBalg {
     public:
 
@@ -29,18 +29,19 @@ class QBalg {
             int64_t block_sz,
             T tol,
             std::vector<T>& Q,
-            std::vector<T>& B
+            std::vector<T>& B,
+            RandBLAS::RNGState<RNG>& state
         ) = 0;
 };
 
-template <typename T>
-class QB : public QBalg<T> {
+template <typename T, typename RNG>
+class QB : public QBalg<T, RNG> {
     public:
 
         // Constructor
         QB(
             // Requires a RangeFinder scheme object.
-            RandLAPACK::RangeFinder<T>& rf_obj,
+            RandLAPACK::RangeFinder<T, RNG>& rf_obj,
             // Requires a stabilization algorithm object.
             RandLAPACK::Stabilization<T>& orth_obj,
             bool verb,
@@ -119,11 +120,12 @@ class QB : public QBalg<T> {
             int64_t block_sz,
             T tol,
             std::vector<T>& Q,
-            std::vector<T>& B
+            std::vector<T>& B,
+            RandBLAS::RNGState<RNG>& state
         ) override;
 
     public:
-        RandLAPACK::RangeFinder<T>& RF_Obj;
+        RandLAPACK::RangeFinder<T, RNG>& RF_Obj;
         RandLAPACK::Stabilization<T>& Orth_Obj;
         bool verbosity;
         bool orth_check;
@@ -145,8 +147,8 @@ class QB : public QBalg<T> {
 };
 
 // -----------------------------------------------------------------------------
-template <typename T>
-int QB<T>::call(
+template <typename T, typename RNG>
+int QB<T, RNG>::call(
     int64_t m,
     int64_t n,
     std::vector<T>& A,
@@ -154,7 +156,8 @@ int QB<T>::call(
     int64_t block_sz,
     T tol,
     std::vector<T>& Q,
-    std::vector<T>& B
+    std::vector<T>& B,
+    RandBLAS::RNGState<RNG>& state
 ){
 
     int64_t curr_sz = 0;
@@ -219,7 +222,7 @@ int QB<T>::call(
         }
 
         // Calling RangeFinder
-        if(this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i))
+        if(this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i, state))
             return 6; // RF failed
 
         if(this->orth_check) {

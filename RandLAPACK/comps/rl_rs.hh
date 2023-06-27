@@ -13,7 +13,7 @@
 
 namespace RandLAPACK {
 
-template <typename T>
+template <typename T, typename RNG>
 class RowSketcher
 {
     public:
@@ -24,19 +24,19 @@ class RowSketcher
             int64_t n,
             const std::vector<T>& A,
             int64_t k,
-            std::vector<T>& Omega
+            std::vector<T>& Omega,
+            RandBLAS::RNGState<RNG>& state
         ) = 0;
 };
 
 template <typename T, typename RNG>
-class RS : public RowSketcher<T>
+class RS : public RowSketcher<T, RNG>
 {
     public:
 
         RS(
             // Requires a stabilization algorithm object.
             RandLAPACK::Stabilization<T>& stab_obj,
-            RandBLAS::RNGState<RNG> s,
             int64_t p,
             int64_t q,
             bool verb,
@@ -44,7 +44,6 @@ class RS : public RowSketcher<T>
         ) : Stab_Obj(stab_obj) {
             verbosity = verb;
             cond_check = cond;
-            state = s;
             passes_over_data = p;
             passes_per_stab = q;
         }
@@ -102,11 +101,11 @@ class RS : public RowSketcher<T>
             int64_t n,
             const std::vector<T>& A,
             int64_t k,
-            std::vector<T>& Omega
+            std::vector<T>& Omega,
+            RandBLAS::RNGState<RNG>& state
         ) override;
 
         RandLAPACK::Stabilization<T>& Stab_Obj;
-        RandBLAS::RNGState<RNG> state;
         int64_t passes_over_data;
         int64_t passes_per_stab;
         bool verbosity;
@@ -126,7 +125,8 @@ int RS<T, RNG>::call(
     int64_t n,
     const std::vector<T>& A,
     int64_t k,
-    std::vector<T>& Omega
+    std::vector<T>& Omega,
+    RandBLAS::RNGState<RNG>& state
 ){
 
     int64_t p = this->passes_over_data;
@@ -140,11 +140,11 @@ int RS<T, RNG>::call(
     if (p % 2 == 0) {
         // Fill n by k Omega
         RandBLAS::DenseDist D{.n_rows = n, .n_cols = k};
-        this->state = RandBLAS::fill_dense(D, Omega_dat, this->state);
+        state = RandBLAS::fill_dense(D, Omega_dat, state);
     } else {
         // Fill m by k Omega_1
         RandBLAS::DenseDist D{.n_rows = m, .n_cols = k};
-        this->state = RandBLAS::fill_dense(D, Omega_1_dat, this->state);
+        state = RandBLAS::fill_dense(D, Omega_1_dat, state);
 
         // multiply A' by Omega results in n by k omega
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A_dat, m, Omega_1_dat, m, 0.0, Omega_dat, n);

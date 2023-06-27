@@ -69,10 +69,10 @@ class TestRSVD : public ::testing::Test
         RandLAPACK::PLUL<T> Stab;
         RandLAPACK::RS<T, RNG> RS;
         RandLAPACK::CholQRQ<T> Orth_RF;
-        RandLAPACK::RF<T> RF;
+        RandLAPACK::RF<T, RNG> RF;
         RandLAPACK::CholQRQ<T> Orth_QB;
-        RandLAPACK::QB<T> QB;
-        RandLAPACK::RSVD<T> RSVD;
+        RandLAPACK::QB<T, RNG> QB;
+        RandLAPACK::RSVD<T, RNG> RSVD;
 
         algorithm_objects(
             bool verbosity, 
@@ -80,11 +80,10 @@ class TestRSVD : public ::testing::Test
             bool orth_check, 
             int64_t p, 
             int64_t passes_per_iteration, 
-            int64_t block_sz,
-            RandBLAS::RNGState<RNG> state
+            int64_t block_sz
         ) :
             Stab(cond_check, verbosity),
-            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+            RS(Stab, p, passes_per_iteration, verbosity, cond_check),
             Orth_RF(cond_check, verbosity),
             RF(RS, Orth_RF, verbosity, cond_check),
             Orth_QB(cond_check, verbosity),
@@ -111,7 +110,8 @@ class TestRSVD : public ::testing::Test
     static void test_RSVD1_general(
         T tol, 
         RSVDTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs) {
+        algorithm_objects<T, RNG>& all_algs,
+        RandBLAS::RNGState<RNG>& state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -131,7 +131,7 @@ class TestRSVD : public ::testing::Test
         T* VT_dat = all_data.VT.data();
 
         // Regular QB2 call
-        all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1);
+        all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1, state);
         
         // Construnct A_approx_determ = U1 * S1 * VT1
 
@@ -177,7 +177,7 @@ TEST_F(TestRSVD, SimpleTest)
     bool orth_check = true;
 
     RSVDTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, block_sz, state);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, block_sz);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -185,5 +185,5 @@ TEST_F(TestRSVD, SimpleTest)
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     computational_helper<double>(all_data);
-    test_RSVD1_general<double, r123::Philox4x32>(tol, all_data, all_algs);
+    test_RSVD1_general<double, r123::Philox4x32>(tol, all_data, all_algs, state);
 }

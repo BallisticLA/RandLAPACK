@@ -49,17 +49,16 @@ class TestRF : public ::testing::Test
         RandLAPACK::PLUL<T> Stab;
         RandLAPACK::RS<T, RNG> RS;
         RandLAPACK::HQRQ<T> Orth_RF;
-        RandLAPACK::RF<T> RF;
+        RandLAPACK::RF<T, RNG> RF;
 
         algorithm_objects(
             bool verbosity, 
             bool cond_check, 
             int64_t p, 
-            int64_t passes_per_iteration, 
-            RandBLAS::RNGState<RNG> state
+            int64_t passes_per_iteration 
         ) :
             Stab(cond_check, verbosity),
-            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+            RS(Stab, p, passes_per_iteration, verbosity, cond_check),
             Orth_RF(cond_check, verbosity),
             RF(RS, Orth_RF, verbosity, cond_check)
             {}
@@ -88,13 +87,14 @@ class TestRF : public ::testing::Test
     template <typename T, typename RNG, typename alg_type>
     static void test_RF_general(
         RFTestData<T>& all_data, 
-        alg_type& all_algs) {
+        alg_type& all_algs,
+        RandBLAS::RNGState<RNG>& state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
         auto k = all_data.rank;
 
-        all_algs.RF.call(m, n, all_data.A, k, all_data.Q);
+        all_algs.RF.call(m, n, all_data.A, k, all_data.Q, state);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();
@@ -154,7 +154,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     bool cond_check = true;
 
     auto all_data = new RFTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration, state);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -164,7 +164,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
 
     orth_and_copy_computational_helper<double, r123::Philox4x32>(*all_data);
     
-    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(*all_data, *all_algs);
+    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(*all_data, *all_algs, state);
 
     delete all_data;
     delete all_algs;
@@ -184,7 +184,7 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     bool cond_check = true;
 
     auto all_data = new RFTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration, state);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -194,7 +194,7 @@ TEST_F(TestRF, Polynomial_Decay_general2)
 
     orth_and_copy_computational_helper<double, r123::Philox4x32>(*all_data);
     
-    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(*all_data, *all_algs);
+    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(*all_data, *all_algs, state);
 
     delete all_data;
     delete all_algs;
