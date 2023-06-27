@@ -248,7 +248,7 @@ class TestQB : public ::testing::Test
         }
     }
 };
-
+/*
 TEST_F(TestQB, Polynomial_Decay_Krylov_odd)
 {
     int64_t m = 10;
@@ -280,7 +280,7 @@ TEST_F(TestQB, Polynomial_Decay_Krylov_odd)
     svd_and_copy_computational_helper<double>(all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects_krylov<double, r123::Philox4x32>>(block_sz, tol, all_data, all_algs);
 }
-/*
+*/
 TEST_F(TestQB, Polynomial_Decay_Krylov_odd)
 {
     int64_t m = 100;
@@ -338,7 +338,7 @@ TEST_F(TestQB, Polynomial_Decay_Krylov_even)
     svd_and_copy_computational_helper<double>(all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects_krylov<double, r123::Philox4x32>>(block_sz, tol, all_data, all_algs);
 }
-*/
+
 TEST_F(TestQB, Polynomial_Decay_general1)
 {
     int64_t m = 100;

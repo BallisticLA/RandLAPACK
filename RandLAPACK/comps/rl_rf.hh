@@ -229,8 +229,8 @@ int BK<T, RNG>::call(
         // Compute the sketch size from the number of passes & block size.
         // In this case, we have an expression x = randn(n, numcols), x = Ax, K = [x AA'x, ...].
         // Odd number of passes over data, so numcols = ceil(k / ((p - 1) / 2)).
-        //numcols = (int64_t) std::ceil(2.0 * k / (p - 1)) - 1;
-        numcols = (int64_t) std::ceil(k / p);
+        numcols = (int64_t) std::ceil(2.0 * k / (p - 1)) - 1;
+        //numcols = (int64_t) std::ceil(k / p);
 
         // Fill m by numcols Work buffer - we already have more space than we can ever need
         RandBLAS::DenseDist D{.n_rows = n, .n_cols = numcols};
