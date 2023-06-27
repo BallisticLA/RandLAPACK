@@ -15,7 +15,7 @@
 
 namespace RandLAPACK {
 
-template <typename T>
+template <typename T, typename RNG>
 class RangeFinder {
     public:
         virtual ~RangeFinder() {}
@@ -25,17 +25,18 @@ class RangeFinder {
             int64_t n,
             const std::vector<T>& A,
             int64_t k,
-            std::vector<T>& Q
+            std::vector<T>& Q,
+            RandBLAS::RNGState<RNG>& state
         ) = 0;
 };
 
-template <typename T>
-class RF : public RangeFinder<T> {
+template <typename T, typename RNG>
+class RF : public RangeFinder<T, RNG> {
     public:
 
         RF(
             // Requires a RowSketcher scheme object.
-            RandLAPACK::RowSketcher<T>& rs_obj,
+            RandLAPACK::RowSketcher<T, RNG>& rs_obj,
             // Requires a stabilization algorithm object.
             RandLAPACK::Stabilization<T>& orth_obj,
             bool verb,
@@ -88,12 +89,13 @@ class RF : public RangeFinder<T> {
             int64_t n,
             const std::vector<T>& A,
             int64_t k,
-            std::vector<T>& Q
+            std::vector<T>& Q,
+            RandBLAS::RNGState<RNG>& state
         ) override;
 
     public:
        // Instantiated in the constructor
-       RandLAPACK::RowSketcher<T>& RS_Obj;
+       RandLAPACK::RowSketcher<T, RNG>& RS_Obj;
        RandLAPACK::Stabilization<T>& Orth_Obj;
        bool verbosity;
        bool cond_check;
@@ -107,19 +109,20 @@ class RF : public RangeFinder<T> {
 };
 
 // -----------------------------------------------------------------------------
-template <typename T>
-int RF<T>::call(
+template <typename T, typename RNG>
+int RF<T, RNG>::call(
     int64_t m,
     int64_t n,
     const std::vector<T>& A,
     int64_t k,
-    std::vector<T>& Q
+    std::vector<T>& Q,
+    RandBLAS::RNGState<RNG>& state
 ){
 
     T* Omega_dat = util::upsize(n * k, this->Omega);
     T* Q_dat = Q.data();
 
-    if(this->RS_Obj.call(m, n, A, k, this->Omega))
+    if(this->RS_Obj.call(m, n, A, k, this->Omega, state))
         return 1;
 
     // Q = orth(A * Omega)

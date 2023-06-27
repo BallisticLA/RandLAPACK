@@ -38,7 +38,7 @@ class REVD2alg {
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
-            RandBLAS::RNGState<RNG> state
+            RandBLAS::RNGState<RNG>& state
         ) = 0;
 };
 
@@ -101,7 +101,7 @@ class REVD2 : public REVD2alg<T, RNG> {
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
-            RandBLAS::RNGState<RNG> state
+            RandBLAS::RNGState<RNG>& state
         ) override;
 
         RandBLAS::RNGState<RNG> call(
@@ -192,10 +192,9 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         T tol,
         std::vector<T>& V,
         std::vector<T>& eigvals,
-        RandBLAS::RNGState<RNG> state
+        RandBLAS::RNGState<RNG>& state
 ) {
     T err = 0;
-    auto next_state = state;
     RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
     error_est_state.key.incr(1);
     while(true) {
@@ -209,7 +208,7 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
 
         // Construnct a sketching operator
         // If CholeskyQR is used for stab/orth here, RF can fail
-        next_state = this->SYRF_Obj.call(uplo, m, A, k, this->Omega, next_state, symrf_work_dat);
+        this->SYRF_Obj.call(uplo, m, A, k, this->Omega, state, symrf_work_dat);
 
         // Y = A * Omega
         blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A, m, Omega_dat, m, 0.0, Y_dat, m);

@@ -21,13 +21,13 @@ class SymmetricRangeFinder {
     public:
         virtual ~SymmetricRangeFinder() {}
 
-        virtual RandBLAS::RNGState<RNG> call(
+        virtual int call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
             int64_t k,
             std::vector<T>& Q,
-            RandBLAS::RNGState<RNG> state,
+            RandBLAS::RNGState<RNG>& state,
             T* work_buff
         ) = 0;
 
@@ -85,13 +85,13 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
         ///     An RNGState that the calling function should use the next
         ///     time it needs an RNGState.
         ///
-        RandBLAS::RNGState<RNG> call(
+        int call(
             blas::Uplo uplo,
             int64_t m,
             const std::vector<T>& A,
             int64_t k,
             std::vector<T>& Q,
-            RandBLAS::RNGState<RNG> state,
+            RandBLAS::RNGState<RNG>& state,
             T* work_buff
         ) override;
 
@@ -118,13 +118,13 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
+int SYRF<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
     const T* A,
     int64_t k,
     std::vector<T>& Q,
-    RandBLAS::RNGState<RNG> state,
+    RandBLAS::RNGState<RNG>& state,
     T* work_buff
 ) {
     bool callers_work_buff = work_buff != nullptr;
@@ -134,7 +134,7 @@ RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
     RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
 
     T* Q_dat = util::upsize(m * k, Q);
-    auto S = SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q_dat);
+    SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q_dat);
 
     // Q = orth(A * Omega)
     blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A, m, S.buff, m, 0.0, Q_dat, m);
@@ -153,7 +153,7 @@ RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
     if(this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
 
-    return S.next_state;
+    return 0;
 }
 
 // -----------------------------------------------------------------------------

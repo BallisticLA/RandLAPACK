@@ -62,7 +62,7 @@ void gen_singvec(
     std::vector<T>& A,
     int64_t k,
     std::vector<T>& S,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
     std::vector<T> U(m * k, 0.0);
     std::vector<T> V(n * k, 0.0);
@@ -108,7 +108,7 @@ void gen_poly_mat(
     T cond,
     T p,
     bool diagon,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -158,7 +158,7 @@ void gen_exp_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     std::vector<T> s(k, 1.0);
@@ -206,7 +206,7 @@ void gen_step_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -246,14 +246,14 @@ void gen_spiked_mat(
     int64_t& n,
     std::vector<T>& A,
     T spike_scale,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
     int64_t num_rows_sampled = n / 2;
 
     /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
     RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    RandBLAS::fill_sparse(S);
+    state = RandBLAS::fill_sparse(S);
 
     std::vector<T> V(n * n, 0.0);
     std::vector<T> tau(n, 0.0);
@@ -296,7 +296,7 @@ void gen_oleg_adversarial_mat(
     int64_t& n,
     std::vector<T>& A,
     T sigma,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     T scaling_factor_U = sigma;
@@ -351,7 +351,7 @@ void gen_bad_cholqr_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     std::vector<T> s(n, 1.0);
@@ -393,7 +393,7 @@ template <typename T, typename RNG>
 void mat_gen(
     mat_gen_info<T> info,
     std::vector<T>& A,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
     // Base parameters
     int64_t m = info.rows;
@@ -414,7 +414,7 @@ void mat_gen(
         case gaussian: {
                 // Gaussian random matrix
                 RandBLAS::DenseDist D{.n_rows = m, .n_cols = n};
-                RandBLAS::fill_dense(D, A_dat, state);
+                state = RandBLAS::fill_dense(D, A_dat, state);
             }
             break;
         case step: {
