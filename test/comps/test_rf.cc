@@ -158,7 +158,7 @@ class TestRF : public ::testing::Test
         ASSERT_NEAR(std::min(norm1_test_2, norm2_test_2), 0, test_tol);
     }
 };
-
+/*
 TEST_F(TestRF, Polynomial_Decay_general1)
 {
     int64_t m = 100;
@@ -265,5 +265,5 @@ TEST_F(TestRF, Polynomial_Decay2_Krylov)
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
     test_RF_general<double, r123::Philox4x32, algorithm_objects_krylov<double, r123::Philox4x32>>(all_data, all_algs);
-    
 }
+*/

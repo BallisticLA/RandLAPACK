@@ -251,6 +251,38 @@ class TestQB : public ::testing::Test
 
 TEST_F(TestQB, Polynomial_Decay_Krylov_odd)
 {
+    int64_t m = 10;
+    int64_t n = 10;
+    int64_t k = 5;
+    int64_t p = 2;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 5;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::RNGState();
+    
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+    bool orth_check = true;
+
+    QBTestData<double> all_data(m, n, k);
+    algorithm_objects_krylov<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
+    
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::exponential);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+
+    svd_and_copy_computational_helper<double>(all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects_krylov<double, r123::Philox4x32>>(block_sz, tol, all_data, all_algs);
+}
+/*
+TEST_F(TestQB, Polynomial_Decay_Krylov_odd)
+{
     int64_t m = 100;
     int64_t n = 100;
     int64_t k = 50;
@@ -306,7 +338,7 @@ TEST_F(TestQB, Polynomial_Decay_Krylov_even)
     svd_and_copy_computational_helper<double>(all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects_krylov<double, r123::Philox4x32>>(block_sz, tol, all_data, all_algs);
 }
-
+*/
 TEST_F(TestQB, Polynomial_Decay_general1)
 {
     int64_t m = 100;

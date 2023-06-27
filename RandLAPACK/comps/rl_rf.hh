@@ -206,6 +206,9 @@ int BK<T, RNG>::call(
     int64_t numcols = 0;
     // Number of Krylov iterations done
     int64_t iters_done = 0;
+
+    char name [] = "S";
+
     if (p % 2 == 0) {
         // Compute the sketch size from the number of passes & block size.
         // In this case, we have an expression x = randn(m, numcols), K = [x, AA'x, ...].
@@ -216,13 +219,18 @@ int BK<T, RNG>::call(
         RandBLAS::DenseDist  D{.n_rows = m, .n_cols = numcols};
         this->state = RandBLAS::fill_dense(D, Q_dat, this->state);
 
+        RandBLAS::util::print_colmaj(m, k, Q_dat, name);
+
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
             throw std::runtime_error("Stabilization failed.");
+
+        RandBLAS::util::print_colmaj(m, k, Q_dat, name);
     } else {
         // Compute the sketch size from the number of passes & block size.
         // In this case, we have an expression x = randn(n, numcols), x = Ax, K = [x AA'x, ...].
         // Odd number of passes over data, so numcols = ceil(k / ((p - 1) / 2)).
-        numcols = (int64_t) std::ceil(2.0 * k / (p - 1)) - 1;
+        //numcols = (int64_t) std::ceil(2.0 * k / (p - 1)) - 1;
+        numcols = (int64_t) std::ceil(k / p);
 
         // Fill m by numcols Work buffer - we already have more space than we can ever need
         RandBLAS::DenseDist D{.n_rows = n, .n_cols = numcols};
@@ -232,13 +240,15 @@ int BK<T, RNG>::call(
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, numcols, n, 1.0, A_dat, m, Work_dat, n, 0.0, Q_dat, m);
         ++ p_done;
 
+        RandBLAS::util::print_colmaj(m, k, Q_dat, name);
+
         // Need to take in a pointer
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, numcols, Q)))
             throw std::runtime_error("Stabilization failed.");
     }
     // We have placed something into full Omega previously.
     ++ iters_done;
-
+    
     int64_t offset = m * numcols;
     while (p - p_done > 0) {
 
@@ -267,7 +277,7 @@ int BK<T, RNG>::call(
         ++ p_done;
         ++ iters_done;
     }
-
+    RandBLAS::util::print_colmaj(m, k, Q_dat, name);
     // Orthogonalization
     if (this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
@@ -276,6 +286,8 @@ int BK<T, RNG>::call(
     if (this->Orth_Obj.call(m, k, Q))
         throw std::runtime_error("Orthogonalization failed.");
 
+    RandBLAS::util::print_colmaj(m, k, Q_dat, name);
+    
     //successful termination
     return 0;
 }
