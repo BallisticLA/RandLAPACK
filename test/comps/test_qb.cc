@@ -61,18 +61,17 @@ class TestQB : public ::testing::Test
         RandLAPACK::PLUL<T> Stab;
         RandLAPACK::RS<T, RNG> RS;
         RandLAPACK::CholQRQ<T> Orth_RF;
-        RandLAPACK::RF<T> RF;
+        RandLAPACK::RF<T, RNG> RF;
         RandLAPACK::CholQRQ<T> Orth_QB;
-        RandLAPACK::QB<T> QB;
+        RandLAPACK::QB<T, RNG> QB;
 
         algorithm_objects(bool verbosity, 
                             bool cond_check, 
                             bool orth_check, 
                             int64_t p, 
-                            int64_t passes_per_iteration, 
-                            RandBLAS::RNGState<RNG> state) :
+                            int64_t passes_per_iteration) :
                             Stab(cond_check, verbosity),
-                            RS(Stab, state, p, passes_per_iteration, verbosity, cond_check),
+                            RS(Stab, p, passes_per_iteration, verbosity, cond_check),
                             Orth_RF(cond_check, verbosity),
                             RF(RS, Orth_RF, verbosity, cond_check),
                             Orth_QB(cond_check, verbosity),
@@ -101,12 +100,13 @@ class TestQB : public ::testing::Test
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
-    template <typename T, typename RNG>
+    template <typename T, typename RNG, typename alg_type>
     static void test_QB2_low_exact_rank(
         int64_t block_sz, 
         T tol,  
         QBTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs) {
+        alg_type& all_algs,
+        RandBLAS::RNGState<RNG>& state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -123,7 +123,7 @@ class TestQB : public ::testing::Test
         T* VT_dat = all_data.VT.data();
 
         // Regular QB2 call
-        all_algs.QB.call(m, n, all_data.A, k, block_sz, tol, all_data.Q, all_data.B);
+        all_algs.QB.call(m, n, all_data.A, k, block_sz, tol, all_data.Q, all_data.B, state);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();
@@ -185,7 +185,8 @@ class TestQB : public ::testing::Test
         T tol, 
         T& norm_A, 
         QBTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs) {
+        algorithm_objects<T, RNG>& all_algs,
+        RandBLAS::RNGState<RNG>& state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -198,7 +199,7 @@ class TestQB : public ::testing::Test
         T* A_hat_dat = all_data.A_hat.data();
 
         // Regular QB2 call
-        all_algs.QB.call(m, n, all_data.A, k_est, block_sz, tol, all_data.Q, all_data.B);
+        all_algs.QB.call(m, n, all_data.A, k_est, block_sz, tol, all_data.Q, all_data.B, state);
 
         // Reassing pointers because Q, B have been resized
         Q_dat = all_data.Q.data();
@@ -243,17 +244,20 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     bool cond_check = true;
     bool orth_check = true;
 
-    QBTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::exponential);
+    auto all_data = new QBTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+    
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
-    
-    svd_and_copy_computational_helper<double>(all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
+
+    svd_and_copy_computational_helper<double>(*all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(block_sz, tol, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
 }
 
 TEST_F(TestQB, Polynomial_Decay_general2)
@@ -272,17 +276,20 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     bool cond_check = true;
     bool orth_check = true;
 
-    QBTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
-    
+    auto all_data = new QBTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 6.7;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
+    
+    svd_and_copy_computational_helper<double>(*all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(block_sz, tol, *all_data, *all_algs, state);
 
-    svd_and_copy_computational_helper<double>(all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
+    delete all_data;
+    delete all_algs;
 }
 
 TEST_F(TestQB, Polynomial_Decay_zero_tol1)
@@ -301,17 +308,20 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     bool cond_check = true;
     bool orth_check = true;
 
-    QBTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
-    
+    auto all_data = new QBTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+  
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
 
-    double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-    test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, all_data, all_algs);
+    double norm_A = lapack::lange(Norm::Fro, m, n, (*all_data).A.data(), m);
+    test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
 }
 
 TEST_F(TestQB, Polynomial_Decay_zero_tol2)
@@ -330,15 +340,18 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     bool cond_check = true;
     bool orth_check = true;
 
-    QBTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, state);
-    
+    auto all_data = new QBTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
 
-    double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-    test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, all_data, all_algs);
+    double norm_A = lapack::lange(Norm::Fro, m, n, (*all_data).A.data(), m);
+    test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
 }

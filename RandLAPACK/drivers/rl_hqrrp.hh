@@ -606,7 +606,7 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, RandBLAS::RNGState<RNG> state) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, RandBLAS::RNGState<RNG>& state) {
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -665,7 +665,7 @@ int64_t hqrrp(
 
     // Initialize matrices G and Y.
     RandBLAS::DenseDist D{.n_rows = nb_alg + pp, .n_cols = m_A, .family=RandBLAS::DenseDistName::Uniform};
-    RandBLAS::fill_dense(D, buff_G, state);
+    state = RandBLAS::fill_dense(D, buff_G, state);
     
     blas::gemm(blas::Layout::ColMajor,
                 blas::Op::NoTrans, blas::Op::NoTrans, m_Y, n_Y, m_A, 
