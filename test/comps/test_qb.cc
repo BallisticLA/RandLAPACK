@@ -101,12 +101,12 @@ class TestQB : public ::testing::Test
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
-    template <typename T, typename RNG>
+    template <typename T, typename RNG, typename alg_type>
     static void test_QB2_low_exact_rank(
         int64_t block_sz, 
         T tol,  
         QBTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs) {
+        alg_type& all_algs) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -253,7 +253,7 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
     
     svd_and_copy_computational_helper<double>(all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
+    test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(block_sz, tol, all_data, all_algs);
 }
 
 TEST_F(TestQB, Polynomial_Decay_general2)
@@ -282,7 +282,7 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     svd_and_copy_computational_helper<double>(all_data);
-    test_QB2_low_exact_rank<double, r123::Philox4x32>(block_sz, tol, all_data, all_algs);
+    test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(block_sz, tol, all_data, all_algs);
 }
 
 TEST_F(TestQB, Polynomial_Decay_zero_tol1)

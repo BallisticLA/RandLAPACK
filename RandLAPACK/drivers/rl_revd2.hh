@@ -27,7 +27,7 @@ class REVD2alg {
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
-            RandBLAS::RNGState<RNG> state
+            RandBLAS::RNGState<RNG>& state
         ) = 0;
 };
 
@@ -90,7 +90,7 @@ class REVD2 : public REVD2alg<T, RNG> {
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
-            RandBLAS::RNGState<RNG> state
+            RandBLAS::RNGState<RNG>& state
         ) override;
 
     public:
@@ -169,7 +169,7 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         T tol,
         std::vector<T>& V,
         std::vector<T>& eigvals,
-        RandBLAS::RNGState<RNG> state
+        RandBLAS::RNGState<RNG>& state
 ){
     T err = 0;
     std::vector<T> symrf_work(0);

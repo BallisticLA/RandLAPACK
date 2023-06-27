@@ -85,10 +85,10 @@ class TestRF : public ::testing::Test
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
-    template <typename T, typename RNG>
+    template <typename T, typename RNG, typename alg_type>
     static void test_RF_general(
         RFTestData<T>& all_data, 
-        algorithm_objects<T, RNG>& all_algs) {
+        alg_type& all_algs) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -164,7 +164,7 @@ TEST_F(TestRF, Polynomial_Decay_general1)
 
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
-    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
+    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(all_data, all_algs);
 }
 
 TEST_F(TestRF, Polynomial_Decay_general2)
@@ -191,5 +191,5 @@ TEST_F(TestRF, Polynomial_Decay_general2)
 
     orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
     
-    test_RF_general<double, r123::Philox4x32>(all_data, all_algs);
+    test_RF_general<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(all_data, all_algs);
 }
