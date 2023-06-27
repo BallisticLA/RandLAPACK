@@ -31,13 +31,13 @@ class SymmetricRangeFinder {
             T* work_buff
         ) = 0;
 
-        virtual RandBLAS::RNGState<RNG> call(
+        virtual int call(
             blas::Uplo uplo,
             int64_t m,
             const T* A,
             int64_t k,
             std::vector<T>& Q,
-            RandBLAS::RNGState<RNG> state,
+            RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) = 0;
 };
@@ -95,13 +95,13 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
             T* work_buff
         ) override;
 
-        RandBLAS::RNGState<RNG> call(
+        int call(
             blas::Uplo uplo,
             int64_t m,
             const T* A,
             int64_t k,
             std::vector<T>& Q,
-            RandBLAS::RNGState<RNG> state,
+            RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) override;
 
@@ -137,7 +137,7 @@ int SYRF<T, RNG>::call(
     SYPS_Obj.call(uplo, m, A, m, k, state, work_buff, Q_dat);
 
     // Q = orth(A * Omega)
-    blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A, m, S.buff, m, 0.0, Q_dat, m);
+    blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A, m, work_buff, m, 0.0, Q_dat, m);
 
     if(this->cond_check) {
         util::upsize(m * k, this->cond_work_mat);
@@ -158,13 +158,13 @@ int SYRF<T, RNG>::call(
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> SYRF<T, RNG>::call(
+int SYRF<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
     const std::vector<T>& A,
     int64_t k,
     std::vector<T>& Q,
-    RandBLAS::RNGState<RNG> state,
+    RandBLAS::RNGState<RNG> &state,
     T* work_buff
 ) {
     return this->call(uplo, m, A.data(), k, Q, state, work_buff);

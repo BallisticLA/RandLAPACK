@@ -30,14 +30,14 @@ class SymmetricPowerSketch {
             T* work_buff = nullptr
         ) = 0;
 
-        virtual RandBLAS::DenseSkOp<T,RNG> call(
+        virtual int call(
             blas::Uplo uplo,
             int64_t m,
             const T* A,
             int64_t lda,
             int64_t k,
-            RandBLAS::RNGState<RNG> state,
-            T* skop_buff = nullptr,
+            RandBLAS::RNGState<RNG>& state,
+            T*& skop_buff = nullptr,
             T* work_buff = nullptr
         ) = 0;
 
@@ -110,14 +110,14 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
             T* work_buff
         );
 
-        RandBLAS::DenseSkOp<T,RNG> call(
+        int call(
             blas::Uplo uplo,
             int64_t m,
             const T* A,
             int64_t lda,
             int64_t k,
-            RandBLAS::RNGState<RNG> state,
-            T* skop_buff,
+            RandBLAS::RNGState<RNG> &state,
+            T*& skop_buff,
             T* work_buff
         );
     
@@ -183,14 +183,14 @@ int SYPS<T, RNG>::call(
 }
 
 template <typename T, typename RNG>
-RandBLAS::DenseSkOp<T,RNG> SYPS<T, RNG>::call(
+int SYPS<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
     const std::vector<T>& A,
     int64_t lda,
     int64_t k,
-    RandBLAS::RNGState<RNG> state,
-    T* skop_buff,
+    RandBLAS::RNGState<RNG> &state,
+    T* &skop_buff,
     T* work_buff
 ) {
     return this->call(uplo, m, A.data(), lda, k, state, skop_buff, work_buff);
