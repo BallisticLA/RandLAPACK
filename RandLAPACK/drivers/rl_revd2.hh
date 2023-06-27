@@ -173,7 +173,6 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
 ){
     T err = 0;
     std::vector<T> symrf_work(0);
-    auto next_state = state;
     RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
     error_est_state.key.incr(1);
     while(1) {
@@ -188,7 +187,7 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
 
         // Construnct a sketching operator
         // If CholeskyQR is used for stab/orth here, RF can fail
-        next_state = this->SYRF_Obj.call(uplo, m, A, k, this->Omega, next_state, symrf_work_buff);
+        this->SYRF_Obj.call(uplo, m, A, k, this->Omega, state, symrf_work_buff);
 
         // Y = A * Omega
         blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
