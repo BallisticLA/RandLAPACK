@@ -167,7 +167,6 @@ int QB<T>::call(
     if(norm_A == 0.0) {
         // Zero matrix termination
         k = curr_sz;
-        throw std::runtime_error("Zero matrix termination.");
         return 1;
     }
 
@@ -228,7 +227,6 @@ int QB<T>::call(
                 // Lost orthonormality of Q
                 util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
-                throw std::runtime_error("Lost orthonormality of Q_i.");
             }
         }
 
@@ -256,7 +254,6 @@ int QB<T>::call(
             // Only need to move B's data, no resizing
             util::row_resize(this->curr_lim, n, B, curr_sz);
             k = curr_sz;
-            throw std::runtime_error("Error divergence early termination");
         }
 
         // Update the matrices Q and B
@@ -268,7 +265,6 @@ int QB<T>::call(
                 // Lost orthonormality of Q
                 util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
-                throw std::runtime_error("Lost orthonormality of Q.");
             }
         }
 
