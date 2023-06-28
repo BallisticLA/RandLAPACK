@@ -8,6 +8,7 @@
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
 #include "rl_revd2.hh"
+#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -240,13 +241,10 @@ int64_t make_right_orthogonalizer(
  * with (1) better approximations A_hat = V diag(eigvals) V' for fixed k and (2)
  * better estimates of the spectral norm error ||A - A_hat||.
  * 
- * @param[in] uplo
- *      blas::Uplo::Lower or blas::Uplo::Upper. Specifies the triangular
- *      part of A that we access while computing (V, eigvals).
  * @param[in] A
- *      A buffer for an m \times m positive semidefinite matrix A.
- * @param[in] m
- *      The number of rows and columns in A.
+ *      An object conforming to the SymmetricLinearOperator interface.
+ *      It represents a matrix of order A.m. It is callable, and responsible
+ *      for allocating any memory it might need when called.
  * @param[out] V
  *      A std::vector that gives a column-major representation of an m-by-k_out
  *      column-orthgonal matrix, where k_out is the value of k on exit.
@@ -280,9 +278,7 @@ int64_t make_right_orthogonalizer(
  */
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
-    blas::Uplo uplo,
-    const T* A,
-    int64_t m,
+    SymmetricLinearOperator<T> &A,
     std::vector<T> &V,
     std::vector<T> &eigvals,
     int64_t &k,
@@ -312,8 +308,30 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     T tol = mu_min / 5;
     // ^ Set tolerance to something materially smaller than the smallest
     //   regularization parameter the user claims to need.
-    return NystromAlg.call(uplo, m, A, k, tol, V, eigvals, state);
+    return NystromAlg.call(A, k, tol, V, eigvals, state);
 }
+
+/**
+ * This wraps a function of the same name that accepts a SymmetricLinearOperator object.
+ * The purpose of this wrapper is just to define such an object from data (uplo, A, m).
+ */
+template <typename T, typename RNG>
+RandBLAS::RNGState<RNG> nystrom_pc_data(
+    blas::Uplo uplo,
+    const T* A,
+    int64_t m,
+    std::vector<T> &V,
+    std::vector<T> &eigvals,
+    int64_t &k,
+    T mu_min,
+    RandBLAS::RNGState<RNG> state,
+    int64_t num_syps_passes = 3,
+    int64_t num_steps_power_iter_error_est = 10
+) {
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m);
+    return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
+}
+
 
 }  // end namespace RandLAPACK
 #endif
