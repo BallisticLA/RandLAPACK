@@ -1,7 +1,6 @@
 #ifndef randlapack_cqrrpt_h
 #define randlapack_cqrrpt_h
 
-#include "rl_cqrrpt.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

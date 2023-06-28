@@ -1,9 +1,9 @@
 #ifndef randlapack_comps_syps_h
 #define randlapack_comps_syps_h
 
-#include "rl_orth.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_orth.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
 

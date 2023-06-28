@@ -43,7 +43,6 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #ifndef randlapack_hqrrp_h
 #define randlapack_hqrrp_h
 
-#include "rl_hqrrp.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
