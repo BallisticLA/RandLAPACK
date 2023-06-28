@@ -104,12 +104,12 @@ class REVD2 : public REVD2alg<T, RNG> {
         ) override;
 
         RandBLAS::RNGState<RNG> call(
-                SymmetricLinearOperator<T> &A,
-                int64_t& k,
-                T tol,
-                std::vector<T>& V,
-                std::vector<T>& eigvals,
-                RandBLAS::RNGState<RNG> &state
+            SymmetricLinearOperator<T> &A,
+            int64_t& k,
+            T tol,
+            std::vector<T>& V,
+            std::vector<T>& eigvals,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
