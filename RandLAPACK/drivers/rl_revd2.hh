@@ -179,22 +179,6 @@ T power_error_est(
     return err;
 }
 
-template <typename T>
-T power_error_est(
-    int64_t m,
-    int64_t k,
-    int p,
-    T* vector_buf,
-    T* V,
-    blas::Uplo uplo,
-    const T* A,
-    T* Mat_buf,
-    T* eigvals
-) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m);
-    power_error_est(A_linop, k, p, vector_buf, V, Mat_buf, eigvals);
-}
-
 
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(

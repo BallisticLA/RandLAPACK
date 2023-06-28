@@ -264,7 +264,7 @@ int64_t make_right_orthogonalizer(
  * @param[in] num_syps_passes
  *      A very small nonnegative integer. Optional; defaults to 3. 
  *      This controls the number of power iterations used in computing a sketch of A.
- *      Increasing the value would reduce |A - V diag(eigvals) V'|| when the number
+ *      Increasing the value would reduce ||A - V diag(eigvals) V'|| when the number
  *      of columns in V is fixed.
  * @param[in] num_steps_power_iter_error_est
  *      A small positive integer. Optional; defaults to 10.
