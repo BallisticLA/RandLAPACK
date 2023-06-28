@@ -79,6 +79,27 @@ class TestQB : public ::testing::Test
                             {}
     };
 
+    template <typename T, typename RNG>
+    struct algorithm_objects_krylov {
+        RandLAPACK::HQRQ<T> Stab;
+        RandLAPACK::HQRQ<T> Orth;
+        RandLAPACK::BK<T, RNG> RF;
+        RandLAPACK::CholQRQ<T> Orth_QB;
+        RandLAPACK::QB<T, RNG> QB;
+
+        algorithm_objects_krylov(bool verbosity, 
+                            bool cond_check, 
+                            bool orth_check, 
+                            int64_t p, 
+                            int64_t passes_per_iteration) :
+                            Stab(cond_check, verbosity),
+                            Orth(cond_check, verbosity),
+                            RF(Stab, Orth, p, passes_per_iteration, verbosity, cond_check),
+                            Orth_QB(cond_check, verbosity),
+                            QB(RF, Orth_QB, verbosity, orth_check)
+                            {}
+    };
+
     template <typename T>
     static void svd_and_copy_computational_helper(QBTestData<T>& all_data) {
         
@@ -227,6 +248,39 @@ class TestQB : public ::testing::Test
         }
     }
 };
+
+
+TEST_F(TestQB, Polynomial_Krylov_odd)
+{
+    int64_t m = 10;
+    int64_t n = 5;
+    int64_t k = 5;
+    int64_t p = 3;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 5;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::RNGState();
+    
+    //Subroutine parameters
+    bool verbosity = false;
+    bool cond_check = true;
+    bool orth_check = true;
+
+    auto all_data = new QBTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects_krylov<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+    
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
+
+    svd_and_copy_computational_helper<double>(*all_data);
+    test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects_krylov<double, r123::Philox4x32>>(block_sz, tol, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
+}
 
 TEST_F(TestQB, Polynomial_Decay_general1)
 {
