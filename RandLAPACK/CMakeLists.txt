@@ -14,6 +14,7 @@ set(RandLAPACK_cxx_sources
     rl_syrf.hh
     rl_gen.hh
     rl_blaspp.hh
+    rl_linops.hh
 )
 
 set(RandLAPACK_libs
@@ -50,10 +51,12 @@ target_include_directories(
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/comps>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/drivers>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/misc>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/comps>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/drivers>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/misc>
 )
 
 target_link_libraries(RandLAPACK INTERFACE ${RandLAPACK_libs})

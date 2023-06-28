@@ -5,6 +5,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -22,7 +23,7 @@ class SymmetricPowerSketch {
         virtual int call(
             blas::Uplo uplo,
             int64_t m,
-            const std::vector<T>& A,
+            const T* A,
             int64_t lda,
             int64_t k,
             RandBLAS::RNGState<RNG>& state,
@@ -31,10 +32,7 @@ class SymmetricPowerSketch {
         ) = 0;
 
         virtual int call(
-            blas::Uplo uplo,
-            int64_t m,
-            const T* A,
-            int64_t lda,
+            SymmetricLinearOperator<T> &A,
             int64_t k,
             RandBLAS::RNGState<RNG>& state,
             T*& skop_buff = nullptr,
@@ -102,19 +100,16 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         int call(
             blas::Uplo uplo,
             int64_t m,
-            const std::vector<T>& A,
+            const T* A,
             int64_t lda,
             int64_t k,
-            RandBLAS::RNGState<RNG>& state,
+            RandBLAS::RNGState<RNG> &state,
             T*& skop_buff,
             T* work_buff
         );
 
         int call(
-            blas::Uplo uplo,
-            int64_t m,
-            const T* A,
-            int64_t lda,
+            SymmetricLinearOperator<T> &A,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
             T*& skop_buff,
@@ -131,15 +126,13 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYPS<T, RNG>::call(
-    blas::Uplo uplo,
-    int64_t m,
-    const T* A,
-    int64_t lda,
+    SymmetricLinearOperator<T> &A,
     int64_t k,
     RandBLAS::RNGState<RNG>& state,
     T*& skop_buff,
     T* work_buff
 ){
+    int64_t m = A.m;
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;
     int64_t p_done = 0;
@@ -159,7 +152,7 @@ int SYPS<T, RNG>::call(
     T *symm_in  = skop_buff;
     int64_t* ipiv = new int64_t[m]{};
     while (p - p_done > 0) {
-        blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A, lda, symm_in, m, 0.0, symm_out, m);
+        A(blas::Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
         ++p_done;
         if (p_done % q == 0) {
                 if(lapack::getrf(m, k, symm_out, m, ipiv))
@@ -182,18 +175,20 @@ int SYPS<T, RNG>::call(
    return 0;
 }
 
+// -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYPS<T, RNG>::call(
     blas::Uplo uplo,
     int64_t m,
-    const std::vector<T>& A,
+    const T* A,
     int64_t lda,
     int64_t k,
-    RandBLAS::RNGState<RNG> &state,
-    T* &skop_buff,
+    RandBLAS::RNGState<RNG>& state,
+    T*& skop_buff,
     T* work_buff
 ) {
-    return this->call(uplo, m, A.data(), lda, k, state, skop_buff, work_buff);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, lda);
+    return call(A_linop, k, state, skop_buff, work_buff);
 }
 
 
