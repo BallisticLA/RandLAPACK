@@ -25,10 +25,10 @@ class CQRRPTalg {
         virtual int call(
             int64_t m,
             int64_t n,
-            std::vector<T>& A,
+            std::vector<T> &A,
             int64_t d,
-            std::vector<T>& R,
-            std::vector<int64_t>& J
+            std::vector<T> &R,
+            std::vector<int64_t> &J
         ) = 0;
 };
 
@@ -112,10 +112,10 @@ class CQRRPT : public CQRRPTalg<T> {
         int call(
             int64_t m,
             int64_t n,
-            std::vector<T>& A,
+            std::vector<T> &A,
             int64_t d,
-            std::vector<T>& R,
-            std::vector<int64_t>& J
+            std::vector<T> &R,
+            std::vector<int64_t> &J
         ) override;
 
     public:
@@ -159,10 +159,10 @@ template <typename T, typename RNG>
 int CQRRPT<T, RNG>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
+    std::vector<T> &A,
     int64_t d,
-    std::vector<T>& R,
-    std::vector<int64_t>& J
+    std::vector<T> &R,
+    std::vector<int64_t> &J
 ){
     //-------TIMING VARS--------/
     high_resolution_clock::time_point saso_t_stop;

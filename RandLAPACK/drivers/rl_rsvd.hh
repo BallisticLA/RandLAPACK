@@ -21,13 +21,13 @@ class RSVDalg {
         virtual int call(
             int64_t m,
             int64_t n,
-            std::vector<T>& A,
-            int64_t& k,
+            std::vector<T> &A,
+            int64_t &k,
             T tol,
-            std::vector<T>& U,
-            std::vector<T>& S,
-            std::vector<T>& VT,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &U,
+            std::vector<T> &S,
+            std::vector<T> &VT,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
 
@@ -38,7 +38,7 @@ class RSVD : public RSVDalg<T, RNG> {
         // Constructor
         RSVD(
             // Requires a QB algorithm object.
-            RandLAPACK::QBalg<T, RNG>& qb_obj,
+            RandLAPACK::QBalg<T, RNG> &qb_obj,
             bool verb,
             int64_t b_sz
         ) : QB_Obj(qb_obj) {
@@ -97,17 +97,17 @@ class RSVD : public RSVDalg<T, RNG> {
         int call(
             int64_t m,
             int64_t n,
-            std::vector<T>& A,
-            int64_t& k,
+            std::vector<T> &A,
+            int64_t &k,
             T tol,
-            std::vector<T>& U,
-            std::vector<T>& S,
-            std::vector<T>& VT,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &U,
+            std::vector<T> &S,
+            std::vector<T> &VT,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
-        RandLAPACK::QBalg<T, RNG>& QB_Obj;
+        RandLAPACK::QBalg<T, RNG> &QB_Obj;
         bool verbosity;
         int64_t block_sz;
 
@@ -121,13 +121,13 @@ template <typename T, typename RNG>
 int RSVD<T, RNG>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
-    int64_t& k,
+    std::vector<T> &A,
+    int64_t &k,
     T tol,
-    std::vector<T>& U,
-    std::vector<T>& S,
-    std::vector<T>& VT,
-    RandBLAS::RNGState<RNG>& state
+    std::vector<T> &U,
+    std::vector<T> &S,
+    std::vector<T> &VT,
+    RandBLAS::RNGState<RNG> &state
 ){
     // Q and B sizes will be adjusted automatically
     this->QB_Obj.call(m, n, A, k, this->block_sz, tol, this->Q, this->B, state);

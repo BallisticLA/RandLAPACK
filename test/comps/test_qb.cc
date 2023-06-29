@@ -80,7 +80,7 @@ class TestQB : public ::testing::Test
     };
 
     template <typename T>
-    static void svd_and_copy_computational_helper(QBTestData<T>& all_data) {
+    static void svd_and_copy_computational_helper(QBTestData<T> &all_data) {
         
         auto m = all_data.row;
         auto n = all_data.col;
@@ -104,9 +104,9 @@ class TestQB : public ::testing::Test
     static void test_QB2_low_exact_rank(
         int64_t block_sz, 
         T tol,  
-        QBTestData<T>& all_data,
-        alg_type& all_algs,
-        RandBLAS::RNGState<RNG>& state) {
+        QBTestData<T> &all_data,
+        alg_type &all_algs,
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -183,10 +183,10 @@ class TestQB : public ::testing::Test
     static void test_QB2_k_eq_min(
         int64_t block_sz, 
         T tol, 
-        T& norm_A, 
-        QBTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs,
-        RandBLAS::RNGState<RNG>& state) {
+        T &norm_A, 
+        QBTestData<T> &all_data,
+        algorithm_objects<T, RNG> &all_algs,
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;

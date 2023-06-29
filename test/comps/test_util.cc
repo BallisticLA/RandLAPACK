@@ -62,7 +62,7 @@ class TestUtil : public ::testing::Test
 
     template <typename T, typename RNG>
     static void 
-    test_spectral_norm(RandBLAS::RNGState<RNG> state, SpectralTestData<T>& all_data) {
+    test_spectral_norm(RandBLAS::RNGState<RNG> state, SpectralTestData<T> &all_data) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -77,7 +77,7 @@ class TestUtil : public ::testing::Test
 
     template <typename T>
     static void 
-    test_normc(NormcTestData<T>& all_data) {
+    test_normc(NormcTestData<T> &all_data) {
         
         auto m = all_data.row;
 
@@ -96,7 +96,7 @@ class TestUtil : public ::testing::Test
 
     template <typename T>
     static void 
-    test_binary_rank_search_zero_mat(int64_t m, int64_t n, std::vector<T>& A) {
+    test_binary_rank_search_zero_mat(int64_t m, int64_t n, std::vector<T> &A) {
         
         int64_t k = RandLAPACK::util::rank_search_binary(0, m, 0, n, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75), A.data());
 

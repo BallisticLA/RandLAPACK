@@ -22,10 +22,10 @@ class RowSketcher
         virtual int call(
             int64_t m,
             int64_t n,
-            const std::vector<T>& A,
+            const std::vector<T> &A,
             int64_t k,
-            std::vector<T>& Omega,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &Omega,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
 
@@ -36,7 +36,7 @@ class RS : public RowSketcher<T, RNG>
 
         RS(
             // Requires a stabilization algorithm object.
-            RandLAPACK::Stabilization<T>& stab_obj,
+            RandLAPACK::Stabilization<T> &stab_obj,
             int64_t p,
             int64_t q,
             bool verb,
@@ -99,13 +99,13 @@ class RS : public RowSketcher<T, RNG>
         int call(
             int64_t m,
             int64_t n,
-            const std::vector<T>& A,
+            const std::vector<T> &A,
             int64_t k,
-            std::vector<T>& Omega,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &Omega,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
-        RandLAPACK::Stabilization<T>& Stab_Obj;
+        RandLAPACK::Stabilization<T> &Stab_Obj;
         int64_t passes_over_data;
         int64_t passes_per_stab;
         bool verbosity;
@@ -123,10 +123,10 @@ template <typename T, typename RNG>
 int RS<T, RNG>::call(
     int64_t m,
     int64_t n,
-    const std::vector<T>& A,
+    const std::vector<T> &A,
     int64_t k,
-    std::vector<T>& Omega,
-    RandBLAS::RNGState<RNG>& state
+    std::vector<T> &Omega,
+    RandBLAS::RNGState<RNG> &state
 ){
 
     int64_t p = this->passes_over_data;

@@ -22,10 +22,10 @@ class RangeFinder {
         virtual int call(
             int64_t m,
             int64_t n,
-            const std::vector<T>& A,
+            const std::vector<T> &A,
             int64_t k,
-            std::vector<T>& Q,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &Q,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
 
@@ -35,9 +35,9 @@ class RF : public RangeFinder<T, RNG> {
 
         RF(
             // Requires a RowSketcher scheme object.
-            RandLAPACK::RowSketcher<T, RNG>& rs_obj,
+            RandLAPACK::RowSketcher<T, RNG> &rs_obj,
             // Requires a stabilization algorithm object.
-            RandLAPACK::Stabilization<T>& orth_obj,
+            RandLAPACK::Stabilization<T> &orth_obj,
             bool verb,
             bool cond
         ) : RS_Obj(rs_obj), Orth_Obj(orth_obj) {
@@ -86,16 +86,16 @@ class RF : public RangeFinder<T, RNG> {
         int call(
             int64_t m,
             int64_t n,
-            const std::vector<T>& A,
+            const std::vector<T> &A,
             int64_t k,
-            std::vector<T>& Q,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &Q,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
        // Instantiated in the constructor
-       RandLAPACK::RowSketcher<T, RNG>& RS_Obj;
-       RandLAPACK::Stabilization<T>& Orth_Obj;
+       RandLAPACK::RowSketcher<T, RNG> &RS_Obj;
+       RandLAPACK::Stabilization<T> &Orth_Obj;
        bool verbosity;
        bool cond_check;
        std::vector<T> Omega;
@@ -112,10 +112,10 @@ template <typename T, typename RNG>
 int RF<T, RNG>::call(
     int64_t m,
     int64_t n,
-    const std::vector<T>& A,
+    const std::vector<T> &A,
     int64_t k,
-    std::vector<T>& Q,
-    RandBLAS::RNGState<RNG>& state
+    std::vector<T> &Q,
+    RandBLAS::RNGState<RNG> &state
 ){
 
     T* Omega_dat = util::upsize(n * k, this->Omega);

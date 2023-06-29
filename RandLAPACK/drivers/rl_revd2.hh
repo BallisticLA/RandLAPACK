@@ -24,20 +24,20 @@ class REVD2alg {
             Uplo uplo,
             int64_t m,
             const T* A,
-            int64_t& k,
+            int64_t &k,
             T tol,
-            std::vector<T>& V,
-            std::vector<T>& eigvals,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &V,
+            std::vector<T> &eigvals,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 
         virtual int call(
             SymmetricLinearOperator<T> &A,
-            int64_t& k,
+            int64_t &k,
             T tol,
-            std::vector<T>& V,
-            std::vector<T>& eigvals,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &V,
+            std::vector<T> &eigvals,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
 
@@ -47,7 +47,7 @@ class REVD2 : public REVD2alg<T, RNG> {
 
         // Constructor
         REVD2(
-            RandLAPACK::SymmetricRangeFinder<T, RNG>& syrf_obj,
+            RandLAPACK::SymmetricRangeFinder<T, RNG> &syrf_obj,
             int error_est_power_iters,
             bool verb = false
         ) : SYRF_Obj(syrf_obj) {
@@ -91,24 +91,24 @@ class REVD2 : public REVD2alg<T, RNG> {
             Uplo uplo,
             int64_t m,
             const T* A,
-            int64_t& k,
+            int64_t &k,
             T tol,
-            std::vector<T>& V,
-            std::vector<T>& eigvals,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &V,
+            std::vector<T> &eigvals,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
         int call(
             SymmetricLinearOperator<T> &A,
-            int64_t& k,
+            int64_t &k,
             T tol,
-            std::vector<T>& V,
-            std::vector<T>& eigvals,
+            std::vector<T> &V,
+            std::vector<T> &eigvals,
             RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
-        RandLAPACK::SymmetricRangeFinder<T, RNG>& SYRF_Obj;
+        RandLAPACK::SymmetricRangeFinder<T, RNG> &SYRF_Obj;
         int error_est_p;
         bool verbose;
 
@@ -178,11 +178,11 @@ T power_error_est(
 template <typename T, typename RNG>
 int REVD2<T, RNG>::call(
         SymmetricLinearOperator<T> &A,
-        int64_t& k,
+        int64_t &k,
         T tol,
-        std::vector<T>& V,
-        std::vector<T>& eigvals,
-        RandBLAS::RNGState<RNG>& state
+        std::vector<T> &V,
+        std::vector<T> &eigvals,
+        RandBLAS::RNGState<RNG> &state
 ) {
     int64_t m = A.m;
     T err = 0;
@@ -274,10 +274,10 @@ int REVD2<T, RNG>::call(
         Uplo uplo,
         int64_t m,
         const T* A,
-        int64_t& k,
+        int64_t &k,
         T tol,
-        std::vector<T>& V,
-        std::vector<T>& eigvals,
+        std::vector<T> &V,
+        std::vector<T> &eigvals,
         RandBLAS::RNGState<RNG> &state
 ) {
     ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);

@@ -50,7 +50,7 @@ class TestOrth : public ::testing::Test
     template <typename T, typename RNG>
     static void sketch_and_copy_computational_helper(
         RandBLAS::RNGState<RNG> state,
-        OrthTestData<T>& all_data
+        OrthTestData<T> &all_data
     ) {
 
         auto m = all_data.row;
@@ -72,8 +72,8 @@ class TestOrth : public ::testing::Test
     /// Checks I - \transpose{Q}Q.
     template <typename T, typename RNG>
     static void test_orth_sketch(
-        OrthTestData<T>& all_data, 
-        RandLAPACK::CholQRQ<T>& CholQRQ
+        OrthTestData<T> &all_data, 
+        RandLAPACK::CholQRQ<T> &CholQRQ
     ) {
 
         auto m = all_data.row;

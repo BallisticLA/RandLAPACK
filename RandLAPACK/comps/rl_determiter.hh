@@ -21,7 +21,7 @@ void pcg(
     const T* b, // length m
     const T* c, // length n
     T delta, // >= 0
-    std::vector<T>& resid_vec, // re
+    std::vector<T> &resid_vec, // re
     T tol, //  > 0
     int64_t k,
     const T* M, // n-by-k

@@ -25,8 +25,8 @@ class SymmetricRangeFinder {
         virtual int call(
             SymmetricLinearOperator<T> &A,
             int64_t k,
-            std::vector<T>& Q,
-            RandBLAS::RNGState<RNG>& state,
+            std::vector<T> &Q,
+            RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) = 0;
 
@@ -35,7 +35,7 @@ class SymmetricRangeFinder {
             int64_t m,
             const T* A,
             int64_t k,
-            std::vector<T>& Q,
+            std::vector<T> &Q,
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) = 0;
@@ -46,8 +46,8 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
     public:
 
         SYRF(
-            RandLAPACK::SymmetricPowerSketch<T, RNG>& syps_obj,
-            RandLAPACK::Stabilization<T>& orth_obj,
+            RandLAPACK::SymmetricPowerSketch<T, RNG> &syps_obj,
+            RandLAPACK::Stabilization<T> &orth_obj,
             bool verb = false,
             bool cond = false
         ) : SYPS_Obj(syps_obj), Orth_Obj(orth_obj) {
@@ -89,7 +89,7 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
             int64_t m,
             const T* A,
             int64_t k,
-            std::vector<T>& Q,
+            std::vector<T> &Q,
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) override;
@@ -97,7 +97,7 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
         int call(
             SymmetricLinearOperator<T> &A,
             int64_t k,
-            std::vector<T>& Q,
+            std::vector<T> &Q,
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) override;
@@ -105,8 +105,8 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
 
     public:
        // Instantiated in the constructor
-       RandLAPACK::SymmetricPowerSketch<T, RNG>& SYPS_Obj;
-       RandLAPACK::Stabilization<T>& Orth_Obj;
+       RandLAPACK::SymmetricPowerSketch<T, RNG> &SYPS_Obj;
+       RandLAPACK::Stabilization<T> &Orth_Obj;
        bool verbose;
        bool cond_check;
        std::vector<T> cond_work_mat;
@@ -119,8 +119,8 @@ template <typename T, typename RNG>
 int SYRF<T, RNG>::call(
     SymmetricLinearOperator<T> &A,
     int64_t k,
-    std::vector<T>& Q,
-    RandBLAS::RNGState<RNG>& state,
+    std::vector<T> &Q,
+    RandBLAS::RNGState<RNG> &state,
     T* work_buff
 ) {
     int64_t m = A.m;
@@ -158,7 +158,7 @@ int SYRF<T, RNG>::call(
     int64_t m,
     const T* A,
     int64_t k,
-    std::vector<T>& Q,
+    std::vector<T> &Q,
     RandBLAS::RNGState<RNG> &state,
     T* work_buff
 ) {

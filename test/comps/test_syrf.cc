@@ -62,7 +62,7 @@ class TestSYRF : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void orth_and_copy_computational_helper(SYRFTestData<T>& all_data) {
+    static void orth_and_copy_computational_helper(SYRFTestData<T> &all_data) {
         
         auto m = all_data.row;
 
@@ -89,8 +89,8 @@ class TestSYRF : public ::testing::Test
     template <typename T, typename RNG>
     static void test_SYRF_general(
         RandBLAS::RNGState<RNG> state,
-        SYRFTestData<T>& all_data, 
-        algorithm_objects<T, RNG>& all_algs) {
+        SYRFTestData<T> &all_data, 
+        algorithm_objects<T, RNG> &all_algs) {
 
         auto m = all_data.row;
         auto k = all_data.rank;

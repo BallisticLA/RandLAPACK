@@ -19,7 +19,7 @@ class Stabilization {
         virtual int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            std::vector<T> &Q
         ) = 0;
 };
 
@@ -56,7 +56,7 @@ class CholQRQ : public Stabilization<T> {
         int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            std::vector<T> &Q
         );
 
     public:
@@ -75,7 +75,7 @@ template <typename T>
 int CholQRQ<T>::call(
     int64_t m,
     int64_t k,
-    std::vector<T>& Q
+    std::vector<T> &Q
 ){
 
     T* Q_gram_dat = util::upsize(k * k, this->Q_gram);
@@ -143,7 +143,7 @@ class HQRQ : public Stabilization<T> {
         int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            std::vector<T> &Q
         );
 
     public:
@@ -157,7 +157,7 @@ template <typename T>
 int HQRQ<T>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A
+    std::vector<T> &A
 ) {
     // Done via regular LAPACK's QR
     // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
@@ -210,7 +210,7 @@ class PLUL : public Stabilization<T> {
         int call(
             int64_t m,
             int64_t k,
-            std::vector<T>& Q
+            std::vector<T> &Q
         );
 
     public:
@@ -225,7 +225,7 @@ template <typename T>
 int PLUL<T>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A
+    std::vector<T> &A
 ){
     auto ipiv = this->ipiv;
     // Not using utility bc vector of int

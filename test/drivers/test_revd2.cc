@@ -98,7 +98,7 @@ class TestREVD2 : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void symm_mat_and_copy_computational_helper(T& norm_A, REVD2TestData<T>& all_data) {
+    static void symm_mat_and_copy_computational_helper(T &norm_A, REVD2TestData<T> &all_data) {
         auto m = all_data.dim;
         // We're using Nystrom, the original must be positive semidefinite
         blas::syrk(
@@ -114,7 +114,7 @@ class TestREVD2 : public ::testing::Test
     }
 
     template <typename T, typename RNG>
-    static void uplo_computational_helper(REVD2UploTestData<T>& all_data) {
+    static void uplo_computational_helper(REVD2UploTestData<T> &all_data) {
         auto m = all_data.dim;
         T* A_u_dat = all_data.A_u.data();
         T* A_l_dat = all_data.A_l.data();
@@ -141,9 +141,9 @@ class TestREVD2 : public ::testing::Test
         T tol,
         int rank_expectation, 
         T err_expectation, 
-        T& norm_A, 
-        REVD2TestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs,
+        T &norm_A, 
+        REVD2TestData<T> &all_data,
+        algorithm_objects<T, RNG> &all_algs,
         RandBLAS::RNGState<RNG> state
     ) {
         
@@ -180,8 +180,8 @@ class TestREVD2 : public ::testing::Test
         int64_t k_start, 
         T tol,
         T err_expectation, 
-        REVD2UploTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs,
+        REVD2UploTestData<T> &all_data,
+        algorithm_objects<T, RNG> &all_algs,
         RandBLAS::RNGState<RNG> state
     ) {
         
