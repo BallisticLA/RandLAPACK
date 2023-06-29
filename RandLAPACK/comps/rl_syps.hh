@@ -1,10 +1,11 @@
 #ifndef randlapack_comps_syps_h
 #define randlapack_comps_syps_h
 
-#include "rl_orth.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_orth.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -22,17 +23,21 @@ class SymmetricPowerSketch {
         virtual int call(
             blas::Uplo uplo,
             int64_t m,
-            const std::vector<T>& A,
+            const T* A,
             int64_t lda,
             int64_t k,
             RandBLAS::RNGState<RNG>& state,
             T*& skop_buff = nullptr,
             T* work_buff = nullptr
-        ) {
-            UNUSED(uplo); UNUSED(m); UNUSED(A); UNUSED(lda);
-            UNUSED(k); UNUSED(state); UNUSED(skop_buff); UNUSED(work_buff);
-            throw std::logic_error("Abstract method called.");
-        };
+        ) = 0;
+
+        virtual int call(
+            SymmetricLinearOperator<T> &A,
+            int64_t k,
+            RandBLAS::RNGState<RNG>& state,
+            T*& skop_buff = nullptr,
+            T* work_buff = nullptr
+        ) = 0;
 
 };
 
@@ -95,10 +100,18 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         int call(
             blas::Uplo uplo,
             int64_t m,
-            const std::vector<T>& A,
+            const T* A,
             int64_t lda,
             int64_t k,
-            RandBLAS::RNGState<RNG>& state,
+            RandBLAS::RNGState<RNG> &state,
+            T*& skop_buff,
+            T* work_buff
+        );
+
+        int call(
+            SymmetricLinearOperator<T> &A,
+            int64_t k,
+            RandBLAS::RNGState<RNG> &state,
             T*& skop_buff,
             T* work_buff
         );
@@ -113,19 +126,16 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYPS<T, RNG>::call(
-    blas::Uplo uplo,
-    int64_t m,
-    const std::vector<T>& A,
-    int64_t lda,
+    SymmetricLinearOperator<T> &A,
     int64_t k,
     RandBLAS::RNGState<RNG>& state,
     T*& skop_buff,
     T* work_buff
 ){
+    int64_t m = A.m;
     int64_t p = this->passes_over_data;
     int64_t q = this->passes_per_stab;
     int64_t p_done = 0;
-    const T* A_dat = A.data();
 
      bool callers_skop_buff = skop_buff != nullptr;
      if (!callers_skop_buff)
@@ -142,7 +152,7 @@ int SYPS<T, RNG>::call(
     T *symm_in  = skop_buff;
     int64_t* ipiv = new int64_t[m]{};
     while (p - p_done > 0) {
-        blas::symm(blas::Layout::ColMajor, blas::Side::Left, uplo, m, k, 1.0, A_dat, lda, symm_in, m, 0.0, symm_out, m);
+        A(blas::Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
         ++p_done;
         if (p_done % q == 0) {
                 if(lapack::getrf(m, k, symm_out, m, ipiv))
@@ -163,6 +173,22 @@ int SYPS<T, RNG>::call(
         delete[] work_buff;
 
    return 0;
+}
+
+// -----------------------------------------------------------------------------
+template <typename T, typename RNG>
+int SYPS<T, RNG>::call(
+    blas::Uplo uplo,
+    int64_t m,
+    const T* A,
+    int64_t lda,
+    int64_t k,
+    RandBLAS::RNGState<RNG>& state,
+    T*& skop_buff,
+    T* work_buff
+) {
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, blas::Layout::ColMajor);
+    return call(A_linop, k, state, skop_buff, work_buff);
 }
 
 

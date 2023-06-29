@@ -100,7 +100,7 @@ class TestUtil : public ::testing::Test
         
         int64_t k = RandLAPACK::util::rank_search_binary(0, m, 0, n, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75), A.data());
 
-        printf("K IS %ld\n", k);
+        printf("K IS %lld\n", k);
         ASSERT_EQ(k, 0);
     }
 };

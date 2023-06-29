@@ -3,7 +3,6 @@
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
-#include "rl_orth.hh"
 #include "rl_util.hh"
 
 #include <RandBLAS.hh>

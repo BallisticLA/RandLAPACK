@@ -150,7 +150,7 @@ class TestREVD2 : public ::testing::Test
         auto m = all_data.dim;
 
         int64_t k = k_start;
-        all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A, k, tol, all_data.V, all_data.eigvals, state);
+        all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A.data(), k, tol, all_data.V, all_data.eigvals, state);
 
         T* E_dat = RandLAPACK::util::upsize(k * k, all_data.E);
         T* Buf_dat = RandLAPACK::util::upsize(m * k, all_data.Buf);
@@ -188,8 +188,8 @@ class TestREVD2 : public ::testing::Test
         auto m = all_data.dim;
 
         int64_t k = k_start;
-        all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A_u, k, tol, all_data.V_u, all_data.eigvals_u, state);
-        all_algs.REVD2.call(blas::Uplo::Lower, m, all_data.A_l, k, tol, all_data.V_l, all_data.eigvals_l, state);
+        all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A_u.data(), k, tol, all_data.V_u, all_data.eigvals_u, state);
+        all_algs.REVD2.call(blas::Uplo::Lower, m, all_data.A_l.data(), k, tol, all_data.V_l, all_data.eigvals_l, state);
 
         T* E_u_dat = RandLAPACK::util::upsize(k * k, all_data.E_u);
         T* E_l_dat = RandLAPACK::util::upsize(k * k, all_data.E_l);

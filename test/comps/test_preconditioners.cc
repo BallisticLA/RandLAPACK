@@ -194,3 +194,102 @@ TEST_F(Test_rpc_svd, FullRankAfterReg)
     test_full_rank_after_reg(0);
     test_full_rank_after_reg(1);
 }
+
+class TestNystromPrecond : public ::testing::Test
+{
+
+    protected:
+        static inline int64_t m = 500;
+        static inline std::vector<uint64_t> keys = {42, 1};
+    
+    virtual void SetUp() {};
+
+    virtual void TearDown() {};
+
+    template <typename T>
+    void set_invP(int64_t m, int64_t k, T* V, T* lambda, T mu, T* invP) {
+        // compute invP = V * diag((min(lambda) + mu)/(lambda + mu)) * V' + (I - VV').
+        RandLAPACK::util::eye(m, m, invP);
+        blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::Trans,
+            m, m, k, -1.0, V, m, V, m, 1.0, invP, m
+        );
+        for (int i = 0; i < k; ++i) {
+            blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::Trans,
+                m, m, 1, (lambda[k-1] + mu) / (lambda[i] + mu),
+                &V[i*m], m, &V[i*m], m, 1.0, invP, m 
+            );
+        }
+    };
+
+    template <typename T>
+    void set_G_mu_pre(int64_t m, T* G, T mu, T* invP, T* G_mu_pre) {
+        // G_mu_pre = (G + mu)*invP
+        blas::copy(m * m, invP, 1, G_mu_pre, 1);
+        blas::scal(m * m, mu, G_mu_pre, 1);
+        blas::symm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Lower,
+            m, m, 1.0, G, m, invP, m, 1.0, G_mu_pre, m
+        );
+        for(int i = 1; i < m; ++i)
+            blas::copy(m - i, &G_mu_pre[i + ((i-1) * m)], 1, &G_mu_pre[(i - 1) + (i * m)], m);
+    };
+
+    template <typename T>
+    void run(int key_index, std::vector<T> &G) {
+        /* Run the algorithm under test */
+        RandBLAS::RNGState alg_state(keys[key_index]);
+        alg_state.key.incr();
+        std::vector<T> V(0);
+        std::vector<T> lambda(0);
+        int64_t k = 1;
+        T mu_min = 1e-5;
+        RandLAPACK::nystrom_pc_data(
+            Uplo::Lower, G.data(), m, V, lambda, k, mu_min, alg_state
+        ); // k has been updated.
+
+        /* Verify algorithm output */
+        EXPECT_TRUE(k > 5);
+        EXPECT_TRUE(k < m);
+        std::vector<T> invP(m * m, 0.0);
+        std::vector<T> G_mu_pre(m * m, 0.0);
+
+        T cond_lim = 5;
+        T mu = mu_min;
+        std::vector<T> s(m);
+        set_invP(m, k, V.data(), lambda.data(), mu, invP.data());
+        set_G_mu_pre(m, G.data(), mu, invP.data(), G_mu_pre.data());
+        lapack::gesvd(lapack::Job::NoVec, lapack::Job::NoVec, m, m, G_mu_pre.data(), m, s.data(), nullptr, 1, nullptr, 1);
+        T cond = s[0] / s[m-1];
+        EXPECT_LE(cond, cond_lim);
+
+        mu *= 10;
+        cond_lim /= 2;
+        set_invP(m, k, V.data(), lambda.data(), mu, invP.data());
+        set_G_mu_pre(m, G.data(), mu, invP.data(), G_mu_pre.data());
+        lapack::gesvd(lapack::Job::NoVec, lapack::Job::NoVec, m, m, G_mu_pre.data(), m, s.data(), nullptr, 1, nullptr, 1);
+        cond = s[0] / s[m-1];
+        EXPECT_LE(cond, cond_lim);
+    
+        mu *= 10;
+        cond_lim /= 2;
+        set_invP(m, k, V.data(), lambda.data(), mu, invP.data());
+        set_G_mu_pre(m, G.data(), mu, invP.data(), G_mu_pre.data());
+        lapack::gesvd(lapack::Job::NoVec, lapack::Job::NoVec, m, m, G_mu_pre.data(), m, s.data(), nullptr, 1, nullptr, 1);
+        cond = s[0] / s[m-1];
+        EXPECT_LE(cond, cond_lim);
+    };
+};
+
+TEST_F(TestNystromPrecond, basictest) {
+    RandLAPACK::gen::mat_gen_info<double> mat_info(m, m, RandLAPACK::gen::polynomial);
+    mat_info.cond_num = 1e6;
+    mat_info.rank = m;
+    mat_info.exponent = 2.0;
+    std::vector<double> A(m * m, 0.0);
+    RandBLAS::RNGState data_state(0);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(mat_info, A, data_state);
+    std::vector<double> G(m * m, 0.0);
+    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::NoTrans, m, m, 1.0,
+        A.data(), m, 0.0, G.data(), m
+    ); // Note: G is PSD with squared spectrum of A.
+    run<double>(0, G);
+}

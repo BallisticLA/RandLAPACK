@@ -6,6 +6,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -19,10 +20,19 @@ class REVD2alg {
 
         virtual ~REVD2alg() {}
 
-        virtual RandBLAS::RNGState<RNG> call(
+        virtual int call(
             blas::Uplo uplo,
             int64_t m,
-            std::vector<T>& A,
+            const T* A,
+            int64_t& k,
+            T tol,
+            std::vector<T>& V,
+            std::vector<T>& eigvals,
+            RandBLAS::RNGState<RNG>& state
+        ) = 0;
+
+        virtual int call(
+            SymmetricLinearOperator<T> &A,
             int64_t& k,
             T tol,
             std::vector<T>& V,
@@ -77,20 +87,24 @@ class REVD2 : public REVD2alg<T, RNG> {
         ///     On entry, is empty and may not have any space allocated for it.
         ///     On exit, stores k eigenvalues.
         ///
-        /// @returns
-        ///     An RNGState that the calling function should use the next
-        ///     time it needs an RNGState.
-        ///
-
-        RandBLAS::RNGState<RNG> call(
+        int call(
             blas::Uplo uplo,
             int64_t m,
-            std::vector<T>& A,
+            const T* A,
             int64_t& k,
             T tol,
             std::vector<T>& V,
             std::vector<T>& eigvals,
             RandBLAS::RNGState<RNG>& state
+        ) override;
+
+        int call(
+            SymmetricLinearOperator<T> &A,
+            int64_t& k,
+            T tol,
+            std::vector<T>& V,
+            std::vector<T>& eigvals,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
@@ -102,6 +116,7 @@ class REVD2 : public REVD2alg<T, RNG> {
         std::vector<T> Omega;
         std::vector<T> R;
         std::vector<T> S;
+        std::vector<T> symrf_work;
 };
 
 // -----------------------------------------------------------------------------
@@ -113,16 +128,15 @@ class REVD2 : public REVD2alg<T, RNG> {
 /// All other parameters come from REVD2
 template <typename T>
 T power_error_est(
-    int64_t m,
+    SymmetricLinearOperator<T> &A,
     int64_t k,
     int p,
     T* vector_buf,
     T* V,
-    blas::Uplo uplo,
-    T* A,
     T* Mat_buf,
     T* eigvals
 ) {
+    int64_t m = A.m;
     T err = 0;
     for(int i = 0; i < p; ++i) {
         T g_norm = blas::nrm2(m, vector_buf, 1);
@@ -146,7 +160,8 @@ T power_error_est(
         gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Mat_buf, m, &vector_buf[m], 1, 0.0, &vector_buf[2 * m], 1);
         // Compute A * g / ||g||
         // Using the forth column of vector_buff as a buffer for matrix-vector product
-        symv(Layout::ColMajor, uplo, m, 1.0, A, m, vector_buf, 1, 0.0, &vector_buf[3 * m], 1);
+        A(Layout::ColMajor, 1, 1.0, vector_buf, m, 0.0, &vector_buf[3*m], m);
+        // symv(Layout::ColMajor, uplo, m, 1.0, A, m, vector_buf, 1, 0.0, &vector_buf[3 * m], 1);
 
         // Compute w = (A * g / ||g|| - V * diag(eigvals) * V' * g / ||g||)
         // Result is stored in the 4th column of vector_buf
@@ -161,36 +176,33 @@ T power_error_est(
 
 
 template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
-        blas::Uplo uplo,
-        int64_t m,
-        std::vector<T>& A,
+int REVD2<T, RNG>::call(
+        SymmetricLinearOperator<T> &A,
         int64_t& k,
         T tol,
         std::vector<T>& V,
         std::vector<T>& eigvals,
         RandBLAS::RNGState<RNG>& state
-){
+) {
+    int64_t m = A.m;
     T err = 0;
-    std::vector<T> symrf_work(0);
     RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
     error_est_state.key.incr(1);
-    while(1) {
-        T* A_dat = A.data();
-        T* V_dat = util::upsize(m * k, V);
+    while(true) {
         util::upsize(k, eigvals);
+        T* V_dat = util::upsize(m * k, V);
         T* Y_dat = util::upsize(m * k, this->Y);
         T* Omega_dat = util::upsize(m * k, this->Omega);
         T* R_dat = util::upsize(k * k, this->R);
         T* S_dat = util::upsize(k * k, this->S);
-        T* symrf_work_buff = util::upsize(m * k, symrf_work);
+        T* symrf_work_dat = util::upsize(m * k, this->symrf_work);
 
         // Construnct a sketching operator
         // If CholeskyQR is used for stab/orth here, RF can fail
-        this->SYRF_Obj.call(uplo, m, A, k, this->Omega, state, symrf_work_buff);
+        this->SYRF_Obj.call(A, k, this->Omega, state, symrf_work_dat);
 
         // Y = A * Omega
-        blas::symm(Layout::ColMajor, Side::Left, uplo, m, k, 1.0, A_dat, m, Omega_dat, m, 0.0, Y_dat, m);
+        A(blas::Layout::ColMajor, k, 1.0, Omega_dat, m, 0.0, Y_dat, m);
 
         T nu = std::numeric_limits<T>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
 
@@ -244,7 +256,7 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         RandBLAS::DenseDist  g{.n_rows = m, .n_cols = 1};
         error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state);
 
-        err = power_error_est(m, k, this->error_est_p, Omega_dat, V_dat, uplo, A_dat, Y_dat, eigvals.data()); 
+        err = power_error_est(A, k, this->error_est_p, Omega_dat, V_dat, Y_dat, eigvals.data()); 
 
         if(err <= 5 * std::max(tol, nu) || k == m) {
             break;
@@ -255,6 +267,21 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         }
     }
     return 0;
+}
+
+template <typename T, typename RNG>
+int REVD2<T, RNG>::call(
+        blas::Uplo uplo,
+        int64_t m,
+        const T* A,
+        int64_t& k,
+        T tol,
+        std::vector<T>& V,
+        std::vector<T>& eigvals,
+        RandBLAS::RNGState<RNG> &state
+) {
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, blas::Layout::ColMajor);
+    return this->call(A_linop, k, tol, V, eigvals, state);
 }
 
 } // end namespace RandLAPACK

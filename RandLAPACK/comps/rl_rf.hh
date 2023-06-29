@@ -1,7 +1,6 @@
 #ifndef randlapack_comps_rf_h
 #define randlapack_comps_rf_h
 
-#include "rl_rf.hh"
 #include "rl_rs.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
