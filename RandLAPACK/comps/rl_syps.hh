@@ -26,16 +26,16 @@ class SymmetricPowerSketch {
             const T* A,
             int64_t lda,
             int64_t k,
-            RandBLAS::RNGState<RNG>& state,
-            T*& skop_buff = nullptr,
+            RandBLAS::RNGState<RNG> &state,
+            T* &skop_buff = nullptr,
             T* work_buff = nullptr
         ) = 0;
 
         virtual int call(
             SymmetricLinearOperator<T> &A,
             int64_t k,
-            RandBLAS::RNGState<RNG>& state,
-            T*& skop_buff = nullptr,
+            RandBLAS::RNGState<RNG> &state,
+            T* &skop_buff = nullptr,
             T* work_buff = nullptr
         ) = 0;
 
@@ -104,7 +104,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
             int64_t lda,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
-            T*& skop_buff,
+            T* &skop_buff,
             T* work_buff
         );
 
@@ -112,7 +112,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
             SymmetricLinearOperator<T> &A,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
-            T*& skop_buff,
+            T* &skop_buff,
             T* work_buff
         );
     
@@ -128,8 +128,8 @@ template <typename T, typename RNG>
 int SYPS<T, RNG>::call(
     SymmetricLinearOperator<T> &A,
     int64_t k,
-    RandBLAS::RNGState<RNG>& state,
-    T*& skop_buff,
+    RandBLAS::RNGState<RNG> &state,
+    T* &skop_buff,
     T* work_buff
 ){
     int64_t m = A.m;
@@ -183,8 +183,8 @@ int SYPS<T, RNG>::call(
     const T* A,
     int64_t lda,
     int64_t k,
-    RandBLAS::RNGState<RNG>& state,
-    T*& skop_buff,
+    RandBLAS::RNGState<RNG> &state,
+    T* &skop_buff,
     T* work_buff
 ) {
     ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);

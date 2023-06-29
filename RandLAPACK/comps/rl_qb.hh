@@ -24,13 +24,13 @@ class QBalg {
         virtual int call(
             int64_t m,
             int64_t n,
-            std::vector<T>& A,
-            int64_t& k,
+            std::vector<T> &A,
+            int64_t &k,
             int64_t block_sz,
             T tol,
-            std::vector<T>& Q,
-            std::vector<T>& B,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &Q,
+            std::vector<T> &B,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
 
@@ -41,9 +41,9 @@ class QB : public QBalg<T, RNG> {
         // Constructor
         QB(
             // Requires a RangeFinder scheme object.
-            RandLAPACK::RangeFinder<T, RNG>& rf_obj,
+            RandLAPACK::RangeFinder<T, RNG> &rf_obj,
             // Requires a stabilization algorithm object.
-            RandLAPACK::Stabilization<T>& orth_obj,
+            RandLAPACK::Stabilization<T> &orth_obj,
             bool verb,
             bool orth
         ) : RF_Obj(rf_obj), Orth_Obj(orth_obj) {
@@ -115,18 +115,18 @@ class QB : public QBalg<T, RNG> {
         int call(
             int64_t m,
             int64_t n,
-            std::vector<T>& A,
-            int64_t& k,
+            std::vector<T> &A,
+            int64_t &k,
             int64_t block_sz,
             T tol,
-            std::vector<T>& Q,
-            std::vector<T>& B,
-            RandBLAS::RNGState<RNG>& state
+            std::vector<T> &Q,
+            std::vector<T> &B,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
-        RandLAPACK::RangeFinder<T, RNG>& RF_Obj;
-        RandLAPACK::Stabilization<T>& Orth_Obj;
+        RandLAPACK::RangeFinder<T, RNG> &RF_Obj;
+        RandLAPACK::Stabilization<T> &Orth_Obj;
         bool verbosity;
         bool orth_check;
 
@@ -151,13 +151,13 @@ template <typename T, typename RNG>
 int QB<T, RNG>::call(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
-    int64_t& k,
+    std::vector<T> &A,
+    int64_t &k,
     int64_t block_sz,
     T tol,
-    std::vector<T>& Q,
-    std::vector<T>& B,
-    RandBLAS::RNGState<RNG>& state
+    std::vector<T> &Q,
+    std::vector<T> &B,
+    RandBLAS::RNGState<RNG> &state
 ){
 
     int64_t curr_sz = 0;

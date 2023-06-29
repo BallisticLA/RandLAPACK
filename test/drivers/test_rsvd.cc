@@ -93,7 +93,7 @@ class TestRSVD : public ::testing::Test
     };
 
     template <typename T>
-    static void computational_helper(RSVDTestData<T>& all_data) {
+    static void computational_helper(RSVDTestData<T> &all_data) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -109,9 +109,9 @@ class TestRSVD : public ::testing::Test
     template <typename T, typename RNG>
     static void test_RSVD1_general(
         T tol, 
-        RSVDTestData<T>& all_data,
-        algorithm_objects<T, RNG>& all_algs,
-        RandBLAS::RNGState<RNG>& state) {
+        RSVDTestData<T> &all_data,
+        algorithm_objects<T, RNG> &all_algs,
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;

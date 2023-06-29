@@ -58,10 +58,10 @@ template <typename T, typename RNG>
 void gen_singvec(
     int64_t m,
     int64_t n,
-    std::vector<T>& A,
+    std::vector<T> &A,
     int64_t k,
-    std::vector<T>& S,
-    RandBLAS::RNGState<RNG>& state
+    std::vector<T> &S,
+    RandBLAS::RNGState<RNG> &state
 ) {
     std::vector<T> U(m * k, 0.0);
     std::vector<T> V(n * k, 0.0);
@@ -100,14 +100,14 @@ void gen_singvec(
 /// The output matrix has k singular values. 
 template <typename T, typename RNG>
 void gen_poly_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
+    int64_t &m,
+    int64_t &n,
+    std::vector<T> &A,
     int64_t k,
     T cond,
     T p,
     bool diagon,
-    RandBLAS::RNGState<RNG>& state
+    RandBLAS::RNGState<RNG> &state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -123,7 +123,7 @@ void gen_poly_mat(
     // apply lambda function to every entry of s
     std::for_each(s.begin() + offset, s.end(),
         // Lambda expression begins
-        [&p, &offset, &a, &b](T& entry) {
+        [&p, &offset, &a, &b](T &entry) {
                 entry = 1 / (a * std::pow(offset + b, p));
                 ++offset;
         }
@@ -151,13 +151,13 @@ void gen_poly_mat(
 /// The output matrix has k singular values. 
 template <typename T, typename RNG>
 void gen_exp_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
+    int64_t &m,
+    int64_t &n,
+    std::vector<T> &A,
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG>& state
+    RandBLAS::RNGState<RNG> &state
 ) {
 
     std::vector<T> s(k, 1.0);
@@ -173,7 +173,7 @@ void gen_exp_mat(
     // Please make sure that the first singular value is always 1
     std::for_each(s.begin() + offset, s.end(),
         // Lambda expression begins
-        [&t, &cnt](T& entry) {
+        [&t, &cnt](T &entry) {
                 entry = (std::exp(++cnt * -t));
         }
     );
@@ -199,13 +199,13 @@ void gen_exp_mat(
 /// Parameter 'cond' signfies the condition number of a generated matrix.
 template <typename T, typename RNG>
 void gen_step_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
+    int64_t &m,
+    int64_t &n,
+    std::vector<T> &A,
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG>& state
+    RandBLAS::RNGState<RNG> &state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -241,11 +241,11 @@ void gen_step_mat(
 /// Right singular vectors are sampled uniformly at random.
 template <typename T, typename RNG>
 void gen_spiked_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
+    int64_t &m,
+    int64_t &n,
+    std::vector<T> &A,
     T spike_scale,
-    RandBLAS::RNGState<RNG>& state
+    RandBLAS::RNGState<RNG> &state
 ) {
     int64_t num_rows_sampled = n / 2;
 
@@ -291,11 +291,11 @@ void gen_spiked_mat(
 /// orthonormalized Gaussian matrix with modified diagonal entries to diag(V) *= [1, 10^-15, . . . , 10^-15, 10^-15].
 template <typename T, typename RNG>
 void gen_oleg_adversarial_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
+    int64_t &m,
+    int64_t &n,
+    std::vector<T> &A,
     T sigma,
-    RandBLAS::RNGState<RNG>& state
+    RandBLAS::RNGState<RNG> &state
 ) {
 
     T scaling_factor_U = sigma;
@@ -344,13 +344,13 @@ void gen_oleg_adversarial_mat(
 /// Parameter 'cond' signfies the condition number of a generated matrix.
 template <typename T, typename RNG>
 void gen_bad_cholqr_mat(
-    int64_t& m,
-    int64_t& n,
-    std::vector<T>& A,
+    int64_t &m,
+    int64_t &n,
+    std::vector<T> &A,
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG>& state
+    RandBLAS::RNGState<RNG> &state
 ) {
 
     std::vector<T> s(n, 1.0);
@@ -367,7 +367,7 @@ void gen_bad_cholqr_mat(
     // Please make sure that the first singular value is always 1
     std::for_each(s.begin() + offset, s.end(),
         // Lambda expression begins
-        [&t, &cnt](T& entry) {
+        [&t, &cnt](T &entry) {
                 entry = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
         }
     );
@@ -391,8 +391,8 @@ void gen_bad_cholqr_mat(
 template <typename T, typename RNG>
 void mat_gen(
     mat_gen_info<T> info,
-    std::vector<T>& A,
-    RandBLAS::RNGState<RNG>& state
+    std::vector<T> &A,
+    RandBLAS::RNGState<RNG> &state
 ) {
     // Base parameters
     int64_t m = info.rows;

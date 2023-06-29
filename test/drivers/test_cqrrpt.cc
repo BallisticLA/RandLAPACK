@@ -42,7 +42,7 @@ class TestCQRRPT : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void norm_and_copy_computational_helper(T& norm_A, CQRRPTTestData<T>& all_data) {
+    static void norm_and_copy_computational_helper(T &norm_A, CQRRPTTestData<T> &all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
 
@@ -55,7 +55,7 @@ class TestCQRRPT : public ::testing::Test
     /// This routine also appears in benchmarks, but idk if it should be put into utils
     template <typename T>
     static void
-    error_check(T& norm_A, CQRRPTTestData<T>& all_data) {
+    error_check(T &norm_A, CQRRPTTestData<T> &all_data) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -108,8 +108,8 @@ class TestCQRRPT : public ::testing::Test
     static void test_CQRRPT_general(
         int64_t d, 
         T norm_A,
-        CQRRPTTestData<T>& all_data,
-        RandLAPACK::CQRRPT<T, RNG>& CQRRPT) {
+        CQRRPTTestData<T> &all_data,
+        RandLAPACK::CQRRPT<T, RNG> &CQRRPT) {
 
         auto m = all_data.row;
         auto n = all_data.col;

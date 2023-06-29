@@ -65,7 +65,7 @@ class TestRF : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void orth_and_copy_computational_helper(RFTestData<T>& all_data) {
+    static void orth_and_copy_computational_helper(RFTestData<T> &all_data) {
         
         auto m = all_data.row;
         auto n = all_data.col;
@@ -86,9 +86,9 @@ class TestRF : public ::testing::Test
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
     template <typename T, typename RNG, typename alg_type>
     static void test_RF_general(
-        RFTestData<T>& all_data, 
-        alg_type& all_algs,
-        RandBLAS::RNGState<RNG>& state) {
+        RFTestData<T> &all_data, 
+        alg_type &all_algs,
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
