@@ -215,39 +215,39 @@ int64_t NoFLA_Downdate_Y(
     buff_B = ( T * ) malloc( m_B * n_B * sizeof( T ) );
 
     // B = G1.
-    lapack::lacpy( lapack::MatrixType::General,
+    lapack::lacpy( MatrixType::General,
                     m_G1, n_G1,
                     buff_G1, ldim_G1,
                     buff_B, ldim_B )  ;
 
     // B = B * U11.
-    blas::trmm( blas::Layout::ColMajor,
-                blas::Side::Right, 
-                blas::Uplo::Lower,
-                blas::Op::NoTrans,
-                blas::Diag::Unit, m_B, n_B,
+    blas::trmm( Layout::ColMajor,
+                Side::Right, 
+                Uplo::Lower,
+                Op::NoTrans,
+                Side::Unit, m_B, n_B,
                 d_one, buff_U11, ldim_U11, buff_B, ldim_B );
 
     // B = B + G2 * U21.
-    blas::gemm( blas::Layout::ColMajor,
-                blas::Op::NoTrans, blas::Op::NoTrans, m_B, n_B, m_U21,
+    blas::gemm( Layout::ColMajor,
+                Op::NoTrans, Op::NoTrans, m_B, n_B, m_U21,
                 d_one, buff_G2, ldim_G2, buff_U21, ldim_U21,
                 d_one, buff_B,  ldim_B );
 
     // B = B * T11.
-    blas::trmm( blas::Layout::ColMajor,
-                blas::Side::Right,
-                blas::Uplo::Upper,
-                blas::Op::NoTrans,
-                blas::Diag::NonUnit, m_B, n_B,
+    blas::trmm( Layout::ColMajor,
+                Side::Right,
+                Uplo::Upper,
+                Op::NoTrans,
+                Side::NonUnit, m_B, n_B,
                 d_one, buff_T, ldim_T, buff_B, ldim_B );
 
     // B = - B * U11^H.
-    blas::trmm( blas::Layout::ColMajor,
-                blas::Side::Right,
-                blas::Uplo::Lower,
-                blas::Op::ConjTrans,
-                blas::Diag::Unit, m_B, n_B,
+    blas::trmm( Layout::ColMajor,
+                Side::Right,
+                Uplo::Lower,
+                Op::ConjTrans,
+                Side::Unit, m_B, n_B,
                 d_minus_one, buff_U11, ldim_U11, buff_B, ldim_B );
 
     // B = G1 + B.
@@ -259,9 +259,9 @@ int64_t NoFLA_Downdate_Y(
     }
 
     // Y2 = Y2 - B * R12.
-    blas::gemm( blas::Layout::ColMajor,
-                blas::Op::NoTrans,
-                blas::Op::NoTrans, m_Y2, n_Y2, m_A12,
+    blas::gemm( Layout::ColMajor,
+                Op::NoTrans,
+                Op::NoTrans, m_Y2, n_Y2, m_A12,
                 d_minus_one, buff_B, ldim_B, buff_A12, ldim_A12,
                 d_one, buff_Y2, ldim_Y2 );
 
@@ -666,8 +666,8 @@ int64_t hqrrp(
     RandBLAS::DenseDist D{.n_rows = nb_alg + pp, .n_cols = m_A, .family=RandBLAS::DenseDistName::Uniform};
     state = RandBLAS::fill_dense(D, buff_G, state);
     
-    blas::gemm(blas::Layout::ColMajor,
-                blas::Op::NoTrans, blas::Op::NoTrans, m_Y, n_Y, m_A, 
+    blas::gemm(Layout::ColMajor,
+                Op::NoTrans, Op::NoTrans, m_Y, n_Y, m_A, 
                 d_one, buff_G,  ldim_G, buff_A, ldim_A, 
                 d_zero, buff_Y, ldim_Y );
 
@@ -729,8 +729,8 @@ int64_t hqrrp(
 
         //// FLA_Gemm( FLA_NO_TRANSPOSE, FLA_NO_TRANSPOSE, 
         ////           FLA_ONE, GR, ABR, FLA_ZERO, CYR ); 
-        blas::gemm(blas::Layout::ColMajor,
-                    blas::Op::NoTrans, blas::Op::NoTrans, m_cyr, n_cyr, m_ABR,
+        blas::gemm(Layout::ColMajor,
+                    Op::NoTrans, Op::NoTrans, m_cyr, n_cyr, m_ABR,
                     d_one, & buff_G[ 0 + j * ldim_G ], ldim_G,
                             & buff_A[ j + j * ldim_A ], ldim_A,
                     d_zero, & buff_cyr[ 0 + 0 * ldim_cyr ], ldim_cyr );
@@ -755,7 +755,7 @@ int64_t hqrrp(
         if( last_iter == 0 ) {
             // Compute QRP of YR, and apply permutations to matrix AR.
             // A copy of YR is made into VR, and permutations are applied to YR.
-            lapack::lacpy( lapack::MatrixType::General,
+            lapack::lacpy( MatrixType::General,
                             m_V, n_VR,
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);

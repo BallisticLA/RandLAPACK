@@ -31,7 +31,7 @@ class SymmetricRangeFinder {
         ) = 0;
 
         virtual int call(
-            blas::Uplo uplo,
+            Uplo uplo,
             int64_t m,
             const T* A,
             int64_t k,
@@ -58,7 +58,7 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
         /// This is an analog of the RangeFinder class RF for symmetric matrices.
         ///
         /// @param[in] uplo
-        ///     blas::Uplo::Upper or blas::Uplo::Lower.
+        ///     Uplo::Upper or Uplo::Lower.
         ///     The triangular part of mat(A) that we can read from A.
         ///
         /// @param[in] m
@@ -85,7 +85,7 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
         ///     time it needs an RNGState.
         ///
         int call(
-            blas::Uplo uplo,
+            Uplo uplo,
             int64_t m,
             const T* A,
             int64_t k,
@@ -154,7 +154,7 @@ int SYRF<T, RNG>::call(
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYRF<T, RNG>::call(
-    blas::Uplo uplo,
+    Uplo uplo,
     int64_t m,
     const T* A,
     int64_t k,
@@ -162,7 +162,7 @@ int SYRF<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state,
     T* work_buff
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, blas::Layout::ColMajor);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
     return this->call(A_linop, k, Q, state, work_buff);
 }
 

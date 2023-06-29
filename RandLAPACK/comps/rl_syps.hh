@@ -21,7 +21,7 @@ class SymmetricPowerSketch {
         virtual ~SymmetricPowerSketch() {}
 
         virtual int call(
-            blas::Uplo uplo,
+            Uplo uplo,
             int64_t m,
             const T* A,
             int64_t lda,
@@ -65,7 +65,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         /// We stabilize the power method with a user-defined function.
         ///
         /// @param[in] uplo
-        ///     blas::Uplo::Upper or blas::Uplo::Lower.
+        ///     Uplo::Upper or Uplo::Lower.
         ///     The triangular part of mat(A) that we can read from A.
         ///
         /// @param[in] m
@@ -98,7 +98,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         ///     time it needs an RNGState.
         ///
         int call(
-            blas::Uplo uplo,
+            Uplo uplo,
             int64_t m,
             const T* A,
             int64_t lda,
@@ -152,7 +152,7 @@ int SYPS<T, RNG>::call(
     T *symm_in  = skop_buff;
     int64_t* ipiv = new int64_t[m]{};
     while (p - p_done > 0) {
-        A(blas::Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
+        A(Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
         ++p_done;
         if (p_done % q == 0) {
                 if(lapack::getrf(m, k, symm_out, m, ipiv))
@@ -178,7 +178,7 @@ int SYPS<T, RNG>::call(
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYPS<T, RNG>::call(
-    blas::Uplo uplo,
+    Uplo uplo,
     int64_t m,
     const T* A,
     int64_t lda,
@@ -187,7 +187,7 @@ int SYPS<T, RNG>::call(
     T*& skop_buff,
     T* work_buff
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, blas::Layout::ColMajor);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);
     return call(A_linop, k, state, skop_buff, work_buff);
 }
 
