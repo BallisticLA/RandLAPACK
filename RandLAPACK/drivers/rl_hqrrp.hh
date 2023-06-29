@@ -225,7 +225,7 @@ int64_t NoFLA_Downdate_Y(
                 Side::Right, 
                 Uplo::Lower,
                 Op::NoTrans,
-                Side::Unit, m_B, n_B,
+                Diag::Unit, m_B, n_B,
                 d_one, buff_U11, ldim_U11, buff_B, ldim_B );
 
     // B = B + G2 * U21.
@@ -239,7 +239,7 @@ int64_t NoFLA_Downdate_Y(
                 Side::Right,
                 Uplo::Upper,
                 Op::NoTrans,
-                Side::NonUnit, m_B, n_B,
+                Diag::NonUnit, m_B, n_B,
                 d_one, buff_T, ldim_T, buff_B, ldim_B );
 
     // B = - B * U11^H.
@@ -247,7 +247,7 @@ int64_t NoFLA_Downdate_Y(
                 Side::Right,
                 Uplo::Lower,
                 Op::ConjTrans,
-                Side::Unit, m_B, n_B,
+                Diag::Unit, m_B, n_B,
                 d_minus_one, buff_U11, ldim_U11, buff_B, ldim_B );
 
     // B = G1 + B.
