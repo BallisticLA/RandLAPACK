@@ -20,7 +20,7 @@ class REVD2alg {
 
         virtual ~REVD2alg() {}
 
-        virtual RandBLAS::RNGState<RNG> call(
+        virtual int call(
             blas::Uplo uplo,
             int64_t m,
             const T* A,
@@ -31,7 +31,7 @@ class REVD2alg {
             RandBLAS::RNGState<RNG>& state
         ) = 0;
 
-        virtual RandBLAS::RNGState<RNG> call(
+        virtual int call(
             SymmetricLinearOperator<T> &A,
             int64_t& k,
             T tol,
@@ -87,12 +87,7 @@ class REVD2 : public REVD2alg<T, RNG> {
         ///     On entry, is empty and may not have any space allocated for it.
         ///     On exit, stores k eigenvalues.
         ///
-        /// @returns
-        ///     An RNGState that the calling function should use the next
-        ///     time it needs an RNGState.
-        ///
-
-        RandBLAS::RNGState<RNG> call(
+        int call(
             blas::Uplo uplo,
             int64_t m,
             const T* A,
@@ -103,7 +98,7 @@ class REVD2 : public REVD2alg<T, RNG> {
             RandBLAS::RNGState<RNG>& state
         ) override;
 
-        RandBLAS::RNGState<RNG> call(
+        int call(
             SymmetricLinearOperator<T> &A,
             int64_t& k,
             T tol,
@@ -181,7 +176,7 @@ T power_error_est(
 
 
 template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
+int REVD2<T, RNG>::call(
         SymmetricLinearOperator<T> &A,
         int64_t& k,
         T tol,
@@ -275,7 +270,7 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
 }
 
 template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
+int REVD2<T, RNG>::call(
         blas::Uplo uplo,
         int64_t m,
         const T* A,
@@ -285,7 +280,7 @@ RandBLAS::RNGState<RNG> REVD2<T, RNG>::call(
         std::vector<T>& eigvals,
         RandBLAS::RNGState<RNG> &state
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, blas::Layout::ColMajor);
     return this->call(A_linop, k, tol, V, eigvals, state);
 }
 

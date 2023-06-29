@@ -328,7 +328,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, blas::Layout::ColMajor);
     return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
 }
 

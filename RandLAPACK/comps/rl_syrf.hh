@@ -162,7 +162,7 @@ int SYRF<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state,
     T* work_buff
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, blas::Layout::ColMajor);
     return this->call(A_linop, k, Q, state, work_buff);
 }
 
