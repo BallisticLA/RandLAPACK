@@ -25,7 +25,7 @@ namespace RandLAPACK {
 // We have it here to simplify unittests later on.
 template <typename T, typename SKOP>
 void rpc_data_svd(
-    blas::Layout layout,
+    Layout layout,
     int64_t m, // number of rows in A
     int64_t n, // number of columns in A
     T *A, // buffer of size at least m*n
@@ -42,7 +42,7 @@ void rpc_data_svd(
 
     // step 1
     int64_t lda_sk;
-    if (layout == blas::Layout::RowMajor) {
+    if (layout == Layout::RowMajor) {
         randblas_require(lda >= n);
         lda_sk = n;
     } else {
@@ -52,8 +52,8 @@ void rpc_data_svd(
     RandBLAS::util::safe_scal(d*n, 0.0, A_sk, 1);
     RandBLAS::sketch_general(
         layout,
-        blas::Op::NoTrans,
-        blas::Op::NoTrans,
+        Op::NoTrans,
+        Op::NoTrans,
         d, n, m,
         1.0, S, 0, 0,
         A, lda,
@@ -61,14 +61,14 @@ void rpc_data_svd(
     );
 
     // step 2: apply an LAPACK SVD function to A_sk and process the output.
-    if (layout == blas::Layout::ColMajor) {
-        auto jobu = lapack::Job::NoVec;
-        auto jobvt = lapack::Job::OverwriteVec;
+    if (layout == Layout::ColMajor) {
+        auto jobu = Job::NoVec;
+        auto jobvt = Job::OverwriteVec;
         lapack::gesvd(jobu, jobvt, d, n, A_sk, d, sigma_sk, nullptr, 1, nullptr, 1);
         RandLAPACK::util::eat_lda_slack(A_sk, n, n, d);
     } else {
-        auto jobu = lapack::Job::OverwriteVec;
-        auto jobvt = lapack::Job::NoVec;
+        auto jobu = Job::OverwriteVec;
+        auto jobvt = Job::NoVec;
         lapack::gesvd(jobu, jobvt, n, d, A_sk, n, sigma_sk, nullptr, 1, nullptr, 1);
     }
     // memory(A_sk, 1,..., n^2) is the transposed right singular vectors, represented in
@@ -99,7 +99,7 @@ void rpc_data_svd(
  * can easily be solved by unpreconditioned iterative methods.
  * 
  * @param[in] layout
- *      Either blas::Layout::RowMajor or blas::Layout::ColMajor.
+ *      Either Layout::RowMajor or Layout::ColMajor.
  * @param[in] m
  *      The number of rows in A; this must be at least as large
  *      as "n" and it should be much larger.
@@ -131,7 +131,7 @@ void rpc_data_svd(
  */
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> rpc_data_svd_saso(
-    blas::Layout layout,
+    Layout layout,
     int64_t m, // number of rows in A
     int64_t n, // number of columns in A
     int64_t d, // number of rows in sketch of A
@@ -168,7 +168,7 @@ RandBLAS::RNGState<RNG> rpc_data_svd_saso(
  * A thresholding scheme is applied to infer numerical rank of H_aug.
  * 
  * @param[in] layout
- *      blas::Layout::RowMajor or blas::Layout::ColMajor.
+ *      Layout::RowMajor or Layout::ColMajor.
  *      The storage order for V.
  * 
  * @param[in] n
@@ -193,7 +193,7 @@ RandBLAS::RNGState<RNG> rpc_data_svd_saso(
  */
 template <typename T>
 int64_t make_right_orthogonalizer(
-    blas::Layout layout,
+    Layout layout,
     int64_t n,
     T* V,
     T* sigma,
@@ -207,8 +207,8 @@ int64_t make_right_orthogonalizer(
     T abstol = curr_s * n * std::numeric_limits<T>::epsilon();
     
     int64_t rank = 0;
-    int64_t inter_col_stride = (layout == blas::Layout::ColMajor) ? n : 1;
-    int64_t intra_col_stride = (layout == blas::Layout::ColMajor) ? 1 : n;
+    int64_t inter_col_stride = (layout == Layout::ColMajor) ? n : 1;
+    int64_t intra_col_stride = (layout == Layout::ColMajor) ? 1 : n;
     while (rank < n) {
         curr_s = regularized(sigma[rank]);
         if (curr_s < abstol)
@@ -317,7 +317,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
  */
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
-    blas::Uplo uplo,
+    Uplo uplo,
     const T* A,
     int64_t m,
     std::vector<T> &V,
@@ -328,7 +328,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, blas::Layout::ColMajor);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
     return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
 }
 

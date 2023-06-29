@@ -32,7 +32,7 @@ struct SymmetricLinearOperator {
         * for A since A is an abstract linear operator.
     */
     virtual void operator()(
-        blas::Layout layout,
+        Layout layout,
         int64_t n,
         T alpha,
         T* const B,
@@ -48,17 +48,17 @@ struct SymmetricLinearOperator {
 template <typename T>
 struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
 
-    const blas::Uplo uplo;
+    const Uplo uplo;
     const T* A_buff;
     const int64_t lda;
-    const blas::Layout buff_layout;
+    const Layout buff_layout;
 
     ExplicitSymLinOp(
         int64_t m,
-        blas::Uplo uplo,
+        Uplo uplo,
         const T* A_buff,
         int64_t lda,
-        blas::Layout buff_layout
+        Layout buff_layout
     ) : SymmetricLinearOperator<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {};
 
     // Note: the "layout" parameter here is interpreted for (B and C).
@@ -66,7 +66,7 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
     // parameters to blas::symm to reconcile the different layouts of
     // A vs (B, C).
     void operator()(
-        blas::Layout layout,
+        Layout layout,
         int64_t n,
         T alpha,
         T* const B,
@@ -83,7 +83,7 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
         // Reading the "blas_call_uplo" triangle of "this->A_buff" in "layout" order is the same
         // as reading the "this->uplo" triangle of "this->A_buff" in "this->buff_layout" order.
         blas::symm(
-            layout, blas::Side::Left, blas_call_uplo, this->m, n, alpha,
+            layout, Side::Left, blas_call_uplo, this->m, n, alpha,
             this->A_buff, this->lda, B, ldb, beta, C, ldc
         );
     };

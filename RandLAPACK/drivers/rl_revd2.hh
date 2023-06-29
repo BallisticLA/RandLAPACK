@@ -21,7 +21,7 @@ class REVD2alg {
         virtual ~REVD2alg() {}
 
         virtual int call(
-            blas::Uplo uplo,
+            Uplo uplo,
             int64_t m,
             const T* A,
             int64_t& k,
@@ -88,7 +88,7 @@ class REVD2 : public REVD2alg<T, RNG> {
         ///     On exit, stores k eigenvalues.
         ///
         int call(
-            blas::Uplo uplo,
+            Uplo uplo,
             int64_t m,
             const T* A,
             int64_t& k,
@@ -202,9 +202,9 @@ int REVD2<T, RNG>::call(
         this->SYRF_Obj.call(A, k, this->Omega, state, symrf_work_dat);
 
         // Y = A * Omega
-        A(blas::Layout::ColMajor, k, 1.0, Omega_dat, m, 0.0, Y_dat, m);
+        A(Layout::ColMajor, k, 1.0, Omega_dat, m, 0.0, Y_dat, m);
 
-        T nu = std::numeric_limits<T>::epsilon() * lapack::lange(lapack::Norm::Fro, m, k, Y_dat, m);
+        T nu = std::numeric_limits<T>::epsilon() * lapack::lange(Norm::Fro, m, k, Y_dat, m);
 
         // We need Y = Y + v Omega
         // We further need R = chol(Omega' Y)
@@ -271,7 +271,7 @@ int REVD2<T, RNG>::call(
 
 template <typename T, typename RNG>
 int REVD2<T, RNG>::call(
-        blas::Uplo uplo,
+        Uplo uplo,
         int64_t m,
         const T* A,
         int64_t& k,
@@ -280,7 +280,7 @@ int REVD2<T, RNG>::call(
         std::vector<T>& eigvals,
         RandBLAS::RNGState<RNG> &state
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, blas::Layout::ColMajor);
+    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
     return this->call(A_linop, k, tol, V, eigvals, state);
 }
 
