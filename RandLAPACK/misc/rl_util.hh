@@ -134,7 +134,7 @@ void col_swap(
     int64_t m,
     int64_t n,
     int64_t k,
-    std::vector<T> &A,
+    T* A,
     std::vector<int64_t> idx
 ) {
 
@@ -142,12 +142,11 @@ void col_swap(
         throw std::runtime_error("Incorrect rank parameter.");
 
     int64_t* idx_dat = idx.data();
-    T* A_dat = A.data();
 
     int64_t i, j, l;
     for (i = 0, j = 0; i < k; ++i) {
         j = idx_dat[i] - 1;
-        blas::swap(m, &A_dat[i * m], 1, &A_dat[j * m], 1);
+        blas::swap(m, &A[i * m], 1, &A[j * m], 1);
 
         // swap idx array elements
         // Find idx element with value i and assign it to j
@@ -300,7 +299,7 @@ T estimate_spectral_norm(
     int64_t n,
     T const* A_dat,
     int p,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     std::vector<T> buf (n, 0.0);

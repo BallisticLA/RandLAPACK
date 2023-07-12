@@ -104,23 +104,24 @@ class TestCQRRPT : public ::testing::Test
 
     /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
-    template <typename T, typename RNG>
+    template <typename T, typename RNG, typename alg_type>
     static void test_CQRRPT_general(
         int64_t d, 
         T norm_A,
         CQRRPTTestData<T> &all_data,
-        RandLAPACK::CQRRPT<T, RNG> &CQRRPT) {
+        alg_type &CQRRPT,
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRPT.call(m, n, all_data.A, d, all_data.R, all_data.J);
+        CQRRPT.call(m, n, all_data.A, d, all_data.R, all_data.J, state);
 
         all_data.rank = CQRRPT.rank;
-        printf("RANK AS RETURNED BY CQRRPT %lld\n", all_data.rank);
+        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), all_data.J);
 
         error_check(norm_A, all_data); 
     }
@@ -137,7 +138,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
     CQRRPT.nnz = 2;
     CQRRPT.num_threads = 4;
     CQRRPT.no_hqrrp = 1;
@@ -149,7 +150,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
 }
 
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
@@ -162,7 +163,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
     CQRRPT.nnz = 2;
     CQRRPT.num_threads = 4;
     CQRRPT.no_hqrrp = 0;
@@ -174,7 +175,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
 }
 
 // Using L2 norm rank estimation here is similar to using raive estimation. 
@@ -189,7 +190,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, state, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
     CQRRPT.nnz = 2;
     CQRRPT.num_threads = 4;
     CQRRPT.no_hqrrp = 1;
@@ -199,5 +200,93 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32>(d, norm_A, all_data, CQRRPT);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
+}
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRPT, CQRRP_blocked_full_rank_no_hqrrp) {
+    int64_t m = 100;
+    int64_t n = 30;
+    int64_t k = 30;
+    int64_t d = 30;
+    int64_t b_sz = 10;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
+    CQRRP_blocked.nnz = 2;
+    CQRRP_blocked.num_threads = 4;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
+    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked, state);
+}
+
+TEST_F(TestCQRRPT, something) {
+    int64_t m = 10;
+    int64_t n = 5;
+    int64_t k = 5;
+    auto state = RandBLAS::RNGState();
+
+    // Allocate m by m space
+    std::vector<double> A     (m * n, 0.0);
+    std::vector<double> A_cpy (m * n, 0.0);
+    std::vector<double> Q (m * m, 0.0);
+    std::vector<double> R_buf (n * n, 0.0);
+    std::vector<double> R     (m * n, 0.0);
+    std::vector<double> T     (n * n, 0.0);
+    std::vector<double> D     (n, 0.0);
+    std::vector<double> Ident (m * m, 0.0);
+    std::vector<double> tau     (n, 0.0);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
+
+    RandLAPACK::util::eye(m, m, Q.data());
+    RandLAPACK::util::eye(m, m, Ident.data());
+
+    /*
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, R_buf.data(), n);
+    lapack::potrf(Uplo::Upper, n, R_buf.data(), n);
+    // At this point, an m by n Q is stored in A
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_buf.data(), n, A.data(), m);
+    // Restore Householder reflectors
+    lapack::orhr_col(m, n, n, A.data(), m, T.data(), n, D.data());
+    // Apply the Q factor to some matrix on the right
+    lapack::gemqr(Side::Right, Op::NoTrans, m, m, n, A.data(), m, T.data(), n * n, Q.data(), m);
+  
+    // Grab the R-factor form implicit QR
+    RandLAPACK::util::get_U(m, n, A, R);
+    // Check if Q is orthonormal
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
+    */
+/*
+    // This basic shit works
+    RandLAPACK::util::eye(n, n, Ident.data());
+    lapack::geqrf(m, n, A.data(), m, tau.data());
+    lapack::ungqr(m, n, n, A.data(), m, tau.data());
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, -1.0, Ident.data(), n);
+*/
+    // This has the same issues as shit above
+    lapack::geqrt(m, n, 2, A.data(), m, T.data(), n);
+    // Apply the Q factor to some matrix on the right
+    lapack::gemqr(Side::Left, Op::NoTrans, m, m, n, A.data(), m, T.data(), 2 * n, Q.data(), m);
+
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, Q.data(), name);
+
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
+
+    double norm_test_1 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, m, Ident.data(), m);
+    printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_1);
 }

@@ -16,7 +16,7 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-template <typename T>
+template <typename T, typename RNG>
 class CQRRPTalg {
     public:
 
@@ -28,12 +28,13 @@ class CQRRPTalg {
             std::vector<T> &A,
             int64_t d,
             std::vector<T> &R,
-            std::vector<int64_t> &J
+            std::vector<int64_t> &J,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
 
 template <typename T, typename RNG>
-class CQRRPT : public CQRRPTalg<T> {
+class CQRRPT : public CQRRPTalg<T, RNG> {
     public:
 
         /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
@@ -55,12 +56,10 @@ class CQRRPT : public CQRRPTalg<T> {
         CQRRPT(
             bool verb,
             bool time_subroutines,
-            RandBLAS::RNGState<RNG> st,
             T ep
         ) {
             verbosity = verb;
             timing = time_subroutines;
-            state = st;
             eps = ep;
             no_hqrrp = 1;
             nb_alg = 64;
@@ -115,17 +114,16 @@ class CQRRPT : public CQRRPTalg<T> {
             std::vector<T> &A,
             int64_t d,
             std::vector<T> &R,
-            std::vector<int64_t> &J
+            std::vector<int64_t> &J,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
         bool verbosity;
         bool timing;
         bool cond_check;
-        RandBLAS::RNGState<RNG> state;
         T eps;
         int64_t rank;
-        int64_t b_sz;
 
         // 10 entries
         std::vector<long> times;
@@ -162,7 +160,8 @@ int CQRRPT<T, RNG>::call(
     std::vector<T> &A,
     int64_t d,
     std::vector<T> &R,
-    std::vector<int64_t> &J
+    std::vector<int64_t> &J,
+    RandBLAS::RNGState<RNG> &state
 ){
     //-------TIMING VARS--------/
     high_resolution_clock::time_point saso_t_stop;
@@ -220,7 +219,7 @@ int CQRRPT<T, RNG>::call(
     
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    RandBLAS::fill_sparse(S);
+    state = RandBLAS::fill_sparse(S);
 
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
@@ -238,7 +237,7 @@ int CQRRPT<T, RNG>::call(
     }
     else {
         std::iota(J.begin(), J.end(), 1);
-        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->state);
+        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, state);
     }
 
     if(this -> timing) {
@@ -328,7 +327,7 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Swap k columns of A with pivots from J
-    util::col_swap(m, n, k, A, J);
+    util::col_swap(m, n, k, A_dat, J);
 
     if(this -> timing) {
         a_mod_piv_t_stop = high_resolution_clock::now();
@@ -422,6 +421,273 @@ int CQRRPT<T, RNG>::call(
 
         // Fill the data vector
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
+    }
+    return 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+template <typename T, typename RNG>
+class CQRRP_blocked : public CQRRPTalg<T, RNG> {
+    public:
+
+        CQRRP_blocked(
+            bool verb,
+            bool time_subroutines,
+            T ep,
+            int64_t b_sz
+        ) {
+            verbosity = verb;
+            timing = time_subroutines;
+            eps = ep;
+            block_size = b_sz;
+        }
+
+        /// Computes a QR factorization with column pivots of the form:
+        ///     A[:, J] = QR,
+        /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
+        /// Detailed description of this algorithm may be found in Section 5.1.2.
+        /// of "the RandLAPACK book". 
+        ///
+        /// @param[in] m
+        ///     The number of rows in the matrix A.
+        ///
+        /// @param[in] n
+        ///     The number of columns in the matrix A.
+        ///
+        /// @param[in] A
+        ///     The m-by-n matrix A, stored in a column-major format.
+        ///
+        /// @param[in] d
+        ///     Embedding dimension of a sketch, m >= d >= n.
+        ///
+        /// @param[in] R
+        ///     Represents the upper-triangular R factor of QR factorization.
+        ///     On entry, is empty and may not have any space allocated for it.
+        ///
+        /// @param[out] A
+        ///     Overwritten by an m-by-k orthogonal Q factor.
+        ///     Matrix is stored explicitly.
+        ///
+        /// @param[out] R
+        ///     Stores k-by-n matrix with upper-triangular R factor.
+        ///     Zero entries are not compressed.
+        ///
+        /// @param[out] J
+        ///     Stores k integer type pivot index extries.
+        ///
+        /// @return = 0: successful exit
+        ///
+        /// @return = 1: cholesky factorization failed
+        ///
+
+        int call(
+            int64_t m,
+            int64_t n,
+            std::vector<T> &A,
+            int64_t d,
+            std::vector<T> &R,
+            std::vector<int64_t> &J,
+            RandBLAS::RNGState<RNG> &state
+        ) override;
+
+    public:
+        bool verbosity;
+        bool timing;
+        bool cond_check;
+        RandBLAS::RNGState<RNG> state;
+        T eps;
+        int64_t rank;
+        int64_t block_size;
+
+        // 10 entries
+        std::vector<long> times;
+
+        // tuning SASOS
+        int num_threads;
+        int64_t nnz;
+
+        // Buffers
+        std::vector<T> A_hat;
+        std::vector<T> tau;
+        std::vector<T> R_sk;
+};
+
+// -----------------------------------------------------------------------------
+template <typename T, typename RNG>
+int CQRRP_blocked<T, RNG>::call(
+    int64_t m,
+    int64_t n,
+    std::vector<T> &A,
+    int64_t d,
+    std::vector<T> &R,
+    std::vector<int64_t> &J,
+    RandBLAS::RNGState<RNG> &state
+){
+
+    int64_t rows = m;
+    int64_t cols = n;
+    int64_t b_sz = this->block_size;
+
+    // Originam m by n matrix A, will be "changing" size to rows by cols at every iteration
+    T* A_dat       = A.data();
+    // We now actually need the full Q vector
+    std::vector Q (m * m, 0.0);
+    T* Q_dat       = util::upsize(m * n, R); 
+    // The full R-factor, must have pre-allocated size of m by n;
+    T* R_dat       = util::upsize(m * n, R); 
+    // Sketching buffer that is accessed at every iteration. Must be b_sz by b_sz;
+    T* R_sk_dat    = util::upsize(b_sz * b_sz, this->R_sk); 
+    // Buffer array for sketching. Max size d by n, actual size d by col. Needed until R-factor is extracted.
+    T* A_hat_dat   = util::upsize(d * n, this->A_hat);
+    T* tau_dat     = util::upsize(n, this->tau);
+    J.resize(n);
+    int64_t* J_dat = J.data();
+    // This is a buffer for the "Q_full" a row by col matrix, which will be found 
+    // via applying householder reconstruction to Q_econ, which itself is found by chol_QR on A_pre
+    std::vector<T> Q_full(m * n, 0.0);
+    T* Q_full_dat = Q_full.data();
+    // We will need a copy of A_piv to use in gemms
+    std::vector<T> A_piv(m * n, 0.0);
+    T* A_piv_dat = A_piv.data();
+    // We will need a copy of A_pre to use in gemms
+    std::vector<T> A_pre(m * b_sz, 0.0);
+    T* A_pre_dat = A_pre.data();
+    // These are required for householder reconstruction
+    std::vector<T> D_1(n, 0.0);
+    std::vector<T> T_1(n * n, 0.0);
+    
+    // We will be operating on this at every iteration;
+    std::vector<int64_t> J_buffer (n, 0);
+    int64_t* J_buffer_dat = J_buffer.data();
+
+    for(int iter = 0; iter < n / b_sz; ++iter)
+    {
+        // Zero-out data
+        std::fill(J_buffer.begin(), J_buffer.end(), 0);
+        std::fill(this->tau.begin(), this->tau.end(), 0.0);
+
+        // Skethcing in an embedding regime
+        RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
+        RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+        state = RandBLAS::fill_sparse(S);
+
+        RandBLAS::sketch_general(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, A_hat_dat, d
+        );
+
+        // QRCP
+        lapack::geqp3(d, cols, A_hat_dat, d, J_buffer_dat, tau_dat);
+
+        // Need to premute trailing columns of the full R-factor
+        if(iter != 0)
+            util::col_swap(m, cols, cols, &R_dat[m * (b_sz * iter)], J);
+
+        // extract b_sz by b_sz R_sk
+        for(int i = 0; i < b_sz; ++i)
+            blas::copy(i + 1, &A_hat_dat[iter * d], 1, &R_sk_dat[iter * b_sz], 1);
+
+        // A_piv = Need to pivot full matrix A
+        // This is a wors by cols permuted version of the current A
+        util::col_swap(rows, cols, cols, A_dat, J);
+
+        // Below two copies are required, as later there is an expression where A, Q_full and A_piv are all incorporated
+        // We need to save A_piv for the future
+        lapack::lacpy(MatrixType::General, rows, cols, A_dat, rows, Q_full_dat, rows);
+        // We will need this copy to use in gemms
+        lapack::lacpy(MatrixType::General, rows, cols, A_dat, rows, A_piv_dat, rows);
+
+        // A_pre = AJ(:, 1:b_sz) * R_sk
+        // This is a preconditioned rows by b_sz version of the current A, written into Q_full because of the way trsm works
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk_dat, b_sz, Q_full_dat, rows);
+
+        // We need to save A_pre, is required for computations below 
+        lapack::lacpy(MatrixType::General, rows, b_sz, Q_full_dat, rows, A_pre_dat, rows);
+
+        // Performing Cholesky QR
+        std::vector<T> R_econ;
+        T* R_econ_dat = util::upsize(b_sz * b_sz, R_econ);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, Q_full_dat, rows, 0.0, R_econ_dat, b_sz);
+        lapack::potrf(Uplo::Upper, b_sz, R_econ_dat, b_sz);
+
+        // Compute Q_econ
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_econ_dat, b_sz, Q_full_dat, rows);
+
+        // Find Q_full using Householder reconstruction. 
+        lapack::orhr_col(rows, cols, cols, Q_full_dat, rows, T_1.data(), cols, D_1.data());
+
+        break;
+
+        // Q now needs to be unpacked from a compact WY format
+
+        // Compute R11_full = Q_full' * A_pre
+        // We need an m by b_sz buffer for this
+        std::vector<T> R11_full (cols * b_sz);
+        T* R11_full_dat = R11_full.data();
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, cols, b_sz, rows, 1.0, Q_full_dat, rows, A_pre_dat, rows, 0.0, R11_full_dat, cols);
+
+        // Update matrix A
+        std::fill(A.begin(), A.end(), 0.0);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, cols - b_sz, cols - b_sz, rows, 1.0, &Q_full_dat[rows * b_sz], rows, &A_piv_dat[rows * b_sz], rows, 0.0, A_dat, cols - b_sz);
+
+        // Updating Q, Pivots
+        if(iter == 0) {
+            blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
+            lapack::lacpy(MatrixType::General, rows, cols, Q_full_dat, rows, Q_dat, rows);
+        } else {
+            // We need an m by b_sz buffer for this
+            std::vector<T> Q_buffer (m * b_sz);
+            T* Q_buffer_dat = Q_buffer.data();
+            
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cols, rows, 1.0, &Q_dat[b_sz * iter], m, Q_full_dat, rows, 0.0, Q_buffer_dat, m);
+            for(int i = iter * b_sz; i < n; ++i) {
+                    blas::copy(m, Q_buffer_dat, 1, &Q_dat[m * i], 1);
+            }
+        }
+
+        // Computing subportions of an R-factor
+        RandLAPACK::util::row_resize(cols, b_sz, R11_full, b_sz);
+        // We need an b_sz by b_sz buffer for this
+        std::vector<T> R11 (b_sz * b_sz);
+        T* R11_dat = R11.data();
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, R11_full_dat, b_sz, R_sk_dat, b_sz, 0.0, R11_dat, b_sz);
+        
+        // We need an b_sz by cols - b_sz buffer for this
+        std::vector<T> R22 (b_sz * (cols - b_sz));
+        T* R22_dat = R22.data();
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, b_sz, cols - b_sz, rows, 1.0, Q_full_dat, rows, &A_piv_dat[rows * b_sz], rows, 0.0, R22_dat, b_sz);
+    
+        // Updating R-factor. The full R-factor is m by n
+        for(int i = iter * b_sz; i < n; ++i) {
+            if (i < (iter + 1) * b_sz){
+                blas::copy(b_sz, R11_dat, 1, &R_dat[m * i], 1);
+            } else {
+                blas::copy(b_sz, R22_dat, 1, &R_dat[m * i], 1);
+            }
+        }
+
+        // Data size decreases by block_size per iteration.
+        rows -= b_sz;
+        cols -= b_sz;
     }
     return 0;
 }
