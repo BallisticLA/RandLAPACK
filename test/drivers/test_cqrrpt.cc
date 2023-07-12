@@ -278,9 +278,9 @@ TEST_F(TestCQRRPT, something) {
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, -1.0, Ident.data(), n);
 */
     // This has the same issues as shit above
-    lapack::geqrt(m, n, 2, A.data(), m, T.data(), n);
+    lapack::geqrt(m, n, n, A.data(), m, T.data(), n);
     // Apply the Q factor to some matrix on the right
-    lapack::gemqr(Side::Left, Op::NoTrans, m, m, n, A.data(), m, T.data(), 2 * n, Q.data(), m);
+    lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, A.data(), m, T.data(), n, Q.data(), m);
 
     char name [] = "A";
     RandBLAS::util::print_colmaj(m, n, Q.data(), name);
