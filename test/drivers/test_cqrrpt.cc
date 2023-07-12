@@ -280,7 +280,7 @@ TEST_F(TestCQRRPT, something) {
     // This has the same issues as shit above
     lapack::geqrt(m, n, n, A.data(), m, T.data(), n);
     // Apply the Q factor to some matrix on the right
-    lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, A.data(), m, T.data(), n, Q.data(), m);
+    lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, n, A.data(), m, T.data(), n, Q.data(), m);
 
     char name [] = "A";
     RandBLAS::util::print_colmaj(m, n, Q.data(), name);
