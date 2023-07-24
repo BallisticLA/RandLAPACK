@@ -255,35 +255,17 @@ TEST_F(TestCQRRPT, something) {
     RandLAPACK::util::eye(m, m, Q.data());
     RandLAPACK::util::eye(m, m, Ident.data());
 
-    /*
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, R_buf.data(), n);
     lapack::potrf(Uplo::Upper, n, R_buf.data(), n);
     // At this point, an m by n Q is stored in A
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_buf.data(), n, A.data(), m);
-    // Restore Householder reflectors
-    lapack::orhr_col(m, n, n, A.data(), m, T.data(), n, D.data());
-    // Apply the Q factor to some matrix on the right
-    lapack::gemqr(Side::Right, Op::NoTrans, m, m, n, A.data(), m, T.data(), n * n, Q.data(), m);
-  
-    // Grab the R-factor form implicit QR
-    RandLAPACK::util::get_U(m, n, A, R);
-    // Check if Q is orthonormal
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
-    */
-/*
-    // This basic shit works
-    RandLAPACK::util::eye(n, n, Ident.data());
-    lapack::geqrf(m, n, A.data(), m, tau.data());
-    lapack::ungqr(m, n, n, A.data(), m, tau.data());
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, -1.0, Ident.data(), n);
-*/
-    // This has the same issues as shit above
-    lapack::geqrt(m, n, n, A.data(), m, T.data(), n);
-    // Apply the Q factor to some matrix on the right
-    lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, n, A.data(), m, T.data(), n, Q.data(), m);
 
     char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, Q.data(), name);
+    RandBLAS::util::print_colmaj(m, m, A.data(), name);
+    
+    lapack::orhr_col(m, n, n, A.data(), m, T.data(), n, D.data());
+    // Apply the Q factor to some matrix on the right
+    lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, n, A.data(), m, T.data(), n, Q.data(), m);
 
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
 
