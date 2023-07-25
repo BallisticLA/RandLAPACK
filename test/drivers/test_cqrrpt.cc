@@ -232,8 +232,8 @@ TEST_F(TestCQRRPT, CQRRP_blocked_full_rank_no_hqrrp) {
 
 TEST_F(TestCQRRPT, something) {
     int64_t m = 10;
-    int64_t n = 5;
-    int64_t k = 5;
+    int64_t n = 6;
+    int64_t k = 6;
     auto state = RandBLAS::RNGState();
 
     // Allocate m by m space

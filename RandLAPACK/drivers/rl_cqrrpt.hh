@@ -612,7 +612,6 @@ int CQRRP_blocked<T, RNG>::call(
         for(int i = 0; i < b_sz; ++i)
             blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_sk_dat[i * b_sz], 1);
 
-        // SEGFAULT OCCURS HERE
         // A_piv = Need to pivot full matrix A
         // This is a wors by cols permuted version of the current A
 
@@ -685,8 +684,19 @@ int CQRRP_blocked<T, RNG>::call(
             RandLAPACK::util::eye(rows, rows, Q);
             lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, cols, cols, Q_full_dat, rows, T_1.data(), cols, Q_dat, rows);
         } else {
-            // We need an m by b_sz buffer for this
+            
+            // THINK ABOUT HOW COMPLEX INDEX EXPRESSION RELATE TO ROWS/COLS
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, cols, cols, Q_full_dat, rows, T_1.data(), cols, &Q_dat[m * (b_sz * iter)], m);
+            
+
+            
+            // NEED TO TAKE IN A POINTER TO THE VECTOR
+            //util::col_swap(rows, cols, cols, A_dat, J_buffer);
+
+
+
             /*
+            // We need an m by b_sz buffer for this
             std::vector<T> Q_buffer (m * b_sz);
             T* Q_buffer_dat = Q_buffer.data();
             
@@ -718,13 +728,15 @@ int CQRRP_blocked<T, RNG>::call(
             char name2 [] = "R";
             RandBLAS::util::print_colmaj(rows, cols, R.data(), name2);
 
+                    J_dat[2] = 10000;
+
             for(int i = 0; i < n; ++i)
                 printf("%ld\n", J[i]);
 
         return 0;
         // Data size decreases by block_size per iteration.
-        //rows -= b_sz;
-        //cols -= b_sz;
+        rows -= b_sz;
+        cols -= b_sz;
     }
     return 0;
 }
