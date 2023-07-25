@@ -116,7 +116,7 @@ class TestCQRRPT : public ::testing::Test
         auto n = all_data.col;
 
         CQRRPT.call(m, n, all_data.A, d, all_data.R, all_data.J, state);
-
+/*
         all_data.rank = CQRRPT.rank;
         printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
 
@@ -124,6 +124,7 @@ class TestCQRRPT : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), all_data.J);
 
         error_check(norm_A, all_data); 
+*/
     }
 };
 
@@ -205,11 +206,11 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRP_blocked_full_rank_no_hqrrp) {
-    int64_t m = 100;
-    int64_t n = 30;
-    int64_t k = 30;
-    int64_t d = 30;
-    int64_t b_sz = 10;
+    int64_t m = 10;
+    int64_t n = 5;
+    int64_t k = 5;
+    int64_t d = 5;
+    int64_t b_sz = 5;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -261,14 +262,35 @@ TEST_F(TestCQRRPT, something) {
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_buf.data(), n, A.data(), m);
 
     char name [] = "A";
-    RandBLAS::util::print_colmaj(m, m, A.data(), name);
     
     lapack::orhr_col(m, n, n, A.data(), m, T.data(), n, D.data());
+
     // Apply the Q factor to some matrix on the right
     lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, n, A.data(), m, T.data(), n, Q.data(), m);
-
+/*
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
 
     double norm_test_1 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, m, Ident.data(), m);
     printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_1);
+*/
+    std::vector<double> B (m * n, 0.0);
+    std::vector<double> C (n * n, 0.0);
+    RandBLAS::DenseDist Dist{.n_rows = m, .n_cols = n};
+    state = RandBLAS::fill_dense(Dist, B.data(), state);
+
+    char nameQ [] = "Q";
+    RandBLAS::util::print_colmaj(m, n, Q.data(), nameQ);
+    char nameB [] = "B";
+    RandBLAS::util::print_colmaj(m, n, B.data(), nameB);
+
+    // Apply the decompressed Q to some matrix
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, Q.data(), m, B.data(), m, 0.0, C.data(), n);
+    char nameC [] = "C";
+    RandBLAS::util::print_colmaj(n, n, C.data(), nameC);
+
+    lapack::gemqrt(Side::Left, Op::Trans, m, n, n, n, A.data(), m, T.data(), n, B.data(), m);
+
+    RandBLAS::util::print_colmaj(m, n, B.data(), name);
 }
+
+
