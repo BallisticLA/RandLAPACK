@@ -751,6 +751,12 @@ int CQRRP_blocked<T, RNG>::call(
         rows -= b_sz;
         cols -= b_sz;
     }
+    lapack::lacpy(MatrixType::General, m, n, Q.data(), m, A.data(), m);
+    char nameQ [] = "Q";
+    RandBLAS::util::print_colmaj(m, n, A.data(), nameQ);
+    this -> rank = n;
+    RandLAPACK::util::row_resize(m, n, R, n);
+
     return 0;
 }
 
