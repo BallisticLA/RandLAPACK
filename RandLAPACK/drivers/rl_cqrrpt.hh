@@ -581,10 +581,19 @@ int CQRRP_blocked<T, RNG>::call(
 
 
     char name [] = "A";
-    RandBLAS::util::print_colmaj(rows, cols, A.data(), name);
+    
+
+
+    std::vector<T> R11 (b_sz * b_sz, 0.0);
+    T* R11_dat = R11.data();
+
+    std::vector<T> R12 (b_sz * (n - b_sz), 0.0);
+    T* R12_dat = R12.data();
 
     for(int iter = 0; iter < n / b_sz; ++iter)
     {
+        RandBLAS::util::print_colmaj(rows, cols, A.data(), name);
+
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
         std::fill(this->tau.begin(), this->tau.end(), 0.0);
@@ -599,23 +608,37 @@ int CQRRP_blocked<T, RNG>::call(
             d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, A_hat_dat, d
         );
 
-    RandBLAS::util::print_colmaj(d, cols, A_hat_dat, name);
-
         // QRCP
         lapack::geqp3(d, cols, A_hat_dat, d, J_buffer_dat, tau_dat);
 
+        printf("Printing out J_buffer\n");
+        for(int i = 0; i < cols; ++i)  
+            printf("%ld\n", J_buffer[i]);
+
+
+
+
+
+        char name2 [] = "R";
         // Need to premute trailing columns of the full R-factor
         if(iter != 0)
-            util::col_swap(m, cols, cols, &R_dat[m * (b_sz * iter)], J);
+            util::col_swap(m, cols, cols, &R_dat[m * (b_sz * iter)], J_buffer);
 
         // extract b_sz by b_sz R_sk
         for(int i = 0; i < b_sz; ++i)
             blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_sk_dat[i * b_sz], 1);
 
+
+        char nameRsk [] = "R_sk";
+            RandBLAS::util::print_colmaj(b_sz, b_sz, R_sk.data(), nameRsk);
+
+
         // A_piv = Need to pivot full matrix A
         // This is a wors by cols permuted version of the current A
-
         util::col_swap(rows, cols, cols, A_dat, J_buffer);
+
+        char nameA_piv [] = "A_piv"; 
+        RandBLAS::util::print_colmaj(rows, cols, A_dat, nameA_piv);
 
         // Below two copies are required, as later there is an expression where A, Q_full and A_piv are all incorporated
         // We need to save A_piv for the future
@@ -640,16 +663,24 @@ int CQRRP_blocked<T, RNG>::call(
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_econ_dat, b_sz, Q_full_dat, rows);
 
         // Find Q_full using Householder reconstruction. 
-        lapack::orhr_col(rows, cols, cols, Q_full_dat, rows, T_1.data(), cols, D_1.data());
+        // Remember that Q_econ has b_sz orthonormal columns
+        lapack::orhr_col(rows, b_sz, b_sz, Q_full_dat, rows, T_1.data(), b_sz, D_1.data());
+                    /*
+                    std::vector<T> I_buf(rows * rows, 0.0);
+                    RandLAPACK::util::eye(rows, rows, I_buf);
 
-        // Remember that even though Q_full is represented by "cols" columns, it is actually of size "rows by rows."
+                    lapack::gemqrt(Side::Left, Op::NoTrans, m, m, b_sz, b_sz, Q_full_dat, m, T_1.data(), b_sz, I_buf.data(), m);
+
+                    char name_QQ [] = "Q_just_assembled";
+                    RandBLAS::util::print_colmaj(rows, rows, I_buf.data(), name_QQ);
+                    */
+
+        // Remember that even though Q_full is represented by "b_sz" columns, it is actually of size "rows by rows."
         // Compute R11_full = Q_full' * A_pre - gets written into A_pre space
-        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, cols, cols, Q_full_dat, rows, T_1.data(), cols, A_pre_dat, rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, Q_full_dat, rows, T_1.data(), b_sz, A_pre_dat, rows);
 
         // Compute R11 = R11_full(1:b_sz, :) * R_sk.
         // We will have to resize A_pre_dat down to b_sz by b_sz
-        std::vector<T> R11 (b_sz * b_sz, 0.0);
-        T* R11_dat = R11.data();
         RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, R_sk_dat, b_sz, 0.0, R11.data(), b_sz);
 
@@ -657,83 +688,65 @@ int CQRRP_blocked<T, RNG>::call(
         // A_piv is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
         // The first b_sz rows will represent R12
         // The last rows-b_sz rows will represent the new A
-/*
-                    std::vector<T> I_buf(rows * rows, 0.0);
-                    RandLAPACK::util::eye(rows, rows, I_buf);
 
-                    lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, n, Q_full_dat, m, T_1.data(), n, I_buf.data(), m);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  Q_full_dat, rows, T_1.data(), b_sz, &A_piv_dat[rows * b_sz], rows);
 
-                    char name_1 [] = "Q";
-                    RandBLAS::util::print_colmaj(rows, rows, I_buf.data(), name_1);
+        //char nameA_piv [] = "A_piv that stores R12 and Updated A"; 
+        //RandBLAS::util::print_colmaj(rows, cols, A_piv_dat, nameA_piv);
 
-                    char name_2 [] = "A_prev";
-                    RandBLAS::util::print_colmaj(rows, cols, A_piv_dat, name_2);
-*/
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, cols, cols,  Q_full_dat, rows, T_1.data(), cols, &A_piv_dat[rows * b_sz], rows);
-
-        std::vector<T> R12 (b_sz * (cols - b_sz), 0.0);
-        T* R12_dat = R12.data();
         for(int i = 0; i < (cols - b_sz); ++i) {
             blas::copy(b_sz, &A_piv_dat[rows * (b_sz + i)], 1, &R12[i * b_sz], 1);
             blas::copy(rows - b_sz, &A_piv_dat[rows * (b_sz + i) + b_sz], 1, &A[i * (rows - b_sz)], 1);
         }
 
+        //char name3 [] = "R11";
+        //RandBLAS::util::print_colmaj(b_sz, b_sz, R11.data(), name3);
+
+
         // Updating Q, Pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
             RandLAPACK::util::eye(rows, rows, Q);
-            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, cols, cols, Q_full_dat, rows, T_1.data(), cols, Q_dat, rows);
+            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, Q_full_dat, rows, T_1.data(), b_sz, Q_dat, rows);
         } else {
             
             // THINK ABOUT HOW COMPLEX INDEX EXPRESSION RELATE TO ROWS/COLS
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, cols, cols, Q_full_dat, rows, T_1.data(), cols, &Q_dat[m * (b_sz * iter)], m);
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, Q_full_dat, rows, T_1.data(), b_sz, &Q_dat[m * (b_sz * iter)], m);
             
 
-            
-            // NEED TO TAKE IN A POINTER TO THE VECTOR
-            //util::col_swap(rows, cols, cols, A_dat, J_buffer);
-
-
-
-            /*
-            // We need an m by b_sz buffer for this
-            std::vector<T> Q_buffer (m * b_sz);
-            T* Q_buffer_dat = Q_buffer.data();
-            
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cols, rows, 1.0, &Q_dat[b_sz * iter], m, Q_full_dat, rows, 0.0, Q_buffer_dat, m);
-            for(int i = iter * b_sz; i < n; ++i) {
-                    blas::copy(m, Q_buffer_dat, 1, &Q_dat[m * i], 1);
-            }
-            */
+            // Find a simpler way to do this
+            RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[iter * b_sz], J_buffer);
         }
-        
-
-            char name3 [] = "R11";
-            RandBLAS::util::print_colmaj(b_sz, b_sz, R11.data(), name3);
-
-            //char name4 [] = "R12";
-            //RandBLAS::util::print_colmaj(b_sz, cols - b_sz, R12.data(), name4);
 
         // Updating R-factor. The full R-factor is m by n
-        for(int i = iter * b_sz; i < n; ++i) {
+        for(int i = iter * b_sz, j = -1, k = -1; i < n; ++i) {
             if (i < (iter + 1) * b_sz) {
-                blas::copy(b_sz, &R11_dat[b_sz * i], 1, &R_dat[m * i], 1);
+                blas::copy(b_sz, &R11_dat[b_sz * ++j], 1, &R_dat[(m * i) + (iter * b_sz)], 1);
             } else {
-                blas::copy(b_sz, &R12_dat[b_sz * i], 1, &R_dat[m * i], 1);
+                blas::copy(b_sz, &R12_dat[b_sz * ++k], 1, &R_dat[(m * i) + (iter * b_sz)], 1);
             }
         }
 
-            char name1 [] = "Q";
-            RandBLAS::util::print_colmaj(rows, rows, Q.data(), name1);
-            char name2 [] = "R";
-            RandBLAS::util::print_colmaj(rows, cols, R.data(), name2);
+        //char name1 [] = "Q";
+        //RandBLAS::util::print_colmaj(m, m, Q.data(), name1);
+        //RandBLAS::util::print_colmaj(m, n, R.data(), name2);
 
-                    J_dat[2] = 10000;
+        char nameA [] = "Updated A";
+        RandBLAS::util::print_colmaj(m, n, A.data(), nameA);
 
-            for(int i = 0; i < n; ++i)
-                printf("%ld\n", J[i]);
+        RandBLAS::util::print_colmaj(m, n, R.data(), name2);
 
-        return 0;
+        char nameQ [] = "Q";
+        RandBLAS::util::print_colmaj(m, m, Q.data(), nameQ);
+
+
+        printf("Printing out Full J\n");
+        for(int i = 0; i < n; ++i)
+            printf("%ld\n", J[i]);
+
+        // MATRIX A IS CORRECTLY UPDATED AT THE END
+        // NEED TO CHECK WHAT HAPPENS AT ITERATION TWO
+
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;

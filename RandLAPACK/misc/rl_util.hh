@@ -137,7 +137,6 @@ void col_swap(
     T* A,
     std::vector<int64_t> idx
 ) {
-
     if(k > std::min(m, n)) 
         throw std::runtime_error("Incorrect rank parameter.");
 
@@ -160,6 +159,35 @@ void col_swap(
     }
 }
 
+/// A version of the above function to be used on a vector of integers
+template <typename T>
+void col_swap(
+    int64_t n,
+    int64_t k,
+    int64_t* A,
+    std::vector<int64_t> idx
+) {
+    if(k > n) 
+        throw std::runtime_error("Incorrect rank parameter.");
+
+    int64_t* idx_dat = idx.data();
+
+    int64_t i, j, l;
+    for (i = 0, j = 0; i < k; ++i) {
+        j = idx_dat[i] - 1;
+        std::swap(A[i], A[j]);
+
+        // swap idx array elements
+        // Find idx element with value i and assign it to j
+        for(l = i; l < k; ++l) {
+            if(idx[l] == i + 1) {
+                    idx[l] = j + 1;
+                    break;
+            }
+        }
+        idx[i] = i + 1;
+    }
+}
 
 /// Checks if the given size is larger than available. 
 /// If so, resizes the vector.

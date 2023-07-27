@@ -207,10 +207,10 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRP_blocked_full_rank_no_hqrrp) {
     int64_t m = 10;
-    int64_t n = 5;
-    int64_t k = 5;
-    int64_t d = 5;
-    int64_t b_sz = 5;
+    int64_t n = 6;
+    int64_t k = 6;
+    int64_t d = 6;
+    int64_t b_sz = 3;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -267,12 +267,17 @@ TEST_F(TestCQRRPT, something) {
 
     // Apply the Q factor to some matrix on the right
     lapack::gemqrt(Side::Left, Op::NoTrans, m, m, n, n, A.data(), m, T.data(), n, Q.data(), m);
-/*
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
 
-    double norm_test_1 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, m, Ident.data(), m);
-    printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_1);
-*/
+    char nameQ [] = "Q";
+    RandBLAS::util::print_colmaj(m, m, Q.data(), nameQ);
+
+    //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
+
+    //double norm_test_1 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, m, Ident.data(), m);
+    //printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_1);
+
+
+/*
     std::vector<double> B (m * n, 0.0);
     std::vector<double> C (n * n, 0.0);
     RandBLAS::DenseDist Dist{.n_rows = m, .n_cols = n};
@@ -291,6 +296,7 @@ TEST_F(TestCQRRPT, something) {
     lapack::gemqrt(Side::Left, Op::Trans, m, n, n, n, A.data(), m, T.data(), n, B.data(), m);
 
     RandBLAS::util::print_colmaj(m, n, B.data(), name);
+*/
 }
 
 
