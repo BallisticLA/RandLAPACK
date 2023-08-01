@@ -545,7 +545,9 @@ int CQRRP_blocked<T, RNG>::call(
 
     int64_t rows = m;
     int64_t cols = n;
+    int64_t curr_sz = 0;
     int64_t b_sz = this->block_size;
+    int64_t maxiter = (int64_t) std::ceil(n / (T) b_sz);
 
     // Originam m by n matrix A, will be "changing" size to rows by cols at every iteration
     T* A_dat       = A.data();
@@ -581,6 +583,8 @@ int CQRRP_blocked<T, RNG>::call(
 
 
     char name [] = "A";
+    T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
+    T norm_R = 0.0;
     
 
 
@@ -590,13 +594,18 @@ int CQRRP_blocked<T, RNG>::call(
     std::vector<T> R12 (b_sz * (n - b_sz), 0.0);
     T* R12_dat = R12.data();
 
-    for(int iter = 0; iter < n / b_sz; ++iter)
+    for(int iter = 0; iter < maxiter; ++iter)
     {
+        printf("ITERATION %ld %ld\n", this->block_size, n - curr_sz);
+        // Make sure we fit into the available space
+        b_sz = std::min(this->block_size, n - curr_sz);
+
         RandBLAS::util::print_colmaj(rows, cols, A.data(), name);
 
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
         std::fill(this->tau.begin(), this->tau.end(), 0.0);
+        std::fill(R_sk.begin(), R_sk.end(), 0.0);
 
         // Skethcing in an embedding regime
         RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
@@ -622,12 +631,14 @@ int CQRRP_blocked<T, RNG>::call(
         char name2 [] = "R";
         // Need to premute trailing columns of the full R-factor
         if(iter != 0)
-            util::col_swap(m, cols, cols, &R_dat[m * (b_sz * iter)], J_buffer);
+            util::col_swap(m, cols, cols, &R_dat[m * curr_sz], J_buffer);
 
         // extract b_sz by b_sz R_sk
         for(int i = 0; i < b_sz; ++i)
             blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_sk_dat[i * b_sz], 1);
 
+
+        // d (n) by n A_hat_dat is not used after this point
 
         char nameRsk [] = "R_sk";
             RandBLAS::util::print_colmaj(b_sz, b_sz, R_sk.data(), nameRsk);
@@ -695,8 +706,8 @@ int CQRRP_blocked<T, RNG>::call(
         //RandBLAS::util::print_colmaj(rows, cols, A_piv_dat, nameA_piv);
 
         for(int i = 0; i < (cols - b_sz); ++i) {
-            blas::copy(b_sz, &A_piv_dat[rows * (b_sz + i)], 1, &R12[i * b_sz], 1);
-            blas::copy(rows - b_sz, &A_piv_dat[rows * (b_sz + i) + b_sz], 1, &A[i * (rows - b_sz)], 1);
+            blas::copy(b_sz, &A_piv_dat[rows * (b_sz + i)], 1, &R12_dat[i * b_sz], 1);
+            blas::copy(rows - b_sz, &A_piv_dat[rows * (b_sz + i) + b_sz], 1, &A_dat[i * (rows - b_sz)], 1);
         }
 
         //char name3 [] = "R11";
@@ -711,19 +722,28 @@ int CQRRP_blocked<T, RNG>::call(
         } else {
             
             // THINK ABOUT HOW COMPLEX INDEX EXPRESSION RELATE TO ROWS/COLS
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, Q_full_dat, rows, T_1.data(), b_sz, &Q_dat[m * (b_sz * iter)], m);
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, Q_full_dat, rows, T_1.data(), b_sz, &Q_dat[m * curr_sz], m);
             
 
             // Find a simpler way to do this
-            RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[iter * b_sz], J_buffer);
+            RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 
+        char name4 [] = "R11";
+        RandBLAS::util::print_colmaj(b_sz, b_sz, R11.data(), name4);
+
+        char name3 [] = "R12";
+        RandBLAS::util::print_colmaj(b_sz, cols - b_sz, R12.data(), name3);
+
+
+        RandBLAS::util::print_colmaj(m, n, R.data(), name2);
+
         // Updating R-factor. The full R-factor is m by n
-        for(int i = iter * b_sz, j = -1, k = -1; i < n; ++i) {
-            if (i < (iter + 1) * b_sz) {
-                blas::copy(b_sz, &R11_dat[b_sz * ++j], 1, &R_dat[(m * i) + (iter * b_sz)], 1);
+        for(int i = curr_sz, j = -1, k = -1; i < n; ++i) {
+            if (i < curr_sz + b_sz) {
+                blas::copy(b_sz, &R11_dat[b_sz * ++j], 1, &R_dat[(m * i) + curr_sz], 1);
             } else {
-                blas::copy(b_sz, &R12_dat[b_sz * ++k], 1, &R_dat[(m * i) + (iter * b_sz)], 1);
+                blas::copy(b_sz, &R12_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
             }
         }
 
@@ -750,6 +770,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;
+        curr_sz += b_sz;
     }
     lapack::lacpy(MatrixType::General, m, n, Q.data(), m, A.data(), m);
     char nameQ [] = "Q";

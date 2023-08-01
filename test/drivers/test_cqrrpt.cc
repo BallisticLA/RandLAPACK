@@ -206,11 +206,11 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRP_blocked_full_rank_no_hqrrp) {
-    int64_t m = 10;
-    int64_t n = 6;
-    int64_t k = 6;
-    int64_t d = 6;
-    int64_t b_sz = 3;
+    int64_t m = 50;
+    int64_t n = 50;
+    int64_t k = 50;
+    int64_t d = 50;
+    int64_t b_sz = 13;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
