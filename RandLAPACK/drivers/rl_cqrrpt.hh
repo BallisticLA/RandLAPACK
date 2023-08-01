@@ -526,8 +526,7 @@ class CQRRP_blocked : public CQRRPTalg<T, RNG> {
         int64_t nnz;
 
         // Buffers
-        std::vector<T> A_hat;
-        std::vector<T> tau;
+        //std::vector<T> A_hat;
         std::vector<T> R_sk;
 };
 
@@ -549,6 +548,7 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t b_sz = this->block_size;
     int64_t maxiter = (int64_t) std::ceil(n / (T) b_sz);
 
+    // BELOW ARE MATRICES THAT WE NEED TO INPUT/OUTPUT
     // Originam m by n matrix A, will be "changing" size to rows by cols at every iteration
     T* A_dat       = A.data();
     // We now actually need the full Q vector
@@ -556,40 +556,58 @@ int CQRRP_blocked<T, RNG>::call(
     T* Q_dat       = Q.data(); 
     // The full R-factor, must have pre-allocated size of m by n;
     T* R_dat       = util::upsize(m * n, R); 
-    // Sketching buffer that is accessed at every iteration. Must be b_sz by b_sz;
-    T* R_sk_dat    = util::upsize(b_sz * b_sz, this->R_sk); 
-
-    // Work buffer 1, of size d by n (d > n). Used for:
-    // Buffer array for sketching. Max size d by n, actual size d by col. Needed until R-factor is extracted.
-    T* A_hat_dat   = util::upsize(d * n, this->A_hat);
-    T* tau_dat     = util::upsize(n, this->tau);
     J.resize(n);
     int64_t* J_dat = J.data();
+
+    // BELOW ARE MATRICES THAT WE CANNOT PUT INTO COMMON BUFFERS
+    // We will need a copy of A_pre to use in gemms, is of size col by b_sz.
+    std::vector<T> A_pre(m * b_sz, 0.0);
+    T* A_pre_dat = A_pre.data();
+    // We will be operating on this at every iteration, is of size cols.
+    std::vector<int64_t> J_buffer (n, 0);
+    int64_t* J_buffer_dat = J_buffer.data();
+
+
+    // Work buffer 1, of size m by n. Used for (in order):
+    // Buffer array for sketching. of size d by cols. 
+    // Copy of A_piv of size rows by cols.
+    std::vector<T> A_hat;
+    T* A_hat_dat   = util::upsize(d * n, A_hat);
     // We will need a copy of A_piv to use in gemms
     std::vector<T> A_piv(m * n, 0.0);
     T* A_piv_dat = A_piv.data();
-    // We will need a copy of A_pre to use in gemms
-    std::vector<T> A_pre(m * b_sz, 0.0);
-    T* A_pre_dat = A_pre.data();
+
+    // Work buffer 2, of size b_sz * (n - b_sz). Used for (in order):
+    // Buffer for R_sk of size b_sz * b_sz.
+    // Buffer required by Householder reconstruction routine, name "T" in orhr_col. Max size b_sz by b_sz, can have any number of rows < b_sz. 
+    // Buffer to store R12 of size b_sz * (cols - b_sz).
+    std::vector<T> R_sk(b_sz * b_sz, 0.0);
+    T* R_sk_dat    = R_sk.data(); 
+    std::vector<T> T_1(b_sz * b_sz, 0.0);
+    std::vector<T> R12 (b_sz * (n - b_sz), 0.0);
+    T* R12_dat = R12.data();
+
+    // Work buffer 3, of size b_sz * b_sz. Used for (in order):
+    // Buffer for R in Cholesky QR, of size b_sz * b_sz.
+    // Buffer for R11, of size b_sz * b_sz.
+    std::vector<T> R11 (b_sz * b_sz, 0.0);
+    T* R11_dat = R11.data();
+    std::vector<T> R_econ(b_sz * b_sz, 0.0);
+    T* R_econ_dat = R_econ.data();
+
+
+    // Work buffer 4, of size n. Used for (in order):
+    // Vector tau in qr factorization, of size col.
+    // Vector D in Householder reconstruction, of size col.
+    std::vector<T> tau(n, 0.0);
+    T* tau_dat  = tau.data();
     // These are required for householder reconstruction
     std::vector<T> D_1(n, 0.0);
-    std::vector<T> T_1(n * n, 0.0);
-    
-    // We will be operating on this at every iteration;
-    std::vector<int64_t> J_buffer (n, 0);
-    int64_t* J_buffer_dat = J_buffer.data();
+
 
     T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
     T norm_R = 0.0;
     
-    std::vector<T> R11 (b_sz * b_sz, 0.0);
-    T* R11_dat = R11.data();
-
-    std::vector<T> R12 (b_sz * (n - b_sz), 0.0);
-    T* R12_dat = R12.data();
-
-    std::vector<T> R_econ(b_sz * b_sz, 0.0);
-    T* R_econ_dat = R_econ.data();
 
     for(int iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
@@ -597,7 +615,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
-        std::fill(this->tau.begin(), this->tau.end(), 0.0);
+        std::fill(tau.begin(), tau.end(), 0.0);
         std::fill(R_sk.begin(), R_sk.end(), 0.0);
 
         // Skethcing in an embedding regime
