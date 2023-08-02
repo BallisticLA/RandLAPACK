@@ -234,8 +234,6 @@ TEST_F(TestCQRRPT, something) {
     lapack::potrf(Uplo::Upper, n, R_buf.data(), n);
     // At this point, an m by n Q is stored in A
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_buf.data(), n, A.data(), m);
-
-    char name [] = "A";
     
     lapack::orhr_col(m, n, n, A.data(), m, T.data(), n, D.data());
 

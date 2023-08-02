@@ -134,7 +134,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     int64_t m = 55;
     int64_t n = 50;
     int64_t k = 25;
-    int64_t d_factor = 51;
+    int64_t d_factor = 1.5;
     int64_t b_sz = 13;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);

@@ -153,12 +153,49 @@ int CQRRP_blocked<T, RNG>::call(
     std::vector<int64_t> &J,
     RandBLAS::RNGState<RNG> &state
 ){
+    //-------TIMING VARS--------/
+    high_resolution_clock::time_point saso_t_stop;
+    high_resolution_clock::time_point saso_t_start;
+    long saso_t_dur = 0;
+
+    high_resolution_clock::time_point qrcp_t_start;
+    high_resolution_clock::time_point qrcp_t_stop;
+    long qrcp_t_dur = 0;
+
+    high_resolution_clock::time_point cholqr_t_start;
+    high_resolution_clock::time_point cholqr_t_stop;
+    long cholqr_t_dur = 0;
+
+    high_resolution_clock::time_point reconstruction_t_start;
+    high_resolution_clock::time_point reconstruction_t_stop;
+    long reconstruction_t_dur = 0;
+
+    high_resolution_clock::time_point a_mod_piv_t_start;
+    high_resolution_clock::time_point a_mod_piv_t_stop;
+    long a_mod_piv_t_dur = 0;
+
+    high_resolution_clock::time_point a_mod_trsm_t_start;
+    high_resolution_clock::time_point a_mod_trsm_t_stop;
+    long a_mod_trsm_t_dur = 0;
+
+    high_resolution_clock::time_point copy_t_start;
+    high_resolution_clock::time_point copy_t_stop;
+    long copy_t_dur = 0;
+
+    high_resolution_clock::time_point resize_t_start;
+    high_resolution_clock::time_point resize_t_stop;
+    long resize_t_dur = 0;
+
+    high_resolution_clock::time_point total_t_start;
+    high_resolution_clock::time_point total_t_stop;
+    long total_t_dur = 0;
 
     int64_t rows = m;
     int64_t cols = n;
     int64_t curr_sz = 0;
     int64_t b_sz = this->block_size;
     int64_t maxiter = (int64_t) std::ceil(n / (T) b_sz);
+    int64_t d = 0;
     
     // BELOW ARE MATRICES THAT WE CANNOT PUT INTO COMMON BUFFERS
     // We will need a copy of A_pre to use in gemms, is of size col by b_sz.
@@ -178,7 +215,6 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t* J_dat        = J.data();
     int64_t* J_buffer_dat = J_buffer.data();
 
-
     T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
     T norm_R     = 0.0;
     T norm_R11   = 0.0;
@@ -186,15 +222,22 @@ int CQRRP_blocked<T, RNG>::call(
     T norm_R_i   = 0.0;
     T approx_err = 0.0;
 
-    for(int iter = 0; iter < maxiter; ++iter) {
+    int i, j, k, iter = 0;
+
+    for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
-        int64_t d = d_factor;
+        // Update the row dimension of a sketch
+        d = std::min(rows, d_factor * cols);
 
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
         std::fill(Work4.begin(), Work4.end(), 0.0);
         std::fill(Work2.begin(), Work2.end(), 0.0);
+
+        if(this -> timing) {
+            saso_t_start = high_resolution_clock::now();
+        }
 
         // Skethcing in an embedding regime
         RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
@@ -206,15 +249,26 @@ int CQRRP_blocked<T, RNG>::call(
             d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, Work1_dat, d
         );
 
+        if(this -> timing) {
+            saso_t_stop  = high_resolution_clock::now();
+            saso_t_dur  += duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
+            qrcp_t_start = high_resolution_clock::now();
+        }
+
         // QRCP
         lapack::geqp3(d, cols, Work1_dat, d, J_buffer_dat, Work4_dat);
+
+        if(this -> timing) {
+            qrcp_t_stop = high_resolution_clock::now();
+            qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
+        }
 
         // Need to premute trailing columns of the full R-factor
         if(iter != 0)
             util::col_swap(m, cols, cols, &R_dat[m * curr_sz], J_buffer);
 
-        // extract b_sz by b_sz R_sk (Work2) // ISSUE IS HEEEEEEEEEEEEEEEEERE
-        for(int i = 0; i < b_sz; ++i)
+        // extract b_sz by b_sz R_sk (Work2)
+        for(i = 0; i < b_sz; ++i)
             blas::copy(i + 1, &Work1_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
 
         // A_piv (Work1) = Need to pivot full matrix A
@@ -251,7 +305,6 @@ int CQRRP_blocked<T, RNG>::call(
         // A_piv (Work1) is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
         // The first b_sz rows will represent R12 (Stored in Work2)
         // The last rows-b_sz rows will represent the new A
-
         lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, Work3_dat, b_sz, &Work1_dat[rows * b_sz], rows);
 
         // Updating Q, Pivots
@@ -269,14 +322,14 @@ int CQRRP_blocked<T, RNG>::call(
         RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, b_sz, 0.0, Work3_dat, b_sz);
 
-        // Filling R12 and updating A - this can be altered for safety
-        for(int i = 0; i < (cols - b_sz); ++i) {
+        // Filling R12 and updating A
+        for(i = 0; i < (cols - b_sz); ++i) {
             blas::copy(b_sz, &Work1_dat[rows * (b_sz + i)], 1, &Work2_dat[i * b_sz], 1);
             blas::copy(rows - b_sz, &Work1_dat[rows * (b_sz + i) + b_sz], 1, &A_dat[i * (rows - b_sz)], 1);
         }
 
         // Updating R-factor. The full R-factor is m by n
-        for(int i = curr_sz, j = -1, k = -1; i < n; ++i) {
+        for(i = curr_sz, j = -1, k = -1; i < n; ++i) {
             if (i < curr_sz + b_sz) {
                 blas::copy(b_sz, &Work3_dat[b_sz * ++j], 1, &R_dat[(m * i) + curr_sz], 1);
             } else {
@@ -300,6 +353,7 @@ int CQRRP_blocked<T, RNG>::call(
             // Termination criteria reached
             this -> rank = curr_sz;
             RandLAPACK::util::row_resize(m, n, R, curr_sz);
+            return 0;
         }
 
         // Data size decreases by block_size per iteration.
@@ -309,6 +363,15 @@ int CQRRP_blocked<T, RNG>::call(
     this -> rank = n;
     RandLAPACK::util::row_resize(m, n, R, n);
 
+    // may not be a proper place for this function
+    if(this -> timing) {
+        total_t_stop = high_resolution_clock::now();
+        total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + reconstruction_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
+
+        // Fill the data vector
+        this -> times = {saso_t_dur, qrcp_t_dur, reconstruction_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
+    }
     return 0;
 }
 
