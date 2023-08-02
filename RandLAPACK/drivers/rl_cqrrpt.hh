@@ -571,39 +571,27 @@ int CQRRP_blocked<T, RNG>::call(
     // Work buffer 1, of size m by n. Used for (in order):
     // Buffer array for sketching. of size d by cols. 
     // Copy of A_piv of size rows by cols.
-    std::vector<T> A_hat;
-    T* A_hat_dat   = util::upsize(d * n, A_hat);
-    // We will need a copy of A_piv to use in gemms
-    std::vector<T> A_piv(m * n, 0.0);
-    T* A_piv_dat = A_piv.data();
+    std::vector<T> Work1(m * n, 0.0);
+    T* Work1_dat = Work1.data();
 
     // Work buffer 2, of size b_sz * (n - b_sz). Used for (in order):
     // Buffer for R_sk of size b_sz * b_sz.
-    // Buffer required by Householder reconstruction routine, name "T" in orhr_col. Max size b_sz by b_sz, can have any number of rows < b_sz. 
     // Buffer to store R12 of size b_sz * (cols - b_sz).
-    std::vector<T> R_sk(b_sz * b_sz, 0.0);
-    T* R_sk_dat    = R_sk.data(); 
-    std::vector<T> T_1(b_sz * b_sz, 0.0);
-    std::vector<T> R12 (b_sz * (n - b_sz), 0.0);
-    T* R12_dat = R12.data();
+    std::vector<T> Work2(b_sz * (n - b_sz), 0.0);
+    T* Work2_dat = Work2.data();
 
     // Work buffer 3, of size b_sz * b_sz. Used for (in order):
     // Buffer for R in Cholesky QR, of size b_sz * b_sz.
+    // Buffer required by Householder reconstruction routine, name "T" in orhr_col. Max size b_sz by b_sz, can have any number of rows < b_sz. 
     // Buffer for R11, of size b_sz * b_sz.
-    std::vector<T> R11 (b_sz * b_sz, 0.0);
-    T* R11_dat = R11.data();
-    std::vector<T> R_econ(b_sz * b_sz, 0.0);
-    T* R_econ_dat = R_econ.data();
-
+    std::vector<T> Work3(b_sz * b_sz, 0.0);
+    T* Work3_dat = Work3.data();
 
     // Work buffer 4, of size n. Used for (in order):
     // Vector tau in qr factorization, of size col.
     // Vector D in Householder reconstruction, of size col.
-    std::vector<T> tau(n, 0.0);
-    T* tau_dat  = tau.data();
-    // These are required for householder reconstruction
-    std::vector<T> D_1(n, 0.0);
-
+    std::vector<T> Work4(n, 0.0);
+    T* Work4_dat = Work4.data();
 
     T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
     T norm_R = 0.0;
@@ -615,8 +603,8 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
-        std::fill(tau.begin(), tau.end(), 0.0);
-        std::fill(R_sk.begin(), R_sk.end(), 0.0);
+        std::fill(Work4.begin(), Work4.end(), 0.0);
+        std::fill(Work2.begin(), Work2.end(), 0.0);
 
         // Skethcing in an embedding regime
         RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
@@ -625,86 +613,84 @@ int CQRRP_blocked<T, RNG>::call(
 
         RandBLAS::sketch_general(
             Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-            d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, A_hat_dat, d
+            d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, Work1_dat, d
         );
 
         // QRCP
-        lapack::geqp3(d, cols, A_hat_dat, d, J_buffer_dat, tau_dat);
+        lapack::geqp3(d, cols, Work1_dat, d, J_buffer_dat, Work4_dat);
 
         // Need to premute trailing columns of the full R-factor
         if(iter != 0)
             util::col_swap(m, cols, cols, &R_dat[m * curr_sz], J_buffer);
 
-        // extract b_sz by b_sz R_sk
+        // extract b_sz by b_sz R_sk (Work2)
         for(int i = 0; i < b_sz; ++i)
-            blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_sk_dat[i * b_sz], 1);
+            blas::copy(i + 1, &Work1_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
 
-        // d (n) by n A_hat_dat is not used after this point
-
-        // A_piv = Need to pivot full matrix A
+        // A_piv (Work1) = Need to pivot full matrix A
         // This is a wors by cols permuted version of the current A
         util::col_swap(rows, cols, cols, A_dat, J_buffer);
 
         // Below copy is required to preserve the true state of a pivoted A.
         // The actual space of A will be used to store intermediate representation of the current iteration's Q.
-        lapack::lacpy(MatrixType::General, rows, cols, A_dat, rows, A_piv_dat, rows);
+        lapack::lacpy(MatrixType::General, rows, cols, A_dat, rows, Work1_dat, rows);
 
-        // A_pre = AJ(:, 1:b_sz) * R_sk
+        // A_pre = AJ(:, 1:b_sz) * R_sk (Work2)
         // This is a preconditioned rows by b_sz version of the current A, written into Q_full because of the way trsm works
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk_dat, b_sz, A_dat, rows);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work2_dat, b_sz, A_dat, rows);
 
         // We need to save A_pre, is required for computations below 
         lapack::lacpy(MatrixType::General, rows, b_sz, A_dat, rows, A_pre_dat, rows);
 
         // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_dat, rows, 0.0, R_econ_dat, b_sz);
-        lapack::potrf(Uplo::Upper, b_sz, R_econ_dat, b_sz);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_dat, rows, 0.0, Work3_dat, b_sz);
+        lapack::potrf(Uplo::Upper, b_sz, Work3_dat, b_sz);
 
         // Compute Q_econ
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_econ_dat, b_sz, A_dat, rows);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work3_dat, b_sz, A_dat, rows);
 
         // Find Q (stored in A) using Householder reconstruction. 
         // Remember that Q (stored in A) has b_sz orthonormal columns
-        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, T_1.data(), b_sz, D_1.data());
+        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, Work4_dat);
 
         // Remember that at the moment even though Q (stored in A) is represented by "b_sz" columns, it is actually of size "rows by rows."
         // Compute R11_full = Q' * A_pre - gets written into A_pre space
-        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, T_1.data(), b_sz, A_pre_dat, rows);
-
-        // Compute R11 = R11_full(1:b_sz, :) * R_sk.
-        // We will have to resize A_pre_dat down to b_sz by b_sz
-        RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, R_sk_dat, b_sz, 0.0, R11.data(), b_sz);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, A_pre_dat, rows);
 
         // Looks like we can substitute the two multiplications with a single one:
-        // A_piv is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
-        // The first b_sz rows will represent R12
+        // A_piv (Work1) is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
+        // The first b_sz rows will represent R12 (Stored in Work2)
         // The last rows-b_sz rows will represent the new A
 
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, T_1.data(), b_sz, &A_piv_dat[rows * b_sz], rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, Work3_dat, b_sz, &Work1_dat[rows * b_sz], rows);
 
         // Updating Q, Pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
             RandLAPACK::util::eye(rows, rows, Q);
-            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, T_1.data(), b_sz, Q_dat, rows);
+            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, Q_dat, rows);
         } else {
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, T_1.data(), b_sz, &Q_dat[m * curr_sz], m);
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, &Q_dat[m * curr_sz], m);
             RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 
-        // Filling the R-factor subportion and updating A
+        // Compute R11 (stored in Work3) = R11_full(1:b_sz, :) * R_sk (Work2)
+        // We will have to resize A_pre_dat down to b_sz by b_sz
+        RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, b_sz, 0.0, Work3_dat, b_sz);
+
+        // Filling R12 and updating A
         for(int i = 0; i < (cols - b_sz); ++i) {
-            blas::copy(b_sz, &A_piv_dat[rows * (b_sz + i)], 1, &R12_dat[i * b_sz], 1);
-            blas::copy(rows - b_sz, &A_piv_dat[rows * (b_sz + i) + b_sz], 1, &A_dat[i * (rows - b_sz)], 1);
+            blas::copy(b_sz, &Work1_dat[rows * (b_sz + i)], 1, &Work2_dat[i * b_sz], 1);
+            blas::copy(rows - b_sz, &Work1_dat[rows * (b_sz + i) + b_sz], 1, &A_dat[i * (rows - b_sz)], 1);
         }
 
         // Updating R-factor. The full R-factor is m by n
         for(int i = curr_sz, j = -1, k = -1; i < n; ++i) {
             if (i < curr_sz + b_sz) {
-                blas::copy(b_sz, &R11_dat[b_sz * ++j], 1, &R_dat[(m * i) + curr_sz], 1);
+                blas::copy(b_sz, &Work3_dat[b_sz * ++j], 1, &R_dat[(m * i) + curr_sz], 1);
             } else {
-                blas::copy(b_sz, &R12_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
+                blas::copy(b_sz, &Work2_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
             }
         }
 
