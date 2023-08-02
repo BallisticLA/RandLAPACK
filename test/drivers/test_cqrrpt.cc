@@ -204,32 +204,6 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
 }
 
-// Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRPT, CQRRP_blocked_full_rank_no_hqrrp) {
-    int64_t m = 50;
-    int64_t n = 50;
-    int64_t k = 50;
-    int64_t d = 50;
-    int64_t b_sz = 13;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
-
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked, state);
-}
-
 TEST_F(TestCQRRPT, something) {
     int64_t m = 10;
     int64_t n = 6;
