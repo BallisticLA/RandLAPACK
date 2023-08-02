@@ -294,4 +294,3 @@ int CQRRP_blocked<T, RNG>::call(
 
 } // end namespace RandLAPACK
 #endif
-*/
