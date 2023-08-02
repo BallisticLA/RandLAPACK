@@ -117,7 +117,7 @@ class TestCQRRP : public ::testing::Test
         auto n = all_data.col;
 
         CQRRP.call(m, n, all_data.A, d_factor, all_data.Q, all_data.R, all_data.J, state);
-/*
+
         all_data.rank = CQRRP.rank;
         printf("RANK AS RETURNED BY CQRRP %ld\n", all_data.rank);
 
@@ -125,7 +125,7 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), all_data.J);
 
         error_check(norm_A, all_data); 
-*/
+
     }
 };
 

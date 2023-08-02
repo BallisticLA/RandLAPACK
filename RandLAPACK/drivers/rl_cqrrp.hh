@@ -179,9 +179,12 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t* J_buffer_dat = J_buffer.data();
 
 
-    T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
-    T norm_R = 0.0;
-
+    T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
+    T norm_R     = 0.0;
+    T norm_R11   = 0.0;
+    T norm_R12   = 0.0;
+    T norm_R_i   = 0.0;
+    T approx_err = 0.0;
 
     for(int iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
@@ -266,7 +269,7 @@ int CQRRP_blocked<T, RNG>::call(
         RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, b_sz, 0.0, Work3_dat, b_sz);
 
-        // Filling R12 and updating A
+        // Filling R12 and updating A - this can be altered for safety
         for(int i = 0; i < (cols - b_sz); ++i) {
             blas::copy(b_sz, &Work1_dat[rows * (b_sz + i)], 1, &Work2_dat[i * b_sz], 1);
             blas::copy(rows - b_sz, &Work1_dat[rows * (b_sz + i) + b_sz], 1, &A_dat[i * (rows - b_sz)], 1);
@@ -280,28 +283,28 @@ int CQRRP_blocked<T, RNG>::call(
                 blas::copy(b_sz, &Work2_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
             }
         }
-/*
-        // At this point, Q, R and J have been fully set. Time to check approximation quality
-        // Updating R norm estimation
-        T norm_R = lapack::lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
-        norm_B = std::hypot(norm_B, norm_B_i);
-        // Updating approximation error
-        prev_err = approx_err;
-        approx_err = std::sqrt(std::abs(norm_A - norm_B)) * (std::sqrt(norm_A + norm_B) / norm_A);
 
-        // Early termination - handling round-off error accumulation
-        if ((curr_sz > 0) && (approx_err > prev_err)) {
-            // Early termination - error growth
-            // Only need to move B's data, no resizing
-            util::row_resize(this->curr_lim, n, B, curr_sz);
-            k = curr_sz;
-            return 2;
+        // Estimate R norm, use Fro norm trick to compute the approximation error
+        norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, Work3_dat, b_sz);
+        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, Work2_dat, b_sz);
+        norm_R_i = std::hypot(norm_R11, norm_R12);
+        norm_R = std::hypot(norm_R, norm_R_i);
+        // Updating approximation error
+        approx_err = std::sqrt((norm_A - norm_R) * (norm_A + norm_R)) / norm_A;
+        
+        // Size of the factors is updated;
+        curr_sz += b_sz;
+
+        if(approx_err < std::sqrt(this->eps))
+        {
+            // Termination criteria reached
+            this -> rank = curr_sz;
+            RandLAPACK::util::row_resize(m, n, R, curr_sz);
         }
-*/
+
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;
-        curr_sz += b_sz;
     }
     this -> rank = n;
     RandLAPACK::util::row_resize(m, n, R, n);
