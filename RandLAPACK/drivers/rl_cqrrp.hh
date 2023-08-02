@@ -126,7 +126,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // Buffer array for sketching. of size d by cols. 
         // Copy of A_piv of size rows by cols.
         std::vector<T> Work1;
-        // Work buffer 2, of size b_sz * (n - b_sz). Used for (in order):
+        // Work buffer 2, of size b_sz * max((n - b_sz), b_sz). Used for (in order):
         // Buffer for R_sk of size b_sz * b_sz.
         // Buffer to store R12 of size b_sz * (cols - b_sz).
         std::vector<T> Work2;
@@ -167,10 +167,10 @@ int CQRRP_blocked<T, RNG>::call(
     std::vector<int64_t> J_buffer (n, 0);
 
     T* A_dat     = A.data();
-    T* Q_dat     = util::upsize(m * n, Q);
+    T* Q_dat     = util::upsize(m * m, Q);
     T* R_dat     = util::upsize(m * n, R); 
     T* Work1_dat = util::upsize(m * n, this->Work1);
-    T* Work2_dat = util::upsize(b_sz * (n - b_sz), this->Work2);
+    T* Work2_dat = util::upsize(b_sz * std::max((n - b_sz), b_sz), this->Work2);
     T* Work3_dat = util::upsize(b_sz * b_sz, this->Work3);
     T* Work4_dat = util::upsize(n, this->Work4);
     T* A_pre_dat = A_pre.data();
@@ -210,7 +210,7 @@ int CQRRP_blocked<T, RNG>::call(
         if(iter != 0)
             util::col_swap(m, cols, cols, &R_dat[m * curr_sz], J_buffer);
 
-        // extract b_sz by b_sz R_sk (Work2)
+        // extract b_sz by b_sz R_sk (Work2) // ISSUE IS HEEEEEEEEEEEEEEEEERE
         for(int i = 0; i < b_sz; ++i)
             blas::copy(i + 1, &Work1_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
 
@@ -280,7 +280,24 @@ int CQRRP_blocked<T, RNG>::call(
                 blas::copy(b_sz, &Work2_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
             }
         }
+/*
+        // At this point, Q, R and J have been fully set. Time to check approximation quality
+        // Updating R norm estimation
+        T norm_R = lapack::lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
+        norm_B = std::hypot(norm_B, norm_B_i);
+        // Updating approximation error
+        prev_err = approx_err;
+        approx_err = std::sqrt(std::abs(norm_A - norm_B)) * (std::sqrt(norm_A + norm_B) / norm_A);
 
+        // Early termination - handling round-off error accumulation
+        if ((curr_sz > 0) && (approx_err > prev_err)) {
+            // Early termination - error growth
+            // Only need to move B's data, no resizing
+            util::row_resize(this->curr_lim, n, B, curr_sz);
+            k = curr_sz;
+            return 2;
+        }
+*/
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;

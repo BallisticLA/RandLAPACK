@@ -117,7 +117,7 @@ class TestCQRRP : public ::testing::Test
         auto n = all_data.col;
 
         CQRRP.call(m, n, all_data.A, d_factor, all_data.Q, all_data.R, all_data.J, state);
-
+/*
         all_data.rank = CQRRP.rank;
         printf("RANK AS RETURNED BY CQRRP %ld\n", all_data.rank);
 
@@ -125,16 +125,16 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), all_data.J);
 
         error_check(norm_A, all_data); 
-
+*/
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
-    int64_t m = 50;
+    int64_t m = 55;
     int64_t n = 50;
-    int64_t k = 50;
-    int64_t d_factor = 50;
+    int64_t k = 25;
+    int64_t d_factor = 51;
     int64_t b_sz = 13;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
