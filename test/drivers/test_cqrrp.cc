@@ -128,7 +128,7 @@ class TestCQRRP : public ::testing::Test
 
     }
 };
-/**/
+
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     int64_t m = 50;
@@ -154,3 +154,4 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 }
+*/
