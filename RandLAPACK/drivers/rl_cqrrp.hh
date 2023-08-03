@@ -115,7 +115,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int64_t rank;
         int64_t block_size;
 
-        // 10 entries
+        // 8 entries
         std::vector<long> times;
 
         // tuning SASOS
@@ -170,25 +170,21 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point reconstruction_t_stop;
     long reconstruction_t_dur = 0;
 
-    high_resolution_clock::time_point a_mod_piv_t_start;
-    high_resolution_clock::time_point a_mod_piv_t_stop;
-    long a_mod_piv_t_dur = 0;
+    high_resolution_clock::time_point preconditioning_t_start;
+    high_resolution_clock::time_point preconditioning_t_stop;
+    long preconditioning_t_dur = 0;
 
-    high_resolution_clock::time_point a_mod_trsm_t_start;
-    high_resolution_clock::time_point a_mod_trsm_t_stop;
-    long a_mod_trsm_t_dur = 0;
-
-    high_resolution_clock::time_point copy_t_start;
-    high_resolution_clock::time_point copy_t_stop;
-    long copy_t_dur = 0;
-
-    high_resolution_clock::time_point resize_t_start;
-    high_resolution_clock::time_point resize_t_stop;
-    long resize_t_dur = 0;
+    high_resolution_clock::time_point updating_t_start;
+    high_resolution_clock::time_point updating_t_stop;
+    long updating_t_dur = 0;
 
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
     long total_t_dur = 0;
+
+    if(this -> timing) {
+        total_t_start = high_resolution_clock::now();
+    }
 
     int64_t rows = m;
     int64_t cols = n;
@@ -228,7 +224,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
         // Update the row dimension of a sketch
-        d = std::min(rows, d_factor * cols);
+        d =  d_factor * b_sz;
 
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
@@ -261,15 +257,25 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
+            updating_t_start = high_resolution_clock::now();
         }
 
         // Need to premute trailing columns of the full R-factor
         if(iter != 0)
             util::col_swap(m, cols, cols, &R_dat[m * curr_sz], J_buffer);
 
+        if(this -> timing) {
+            updating_t_stop  = high_resolution_clock::now();
+            updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
+        }
+
         // extract b_sz by b_sz R_sk (Work2)
         for(i = 0; i < b_sz; ++i)
             blas::copy(i + 1, &Work1_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
+
+        if(this -> timing) {
+            preconditioning_t_start = high_resolution_clock::now();
+        }
 
         // A_piv (Work1) = Need to pivot full matrix A
         // This is a wors by cols permuted version of the current A
@@ -283,8 +289,17 @@ int CQRRP_blocked<T, RNG>::call(
         // This is a preconditioned rows by b_sz version of the current A, written into Q_full because of the way trsm works
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work2_dat, b_sz, A_dat, rows);
 
+        if(this -> timing) {
+            preconditioning_t_stop  = high_resolution_clock::now();
+            preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
+        }
+
         // We need to save A_pre, is required for computations below 
         lapack::lacpy(MatrixType::General, rows, b_sz, A_dat, rows, A_pre_dat, rows);
+
+        if(this -> timing) {
+            cholqr_t_start = high_resolution_clock::now();
+        }
 
         // Performing Cholesky QR
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_dat, rows, 0.0, Work3_dat, b_sz);
@@ -293,9 +308,21 @@ int CQRRP_blocked<T, RNG>::call(
         // Compute Q_econ
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work3_dat, b_sz, A_dat, rows);
 
+        if(this -> timing) {
+            cholqr_t_stop  = high_resolution_clock::now();
+            cholqr_t_dur  += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
+            reconstruction_t_start = high_resolution_clock::now();
+        }
+
         // Find Q (stored in A) using Householder reconstruction. 
         // Remember that Q (stored in A) has b_sz orthonormal columns
         lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, Work4_dat);
+
+        if(this -> timing) {
+            reconstruction_t_stop  = high_resolution_clock::now();
+            reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
+            updating_t_start = high_resolution_clock::now();
+        }
 
         // Remember that at the moment even though Q (stored in A) is represented by "b_sz" columns, it is actually of size "rows by rows."
         // Compute R11_full = Q' * A_pre - gets written into A_pre space
@@ -321,6 +348,11 @@ int CQRRP_blocked<T, RNG>::call(
         // We will have to resize A_pre_dat down to b_sz by b_sz
         RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, b_sz, 0.0, Work3_dat, b_sz);
+
+        if(this -> timing) {
+            updating_t_stop  = high_resolution_clock::now();
+            updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
+        }
 
         // Filling R12 and updating A
         for(i = 0; i < (cols - b_sz); ++i) {
@@ -348,11 +380,37 @@ int CQRRP_blocked<T, RNG>::call(
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if(approx_err < std::sqrt(this->eps))
-        {
+        if(approx_err < std::sqrt(this->eps)) {
             // Termination criteria reached
             this -> rank = curr_sz;
             RandLAPACK::util::row_resize(m, n, R, curr_sz);
+
+            if(this -> timing) {
+                total_t_stop = high_resolution_clock::now();
+                total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+                long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating_t_dur);
+                this -> times.resize(8);
+                this -> times = {saso_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating_t_dur, t_rest, total_t_dur};
+
+                printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
+                printf("SASO time: %34ld μs,\n",                           saso_t_dur);
+                printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
+                printf("Preconditioning time: %23ld μs,\n",                preconditioning_t_dur);
+                printf("CholQR time: %31ld μs,\n",                         cholqr_t_dur);
+                printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
+                printf("Factors updating time: %23ld μs,\n",               updating_t_dur);
+                printf("Other routines time: %24ld μs,\n",                 t_rest);
+                printf("Total time: %35ld μs.\n",                          total_t_dur);
+
+                printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((T) saso_t_dur            / (T) total_t_dur));
+                printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
+                printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
+                printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
+                printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
+                printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating_t_dur        / (T) total_t_dur));
+                printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
+                printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
+            }
             return 0;
         }
 
@@ -363,14 +421,31 @@ int CQRRP_blocked<T, RNG>::call(
     this -> rank = n;
     RandLAPACK::util::row_resize(m, n, R, n);
 
-    // may not be a proper place for this function
     if(this -> timing) {
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + reconstruction_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
+        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating_t_dur);
+        this -> times.resize(8);
+        this -> times = {saso_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating_t_dur, t_rest, total_t_dur};
 
-        // Fill the data vector
-        this -> times = {saso_t_dur, qrcp_t_dur, reconstruction_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
+        printf("\n\n/------------CQRRPT TIMING RESULTS BEGIN------------/\n");
+        printf("SASO time: %34ld μs,\n",                           saso_t_dur);
+        printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
+        printf("Preconditioning time: %23ld μs,\n",                preconditioning_t_dur);
+        printf("CholQR time: %31ld μs,\n",                         cholqr_t_dur);
+        printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
+        printf("Factors updating time: %23ld μs,\n",               updating_t_dur);
+        printf("Other routines time: %24ld μs,\n",                 t_rest);
+        printf("Total time: %35ld μs.\n",                          total_t_dur);
+
+        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((T) saso_t_dur            / (T) total_t_dur));
+        printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
+        printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
+        printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
+        printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
+        printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating_t_dur        / (T) total_t_dur));
+        printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
+        printf("/-------------CQRRPT TIMING RESULTS END-------------/\n\n");
     }
     return 0;
 }

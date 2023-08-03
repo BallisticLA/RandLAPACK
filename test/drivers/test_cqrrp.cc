@@ -93,8 +93,8 @@ class TestCQRRP : public ::testing::Test
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF AP - QR:    %15e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
+        printf("REL NORM OF AP - QR:    %19e\n", norm_AQR / norm_A);
+        printf("MAX COL NORM METRIC:    %19e\n", max_col_norm / col_norm_A);
         printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
@@ -119,7 +119,7 @@ class TestCQRRP : public ::testing::Test
         CQRRP.call(m, n, all_data.A, d_factor, all_data.Q, all_data.R, all_data.J, state);
 
         all_data.rank = CQRRP.rank;
-        printf("RANK AS RETURNED BY CQRRP %ld\n", all_data.rank);
+        printf("RANK AS RETURNED BY CQRRP %9ld\n", all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), all_data.J);
@@ -131,17 +131,17 @@ class TestCQRRP : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
-    int64_t m = 55;
-    int64_t n = 50;
-    int64_t k = 25;
-    int64_t d_factor = 1.5;
-    int64_t b_sz = 13;
+    int64_t m = std::pow(2, 10);
+    int64_t n = 128;
+    int64_t k = 128;
+    int64_t d_factor = 1.0;
+    int64_t b_sz = 32;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, true, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
 
