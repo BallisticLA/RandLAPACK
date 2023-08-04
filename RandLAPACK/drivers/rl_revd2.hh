@@ -220,7 +220,7 @@ int REVD2<T, RNG>::call(
         // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
         if(lapack::potrf(Uplo::Upper, k, R_dat, k))
             throw std::runtime_error("Cholesky decomposition failed.");
-        RandLAPACK::util::get_U(k, k, R, k);
+        RandLAPACK::util::get_U(k, k, R_dat, k);
 
         // B = Y(R')^-1 - need to transpose R
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);

@@ -119,13 +119,11 @@ template <typename T>
 void get_U(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    T* A,
     int64_t lda
 ) {
-    T* A_dat = A.data();
     for(int i = 0; i < n - 1; ++i) {
-        //std::fill(&A_dat[i * (m + 1) + 1], &A_dat[(i + 1) * m], 0.0);
-        std::fill(&A_dat[i * (lda + 1) + 1], &A_dat[(i * lda) + m], 0.0);
+        std::fill(&A[i * (lda + 1) + 1], &A[(i * lda) + m], 0.0);
     }
 }
 

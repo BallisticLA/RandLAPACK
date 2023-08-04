@@ -274,9 +274,11 @@ int CQRRP_blocked<T, RNG>::call(
 
         // CONSIDER TAKING BELOW DIRECTLY FROM WORK1
 
+        // Need to zero-out the lower-triangular portion in S11
+        RandLAPACK::util::get_U(b_sz, b_sz, A_sk_dat, d);
         // extract b_sz by b_sz R_sk (Work2)
-        for(i = 0; i < b_sz; ++i) 
-            blas::copy(i + 1, &A_sk_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
+        //Work2_dat = &R_dat[(m * (curr_sz + b_sz)) + curr_sz];
+        lapack::lacpy(MatrixType::General, b_sz, b_sz, A_sk_dat, d, Work2_dat, b_sz);
 
         if(this -> timing) {
             preconditioning_t_start = high_resolution_clock::now();
@@ -366,6 +368,7 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Updating R-factor. The full R-factor is m by n
+        /*
         for(i = curr_sz, j = -1, k = -1; i < n; ++i) {
             if (i < curr_sz + b_sz) {
                 blas::copy(b_sz, &Work3_dat[b_sz * ++j], 1, &R_dat[(m * i) + curr_sz], 1);
@@ -373,10 +376,9 @@ int CQRRP_blocked<T, RNG>::call(
                 blas::copy(b_sz, &Work2_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
             }
         }
+        */
 
         // Updating the skethcing buffer
-        // Need to zero-out the lower-triangular portion in S11
-        RandLAPACK::util::get_U(b_sz, b_sz, A_sk, d);
         // trsm (S11, R11) -> S11
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, b_sz, A_sk_dat, d);
         // CAREFUL WHEN d = b_sz
