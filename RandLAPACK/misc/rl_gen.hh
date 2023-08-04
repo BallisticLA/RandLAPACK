@@ -327,7 +327,7 @@ void gen_oleg_adversarial_mat(
     lapack::ungqr(n, n, n, V.data(), n, tau2.data());
 
     // Grab an upper-triangular portion of V
-    RandLAPACK::util::get_U(n, n, V);
+    RandLAPACK::util::get_U(n, n, V, n);
 
     T* V_dat = V.data();
     for(int i = 11; i < n; ++i)

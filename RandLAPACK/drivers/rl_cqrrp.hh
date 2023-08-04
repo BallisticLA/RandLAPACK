@@ -123,7 +123,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int64_t nnz;
 
         // Work buffer 1, of size m by n. Used for (in order):
-        // Buffer array for sketching. of size d by cols. 
+        // Buffer array for sketching. of size d by cols. - NOT ANYMORE
         // Copy of A_piv of size rows by cols.
         std::vector<T> Work1;
         // Work buffer 2, of size b_sz * max((n - b_sz), b_sz). Used for (in order):
@@ -191,13 +191,16 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t curr_sz = 0;
     int64_t b_sz = this->block_size;
     int64_t maxiter = (int64_t) std::ceil(n / (T) b_sz);
-    int64_t d = 0;
+    // Update the row dimension of a sketch
+    int64_t d =  d_factor * b_sz;
     
     // BELOW ARE MATRICES THAT WE CANNOT PUT INTO COMMON BUFFERS
     // We will need a copy of A_pre to use in gemms, is of size col by b_sz.
     std::vector<T> A_pre(m * b_sz, 0.0);
     // We will be operating on this at every iteration, is of size cols.
     std::vector<int64_t> J_buffer (n, 0);
+    // EXPERIMENTAL ADDITION - buffer for sketching update
+    std::vector<T> A_sk(d * n, 0.0);
 
     T* A_dat     = A.data();
     T* Q_dat     = util::upsize(m * m, Q);
@@ -207,6 +210,7 @@ int CQRRP_blocked<T, RNG>::call(
     T* Work3_dat = util::upsize(b_sz * b_sz, this->Work3);
     T* Work4_dat = util::upsize(n, this->Work4);
     T* A_pre_dat = A_pre.data();
+    T* A_sk_dat  = A_sk.data();
     J.resize(n);
     int64_t* J_dat        = J.data();
     int64_t* J_buffer_dat = J_buffer.data();
@@ -221,22 +225,20 @@ int CQRRP_blocked<T, RNG>::call(
 
     int i, j, k, iter = 0;
 
-        // Update the row dimension of a sketch
-        d =  d_factor * b_sz;
-        // Skethcing in an embedding regime
-        RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
-        RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-        state = RandBLAS::fill_sparse(S);
+    // Skethcing in an embedding regime
+    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
+    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+    state = RandBLAS::fill_sparse(S);
 
-        RandBLAS::sketch_general(
-            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-            d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, Work1_dat, d
-        );
-
-        // NEED THIS FOR B UPDATING
-        std::vector<T> S_buf(d * cols, 0.0);
-        T* S_dat = S_buf.data();
-
+    RandBLAS::sketch_general(
+        Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+        d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, A_sk_dat, d
+    );
+/*
+    // NEED THIS FOR B UPDATING
+    std::vector<T> S_buf(d * cols, 0.0);
+    T* S_dat = S_buf.data();
+*/
     for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
@@ -274,10 +276,12 @@ int CQRRP_blocked<T, RNG>::call(
             updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
         }
 
+        // CONSIDER TAKING BELOW DIRECTLY FROM WORK1
+
         // extract b_sz by b_sz R_sk (Work2)
         for(i = 0; i < b_sz; ++i) 
-            blas::copy(i + 1, &Work1_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
-
+            blas::copy(i + 1, &A_sk_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
+/*
     	// extract matrix S - needed of B updating
         for(i = 0; i < cols; ++i) {
             if (i < d) {
@@ -286,7 +290,7 @@ int CQRRP_blocked<T, RNG>::call(
                 blas::copy(d, &Work1_dat[i * d], 1, &S_dat[i * d], 1);
             }
         }
-
+*/
         if(this -> timing) {
             preconditioning_t_start = high_resolution_clock::now();
         }
@@ -383,16 +387,16 @@ int CQRRP_blocked<T, RNG>::call(
             }
         }
 
-        // Updating B
+        // Updating the skethcing buffer
+        // Need to zero-out the lower-triangular portion in S11
+        RandLAPACK::util::get_U(b_sz, b_sz, A_sk, d);
         // trsm (S11, R11) -> S11
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, b_sz, S_dat, d);
-
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, b_sz, A_sk_dat, d);
         // CAREFUL WHEN d = b_sz
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, S_dat, d, Work2_dat, b_sz, 1.0, &S_dat[d * b_sz], d);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, A_sk_dat, d, Work2_dat, b_sz, 1.0, &A_sk_dat[d * b_sz], d);
 
-        // Copying data over to Work1
-        lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &S_dat[d * b_sz], d, Work1_dat, m);
-        lapack::lacpy(MatrixType::General, d - b_sz, cols - b_sz, &S_dat[(d + 1) * b_sz], d, &Work1_dat[b_sz], m);
+        // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk
+        A_sk_dat = &A_sk_dat[d * b_sz];
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
         norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, Work3_dat, b_sz);
