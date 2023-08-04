@@ -234,11 +234,7 @@ int CQRRP_blocked<T, RNG>::call(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
         d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, A_sk_dat, d
     );
-/*
-    // NEED THIS FOR B UPDATING
-    std::vector<T> S_buf(d * cols, 0.0);
-    T* S_dat = S_buf.data();
-*/
+
     for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
@@ -259,7 +255,7 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // QRCP
-        lapack::geqp3(d, cols, Work1_dat, d, J_buffer_dat, Work4_dat);
+        lapack::geqp3(d, cols, A_sk_dat, d, J_buffer_dat, Work4_dat);
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -281,16 +277,7 @@ int CQRRP_blocked<T, RNG>::call(
         // extract b_sz by b_sz R_sk (Work2)
         for(i = 0; i < b_sz; ++i) 
             blas::copy(i + 1, &A_sk_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
-/*
-    	// extract matrix S - needed of B updating
-        for(i = 0; i < cols; ++i) {
-            if (i < d) {
-                blas::copy(i + 1, &Work1_dat[i * d], 1, &S_dat[i * d], 1);
-            } else {
-                blas::copy(d, &Work1_dat[i * d], 1, &S_dat[i * d], 1);
-            }
-        }
-*/
+
         if(this -> timing) {
             preconditioning_t_start = high_resolution_clock::now();
         }
