@@ -277,8 +277,8 @@ int CQRRP_blocked<T, RNG>::call(
         // Need to zero-out the lower-triangular portion in S11
         RandLAPACK::util::get_U(b_sz, b_sz, A_sk_dat, d);
         // extract b_sz by b_sz R_sk (Work2)
-        //Work2_dat = &R_dat[(m * (curr_sz + b_sz)) + curr_sz];
-        lapack::lacpy(MatrixType::General, b_sz, b_sz, A_sk_dat, d, Work2_dat, b_sz);
+        Work2_dat = &R_dat[(m * (curr_sz + b_sz)) + curr_sz];
+        lapack::lacpy(MatrixType::General, b_sz, b_sz, A_sk_dat, d, Work2_dat, m);
 
         if(this -> timing) {
             preconditioning_t_start = high_resolution_clock::now();
@@ -294,7 +294,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // A_pre = AJ(:, 1:b_sz) * R_sk (Work2)
         // This is a preconditioned rows by b_sz version of the current A, written into Q_full because of the way trsm works
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work2_dat, b_sz, A_dat, rows);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work2_dat, m, A_dat, rows);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -309,11 +309,12 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_dat, rows, 0.0, Work3_dat, b_sz);
-        lapack::potrf(Uplo::Upper, b_sz, Work3_dat, b_sz);
+        Work3_dat = &R_dat[(m + 1) * curr_sz];
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_dat, rows, 0.0, Work3_dat, m);
+        lapack::potrf(Uplo::Upper, b_sz, Work3_dat, m);
 
         // Compute Q_econ
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work3_dat, b_sz, A_dat, rows);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work3_dat, m, A_dat, rows);
 
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
@@ -323,7 +324,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Find Q (stored in A) using Householder reconstruction. 
         // Remember that Q (stored in A) has b_sz orthonormal columns
-        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, Work4_dat);
+        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, Work4_dat);
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -333,28 +334,32 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Remember that at the moment even though Q (stored in A) is represented by "b_sz" columns, it is actually of size "rows by rows."
         // Compute R11_full = Q' * A_pre - gets written into A_pre space
-        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, A_pre_dat, rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, Work3_dat, m, A_pre_dat, rows);
 
         // Looks like we can substitute the two multiplications with a single one:
         // A_piv (Work1) is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
         // The first b_sz rows will represent R12 (Stored in Work2)
         // The last rows-b_sz rows will represent the new A
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, Work3_dat, b_sz, &Work1_dat[rows * b_sz], rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, Work3_dat, m, &Work1_dat[rows * b_sz], rows);
 
         // Updating Q, Pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
             RandLAPACK::util::eye(rows, rows, Q);
-            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, Q_dat, rows);
+            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, Q_dat, rows);
         } else {
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, Work3_dat, b_sz, &Q_dat[m * curr_sz], m);
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, &Q_dat[m * curr_sz], m);
             RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 
         // Compute R11 (stored in Work3) = R11_full(1:b_sz, :) * R_sk (Work2)
         // We will have to resize A_pre_dat down to b_sz by b_sz
         RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, b_sz, 0.0, Work3_dat, b_sz);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, m, 0.0, Work3_dat, m);
+        
+        char name [] = "R";
+        RandBLAS::util::print_colmaj(m, n, R_dat, name);
+
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
@@ -363,7 +368,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Filling R12 and updating A
         for(i = 0; i < (cols - b_sz); ++i) {
-            blas::copy(b_sz, &Work1_dat[rows * (b_sz + i)], 1, &Work2_dat[i * b_sz], 1);
+            blas::copy(b_sz, &Work1_dat[rows * (b_sz + i)], 1, &Work2_dat[i * m], 1);
             blas::copy(rows - b_sz, &Work1_dat[rows * (b_sz + i) + b_sz], 1, &A_dat[i * (rows - b_sz)], 1);
         }
 
@@ -378,18 +383,20 @@ int CQRRP_blocked<T, RNG>::call(
         }
         */
 
+        RandBLAS::util::print_colmaj(m, n, R_dat, name);
+
         // Updating the skethcing buffer
         // trsm (S11, R11) -> S11
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, b_sz, A_sk_dat, d);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, m, A_sk_dat, d);
         // CAREFUL WHEN d = b_sz
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, A_sk_dat, d, Work2_dat, b_sz, 1.0, &A_sk_dat[d * b_sz], d);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, A_sk_dat, d, Work2_dat, m, 1.0, &A_sk_dat[d * b_sz], d);
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk
         A_sk_dat = &A_sk_dat[d * b_sz];
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
-        norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, Work3_dat, b_sz);
-        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, Work2_dat, b_sz);
+        norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, Work3_dat, m);
+        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, Work2_dat, m);
         norm_R_i = std::hypot(norm_R11, norm_R12);
         norm_R = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
