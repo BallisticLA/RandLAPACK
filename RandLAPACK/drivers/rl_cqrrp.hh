@@ -212,6 +212,7 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t* J_buffer_dat = J_buffer.data();
 
     T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
+    T norm_A_sq  = std::pow(norm_A, 2);
     T norm_R     = 0.0;
     T norm_R11   = 0.0;
     T norm_R12   = 0.0;
@@ -221,7 +222,7 @@ int CQRRP_blocked<T, RNG>::call(
     int i, j, k, iter = 0;
 
         // Update the row dimension of a sketch
-        d =  2 * b_sz;
+        d =  d_factor * b_sz;
         // Skethcing in an embedding regime
         RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
         RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -386,23 +387,12 @@ int CQRRP_blocked<T, RNG>::call(
         // trsm (S11, R11) -> S11
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, b_sz, S_dat, d);
 
-        std::vector<T> AAA(d * rows, 0.0);
-        T* AAA_dat = AAA.data();
-
         // CAREFUL WHEN d = b_sz
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, S_dat, d, Work2_dat, b_sz, 1.0, &S_dat[d * b_sz], d);
-
-	    char name [] = "S";
-        RandBLAS::util::print_colmaj(d, n, S_dat, name);
-
-        char name1 [] = "B";
-        RandBLAS::util::print_colmaj(m, n, Work1_dat, name1);
 
         // Copying data over to Work1
         lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &S_dat[d * b_sz], d, Work1_dat, m);
         lapack::lacpy(MatrixType::General, d - b_sz, cols - b_sz, &S_dat[(d + 1) * b_sz], d, &Work1_dat[b_sz], m);
-
-        RandBLAS::util::print_colmaj(m, n, Work1_dat, name1);
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
         norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, Work3_dat, b_sz);
@@ -410,12 +400,12 @@ int CQRRP_blocked<T, RNG>::call(
         norm_R_i = std::hypot(norm_R11, norm_R12);
         norm_R = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
-        approx_err = std::sqrt((norm_A - norm_R) * (norm_A + norm_R)) / norm_A;
-        
+        approx_err = ((norm_A - norm_R) * (norm_A + norm_R)) / norm_A_sq;
+
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if(approx_err < std::sqrt(this->eps)) {
+        if(approx_err < this->eps) {
             // Termination criteria reached
             this -> rank = curr_sz;
             RandLAPACK::util::row_resize(m, n, R, curr_sz);
