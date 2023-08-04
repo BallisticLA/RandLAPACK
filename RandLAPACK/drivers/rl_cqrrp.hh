@@ -126,15 +126,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // Buffer array for sketching. of size d by cols. - NOT ANYMORE
         // Copy of A_piv of size rows by cols.
         std::vector<T> Work1;
-        // Work buffer 2, of size b_sz * max((n - b_sz), b_sz). Used for (in order):
-        // Buffer for R_sk of size b_sz * b_sz.
-        // Buffer to store R12 of size b_sz * (cols - b_sz).
-        std::vector<T> Work2;
-        // Work buffer 3, of size b_sz * b_sz. Used for (in order):
-        // Buffer for R in Cholesky QR, of size b_sz * b_sz.
-        // Buffer required by Householder reconstruction routine, name "T" in orhr_col. Max size b_sz by b_sz, can have any number of rows < b_sz. 
-        // Buffer for R11, of size b_sz * b_sz.
-        std::vector<T> Work3;
         // Work buffer 4, of size n. Used for (in order):
         // Vector tau in qr factorization, of size col.
         // Vector D in Householder reconstruction, of size col.
@@ -206,8 +197,15 @@ int CQRRP_blocked<T, RNG>::call(
     T* Q_dat     = util::upsize(m * m, Q);
     T* R_dat     = util::upsize(m * n, R); 
     T* Work1_dat = util::upsize(m * n, this->Work1);
-    T* Work2_dat = util::upsize(b_sz * std::max((n - b_sz), b_sz), this->Work2);
-    T* Work3_dat = util::upsize(b_sz * b_sz, this->Work3);
+    // Work buffer 2, stored in R. Used for (in order):
+    // Buffer for R_sk of size b_sz * b_sz.
+    // Buffer to store R12 of size b_sz * (cols - b_sz).
+    T* Work2_dat = NULL;
+    // Work buffer 3, stored in R. Used for (in order):
+    // Buffer for R in Cholesky QR, of size b_sz * b_sz.
+    // Buffer required by Householder reconstruction routine, name "T" in orhr_col. Max size b_sz by b_sz, can have any number of rows < b_sz. 
+    // Buffer for R11, of size b_sz * b_sz.
+    T* Work3_dat = NULL;
     T* Work4_dat = util::upsize(n, this->Work4);
     T* A_pre_dat = A_pre.data();
     T* A_sk_dat  = A_sk.data();
@@ -223,8 +221,6 @@ int CQRRP_blocked<T, RNG>::call(
     T norm_R_i   = 0.0;
     T approx_err = 0.0;
 
-    int i, j, k, iter = 0;
-
     // Skethcing in an embedding regime
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -235,14 +231,13 @@ int CQRRP_blocked<T, RNG>::call(
         d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, A_sk_dat, d
     );
 
-    for(iter = 0; iter < maxiter; ++iter) {
+    for(int iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
 
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
         std::fill(Work4.begin(), Work4.end(), 0.0);
-        std::fill(Work2.begin(), Work2.end(), 0.0);
 
         if(this -> timing) {
             saso_t_start = high_resolution_clock::now();
@@ -356,10 +351,6 @@ int CQRRP_blocked<T, RNG>::call(
         // We will have to resize A_pre_dat down to b_sz by b_sz
         RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, m, 0.0, Work3_dat, m);
-        
-        char name [] = "R";
-        RandBLAS::util::print_colmaj(m, n, R_dat, name);
-
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
@@ -367,23 +358,8 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Filling R12 and updating A
-        for(i = 0; i < (cols - b_sz); ++i) {
-            blas::copy(b_sz, &Work1_dat[rows * (b_sz + i)], 1, &Work2_dat[i * m], 1);
-            blas::copy(rows - b_sz, &Work1_dat[rows * (b_sz + i) + b_sz], 1, &A_dat[i * (rows - b_sz)], 1);
-        }
-
-        // Updating R-factor. The full R-factor is m by n
-        /*
-        for(i = curr_sz, j = -1, k = -1; i < n; ++i) {
-            if (i < curr_sz + b_sz) {
-                blas::copy(b_sz, &Work3_dat[b_sz * ++j], 1, &R_dat[(m * i) + curr_sz], 1);
-            } else {
-                blas::copy(b_sz, &Work2_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
-            }
-        }
-        */
-
-        RandBLAS::util::print_colmaj(m, n, R_dat, name);
+        lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &Work1_dat[rows * b_sz], rows, Work2_dat, m);
+        lapack::lacpy(MatrixType::General, rows - b_sz, cols - b_sz, &Work1_dat[(rows + 1) * b_sz], rows, A_dat, rows - b_sz);
 
         // Updating the skethcing buffer
         // trsm (S11, R11) -> S11
