@@ -220,21 +220,8 @@ int CQRRP_blocked<T, RNG>::call(
 
     int i, j, k, iter = 0;
 
-    for(iter = 0; iter < maxiter; ++iter) {
-        // Make sure we fit into the available space
-        b_sz = std::min(this->block_size, n - curr_sz);
         // Update the row dimension of a sketch
-        d =  d_factor * b_sz;
-
-        // Zero-out data
-        std::fill(J_buffer.begin(), J_buffer.end(), 0);
-        std::fill(Work4.begin(), Work4.end(), 0.0);
-        std::fill(Work2.begin(), Work2.end(), 0.0);
-
-        if(this -> timing) {
-            saso_t_start = high_resolution_clock::now();
-        }
-
+        d =  2 * b_sz;
         // Skethcing in an embedding regime
         RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
         RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -244,6 +231,23 @@ int CQRRP_blocked<T, RNG>::call(
             Layout::ColMajor, Op::NoTrans, Op::NoTrans,
             d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, Work1_dat, d
         );
+
+        // NEED THIS FOR B UPDATING
+        std::vector<T> S_buf(d * cols, 0.0);
+        T* S_dat = S_buf.data();
+
+    for(iter = 0; iter < maxiter; ++iter) {
+        // Make sure we fit into the available space
+        b_sz = std::min(this->block_size, n - curr_sz);
+
+        // Zero-out data
+        std::fill(J_buffer.begin(), J_buffer.end(), 0);
+        std::fill(Work4.begin(), Work4.end(), 0.0);
+        std::fill(Work2.begin(), Work2.end(), 0.0);
+
+        if(this -> timing) {
+            saso_t_start = high_resolution_clock::now();
+        }
 
         if(this -> timing) {
             saso_t_stop  = high_resolution_clock::now();
@@ -270,8 +274,17 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // extract b_sz by b_sz R_sk (Work2)
-        for(i = 0; i < b_sz; ++i)
+        for(i = 0; i < b_sz; ++i) 
             blas::copy(i + 1, &Work1_dat[i * d], 1, &Work2_dat[i * b_sz], 1);
+
+    	// extract matrix S - needed of B updating
+        for(i = 0; i < cols; ++i) {
+            if (i < d) {
+                blas::copy(i + 1, &Work1_dat[i * d], 1, &S_dat[i * d], 1);
+            } else {
+                blas::copy(d, &Work1_dat[i * d], 1, &S_dat[i * d], 1);
+            }
+        }
 
         if(this -> timing) {
             preconditioning_t_start = high_resolution_clock::now();
@@ -368,6 +381,28 @@ int CQRRP_blocked<T, RNG>::call(
                 blas::copy(b_sz, &Work2_dat[b_sz * ++k], 1, &R_dat[(m * i) + curr_sz], 1);
             }
         }
+
+        // Updating B
+        // trsm (S11, R11) -> S11
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, b_sz, S_dat, d);
+
+        std::vector<T> AAA(d * rows, 0.0);
+        T* AAA_dat = AAA.data();
+
+        // CAREFUL WHEN d = b_sz
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, S_dat, d, Work2_dat, b_sz, 1.0, &S_dat[d * b_sz], d);
+
+	    char name [] = "S";
+        RandBLAS::util::print_colmaj(d, n, S_dat, name);
+
+        char name1 [] = "B";
+        RandBLAS::util::print_colmaj(m, n, Work1_dat, name1);
+
+        // Copying data over to Work1
+        lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &S_dat[d * b_sz], d, Work1_dat, m);
+        lapack::lacpy(MatrixType::General, d - b_sz, cols - b_sz, &S_dat[(d + 1) * b_sz], d, &Work1_dat[b_sz], m);
+
+        RandBLAS::util::print_colmaj(m, n, Work1_dat, name1);
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
         norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, Work3_dat, b_sz);
