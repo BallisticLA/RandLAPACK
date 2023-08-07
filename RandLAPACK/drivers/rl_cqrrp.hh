@@ -221,11 +221,6 @@ int CQRRP_blocked<T, RNG>::call(
     T norm_R_i   = 0.0;
     T approx_err = 0.0;
 
-    // Temporarily adding this buffer
-    std::vector<T> T_1 (b_sz * b_sz, 0.0);
-    T* T_1_dat = T_1.data();
-
-
     // Skethcing in an embedding regime
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -324,7 +319,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Find Q (stored in A) using Householder reconstruction. 
         // Remember that Q (stored in A) has b_sz orthonormal columns
-        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, T_1_dat, m, Work4_dat);
+        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, Work4_dat);
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -334,22 +329,21 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Remember that at the moment even though Q (stored in A) is represented by "b_sz" columns, it is actually of size "rows by rows."
         // Compute R11_full = Q' * A_pre - gets written into A_pre space
-        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, T_1_dat, m, A_pre_dat, rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, Work3_dat, m, A_pre_dat, rows);
 
         // Looks like we can substitute the two multiplications with a single one:
         // A_piv (Work1) is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
         // The first b_sz rows will represent R12 (Stored in Work2)
         // The last rows-b_sz rows will represent the new A
-        // We cannot write the result of this directly into R12 and A
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, T_1_dat, m, &Work1_dat[rows * b_sz], rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, Work3_dat, m, &Work1_dat[rows * b_sz], rows);
 
         // Updating Q, Pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
             RandLAPACK::util::eye(rows, rows, Q);
-            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, T_1_dat, m, Q_dat, rows);
+            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, Q_dat, rows);
         } else {
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, T_1_dat, m, &Q_dat[m * curr_sz], m);
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, &Q_dat[m * curr_sz], m);
             RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 
@@ -362,8 +356,6 @@ int CQRRP_blocked<T, RNG>::call(
             updating_t_stop  = high_resolution_clock::now();
             updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
         }
-
-        // Since we are not using Work 3 as buffer for T, it is safe to perform updates to A and Work2 (R12) here.
 
         // Filling R12 and updating A
         lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &Work1_dat[rows * b_sz], rows, Work2_dat, m);
@@ -389,7 +381,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if(approx_err < this->eps) {
+        if((approx_err < this->eps) || (curr_sz >= n)) {
             // Termination criteria reached
             this -> rank = curr_sz;
             RandLAPACK::util::row_resize(m, n, R, curr_sz);
@@ -426,35 +418,6 @@ int CQRRP_blocked<T, RNG>::call(
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;
-    }
-    this -> rank = n;
-    RandLAPACK::util::row_resize(m, n, R, n);
-
-    if(this -> timing) {
-        total_t_stop = high_resolution_clock::now();
-        total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating_t_dur);
-        this -> times.resize(8);
-        this -> times = {saso_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating_t_dur, t_rest, total_t_dur};
-
-        printf("\n\n/------------CQRRPT TIMING RESULTS BEGIN------------/\n");
-        printf("SASO time: %34ld μs,\n",                           saso_t_dur);
-        printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
-        printf("Preconditioning time: %23ld μs,\n",                preconditioning_t_dur);
-        printf("CholQR time: %31ld μs,\n",                         cholqr_t_dur);
-        printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
-        printf("Factors updating time: %23ld μs,\n",               updating_t_dur);
-        printf("Other routines time: %24ld μs,\n",                 t_rest);
-        printf("Total time: %35ld μs.\n",                          total_t_dur);
-
-        printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((T) saso_t_dur            / (T) total_t_dur));
-        printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
-        printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
-        printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
-        printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
-        printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating_t_dur        / (T) total_t_dur));
-        printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
-        printf("/-------------CQRRPT TIMING RESULTS END-------------/\n\n");
     }
     return 0;
 }
