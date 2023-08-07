@@ -221,6 +221,11 @@ int CQRRP_blocked<T, RNG>::call(
     T norm_R_i   = 0.0;
     T approx_err = 0.0;
 
+    // TEMPORARY SPACE
+    std::vector<T> T_full(b_sz * n, 0.0);
+    T* T_full_dat = T_full.data();
+    T* T_dat = NULL;
+
     // Skethcing in an embedding regime
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -260,7 +265,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Need to premute trailing columns of the full R-factor
         if(iter != 0)
-            util::col_swap(m, cols, cols, &R_dat[m * curr_sz], J_buffer);
+            util::col_swap(m, cols, cols, &R_dat[m * curr_sz], m, J_buffer);
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
@@ -281,7 +286,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // A_piv (Work1) = Need to pivot full matrix A
         // This is a wors by cols permuted version of the current A
-        util::col_swap(rows, cols, cols, A_dat, J_buffer);
+        util::col_swap(rows, cols, cols, A_dat, rows, J_buffer);
 
         // Below copy is required to preserve the true state of a pivoted A.
         // The actual space of A will be used to store intermediate representation of the current iteration's Q.
@@ -319,7 +324,8 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Find Q (stored in A) using Householder reconstruction. 
         // Remember that Q (stored in A) has b_sz orthonormal columns
-        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, Work4_dat);
+        T_dat = &T_full_dat[b_sz * curr_sz]; 
+        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, T_dat, m, Work4_dat);
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -329,21 +335,21 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Remember that at the moment even though Q (stored in A) is represented by "b_sz" columns, it is actually of size "rows by rows."
         // Compute R11_full = Q' * A_pre - gets written into A_pre space
-        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, Work3_dat, m, A_pre_dat, rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, T_dat, m, A_pre_dat, rows);
 
         // Looks like we can substitute the two multiplications with a single one:
         // A_piv (Work1) is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
         // The first b_sz rows will represent R12 (Stored in Work2)
         // The last rows-b_sz rows will represent the new A
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, Work3_dat, m, &Work1_dat[rows * b_sz], rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, T_dat, m, &Work1_dat[rows * b_sz], rows);
 
         // Updating Q, Pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
             RandLAPACK::util::eye(rows, rows, Q);
-            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, Q_dat, rows);
+            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, T_dat, m, Q_dat, rows);
         } else {
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, Work3_dat, m, &Q_dat[m * curr_sz], m);
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, T_dat, m, &Q_dat[m * curr_sz], m);
             RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 

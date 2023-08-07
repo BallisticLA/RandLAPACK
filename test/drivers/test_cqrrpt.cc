@@ -120,8 +120,8 @@ class TestCQRRPT : public ::testing::Test
         all_data.rank = CQRRPT.rank;
         printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data); 
 

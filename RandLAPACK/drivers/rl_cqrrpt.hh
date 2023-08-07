@@ -327,7 +327,7 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Swap k columns of A with pivots from J
-    util::col_swap(m, n, k, A_dat, J);
+    util::col_swap(m, n, k, A_dat, m, J);
 
     if(this -> timing) {
         a_mod_piv_t_stop = high_resolution_clock::now();

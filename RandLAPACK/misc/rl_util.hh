@@ -135,6 +135,7 @@ void col_swap(
     int64_t n,
     int64_t k,
     T* A,
+    int64_t lda,
     std::vector<int64_t> idx
 ) {
     if(k > std::min(m, n)) 
@@ -145,7 +146,7 @@ void col_swap(
     int64_t i, j, l;
     for (i = 0, j = 0; i < k; ++i) {
         j = idx_dat[i] - 1;
-        blas::swap(m, &A[i * m], 1, &A[j * m], 1);
+        blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
 
         // swap idx array elements
         // Find idx element with value i and assign it to j
