@@ -154,3 +154,29 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 }
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, Something2) {
+    int64_t m = 4;
+    int64_t n = 4;
+
+    std::vector<double> A = {0, 0, 0, 1,
+                             0, 0, 1, 0,
+                             0, 0, 1, 0,
+                             0, 0, 1, 0};
+    std::vector<double> B = {1, 1,
+                             1, 1};
+    std::vector<double> C (2 * 2, 0.0);
+
+    double* A_dat = A.data();
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, 2, 2, 2, 1.0, &A_dat[10], 2, B.data(), 2, 0.0, C.data(), 2);
+
+        char name1 [] = "A";
+    RandBLAS::util::print_colmaj(4, 4, A.data(), name1);
+
+        char name2 [] = "B";
+    RandBLAS::util::print_colmaj(2, 2, B.data(), name2);
+
+    char name [] = "C";
+    RandBLAS::util::print_colmaj(2, 2, C.data(), name);
+}

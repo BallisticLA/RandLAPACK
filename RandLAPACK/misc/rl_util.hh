@@ -446,5 +446,24 @@ void eat_lda_slack(
     delete [] work;
 }
 
+template <typename T>
+void householder_unpacking(
+    int64_t m,
+    int64_t n,
+    int64_t b_sz,
+    T* Q_compressed,
+    T* Q_decompressed,
+    T* T
+) {
+    int64_t rows = m;
+    RandLAPACK::util::eye(m, m, Q_decompressed);
+    
+    for(int64_t curr_sz = 0; curr_sz < n; curr_sz += b_sz) {
+        lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, &Q_compressed[curr_sz], rows, &T[b_sz * curr_sz], b_sz, &Q_dat[m * curr_sz], m);
+        Q_compressed = &Q_compressed[m * b_sz];
+        rows    -= b_sz;
+    }
+}
+
 } // end namespace util
 #endif
