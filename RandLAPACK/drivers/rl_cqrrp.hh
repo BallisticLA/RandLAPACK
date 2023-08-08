@@ -217,9 +217,9 @@ int CQRRP_blocked<T, RNG>::call(
     // Points to a location, offset by m * b_sz from the current "A_work_dat."
     T* Work1_dat  = NULL;
     // Points to R11 factor, right above the compact Q, of size b_sz by b_sz.
-    T* R11_dat = NULL;
+    T* R11_dat    = NULL;
     // Points to R12 factor, to the right of R11 and above Work1 of size b_sz by n - cols.
-    T* R12_dat = NULL;
+    T* R12_dat    = NULL;
     //**********************************POINTERS TO A END**********************************
 
     //*********************************POINTERS TO PIVOTS BEGIN*********************************
@@ -247,7 +247,7 @@ int CQRRP_blocked<T, RNG>::call(
     // Should remain unchanged throughout the algorithm,
     // As the algorithm needs to have access to the upper-triangular factor R
     // (stored in this matrix after geqp3) at all times. 
-    T* A_sk_dat  = A_sk.data();
+    T* A_sk_dat = A_sk.data();
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
     T* R_sk_dat = NULL;
 
@@ -266,7 +266,7 @@ int CQRRP_blocked<T, RNG>::call(
     // Pointer to the full matrix T from orhr_col.
     T* T_full_dat = T_full.data();
     // Pointer to matrix T from orhr_col at currect iteration.
-    T* T_dat = NULL;
+    T* T_dat      = NULL;
 
 
     T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
@@ -426,7 +426,7 @@ int CQRRP_blocked<T, RNG>::call(
         norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11_dat, m);
         norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12_dat, m);
         norm_R_i = std::hypot(norm_R11, norm_R12);
-        norm_R = std::hypot(norm_R, norm_R_i);
+        norm_R   = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
         approx_err = ((norm_A - norm_R) * (norm_A + norm_R)) / norm_A_sq;
 
@@ -455,7 +455,7 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Other routines time: %24ld μs,\n",                 t_rest);
                 printf("Total time: %35ld μs.\n",                          total_t_dur);
 
-                printf("\nPreallocation takes %22.2f%% of runtime.\n",                   100 * ((T) preallocation_t_dur   / (T) total_t_dur));
+                printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
                 printf("SASO generation and application takes %2.2f%% of runtime.\n",   100 * ((T) saso_t_dur            / (T) total_t_dur));
                 printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
@@ -466,15 +466,11 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
             // WE ARE HOPING THAT BELOW WORK WILL BE UNNCECESSARY
-
             // WARNING: UNPACKING DOES NOT WHORK IF BLOCK SIZE HAS BEEN CHANGED!!!!!!!!!!!!!!!!!!
             RandLAPACK::util::householder_unpacking(m, curr_sz, b_sz, A_dat, Q_dat, T_full_dat);
-
-
             RandLAPACK::util::get_U(m, n, A_dat, m);
             lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
             RandLAPACK::util::row_resize(m, n, R, curr_sz);
-
 
             return 0;
         }
