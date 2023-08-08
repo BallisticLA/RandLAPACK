@@ -200,6 +200,8 @@ int CQRRP_blocked<T, RNG>::call(
     std::vector<T> Work4 (n, 0.0);
 
     //*********************************POINTERS TO A BEGIN*********************************
+    // LDA for all of the below is m
+
     // Pointer to the beginning of the original space of A.
     // It will always point to the same memory location.
     T* A_dat      = A.data();
@@ -209,6 +211,10 @@ int CQRRP_blocked<T, RNG>::call(
     // Workspace 1 pointer - will serve as a buffer for computing R12 and updated matrix A.
     // Points to a location, offset by m * b_sz from the current "A_work_dat."
     T* Work1_dat  = NULL;
+    // Points to R11 factor, right above the compact Q, of size b_sz by b_sz.
+    T* R11_dat = NULL;
+    // Points to R12 factor, to the right of R11 and above Work1 of size b_sz by n - cols.
+    T* R12_dat = NULL;
     //**********************************POINTERS TO A END**********************************
 
     //*********************************POINTERS TO PIVOTS BEGIN*********************************
@@ -217,7 +223,7 @@ int CQRRP_blocked<T, RNG>::call(
 
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE BEGIN*******************
     // BELOW ARE MATRICES THAT WE CANNOT PUT INTO COMMON BUFFERS
-    // A copy of a preconditioned matrix A (of size m by b_sz).
+    // A copy of a preconditioned matrix A (of size m by b_sz), lda m.
     // Required in order to find the proper R11_full-factor after the 
     // full Q has been restored form economy Q (the has been found via Cholesky QR).
     // While the full A_pre is required for a computation, we would only
@@ -225,10 +231,12 @@ int CQRRP_blocked<T, RNG>::call(
     // Eventually, the b_sz by b_sz space is use to store R11 (computed via trmm)
     // which is then copied into its appropriate space in the matrix A.
     T* A_pre_dat = A_pre.data();
+
     // J_buffer serves as a buffer for the pivots found at every iteration, of size n.
     // At every iteration, it would only hold "cols" entries.
     int64_t* J_buffer_dat = J_buffer.data();
-    // A_sk serves as a skething matrix, of size d by n.
+
+    // A_sk serves as a skething matrix, of size d by n, lda d
     // Below algorithm does not perform repeated sampling, hence A_sk
     // is updated at the end of every iteration.
     // Should remain unchanged throughout the algorithm,
@@ -238,8 +246,9 @@ int CQRRP_blocked<T, RNG>::call(
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
     T* R_sk_dat = NULL;
 
-    // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz.
+    // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
     T* R_cholqr_dat = R_cholqr.data();
+
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work4_dat = Work4.data();
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
@@ -319,6 +328,8 @@ int CQRRP_blocked<T, RNG>::call(
         util::col_swap(rows, cols, cols, A_work_dat, m, J_buffer);
 
         // Defining the new "working subportion" of matrix A.
+        // In a global sense, below is identical to:
+        // Work1_dat = &A_dat[(m * (iter + 1) * b_sz) + curr_sz];
         Work1_dat = &A_work_dat[m * b_sz];
 
         // Define the space representing R_sk (stored in A_sk)
@@ -326,7 +337,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // A_pre = AJ(:, 1:b_sz) * R_sk
         // Performing preconditioning of the current matrix A.
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk_dat, b_sz, A_work_dat, m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk_dat, d, A_work_dat, m);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -387,35 +398,27 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in A_pre_dat space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right,  Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk_dat, b_sz, A_pre_dat, rows);
+        blas::trmm(Layout::ColMajor, Side::Right,  Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk_dat, d, A_pre_dat, rows);
 
         // Need to copy R11 over form A_pre_dat into the appropriate space in A.
+        // In a global sense, this is identical to:
+        // R11_dat =  &A_dat[(m + 1) * curr_sz];
+        R11_dat = A_work_dat;
         lapack::lacpy(MatrixType::Upper, b_sz, b_sz, A_pre_dat, rows, A_work_dat, m);
-        T* R11_dat = &A_dat[(m + 1) * curr_sz];
-        //T* R11_dat = R_sk_dat;
+
+        // Updating the pointer to R12
+        // In a global sense, this is identical to:
+        // R12_dat =  &A_dat[(m * (curr_sz + b_sz)) + curr_sz];
+        R12_dat = &R11_dat[m * b_sz];
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
             updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
         }
 
-        // Filling R12 and updating A
-        T* R12_dat = &A_dat[(m * (curr_sz + b_sz)) + curr_sz];
-
-        A_work_dat = &A_work_dat[(m + 1) * b_sz];
-
-        // Updating the skethcing buffer
-        // trsm (S11, R11) -> S11
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11_dat, m, A_sk_dat, d);
-        // CAREFUL WHEN d = b_sz
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, A_sk_dat, d, R12_dat, m, 1.0, &A_sk_dat[d * b_sz], d);
-
-        // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk
-        A_sk_dat = &A_sk_dat[d * b_sz];
-
         // Estimate R norm, use Fro norm trick to compute the approximation error
-        // NORM R11 may be getting computed wrongly
-        norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, R11_dat, m);
+        // Keep in mind that R11 is Upper triangular and R12 is rectangular.
+        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11_dat, m);
         norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12_dat, m);
         norm_R_i = std::hypot(norm_R11, norm_R12);
         norm_R = std::hypot(norm_R, norm_R_i);
@@ -424,8 +427,6 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Size of the factors is updated;
         curr_sz += b_sz;
-
-
 
         if((approx_err < this->eps) || (curr_sz >= n)) {
             // Termination criteria reached
@@ -466,6 +467,31 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
             return 0;
+        }
+
+        if(this -> timing)
+            updating_t_start = high_resolution_clock::now();
+
+        // Updating the pointer to "Current A."
+        // In a global sense, below is identical to:
+        // Work1_dat = &A_dat[(m * (iter + 1) * b_sz) + curr_sz + b_sz];
+        // Also, Below is identical to:
+        // A_work_dat = &A_work_dat[(m + 1) * b_sz];
+        A_work_dat = &Work1_dat[b_sz];
+
+        // Updating the skethcing buffer
+        // trsm (R_sk_dat, R11) -> R_sk_dat
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11_dat, m, R_sk_dat, d);
+        // R_sk_12 - R_sk_11 * inv(R_11) * R_12
+        // Side note: might need to be careful when d = b_sz.
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk_dat, d, R12_dat, m, 1.0, &R_sk_dat[d * b_sz], d);
+
+        // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk
+        A_sk_dat = &A_sk_dat[d * b_sz];
+
+        if(this -> timing) {
+            updating_t_stop  = high_resolution_clock::now();
+            updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
         }
 
         // Data size decreases by block_size per iteration.
