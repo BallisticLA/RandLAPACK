@@ -138,7 +138,7 @@ void col_swap(
     int64_t lda,
     std::vector<int64_t> idx
 ) {
-    if(k > std::min(m, n)) 
+    if(k > n) 
         throw std::runtime_error("Incorrect rank parameter.");
 
     int64_t* idx_dat = idx.data();
