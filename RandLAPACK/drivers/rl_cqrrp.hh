@@ -221,10 +221,20 @@ int CQRRP_blocked<T, RNG>::call(
     T norm_R_i   = 0.0;
     T approx_err = 0.0;
 
-    // TEMPORARY SPACE
+    // TEMPORARY SPACE BEGIN
     std::vector<T> T_full(b_sz * n, 0.0);
     T* T_full_dat = T_full.data();
     T* T_dat = NULL;
+    T* Q_implicit_dat = A.data();
+
+
+    std::vector<T> R_sk(b_sz * b_sz, 0.0);
+    T* R_sk_dat = R_sk.data();
+
+    std::vector<T> Q_fake(m * m, 0.0);
+    T* Q_fake_dat = Q_fake.data();
+
+    // TEMPORARY SPACE END
 
     // Skethcing in an embedding regime
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
@@ -243,6 +253,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Zero-out data
         std::fill(J_buffer.begin(), J_buffer.end(), 0);
         std::fill(Work4.begin(), Work4.end(), 0.0);
+        std::fill(R_sk.begin(), R_sk.end(), 0.0);
 
         if(this -> timing) {
             saso_t_start = high_resolution_clock::now();
@@ -276,9 +287,11 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Need to zero-out the lower-triangular portion in S11
         RandLAPACK::util::get_U(b_sz, b_sz, A_sk_dat, d);
+        
         // extract b_sz by b_sz R_sk (Work2)
         Work2_dat = &R_dat[(m * (curr_sz + b_sz)) + curr_sz];
-        lapack::lacpy(MatrixType::General, b_sz, b_sz, A_sk_dat, d, Work2_dat, m);
+
+        lapack::lacpy(MatrixType::General, b_sz, b_sz, A_sk_dat, d, R_sk_dat, b_sz);
 
         if(this -> timing) {
             preconditioning_t_start = high_resolution_clock::now();
@@ -286,15 +299,15 @@ int CQRRP_blocked<T, RNG>::call(
 
         // A_piv (Work1) = Need to pivot full matrix A
         // This is a wors by cols permuted version of the current A
-        util::col_swap(rows, cols, cols, A_dat, rows, J_buffer);
+        util::col_swap(rows, cols, cols, A_dat, m, J_buffer);
 
         // Below copy is required to preserve the true state of a pivoted A.
         // The actual space of A will be used to store intermediate representation of the current iteration's Q.
-        lapack::lacpy(MatrixType::General, rows, cols, A_dat, rows, Work1_dat, rows);
+        lapack::lacpy(MatrixType::General, rows, cols, A_dat, m, Work1_dat, rows);
 
         // A_pre = AJ(:, 1:b_sz) * R_sk (Work2)
         // This is a preconditioned rows by b_sz version of the current A, written into Q_full because of the way trsm works
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work2_dat, m, A_dat, rows);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk_dat, b_sz, A_dat, m);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -302,7 +315,7 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // We need to save A_pre, is required for computations below 
-        lapack::lacpy(MatrixType::General, rows, b_sz, A_dat, rows, A_pre_dat, rows);
+        lapack::lacpy(MatrixType::General, rows, b_sz, A_dat, m, A_pre_dat, rows);
 
         if(this -> timing) {
             cholqr_t_start = high_resolution_clock::now();
@@ -310,11 +323,11 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Performing Cholesky QR
         Work3_dat = &R_dat[(m + 1) * curr_sz];
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_dat, rows, 0.0, Work3_dat, m);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_dat, m, 0.0, Work3_dat, m);
         lapack::potrf(Uplo::Upper, b_sz, Work3_dat, m);
 
         // Compute Q_econ
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work3_dat, m, A_dat, rows);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, Work3_dat, m, A_dat, m);
 
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
@@ -322,10 +335,32 @@ int CQRRP_blocked<T, RNG>::call(
             reconstruction_t_start = high_resolution_clock::now();
         }
 
+
+        char name2 [] = "Q from Cholqr";
+        RandBLAS::util::print_colmaj(m, n, Q_implicit_dat, name2);
+
         // Find Q (stored in A) using Householder reconstruction. 
         // Remember that Q (stored in A) has b_sz orthonormal columns
+
+        char name3 [] = "T";
+
+
         T_dat = &T_full_dat[b_sz * curr_sz]; 
-        lapack::orhr_col(rows, b_sz, b_sz, A_dat, rows, T_dat, m, Work4_dat);
+        lapack::orhr_col(rows, b_sz, b_sz, A_dat, m, T_dat, b_sz, Work4_dat);
+
+        RandBLAS::util::print_colmaj(b_sz, n, T_full_dat, name3);
+
+        RandBLAS::util::print_colmaj(m, n, Q_implicit_dat, name2);
+
+        if(iter == 1)
+        {
+            std::vector<T> Ident(rows * rows, 0.0);
+            RandLAPACK::util::eye(rows, rows, Ident);
+            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, m, T_dat, b_sz, Ident.data(), rows);
+
+            char name4 [] = "I";
+            RandBLAS::util::print_colmaj(rows, rows, Ident.data(), name4);
+        }
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -335,28 +370,29 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Remember that at the moment even though Q (stored in A) is represented by "b_sz" columns, it is actually of size "rows by rows."
         // Compute R11_full = Q' * A_pre - gets written into A_pre space
-        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, rows, T_dat, m, A_pre_dat, rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_dat, m, T_dat, b_sz, A_pre_dat, rows);
 
         // Looks like we can substitute the two multiplications with a single one:
         // A_piv (Work1) is a rows by cols matrix, its last "cols-b_sz" columns and "rows" rows will be updated.
         // The first b_sz rows will represent R12 (Stored in Work2)
         // The last rows-b_sz rows will represent the new A
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, rows, T_dat, m, &Work1_dat[rows * b_sz], rows);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz,  A_dat, m, T_dat, b_sz, &Work1_dat[rows * b_sz], rows);
 
         // Updating Q, Pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
-            RandLAPACK::util::eye(rows, rows, Q);
-            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, rows, T_dat, m, Q_dat, rows);
+            RandLAPACK::util::eye(rows, rows, Q_fake);
+                //RandBLAS::util::print_colmaj(m, n, Q_fake_dat, name1);
+            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, m, T_dat, b_sz, Q_fake_dat, rows);
         } else {
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, rows, T_dat, m, &Q_dat[m * curr_sz], m);
+            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, m, T_dat, b_sz, &Q_fake_dat[m * curr_sz], m);
             RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 
         // Compute R11 (stored in Work3) = R11_full(1:b_sz, :) * R_sk (Work2)
         // We will have to resize A_pre_dat down to b_sz by b_sz
         RandLAPACK::util::row_resize(rows, b_sz, A_pre, b_sz);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, Work2_dat, m, 0.0, Work3_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, R_sk_dat, b_sz, 0.0, Work3_dat, m);
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
@@ -365,7 +401,11 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Filling R12 and updating A
         lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &Work1_dat[rows * b_sz], rows, Work2_dat, m);
-        lapack::lacpy(MatrixType::General, rows - b_sz, cols - b_sz, &Work1_dat[(rows + 1) * b_sz], rows, A_dat, rows - b_sz);
+        A_dat = &A_dat[(m + 1) * b_sz];
+        char name [] = "Q";
+        RandBLAS::util::print_colmaj(m, n, Q_implicit_dat, name);
+        lapack::lacpy(MatrixType::General, rows - b_sz, cols - b_sz, &Work1_dat[(rows + 1) * b_sz], rows, A_dat, m);
+        RandBLAS::util::print_colmaj(m, n, Q_implicit_dat, name);
 
         // Updating the skethcing buffer
         // trsm (S11, R11) -> S11
@@ -387,10 +427,18 @@ int CQRRP_blocked<T, RNG>::call(
         // Size of the factors is updated;
         curr_sz += b_sz;
 
+        RandBLAS::util::print_colmaj(m, n, Q_fake_dat, name);
+
         if((approx_err < this->eps) || (curr_sz >= n)) {
             // Termination criteria reached
             this -> rank = curr_sz;
             RandLAPACK::util::row_resize(m, n, R, curr_sz);
+
+            RandLAPACK::util::householder_unpacking(m, curr_sz, b_sz, Q_implicit_dat, Q_dat, T_full_dat);
+
+            RandBLAS::util::print_colmaj(m, n, Q_dat, name);
+
+            RandBLAS::util::print_colmaj(curr_sz, n, R_dat, name);
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
