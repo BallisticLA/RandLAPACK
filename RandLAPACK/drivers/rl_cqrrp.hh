@@ -145,6 +145,10 @@ int CQRRP_blocked<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
     //-------TIMING VARS--------/
+    high_resolution_clock::time_point preallocation_t_stop;
+    high_resolution_clock::time_point preallocation_t_start;
+    long preallocation_t_dur = 0;
+
     high_resolution_clock::time_point saso_t_stop;
     high_resolution_clock::time_point saso_t_start;
     long saso_t_dur = 0;
@@ -175,6 +179,7 @@ int CQRRP_blocked<T, RNG>::call(
 
     if(this -> timing) {
         total_t_start = high_resolution_clock::now();
+        preallocation_t_start = high_resolution_clock::now();
     }
 
     int64_t rows = m;
@@ -272,8 +277,11 @@ int CQRRP_blocked<T, RNG>::call(
     T norm_R_i   = 0.0;
     T approx_err = 0.0;
 
-    if(this -> timing)
+    if(this -> timing) {
+        preallocation_t_stop  = high_resolution_clock::now();
+        preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
         saso_t_start = high_resolution_clock::now();
+    }
 
     // Skethcing in an embedding regime
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
@@ -318,9 +326,6 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
             updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
-        }
-
-        if(this -> timing) {
             preconditioning_t_start = high_resolution_clock::now();
         }
 
@@ -432,22 +437,15 @@ int CQRRP_blocked<T, RNG>::call(
             // Termination criteria reached
             this -> rank = curr_sz;
 
-            // WARNING: UNPACKING DOES NOT WHORK IF BLOCK SIZE HAS BEEN CHANGED!!!!!!!!!!!!!!!!!!
-            RandLAPACK::util::householder_unpacking(m, curr_sz, b_sz, A_dat, Q_dat, T_full_dat);
-
-
-            RandLAPACK::util::get_U(m, n, A_dat, m);
-            lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
-            RandLAPACK::util::row_resize(m, n, R, curr_sz);
-
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating_t_dur);
+                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating_t_dur);
                 this -> times.resize(8);
-                this -> times = {saso_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating_t_dur, t_rest, total_t_dur};
+                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
+                printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
                 printf("SASO time: %34ld μs,\n",                           saso_t_dur);
                 printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
                 printf("Preconditioning time: %23ld μs,\n",                preconditioning_t_dur);
@@ -457,7 +455,8 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Other routines time: %24ld μs,\n",                 t_rest);
                 printf("Total time: %35ld μs.\n",                          total_t_dur);
 
-                printf("\nSASO generation and application takes %2.2f%% of runtime.\n", 100 * ((T) saso_t_dur            / (T) total_t_dur));
+                printf("\nPreallocation takes %22.2f%% of runtime.\n",                   100 * ((T) preallocation_t_dur   / (T) total_t_dur));
+                printf("SASO generation and application takes %2.2f%% of runtime.\n",   100 * ((T) saso_t_dur            / (T) total_t_dur));
                 printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
@@ -466,6 +465,17 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
+            // WE ARE HOPING THAT BELOW WORK WILL BE UNNCECESSARY
+
+            // WARNING: UNPACKING DOES NOT WHORK IF BLOCK SIZE HAS BEEN CHANGED!!!!!!!!!!!!!!!!!!
+            RandLAPACK::util::householder_unpacking(m, curr_sz, b_sz, A_dat, Q_dat, T_full_dat);
+
+
+            RandLAPACK::util::get_U(m, n, A_dat, m);
+            lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
+            RandLAPACK::util::row_resize(m, n, R, curr_sz);
+
+
             return 0;
         }
 
