@@ -401,10 +401,10 @@ int CQRRP_blocked<T, RNG>::call(
             RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 
+        // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in A_pre_dat space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right,  Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk_dat, d, A_pre_dat, rows);
-
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk_dat, d, A_pre_dat, rows);
         // Need to copy R11 over form A_pre_dat into the appropriate space in A.
         // In a global sense, this is identical to:
         // R11_dat =  &A_dat[(m + 1) * curr_sz];
@@ -487,11 +487,14 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Updating the skethcing buffer
         // trsm (R_sk_dat, R11) -> R_sk_dat
+        // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
+        RandLAPACK::util::get_U(b_sz, b_sz, R_sk_dat, d);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11_dat, m, R_sk_dat, d);
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
+        // Cannot perform trmm here as an alternative, since matrix difference is involved.
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk_dat, d, R12_dat, m, 1.0, &R_sk_dat[d * b_sz], d);
-
+        
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk
         A_sk_dat = &A_sk_dat[d * b_sz];
 
