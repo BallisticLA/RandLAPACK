@@ -231,9 +231,6 @@ int CQRRP_blocked<T, RNG>::call(
     std::vector<T> R_sk(b_sz * b_sz, 0.0);
     T* R_sk_dat = R_sk.data();
 
-    std::vector<T> Q_fake(m * m, 0.0);
-    T* Q_fake_dat = Q_fake.data();
-
     // TEMPORARY SPACE END
 
     // Skethcing in an embedding regime
@@ -289,7 +286,6 @@ int CQRRP_blocked<T, RNG>::call(
         RandLAPACK::util::get_U(b_sz, b_sz, A_sk_dat, d);
         
         // extract b_sz by b_sz R_sk (Work2)
-        Work2_dat = &R_dat[(m * (curr_sz + b_sz)) + curr_sz];
 
         lapack::lacpy(MatrixType::General, b_sz, b_sz, A_sk_dat, d, R_sk_dat, b_sz);
 
@@ -368,10 +364,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Updating Q, Pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
-            RandLAPACK::util::eye(rows, rows, Q_fake);
-            lapack::gemqrt(Side::Right, Op::NoTrans, rows, rows, b_sz, b_sz, A_dat, m, T_dat, b_sz, Q_fake_dat, rows);
         } else {
-            lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, A_dat, m, T_dat, b_sz, &Q_fake_dat[m * curr_sz], m);
             RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
         }
 
@@ -381,7 +374,7 @@ int CQRRP_blocked<T, RNG>::call(
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, b_sz, b_sz, 1.0, A_pre_dat, b_sz, R_sk_dat, b_sz, 0.0, Work3_dat, m);
 
         lapack::lacpy(MatrixType::Upper, b_sz, b_sz, Work3_dat, m, &Q_implicit_dat[(m + 1) * curr_sz], m);
-        Work3_dat = &Q_implicit_dat[(m + 1) * curr_sz];
+        T* R11_dat = &Q_implicit_dat[(m + 1) * curr_sz];
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
@@ -389,24 +382,24 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Filling R12 and updating A
-        Work2_dat = &Q_implicit_dat[(m * (curr_sz + b_sz)) + curr_sz];
-        lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &Work1_dat[rows * b_sz], rows, Work2_dat, m);
+        T* R12_dat = &Q_implicit_dat[(m * (curr_sz + b_sz)) + curr_sz];
+        lapack::lacpy(MatrixType::General, b_sz, cols - b_sz, &Work1_dat[rows * b_sz], rows, R12_dat, m);
         A_dat = &A_dat[(m + 1) * b_sz];
 
         lapack::lacpy(MatrixType::General, rows - b_sz, cols - b_sz, &Work1_dat[(rows + 1) * b_sz], rows, A_dat, m);
 
         // Updating the skethcing buffer
         // trsm (S11, R11) -> S11
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, Work3_dat, m, A_sk_dat, d);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11_dat, m, A_sk_dat, d);
         // CAREFUL WHEN d = b_sz
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, A_sk_dat, d, Work2_dat, m, 1.0, &A_sk_dat[d * b_sz], d);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, A_sk_dat, d, R12_dat, m, 1.0, &A_sk_dat[d * b_sz], d);
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk
         A_sk_dat = &A_sk_dat[d * b_sz];
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
-        norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, Work3_dat, m);
-        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, Work2_dat, m);
+        norm_R11 = lapack::lange(Norm::Fro, b_sz, b_sz, R11_dat, m);
+        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12_dat, m);
         norm_R_i = std::hypot(norm_R11, norm_R12);
         norm_R = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
@@ -421,19 +414,11 @@ int CQRRP_blocked<T, RNG>::call(
             // Termination criteria reached
             this -> rank = curr_sz;
 
-            char name [] = "R";
-            RandBLAS::util::print_colmaj(m, n, Q_implicit_dat, name);
-
-
-            //RandLAPACK::util::row_resize(m, n, R, curr_sz);
-
             RandLAPACK::util::householder_unpacking(m, curr_sz, b_sz, Q_implicit_dat, Q_dat, T_full_dat);
 
 
             RandLAPACK::util::get_U(m, n, Q_implicit_dat, m);
-
             lapack::lacpy(MatrixType::Upper, m, n, Q_implicit_dat, m, R_dat, m);
-
             RandLAPACK::util::row_resize(m, n, R, curr_sz);
 
             if(this -> timing) {
