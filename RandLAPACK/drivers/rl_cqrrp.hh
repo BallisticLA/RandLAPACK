@@ -334,9 +334,8 @@ int CQRRP_blocked<T, RNG>::call(
         // A copy of A_pre is necessary to later obraing the full R-factor from Cholesky QR.
         lapack::lacpy(MatrixType::General, rows, b_sz, A_work_dat, m, A_pre_dat, rows);
 
-        if(this -> timing) {
+        if(this -> timing)
             cholqr_t_start = high_resolution_clock::now();
-        }
 
         // Performing Cholesky QR
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work_dat, m, 0.0, R_cholqr_dat, b_sz);
@@ -351,11 +350,20 @@ int CQRRP_blocked<T, RNG>::call(
             reconstruction_t_start = high_resolution_clock::now();
         }
 
+
+        char nameR [] = "R_cholqr";
+        RandBLAS::util::print_colmaj(b_sz, b_sz, R_cholqr_dat, nameR);
+
         // Define a pointer to matrix T from orhr_col at current iteration.
         T_dat = R_cholqr_dat; 
         // Find Q (stored in A) using Householder reconstruction. 
         // This will represent the full (rows by rows) Q factor form Cholesky QR
         lapack::orhr_col(rows, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, Work4_dat);
+
+        for(int i = 0; i < n; ++i)
+        {
+            printf("%e\n", Work4_dat[i]);
+        }
 
         // Define a pointer to the current subportion of tau vector.
         tau_dat = &tau_full_dat[curr_sz];
@@ -373,6 +381,8 @@ int CQRRP_blocked<T, RNG>::call(
         // How can we perform an equivalent of (Q[:, 1:b_sz])' * A_pre?
         lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, A_pre_dat, rows);
 
+        char nameRf [] = "R_full";
+        RandBLAS::util::print_colmaj(m, b_sz, A_pre_dat, nameRf);
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
