@@ -412,6 +412,7 @@ int CQRRP_blocked<T, RNG>::call(
         norm_R   = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
         approx_err = ((norm_A - norm_R) * (norm_A + norm_R)) / norm_A_sq;
+        printf("%e\n", approx_err);
 
         // Size of the factors is updated;
         curr_sz += b_sz;
