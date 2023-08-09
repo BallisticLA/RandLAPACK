@@ -165,10 +165,14 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t cols = n;
     // Describes sizes of full Q and R factors at a given iteration.
     int64_t curr_sz = 0;
-    int64_t b_sz = this->block_size;
+    int64_t b_sz    = this->block_size;
     int64_t maxiter = (int64_t) std::ceil(n / (T) b_sz);
-    // Update the row dimension of a sketch
-    int64_t d =  d_factor * b_sz;
+    // This will serve as lda of a sketch
+    int64_t d       = d_factor * b_sz;
+    // We will be using this parameter when performing QRCP on a sketch.
+    // After the first iteration of the algorithm, this will change its value to min(d, cols) 
+    // before "cols" is updated.
+    int64_t sampling_dimension = d;
     
     // Make sure the pivots vector has enough space
     J.resize(n);
@@ -262,13 +266,13 @@ int CQRRP_blocked<T, RNG>::call(
     }
 
     // Skethcing in an embedding regime
-    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = rows, .vec_nnz = this->nnz};
+    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
     state = RandBLAS::fill_sparse(S);
 
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, cols, rows, 1.0, S, 0, 0, A.data(), rows, 0.0, A_sk_dat, d
+        d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_sk_dat, d
     );
 
     if(this -> timing) {
@@ -288,7 +292,7 @@ int CQRRP_blocked<T, RNG>::call(
             qrcp_t_start = high_resolution_clock::now();
 
         // Performing QR with column pivoting
-        lapack::geqp3(d, cols, A_sk_dat, d, J_buffer_dat, Work4_dat);
+        lapack::geqp3(sampling_dimension, cols, A_sk_dat, d, J_buffer_dat, Work4_dat);
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -412,7 +416,6 @@ int CQRRP_blocked<T, RNG>::call(
         norm_R   = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
         approx_err = ((norm_A - norm_R) * (norm_A + norm_R)) / norm_A_sq;
-        printf("%e\n", approx_err);
 
         // Size of the factors is updated;
         curr_sz += b_sz;
@@ -432,8 +435,8 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
                 printf("SASO time: %34ld μs,\n",                           saso_t_dur);
                 printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
-                printf("Preconditioning time: %23ld μs,\n",                preconditioning_t_dur);
-                printf("CholQR time: %31ld μs,\n",                         cholqr_t_dur);
+                printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
+                printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
                 printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
                 printf("Factors updating time: %23ld μs,\n",               updating_t_dur);
                 printf("Other routines time: %24ld μs,\n",                 t_rest);
@@ -461,7 +464,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Also, Below is identical to:
         // A_work_dat = &A_work_dat[(m + 1) * b_sz];
         A_work_dat = &Work1_dat[b_sz];
-
+        
         // Updating the skethcing buffer
         // trsm (R_sk_dat, R11) -> R_sk_dat
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
@@ -472,7 +475,17 @@ int CQRRP_blocked<T, RNG>::call(
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk_dat, d, R12_dat, m, 1.0, &R_sk_dat[d * b_sz], d);
         
-        // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk
+        // Changing the sampling dimension parameter
+        sampling_dimension = std::min(sampling_dimension, cols);
+
+        // Need to zero out the lower triangular portion of R_sk_22
+        // Make sure R_sk_22 exists.
+        if (sampling_dimension - b_sz > 0)
+            RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk_dat[(d + 1) * b_sz], d);
+
+        // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
+        // Remember that the only "active" portion of A_sk remaining would be of size cols by cols;
+        // if any rows beyond that would be accessed, we would have issues. 
         A_sk_dat = &A_sk_dat[d * b_sz];
 
         if(this -> timing) {

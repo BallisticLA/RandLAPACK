@@ -96,9 +96,9 @@ class TestCQRRP : public ::testing::Test
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF AP - QR:    %19e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %19e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF (Q'Q - I): %2e\n\n", norm_0 / std::sqrt((T) n));
+        printf("REL NORM OF AP - QR:    %14e\n", norm_AQR / norm_A);
+        printf("MAX COL NORM METRIC:    %14e\n", max_col_norm / col_norm_A);
+        printf("FRO NORM OF (Q'Q - I):  %14e\n\n", norm_0 / std::sqrt((T) n));
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
@@ -129,23 +129,22 @@ class TestCQRRP : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
 
-        printf("RANK AS RETURNED BY CQRRP %9ld\n", all_data.rank);
+        printf("RANK AS RETURNED BY CQRRP %4ld\n", all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data); 
-
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
-    int64_t m = 7;
-    int64_t n = 6;
-    int64_t k = 5;
-    int64_t d_factor = 2.0;
-    int64_t b_sz = 3;
+    int64_t m = 5000;
+    int64_t n = 2000;
+    int64_t k = 1600;
+    int64_t d_factor = 11.0;
+    int64_t b_sz = 500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -164,4 +163,3 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 }
-
