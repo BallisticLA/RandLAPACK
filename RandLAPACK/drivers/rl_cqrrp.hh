@@ -198,11 +198,14 @@ int CQRRP_blocked<T, RNG>::call(
     // Setting up space for a buffer with a copy of preconditioned A
     std::vector<T> A_pre(m * b_sz, 0.0);
     // Setting up space for a buffer for R-factor from Cholesky QR
-    std::vector<T> R_cholqr (b_sz * b_sz, 0.0);
+    // And a buffer for T from orhr_col
+    std::vector<T> Work2 (b_sz * b_sz, 0.0);
     // Setting up space for a buffer for pivot vector
     std::vector<int64_t> J_buffer (n, 0);
     // Setting up space for a buffer for tau in GEQP3 and D in orhr_col
     std::vector<T> Work4 (n, 0.0);
+
+    std::vector<T> tau(n, 0.0);
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -252,24 +255,23 @@ int CQRRP_blocked<T, RNG>::call(
     T* R_sk_dat = NULL;
 
     // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
-    T* R_cholqr_dat = R_cholqr.data();
+    T* R_cholqr_dat = Work2.data();
+    // Pointer to matrix T from orhr_col at currect iteration, will point to Work2 space.
+    T* T_dat        = NULL;
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work4_dat = Work4.data();
+
+    // Pointer to the full vector tau.
+    T* tau_full_dat = tau.data();
+    // Pointer to the portion of vector tau at current iteration.
+    T* tau_dat = NULL;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
     // Below Q and R buffers are only required for current implementation.
     // In practice, we are hoping for the output of CQRRPT to be identical to that of GEQP3.
     T* Q_dat      = util::upsize(m * m, Q);
     T* R_dat      = util::upsize(m * n, R); 
-    std::vector<T> T_full(b_sz * n, 0.0);
-    // Pointer to the full matrix T from orhr_col.
-    T* T_full_dat = T_full.data();
-    // Pointer to matrix T from orhr_col at currect iteration.
-    T* T_dat      = NULL;
-    std::vector<T> tau_full(n, 0.0);
-    T* tau_full_dat = tau_full.data();
-    T* tau_dat = NULL;
 
     T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
     T norm_A_sq  = std::pow(norm_A, 2);
@@ -372,15 +374,15 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Define a pointer to matrix T from orhr_col at current iteration.
-        T_dat = &T_full_dat[b_sz * curr_sz]; 
+        T_dat = R_cholqr_dat; 
         // Find Q (stored in A) using Householder reconstruction. 
         // This will represent the full (rows by rows) Q factor form Cholesky QR
         lapack::orhr_col(rows, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, Work4_dat);
 
+        // Define a pointer to the current subportion of tau vector.
         tau_dat = &tau_full_dat[curr_sz];
-        for(int i = 0; i < b_sz; ++i) {
-            tau_dat[i] = T_dat[b_sz * i + i];
-        }
+        for(int i = 0; i < b_sz; ++i)
+            tau_dat[i] = T_dat[(b_sz + 1) * i];
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -473,20 +475,11 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
             // WE ARE HOPING THAT BELOW WORK WILL BE UNNCECESSARY
-            // WARNING: UNPACKING DOES NOT WHORK IF BLOCK SIZE HAS BEEN CHANGED!!!!!!!!!!!!!!!!!!
-            RandLAPACK::util::householder_unpacking(m, curr_sz, b_sz, A_dat, Q_dat, T_full_dat);
-            //RandLAPACK::util::get_U(m, n, A_dat, m);
-            //lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
-            //RandLAPACK::util::row_resize(m, n, R, curr_sz);
-
-
-            char name [] = "Q";
-            RandBLAS::util::print_colmaj(m, n, Q_dat, name);
+            lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
+            RandLAPACK::util::row_resize(m, n, R, curr_sz);
 
             lapack::ungqr(m, n, n, A_dat, m, tau_full_dat);
-
-            char name1 [] = "Q_other";
-            RandBLAS::util::print_colmaj(m, n, A_dat, name1);
+            lapack::lacpy(MatrixType::General, m, n, A_dat, m, Q_dat, m);
 
             return 0;
         }
