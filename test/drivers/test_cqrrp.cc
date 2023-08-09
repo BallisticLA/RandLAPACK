@@ -24,14 +24,17 @@ class TestCQRRP : public ::testing::Test
         std::vector<T> A;
         std::vector<T> Q;
         std::vector<T> R;
+        std::vector<T> tau;
         std::vector<int64_t> J;
         std::vector<T> A_cpy1;
         std::vector<T> A_cpy2;
         std::vector<T> I_ref;
 
         CQRRPTestData(int64_t m, int64_t n, int64_t k) :
-        A(m * n, 0.0), 
-        J(n, 0),  
+        A(m * n, 0.0),
+        Q(m * n, 0.0),
+        tau(n, 0.0),
+        J(n, 0),
         A_cpy1(m * n, 0.0),
         A_cpy2(m * n, 0.0),
         I_ref(k * k, 0.0) 
@@ -116,9 +119,16 @@ class TestCQRRP : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRP.call(m, n, all_data.A, d_factor, all_data.Q, all_data.R, all_data.J, state);
-
+        CQRRP.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
         all_data.rank = CQRRP.rank;
+
+        RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
+
+        lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
+
+
         printf("RANK AS RETURNED BY CQRRP %9ld\n", all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
@@ -155,28 +165,3 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 }
 
-// Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, Something2) {
-    int64_t m = 4;
-    int64_t n = 4;
-
-    std::vector<double> A = {0, 0, 0, 1,
-                             0, 0, 1, 0,
-                             0, 0, 1, 0,
-                             0, 0, 1, 0};
-    std::vector<double> B = {1, 1,
-                             1, 1};
-    std::vector<double> C (2 * 2, 0.0);
-
-    double* A_dat = A.data();
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, 2, 2, 2, 1.0, &A_dat[10], 2, B.data(), 2, 0.0, C.data(), 2);
-
-        char name1 [] = "A";
-    RandBLAS::util::print_colmaj(4, 4, A.data(), name1);
-
-        char name2 [] = "B";
-    RandBLAS::util::print_colmaj(2, 2, B.data(), name2);
-
-    char name [] = "C";
-    RandBLAS::util::print_colmaj(2, 2, C.data(), name);
-}

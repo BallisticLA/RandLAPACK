@@ -27,8 +27,7 @@ class CQRRPalg {
             int64_t n,
             std::vector<T> &A,
             int64_t d_factor,
-            std::vector<T> &Q,
-            std::vector<T> &R,
+            std::vector<T> &tau,
             std::vector<int64_t> &J,
             RandBLAS::RNGState<RNG> &state
         ) = 0;
@@ -68,24 +67,14 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         /// @param[in] d_factor
         ///     Embedding dimension of a sketch factor, m >= (d_factor * n) >= n.
         ///
-        /// @param[in] Q
-        ///     Represents an orthonormal Q factor of QR factorization.
-        ///     On entry, is empty and may not have any space allocated for it.
-        ///
-        /// @param[in] R
-        ///     Represents the upper-triangular R factor of QR factorization.
-        ///     On entry, is empty and may not have any space allocated for it.
+        /// @param[in] tau
+        ///     Vector of size n. On entry, is empty.
         ///
         /// @param[out] A
         ///     Overwritten by garbage.
         ///
-        /// @param[out] Q
-        ///     Contains an m-by-k orthogonal Q factor.
-        ///     Matrix is stored explicitly.
-        ///
-        /// @param[out] R
-        ///     Stores k-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        /// @param[out] tau
+        ///     On output, similar in format to that in GEQP3.
         ///
         /// @param[out] J
         ///     Stores k integer type pivot index extries.
@@ -100,8 +89,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             int64_t n,
             std::vector<T> &A,
             int64_t d_factor,
-            std::vector<T> &Q,
-            std::vector<T> &R,
+            std::vector<T> &tau,
             std::vector<int64_t> &J,
             RandBLAS::RNGState<RNG> &state
         ) override;
@@ -122,14 +110,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int num_threads;
         int64_t nnz;
 
-        // Work buffer 1, of size m by n. Used for (in order):
-        // Buffer array for sketching. of size d by cols. - NOT ANYMORE
-        // Copy of A_piv of size rows by cols.
-        std::vector<T> Work1;
-        // Work buffer 4, of size n. Used for (in order):
-        // Vector tau in qr factorization, of size col.
-        // Vector D in Householder reconstruction, of size col.
-        std::vector<T> Work4;
 };
 
 // -----------------------------------------------------------------------------
@@ -139,8 +119,7 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t n,
     std::vector<T> &A,
     int64_t d_factor,
-    std::vector<T> &Q,
-    std::vector<T> &R,
+    std::vector<T> &tau,
     std::vector<int64_t> &J,
     RandBLAS::RNGState<RNG> &state
 ){
@@ -193,6 +172,9 @@ int CQRRP_blocked<T, RNG>::call(
     
     // Make sure the pivots vector has enough space
     J.resize(n);
+    // Making sure vector tau has enough space.
+    RandLAPACK::util::upsize(n, tau);
+
     // Setting up space for skethcing buffer
     std::vector<T> A_sk(d * n, 0.0);
     // Setting up space for a buffer with a copy of preconditioned A
@@ -204,8 +186,6 @@ int CQRRP_blocked<T, RNG>::call(
     std::vector<int64_t> J_buffer (n, 0);
     // Setting up space for a buffer for tau in GEQP3 and D in orhr_col
     std::vector<T> Work4 (n, 0.0);
-
-    std::vector<T> tau(n, 0.0);
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -225,9 +205,13 @@ int CQRRP_blocked<T, RNG>::call(
     T* R12_dat    = NULL;
     //**********************************POINTERS TO A END**********************************
 
-    //*********************************POINTERS TO PIVOTS BEGIN*********************************
-    int64_t* J_dat = J.data();;
-    //**********************************POINTERS TO PIVOTS END**********************************
+    //*********************************POINTERS TO OTHER BEGIN*********************************
+    int64_t* J_dat = J.data();
+    // Pointer to the full vector tau.
+    T* tau_full_dat = tau.data();
+    // Pointer to the portion of vector tau at current iteration.
+    T* tau_dat = NULL;
+    //**********************************POINTERS TO OTHER END**********************************
 
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE BEGIN*******************
     // BELOW ARE MATRICES THAT WE CANNOT PUT INTO COMMON BUFFERS
@@ -261,17 +245,7 @@ int CQRRP_blocked<T, RNG>::call(
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work4_dat = Work4.data();
-
-    // Pointer to the full vector tau.
-    T* tau_full_dat = tau.data();
-    // Pointer to the portion of vector tau at current iteration.
-    T* tau_dat = NULL;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
-
-    // Below Q and R buffers are only required for current implementation.
-    // In practice, we are hoping for the output of CQRRPT to be identical to that of GEQP3.
-    T* Q_dat      = util::upsize(m * m, Q);
-    T* R_dat      = util::upsize(m * n, R); 
 
     T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
     T norm_A_sq  = std::pow(norm_A, 2);
@@ -474,13 +448,6 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
-            // WE ARE HOPING THAT BELOW WORK WILL BE UNNCECESSARY
-            lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
-            RandLAPACK::util::row_resize(m, n, R, curr_sz);
-
-            lapack::ungqr(m, n, n, A_dat, m, tau_full_dat);
-            lapack::lacpy(MatrixType::General, m, n, A_dat, m, Q_dat, m);
-
             return 0;
         }
 
