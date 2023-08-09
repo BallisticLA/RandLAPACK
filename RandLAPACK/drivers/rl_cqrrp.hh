@@ -161,6 +161,7 @@ int CQRRP_blocked<T, RNG>::call(
         preallocation_t_start = high_resolution_clock::now();
     }
 
+    int iter, i, j;
     int64_t rows = m;
     int64_t cols = n;
     // Describes sizes of full Q and R factors at a given iteration.
@@ -181,11 +182,10 @@ int CQRRP_blocked<T, RNG>::call(
 
     // Setting up space for skethcing buffer
     std::vector<T> A_sk(d * n, 0.0);
-    // Setting up space for a buffer with a copy of preconditioned A
-    std::vector<T> A_pre(m * b_sz, 0.0);
     // Setting up space for a buffer for R-factor from Cholesky QR
+    std::vector<T> R_cholqr (b_sz * b_sz, 0.0);
     // And a buffer for T from orhr_col
-    std::vector<T> Work2 (b_sz * b_sz, 0.0);
+    std::vector<T> T_mat (b_sz * b_sz, 0.0);
     // Setting up space for a buffer for pivot vector
     std::vector<int64_t> J_buffer (n, 0);
     // Setting up space for a buffer for tau in GEQP3 and D in orhr_col
@@ -219,14 +219,6 @@ int CQRRP_blocked<T, RNG>::call(
 
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE BEGIN*******************
     // BELOW ARE MATRICES THAT WE CANNOT PUT INTO COMMON BUFFERS
-    // A copy of a preconditioned matrix A (of size m by b_sz), lda m.
-    // Required in order to find the proper R11_full-factor after the 
-    // full Q has been restored form economy Q (the has been found via Cholesky QR).
-    // While the full A_pre is required for a computation, we would only
-    // need the first b_sz rows of R11_full.
-    // Eventually, the b_sz by b_sz space is use to store R11 (computed via trmm)
-    // which is then copied into its appropriate space in the matrix A.
-    T* A_pre_dat = A_pre.data();
 
     // J_buffer serves as a buffer for the pivots found at every iteration, of size n.
     // At every iteration, it would only hold "cols" entries.
@@ -243,9 +235,14 @@ int CQRRP_blocked<T, RNG>::call(
     T* R_sk_dat = NULL;
 
     // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
-    T* R_cholqr_dat = Work2.data();
+    // Also used to store the proper R11_full-factor after the 
+    // full Q has been restored form economy Q (the has been found via Cholesky QR);
+    // That is done by applying the sign vector D from orhr_col().
+    // Eventually, will be used to store R11 (computed via trmm)
+    // which is then copied into its appropriate space in the matrix A.
+    T* R_cholqr_dat = R_cholqr.data();
     // Pointer to matrix T from orhr_col at currect iteration, will point to Work2 space.
-    T* T_dat        = NULL;
+    T* T_dat        = T_mat.data();
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work4_dat = Work4.data();
@@ -280,7 +277,7 @@ int CQRRP_blocked<T, RNG>::call(
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
     }
 
-    for(int iter = 0; iter < maxiter; ++iter) {
+    for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
 
@@ -331,9 +328,6 @@ int CQRRP_blocked<T, RNG>::call(
             preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
         }
 
-        // A copy of A_pre is necessary to later obraing the full R-factor from Cholesky QR.
-        lapack::lacpy(MatrixType::General, rows, b_sz, A_work_dat, m, A_pre_dat, rows);
-
         if(this -> timing)
             cholqr_t_start = high_resolution_clock::now();
 
@@ -350,24 +344,21 @@ int CQRRP_blocked<T, RNG>::call(
             reconstruction_t_start = high_resolution_clock::now();
         }
 
-
-        char nameR [] = "R_cholqr";
-        RandBLAS::util::print_colmaj(b_sz, b_sz, R_cholqr_dat, nameR);
-
-        // Define a pointer to matrix T from orhr_col at current iteration.
-        T_dat = R_cholqr_dat; 
         // Find Q (stored in A) using Householder reconstruction. 
         // This will represent the full (rows by rows) Q factor form Cholesky QR
         lapack::orhr_col(rows, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, Work4_dat);
 
-        for(int i = 0; i < n; ++i)
-        {
-            printf("%e\n", Work4_dat[i]);
-        }
+        // Need to change signs in the R-factor from Cholesky QR.
+        // Signs correspond to matrix D from orhr_col().
+        // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
+        for(i = 0; i < b_sz; ++i)
+            for(j = 0; j < (i + 1); ++j)
+               R_cholqr[(b_sz * i) + j] *= Work4[j];
 
         // Define a pointer to the current subportion of tau vector.
         tau_dat = &tau_full_dat[curr_sz];
-        for(int i = 0; i < b_sz; ++i)
+        // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
+        for(i = 0; i < b_sz; ++i)
             tau_dat[i] = T_dat[(b_sz + 1) * i];
 
         if(this -> timing) {
@@ -375,14 +366,6 @@ int CQRRP_blocked<T, RNG>::call(
             reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
             updating_t_start = high_resolution_clock::now();
         }
-
-        // Compute R11_full = Q' * A_pre - gets written into A_pre space.
-        // This may be simplifiable, as we only need R11_full[1:b_sz, 1:b_sz].
-        // How can we perform an equivalent of (Q[:, 1:b_sz])' * A_pre?
-        lapack::gemqrt(Side::Left, Op::Trans, rows, b_sz, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, A_pre_dat, rows);
-
-        char nameRf [] = "R_full";
-        RandBLAS::util::print_colmaj(m, b_sz, A_pre_dat, nameRf);
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
@@ -400,13 +383,14 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
-        // R11_full is stored in A_pre_dat space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk_dat, d, A_pre_dat, rows);
-        // Need to copy R11 over form A_pre_dat into the appropriate space in A.
+        // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk_dat, d, R_cholqr_dat, b_sz);
+        // Need to copy R11 over form R_cholqr into the appropriate space in A.
+        // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
         // R11_dat =  &A_dat[(m + 1) * curr_sz];
         R11_dat = A_work_dat;
-        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, A_pre_dat, rows, A_work_dat, m);
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr_dat, b_sz, A_work_dat, m);
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
