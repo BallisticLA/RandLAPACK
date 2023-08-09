@@ -50,3 +50,6 @@ add_benchmark(NAME Chol_check CXX_SOURCES Chol_check.cc LINK_LIBS ${Benchmark_li
 
 # Data conversion helper scripts
 add_benchmark(NAME convert_time CXX_SOURCES convert_time.cc LINK_LIBS ${Benchmark_libs})
+
+# QR speed comparisons with CQRRP benchmarks
+add_benchmark(NAME CQRRP_speed_comparisons CXX_SOURCES CQRRP_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
