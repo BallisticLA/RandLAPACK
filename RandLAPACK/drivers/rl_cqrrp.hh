@@ -299,6 +299,7 @@ int CQRRP_blocked<T, RNG>::call(
     }
 
     for(int iter = 0; iter < maxiter; ++iter) {
+
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
 

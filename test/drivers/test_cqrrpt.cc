@@ -230,10 +230,13 @@ TEST_F(TestCQRRPT, something) {
     RandLAPACK::util::eye(m, m, Q.data());
     RandLAPACK::util::eye(m, m, Ident.data());
 
+    lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy.data(), m);
+
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A.data(), m, 0.0, R_buf.data(), n);
     lapack::potrf(Uplo::Upper, n, R_buf.data(), n);
     // At this point, an m by n Q is stored in A
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_buf.data(), n, A.data(), m);
+
     
     lapack::orhr_col(m, n, n, A.data(), m, T.data(), n, D.data());
 
@@ -242,6 +245,14 @@ TEST_F(TestCQRRPT, something) {
 
     char nameQ [] = "Q";
     RandBLAS::util::print_colmaj(m, m, Q.data(), nameQ);
+
+    char nameT [] = "T";
+    RandBLAS::util::print_colmaj(n, n, T.data(), nameT);
+
+    lapack::geqrf(m, n, A_cpy.data(), m, tau.data());
+
+    for(int i = 0; i < n; ++i)
+        printf("%e\n", tau[i]);
 
     //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, m, m, 1.0, Q.data(), m, -1.0, Ident.data(), m);
 
