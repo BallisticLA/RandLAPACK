@@ -267,7 +267,9 @@ int CQRRP_blocked<T, RNG>::call(
     T* T_full_dat = T_full.data();
     // Pointer to matrix T from orhr_col at currect iteration.
     T* T_dat      = NULL;
-
+    std::vector<T> tau_full(n, 0.0);
+    T* tau_full_dat = tau_full.data();
+    T* tau_dat = NULL;
 
     T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
     T norm_A_sq  = std::pow(norm_A, 2);
@@ -299,7 +301,6 @@ int CQRRP_blocked<T, RNG>::call(
     }
 
     for(int iter = 0; iter < maxiter; ++iter) {
-
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, n - curr_sz);
 
@@ -375,6 +376,11 @@ int CQRRP_blocked<T, RNG>::call(
         // Find Q (stored in A) using Householder reconstruction. 
         // This will represent the full (rows by rows) Q factor form Cholesky QR
         lapack::orhr_col(rows, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, Work4_dat);
+
+        tau_dat = &tau_full_dat[curr_sz];
+        for(int i = 0; i < b_sz; ++i) {
+            tau_dat[i] = T_dat[b_sz * i + i];
+        }
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -469,9 +475,18 @@ int CQRRP_blocked<T, RNG>::call(
             // WE ARE HOPING THAT BELOW WORK WILL BE UNNCECESSARY
             // WARNING: UNPACKING DOES NOT WHORK IF BLOCK SIZE HAS BEEN CHANGED!!!!!!!!!!!!!!!!!!
             RandLAPACK::util::householder_unpacking(m, curr_sz, b_sz, A_dat, Q_dat, T_full_dat);
-            RandLAPACK::util::get_U(m, n, A_dat, m);
-            lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
-            RandLAPACK::util::row_resize(m, n, R, curr_sz);
+            //RandLAPACK::util::get_U(m, n, A_dat, m);
+            //lapack::lacpy(MatrixType::Upper, m, n, A_dat, m, R_dat, m);
+            //RandLAPACK::util::row_resize(m, n, R, curr_sz);
+
+
+            char name [] = "Q";
+            RandBLAS::util::print_colmaj(m, n, Q_dat, name);
+
+            lapack::ungqr(m, n, n, A_dat, m, tau_full_dat);
+
+            char name1 [] = "Q_other";
+            RandBLAS::util::print_colmaj(m, n, A_dat, name1);
 
             return 0;
         }
