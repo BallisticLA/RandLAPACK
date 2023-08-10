@@ -55,6 +55,7 @@ static void copy_computational_helper(QR_speed_benchmark_data<T> &all_data) {
 
 template <typename T, typename RNG>
 static std::vector<long> call_all_algs(
+    int64_t numruns,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state) {
@@ -64,33 +65,53 @@ static std::vector<long> call_all_algs(
     auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
 
-    // Testing CQRRP
+    // Additional params setup.
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
-
-    auto start_cqrrp = high_resolution_clock::now();
-    CQRRP_blocked.call(m, n, all_data.A1, d_factor, all_data.tau1, all_data.J1, state);
-    auto stop_cqrrp = high_resolution_clock::now();
-    long dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
-
-    // Testing HQRRP
     // HQRRP oversampling factor is hardcoded per Riley's suggestion.
     T d_factor_hqrrp = 0.125;
     // We are nbot using panel pivoting in performance testing.
     int panel_pivoting = 0;
-    auto start_hqrrp = high_resolution_clock::now();
-    RandLAPACK::hqrrp(m, n, all_data.A2.data(), m, all_data.J2.data(), all_data.tau2.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, state);
-    auto stop_hqrrp = high_resolution_clock::now();
-    long dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
 
-    // Testing GEQRF
-    auto start_geqrf = high_resolution_clock::now();
-    lapack::geqrf(m, n, all_data.A3.data(), m, all_data.tau3.data());
-    auto stop_geqrf = high_resolution_clock::now();
-    long dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
+    // timing vars
+    long dur_cqrrp = 0;
+    long dur_hqrrp = 0;
+    long dur_geqrf = 0;
+    long t_cqrrp_best = 0;
+    long t_hqrrp_best = 0;
+    long t_geqrf_best = 0;
 
-    std::vector<long> res{dur_cqrrp, dur_hqrrp, dur_geqrf};
+    for (int i = 0; i < numruns; ++i) {
+        // Testing CQRRP
+        auto start_cqrrp = high_resolution_clock::now();
+        CQRRP_blocked.call(m, n, all_data.A1, d_factor, all_data.tau1, all_data.J1, state);
+        auto stop_cqrrp = high_resolution_clock::now();
+        dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
+        // Update best timing
+        i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
+
+        // Testing HQRRP
+        auto start_hqrrp = high_resolution_clock::now();
+        RandLAPACK::hqrrp(m, n, all_data.A2.data(), m, all_data.J2.data(), all_data.tau2.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, state);
+        auto stop_hqrrp = high_resolution_clock::now();
+        dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
+        // Update best timing
+        i == 0 ? t_hqrrp_best = dur_hqrrp : (dur_hqrrp < t_hqrrp_best) ? t_hqrrp_best = dur_hqrrp : NULL;
+
+        // Testing GEQRF
+        auto start_geqrf = high_resolution_clock::now();
+        lapack::geqrf(m, n, all_data.A3.data(), m, all_data.tau3.data());
+        auto stop_geqrf = high_resolution_clock::now();
+        dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
+        // Update best timing
+        i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
+    }
+
+    printf("CQRRP takes %ld μs\n", t_cqrrp_best);
+    printf("HQRRP takes %ld μs\n", t_hqrrp_best);
+    printf("GEQRF takes %ld μs\n\n", t_geqrf_best);
+    std::vector<long> res{t_cqrrp_best, t_hqrrp_best, t_geqrf_best};
 
     return res;
 }
@@ -99,13 +120,15 @@ int main() {
     // Declare parameters
     int64_t m          = std::pow(2, 17);
     int64_t n          = std::pow(2, 17);
-    int64_t d_factor   = 2.0;
-    int64_t b_sz_start = 512;
-    int64_t b_sz_end   = 4096;
+    int64_t d_factor   = 1.0;
+    int64_t b_sz_start = 32;
+    int64_t b_sz_end   = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     // Timing results
     std::vector<long> res;
+    // Number of algorithm runs. We only record best times.
+    int64_t numruns = 10;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
@@ -124,9 +147,9 @@ int main() {
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
 
-    for (;b_sz_start < b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double, r123::Philox4x32>(b_sz_start, all_data, state);
-        file << res[0]  << "  " << res[1]  << "  " << res[2];
+    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
+        res = call_all_algs<double, r123::Philox4x32>(numruns, b_sz_start, all_data, state);
+        file << res[0]  << "  " << res[1]  << "  " << res[2] << "\n";
     }
 }
 
