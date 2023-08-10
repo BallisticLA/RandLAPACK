@@ -177,6 +177,119 @@ void _LAPACK_geqrf(
 }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================================
+template <typename T>
+void _LAPACK_syrk(
+    lapack::Uplo uplo, lapack::Op op,
+    int64_t m, int64_t n, T alpha, T *A, int64_t lda, T beta,
+    T *work, int64_t * lwork) {
+
+    char uplo_         = blas::uplo2char(uplo);
+    char trans_        = blas::op2char(op);
+    lapack_int m_      = (lapack_int) m;
+    lapack_int n_      = (lapack_int) n;
+    lapack_int lda_    = (lapack_int) lda;
+    lapack_int *lwork_ = (lapack_int *) lwork;
+
+    if (typeid(T) == typeid(double)) {
+        LAPACK_dsyrk(uplo_, trans_, n_, m_, alpha, (double*) A, lda_, beta, (double*) work, lwork_);
+    } else if (typeid(T) == typeid(float)) {
+        LAPACK_ssyrk(uplo_, trans_, n_, m_, alpha, (float*) A, lda_, beta, (float*) work, lwork_);
+    } else {
+        // Unsupported type
+    }
+    return;
+}
+// ============================================================================
+template <typename T>
+void _LAPACK_potrf(
+    lapack::Uplo uplo,
+    int64_t m, T *A, int64_t lda, int64_t * info) {
+
+    char uplo_         = blas::uplo2char(uplo);
+    lapack_int m_      = (lapack_int) m;
+    lapack_int lda_    = (lapack_int) lda;
+    lapack_int *info_  = (lapack_int *) info;
+
+    if (typeid(T) == typeid(double)) {
+        LAPACK_dpotrf(uplo_, m_, (double*) A, lda_, info_
+        #ifdef LAPACK_FORTRAN_STRLEN_END
+        , 1
+        #endif
+        );
+    } else if (typeid(T) == typeid(float)) {
+        LAPACK_spotrf(uplo_, m_, (float*) A, lda_, info_
+        #ifdef LAPACK_FORTRAN_STRLEN_END
+        , 1
+        #endif
+        );
+    } else {
+        // Unsupported type
+    }
+    return;
+}
+// ============================================================================
+template <typename T>
+void _LAPACK_trsm(
+    lapack::Side side,
+    blas::Uplo uplo,
+    lapack::Op op,
+    blas::Diag diag,
+    int64_t m, int64_t n, T alpha, T *R, int64_t ldr, T *A, int64_t lda) {
+
+    char side_         = blas::side2char(side);
+    char uplo_         = blas::uplo2char(uplo);
+    char trans_        = blas::op2char(op);
+    char diag_         = blas::diag2char(diag);
+    lapack_int m_      = (lapack_int) m;
+    lapack_int n_      = (lapack_int) n;
+    lapack_int ldr_    = (lapack_int) ldr;
+    lapack_int lda_    = (lapack_int) lda;
+
+    if (typeid(T) == typeid(double)) {
+        LAPACK_dtrsm(side_, uplo_, trans_, m_, n_, alpha, (double*) R, ldr_, (double*) A, lda_);
+    } else if (typeid(T) == typeid(float)) {
+        LAPACK_strsm(side_, uplo_, trans_, m_, n_, alpha, (float*) R, ldr_, (float*) A, lda_);
+    } else {
+        // Unsupported type
+    }
+    return;
+}
+
+// ============================================================================
+template <typename T>
+void _LAPACK_orhr_col(
+    int64_t m, int64_t n, int64_t nb, T *A, int64_t lda, T *T_mat, int64_t ldt, T* D_mat, int64_t * info) {
+
+    lapack_int m_      = (lapack_int) m;
+    lapack_int n_      = (lapack_int) n;
+    lapack_int nb_     = (lapack_int) nb;
+    lapack_int lda_    = (lapack_int) lda;
+    lapack_int ldt_    = (lapack_int) ldt;
+    lapack_int *info_  = (lapack_int *) info;
+
+    if (typeid(T) == typeid(double)) {
+        LAPACK_dorhr_col(m_, n_, nb_, (double*) A, lda_, (double*) T_mat, ldt_, (double*) D_mat, info_);
+    } else if (typeid(T) == typeid(float)) {
+        LAPACK_sorhr_col(m_, n_, nb_, (float*) A, lda_, (float*) T_mat, ldt_, (float*) D_mat, info_);
+    } else {
+        // Unsupported type
+    }
+    return;
+}
+
 // ============================================================================
 template <typename T>
 int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4( 
