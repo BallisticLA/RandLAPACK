@@ -122,13 +122,13 @@ int main() {
     int64_t n          = std::pow(2, 17);
     int64_t d_factor   = 1.0;
     int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 256;
+    int64_t b_sz_end   = 4096;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 10;
+    int64_t numruns = 15;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
