@@ -53,6 +53,7 @@ class TestHQRRP : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
+        std::iota(all_data.J.begin(), all_data.J.end(), 1);
     }
 
 
@@ -111,8 +112,9 @@ class TestHQRRP : public ::testing::Test
     template <typename T, typename RNG>
     static void test_HQRRP_general(
         T d_factor, 
-        int64_t b_sz, 
-        int panel_pivoting, 
+        int64_t b_sz,
+        int64_t use_cholqr,
+        int panel_pivoting,
         T norm_A,
         HQRRPtestData<T> &all_data,
         RandBLAS::RNGState<RNG> &state) {
@@ -120,34 +122,37 @@ class TestHQRRP : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, state);
+        int64_t out = RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state);
+            
+            printf("Out HEEEEEEEEEEEERE%ld\n", out);
+            
+            RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+            lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
-        RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
-        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
+            lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
+            lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
-        lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
-        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
+            // I don't think hqrrp actually returns anything.
+            //printf("RANK AS RETURNED BY HQRRP %4ld\n", all_data.rank);
 
-        // I don't think hqrrp actually returns anything.
-        //printf("RANK AS RETURNED BY HQRRP %4ld\n", all_data.rank);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
-
-        error_check(norm_A, all_data); 
+            error_check(norm_A, all_data);
+             
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestHQRRP, HQRRP_full_rank_no_hqrrp) {
-    int64_t m = 5000;
-    int64_t n = 2000;
-    int64_t k = 1600;
+    int64_t m = 500;
+    int64_t n = 200;
+    int64_t k = 200;
     double d_factor = 1.0;
-    int64_t b_sz = 500;
-    int panel_pivoting = 1;
+    int64_t b_sz = 50;
+    int64_t use_cholqr = 0;
+    int panel_pivoting = 0;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     HQRRPtestData<double> all_data(m, n, k);
@@ -159,5 +164,5 @@ TEST_F(TestHQRRP, HQRRP_full_rank_no_hqrrp) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_HQRRP_general<double, r123::Philox4x32>(d_factor, b_sz, panel_pivoting, norm_A, all_data, state);
+    test_HQRRP_general<double, r123::Philox4x32>(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
 }

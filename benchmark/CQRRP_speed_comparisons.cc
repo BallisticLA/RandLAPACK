@@ -51,6 +51,7 @@ static void copy_computational_helper(QR_speed_benchmark_data<T> &all_data) {
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A1.data(), m, all_data.A2.data(), m);
     lapack::lacpy(MatrixType::General, m, n, all_data.A1.data(), m, all_data.A3.data(), m);
+    std::iota(all_data.J2.begin(), all_data.J2.end(), 1);
 }
 
 template <typename T, typename RNG>

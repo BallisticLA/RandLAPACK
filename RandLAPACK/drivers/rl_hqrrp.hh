@@ -514,7 +514,7 @@ static int64_t GEQRF_mod_WY(
 // ============================================================================
 template <typename T>
 int64_t NoFLA_QRPmod_WY_unb_var4( 
-    int64_t pivoting, int64_t num_stages, 
+    int64_t use_cholqr, int64_t pivoting, int64_t num_stages, 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_p, T * buff_t, 
     int64_t pivot_B, int64_t m_B, T * buff_B, int64_t ldim_B,
@@ -538,8 +538,10 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
 //    Calling with build_T=false is only done at HQRRP's last iteration.
 //
 
-    if (pivoting == 0) {
+    if (!pivoting && !use_cholqr) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
+    } else if (!pivoting && use_cholqr) {
+        return 0;
     }
 
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
@@ -671,7 +673,7 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, RandBLAS::RNGState<RNG> &state) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state) {
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -834,7 +836,7 @@ int64_t hqrrp(
                             m_V, n_VR,
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);
-            NoFLA_QRPmod_WY_unb_var4( 1, b,
+            NoFLA_QRPmod_WY_unb_var4(0, 1, b,
                 m_V, n_VR,
                 buff_VR, ldim_V,
                 buff_pB, buff_sB,
@@ -861,7 +863,7 @@ int64_t hqrrp(
         //    The code path where we hit a GEQRF-like function is very different;
         //    it only operates on AB1!
         //
-        NoFLA_QRPmod_WY_unb_var4( panel_pivoting, -1,
+        NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
             1, j, buff_A01, ldim_A,
             1, m_Y, buff_Y1, ldim_Y,

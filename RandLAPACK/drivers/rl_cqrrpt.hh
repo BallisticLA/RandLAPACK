@@ -64,6 +64,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             no_hqrrp = 1;
             nb_alg = 64;
             oversampling = 10;
+            use_cholqr = 0;
             panel_pivoting = 1;
             naive_rank_estimate = 1;
             use_fro_norm = 1;
@@ -142,6 +143,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         int64_t nb_alg;
         int64_t oversampling;
         int64_t panel_pivoting;
+        int64_t use_cholqr;
 
         // Rank estimate-related
         int naive_rank_estimate;
@@ -237,7 +239,7 @@ int CQRRPT<T, RNG>::call(
     }
     else {
         std::iota(J.begin(), J.end(), 1);
-        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, state);
+        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state);
     }
 
     if(this -> timing) {
