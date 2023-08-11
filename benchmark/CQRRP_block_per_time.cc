@@ -82,6 +82,7 @@ static void call_all_algs(
 
 
     for (int i = 0; i < numruns; ++i) {
+        printf("ITERATION\n");
         // Testing CQRRP
         CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
         // Update best timing
