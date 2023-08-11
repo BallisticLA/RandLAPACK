@@ -175,43 +175,31 @@ void _LAPACK_geqrf(
     *lwork = (int64_t) *lwork_;
     return;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/*
 // ============================================================================
 template <typename T>
-void _LAPACK_syrk(
+void _BLAS_syrk(
     lapack::Uplo uplo, lapack::Op op,
     int64_t m, int64_t n, T alpha, T *A, int64_t lda, T beta,
-    T *work, int64_t * lwork) {
+    T *C, int64_t ldc) {
 
     char uplo_         = blas::uplo2char(uplo);
     char trans_        = blas::op2char(op);
     lapack_int m_      = (lapack_int) m;
     lapack_int n_      = (lapack_int) n;
     lapack_int lda_    = (lapack_int) lda;
-    lapack_int *lwork_ = (lapack_int *) lwork;
+    lapack_int ldc_    = (lapack_int) ldc;
 
     if (typeid(T) == typeid(double)) {
-        LAPACK_dsyrk(uplo_, trans_, n_, m_, alpha, (double*) A, lda_, beta, (double*) work, lwork_);
+        BLAS_dsyrk(&uplo_, &trans_, &n_, &m_, alpha, (double*) A, &lda_, beta, (double*) C, &ldc_);
     } else if (typeid(T) == typeid(float)) {
-        LAPACK_ssyrk(uplo_, trans_, n_, m_, alpha, (float*) A, lda_, beta, (float*) work, lwork_);
+        BLAS_ssyrk(&uplo_, &trans_, &n_, &m_, alpha, (float*) A, &lda_, beta, (float*) C, &ldc_);
     } else {
         // Unsupported type
     }
     return;
 }
+*/
 // ============================================================================
 template <typename T>
 void _LAPACK_potrf(
@@ -224,13 +212,13 @@ void _LAPACK_potrf(
     lapack_int *info_  = (lapack_int *) info;
 
     if (typeid(T) == typeid(double)) {
-        LAPACK_dpotrf(uplo_, m_, (double*) A, lda_, info_
+        LAPACK_dpotrf(&uplo_, &m_, (double*) A, &lda_, info_
         #ifdef LAPACK_FORTRAN_STRLEN_END
         , 1
         #endif
         );
     } else if (typeid(T) == typeid(float)) {
-        LAPACK_spotrf(uplo_, m_, (float*) A, lda_, info_
+        LAPACK_spotrf(&uplo_, &m_, (float*) A, &lda_, info_
         #ifdef LAPACK_FORTRAN_STRLEN_END
         , 1
         #endif
@@ -240,6 +228,7 @@ void _LAPACK_potrf(
     }
     return;
 }
+/*
 // ============================================================================
 template <typename T>
 void _LAPACK_trsm(
@@ -267,11 +256,11 @@ void _LAPACK_trsm(
     }
     return;
 }
-
+*/
 // ============================================================================
 template <typename T>
 void _LAPACK_orhr_col(
-    int64_t m, int64_t n, int64_t nb, T *A, int64_t lda, T *T_mat, int64_t ldt, T* D_mat, int64_t * info) {
+    int64_t m, int64_t n, int64_t nb, T *A, int64_t lda, T *T_mat, int64_t ldt, T* D, int64_t * info) {
 
     lapack_int m_      = (lapack_int) m;
     lapack_int n_      = (lapack_int) n;
@@ -281,15 +270,14 @@ void _LAPACK_orhr_col(
     lapack_int *info_  = (lapack_int *) info;
 
     if (typeid(T) == typeid(double)) {
-        LAPACK_dorhr_col(m_, n_, nb_, (double*) A, lda_, (double*) T_mat, ldt_, (double*) D_mat, info_);
+        LAPACK_dorhr_col(&m_, &n_, &nb_, (double*) A, &lda_, (double*) T_mat, &ldt_, (double*) D, info_);
     } else if (typeid(T) == typeid(float)) {
-        LAPACK_sorhr_col(m_, n_, nb_, (float*) A, lda_, (float*) T_mat, ldt_, (float*) D_mat, info_);
+        LAPACK_sorhr_col(&m_, &n_, &nb_, (float*) A, &lda_, (float*) T_mat, &ldt_, (float*) D, info_);
     } else {
         // Unsupported type
     }
     return;
 }
-
 // ============================================================================
 template <typename T>
 int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4( 
@@ -593,35 +581,100 @@ static int64_t GEQRF_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T
 ) {
+    //
+    // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
+    //
+
+    // Some initializations.
+    if( num_stages < 0 )
+        num_stages = std::min( m_A, n_A );;
+
+    // run unpivoted Householder QR on buff_A.
+    int64_t info[1];
+    T work_query[1];
+    int64_t lwork[1];
+    lwork[0] = -1;
+    _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, work_query, lwork, info);
+    lwork[0] = std::max((int64_t) blas::real(work_query[0]), n_A);
+    T *buff_workspace = ( T * ) malloc( lwork[0] * sizeof( T ) );
+    _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, buff_workspace, lwork, info);
+
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m_A, n_A, buff_A, name);
+
+    // Build T.
+    lapack::larft( lapack::Direction::Forward,
+                    lapack::StoreV::Columnwise,
+                    m_A, num_stages, buff_A, ldim_A, 
+                    buff_t, buff_T, ldim_T
+    );
+
+    char name1 [] = "T";
+    RandBLAS::util::print_colmaj(n_A, n_A, buff_T, name1);
+
+    // Remove auxiliary vectors.
+    free( buff_workspace );
+
+    return 0;
+}
+
+// ==========================================================================
+template <typename T>
+static int64_t CHOLQR_mod_WY(
+        int64_t num_stages,
+        int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
+        T * buff_t,
+        T * buff_T, int64_t ldim_T
+) {
 //
 // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
 //
+    // Some initializations.
+    if( num_stages < 0 )
+        num_stages = std::min( m_A, n_A );
 
-  // Some initializations.
-  if( num_stages < 0 )
-    num_stages = std::min( m_A, n_A );;
+    // run unpivoted Cholesky QR on buff_A.
+    // Allocate space for the R-factor.
+    // This should ONLY require n_A by n_A space.
+    T *buff_R = ( T*) malloc(m_A * m_A);
 
-  // run unpivoted Householder QR on buff_A.
-  int64_t info[1];
-  T work_query[1];
-  int64_t lwork[1];
-  lwork[0] = -1;
-  _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, work_query, lwork, info);
-  lwork[0] = std::max((int64_t) blas::real(work_query[0]), n_A);
-  T *buff_workspace = ( T * ) malloc( lwork[0] * sizeof( T ) );
-  _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, buff_workspace, lwork, info);
+    // Find R = A^TA.
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, n_A);
 
-  // Build T.
-  lapack::larft( lapack::Direction::Forward,
-                  lapack::StoreV::Columnwise,
-                  m_A, num_stages, buff_A, ldim_A, 
-                  buff_t, buff_T, ldim_T
-  );
+    // Perform Cholesky factorization on A.
+    lapack::potrf(Uplo::Upper, n_A, buff_R, n_A);
+    // Find Q = A * inv(R)
 
-  // Remove auxiliary vectors.
-  free( buff_workspace );
+    //return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
 
-  return 0;
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, n_A, buff_A, ldim_A);
+
+    // Perform Householder reconstruction
+    // Allocate space for the sign vector D
+    T *buff_D = ( T*) malloc(m_A);
+    lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
+
+
+    return 1;
+/*
+    // Update the signs in the R-factor
+    int i, j;
+    for(i = 0; i < n_A; ++i)
+        for(j = 0; j < (i + 1); ++j)
+            buff_R[(n_A * i) + j] *= buff_D[j];
+
+    // Copy the R-factor into the upper-trianular portion of A
+    lapack::lacpy(MatrixType::Upper, n_A, n_A, buff_R, n_A, buff_A, ldim_A);
+
+    // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
+    for(i = 0; i < n_A; ++i)
+        buff_t[i] = buff_T[(ldim_T + 1) * i];
+
+    // Remove auxiliary vectors.
+    free( buff_D );
+    free( buff_R );
+*/
+    return 0;
 }
 
 // ============================================================================
@@ -654,7 +707,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     if (!pivoting && !use_cholqr) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
     } else if (!pivoting && use_cholqr) {
-        return 0;
+        return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
     }
 
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 

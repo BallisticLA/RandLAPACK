@@ -122,23 +122,21 @@ class TestHQRRP : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        int64_t out = RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state);
             
-            printf("Out HEEEEEEEEEEEERE%ld\n", out);
-            
-            RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
-            lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
+        RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
-            lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
-            lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
+        lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
-            // I don't think hqrrp actually returns anything.
-            //printf("RANK AS RETURNED BY HQRRP %4ld\n", all_data.rank);
+        // I don't think hqrrp actually returns anything.
+        //printf("RANK AS RETURNED BY HQRRP %4ld\n", all_data.rank);
 
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-            error_check(norm_A, all_data);
+        error_check(norm_A, all_data);
              
     }
 };
@@ -150,7 +148,7 @@ TEST_F(TestHQRRP, HQRRP_full_rank_no_hqrrp) {
     int64_t k = 200;
     double d_factor = 1.0;
     int64_t b_sz = 50;
-    int64_t use_cholqr = 0;
+    int64_t use_cholqr = 1;
     int panel_pivoting = 0;
     double norm_A = 0;
     auto state = RandBLAS::RNGState();

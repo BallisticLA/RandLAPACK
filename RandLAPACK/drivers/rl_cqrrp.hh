@@ -346,6 +346,9 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Find Q (stored in A) using Householder reconstruction. 
         // This will represent the full (rows by rows) Q factor form Cholesky QR
+        // It would have been really nice to store T right above Q, but without using extra space,
+        // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
+        // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
         lapack::orhr_col(rows, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, Work4_dat);
 
         // Need to change signs in the R-factor from Cholesky QR.
