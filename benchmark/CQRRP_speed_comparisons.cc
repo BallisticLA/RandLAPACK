@@ -75,6 +75,7 @@ static std::vector<long> call_all_algs(
     long t_geqrf_best        = 0;
 
     for (int i = 0; i < numruns; ++i) {
+        printf("ITERATION\n");
         // Testing CQRRP
         auto start_cqrrp = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
