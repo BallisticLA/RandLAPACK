@@ -118,11 +118,8 @@ static std::vector<long> call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 10);
-    int64_t n          = std::pow(2, 10);
-    int64_t d_factor   = 2.0;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 256;
+    int64_t m          = std::pow(2, 14);
+    int64_t n          = 256;
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
@@ -139,13 +136,7 @@ int main() {
     // Declare a data file
     std::fstream file("CHOLQR_vs_GEQRF_time_raw_rows_"              + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
-                                    + "_b_sz_start_"   + std::to_string(b_sz_start)
-                                    + "_b_sz_end_"     + std::to_string(b_sz_end)
-                                    + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
 
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, all_data, state_constant);
-        file << res[0]  << "  " << res[1]  << "\n";
-    }
 }
