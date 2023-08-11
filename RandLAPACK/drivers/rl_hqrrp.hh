@@ -482,7 +482,7 @@ static int64_t GEQRF_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T
 ) {
-    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
+    //high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -510,8 +510,8 @@ static int64_t GEQRF_mod_WY(
 
     // Remove auxiliary vectors.
     free( buff_workspace );
-    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("+%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
+    //high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
+    //printf("+%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
 
@@ -525,7 +525,7 @@ static int64_t CHOLQR_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D
         ) {
-    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
+    //high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -559,8 +559,8 @@ static int64_t CHOLQR_mod_WY(
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
 
-    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("+%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
+    //high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
+    //printf("+%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
 
@@ -728,7 +728,7 @@ int64_t hqrrp(
     int64_t * buff_jpvt, T * buff_tau,
     int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* block_per_time) {
 
-    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
+    //high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -984,8 +984,8 @@ int64_t hqrrp(
     free( buff_R );
     free( buff_D );
 
-    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("TIME HQRRP TOOK INSIDE HQRRP %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
+    //high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
+    //printf("TIME HQRRP TOOK INSIDE HQRRP %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
 
     return 0;
 }

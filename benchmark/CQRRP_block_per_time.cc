@@ -122,9 +122,9 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 10);
-    int64_t n          = std::pow(2, 10);
-    int64_t d_factor   = 2.0;
+    int64_t m          = std::pow(2, 14);
+    int64_t n          = std::pow(2, 14);
+    int64_t d_factor   = 1.125;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -133,7 +133,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 15;
+    int64_t numruns = 5;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
