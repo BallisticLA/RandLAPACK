@@ -5,10 +5,6 @@
 
 #include <RandBLAS.hh>
 #include <fstream>
-#include <gtest/gtest.h>
-
-
-
 
 template <typename T>
 struct QR_speed_benchmark_data {
@@ -16,26 +12,14 @@ struct QR_speed_benchmark_data {
     int64_t col;
     T       tolerance;
     int64_t sampling_factor;
-    std::vector<T> A1;
-    std::vector<T> A2;
-    std::vector<T> A3;
-    std::vector<T> tau1;
-    std::vector<T> tau2;
-    std::vector<T> tau3;
-    std::vector<int64_t> J1;
-    std::vector<int64_t> J2;
-    std::vector<int64_t> J3;
+    std::vector<T> A;
+    std::vector<T> tau;
+    std::vector<int64_t> J;
 
     QR_speed_benchmark_data(int64_t m, int64_t n, T tol, int64_t d_factor) :
-    A1(m * n, 0.0),
-    A2(m * n, 0.0),
-    A3(m * n, 0.0),
-    tau1(n, 0.0),
-    tau2(n, 0.0),
-    tau3(n, 0.0),
-    J1(n, 0),
-    J2(n, 0),
-    J3(n, 0) 
+    A(m * n, 0.0),
+    tau(n, 0.0),
+    J(n, 0)
     {
         row             = m;
         col             = n;
@@ -44,18 +28,24 @@ struct QR_speed_benchmark_data {
     }
 };
 
+// Re-generate and clear data
 template <typename T, typename RNG>
-static void copy_computational_helper(QR_speed_benchmark_data<T> &all_data) {
-    auto m = all_data.row;
-    auto n = all_data.col;
+static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
+                                        QR_speed_benchmark_data<T> &all_data, 
+                                        RandBLAS::RNGState<RNG> &state, int apply_itoa) {
 
-    lapack::lacpy(MatrixType::General, m, n, all_data.A1.data(), m, all_data.A2.data(), m);
-    lapack::lacpy(MatrixType::General, m, n, all_data.A1.data(), m, all_data.A3.data(), m);
-    std::iota(all_data.J2.begin(), all_data.J2.end(), 1);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
+    if (apply_itoa) {
+        std::iota(all_data.J.begin(), all_data.J.end(), 1);
+    } else {
+        std::fill(all_data.J.begin(), all_data.J.end(), 0);
+    }
 }
 
 template <typename T, typename RNG>
 static std::vector<long> call_all_algs(
+    RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
@@ -88,36 +78,47 @@ static std::vector<long> call_all_algs(
     for (int i = 0; i < numruns; ++i) {
         // Testing CQRRP
         auto start_cqrrp = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A1, d_factor, all_data.tau1, all_data.J1, state);
+        CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
         // Update best timing
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
+        // Clear and re-generate data
+        data_regen<T, RNG>(m_info, all_data, state, 1);
+
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A2.data(), m, all_data.J2.data(), all_data.tau2.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 0, state);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 0, state);
         auto stop_hqrrp_geqrf = high_resolution_clock::now();
         dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
         // Update best timing
         i == 0 ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : (dur_hqrrp_geqrf < t_hqrrp_geqrf_best) ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : NULL;
 
+        // Clear and re-generate data
+        data_regen<T, RNG>(m_info, all_data, state, 1);
+
         // Testing HQRRP with Cholqr
         auto start_hqrrp_cholqr = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A2.data(), m, all_data.J2.data(), all_data.tau2.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 1, state);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 1, state);
         auto stop_hqrrp_cholqr = high_resolution_clock::now();
         dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
         // Update best timing
         i == 0 ? t_hqrrp_cholqr_best = dur_hqrrp_cholqr : (dur_hqrrp_cholqr < t_hqrrp_cholqr_best) ? t_hqrrp_cholqr_best = dur_hqrrp_cholqr : NULL;
 
+        // Clear and re-generate data
+        data_regen<T, RNG>(m_info, all_data, state, 0);
 
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
-        lapack::geqrf(m, n, all_data.A3.data(), m, all_data.tau3.data());
+        lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqrf = high_resolution_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
         // Update best timing
         i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
+
+        // Clear and re-generate data
+        data_regen<T, RNG>(m_info, all_data, state, 0);
     }
 
     printf("CQRRP takes %ld μs\n", t_cqrrp_best);
@@ -147,10 +148,7 @@ int main() {
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A1, state);
-
-    // Create copies of the input matrix
-    copy_computational_helper<double, r123::Philox4x32>(all_data);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     // Declare a data file
     std::fstream file("QR_time_raw_rows_"              + std::to_string(m)
@@ -161,7 +159,7 @@ int main() {
                                     + ".dat", std::fstream::app);
 
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double, r123::Philox4x32>(numruns, b_sz_start, all_data, state);
+        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, all_data, state);
         file << res[0]  << "  " << res[1]  << "  " << res[2] << "  " << res[3] << "\n";
     }
 }
