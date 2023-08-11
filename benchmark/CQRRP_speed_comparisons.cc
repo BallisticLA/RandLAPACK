@@ -76,12 +76,14 @@ static std::vector<long> call_all_algs(
     int panel_pivoting = 0;
 
     // timing vars
-    long dur_cqrrp = 0;
-    long dur_hqrrp = 0;
-    long dur_geqrf = 0;
-    long t_cqrrp_best = 0;
-    long t_hqrrp_best = 0;
-    long t_geqrf_best = 0;
+    long dur_cqrrp        = 0;
+    long dur_hqrrp_geqrf  = 0;
+    long dur_hqrrp_cholqr = 0;
+    long dur_geqrf        = 0;
+    long t_cqrrp_best        = 0;
+    long t_hqrrp_geqrf_best  = 0;
+    long t_hqrrp_cholqr_best = 0;
+    long t_geqrf_best        = 0;
 
     for (int i = 0; i < numruns; ++i) {
         // Testing CQRRP
@@ -92,13 +94,22 @@ static std::vector<long> call_all_algs(
         // Update best timing
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
-        // Testing HQRRP
-        auto start_hqrrp = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A2.data(), m, all_data.J2.data(), all_data.tau2.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, state);
-        auto stop_hqrrp = high_resolution_clock::now();
-        dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
+        // Testing HQRRP with GEQRF
+        auto start_hqrrp_geqrf = high_resolution_clock::now();
+        RandLAPACK::hqrrp(m, n, all_data.A2.data(), m, all_data.J2.data(), all_data.tau2.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 0, state);
+        auto stop_hqrrp_geqrf = high_resolution_clock::now();
+        dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
         // Update best timing
-        i == 0 ? t_hqrrp_best = dur_hqrrp : (dur_hqrrp < t_hqrrp_best) ? t_hqrrp_best = dur_hqrrp : NULL;
+        i == 0 ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : (dur_hqrrp_geqrf < t_hqrrp_geqrf_best) ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : NULL;
+
+        // Testing HQRRP with Cholqr
+        auto start_hqrrp_cholqr = high_resolution_clock::now();
+        RandLAPACK::hqrrp(m, n, all_data.A2.data(), m, all_data.J2.data(), all_data.tau2.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 1, state);
+        auto stop_hqrrp_cholqr = high_resolution_clock::now();
+        dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
+        // Update best timing
+        i == 0 ? t_hqrrp_cholqr_best = dur_hqrrp_cholqr : (dur_hqrrp_cholqr < t_hqrrp_cholqr_best) ? t_hqrrp_cholqr_best = dur_hqrrp_cholqr : NULL;
+
 
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
@@ -110,9 +121,10 @@ static std::vector<long> call_all_algs(
     }
 
     printf("CQRRP takes %ld μs\n", t_cqrrp_best);
-    printf("HQRRP takes %ld μs\n", t_hqrrp_best);
+    printf("HQRRP with GEQRF takes %ld μs\n", t_hqrrp_geqrf_best);
+    printf("HQRRP with CHOLQR takes %ld μs\n", t_hqrrp_cholqr_best);
     printf("GEQRF takes %ld μs\n\n", t_geqrf_best);
-    std::vector<long> res{t_cqrrp_best, t_hqrrp_best, t_geqrf_best};
+    std::vector<long> res{t_cqrrp_best, t_hqrrp_geqrf_best, t_hqrrp_cholqr_best, t_geqrf_best};
 
     return res;
 }
@@ -150,7 +162,7 @@ int main() {
 
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         res = call_all_algs<double, r123::Philox4x32>(numruns, b_sz_start, all_data, state);
-        file << res[0]  << "  " << res[1]  << "  " << res[2] << "\n";
+        file << res[0]  << "  " << res[1]  << "  " << res[2] << "  " << res[3] << "\n";
     }
 }
 
