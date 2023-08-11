@@ -568,7 +568,7 @@ static int64_t CHOLQR_mod_WY(
     free( buff_D );
     free( buff_R );
 
-    high_resolution_clock::time_point timing_t_stop;
+    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
     printf("Time it took to do CHOLQR in HQRRP %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
