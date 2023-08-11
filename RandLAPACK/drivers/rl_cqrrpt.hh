@@ -239,7 +239,7 @@ int CQRRPT<T, RNG>::call(
     }
     else {
         std::iota(J.begin(), J.end(), 1);
-        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state);
+        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T*) nullptr);
     }
 
     if(this -> timing) {

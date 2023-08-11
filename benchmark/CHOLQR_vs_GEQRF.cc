@@ -123,8 +123,8 @@ int main() {
     int64_t d_factor   = 2.0;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 256;
-    double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
+    auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
@@ -145,7 +145,7 @@ int main() {
                                     + ".dat", std::fstream::app);
 
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, all_data, state);
+        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, all_data, state_constant);
         file << res[0]  << "  " << res[1]  << "\n";
     }
 }

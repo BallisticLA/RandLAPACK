@@ -49,6 +49,7 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <RandBLAS.hh>
 #include <lapack/fortran.h>
 #include <lapack/config.h>
+#include <chrono>
 
 // Matrices with dimensions larger than THRESHOLD_FOR_DGEQP3 are processed 
 // with the new HQRRP code.
@@ -62,6 +63,8 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 // Compilation declarations.
 
 #undef CHECK_DOWNDATING_OF_Y
+
+using namespace std::chrono;
 
 namespace RandLAPACK {
 
@@ -727,7 +730,7 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* block_per_time) {
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -792,6 +795,17 @@ int64_t hqrrp(
                 Op::NoTrans, Op::NoTrans, m_Y, n_Y, m_A, 
                 d_one, buff_G,  ldim_G, buff_A, ldim_A, 
                 d_zero, buff_Y, ldim_Y );
+
+    //**********************************
+    // This is for the advanced timing
+    high_resolution_clock::time_point iter_t_start;
+    high_resolution_clock::time_point iter_t_stop;
+    if (block_per_time != nullptr) {
+        // The space required has already been preallocated
+        iter_t_start  = high_resolution_clock::now();
+    }
+
+    //**********************************
 
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
@@ -950,6 +964,13 @@ int64_t hqrrp(
                 m_Y, std::max<int64_t>( 0, n_Y - j - b ), buff_Y2, ldim_Y,
                 m_G, b, buff_G1, ldim_G,
                 std::max<int64_t>( 0, n_G - j - b ), buff_G2, ldim_G );
+        }
+
+        if (block_per_time != nullptr) {
+            // The space required has already been preallocated
+            iter_t_stop  = high_resolution_clock::now();
+            T* nextval = &(block_per_time[j]);
+            *nextval = ((mn_A - j) * (T) nb_alg) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
         }
     }
 
