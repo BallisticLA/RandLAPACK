@@ -175,109 +175,7 @@ void _LAPACK_geqrf(
     *lwork = (int64_t) *lwork_;
     return;
 }
-/*
-// ============================================================================
-template <typename T>
-void _BLAS_syrk(
-    lapack::Uplo uplo, lapack::Op op,
-    int64_t m, int64_t n, T alpha, T *A, int64_t lda, T beta,
-    T *C, int64_t ldc) {
 
-    char uplo_         = blas::uplo2char(uplo);
-    char trans_        = blas::op2char(op);
-    lapack_int m_      = (lapack_int) m;
-    lapack_int n_      = (lapack_int) n;
-    lapack_int lda_    = (lapack_int) lda;
-    lapack_int ldc_    = (lapack_int) ldc;
-
-    if (typeid(T) == typeid(double)) {
-        BLAS_dsyrk(&uplo_, &trans_, &n_, &m_, alpha, (double*) A, &lda_, beta, (double*) C, &ldc_);
-    } else if (typeid(T) == typeid(float)) {
-        BLAS_ssyrk(&uplo_, &trans_, &n_, &m_, alpha, (float*) A, &lda_, beta, (float*) C, &ldc_);
-    } else {
-        // Unsupported type
-    }
-    return;
-}
-*/
-// ============================================================================
-template <typename T>
-void _LAPACK_potrf(
-    lapack::Uplo uplo,
-    int64_t m, T *A, int64_t lda, int64_t * info) {
-
-    char uplo_         = blas::uplo2char(uplo);
-    lapack_int m_      = (lapack_int) m;
-    lapack_int lda_    = (lapack_int) lda;
-    lapack_int *info_  = (lapack_int *) info;
-
-    if (typeid(T) == typeid(double)) {
-        LAPACK_dpotrf(&uplo_, &m_, (double*) A, &lda_, info_
-        #ifdef LAPACK_FORTRAN_STRLEN_END
-        , 1
-        #endif
-        );
-    } else if (typeid(T) == typeid(float)) {
-        LAPACK_spotrf(&uplo_, &m_, (float*) A, &lda_, info_
-        #ifdef LAPACK_FORTRAN_STRLEN_END
-        , 1
-        #endif
-        );
-    } else {
-        // Unsupported type
-    }
-    return;
-}
-/*
-// ============================================================================
-template <typename T>
-void _LAPACK_trsm(
-    lapack::Side side,
-    blas::Uplo uplo,
-    lapack::Op op,
-    blas::Diag diag,
-    int64_t m, int64_t n, T alpha, T *R, int64_t ldr, T *A, int64_t lda) {
-
-    char side_         = blas::side2char(side);
-    char uplo_         = blas::uplo2char(uplo);
-    char trans_        = blas::op2char(op);
-    char diag_         = blas::diag2char(diag);
-    lapack_int m_      = (lapack_int) m;
-    lapack_int n_      = (lapack_int) n;
-    lapack_int ldr_    = (lapack_int) ldr;
-    lapack_int lda_    = (lapack_int) lda;
-
-    if (typeid(T) == typeid(double)) {
-        LAPACK_dtrsm(side_, uplo_, trans_, m_, n_, alpha, (double*) R, ldr_, (double*) A, lda_);
-    } else if (typeid(T) == typeid(float)) {
-        LAPACK_strsm(side_, uplo_, trans_, m_, n_, alpha, (float*) R, ldr_, (float*) A, lda_);
-    } else {
-        // Unsupported type
-    }
-    return;
-}
-*/
-// ============================================================================
-template <typename T>
-void _LAPACK_orhr_col(
-    int64_t m, int64_t n, int64_t nb, T *A, int64_t lda, T *T_mat, int64_t ldt, T* D, int64_t * info) {
-
-    lapack_int m_      = (lapack_int) m;
-    lapack_int n_      = (lapack_int) n;
-    lapack_int nb_     = (lapack_int) nb;
-    lapack_int lda_    = (lapack_int) lda;
-    lapack_int ldt_    = (lapack_int) ldt;
-    lapack_int *info_  = (lapack_int *) info;
-
-    if (typeid(T) == typeid(double)) {
-        LAPACK_dorhr_col(&m_, &n_, &nb_, (double*) A, &lda_, (double*) T_mat, &ldt_, (double*) D, info_);
-    } else if (typeid(T) == typeid(float)) {
-        LAPACK_sorhr_col(&m_, &n_, &nb_, (float*) A, &lda_, (float*) T_mat, &ldt_, (float*) D, info_);
-    } else {
-        // Unsupported type
-    }
-    return;
-}
 // ============================================================================
 template <typename T>
 int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4( 
@@ -599,18 +497,12 @@ static int64_t GEQRF_mod_WY(
     T *buff_workspace = ( T * ) malloc( lwork[0] * sizeof( T ) );
     _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, buff_workspace, lwork, info);
 
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m_A, n_A, buff_A, name);
-
     // Build T.
     lapack::larft( lapack::Direction::Forward,
                     lapack::StoreV::Columnwise,
                     m_A, num_stages, buff_A, ldim_A, 
                     buff_t, buff_T, ldim_T
     );
-
-    char name1 [] = "T";
-    RandBLAS::util::print_colmaj(n_A, n_A, buff_T, name1);
 
     // Remove auxiliary vectors.
     free( buff_workspace );
@@ -626,9 +518,10 @@ static int64_t CHOLQR_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T
 ) {
-//
-// Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
-//
+    //
+    // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
+    //
+
     // Some initializations.
     if( num_stages < 0 )
         num_stages = std::min( m_A, n_A );
@@ -636,7 +529,7 @@ static int64_t CHOLQR_mod_WY(
     // run unpivoted Cholesky QR on buff_A.
     // Allocate space for the R-factor.
     // This should ONLY require n_A by n_A space.
-    T *buff_R = ( T*) malloc(m_A * m_A);
+    T *buff_R = ( T*) malloc(n_A * n_A * sizeof( T ));
 
     // Find R = A^TA.
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, n_A);
@@ -645,18 +538,13 @@ static int64_t CHOLQR_mod_WY(
     lapack::potrf(Uplo::Upper, n_A, buff_R, n_A);
     // Find Q = A * inv(R)
 
-    //return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
-
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, n_A, buff_A, ldim_A);
 
     // Perform Householder reconstruction
     // Allocate space for the sign vector D
-    T *buff_D = ( T*) malloc(m_A);
+    T *buff_D = ( T*) malloc(m_A * sizeof( T ));
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
 
-
-    return 1;
-/*
     // Update the signs in the R-factor
     int i, j;
     for(i = 0; i < n_A; ++i)
@@ -673,7 +561,7 @@ static int64_t CHOLQR_mod_WY(
     // Remove auxiliary vectors.
     free( buff_D );
     free( buff_R );
-*/
+
     return 0;
 }
 
