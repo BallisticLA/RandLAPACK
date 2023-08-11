@@ -36,9 +36,8 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
+    std::fill(all_data.T_mat.begin(), all_data.T_mat.end(), 0.0);
     if (is_cholqr) {
-        std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-        std::fill(all_data.T_mat.begin(), all_data.T_mat.end(), 0.0);
         std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
         std::fill(all_data.D.begin(), all_data.D.end(), 0.0);
     }
@@ -101,6 +100,7 @@ static std::vector<long> call_all_algs(
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
         lapack::geqrf(rows, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::larft( lapack::Direction::Forward, lapack::StoreV::Columnwise, rows, n, all_data.A.data(), m, all_data.tau.data(), all_data.T_mat.data(), n);
         auto stop_geqrf = high_resolution_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
         // Update best timing
