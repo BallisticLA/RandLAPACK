@@ -728,6 +728,8 @@ int64_t hqrrp(
     int64_t * buff_jpvt, T * buff_tau,
     int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* block_per_time) {
 
+    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
+
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
             n_A11, m_A12, n_A12, m_A21, m_A22,
@@ -981,6 +983,9 @@ int64_t hqrrp(
     free( buff_W );
     free( buff_R );
     free( buff_D );
+
+    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
+    printf("TIME HQRRP TOOK INSIDE HQRRP %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
 
     return 0;
 }
