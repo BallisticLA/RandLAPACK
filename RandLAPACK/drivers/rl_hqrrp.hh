@@ -523,8 +523,8 @@ static int64_t CHOLQR_mod_WY(
         int64_t num_stages,
         int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
         T * buff_t,
-        T * buff_T, int64_t ldim_T
-) {
+        T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D
+        ) {
     high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
@@ -534,41 +534,30 @@ static int64_t CHOLQR_mod_WY(
     if( num_stages < 0 )
         num_stages = std::min( m_A, n_A );
 
-    // run unpivoted Cholesky QR on buff_A.
-    // Allocate space for the R-factor.
-    // This should ONLY require n_A by n_A space.
-    T *buff_R = ( T*) malloc(n_A * n_A * sizeof( T ));
-
     // Find R = A^TA.
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, n_A);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, ldim_R);
 
     // Perform Cholesky factorization on A.
-    lapack::potrf(Uplo::Upper, n_A, buff_R, n_A);
+    lapack::potrf(Uplo::Upper, n_A, buff_R, ldim_R);
     // Find Q = A * inv(R)
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, n_A, buff_A, ldim_A);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
 
     // Perform Householder reconstruction
-    // Allocate space for the sign vector D
-    T *buff_D = ( T*) malloc(m_A * sizeof( T ));
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
 
     // Update the signs in the R-factor
     int i, j;
     for(i = 0; i < n_A; ++i)
         for(j = 0; j < (i + 1); ++j)
-            buff_R[(n_A * i) + j] *= buff_D[j];
+            buff_R[(ldim_R * i) + j] *= buff_D[j];
 
     // Copy the R-factor into the upper-trianular portion of A
-    lapack::lacpy(MatrixType::Upper, n_A, n_A, buff_R, n_A, buff_A, ldim_A);
+    lapack::lacpy(MatrixType::Upper, n_A, n_A, buff_R, ldim_R, buff_A, ldim_A);
 
     // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
-
-    // Remove auxiliary vectors.
-    free( buff_D );
-    free( buff_R );
 
     high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
     printf("+%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
@@ -583,7 +572,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     int64_t * buff_p, T * buff_t, 
     int64_t pivot_B, int64_t m_B, T * buff_B, int64_t ldim_B,
     int64_t pivot_C, int64_t m_C, T * buff_C, int64_t ldim_C,
-    int64_t build_T, T * buff_T, int64_t ldim_T ) {
+    int64_t build_T, T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D) {
 //
 // "pivoting": If pivoting==1, then QR factorization with pivoting is used.
 //
@@ -605,7 +594,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     if (!pivoting && !use_cholqr) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
     } else if (!pivoting && use_cholqr) {
-        return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
+        return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
 
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
@@ -742,12 +731,12 @@ int64_t hqrrp(
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
             n_A11, m_A12, n_A12, m_A21, m_A22,
-            m_G, n_G, ldim_G;
+            m_G, n_G, ldim_G, ldim_R;
     T  * buff_Y, * buff_V, * buff_W, * buff_VR, * buff_YR, 
             * buff_s, * buff_sB, * buff_s1, 
             * buff_AR, * buff_AB1, * buff_A01, * buff_Y1, * buff_T1_T,
             * buff_A11, * buff_A21, * buff_A12,
-            * buff_Y2, * buff_G, * buff_G1, * buff_G2;
+            * buff_Y2, * buff_G, * buff_G1, * buff_G2, * buff_R, * buff_D;
     int64_t * buff_p, * buff_pB, * buff_p1;
     T  d_zero = 0.0;
     T  d_one  = 1.0;
@@ -793,6 +782,11 @@ int64_t hqrrp(
     n_G     = m_A;
     buff_G  = ( T * ) malloc( m_G * n_G * sizeof( T ) );
     ldim_G  = m_G;
+
+    // Required for CHolesky QR
+    ldim_R = nb_alg;
+    buff_R  = ( T * ) malloc( nb_alg * nb_alg * sizeof( T ) );
+    buff_D  = ( T * ) malloc( nb_alg * sizeof( T ) );
 
     // Initialize matrices G and Y.
     RandBLAS::DenseDist D{.n_rows = nb_alg + pp, .n_cols = m_A, .family=RandBLAS::DenseDistName::Uniform};
@@ -917,7 +911,7 @@ int64_t hqrrp(
                 buff_pB, buff_sB,
                 1, m_A, buff_AR, ldim_A,
                 1, m_Y, buff_YR, ldim_Y,
-                0, (T*) nullptr, 0 
+                0, (T*) nullptr, 0, (T*) nullptr, 0, (T*) nullptr 
             );
         }
 
@@ -942,7 +936,7 @@ int64_t hqrrp(
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
             1, j, buff_A01, ldim_A,
             1, m_Y, buff_Y1, ldim_Y,
-            1, buff_T1_T, ldim_W );
+            1, buff_T1_T, ldim_W, buff_R, ldim_R, buff_D);
 
         //
         // Update the rest of the matrix.
@@ -985,6 +979,8 @@ int64_t hqrrp(
     free( buff_Y );
     free( buff_V );
     free( buff_W );
+    free( buff_R );
+    free( buff_D );
 
     return 0;
 }
