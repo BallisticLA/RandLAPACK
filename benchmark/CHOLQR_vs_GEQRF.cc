@@ -46,6 +46,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
 template <typename T, typename RNG>
 static std::vector<long> call_all_algs(
+    int64_t rows,
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     CHOLQR_vs_GEQRF_speed_benchmark_data<T> &all_data,
@@ -70,13 +71,13 @@ static std::vector<long> call_all_algs(
         auto start_cholqr = high_resolution_clock::now();
         //----------------------------------------------------------------------------------------------------------------------------------------/
         // Find R = A^TA.
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, all_data.A.data(), m, 0.0, all_data.R.data(), n);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, rows, 1.0, all_data.A.data(), m, 0.0, all_data.R.data(), n);
         // Perform Cholesky factorization on A.
         lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
         // Find Q = A * inv(R)
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, all_data.R.data(), n, all_data.A.data(), m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, n, 1.0, all_data.R.data(), n, all_data.A.data(), m);
         // Perform Householder reconstruction
-        lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
+        lapack::orhr_col(rows, n, n, all_data.A.data(), rows, all_data.T_mat.data(), n, all_data.D.data());
         // Update the signs in the R-factor
         int i, j;
         for(i = 0; i < n; ++i)
@@ -99,7 +100,7 @@ static std::vector<long> call_all_algs(
 
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
-        lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::geqrf(rows, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqrf = high_resolution_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
         // Update best timing
@@ -109,6 +110,7 @@ static std::vector<long> call_all_algs(
         data_regen<T, RNG>(m_info, all_data, state, 1);
     }
 
+    printf("For %ld rows\n", rows);
     printf("CHOLQR takes %ld μs\n", t_cholqr_best);
     printf("GEQRF takes %ld μs\n\n", t_geqrf_best);
     std::vector<long> res{t_cholqr_best, t_geqrf_best};
@@ -118,8 +120,10 @@ static std::vector<long> call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = 256;
+    int64_t rows_start      = std::pow(2, 14);
+    int64_t rows_end        = 256;
+    int64_t cols            = 256;
+
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
@@ -128,15 +132,19 @@ int main() {
     int64_t numruns = 15;
 
     // Allocate basic workspace
-    CHOLQR_vs_GEQRF_speed_benchmark_data<double> all_data(m, n);
+    CHOLQR_vs_GEQRF_speed_benchmark_data<double> all_data(rows_start, cols);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(rows_start, cols, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     // Declare a data file
-    std::fstream file("CHOLQR_vs_GEQRF_time_raw_rows_"              + std::to_string(m)
-                                    + "_cols_"         + std::to_string(n)
+    std::fstream file("CHOLQR_vs_GEQRF_time_raw_rows_start_" + std::to_string(rows_start)
+                                    + "_rows_end_"           + std::to_string(rows_end)
+                                    + "_cols_"               + std::to_string(cols)
                                     + ".dat", std::fstream::app);
-
-        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, all_data, state_constant);
+    
+    for (int rows = rows_start; rows >= rows_end; rows /= 2) {
+        res = call_all_algs<double, r123::Philox4x32>(rows, m_info, numruns, all_data, state_constant);
+        file << res[0]  << "  " << res[1] << "\n";
+    }
 }
