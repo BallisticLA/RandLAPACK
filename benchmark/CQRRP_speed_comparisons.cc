@@ -81,7 +81,6 @@ static std::vector<long> call_all_algs(
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
         // Update best timing
-        printf("CQRRP takes %ld μs\n", dur_cqrrp);
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
         // Clear and re-generate data

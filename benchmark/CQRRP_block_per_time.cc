@@ -43,10 +43,10 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     }
 }
 
-template <typename T, typename RNG>
+template <typename T>
 static void select_best(std::vector<T> best, std::vector<T> curr) {
-    for(int i = 0; i < best.size()) {
-        curr[i] < best[i] : best[i] = curr[i];
+    for(int i = 0; i < (int) best.size(); ++i) {
+        if (curr[i] < best[i]) { best[i] = curr[i]; }
     }
 }
 
@@ -69,14 +69,12 @@ static void call_all_algs(
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
     CQRRP_blocked.timing_advanced = 1;
-    // HQRRP oversampling factor is hardcoded per Riley's suggestion.
-    T d_factor_hqrrp = 0.125;
     // We are nbot using panel pivoting in performance testing.
     int panel_pivoting = 0;
 
     // timing vectors
     std::vector<T> best_time_cqrrpt(std::ceil(n / b_sz), 0.0);
-    std::vector<T> best_time_hqrrp_geqrf(std::ceil(n / b_sz)z, 0.0);
+    std::vector<T> best_time_hqrrp_geqrf(std::ceil(n / b_sz), 0.0);
     std::vector<T> best_time_hqrrp_cholqr(std::ceil(n / b_sz), 0.0);
 
     std::vector<T> time_hqrrp_geqrf(std::ceil(n / b_sz), 0.0);
@@ -85,40 +83,32 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         // Testing CQRRP
-        auto start_cqrrp = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
-        auto stop_cqrrp = high_resolution_clock::now();
-        dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
         // Update best timing
-        printf("CQRRP takes %ld μs\n", dur_cqrrp);
-        i == 0 ? best_time_cqrrpt = CQRRP_blocked.block_per_time : select_best<T>(best_time_cqrrpt, CQRRP_blocked.block_per_time);
+        if (i == 0) { best_time_cqrrpt = CQRRP_blocked.block_per_time; } else { select_best<T>(best_time_cqrrpt, CQRRP_blocked.block_per_time); }
 
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_constant, 1);
 
         // Testing HQRRP with GEQRF
-        auto start_hqrrp_geqrf = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 0, state, time_hqrrp_geqrf.data());
-        auto stop_hqrrp_geqrf = high_resolution_clock::now();
-        dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state, time_hqrrp_geqrf.data());
         // Update best timing
-        i == 0 ? best_time_hqrrp_geqrf = time_hqrrp_geqrf : select_best<T>(best_time_hqrrp_geqrf, time_hqrrp_geqrf);
+
+        if(i == 0) { best_time_hqrrp_geqrf = time_hqrrp_geqrf; } else { select_best<T>(best_time_hqrrp_geqrf, time_hqrrp_geqrf); }
 
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_constant, 1);
 
         // Testing HQRRP with Cholqr
-        auto start_hqrrp_cholqr = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  d_factor_hqrrp * b_sz, panel_pivoting, 1, state, time_hqrrp_cholqr.data());
-        auto stop_hqrrp_cholqr = high_resolution_clock::now();
-        dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state, time_hqrrp_cholqr.data());
         // Update best timing
-        i == 0 ? best_time_hqrrp_cholqr = time_hqrrp_cholqr : select_best<T>(best_time_hqrrp_cholqr, time_hqrrp_cholqr);
+        if(i == 0) { best_time_hqrrp_cholqr = time_hqrrp_cholqr; } else { select_best<T>(best_time_hqrrp_cholqr, time_hqrrp_cholqr);}
 
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_constant, 0);
     }
 
+    // The actual output may be interpreted as 
     std::fstream file("QR_block_per_time_raw_rows_"    + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_"         + std::to_string(b_sz)

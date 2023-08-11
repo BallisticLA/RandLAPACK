@@ -514,6 +514,8 @@ static int64_t GEQRF_mod_WY(
 }
 
 // ==========================================================================
+// TODO: pre-allocate workspace
+
 template <typename T>
 static int64_t CHOLQR_mod_WY(
         int64_t num_stages,
@@ -521,6 +523,7 @@ static int64_t CHOLQR_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T
 ) {
+    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -565,6 +568,8 @@ static int64_t CHOLQR_mod_WY(
     free( buff_D );
     free( buff_R );
 
+    high_resolution_clock::time_point timing_t_stop;
+    printf("Time it took to do CHOLQR in HQRRP %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count())
     return 0;
 }
 
@@ -965,11 +970,10 @@ int64_t hqrrp(
                 m_G, b, buff_G1, ldim_G,
                 std::max<int64_t>( 0, n_G - j - b ), buff_G2, ldim_G );
         }
-
         if (block_per_time != nullptr) {
             // The space required has already been preallocated
             iter_t_stop  = high_resolution_clock::now();
-            T* nextval = &(block_per_time[j]);
+            T* nextval = &(block_per_time[j / nb_alg]);
             *nextval = ((mn_A - j) * (T) nb_alg) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
         }
     }
