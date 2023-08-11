@@ -482,6 +482,7 @@ static int64_t GEQRF_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T
 ) {
+    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -509,7 +510,8 @@ static int64_t GEQRF_mod_WY(
 
     // Remove auxiliary vectors.
     free( buff_workspace );
-
+    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
+    printf("+%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
 
@@ -569,7 +571,7 @@ static int64_t CHOLQR_mod_WY(
     free( buff_R );
 
     high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("Time it took to do CHOLQR in HQRRP %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
+    printf("+%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
 
