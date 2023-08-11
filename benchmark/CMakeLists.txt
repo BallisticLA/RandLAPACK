@@ -53,3 +53,4 @@ add_benchmark(NAME convert_time CXX_SOURCES convert_time.cc LINK_LIBS ${Benchmar
 
 # QR speed comparisons with CQRRP benchmarks
 add_benchmark(NAME CQRRP_speed_comparisons CXX_SOURCES CQRRP_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CHOLQR_vs_GEQRF CXX_SOURCES CHOLQR_vs_GEQRF.cc LINK_LIBS ${Benchmark_libs})

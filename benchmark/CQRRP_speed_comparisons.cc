@@ -82,6 +82,7 @@ static std::vector<long> call_all_algs(
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
         // Update best timing
+        printf("CQRRP takes %ld μs\n", dur_cqrrp);
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
         // Clear and re-generate data
@@ -132,11 +133,11 @@ static std::vector<long> call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 17);
-    int64_t n          = std::pow(2, 17);
-    int64_t d_factor   = 1.0;
-    int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 4096;
+    int64_t m          = std::pow(2, 10);
+    int64_t n          = std::pow(2, 10);
+    int64_t d_factor   = 2.0;
+    int64_t b_sz_start = 256;
+    int64_t b_sz_end   = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     // Timing results
