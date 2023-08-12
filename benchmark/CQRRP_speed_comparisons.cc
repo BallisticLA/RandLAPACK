@@ -89,18 +89,6 @@ static std::vector<long> call_all_algs(
         i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
 
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_constant, 0);
-
-        // Testing CQRRP
-        auto start_cqrrp = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
-        auto stop_cqrrp = high_resolution_clock::now();
-        dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
-        printf("TOTAL TIME FOR CQRRP %ld\n", dur_cqrrp);
-        // Update best timing
-        i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
-
-        // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_constant, 1);
 
         // Testing HQRRP with GEQRF
@@ -111,6 +99,18 @@ static std::vector<long> call_all_algs(
         printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
         // Update best timing
         i == 0 ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : (dur_hqrrp_geqrf < t_hqrrp_geqrf_best) ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : NULL;
+        
+        // Clear and re-generate data
+        data_regen<T, RNG>(m_info, all_data, state_constant, 0);
+
+        // Testing CQRRP
+        auto start_cqrrp = high_resolution_clock::now();
+        CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
+        auto stop_cqrrp = high_resolution_clock::now();
+        dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
+        printf("TOTAL TIME FOR CQRRP %ld\n", dur_cqrrp);
+        // Update best timing
+        i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_constant, 1);
