@@ -482,7 +482,7 @@ static int64_t GEQRF_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T
 ) {
-    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
+    //high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -510,8 +510,8 @@ static int64_t GEQRF_mod_WY(
 
     // Remove auxiliary vectors.
     free( buff_workspace );
-    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("        +%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
+    //high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
+    //printf("        +%ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
 
@@ -525,7 +525,7 @@ static int64_t CHOLQR_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D
         ) {
-    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
+    //high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -559,8 +559,8 @@ static int64_t CHOLQR_mod_WY(
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
 
-    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("        %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
+    //high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
+    //printf("        %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
 
@@ -803,6 +803,18 @@ int64_t hqrrp(
     // This is for the advanced timing
     high_resolution_clock::time_point iter_t_start;
     high_resolution_clock::time_point iter_t_stop;
+
+    high_resolution_clock::time_point t1_start;
+    high_resolution_clock::time_point t1_stop;
+
+    high_resolution_clock::time_point t2_start;
+    high_resolution_clock::time_point t2_stop;
+
+    high_resolution_clock::time_point t3_start;
+    high_resolution_clock::time_point t3_stop;
+
+    high_resolution_clock::time_point t4_start;
+    high_resolution_clock::time_point t4_stop;
     if (block_per_time != nullptr) {
         // The space required has already been preallocated
         iter_t_start  = high_resolution_clock::now();
@@ -817,6 +829,9 @@ int64_t hqrrp(
             // The space required has already been preallocated
             iter_t_start  = high_resolution_clock::now();
         }
+
+
+        t1_start  = high_resolution_clock::now();
 
         b = std::min( nb_alg, std::min( n_A - j, m_A - j ) );
 
@@ -897,6 +912,10 @@ int64_t hqrrp(
         free( buff_cyr );
 #endif
 
+        t1_stop  = high_resolution_clock::now();
+        printf("        Part 1 of HQRRP time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
+        t2_start  = high_resolution_clock::now();
+
         if( !last_iter ) {
             // Compute QRP of YR, and apply permutations to matrix AR.
             // A copy of YR is made into VR, and permutations are applied to YR.
@@ -922,7 +941,9 @@ int64_t hqrrp(
                 0, (T*) nullptr, 0, (T*) nullptr, 0, (T*) nullptr 
             );
         }
-
+        t2_stop  = high_resolution_clock::now();
+        printf("        Part 2 of HQRRP time %ld\n", duration_cast<microseconds>(t2_stop - t2_start).count());
+        t3_start  = high_resolution_clock::now();
         //
         // Compute QRP of panel AB1 = [ A11; A21 ].
         // Apply same permutations to A01 and Y1, and build T1_T.
@@ -945,6 +966,10 @@ int64_t hqrrp(
             1, j, buff_A01, ldim_A,
             1, m_Y, buff_Y1, ldim_Y,
             1, buff_T1_T, ldim_W, buff_R, ldim_R, buff_D);
+
+        t3_stop  = high_resolution_clock::now();
+        printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
+        t4_start  = high_resolution_clock::now();
 
         //
         // Update the rest of the matrix.
@@ -974,6 +999,10 @@ int64_t hqrrp(
                 m_G, b, buff_G1, ldim_G,
                 std::max<int64_t>( 0, n_G - j - b ), buff_G2, ldim_G );
         }
+
+        t4_stop  = high_resolution_clock::now();
+        printf("        Part 4 of HQRRP time %ld\n", duration_cast<microseconds>(t4_stop - t4_start).count());
+
         if (block_per_time != nullptr) {
             // The space required has already been preallocated
             iter_t_stop  = high_resolution_clock::now();
