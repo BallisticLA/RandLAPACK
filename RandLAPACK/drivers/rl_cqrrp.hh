@@ -439,6 +439,7 @@ int CQRRP_blocked<T, RNG>::call(
 
             if(this->timing_advanced) {
                 iter_t_stop  = high_resolution_clock::now();
+                printf("+%ld\n", duration_cast<microseconds>(iter_t_stop - iter_t_start).count());
                 this->block_per_time[iter] = ((T) rows * b_sz) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
             }
 
@@ -513,6 +514,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         if(this->timing_advanced) {
             iter_t_stop  = high_resolution_clock::now();
+            printf("+%ld\n", duration_cast<microseconds>(iter_t_stop - iter_t_start).count());
             this->block_per_time[iter] = ((T) rows * b_sz) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
         }
 

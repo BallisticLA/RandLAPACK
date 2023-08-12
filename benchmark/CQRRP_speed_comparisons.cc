@@ -74,6 +74,9 @@ static std::vector<long> call_all_algs(
     long t_hqrrp_cholqr_best = 0;
     long t_geqrf_best        = 0;
 
+    std::vector<T> time_hqrrp_geqrf(std::ceil(n / b_sz), 0.0);
+    std::vector<T> time_hqrrp_cholqr(std::ceil(n / b_sz), 0.0);
+
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION\n");
         // Testing GEQRF
@@ -92,6 +95,7 @@ static std::vector<long> call_all_algs(
         CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
+        printf("TOTAL TIME FOR CQRRP %ld\n", dur_cqrrp);
         // Update best timing
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
@@ -100,7 +104,7 @@ static std::vector<long> call_all_algs(
 
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state, (T*) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state, time_hqrrp_geqrf.data());
         auto stop_hqrrp_geqrf = high_resolution_clock::now();
         dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
         printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
@@ -112,7 +116,7 @@ static std::vector<long> call_all_algs(
 
         // Testing HQRRP with Cholqr
         auto start_hqrrp_cholqr = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state, (T*) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state, time_hqrrp_cholqr.data());
         auto stop_hqrrp_cholqr = high_resolution_clock::now();
         dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
         printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);

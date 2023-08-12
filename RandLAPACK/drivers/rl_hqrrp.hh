@@ -971,12 +971,12 @@ int64_t hqrrp(
         if (block_per_time != nullptr) {
             // The space required has already been preallocated
             iter_t_stop  = high_resolution_clock::now();
+            printf("+%ld\n", duration_cast<microseconds>(iter_t_stop - iter_t_start).count());
             T* nextval = &(block_per_time[ctr]);
             *nextval = (m_AB1 * (T) b) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
             ++ctr;
         }
     }
-    printf("Total number of iterations, HQRRP wigh (?) %d CHOLQR %ld\n", use_cholqr, ctr);
     // Remove auxiliary objects.
     free( buff_G );
     free( buff_Y );

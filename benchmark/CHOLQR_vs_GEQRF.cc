@@ -65,6 +65,9 @@ static std::vector<long> call_all_algs(
     T* T_dat = all_data.T_mat.data();
     T* tau_dat = all_data.tau.data();
 
+        std::vector<T> time_hqrrp_geqrf(std::ceil(n / b_sz), 0.0);
+    std::vector<T> time_hqrrp_cholqr(std::ceil(n / b_sz), 0.0);
+
     for (int k = 0; k < numruns; ++k) {
         // Testing cholqr
         auto start_cholqr = high_resolution_clock::now();
