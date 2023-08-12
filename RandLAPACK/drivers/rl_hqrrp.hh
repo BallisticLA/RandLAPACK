@@ -809,7 +809,7 @@ int64_t hqrrp(
     }
 
     //**********************************
-
+    int ctr = 0;
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
         b = std::min( nb_alg, std::min( n_A - j, m_A - j ) );
@@ -974,8 +974,9 @@ int64_t hqrrp(
             T* nextval = &(block_per_time[j / b]);
             *nextval = ((m_AB1 - j) * (T) b) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
         }
+        ++ctr;
     }
-
+    printf("Total number of iterations, HQRRP wigh (?) %d CHOLQR %ld\n", use_cholqr, ctr);
     // Remove auxiliary objects.
     free( buff_G );
     free( buff_Y );

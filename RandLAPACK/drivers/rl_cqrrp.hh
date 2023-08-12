@@ -520,6 +520,7 @@ int CQRRP_blocked<T, RNG>::call(
         rows -= b_sz;
         cols -= b_sz;
     }
+    printf("Total number of iterations %d\n", iter);
     return 0;
 }
 
