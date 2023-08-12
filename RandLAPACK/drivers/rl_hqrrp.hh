@@ -815,6 +815,9 @@ int64_t hqrrp(
 
     high_resolution_clock::time_point t4_start;
     high_resolution_clock::time_point t4_stop;
+
+    high_resolution_clock::time_point tcopy_start;
+    high_resolution_clock::time_point tcopy_stop;
     if (block_per_time != nullptr) {
         // The space required has already been preallocated
         iter_t_start  = high_resolution_clock::now();
@@ -928,10 +931,13 @@ int64_t hqrrp(
             //    Specifically, this custom function operates on three matrices (VR, AR, and YR) in
             //    sync with one another, while GEQP3 only operates on one matrix.
             //
+            tcopy_start  = high_resolution_clock::now();
             lapack::lacpy( MatrixType::General,
                             m_V, n_VR,
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);
+            tcopy_stop  = high_resolution_clock::now();
+            printf("            Copy time %ld\n", duration_cast<microseconds>(tcopy_stop - tcopy_start).count());
             NoFLA_QRPmod_WY_unb_var4(0, 1, b,
                 m_V, n_VR,
                 buff_VR, ldim_V,
