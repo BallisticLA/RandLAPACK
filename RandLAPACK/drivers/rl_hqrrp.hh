@@ -356,6 +356,7 @@ int64_t NoFLA_QRP_compute_norms(
 
     // Main loop.
     //#pragma omp parallel for
+    printf("                m_A: %d, n_A: %ld, lda_A: %d", m_A, n_A, ldim_A);
     for( j = 0; j < n_A; j++ ) {
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
         * buff_e = * buff_d;
@@ -600,12 +601,6 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     high_resolution_clock::time_point t1_start;
     high_resolution_clock::time_point t1_stop;
 
-    high_resolution_clock::time_point t11_start;
-    high_resolution_clock::time_point t11_stop;
-
-    high_resolution_clock::time_point t12_start;
-    high_resolution_clock::time_point t12_stop;
-
     high_resolution_clock::time_point t2_start;
     high_resolution_clock::time_point t2_stop;
     long t2_dur = 0;
@@ -623,7 +618,6 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     long t5_dur = 0;
 
     t1_start  = high_resolution_clock::now();
-    t11_start  = high_resolution_clock::now();
 
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
             i_one = 1, n_house_vector, m_rest;
@@ -644,17 +638,11 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     buff_e         = ( T * ) malloc( n_A * sizeof( T ) );
     buff_workspace = ( T * ) malloc( n_A * sizeof( T ) );
 
-    t11_stop  = high_resolution_clock::now();
-    printf("                Part 11 of PQR time %ld\n", duration_cast<microseconds>(t11_stop - t11_start).count());
-    t12_start  = high_resolution_clock::now();
-
     // Compute initial norms of A int64_to d and e.
     NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
 
 
-    t12_stop  = high_resolution_clock::now();
     t1_stop  = high_resolution_clock::now();
-    printf("                Part 12 of PQR time %ld\n", duration_cast<microseconds>(t12_stop - t12_start).count());
     printf("            Part 1 of PQR time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
 
     // Main Loop.
