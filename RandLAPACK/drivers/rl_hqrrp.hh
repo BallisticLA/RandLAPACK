@@ -368,7 +368,7 @@ int64_t NoFLA_QRP_compute_norms(
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
         nrm_t_stop = high_resolution_clock::now();
         dur_curr = duration_cast<microseconds>(nrm_t_stop - nrm_t_start).count();
-        printf("                %ld\n", dur_curr);
+        //printf("                %ld\n", dur_curr);
         nrm_dur += dur_curr;
 
         * buff_e = * buff_d;
@@ -376,6 +376,9 @@ int64_t NoFLA_QRP_compute_norms(
         buff_d++;
         buff_e++;
     }
+
+    char name [] = "First column of A";
+    RandBLAS::util::print_colmaj(m_A, 1, buff_A, name);
 
     printf("                norm calculartion: %ld\n", nrm_dur);
 
