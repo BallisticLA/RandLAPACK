@@ -620,6 +620,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
 
     // Main Loop.
+    printf("            Num Stages %ld\n", num_stages);
     for( j = 0; j < num_stages; j++ ) {
         n_dB  = n_A - j;
         m_a21 = m_A - j - 1;
@@ -675,6 +676,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
 
     // Build T.
     if( build_T ) {
+    printf("            Building T %ld\n", num_stages);
     lapack::larft( lapack::Direction::Forward,
                     lapack::StoreV::Columnwise,
                     m_A, num_stages, buff_A, ldim_A, 
