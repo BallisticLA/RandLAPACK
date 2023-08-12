@@ -559,6 +559,13 @@ static int64_t CHOLQR_mod_WY(
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
 
+    // Build T.
+    lapack::larft( lapack::Direction::Forward,
+                    lapack::StoreV::Columnwise,
+                    m_A, num_stages, buff_A, ldim_A, 
+                    buff_t, buff_T, ldim_T
+    );
+
     high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
     printf("            CHOLQR takes %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
