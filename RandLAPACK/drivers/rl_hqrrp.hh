@@ -378,7 +378,7 @@ int64_t NoFLA_QRP_compute_norms(
     }
 
     char name [] = "First column of A";
-    RandBLAS::util::print_colmaj(m_A, 1, buff_A, name);
+    RandBLAS::util::print_colmaj(m_A, 1, buff_A + m_A, name);
 
     printf("                norm calculartion: %ld\n", nrm_dur);
 
