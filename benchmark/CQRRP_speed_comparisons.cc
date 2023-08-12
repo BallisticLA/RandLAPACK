@@ -76,6 +76,17 @@ static std::vector<long> call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION\n");
+        // Testing GEQRF
+        auto start_geqrf = high_resolution_clock::now();
+        lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
+        auto stop_geqrf = high_resolution_clock::now();
+        dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
+        // Update best timing
+        i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
+
+        // Clear and re-generate data
+        data_regen<T, RNG>(m_info, all_data, state_constant, 0);
+
         // Testing CQRRP
         auto start_cqrrp = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
@@ -107,17 +118,6 @@ static std::vector<long> call_all_algs(
         printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
         // Update best timing
         i == 0 ? t_hqrrp_cholqr_best = dur_hqrrp_cholqr : (dur_hqrrp_cholqr < t_hqrrp_cholqr_best) ? t_hqrrp_cholqr_best = dur_hqrrp_cholqr : NULL;
-
-        // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_constant, 0);
-
-        // Testing GEQRF
-        auto start_geqrf = high_resolution_clock::now();
-        lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
-        auto stop_geqrf = high_resolution_clock::now();
-        dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
-        // Update best timing
-        i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
 
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_constant, 0);
