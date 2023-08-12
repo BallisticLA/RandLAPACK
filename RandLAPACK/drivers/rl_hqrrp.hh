@@ -972,7 +972,7 @@ int64_t hqrrp(
             // The space required has already been preallocated
             iter_t_stop  = high_resolution_clock::now();
             T* nextval = &(block_per_time[j / nb_alg]);
-            *nextval = ((mn_A - j) * (T) nb_alg) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
+            *nextval = ((m_AB1 - j) * (T) nb_alg) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
         }
     }
 
