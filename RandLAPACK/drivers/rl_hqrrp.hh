@@ -356,7 +356,7 @@ int64_t NoFLA_QRP_compute_norms(
 
     // Main loop.
     //#pragma omp parallel for
-    printf("                m_A: %d, n_A: %ld, lda_A: %d", m_A, n_A, ldim_A);
+    printf("                m_A: %d, n_A: %ld, lda_A: %d\n", m_A, n_A, ldim_A);
     for( j = 0; j < n_A; j++ ) {
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
         * buff_e = * buff_d;
@@ -513,6 +513,7 @@ static int64_t GEQRF_mod_WY(
     free( buff_workspace );
     high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
     printf("            GEQRF takes %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
+
     return 0;
 }
 
@@ -777,6 +778,10 @@ int64_t hqrrp(
     int64_t * buff_jpvt, T * buff_tau,
     int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* block_per_time) {
 
+
+    //char name [] = "A";
+    //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name);
+
     //high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
@@ -997,6 +1002,10 @@ int64_t hqrrp(
             );
         }
         t2_stop  = high_resolution_clock::now();
+        
+        //char name1 [] = "A before qr";
+        //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name1);
+        
         printf("        Part 2 of HQRRP time %ld\n", duration_cast<microseconds>(t2_stop - t2_start).count());
         t3_start  = high_resolution_clock::now();
         //
@@ -1016,6 +1025,7 @@ int64_t hqrrp(
         //    The code path where we hit a GEQRF-like function is very different;
         //    it only operates on AB1!
         //
+
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
             1, j, buff_A01, ldim_A,
@@ -1024,6 +1034,10 @@ int64_t hqrrp(
 
         t3_stop  = high_resolution_clock::now();
         printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
+
+        //char name2 [] = "A after qr";
+        //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name2);
+
         t4_start  = high_resolution_clock::now();
 
         //
