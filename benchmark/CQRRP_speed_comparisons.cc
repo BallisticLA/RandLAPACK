@@ -61,6 +61,7 @@ static std::vector<long> call_all_algs(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
+    CQRRP_blocked.timing_advanced = 1;
     // We are nbot using panel pivoting in performance testing.
     int panel_pivoting = 0;
 

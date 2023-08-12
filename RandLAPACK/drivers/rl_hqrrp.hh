@@ -812,6 +812,12 @@ int64_t hqrrp(
     int ctr = 0;
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
+
+        if (block_per_time != nullptr) {
+            // The space required has already been preallocated
+            iter_t_start  = high_resolution_clock::now();
+        }
+
         b = std::min( nb_alg, std::min( n_A - j, m_A - j ) );
 
         // Check whether it is the last iteration.
