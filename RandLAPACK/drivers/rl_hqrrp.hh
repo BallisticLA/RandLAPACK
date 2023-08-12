@@ -597,6 +597,27 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
 
+    high_resolution_clock::time_point t1_start;
+    high_resolution_clock::time_point t1_stop;
+
+    high_resolution_clock::time_point t2_start;
+    high_resolution_clock::time_point t2_stop;
+    long t2_dur = 0;
+
+    high_resolution_clock::time_point t3_start;
+    high_resolution_clock::time_point t3_stop;
+    long t3_dur = 0;
+
+    high_resolution_clock::time_point t4_start;
+    high_resolution_clock::time_point t4_stop;
+    long t4_dur = 0;
+
+    high_resolution_clock::time_point t5_start;
+    high_resolution_clock::time_point t5_stop;
+    long t5_dur = 0;
+
+    t1_start  = high_resolution_clock::now();
+
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
             i_one = 1, n_house_vector, m_rest;
     T  * buff_d, * buff_e, * buff_workspace, diag;
@@ -619,9 +640,14 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     // Compute initial norms of A int64_to d and e.
     NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
 
+    t1_stop  = high_resolution_clock::now();
+    printf("            Part 1 of PQR time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
+
     // Main Loop.
-    printf("            Num Stages %ld\n", num_stages);
     for( j = 0; j < num_stages; j++ ) {
+
+        t2_start  = high_resolution_clock::now();
+
         n_dB  = n_A - j;
         m_a21 = m_A - j - 1;
         m_A22 = m_A - j - 1;
@@ -639,6 +665,10 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
             & buff_d[ j ],
             & buff_e[ j ] );
 
+        t2_stop  = high_resolution_clock::now();
+        t2_dur += duration_cast<microseconds>(t2_stop - t2_start).count();
+        t3_start  = high_resolution_clock::now();
+
         // Compute tau1 and u21 from alpha11 and a21 such that tau1 and u21
         // determine a Householder transform H such that applying H from the
         // left to the column vector consisting of alpha11 and a21 annihilates
@@ -650,6 +680,10 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
             i_one,
             & buff_t[j]
         );
+
+        t3_stop  = high_resolution_clock::now();
+        t3_dur += duration_cast<microseconds>(t3_stop - t3_start).count();
+        t4_start  = high_resolution_clock::now();
 
         // | a12t | =  H | a12t |
         // | A22  |      | A22  |
@@ -666,17 +700,28 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         );
         buff_A[ j + j * ldim_A ] = diag;
 
+        t4_stop  = high_resolution_clock::now();
+        t4_dur += duration_cast<microseconds>(t4_stop - t4_start).count();
+        t5_start  = high_resolution_clock::now();
+
         // Update partial column norms.
         NoFLA_QRP_downdate_partial_norms( m_A22, n_A22, 
             & buff_d[ j+1 ], 1,
             & buff_e[ j+1 ], 1,
             & buff_A[ j + ( j+1 ) * ldim_A ], ldim_A,
             & buff_A[ ( j+1 ) + std::min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
+
+        t5_stop  = high_resolution_clock::now();
+        t5_dur += duration_cast<microseconds>(t5_stop - t5_start).count();
     }
+
+    printf("            Part 2 of PQR time %ld\n", t2_dur);
+    printf("            Part 3 of PQR time %ld\n", t3_dur);
+    printf("            Part 4 of PQR time %ld\n", t4_dur);
+    printf("            Part 5 of PQR time %ld\n", t5_dur);
 
     // Build T.
     if( build_T ) {
-    printf("            Building T %ld\n", num_stages);
     lapack::larft( lapack::Direction::Forward,
                     lapack::StoreV::Columnwise,
                     m_A, num_stages, buff_A, ldim_A, 
