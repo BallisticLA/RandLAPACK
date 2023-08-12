@@ -166,6 +166,8 @@ int main() {
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
 
+                
+
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, all_data, state, state_constant);
         file << res[0]  << "  " << res[1]  << "  " << res[2] << "  " << res[3] << "\n";
