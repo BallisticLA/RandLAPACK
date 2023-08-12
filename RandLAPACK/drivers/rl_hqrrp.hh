@@ -971,8 +971,8 @@ int64_t hqrrp(
         if (block_per_time != nullptr) {
             // The space required has already been preallocated
             iter_t_stop  = high_resolution_clock::now();
-            T* nextval = &(block_per_time[j / nb_alg]);
-            *nextval = ((m_AB1 - j) * (T) nb_alg) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
+            T* nextval = &(block_per_time[j / b]);
+            *nextval = ((m_AB1 - j) * (T) b) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
         }
     }
 
