@@ -355,8 +355,8 @@ int64_t NoFLA_QRP_compute_norms(
 
     high_resolution_clock::time_point nrm_t_start;
     high_resolution_clock::time_point nrm_t_stop;
-
-    long nrm_dur = 0;
+    long nrm_dur  = 0;
+    long dur_curr = 0;
 
     int64_t     j, i_one = 1;
 
@@ -367,7 +367,9 @@ int64_t NoFLA_QRP_compute_norms(
         nrm_t_start = high_resolution_clock::now();
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
         nrm_t_stop = high_resolution_clock::now();
-        nrm_dur += duration_cast<microseconds>(nrm_t_stop - nrm_t_start).count();
+        dur_curr = duration_cast<microseconds>(nrm_t_stop - nrm_t_start).count();
+        printf("                %ld\n", dur_curr);
+        nrm_dur += dur_curr;
 
         * buff_e = * buff_d;
         buff_A += ldim_A;
