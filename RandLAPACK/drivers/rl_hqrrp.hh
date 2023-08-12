@@ -378,7 +378,7 @@ int64_t NoFLA_QRP_compute_norms(
     }
 
     char name [] = "First column of A";
-    RandBLAS::util::print_colmaj(m_A, 1, buff_A + m_A, name);
+    RandBLAS::util::print_colmaj(m_A, n_A, buff_A, name);
 
     printf("                norm calculartion: %ld\n", nrm_dur);
 
@@ -851,6 +851,9 @@ int64_t hqrrp(
     buff_W  = ( T * ) malloc( m_W * n_W * sizeof( T ) );
     ldim_W  = m_W;
 
+    char name1 [] = "First instance of T";
+    RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name1);
+
     m_G     = nb_alg + pp;
     n_G     = m_A;
     buff_G  = ( T * ) malloc( m_G * n_G * sizeof( T ) );
@@ -896,6 +899,7 @@ int64_t hqrrp(
 
     //**********************************
     int ctr = 0;
+
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
 
@@ -1042,6 +1046,8 @@ int64_t hqrrp(
         //    The code path where we hit a GEQRF-like function is very different;
         //    it only operates on AB1!
         //
+        char name1 [] = "T before qr";
+        RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name1);
 
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
@@ -1051,6 +1057,9 @@ int64_t hqrrp(
 
         t3_stop  = high_resolution_clock::now();
         printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
+
+        char name [] = "T after qr";
+        RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name);
 
         //char name2 [] = "A after qr";
         //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name2);
