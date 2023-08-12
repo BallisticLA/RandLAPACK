@@ -352,18 +352,30 @@ int64_t NoFLA_QRP_compute_norms(
 // It computes the column norms of matrix A. The norms are stored int64_to 
 // vectors d and e.
 //
+
+    high_resolution_clock::time_point nrm_t_start;
+    high_resolution_clock::time_point nrm_t_stop;
+
+    long nrm_dur = 0;
+
     int64_t     j, i_one = 1;
 
     // Main loop.
     //#pragma omp parallel for
     printf("                m_A: %d, n_A: %ld, lda_A: %d\n", m_A, n_A, ldim_A);
     for( j = 0; j < n_A; j++ ) {
+        nrm_t_start = high_resolution_clock::now();
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
+        nrm_t_stop = high_resolution_clock::now();
+        nrm_dur += duration_cast<microseconds>(nrm_t_stop - nrm_t_start).count();
+
         * buff_e = * buff_d;
         buff_A += ldim_A;
         buff_d++;
         buff_e++;
     }
+
+    printf("                norm calculartion: %ld\n", nrm_dur);
 
     return 0;
 }
