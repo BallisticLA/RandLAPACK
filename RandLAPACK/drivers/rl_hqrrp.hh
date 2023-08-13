@@ -196,7 +196,7 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) malloc( m_B * n_U * sizeof( T ) );
+    buff_W = ( T * ) calloc( m_B * n_U, sizeof( T ) );
     ldim_W = std::max<int64_t>( 1, m_B );
 
     // Apply the block transformation. 
@@ -239,7 +239,7 @@ int64_t NoFLA_Downdate_Y(
     int64_t    ldim_B      = m_G1;
 
     // Create object B.
-    buff_B = ( T * ) malloc( m_B * n_B * sizeof( T ) );
+    buff_B = ( T * ) calloc( m_B * n_B, sizeof( T ) );
 
     // B = G1.
     lapack::lacpy( MatrixType::General,
@@ -324,7 +324,7 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_NO_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) malloc( n_B * n_U * sizeof( T ) );
+    buff_W = ( T * ) calloc( n_B * n_U, sizeof( T ) );
     ldim_W = std::max<int64_t>( 1, n_B );
 
     // Apply the block transformation.
@@ -377,8 +377,8 @@ int64_t NoFLA_QRP_compute_norms(
         buff_e++;
     }
 
-    char name [] = "First column of A";
-    RandBLAS::util::print_colmaj(m_A, n_A, buff_A, name);
+    //char name [] = "First column of A";
+    //RandBLAS::util::print_colmaj(m_A, n_A, buff_A, name);
 
     printf("                norm calculartion: %ld\n", nrm_dur);
 
@@ -516,7 +516,7 @@ static int64_t GEQRF_mod_WY(
     lwork[0] = -1;
     _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, work_query, lwork, info);
     lwork[0] = std::max((int64_t) blas::real(work_query[0]), n_A);
-    T *buff_workspace = ( T * ) malloc( lwork[0] * sizeof( T ) );
+    T *buff_workspace = ( T * ) calloc( lwork[0], sizeof( T ) );
     _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, buff_workspace, lwork, info);
 
     // Build T.
@@ -652,9 +652,9 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     }
 
     // Create auxiliary vectors.
-    buff_d         = ( T * ) malloc( n_A * sizeof( T ) );
-    buff_e         = ( T * ) malloc( n_A * sizeof( T ) );
-    buff_workspace = ( T * ) malloc( n_A * sizeof( T ) );
+    buff_d         = ( T * ) calloc( n_A, sizeof( T ) );
+    buff_e         = ( T * ) calloc( n_A, sizeof( T ) );
+    buff_workspace = ( T * ) calloc( n_A, sizeof( T ) );
 
     // Compute initial norms of A int64_to d and e.
     NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
@@ -838,31 +838,31 @@ int64_t hqrrp(
     // Create auxiliary objects.
     m_Y     = nb_alg + pp;
     n_Y     = n_A;
-    buff_Y  = ( T * ) malloc( m_Y * n_Y * sizeof( T ) );
+    buff_Y  = ( T * ) calloc( m_Y * n_Y, sizeof( T ) );
     ldim_Y  = m_Y;
 
     m_V     = nb_alg + pp;
     n_V     = n_A;
-    buff_V  = ( T * ) malloc( m_V * n_V * sizeof( T ) );
+    buff_V  = ( T * ) calloc( m_V * n_V, sizeof( T ) );
     ldim_V  = m_V;
 
     m_W     = nb_alg;
     n_W     = n_A;
-    buff_W  = ( T * ) malloc( m_W * n_W * sizeof( T ) );
+    buff_W  = ( T * ) calloc( m_W * n_W, sizeof( T ) );
     ldim_W  = m_W;
 
-    char name1 [] = "First instance of T";
-    RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name1);
+    //char name1 [] = "First instance of T";
+    //RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name1);
 
     m_G     = nb_alg + pp;
     n_G     = m_A;
-    buff_G  = ( T * ) malloc( m_G * n_G * sizeof( T ) );
+    buff_G  = ( T * ) calloc( m_G * n_G, sizeof( T ) );
     ldim_G  = m_G;
 
     // Required for CHolesky QR
     ldim_R = nb_alg;
-    buff_R  = ( T * ) malloc( nb_alg * nb_alg * sizeof( T ) );
-    buff_D  = ( T * ) malloc( nb_alg * sizeof( T ) );
+    buff_R  = ( T * ) calloc( nb_alg * nb_alg, sizeof( T ) );
+    buff_D  = ( T * ) calloc( nb_alg, sizeof( T ) );
 
     // Initialize matrices G and Y.
     RandBLAS::DenseDist D{.n_rows = nb_alg + pp, .n_cols = m_A, .family=RandBLAS::DenseDistName::Uniform};
@@ -963,7 +963,7 @@ int64_t hqrrp(
         n_cyr    = n_Y - j;
         ldim_cyr = m_cyr;
         m_ABR    = m_A - j;
-        buff_cyr = ( T * ) malloc( m_cyr * n_cyr * sizeof( T ) );
+        buff_cyr = ( T * ) calloc( m_cyr * n_cyr, sizeof( T ) );
 
         //// FLA_Gemm( FLA_NO_TRANSPOSE, FLA_NO_TRANSPOSE, 
         ////           FLA_ONE, GR, ABR, FLA_ZERO, CYR ); 
@@ -1046,8 +1046,8 @@ int64_t hqrrp(
         //    The code path where we hit a GEQRF-like function is very different;
         //    it only operates on AB1!
         //
-        char name1 [] = "T before qr";
-        RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name1);
+        //char name1 [] = "T before qr";
+        //RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name1);
 
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
@@ -1058,8 +1058,8 @@ int64_t hqrrp(
         t3_stop  = high_resolution_clock::now();
         printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
 
-        char name [] = "T after qr";
-        RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name);
+        //char name [] = "T after qr";
+        //RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name);
 
         //char name2 [] = "A after qr";
         //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name2);
