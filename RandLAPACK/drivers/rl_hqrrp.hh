@@ -1090,8 +1090,8 @@ int64_t hqrrp(
         //    it only operates on AB1!
         //
         if(j = 0){
-        char name1 [] = "A before qr at iter 1";
-        RandBLAS::util::print_colmaj(ldim_A, n_A, buff_AB1, name1);
+            char name1 [] = "A before qr at iter 1";
+            RandBLAS::util::print_colmaj(5, 5, buff_AB1, name1);
         }
 
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
