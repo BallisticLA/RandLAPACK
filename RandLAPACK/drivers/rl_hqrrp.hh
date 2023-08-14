@@ -620,18 +620,19 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         int64_t n_A_copy = n_A;
         int64_t ldim_A_copy = ldim_A;
         int64_t ldim_T_copy = ldim_T;
-        int64_t ldim_R_copy = ldim_R;
+        //int64_t ldim_R_copy = ldim_R;
         T* buff_A_copy  = ( T * ) calloc( ldim_A_copy * n_A_copy, sizeof( T ) );
         T* buff_T_copy  = ( T * ) calloc( ldim_T_copy * n_A_copy, sizeof( T ) );
         //T* buff_R_copy  = ( T * ) calloc( ldim_R_copy * n_A_copy, sizeof( T ) );
         T* buff_t_copy  = ( T * ) calloc(  n_A_copy, sizeof( T ) );
-        T* buff_D_copy  = ( T * ) calloc(  n_A_copy, sizeof( T ) );
+        //T* buff_D_copy  = ( T * ) calloc(  n_A_copy, sizeof( T ) );
         // Everything besides A is supposed to  be empty
         lapack::lacpy(MatrixType::Upper, ldim_A, n_A, buff_A, ldim_A, buff_A_copy, ldim_A_copy);
 
-        CHOLQR_mod_WY(num_stages_copy, m_A_copy, n_A_copy, buff_A_copy, ldim_A_copy, buff_t_copy, buff_T_copy, ldim_T_copy, buff_R, ldim_R_copy, buff_D_copy);
-        return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
+        CHOLQR_mod_WY(num_stages_copy, m_A_copy, n_A_copy, buff_A_copy, ldim_A_copy, buff_t_copy, buff_T_copy, ldim_T_copy, buff_R, ldim_R, buff_D);
+        GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
 
+        return 0;
         //return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
 
