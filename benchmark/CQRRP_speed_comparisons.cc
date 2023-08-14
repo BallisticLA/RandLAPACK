@@ -184,8 +184,8 @@ int main() {
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
 
-    char name [] = "A_origibnal";
-    RandBLAS::util::print_colmaj(m, 10, all_data.A.data(), name);
+    //double norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
+    //printf("Matrix A norm %e\n", norm_A);
 
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, all_data, state_constant);
