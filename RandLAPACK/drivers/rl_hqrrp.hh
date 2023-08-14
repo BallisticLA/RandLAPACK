@@ -562,20 +562,20 @@ static int64_t CHOLQR_mod_WY(
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
 
-    char name2 [] = "T_pre";
-    RandBLAS::util::print_colmaj(ldim_T, 10, buff_T, name2);
+    //char name2 [] = "T_pre";
+    //RandBLAS::util::print_colmaj(ldim_T, 10, buff_T, name2);
 
-    char name3 [] = "A_pre";
-    RandBLAS::util::print_colmaj(ldim_A, 10, buff_A, name3);
+    //char name3 [] = "A_pre";
+    //RandBLAS::util::print_colmaj(ldim_A, 10, buff_A, name3);
 
     // Perform Householder reconstruction
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
 
-    char name [] = "T_post";
-    RandBLAS::util::print_colmaj(ldim_T, 10, buff_T, name);
+    //char name [] = "T_post";
+    //RandBLAS::util::print_colmaj(ldim_T, 10, buff_T, name);
 
-    char name1 [] = "A_cpy";
-    RandBLAS::util::print_colmaj(ldim_A, 10, buff_A, name1);
+    //char name1 [] = "A_cpy";
+    //RandBLAS::util::print_colmaj(ldim_A, 10, buff_A, name1);
 
     // Update the signs in the R-factor
     int i, j;
