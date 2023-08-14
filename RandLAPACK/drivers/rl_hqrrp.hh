@@ -1090,8 +1090,11 @@ int64_t hqrrp(
         //    it only operates on AB1!
         //
         if(j == 0){
-            char name1 [] = "A before qr";
-            RandBLAS::util::print_colmaj(ldim_A, 5, buff_AB1, name1);
+            //char name1 [] = "A before qr";
+            //RandBLAS::util::print_colmaj(ldim_A, 5, buff_AB1, name1);
+
+            double norm_A = lapack::lange(Norm::Fro, m_AB1, n_AB1, buff_AB1, ldim_A);
+            printf("Matrix A norm %e\n", norm_A);
         }
 
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
