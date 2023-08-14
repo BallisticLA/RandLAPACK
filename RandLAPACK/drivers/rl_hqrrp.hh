@@ -632,6 +632,8 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         CHOLQR_mod_WY(num_stages_copy, m_A_copy, n_A_copy, buff_A_copy, ldim_A_copy, buff_t_copy, buff_T_copy, ldim_T_copy, buff_R, ldim_R, buff_D);
         GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
 
+        char name [] = "T_cpy";
+        RandBLAS::util::print_colmaj(ldim_T, 10, buff_T_copy, name);
 
         // Build T.
         lapack::larft( lapack::Direction::Forward,
