@@ -362,13 +362,11 @@ int64_t NoFLA_QRP_compute_norms(
 
     // Main loop.
     //#pragma omp parallel for
-    printf("                m_A: %d, n_A: %ld, lda_A: %d\n", m_A, n_A, ldim_A);
     for( j = 0; j < n_A; j++ ) {
         nrm_t_start = high_resolution_clock::now();
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
         nrm_t_stop = high_resolution_clock::now();
         dur_curr = duration_cast<microseconds>(nrm_t_stop - nrm_t_start).count();
-        //printf("                %ld\n", dur_curr);
         nrm_dur += dur_curr;
 
         * buff_e = * buff_d;
@@ -376,11 +374,6 @@ int64_t NoFLA_QRP_compute_norms(
         buff_d++;
         buff_e++;
     }
-
-    //char name [] = "First column of A";
-    //RandBLAS::util::print_colmaj(m_A, n_A, buff_A, name);
-
-    printf("                norm calculartion: %ld\n", nrm_dur);
 
     return 0;
 }
@@ -500,7 +493,6 @@ static int64_t GEQRF_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T
 ) {
-    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -528,8 +520,6 @@ static int64_t GEQRF_mod_WY(
 
     // Remove auxiliary vectors.
     free( buff_workspace );
-    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("            GEQRF takes %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
 
     return 0;
 }
@@ -544,7 +534,6 @@ static int64_t CHOLQR_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D
         ) {
-    high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -562,20 +551,8 @@ static int64_t CHOLQR_mod_WY(
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
 
-    //char name2 [] = "T_pre";
-    //RandBLAS::util::print_colmaj(ldim_T, 10, buff_T, name2);
-
-    //char name3 [] = "A_pre";
-    //RandBLAS::util::print_colmaj(ldim_A, 10, buff_A, name3);
-
     // Perform Householder reconstruction
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
-
-    //char name [] = "T_post";
-    //RandBLAS::util::print_colmaj(ldim_T, 10, buff_T, name);
-
-    //char name1 [] = "A_cpy";
-    //RandBLAS::util::print_colmaj(ldim_A, 10, buff_A, name1);
 
     // Update the signs in the R-factor
     int i, j;
@@ -590,8 +567,6 @@ static int64_t CHOLQR_mod_WY(
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
 
-    high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    printf("            CHOLQR takes %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
     return 0;
 }
 
@@ -625,67 +600,12 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     if (!pivoting && !use_cholqr) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
     } else if (!pivoting && use_cholqr) {
-        /*
-        // The dowsgrade of speed should now only be seen in part 3 of HQRRP with Cholesky QR
-        int64_t num_stages_copy = num_stages;
-        int64_t m_A_copy = m_A;
-        int64_t n_A_copy = n_A;
-        int64_t ldim_A_copy = ldim_A;
-        int64_t ldim_T_copy = ldim_T;
-        //int64_t ldim_R_copy = ldim_R;
-        T* buff_A_copy  = ( T * ) calloc( ldim_A_copy * n_A_copy, sizeof( T ) );
-        T* buff_T_copy  = ( T * ) calloc( ldim_T_copy * n_A_copy, sizeof( T ) );
-        //T* buff_R_copy  = ( T * ) calloc( ldim_R_copy * n_A_copy, sizeof( T ) );
-        T* buff_t_copy  = ( T * ) calloc(  n_A_copy, sizeof( T ) );
-        //T* buff_D_copy  = ( T * ) calloc(  n_A_copy, sizeof( T ) );
-        // Everything besides A is supposed to  be empty
-        lapack::lacpy(MatrixType::Upper, ldim_A, n_A, buff_A, ldim_A, buff_A_copy, ldim_A_copy);
-
-        CHOLQR_mod_WY(num_stages_copy, m_A_copy, n_A_copy, buff_A_copy, ldim_A_copy, buff_t_copy, buff_T_copy, ldim_T_copy, buff_R, ldim_R, buff_D);
-        GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
-
-        // Build T.
-        lapack::larft( lapack::Direction::Forward,
-                        lapack::StoreV::Columnwise,
-                        m_A, num_stages, buff_A_copy, ldim_A, 
-                        buff_t_copy, buff_T, ldim_T
-        );
-
-        lapack::lacpy(MatrixType::Upper, ldim_A, n_A, buff_A_copy, ldim_A_copy, buff_A, ldim_A);
-        //lapack::lacpy(MatrixType::Upper, ldim_T, n_A, buff_T_copy, ldim_T_copy, buff_T, ldim_T);
-        lapack::lacpy(MatrixType::Upper, 1, n_A, buff_t_copy, 1, buff_t, 1);
-
-        return 0;
-        */
         return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
-
-    high_resolution_clock::time_point t1_start;
-    high_resolution_clock::time_point t1_stop;
-
-    high_resolution_clock::time_point t2_start;
-    high_resolution_clock::time_point t2_stop;
-    long t2_dur = 0;
-
-    high_resolution_clock::time_point t3_start;
-    high_resolution_clock::time_point t3_stop;
-    long t3_dur = 0;
-
-    high_resolution_clock::time_point t4_start;
-    high_resolution_clock::time_point t4_stop;
-    long t4_dur = 0;
-
-    high_resolution_clock::time_point t5_start;
-    high_resolution_clock::time_point t5_stop;
-    long t5_dur = 0;
-
-    t1_start  = high_resolution_clock::now();
 
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
             i_one = 1, n_house_vector, m_rest;
     T  * buff_d, * buff_e, * buff_workspace, diag;
-
-    //// printf( "NoFLA_QRPmod_WY_unb_var4. pivoting: %d \n", pivoting );
 
     // Some initializations.
     mn_A    = std::min( m_A, n_A );
@@ -703,14 +623,8 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     // Compute initial norms of A int64_to d and e.
     NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
 
-
-    t1_stop  = high_resolution_clock::now();
-    printf("            Part 1 of PQR time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
-
     // Main Loop.
     for( j = 0; j < num_stages; j++ ) {
-
-        t2_start  = high_resolution_clock::now();
 
         n_dB  = n_A - j;
         m_a21 = m_A - j - 1;
@@ -729,10 +643,6 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
             & buff_d[ j ],
             & buff_e[ j ] );
 
-        t2_stop  = high_resolution_clock::now();
-        t2_dur += duration_cast<microseconds>(t2_stop - t2_start).count();
-        t3_start  = high_resolution_clock::now();
-
         // Compute tau1 and u21 from alpha11 and a21 such that tau1 and u21
         // determine a Householder transform H such that applying H from the
         // left to the column vector consisting of alpha11 and a21 annihilates
@@ -744,10 +654,6 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
             i_one,
             & buff_t[j]
         );
-
-        t3_stop  = high_resolution_clock::now();
-        t3_dur += duration_cast<microseconds>(t3_stop - t3_start).count();
-        t4_start  = high_resolution_clock::now();
 
         // | a12t | =  H | a12t |
         // | A22  |      | A22  |
@@ -764,25 +670,13 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         );
         buff_A[ j + j * ldim_A ] = diag;
 
-        t4_stop  = high_resolution_clock::now();
-        t4_dur += duration_cast<microseconds>(t4_stop - t4_start).count();
-        t5_start  = high_resolution_clock::now();
-
         // Update partial column norms.
         NoFLA_QRP_downdate_partial_norms( m_A22, n_A22, 
             & buff_d[ j+1 ], 1,
             & buff_e[ j+1 ], 1,
             & buff_A[ j + ( j+1 ) * ldim_A ], ldim_A,
             & buff_A[ ( j+1 ) + std::min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
-
-        t5_stop  = high_resolution_clock::now();
-        t5_dur += duration_cast<microseconds>(t5_stop - t5_start).count();
     }
-
-    printf("            Part 2 of PQR time %ld\n", t2_dur);
-    printf("            Part 3 of PQR time %ld\n", t3_dur);
-    printf("            Part 4 of PQR time %ld\n", t4_dur);
-    printf("            Part 5 of PQR time %ld\n", t5_dur);
 
     // Build T.
     if( build_T ) {
@@ -839,12 +733,6 @@ int64_t hqrrp(
     int64_t * buff_jpvt, T * buff_tau,
     int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* block_per_time) {
 
-
-    //char name [] = "A";
-    //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name);
-
-    //high_resolution_clock::time_point timing_t_start = high_resolution_clock::now();
-
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
             n_A11, m_A12, n_A12, m_A21, m_A22,
@@ -895,9 +783,6 @@ int64_t hqrrp(
     buff_W  = ( T * ) calloc( m_W * n_W, sizeof( T ) );
     ldim_W  = m_W;
 
-    //char name1 [] = "First instance of T";
-    //RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name1);
-
     m_G     = nb_alg + pp;
     n_G     = m_A;
     buff_G  = ( T * ) calloc( m_G * n_G, sizeof( T ) );
@@ -919,9 +804,10 @@ int64_t hqrrp(
 
     //**********************************
     // This is for the advanced timing
+    
     high_resolution_clock::time_point iter_t_start;
     high_resolution_clock::time_point iter_t_stop;
-
+    /*
     high_resolution_clock::time_point t1_start;
     high_resolution_clock::time_point t1_stop;
 
@@ -936,6 +822,7 @@ int64_t hqrrp(
 
     high_resolution_clock::time_point tcopy_start;
     high_resolution_clock::time_point tcopy_stop;
+    */
     if (block_per_time != nullptr) {
         // The space required has already been preallocated
         iter_t_start  = high_resolution_clock::now();
@@ -953,7 +840,7 @@ int64_t hqrrp(
         }
 
 
-        t1_start  = high_resolution_clock::now();
+        //t1_start  = high_resolution_clock::now();
 
         b = std::min( nb_alg, std::min( n_A - j, m_A - j ) );
 
@@ -1034,9 +921,9 @@ int64_t hqrrp(
         free( buff_cyr );
 #endif
 
-        t1_stop  = high_resolution_clock::now();
-        printf("        Part 1 of HQRRP time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
-        t2_start  = high_resolution_clock::now();
+        //t1_stop  = high_resolution_clock::now();
+        //printf("        Part 1 of HQRRP time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
+        //t2_start  = high_resolution_clock::now();
 
         if( !last_iter ) {
             // Compute QRP of YR, and apply permutations to matrix AR.
@@ -1050,13 +937,13 @@ int64_t hqrrp(
             //    Specifically, this custom function operates on three matrices (VR, AR, and YR) in
             //    sync with one another, while GEQP3 only operates on one matrix.
             //
-            tcopy_start  = high_resolution_clock::now();
+            //tcopy_start  = high_resolution_clock::now();
             lapack::lacpy( MatrixType::General,
                             m_V, n_VR,
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);
-            tcopy_stop  = high_resolution_clock::now();
-            printf("            Copy time %ld\n", duration_cast<microseconds>(tcopy_stop - tcopy_start).count());
+            //tcopy_stop  = high_resolution_clock::now();
+            //printf("            Copy time %ld\n", duration_cast<microseconds>(tcopy_stop - tcopy_start).count());
             NoFLA_QRPmod_WY_unb_var4(0, 1, b,
                 m_V, n_VR,
                 buff_VR, ldim_V,
@@ -1066,13 +953,13 @@ int64_t hqrrp(
                 0, (T*) nullptr, 0, (T*) nullptr, 0, (T*) nullptr 
             );
         }
-        t2_stop  = high_resolution_clock::now();
+        //t2_stop  = high_resolution_clock::now();
         
         //char name1 [] = "A before qr";
         //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name1);
         
-        printf("        Part 2 of HQRRP time %ld\n", duration_cast<microseconds>(t2_stop - t2_start).count());
-        t3_start  = high_resolution_clock::now();
+        //printf("        Part 2 of HQRRP time %ld\n", duration_cast<microseconds>(t2_stop - t2_start).count());
+        //t3_start  = high_resolution_clock::now();
         //
         // Compute QRP of panel AB1 = [ A11; A21 ].
         // Apply same permutations to A01 and Y1, and build T1_T.
@@ -1090,13 +977,6 @@ int64_t hqrrp(
         //    The code path where we hit a GEQRF-like function is very different;
         //    it only operates on AB1!
         //
-        if(j == 0){
-            //char name1 [] = "A before qr";
-            //RandBLAS::util::print_colmaj(ldim_A, 5, buff_AB1, name1);
-
-            double norm_A = lapack::lange(Norm::Fro, m_AB1, n_AB1, buff_AB1, ldim_A);
-            printf("Matrix A norm %e\n", norm_A);
-        }
 
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
@@ -1104,16 +984,10 @@ int64_t hqrrp(
             1, m_Y, buff_Y1, ldim_Y,
             1, buff_T1_T, ldim_W, buff_R, ldim_R, buff_D);
 
-        t3_stop  = high_resolution_clock::now();
-        printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
+        //t3_stop  = high_resolution_clock::now();
+        //printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
 
-        //char name [] = "T after qr";
-        //RandBLAS::util::print_colmaj(ldim_W, n_A, buff_W, name);
-
-        //char name2 [] = "A after qr";
-        //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name2);
-
-        t4_start  = high_resolution_clock::now();
+        //t4_start  = high_resolution_clock::now();
 
         //
         // Update the rest of the matrix.
@@ -1144,8 +1018,8 @@ int64_t hqrrp(
                 std::max<int64_t>( 0, n_G - j - b ), buff_G2, ldim_G );
         }
 
-        t4_stop  = high_resolution_clock::now();
-        printf("        Part 4 of HQRRP time %ld\n", duration_cast<microseconds>(t4_stop - t4_start).count());
+        //t4_stop  = high_resolution_clock::now();
+        //printf("        Part 4 of HQRRP time %ld\n", duration_cast<microseconds>(t4_stop - t4_start).count());
 
         if (block_per_time != nullptr) {
             // The space required has already been preallocated
@@ -1163,10 +1037,6 @@ int64_t hqrrp(
     free( buff_W );
     free( buff_R );
     free( buff_D );
-
-    //high_resolution_clock::time_point timing_t_stop = high_resolution_clock::now();
-    //printf("TIME HQRRP TOOK INSIDE HQRRP %ld\n", duration_cast<microseconds>(timing_t_stop - timing_t_start).count());
-
     return 0;
 }
 

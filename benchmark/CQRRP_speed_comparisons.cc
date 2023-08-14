@@ -73,9 +73,6 @@ static std::vector<long> call_all_algs(
     long t_hqrrp_geqrf_best  = 0;
     long t_hqrrp_cholqr_best = 0;
     long t_geqrf_best        = 0;
-
-    std::vector<T> time_hqrrp_geqrf(std::ceil(n / b_sz), 0.0);
-    std::vector<T> time_hqrrp_cholqr(std::ceil(n / b_sz), 0.0);
     
     // Making sure the states are unchanged
     auto state_gen_0 = state;
@@ -114,7 +111,7 @@ static std::vector<long> call_all_algs(
 
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg_1, time_hqrrp_geqrf.data());
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg_1, (T*) nullptr);
         auto stop_hqrrp_geqrf = high_resolution_clock::now();
         dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
         printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
@@ -132,7 +129,7 @@ static std::vector<long> call_all_algs(
 
         // Testing HQRRP with Cholqr
         auto start_hqrrp_cholqr = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg_2, time_hqrrp_cholqr.data());
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg_2, (T*) nullptr);
         auto stop_hqrrp_cholqr = high_resolution_clock::now();
         dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
         printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
@@ -160,15 +157,15 @@ int main() {
     int64_t m          = std::pow(2, 14);
     int64_t n          = std::pow(2, 14);
     int64_t d_factor   = 1.125;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 256;
+    int64_t b_sz_start = 2048;
+    int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 1;
+    int64_t numruns = 5;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
