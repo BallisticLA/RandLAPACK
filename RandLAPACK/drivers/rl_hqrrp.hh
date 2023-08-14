@@ -625,7 +625,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     if (!pivoting && !use_cholqr) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
     } else if (!pivoting && use_cholqr) {
-
+        /*
         // The dowsgrade of speed should now only be seen in part 3 of HQRRP with Cholesky QR
         int64_t num_stages_copy = num_stages;
         int64_t m_A_copy = m_A;
@@ -656,7 +656,8 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         lapack::lacpy(MatrixType::Upper, 1, n_A, buff_t_copy, 1, buff_t, 1);
 
         return 0;
-        //return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
+        */
+        return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
 
     high_resolution_clock::time_point t1_start;
