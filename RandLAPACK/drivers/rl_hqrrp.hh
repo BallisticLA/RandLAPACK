@@ -620,10 +620,10 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         int64_t n_A_copy = n_A;
         int64_t ldim_A_copy = ldim_A;
         int64_t ldim_T_copy = ldim_T;
-        //int64_t ldim_R_copy = ldim_R;
+        int64_t ldim_R_copy = ldim_R;
         T* buff_A_copy  = ( T * ) calloc( ldim_A_copy * n_A_copy, sizeof( T ) );
         T* buff_T_copy  = ( T * ) calloc( ldim_T_copy * n_A_copy, sizeof( T ) );
-        T* buff_R_copy  = ( T * ) calloc( ldim_R_copy * n_A_copy, sizeof( T ) );
+        //T* buff_R_copy  = ( T * ) calloc( ldim_R_copy * n_A_copy, sizeof( T ) );
         T* buff_t_copy  = ( T * ) calloc(  n_A_copy, sizeof( T ) );
         T* buff_D_copy  = ( T * ) calloc(  n_A_copy, sizeof( T ) );
         // Everything besides A is supposed to  be empty
