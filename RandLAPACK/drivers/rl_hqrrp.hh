@@ -1089,8 +1089,10 @@ int64_t hqrrp(
         //    The code path where we hit a GEQRF-like function is very different;
         //    it only operates on AB1!
         //
-        char name1 [] = "A before qr";
+        if(j = 0){
+        char name1 [] = "A before qr at iter 1";
         RandBLAS::util::print_colmaj(ldim_A, n_A, buff_AB1, name1);
+        }
 
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
