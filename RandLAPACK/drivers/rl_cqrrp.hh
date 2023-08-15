@@ -299,13 +299,14 @@ int CQRRP_blocked<T, RNG>::call(
                 } break;
             case 1: {
                 // HQRRP with Cholesky QR & smaller block size
-                int64_t b_sz_hqrrp = std::max(b_sz / 4, (int64_t) 1);
                 std::iota(&J_buffer[0], &J_buffer[n], 1);
-                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz_hqrrp, (d_factor - 1) * b_sz_hqrrp, 0, 1, state, (T*) nullptr);
+                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 32, 10, 0, 1, state, (T*) nullptr);
                 } break;
             case 2: {
                 // Use CQRRP with smaller block size
-                RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRPT_small(false, false, this->eps, std::max(b_sz / 4, (int64_t) 1));
+                //T ratio = m / (T) b_sz;
+                //int64_t small_b_sz = sampling_dimension / ratio;
+                RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRPT_small(false, false, this->eps, b_sz / 2);
                 CQRRPT_small.nnz = this->nnz;
                 CQRRPT_small.num_threads = this->num_threads;
                 CQRRPT_small.qrcp = 1;
@@ -446,7 +447,6 @@ int CQRRP_blocked<T, RNG>::call(
 
             if(this->timing_advanced) {
                 iter_t_stop  = high_resolution_clock::now();
-                printf("+%ld\n", duration_cast<microseconds>(iter_t_stop - iter_t_start).count());
                 this->block_per_time[iter] = ((T) rows * b_sz) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
             }
 
@@ -528,7 +528,6 @@ int CQRRP_blocked<T, RNG>::call(
         rows -= b_sz;
         cols -= b_sz;
     }
-    printf("Total number of iterations %d\n", iter);
     return 0;
 }
 
