@@ -107,8 +107,8 @@ static std::vector<long> call_all_algs(
         // Update best timing
         i == 0 ? t_cqrrp_geqp3_best = dur_cqrrp_geqp3 : (dur_cqrrp_geqp3 < t_cqrrp_geqp3_best) ? t_cqrrp_geqp3_best = dur_cqrrp_geqp3 : NULL;
 
-        auto state_gen_3 = state_gen_1;
-        auto state_alg_3 = state_alg_1;
+        auto state_gen_4 = state_gen_1;
+        auto state_alg_4 = state_alg_1;
 
 /*
         // Making sure the states are unchanged
@@ -142,7 +142,7 @@ static std::vector<long> call_all_algs(
         printf("TOTAL TIME FOR CQRRP with CQRRP %ld\n", dur_cqrrp_cqrrp);
         // Update best timing
         i == 0 ? t_cqrrp_cqrrp_best = dur_cqrrp_cqrrp : (dur_cqrrp_cqrrp < t_cqrrp_cqrrp_best) ? t_cqrrp_cqrrp_best = dur_cqrrp_cqrrp : NULL;
-*/
+
         // Making sure the states are unchanged
         auto state_gen_4 = state_gen_3;
         auto state_alg_4 = state_alg_3;
@@ -157,7 +157,7 @@ static std::vector<long> call_all_algs(
         printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
         // Update best timing
         i == 0 ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : (dur_hqrrp_geqrf < t_hqrrp_geqrf_best) ? t_hqrrp_geqrf_best = dur_hqrrp_geqrf : NULL;
-
+*/
         // Making sure the states are unchanged
         auto state_gen_5 = state_gen_4;
         auto state_alg_5 = state_alg_4;
@@ -193,18 +193,18 @@ static std::vector<long> call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
+    int64_t m          = 1.125 * 1024;//std::pow(2, 14);
     int64_t n          = std::pow(2, 14);
     int64_t d_factor   = 1.125;
     int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 2048;
+    int64_t b_sz_end   = 1024;//2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 5;
+    int64_t numruns = 10;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
