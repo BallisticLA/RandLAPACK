@@ -276,6 +276,14 @@ int CQRRP_blocked<T, RNG>::call(
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
     }
 
+    // Create an alternative to GEQP3 in form of a smaller CQRRP.
+    // This will be waster\ful if we don't actually use it
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_small(false, false, this->eps, b_sz / 2);
+    CQRRP_small.nnz = this->nnz;
+    CQRRP_small.num_threads = this->num_threads;
+    CQRRP_small.qrcp = 0;
+    CQRRP_small.timing_advanced = 0;
+
     for(iter = 0; iter < maxiter; ++iter) {
         if (this->timing_advanced)
             iter_t_start  = high_resolution_clock::now();
@@ -304,14 +312,7 @@ int CQRRP_blocked<T, RNG>::call(
                 } break;
             case 2: {
                 // Use CQRRP with smaller block size
-                //T ratio = m / (T) b_sz;
-                //int64_t small_b_sz = sampling_dimension / ratio;
-                RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRPT_small(false, false, this->eps, b_sz / 2);
-                CQRRPT_small.nnz = this->nnz;
-                CQRRPT_small.num_threads = this->num_threads;
-                CQRRPT_small.qrcp = 1;
-                CQRRPT_small.timing_advanced = 0;
-                CQRRPT_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
+                CQRRP_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
                 } break;
         }
 
