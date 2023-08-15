@@ -47,6 +47,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             block_size = b_sz;
+            qrcp = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -114,6 +115,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // tuning SASOS
         int num_threads;
         int64_t nnz;
+
+        // Selecting a pivoted QR version
+        int64_t qrcp;
 
 };
 
@@ -305,7 +309,26 @@ int CQRRP_blocked<T, RNG>::call(
             qrcp_t_start = high_resolution_clock::now();
 
         // Performing QR with column pivoting
-        lapack::geqp3(sampling_dimension, cols, A_sk_dat, d, J_buffer_dat, Work4_dat);
+        switch(this->qrcp) { 
+            case 0: {
+                // Standard LAPACK GEQP3
+                lapack::geqp3(sampling_dimension, cols, A_sk_dat, d, J_buffer_dat, Work4_dat);
+                } break;
+            case 1: {
+                // HQRRP with Cholesky QR & smaller block size
+                int64_t b_sz_hqrrp = std::max(b_sz / 4, (int64_t) 1);
+                std::iota(J_buffer.begin(), J_buffer.end(), 1);
+                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk_dat, d, J_buffer_dat, Work4_dat, b_sz_hqrrp, (d_factor - 1) * b_sz_hqrrp, 0, 1, state, (T*) nullptr);
+                } break;
+            case 2: {
+                printf("smth");
+                // Use CQRRP with smaller block size
+                    //RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRPT_small(false, false, this->tol, std::max(b_sz / 4, 1));
+                    //CQRRPT_small.nnz = this->nnz;
+                    //CQRRPT_small.num_threads = this->num_threads;
+                    //CQRRPT_small.call(sampling_dimension, cols, , d_factor, all_data.tau, all_data.J, state_alg_0);
+                } break;
+        }
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
