@@ -218,6 +218,7 @@ int CQRRP_blocked<T, RNG>::call(
 
     // J_buffer serves as a buffer for the pivots found at every iteration, of size n.
     // At every iteration, it would only hold "cols" entries.
+    // Cannot really fully switch this to pointers bc we do not want data to be modified in "col_swap."
     std::vector<int64_t> J_buf (n, 0);
     int64_t* J_buffer = J_buf.data();
     //int64_t* J_buffer = ( int64_t * ) calloc( n, sizeof( int64_t ) );
