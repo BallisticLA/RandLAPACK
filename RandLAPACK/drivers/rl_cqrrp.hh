@@ -308,7 +308,7 @@ int CQRRP_blocked<T, RNG>::call(
                 RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRPT_small(false, false, this->eps, std::max(b_sz / 4, (int64_t) 1));
                 CQRRPT_small.nnz = this->nnz;
                 CQRRPT_small.num_threads = this->num_threads;
-                CQRRPT_small.qrcp = 2;
+                //CQRRPT_small.qrcp = 2;
                 CQRRPT_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
                 } break;
         }
