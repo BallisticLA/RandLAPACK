@@ -180,7 +180,7 @@ int CQRRP_blocked<T, RNG>::call(
     // Describes sizes of full Q and R factors at a given iteration.
     int64_t curr_sz = 0;
     int64_t b_sz    = this->block_size;
-    int64_t maxiter = (int64_t) std::ceil(n / (T) b_sz);
+    int64_t maxiter = (int64_t) std::ceil(std::min(n, n) / (T) b_sz);
     // This will serve as lda of a sketch
     int64_t d       = d_factor * b_sz;
     // We will be using this parameter when performing QRCP on a sketch.
@@ -290,7 +290,7 @@ int CQRRP_blocked<T, RNG>::call(
 
 
         // Make sure we fit into the available space
-        b_sz = std::min(this->block_size, n - curr_sz);
+        b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
         // Zero-out data - may not be necessary
         std::fill(&J_buffer[0], &J_buffer[n], 0);
