@@ -25,10 +25,10 @@ class CQRRPalg {
         virtual int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t d_factor,
-            std::vector<T> &tau,
-            std::vector<int64_t> &J,
+            T* tau,
+            int64_t* J,
             RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
@@ -88,10 +88,10 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t d_factor,
-            std::vector<T> &tau,
-            std::vector<int64_t> &J,
+            T* tau,
+            int64_t* J,
             RandBLAS::RNGState<RNG> &state
         ) override;
 
@@ -121,15 +121,16 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
 
 };
 
+// We are assuming that tau and J have been pre-allocated
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int CQRRP_blocked<T, RNG>::call(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    T* A,
     int64_t d_factor,
-    std::vector<T> &tau,
-    std::vector<int64_t> &J,
+    T* tau,
+    int64_t* J,
     RandBLAS::RNGState<RNG> &state
 ){
     //-------TIMING VARS--------/
@@ -190,47 +191,26 @@ int CQRRP_blocked<T, RNG>::call(
     // Advanced timing feature
     if (this->timing_advanced)
         RandLAPACK::util::upsize(maxiter, this->block_per_time);
-    
-    // Make sure the pivots vector has enough space
-    J.resize(n);
-    // Making sure vector tau has enough space.
-    RandLAPACK::util::upsize(n, tau);
-
-    // Setting up space for skethcing buffer
-    std::vector<T> A_sk(d * n, 0.0);
-    // Setting up space for a buffer for R-factor from Cholesky QR
-    std::vector<T> R_cholqr (b_sz * b_sz, 0.0);
-    // And a buffer for T from orhr_col
-    std::vector<T> T_mat (b_sz * b_sz, 0.0);
-    // Setting up space for a buffer for pivot vector
-    std::vector<int64_t> J_buffer (n, 0);
-    // Setting up space for a buffer for tau in GEQP3 and D in orhr_col
-    std::vector<T> Work4 (n, 0.0);
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
 
     // Pointer to the beginning of the original space of A.
-    // It will always point to the same memory location.
-    T* A_dat      = A.data();
     // Pointer to the beginning of A's "work zone," 
     // will shift at every iteration of an algorithm by (m * b_sz) + b_sz.
-    T* A_work_dat = A.data();
+    T* A_work = A;
     // Workspace 1 pointer - will serve as a buffer for computing R12 and updated matrix A.
-    // Points to a location, offset by m * b_sz from the current "A_work_dat."
-    T* Work1_dat  = NULL;
+    // Points to a location, offset by m * b_sz from the current "A_work."
+    T* Work1  = NULL;
     // Points to R11 factor, right above the compact Q, of size b_sz by b_sz.
-    T* R11_dat    = NULL;
+    T* R11    = NULL;
     // Points to R12 factor, to the right of R11 and above Work1 of size b_sz by n - cols.
-    T* R12_dat    = NULL;
+    T* R12    = NULL;
     //**********************************POINTERS TO A END**********************************
 
     //*********************************POINTERS TO OTHER BEGIN*********************************
-    int64_t* J_dat = J.data();
-    // Pointer to the full vector tau.
-    T* tau_full_dat = tau.data();
     // Pointer to the portion of vector tau at current iteration.
-    T* tau_dat = NULL;
+    T* tau_sub = NULL;
     //**********************************POINTERS TO OTHER END**********************************
 
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE BEGIN*******************
@@ -238,7 +218,9 @@ int CQRRP_blocked<T, RNG>::call(
 
     // J_buffer serves as a buffer for the pivots found at every iteration, of size n.
     // At every iteration, it would only hold "cols" entries.
-    int64_t* J_buffer_dat = J_buffer.data();
+    std::vector<int64_t> J_buf (n, 0);
+    int64_t* J_buffer = J_buf.data();
+    //int64_t* J_buffer = ( int64_t * ) calloc( n, sizeof( int64_t ) );
 
     // A_sk serves as a skething matrix, of size d by n, lda d
     // Below algorithm does not perform repeated sampling, hence A_sk
@@ -246,9 +228,9 @@ int CQRRP_blocked<T, RNG>::call(
     // Should remain unchanged throughout the algorithm,
     // As the algorithm needs to have access to the upper-triangular factor R
     // (stored in this matrix after geqp3) at all times. 
-    T* A_sk_dat = A_sk.data();
+    T* A_sk = ( T * ) calloc( d * n, sizeof( T ) );
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
-    T* R_sk_dat = NULL;
+    T* R_sk = NULL;
 
     // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
     // Also used to store the proper R11_full-factor after the 
@@ -256,15 +238,15 @@ int CQRRP_blocked<T, RNG>::call(
     // That is done by applying the sign vector D from orhr_col().
     // Eventually, will be used to store R11 (computed via trmm)
     // which is then copied into its appropriate space in the matrix A.
-    T* R_cholqr_dat = R_cholqr.data();
+    T* R_cholqr = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
     // Pointer to matrix T from orhr_col at currect iteration, will point to Work2 space.
-    T* T_dat        = T_mat.data();
+    T* T_dat    = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
-    T* Work4_dat = Work4.data();
+    T* Work4    = ( T * ) calloc( n, sizeof( T ) );
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
-    T norm_A     = lapack::lange(Norm::Fro, m, n, A_dat, m);
+    T norm_A     = lapack::lange(Norm::Fro, m, n, A, m);
     T norm_A_sq  = std::pow(norm_A, 2);
     T norm_R     = 0.0;
     T norm_R11   = 0.0;
@@ -285,7 +267,7 @@ int CQRRP_blocked<T, RNG>::call(
 
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_sk_dat, d
+        d, n, m, 1.0, S, 0, 0, A, m, 0.0, A_sk, d
     );
 
     if(this -> timing) {
@@ -302,8 +284,8 @@ int CQRRP_blocked<T, RNG>::call(
         b_sz = std::min(this->block_size, n - curr_sz);
 
         // Zero-out data - may not be necessary
-        std::fill(J_buffer.begin(), J_buffer.end(), 0);
-        std::fill(Work4.begin(), Work4.end(), 0.0);
+        std::fill(&J_buffer[0], &J_buffer[n], 0);
+        std::fill(&Work4[0], &Work4[n], 0.0);
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
@@ -312,21 +294,21 @@ int CQRRP_blocked<T, RNG>::call(
         switch(this->qrcp) { 
             case 0: {
                 // Standard LAPACK GEQP3
-                lapack::geqp3(sampling_dimension, cols, A_sk_dat, d, J_buffer_dat, Work4_dat);
+                lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
                 } break;
             case 1: {
                 // HQRRP with Cholesky QR & smaller block size
                 int64_t b_sz_hqrrp = std::max(b_sz / 4, (int64_t) 1);
-                std::iota(J_buffer.begin(), J_buffer.end(), 1);
-                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk_dat, d, J_buffer_dat, Work4_dat, b_sz_hqrrp, (d_factor - 1) * b_sz_hqrrp, 0, 1, state, (T*) nullptr);
+                std::iota(&J_buffer[0], &J_buffer[n], 1);
+                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz_hqrrp, (d_factor - 1) * b_sz_hqrrp, 0, 1, state, (T*) nullptr);
                 } break;
             case 2: {
-                printf("smth");
                 // Use CQRRP with smaller block size
-                    //RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRPT_small(false, false, this->tol, std::max(b_sz / 4, 1));
-                    //CQRRPT_small.nnz = this->nnz;
-                    //CQRRPT_small.num_threads = this->num_threads;
-                    //CQRRPT_small.call(sampling_dimension, cols, , d_factor, all_data.tau, all_data.J, state_alg_0);
+                RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRPT_small(false, false, this->eps, std::max(b_sz / 4, (int64_t) 1));
+                CQRRPT_small.nnz = this->nnz;
+                CQRRPT_small.num_threads = this->num_threads;
+                CQRRPT_small.qrcp = 2;
+                CQRRPT_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
                 } break;
         }
 
@@ -339,7 +321,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         if(iter != 0)
-            util::col_swap(curr_sz, cols, cols, &A_dat[m * curr_sz], m, J_buffer);
+            util::col_swap(curr_sz, cols, cols, &A[m * curr_sz], m, J_buf);
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
@@ -348,19 +330,19 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Pivoting the current matrix A.
-        util::col_swap(rows, cols, cols, A_work_dat, m, J_buffer);
+        util::col_swap(rows, cols, cols, A_work, m, J_buf);
 
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
-        // Work1_dat = &A_dat[(m * (iter + 1) * b_sz) + curr_sz];
-        Work1_dat = &A_work_dat[m * b_sz];
+        // Work1 = &A[(m * (iter + 1) * b_sz) + curr_sz];
+        Work1 = &A_work[m * b_sz];
 
         // Define the space representing R_sk (stored in A_sk)
-        R_sk_dat = A_sk_dat;
+        R_sk = A_sk;
 
         // A_pre = AJ(:, 1:b_sz) * R_sk
         // Performing preconditioning of the current matrix A.
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk_dat, d, A_work_dat, m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk, d, A_work, m);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -371,11 +353,11 @@ int CQRRP_blocked<T, RNG>::call(
             cholqr_t_start = high_resolution_clock::now();
 
         // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work_dat, m, 0.0, R_cholqr_dat, b_sz);
-        lapack::potrf(Uplo::Upper, b_sz, R_cholqr_dat, b_sz);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, m, 0.0, R_cholqr, b_sz);
+        lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz);
 
         // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_cholqr_dat, b_sz, A_work_dat, m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_cholqr, b_sz, A_work, m);
 
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
@@ -388,7 +370,7 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        lapack::orhr_col(rows, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, Work4_dat);
+        lapack::orhr_col(rows, b_sz, b_sz, A_work, m, T_dat, b_sz, Work4);
 
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
@@ -398,10 +380,10 @@ int CQRRP_blocked<T, RNG>::call(
                R_cholqr[(b_sz * i) + j] *= Work4[j];
 
         // Define a pointer to the current subportion of tau vector.
-        tau_dat = &tau_full_dat[curr_sz];
+        tau_sub = &tau[curr_sz];
         // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
         for(i = 0; i < b_sz; ++i)
-            tau_dat[i] = T_dat[(b_sz + 1) * i];
+            tau_sub[i] = T_dat[(b_sz + 1) * i];
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -414,30 +396,30 @@ int CQRRP_blocked<T, RNG>::call(
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work_dat, m, T_dat, b_sz, Work1_dat, m);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, m, T_dat, b_sz, Work1, m);
 
         // Updating pivots
         if(iter == 0) {
-            blas::copy(cols, J_buffer_dat, 1, J_dat, 1);
+            blas::copy(cols, J_buffer, 1, J, 1);
         } else {
-            RandLAPACK::util::col_swap<T>(cols, cols, &J_dat[curr_sz], J_buffer);
+            RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
         }
 
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk_dat, d, R_cholqr_dat, b_sz);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk, d, R_cholqr, b_sz);
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
-        // R11_dat =  &A_dat[(m + 1) * curr_sz];
-        R11_dat = A_work_dat;
-        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr_dat, b_sz, A_work_dat, m);
+        // R11 =  &A[(m + 1) * curr_sz];
+        R11 = A_work;
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr, b_sz, A_work, m);
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
-        // R12_dat =  &A_dat[(m * (curr_sz + b_sz)) + curr_sz];
-        R12_dat = &R11_dat[m * b_sz];
+        // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
+        R12 = &R11[m * b_sz];
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();
@@ -446,8 +428,8 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
         // Keep in mind that R11 is Upper triangular and R12 is rectangular.
-        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11_dat, m);
-        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12_dat, m);
+        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11, m);
+        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12, m);
         norm_R_i = std::hypot(norm_R11, norm_R12);
         norm_R   = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
@@ -502,20 +484,20 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
-        // Work1_dat = &A_dat[(m * (iter + 1) * b_sz) + curr_sz + b_sz];
+        // Work1 = &A[(m * (iter + 1) * b_sz) + curr_sz + b_sz];
         // Also, Below is identical to:
-        // A_work_dat = &A_work_dat[(m + 1) * b_sz];
-        A_work_dat = &Work1_dat[b_sz];
+        // A_work = &A_work[(m + 1) * b_sz];
+        A_work = &Work1[b_sz];
         
         // Updating the skethcing buffer
-        // trsm (R_sk_dat, R11) -> R_sk_dat
+        // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
-        RandLAPACK::util::get_U(b_sz, b_sz, R_sk_dat, d);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11_dat, m, R_sk_dat, d);
+        RandLAPACK::util::get_U(b_sz, b_sz, R_sk, d);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11, m, R_sk, d);
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk_dat, d, R12_dat, m, 1.0, &R_sk_dat[d * b_sz], d);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk, d, R12, m, 1.0, &R_sk[d * b_sz], d);
         
         // Changing the sampling dimension parameter
         sampling_dimension = std::min(sampling_dimension, cols);
@@ -523,12 +505,12 @@ int CQRRP_blocked<T, RNG>::call(
         // Need to zero out the lower triangular portion of R_sk_22
         // Make sure R_sk_22 exists.
         if (sampling_dimension - b_sz > 0)
-            RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk_dat[(d + 1) * b_sz], d);
+            RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
         // Remember that the only "active" portion of A_sk remaining would be of size cols by cols;
         // if any rows beyond that would be accessed, we would have issues. 
-        A_sk_dat = &A_sk_dat[d * b_sz];
+        A_sk = &A_sk[d * b_sz];
 
         if(this -> timing) {
             updating_t_stop  = high_resolution_clock::now();

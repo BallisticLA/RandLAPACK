@@ -119,7 +119,7 @@ class TestCQRRP : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRP.call(m, n, all_data.A, d_factor, all_data.tau, all_data.J, state);
+        CQRRP.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
         all_data.rank = CQRRP.rank;
 
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
