@@ -452,6 +452,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Size of the factors is updated;
         curr_sz += b_sz;
+        printf("curr_sz %ld\n\n", curr_sz);
 
         if((approx_err < this->eps) || (curr_sz >= n)) {
             // Termination criteria reached
