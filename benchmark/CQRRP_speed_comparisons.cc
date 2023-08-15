@@ -107,6 +107,10 @@ static std::vector<long> call_all_algs(
         // Update best timing
         i == 0 ? t_cqrrp_geqp3_best = dur_cqrrp_geqp3 : (dur_cqrrp_geqp3 < t_cqrrp_geqp3_best) ? t_cqrrp_geqp3_best = dur_cqrrp_geqp3 : NULL;
 
+        auto state_gen_4 = state_gen_1;
+        auto state_alg_4 = state_alg_1;
+
+/*
         // Making sure the states are unchanged
         auto state_gen_2 = state_gen_1;
         auto state_alg_2 = state_alg_1;
@@ -138,7 +142,7 @@ static std::vector<long> call_all_algs(
         printf("TOTAL TIME FOR CQRRP with CQRRP %ld\n", dur_cqrrp_cqrrp);
         // Update best timing
         i == 0 ? t_cqrrp_cqrrp_best = dur_cqrrp_cqrrp : (dur_cqrrp_cqrrp < t_cqrrp_cqrrp_best) ? t_cqrrp_cqrrp_best = dur_cqrrp_cqrrp : NULL;
-
+*/
         // Making sure the states are unchanged
         auto state_gen_4 = state_gen_3;
         auto state_alg_4 = state_alg_3;

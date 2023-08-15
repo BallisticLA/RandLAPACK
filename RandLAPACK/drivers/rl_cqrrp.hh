@@ -298,7 +298,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
-
+/*
         // Performing QR with column pivoting
         switch(this->qrcp) { 
             case 0: {
@@ -314,6 +314,13 @@ int CQRRP_blocked<T, RNG>::call(
                 // Use CQRRP with smaller block size
                 CQRRP_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
                 } break;
+        }
+*/
+        if(b_sz > 1024) {
+            CQRRP_small.block_size = 256;
+            CQRRP_small.call(sampling_dimension, cols, A_sk, 1.1, Work4, J_buffer, state);
+        } else {
+            RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 1, state, (T*) nullptr);
         }
 
         if(this -> timing) {
