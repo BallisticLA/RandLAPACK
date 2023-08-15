@@ -368,6 +368,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Performing Cholesky QR
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, m, 0.0, R_cholqr, b_sz);
+        printf("BREAK BEFORE POTRF\n");
         lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz);
 
         // Compute Q_econ from Cholesky QR
