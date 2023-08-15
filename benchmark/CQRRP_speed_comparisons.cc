@@ -107,8 +107,8 @@ static std::vector<long> call_all_algs(
         // Update best timing
         i == 0 ? t_cqrrp_geqp3_best = dur_cqrrp_geqp3 : (dur_cqrrp_geqp3 < t_cqrrp_geqp3_best) ? t_cqrrp_geqp3_best = dur_cqrrp_geqp3 : NULL;
 
-        auto state_gen_4 = state_gen_1;
-        auto state_alg_4 = state_alg_1;
+        auto state_gen_3 = state_gen_1;
+        auto state_alg_3 = state_alg_1;
 
 /*
         // Making sure the states are unchanged
