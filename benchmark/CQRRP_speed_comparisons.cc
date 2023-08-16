@@ -194,7 +194,7 @@ static std::vector<long> call_all_algs(
 int main() {
     // Declare parameters
     int64_t m          = 1.125 * 1024;//std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
+    int64_t n          = std::pow(2, 13);
     int64_t d_factor   = 1.125;
     int64_t b_sz_start = 512;
     int64_t b_sz_end   = 1024;//2048;

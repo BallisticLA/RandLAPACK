@@ -316,15 +316,18 @@ int CQRRP_blocked<T, RNG>::call(
                 } break;
         }
 */
-/*
         if(b_sz > 1024) {
             CQRRP_small.block_size = 256;
             CQRRP_small.call(sampling_dimension, cols, A_sk, 1.1, Work4, J_buffer, state);
         } else {
+            std::iota(&J_buffer[0], &J_buffer[n], 1);
             RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 1, state, (T*) nullptr);
         }
-*/
-        RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 1, state, (T*) nullptr);
+
+        //std::iota(&J_buffer[0], &J_buffer[n], 1);
+        //RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 0, state, (T*) nullptr);
+        
+        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -368,7 +371,6 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Performing Cholesky QR
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, m, 0.0, R_cholqr, b_sz);
-        printf("BREAK BEFORE POTRF\n");
         lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz);
 
         // Compute Q_econ from Cholesky QR
@@ -385,7 +387,6 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        printf("rows %ld, cols %ld\n", rows, b_sz);
         lapack::orhr_col(rows, b_sz, b_sz, A_work, m, T_dat, b_sz, Work4);
 
         // Need to change signs in the R-factor from Cholesky QR.
@@ -453,7 +454,6 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Size of the factors is updated;
         curr_sz += b_sz;
-        printf("curr_sz %ld\n\n", curr_sz);
 
         if((approx_err < this->eps) || (curr_sz >= n)) {
             // Termination criteria reached
