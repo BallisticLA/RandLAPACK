@@ -180,7 +180,7 @@ int CQRRP_blocked<T, RNG>::call(
     // Describes sizes of full Q and R factors at a given iteration.
     int64_t curr_sz = 0;
     int64_t b_sz    = this->block_size;
-    int64_t maxiter = (int64_t) std::ceil(std::min(n, n) / (T) b_sz);
+    int64_t maxiter = (int64_t) std::ceil(std::min(m, n) / (T) b_sz);
     // This will serve as lda of a sketch
     int64_t d       = d_factor * b_sz;
     // We will be using this parameter when performing QRCP on a sketch.
@@ -288,7 +288,6 @@ int CQRRP_blocked<T, RNG>::call(
         if (this->timing_advanced)
             iter_t_start  = high_resolution_clock::now();
 
-
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
@@ -316,6 +315,7 @@ int CQRRP_blocked<T, RNG>::call(
                 } break;
         }
 */
+        /*
         if(b_sz > 1024) {
             CQRRP_small.block_size = 256;
             CQRRP_small.call(sampling_dimension, cols, A_sk, 1.1, Work4, J_buffer, state);
@@ -323,9 +323,9 @@ int CQRRP_blocked<T, RNG>::call(
             std::iota(&J_buffer[0], &J_buffer[n], 1);
             RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 1, state, (T*) nullptr);
         }
-
-        //std::iota(&J_buffer[0], &J_buffer[n], 1);
-        //RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 0, state, (T*) nullptr);
+        */
+        std::iota(&J_buffer[0], &J_buffer[n], 1);
+        RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 0, state, (T*) nullptr);
         
         //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
 
