@@ -196,7 +196,7 @@ int main() {
     int64_t m          = 1.125 * 1024;//std::pow(2, 14);
     int64_t n          = std::pow(2, 14);
     int64_t d_factor   = 1.125;
-    int64_t b_sz_start = 128;
+    int64_t b_sz_start = 256;
     int64_t b_sz_end   = 1024;//2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
