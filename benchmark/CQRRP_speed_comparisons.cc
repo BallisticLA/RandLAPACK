@@ -68,9 +68,7 @@ static std::vector<long> call_all_algs(
     long dur_hqrrp_geqrf  = 0;
     long dur_hqrrp_cholqr = 0;
     long dur_geqrf        = 0;
-    long t_cqrrp_geqp3_best  = 0;
-    long t_cqrrp_hqrrp_best  = 0;
-    long t_cqrrp_cqrrp_best  = 0;
+    long t_cqrrp_best        = 0;
     long t_hqrrp_geqrf_best  = 0;
     long t_hqrrp_cholqr_best = 0;
     long t_geqrf_best        = 0;
