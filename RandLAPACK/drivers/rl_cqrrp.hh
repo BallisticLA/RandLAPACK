@@ -174,6 +174,8 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point total_t_stop;
     long total_t_dur = 0;
 
+    long ex_line_dur = 0;
+
     high_resolution_clock::time_point iter_t_start;
     high_resolution_clock::time_point iter_t_stop;
 
@@ -410,7 +412,7 @@ int CQRRP_blocked<T, RNG>::call(
         auto buf_t_start  = high_resolution_clock::now();
         lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, m, T_dat, b_sz, Work1, m);
         auto buf_t_stop  = high_resolution_clock::now();
-        printf("expensive line timing %ld\n", duration_cast<microseconds>(buf_t_stop - buf_t_start).count());
+        ex_line_dur += duration_cast<microseconds>(buf_t_stop - buf_t_start).count();
 
         // Updating pivots
         if(iter == 0) {
@@ -462,6 +464,7 @@ int CQRRP_blocked<T, RNG>::call(
             }
 
             if(this -> timing) {
+                printf("expensive line timing %ld\n", ex_line_dur);
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + r_piv_t_dur);
