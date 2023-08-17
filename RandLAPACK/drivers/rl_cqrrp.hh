@@ -407,7 +407,10 @@ int CQRRP_blocked<T, RNG>::call(
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
+        auto buf_t_start  = high_resolution_clock::now();
         lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, m, T_dat, b_sz, Work1, m);
+        auto buf_t_stop  = high_resolution_clock::now();
+        printf("expensive line timing %ld\n", duration_cast<microseconds>(buf_t_stop - buf_t_start).count());
 
         // Updating pivots
         if(iter == 0) {
