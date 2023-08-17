@@ -326,7 +326,6 @@ int CQRRP_blocked<T, RNG>::call(
         */
         std::iota(&J_buffer[0], &J_buffer[n], 1);
         RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 0, state, (T*) nullptr);
-        
         //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
 
         if(this -> timing) {
