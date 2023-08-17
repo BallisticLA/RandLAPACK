@@ -99,7 +99,7 @@ static std::vector<long> call_all_algs(
         CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state_alg_0);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
-        printf("TOTAL TIME FOR CQRRP with GEQP3 %ld\n", dur_cqrrp);
+        printf("TOTAL TIME FOR CQRRP %ld\n", dur_cqrrp);
         // Update best timing
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
