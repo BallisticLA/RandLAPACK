@@ -277,8 +277,8 @@ int CQRRP_blocked<T, RNG>::call(
     }
 
     // Create an alternative to GEQP3 in form of a smaller CQRRP.
-    // This will be waster\ful if we don't actually use it
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_small(false, false, this->eps, b_sz / 2);
+    // This will be wasteful if we don't actually use it.
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_small(false, false, this->eps, b_sz / 8);
     CQRRP_small.nnz = this->nnz;
     CQRRP_small.num_threads = this->num_threads;
     CQRRP_small.qrcp = 0;
@@ -297,36 +297,23 @@ int CQRRP_blocked<T, RNG>::call(
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
-/*
+
         // Performing QR with column pivoting
         switch(this->qrcp) { 
             case 0: {
-                // Standard LAPACK GEQP3
-                lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
-                } break;
-            case 1: {
                 // HQRRP with Cholesky QR & smaller block size
                 std::iota(&J_buffer[0], &J_buffer[n], 1);
-                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 32, 10, 0, 1, state, (T*) nullptr);
+                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
                 } break;
-            case 2: {
-                // Use CQRRP with smaller block size
+            case 1: {
+                // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
                 CQRRP_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
                 } break;
         }
-*/
-        /*
-        if(b_sz > 1024) {
-            CQRRP_small.block_size = 256;
-            CQRRP_small.call(sampling_dimension, cols, A_sk, 1.1, Work4, J_buffer, state);
-        } else {
-            std::iota(&J_buffer[0], &J_buffer[n], 1);
-            RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, 64, 8, 0, 1, state, (T*) nullptr);
-        }
-        */
-        std::iota(&J_buffer[0], &J_buffer[n], 1);
-        RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
-        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
+        
+        //std::iota(&J_buffer[0], &J_buffer[n], 1);
+        //RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
+
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
