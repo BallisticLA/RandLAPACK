@@ -158,9 +158,13 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point preconditioning_t_stop;
     long preconditioning_t_dur = 0;
 
-    high_resolution_clock::time_point updating_t_start;
-    high_resolution_clock::time_point updating_t_stop;
-    long updating_t_dur = 0;
+    high_resolution_clock::time_point updating1_t_start;
+    high_resolution_clock::time_point updating1_t_stop;
+    long updating1_t_dur = 0;
+
+    high_resolution_clock::time_point updating2_t_start;
+    high_resolution_clock::time_point updating2_t_stop;
+    long updating2_t_dur = 0;
 
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
@@ -318,7 +322,7 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-            updating_t_start = high_resolution_clock::now();
+            updating1_t_start = high_resolution_clock::now();
         }
 
         // Need to premute trailing columns of the full R-factor.
@@ -327,8 +331,8 @@ int CQRRP_blocked<T, RNG>::call(
             util::col_swap(curr_sz, cols, cols, &A[m * curr_sz], m, J_buf);
 
         if(this -> timing) {
-            updating_t_stop  = high_resolution_clock::now();
-            updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
+            updating1_t_stop  = high_resolution_clock::now();
+            updating1_t_dur  += duration_cast<microseconds>(updating1_t_stop - updating1_t_start).count();
             preconditioning_t_start = high_resolution_clock::now();
         }
 
@@ -391,7 +395,7 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
             reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
-            updating_t_start = high_resolution_clock::now();
+            updating1_t_start = high_resolution_clock::now();
         }
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
@@ -425,8 +429,8 @@ int CQRRP_blocked<T, RNG>::call(
         R12 = &R11[m * b_sz];
 
         if(this -> timing) {
-            updating_t_stop  = high_resolution_clock::now();
-            updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
+            updating1_t_stop  = high_resolution_clock::now();
+            updating1_t_dur  += duration_cast<microseconds>(updating1_t_stop - updating1_t_start).count();
         }
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
@@ -453,9 +457,9 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating_t_dur);
+                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur);
                 this -> times.resize(9);
-                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating_t_dur, t_rest, total_t_dur};
+                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
@@ -464,7 +468,8 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
                 printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
                 printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
-                printf("Factors updating time: %23ld μs,\n",               updating_t_dur);
+                printf("Factors updating time: %23ld μs,\n",               updating1_t_dur);
+                printf("Sketch updating time: %24ld μs,\n",                updating2_t_dur);
                 printf("Other routines time: %24ld μs,\n",                 t_rest);
                 printf("Total time: %35ld μs.\n",                          total_t_dur);
 
@@ -474,7 +479,8 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
                 printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
-                printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating_t_dur        / (T) total_t_dur));
+                printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating1_t_dur       / (T) total_t_dur));
+                printf("Sketch updating time takes %15.2f%% of runtime.\n",             100 * ((T) updating2_t_dur       / (T) total_t_dur));
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
@@ -482,7 +488,7 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         if(this -> timing)
-            updating_t_start = high_resolution_clock::now();
+            updating2_t_start = high_resolution_clock::now();
 
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
@@ -515,8 +521,8 @@ int CQRRP_blocked<T, RNG>::call(
         A_sk = &A_sk[d * b_sz];
 
         if(this -> timing) {
-            updating_t_stop  = high_resolution_clock::now();
-            updating_t_dur  += duration_cast<microseconds>(updating_t_stop - updating_t_start).count();
+            updating2_t_stop  = high_resolution_clock::now();
+            updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
         }
 
         if(this->timing_advanced) {
