@@ -125,7 +125,7 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
-        /*
+        
         lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
         
         lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
@@ -137,17 +137,17 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data);
-        */ 
+        
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
-    int64_t m = 1.125 * 1024;//5000;
-    int64_t n = std::pow(2, 13);//2000;
+    int64_t m = 1024;//5000;
+    int64_t n = 1024;//2000;
     int64_t k = 1600;
     int64_t d_factor = 1.125;//1.0;
-    int64_t b_sz = 1024;//500;
+    int64_t b_sz = 256;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -156,6 +156,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, true, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
+    CQRRP_blocked.qrcp = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);

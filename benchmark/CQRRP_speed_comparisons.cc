@@ -153,8 +153,8 @@ int main() {
     int64_t m          = std::pow(2, 14);
     int64_t n          = std::pow(2, 14);
     int64_t d_factor   = 1.125;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 2048;
+    int64_t b_sz_start = 128;
+    int64_t b_sz_end   = 288;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
@@ -177,7 +177,7 @@ int main() {
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
 
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
+    for (;b_sz_start <= b_sz_end; b_sz_start += 32) {
         res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",\n";
     }
