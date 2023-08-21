@@ -56,3 +56,4 @@ add_benchmark(NAME CQRRP_speed_comparisons CXX_SOURCES CQRRP_speed_comparisons.c
 add_benchmark(NAME CHOLQR_vs_GEQRF CXX_SOURCES CHOLQR_vs_GEQRF.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_block_per_time CXX_SOURCES CQRRP_block_per_time.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_inner_speed CXX_SOURCES CQRRP_inner_speed.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRP_accuracy CXX_SOURCES CQRRP_accuracy.cc LINK_LIBS ${Benchmark_libs})
