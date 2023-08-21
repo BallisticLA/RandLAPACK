@@ -155,11 +155,11 @@ static void sv_ratio(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
+    int64_t m          = std::pow(2, 10);
+    int64_t n          = std::pow(2, 10);
     int64_t d_factor   = 1.125;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 256;
+    int64_t b_sz_start = 128;
+    int64_t b_sz_end   = 288;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant1 = state;
