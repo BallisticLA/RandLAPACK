@@ -84,7 +84,7 @@ static void R_norm_ratio(
     // Clear and re-generate data
     data_regen<T, RNG>(m_info, all_data, state);
 */
-    printf("\nStarting CQRRP\n");
+    //printf("\nStarting CQRRP\n");
 
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
@@ -185,7 +185,7 @@ int main() {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     R_norm_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant1);
-    printf("R done\n");
+    //printf("R done\n");
     //sv_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant2);
     //printf("SV done\n\n");
 }
