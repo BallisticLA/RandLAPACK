@@ -51,7 +51,8 @@ static std::vector<T> get_norms( QR_speed_benchmark_data<T> &all_data) {
     std::vector<T> R_norms (n, 0.0);
     for (int i = 0; i < n; ++i) {
         R_norms[i] = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, n - i, n - i, &all_data.A.data()[(m + 1) * i], m);
-        printf("%e\n", R_norms[i]);
+        if (i < 10)
+            printf("%e\n", R_norms[i]);
     }
     return R_norms;
 }
@@ -78,9 +79,13 @@ static void R_norm_ratio(
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
     RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
     std::vector<T> R_norms_HQRRP = get_norms<T, RNG>(all_data);
-/*
+    
+    printf("\nDone with HQRRP\n");
+
     // Clear and re-generate data
     data_regen<T, RNG>(m_info, all_data, state);
+
+    printf("\nStarting CQRRP\n");
 
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
@@ -96,7 +101,6 @@ static void R_norm_ratio(
     // Write the 1st metric info into a file.
     for (int i = 0; i < n; ++i)
         file1 << R_norms_HQRRP[i] / R_norms_CQRRP[i] << ",  ";
-*/
 }
 
 template <typename T, typename RNG>
