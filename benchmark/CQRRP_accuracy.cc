@@ -51,8 +51,8 @@ static std::vector<T> get_norms( QR_speed_benchmark_data<T> &all_data) {
     std::vector<T> R_norms (n, 0.0);
     for (int i = 0; i < n; ++i) {
         R_norms[i] = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, n - i, n - i, &all_data.A.data()[(m + 1) * i], m);
-        if (i < 10)
-            printf("%e\n", R_norms[i]);
+        //if (i < 10)
+            //printf("%e\n", R_norms[i]);
     }
     return R_norms;
 }
@@ -89,8 +89,8 @@ static void R_norm_ratio(
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
 
-    //char name [] = "A"; 
-    //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+    char name [] = "A"; 
+    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
 
     std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
 
