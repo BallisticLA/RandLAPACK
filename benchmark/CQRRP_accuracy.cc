@@ -89,8 +89,8 @@ static void R_norm_ratio(
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
 
-    char name [] = "A"; 
-    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+    //char name [] = "A"; 
+    //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
 
     std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
 
@@ -167,7 +167,7 @@ static void sv_ratio(
 int main() {
     // Declare parameters
     int64_t m          = std::pow(2, 14);
-    int64_t n          = 4096;//std::pow(2, 14);
+    int64_t n          = 512;//std::pow(2, 14);
     int64_t d_factor   = 1.125;
     int64_t b_sz       = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
