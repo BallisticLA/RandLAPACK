@@ -99,7 +99,7 @@ static void R_norm_ratio(
             ++ctr;
         }
     }
-    printf("%d\n", ctr);
+    printf("Nan inf in CQRRP output: %d\n", ctr);
 
 
     std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
@@ -193,6 +193,15 @@ int main() {
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
+    int ctr = 0;
+    for (int i = 0; i < m * n; ++ i)
+    {
+        if(std::isnan(all_data.A[i]) || std::isinf(all_data.A[i])) {
+            ++ctr;
+        }
+    }
+    printf("Nan inf in original data: %d\n", ctr);
 
     R_norm_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant1);
     //printf("R done\n");

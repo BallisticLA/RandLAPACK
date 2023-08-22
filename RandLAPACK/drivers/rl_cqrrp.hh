@@ -279,6 +279,15 @@ int CQRRP_blocked<T, RNG>::call(
         d, n, m, 1.0, S, 0, 0, A, m, 0.0, A_sk, d
     );
 
+    int ctr = 0;
+    for (int i = 0; i < d * n; ++ i)
+    {
+        if(std::isnan(A_sk[i]) || std::isinf(A_sk[i])) {
+            ++ctr;
+        }
+    }
+    printf("Nan inf in SASO: %d\n", ctr);
+
     if(this -> timing) {
         saso_t_stop  = high_resolution_clock::now();
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
