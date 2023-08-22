@@ -73,7 +73,7 @@ static void R_norm_ratio(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
-    CQRRP_blocked.qrcp = 2;
+    CQRRP_blocked.qrcp = 1;
 /*
     // Running HQRRP
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
@@ -87,7 +87,7 @@ static void R_norm_ratio(
     //printf("\nStarting CQRRP\n");
 
     // Running CQRRP
-    CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
+    CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
 
     //char name [] = "A"; 
     //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
@@ -167,7 +167,7 @@ static void sv_ratio(
     data_regen<T, RNG>(m_info, all_data, state1);
 
     // Running CQRRP
-    CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
+    CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)

@@ -26,6 +26,7 @@ class CQRRPalg {
             int64_t m,
             int64_t n,
             T* A,
+            int64_t lda,
             int64_t d_factor,
             T* tau,
             int64_t* J,
@@ -89,6 +90,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             int64_t m,
             int64_t n,
             T* A,
+            int64_t lda,
             int64_t d_factor,
             T* tau,
             int64_t* J,
@@ -128,6 +130,7 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t m,
     int64_t n,
     T* A,
+    int64_t lda,
     int64_t d_factor,
     T* tau,
     int64_t* J,
@@ -205,10 +208,10 @@ int CQRRP_blocked<T, RNG>::call(
 
     // Pointer to the beginning of the original space of A.
     // Pointer to the beginning of A's "work zone," 
-    // will shift at every iteration of an algorithm by (m * b_sz) + b_sz.
+    // will shift at every iteration of an algorithm by (lda * b_sz) + b_sz.
     T* A_work = A;
     // Workspace 1 pointer - will serve as a buffer for computing R12 and updated matrix A.
-    // Points to a location, offset by m * b_sz from the current "A_work."
+    // Points to a location, offset by lda * b_sz from the current "A_work."
     T* Work1  = NULL;
     // Points to R11 factor, right above the compact Q, of size b_sz by b_sz.
     T* R11    = NULL;
@@ -276,7 +279,7 @@ int CQRRP_blocked<T, RNG>::call(
 
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, 1.0, S, 0, 0, A, m, 0.0, A_sk, d
+        d, n, m, 1.0, S, 0, 0, A, lda, 0.0, A_sk, d
     );
 
     int ctr = 0;
@@ -326,21 +329,37 @@ int CQRRP_blocked<T, RNG>::call(
         switch(this->qrcp) { 
             case 0: {
                 // HQRRP with Cholesky QR & smaller block size
-                printf("    Calling hqrrp with %ld\n", b_sz / 2);
+                printf("        Calling hqrrp with %ld\n", b_sz / 2);
                 std::iota(&J_buffer[0], &J_buffer[n], 1);
                 RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
+                //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
+                
                 } break;
             case 1: {
-                printf("    Calling 1 CQRRP\n");
+                printf("\nCalling 1 CQRRP\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
-                CQRRP_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
+                CQRRP_small.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
                 } break;
             case 2: {
-                printf("    \nCalling 2 CQRRP\n");
+                printf("    Calling 2 CQRRP\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
                 CQRRP_smaller.qrcp = 0;
-                CQRRP_smaller.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
+                CQRRP_smaller.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
                 } break;
+        }
+
+        ctr = 0;
+        for (int i = 0; i < d * n; ++ i)
+        {
+            if(std::isnan(A_sk[i]) || std::isinf(A_sk[i])) {
+                ++ctr;
+            }
+        }
+        printf("Nan inf in QRCP: %d\n", ctr);
+
+        if(this -> timing) {
+            saso_t_stop  = high_resolution_clock::now();
+            saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
         }
 
         if(this -> timing) {
@@ -361,19 +380,19 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Pivoting the current matrix A.
-        util::col_swap(rows, cols, cols, A_work, m, J_buf);
+        util::col_swap(rows, cols, cols, A_work, lda, J_buf);
 
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
-        // Work1 = &A[(m * (iter + 1) * b_sz) + curr_sz];
-        Work1 = &A_work[m * b_sz];
+        // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
+        Work1 = &A_work[lda * b_sz];
 
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
 
         // A_pre = AJ(:, 1:b_sz) * R_sk
         // Performing preconditioning of the current matrix A.
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk, d, A_work, m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk, d, A_work, lda);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -384,11 +403,11 @@ int CQRRP_blocked<T, RNG>::call(
             cholqr_t_start = high_resolution_clock::now();
 
         // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, m, 0.0, R_cholqr, b_sz);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, lda, 0.0, R_cholqr, b_sz);
         lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz);
 
         // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_cholqr, b_sz, A_work, m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_cholqr, b_sz, A_work, lda);
 
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
@@ -401,7 +420,7 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        lapack::orhr_col(rows, b_sz, b_sz, A_work, m, T_dat, b_sz, Work4);
+        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz, Work4);
 
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
@@ -427,7 +446,7 @@ int CQRRP_blocked<T, RNG>::call(
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, m, T_dat, b_sz, Work1, m);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz, Work1, lda);
 
         // Updating pivots
         if(iter == 0) {
@@ -445,12 +464,12 @@ int CQRRP_blocked<T, RNG>::call(
         // In a global sense, this is identical to:
         // R11 =  &A[(m + 1) * curr_sz];
         R11 = A_work;
-        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr, b_sz, A_work, m);
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr, b_sz, A_work, lda);
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
         // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
-        R12 = &R11[m * b_sz];
+        R12 = &R11[lda * b_sz];
 
         if(this -> timing) {
             updating1_t_stop  = high_resolution_clock::now();
@@ -459,8 +478,8 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
         // Keep in mind that R11 is Upper triangular and R12 is rectangular.
-        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11, m);
-        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12, m);
+        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11, lda);
+        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12, lda);
         norm_R_i = std::hypot(norm_R11, norm_R12);
         norm_R   = std::hypot(norm_R, norm_R_i);
         // Updating approximation error
@@ -518,16 +537,16 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
-        // Work1 = &A[(m * (iter + 1) * b_sz) + curr_sz + b_sz];
+        // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz + b_sz];
         // Also, Below is identical to:
-        // A_work = &A_work[(m + 1) * b_sz];
+        // A_work = &A_work[(lda + 1) * b_sz];
         A_work = &Work1[b_sz];
         
         // Updating the skethcing buffer
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
         RandLAPACK::util::get_U(b_sz, b_sz, R_sk, d);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11, m, R_sk, d);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11, lda, R_sk, d);
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.

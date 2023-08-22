@@ -72,7 +72,7 @@ static std::vector<long> call_all_algs(
         // Testing CQRRP - best setuo
         CQRRP_blocked.qrcp = 1;
         auto start_cqrrp = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state_gen_0);
+        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_gen_0);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
         // Update best timing
