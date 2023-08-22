@@ -75,7 +75,7 @@ static void R_norm_ratio(
 
     // Running HQRRP
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state_alg_1, (T*) nullptr);
+    RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
     std::vector<T> R_norms_HQRRP = get_norms<T, RNG>(all_data);
 
     // Clear and re-generate data
@@ -136,7 +136,7 @@ static void sv_ratio(
 
     // Running GEQP3
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state_alg_1, (T*) nullptr);
+    RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
