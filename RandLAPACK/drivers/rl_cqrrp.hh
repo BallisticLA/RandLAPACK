@@ -279,9 +279,6 @@ int CQRRP_blocked<T, RNG>::call(
         d, n, m, 1.0, S, 0, 0, A, m, 0.0, A_sk, d
     );
 
-    char name [] = "A"; 
-    RandBLAS::util::print_colmaj(5, 5, A_sk, name);
-
     if(this -> timing) {
         saso_t_stop  = high_resolution_clock::now();
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
