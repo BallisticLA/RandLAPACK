@@ -155,8 +155,8 @@ static void sv_ratio(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 10);
-    int64_t n          = std::pow(2, 10);
+    int64_t m          = std::pow(2, 14);
+    int64_t n          = std::pow(2, 14);
     int64_t d_factor   = 1.125;
     int64_t b_sz_start = 128;
     int64_t b_sz_end   = 288;
