@@ -89,8 +89,8 @@ static void R_norm_ratio(
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
 
-    char name [] = "A"; 
-    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+    //char name [] = "A"; 
+    //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
 
     for (int i = 0; i < m * n; ++ i)
     {
