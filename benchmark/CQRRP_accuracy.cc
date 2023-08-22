@@ -73,9 +73,10 @@ static void R_norm_ratio(
     CQRRP_blocked.num_threads = 8;
     CQRRP_blocked.qrcp = 1;
 
-    // Running GEQP3
-    lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-    std::vector<T> R_norms_GEQP3 = get_norms<T, RNG>(all_data);
+    // Running HQRRP
+    std::iota(all_data.J.begin(), all_data.J.end(), 1);
+    RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state_alg_1, (T*) nullptr);
+    std::vector<T> R_norms_HQRRP = get_norms<T, RNG>(all_data);
 
     // Clear and re-generate data
     data_regen<T, RNG>(m_info, all_data, state);
@@ -93,7 +94,7 @@ static void R_norm_ratio(
 
     // Write the 1st metric info into a file.
     for (int i = 0; i < n; ++i)
-        file1 << R_norms_GEQP3[i] / R_norms_CQRRP[i] << ",  ";
+        file1 << R_norms_HQRRP[i] / R_norms_CQRRP[i] << ",  ";
 }
 
 template <typename T, typename RNG>
@@ -134,7 +135,8 @@ static void sv_ratio(
     data_regen<T, RNG>(m_info, all_data, state);
 
     // Running GEQP3
-    lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+    std::iota(all_data.J.begin(), all_data.J.end(), 1);
+    RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state_alg_1, (T*) nullptr);
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
