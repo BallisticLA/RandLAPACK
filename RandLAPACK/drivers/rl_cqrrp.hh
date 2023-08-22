@@ -332,8 +332,6 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("        Calling hqrrp with %ld\n", b_sz / 2);
                 std::iota(&J_buffer[0], &J_buffer[n], 1);
                 RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
-                //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
-                
                 } break;
             case 1: {
                 printf("\nCalling 1 CQRRP\n");
@@ -349,18 +347,13 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         ctr = 0;
-        for (int i = 0; i < d * n; ++ i)
+        for (int i = 0; i < sampling_dimension * cols; ++ i)
         {
             if(std::isnan(A_sk[i]) || std::isinf(A_sk[i])) {
                 ++ctr;
             }
         }
         printf("Nan inf in QRCP: %d\n", ctr);
-
-        if(this -> timing) {
-            saso_t_stop  = high_resolution_clock::now();
-            saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
-        }
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -489,6 +482,18 @@ int CQRRP_blocked<T, RNG>::call(
         curr_sz += b_sz;
 
         if((approx_err < this->eps) || (curr_sz >= n)) {
+
+
+            ctr = 0;
+            for (int i = 0; i < m * n; ++ i)
+            {
+                if(std::isnan(A[i]) || std::isinf(A[i])) {
+                    ++ctr;
+                }
+            }
+            printf("Nan inf in QRCP Output: %d\n", ctr);
+
+
             // Termination criteria reached
             this -> rank = curr_sz;
 
