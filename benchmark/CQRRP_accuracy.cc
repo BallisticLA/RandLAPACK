@@ -179,7 +179,7 @@ int main() {
     for (;b_sz_start <= b_sz_end; b_sz_start += 32) {
         R_norm_ratio<double, r123::Philox4x32>(m_info, b_sz_start, all_data, state_constant1);
         printf("R done\n");
-        sv_ratio<double, r123::Philox4x32>(m_info, b_sz_start, all_data, state_constant2);
-        printf("SV done\n\n");
+        //sv_ratio<double, r123::Philox4x32>(m_info, b_sz_start, all_data, state_constant2);
+        //printf("SV done\n\n");
     }
 }
