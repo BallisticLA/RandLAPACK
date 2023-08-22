@@ -184,7 +184,6 @@ int CQRRP_blocked<T, RNG>::call(
         total_t_start = high_resolution_clock::now();
         preallocation_t_start = high_resolution_clock::now();
     }
-
     int iter, i, j;
     int64_t rows = m;
     int64_t cols = n;
@@ -258,7 +257,7 @@ int CQRRP_blocked<T, RNG>::call(
     T* Work4    = ( T * ) calloc( n, sizeof( T ) );
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
-    T norm_A     = lapack::lange(Norm::Fro, m, n, A, m);
+    T norm_A     = lapack::lange(Norm::Fro, m, n, A, lda);
     T norm_A_sq  = std::pow(norm_A, 2);
     T norm_R     = 0.0;
     T norm_R11   = 0.0;
@@ -301,6 +300,17 @@ int CQRRP_blocked<T, RNG>::call(
     CQRRP_smaller.qrcp = 0;
     CQRRP_smaller.timing_advanced = 0;
 
+
+    int ctr = 0;
+    for (int i = 0; i < m * n; ++i)
+    {
+        if(std::isnan(A[i]) || std::isinf(A[i])) {
+            ++ctr;
+        }
+    }
+    printf("Nan inf in A: %d\n", ctr);
+
+    T* A_sk_const = A_sk;
     for(iter = 0; iter < maxiter; ++iter) {
         if (this->timing_advanced)
             iter_t_start  = high_resolution_clock::now();
@@ -315,23 +325,55 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
 
+
+        ctr = 0;
+        for (int i = 0; i < d * n; ++i)
+        {
+            if(std::isnan(A_sk_const[i]) || std::isinf(A_sk_const[i])) {
+                ++ctr;
+            }
+        }
+        printf("Nan inf Before QRCP: %d\n", ctr);
+
+
         // Performing QR with column pivoting
         switch(this->qrcp) { 
             case 0: {
+                printf("    Using HQRRP %d\n", b_sz / 2);
                 // HQRRP with Cholesky QR & smaller block size
-                std::iota(&J_buffer[0], &J_buffer[n], 1);
-                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
+                //std::iota(&J_buffer[0], &J_buffer[n], 1);
+                //RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 0, state, (T*) nullptr);
+                lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
+                
                 } break;
             case 1: {
+                printf("\n\n\n\niteration %d\n", iter);
+                printf("Using CQRRP 1\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
                 CQRRP_small.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
                 } break;
             case 2: {
+                //printf("\n\niteration %d\n", iter);
+                printf("\nUsing CQRRP 2\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
                 CQRRP_smaller.qrcp = 0;
                 CQRRP_smaller.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
                 } break;
         }
+
+        if (iter == 0){
+            //char name [] = "Bad mat";
+            //RandBLAS::util::print_colmaj(d, n, A_sk, name);
+        }
+
+        ctr = 0;
+        for (int i = 0; i < d * n; ++i)
+        {
+            if(std::isnan(A_sk_const[i]) || std::isinf(A_sk_const[i])) {
+                ++ctr;
+            }
+        }
+        printf("Nan inf in QRCP output: %d\n", ctr);
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -461,6 +503,16 @@ int CQRRP_blocked<T, RNG>::call(
 
         if((approx_err < this->eps) || (curr_sz >= n)) {
 
+
+            ctr = 0;
+            for (int i = 0; i < m * n; ++i)
+            {
+                if(std::isnan(A[i]) || std::isinf(A[i])) {
+                    ++ctr;
+                }
+            }
+            printf("Nan inf in output: %d\n", ctr);
+
             // Termination criteria reached
             this -> rank = curr_sz;
 
@@ -507,6 +559,17 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing)
             updating2_t_start = high_resolution_clock::now();
 
+        ctr = 0;
+        for (int i = 0; i < d * n; ++i)
+        {
+            if(std::isnan(A_sk_const[i]) || std::isinf(A_sk_const[i])) {
+                ++ctr;
+            }
+        }
+        printf("Nan inf before A_sk update: %d\n", ctr);
+        printf("    size of A_sk %ld, %ld\n", sampling_dimension, cols);
+
+
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz + b_sz];
@@ -531,6 +594,17 @@ int CQRRP_blocked<T, RNG>::call(
         // Make sure R_sk_22 exists.
         if (sampling_dimension - b_sz > 0)
             RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
+
+        ctr = 0;
+        for (int i = 0; i < d * n; ++i)
+        {
+            if(std::isnan(A_sk_const[i]) || std::isinf(A_sk_const[i])) {
+                ++ctr;
+            }
+        }
+        printf("Nan inf after A_sk update: %d\n", ctr);
+
+
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
         // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
