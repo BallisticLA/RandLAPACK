@@ -92,12 +92,14 @@ static void R_norm_ratio(
     //char name [] = "A"; 
     //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
 
+    int ctr = 0;
     for (int i = 0; i < m * n; ++ i)
     {
         if(std::isnan(all_data.A[i]) || std::isinf(all_data.A[i])) {
-            printf("%d\n", i);
+            ++ctr;
         }
     }
+    printf("%d\n", ctr);
 
 
     std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
