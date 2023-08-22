@@ -73,7 +73,7 @@ static void R_norm_ratio(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
-    CQRRP_blocked.qrcp = 1;
+    CQRRP_blocked.qrcp = 0;
 /*
     // Running HQRRP
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
@@ -177,7 +177,7 @@ static void sv_ratio(
 int main() {
     // Declare parameters
     int64_t m          = std::pow(2, 14);
-    int64_t n          = 1024;//std::pow(2, 14);
+    int64_t n          = std::pow(2, 14);
     int64_t d_factor   = 1.125;
     int64_t b_sz       = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
