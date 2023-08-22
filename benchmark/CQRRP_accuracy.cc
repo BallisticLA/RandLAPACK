@@ -79,7 +79,6 @@ static void R_norm_ratio(
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
     RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
     std::vector<T> R_norms_HQRRP = get_norms<T, RNG>(all_data);
-    
     printf("\nDone with HQRRP\n");
 
     // Clear and re-generate data
@@ -92,7 +91,7 @@ static void R_norm_ratio(
     std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
 
     // Declare a data file
-    std::fstream file1("QR_R_norm_ratios_rows_"        + std::to_string(m)
+    std::fstream file1("data_out/QR_R_norm_ratios_rows_"        + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_"         + std::to_string(b_sz)
                                     + "_d_factor_"     + std::to_string(d_factor)
@@ -125,9 +124,9 @@ static void sv_ratio(
     CQRRP_blocked.num_threads = 8;
     CQRRP_blocked.qrcp = 1;
 
-    std::fstream file2("QR_sv_ratios_rows_"            + std::to_string(m)
+    std::fstream file2("data_out/QR_sv_ratios_rows_"            + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
-                                    + "_b_sz_start_"   + std::to_string(b_sz)
+                                    + "_b_sz_"   + std::to_string(b_sz)
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
 
@@ -164,10 +163,10 @@ static void sv_ratio(
 int main() {
     // Declare parameters
     int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
+    int64_t n          = 4096;//std::pow(2, 14);
     int64_t d_factor   = 1.125;
-    int64_t b_sz_start = 128;
-    int64_t b_sz_end   = 128;
+    int64_t b_sz_start = 256;
+    int64_t b_sz_end   = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant1 = state;
