@@ -282,15 +282,6 @@ int CQRRP_blocked<T, RNG>::call(
         d, n, m, 1.0, S, 0, 0, A, lda, 0.0, A_sk, d
     );
 
-    int ctr = 0;
-    for (int i = 0; i < d * n; ++ i)
-    {
-        if(std::isnan(A_sk[i]) || std::isinf(A_sk[i])) {
-            ++ctr;
-        }
-    }
-    printf("Nan inf in SASO: %d\n", ctr);
-
     if(this -> timing) {
         saso_t_stop  = high_resolution_clock::now();
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
@@ -311,7 +302,6 @@ int CQRRP_blocked<T, RNG>::call(
     CQRRP_smaller.timing_advanced = 0;
 
     for(iter = 0; iter < maxiter; ++iter) {
-        printf("    Iteration %ld\n", iter);
         if (this->timing_advanced)
             iter_t_start  = high_resolution_clock::now();
 
@@ -329,31 +319,19 @@ int CQRRP_blocked<T, RNG>::call(
         switch(this->qrcp) { 
             case 0: {
                 // HQRRP with Cholesky QR & smaller block size
-                printf("        Calling hqrrp with %ld\n", b_sz / 2);
                 std::iota(&J_buffer[0], &J_buffer[n], 1);
                 RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
                 } break;
             case 1: {
-                printf("\nCalling 1 CQRRP\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
                 CQRRP_small.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
                 } break;
             case 2: {
-                printf("    Calling 2 CQRRP\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
                 CQRRP_smaller.qrcp = 0;
                 CQRRP_smaller.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
                 } break;
         }
-
-        ctr = 0;
-        for (int i = 0; i < sampling_dimension * cols; ++ i)
-        {
-            if(std::isnan(A_sk[i]) || std::isinf(A_sk[i])) {
-                ++ctr;
-            }
-        }
-        printf("Nan inf in QRCP: %d\n", ctr);
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -364,7 +342,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         if(iter != 0)
-            util::col_swap(curr_sz, cols, cols, &A[m * curr_sz], m, J_buf);
+            util::col_swap(curr_sz, cols, cols, &A[lda * curr_sz], m, J_buf);
 
         if(this -> timing) {
             r_piv_t_stop  = high_resolution_clock::now();
@@ -483,17 +461,6 @@ int CQRRP_blocked<T, RNG>::call(
 
         if((approx_err < this->eps) || (curr_sz >= n)) {
 
-
-            ctr = 0;
-            for (int i = 0; i < m * n; ++ i)
-            {
-                if(std::isnan(A[i]) || std::isinf(A[i])) {
-                    ++ctr;
-                }
-            }
-            printf("Nan inf in QRCP Output: %d\n", ctr);
-
-
             // Termination criteria reached
             this -> rank = curr_sz;
 
@@ -555,7 +522,7 @@ int CQRRP_blocked<T, RNG>::call(
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk, d, R12, m, 1.0, &R_sk[d * b_sz], d);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk, d, R12, lda, 1.0, &R_sk[d * b_sz], d);
         
         // Changing the sampling dimension parameter
         sampling_dimension = std::min(sampling_dimension, cols);

@@ -70,7 +70,7 @@ static std::vector<long> call_all_algs(
         printf("ITERATION\n");
 
         // Testing CQRRP - best setuo
-        CQRRP_blocked.qrcp = 1;
+        CQRRP_blocked.qrcp = 0;
         auto start_cqrrp = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_gen_0);
         auto stop_cqrrp = high_resolution_clock::now();
