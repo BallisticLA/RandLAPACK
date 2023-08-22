@@ -308,6 +308,7 @@ int CQRRP_blocked<T, RNG>::call(
     CQRRP_smaller.timing_advanced = 0;
 
     for(iter = 0; iter < maxiter; ++iter) {
+        printf("    Iteration %ld\n", iter);
         if (this->timing_advanced)
             iter_t_start  = high_resolution_clock::now();
 
@@ -325,18 +326,21 @@ int CQRRP_blocked<T, RNG>::call(
         switch(this->qrcp) { 
             case 0: {
                 // HQRRP with Cholesky QR & smaller block size
+                printf("    Calling hqrrp with %ld\n", b_sz / 2);
                 std::iota(&J_buffer[0], &J_buffer[n], 1);
                 RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 1, state, (T*) nullptr);
                 } break;
             case 1: {
+                printf("    Calling 1 CQRRP\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
                 CQRRP_small.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
                 } break;
             case 2: {
+                printf("    \nCalling 2 CQRRP\n");
                 // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
+                CQRRP_smaller.qrcp = 0;
                 CQRRP_smaller.call(sampling_dimension, cols, A_sk, d_factor, Work4, J_buffer, state);
                 } break;
-    
         }
 
         if(this -> timing) {
@@ -538,7 +542,7 @@ int CQRRP_blocked<T, RNG>::call(
             RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
-        // Remember that the only "active" portion of A_sk remaining would be of size cols by cols;
+        // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
         // if any rows beyond that would be accessed, we would have issues. 
         A_sk = &A_sk[d * b_sz];
 

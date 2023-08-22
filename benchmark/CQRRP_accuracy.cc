@@ -51,8 +51,8 @@ static std::vector<T> get_norms( QR_speed_benchmark_data<T> &all_data) {
     std::vector<T> R_norms (n, 0.0);
     for (int i = 0; i < n; ++i) {
         R_norms[i] = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, n - i, n - i, &all_data.A.data()[(m + 1) * i], m);
-        //if (i < 10)
-            //printf("%e\n", R_norms[i]);
+        if (i < 10)
+            printf("%e\n", R_norms[i]);
     }
     return R_norms;
 }
@@ -73,7 +73,7 @@ static void R_norm_ratio(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
-    CQRRP_blocked.qrcp = 1;
+    CQRRP_blocked.qrcp = 2;
 /*
     // Running HQRRP
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
