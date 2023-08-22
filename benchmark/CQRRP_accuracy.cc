@@ -90,7 +90,7 @@ static void R_norm_ratio(
     CQRRP_blocked.call(m, n, all_data.A.data(), d_factor, all_data.tau.data(), all_data.J.data(), state);
 
     char name [] = "A"; 
-    RandBLAS::util::print_colmaj(5, 5, all_data.A.data(), name);
+    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
 
     std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
 
