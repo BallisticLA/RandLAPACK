@@ -313,7 +313,7 @@ int CQRRP_blocked<T, RNG>::call(
     ctr = 0;
     for (int i = 0; i < d * n; ++i)
     {
-        if(A[i] < std::pow(10, -16)) {
+        if(std::abs(A[i]) < std::pow(10, -16)) {
             ++ctr;
         }
     }
@@ -347,7 +347,7 @@ int CQRRP_blocked<T, RNG>::call(
         ctr = 0;
         for (int i = 0; i < d * n; ++i)
         {
-            if(A_sk_const[i] < std::pow(10, -16)) {
+            if(std::abs(A_sk_const[i]) < std::pow(10, -16)) {
                 ++ctr;
             }
         }
