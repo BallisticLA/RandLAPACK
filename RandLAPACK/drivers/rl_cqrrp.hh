@@ -403,9 +403,34 @@ int CQRRP_blocked<T, RNG>::call(
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
 
-        // A_pre = AJ(:, 1:b_sz) * R_sk
+        ctr = 0;
+        for (int j = 0; j < n; ++j)
+        {
+            for(int i = 0; i < m; ++i){
+                if(std::isnan(A[i + (j * lda)]) || std::isinf(A[i + (j * lda)])) {
+                    ++ctr;
+                }
+            }
+        }
+        printf("                    Nan inf in A 1: %d\n", ctr);
+
+        // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
+        // STARTING TO GET NANS HEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+        // There are no Infs and Nans in R_sk and in A before this line
+        printf("Rows: %ld, b_sz %ld\n", rows, b_sz);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk, d, A_work, lda);
+
+        ctr = 0;
+        for (int j = 0; j < n; ++j)
+        {
+            for(int i = 0; i < m; ++i){
+                if(std::isnan(A[i + (j * lda)]) || std::isinf(A[i + (j * lda)])) {
+                    ++ctr;
+                }
+            }
+        }
+        printf("                    Nan inf in A 2: %d\n", ctr);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -568,6 +593,17 @@ int CQRRP_blocked<T, RNG>::call(
         }
         printf("Nan inf before A_sk update: %d\n", ctr);
         printf("    size of A_sk %ld, %ld\n", sampling_dimension, cols);
+
+        ctr = 0;
+        for (int j = 0; j < n; ++j)
+        {
+            for(int i = 0; i < m; ++i){
+                if(std::isnan(A[i + (j * lda)]) || std::isinf(A[i + (j * lda)])) {
+                    ++ctr;
+                }
+            }
+        }
+        printf("Nan inf in A before A_sk update: %d\n", ctr);
 
 
         // Updating the pointer to "Current A."
