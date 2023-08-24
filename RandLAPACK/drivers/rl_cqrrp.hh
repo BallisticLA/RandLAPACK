@@ -310,6 +310,15 @@ int CQRRP_blocked<T, RNG>::call(
     }
     printf("Nan inf in A: %d\n", ctr);
 
+    ctr = 0;
+    for (int i = 0; i < d * n; ++i)
+    {
+        if(A[i] < std::pow(10, -16)) {
+            ++ctr;
+        }
+    }
+    printf("Zeros in A: %d\n", ctr);
+
     T* A_sk_const = A_sk;
     for(iter = 0; iter < maxiter; ++iter) {
         if (this->timing_advanced)
@@ -335,6 +344,23 @@ int CQRRP_blocked<T, RNG>::call(
         }
         printf("Nan inf Before QRCP: %d\n", ctr);
 
+        ctr = 0;
+        for (int i = 0; i < d * n; ++i)
+        {
+            if(A_sk_const[i] < std::pow(10, -16)) {
+                ++ctr;
+            }
+        }
+        printf("Zeros Before QRCP: %d\n", ctr);
+
+
+        if(b_sz == 32 && this->qrcp == 0){
+            char name1 [] = "A";
+            RandBLAS::util::print_colmaj(m, n, A, name1);
+
+            char name2 [] = "A_sk";
+            RandBLAS::util::print_colmaj(d, n, A_sk_const, name2);
+        }
 
         // Performing QR with column pivoting
         switch(this->qrcp) { 
@@ -414,11 +440,17 @@ int CQRRP_blocked<T, RNG>::call(
         }
         printf("                    Nan inf in A 1: %d\n", ctr);
 
+        if(A_work == A)
+        {
+            printf("All good\n");
+        }
+
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
         // STARTING TO GET NANS HEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
         // There are no Infs and Nans in R_sk and in A before this line
-        printf("Rows: %ld, b_sz %ld\n", rows, b_sz);
+        // Last row of R_sk, however, has a bunch of zeros in it
+        printf("lda: %d, Rows: %ld, b_sz %ld, ldsk: %d\n", lda, rows, b_sz, d);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk, d, A_work, lda);
 
         ctr = 0;
@@ -431,6 +463,10 @@ int CQRRP_blocked<T, RNG>::call(
             }
         }
         printf("                    Nan inf in A 2: %d\n", ctr);
+        if(ctr > 0){
+            char name [] = "R_printing";
+            RandBLAS::util::print_colmaj(b_sz, b_sz, R_sk, name);
+        }
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
