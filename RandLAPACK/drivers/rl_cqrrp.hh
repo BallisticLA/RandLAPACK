@@ -356,10 +356,12 @@ int CQRRP_blocked<T, RNG>::call(
 
         if(b_sz == 32 && this->qrcp == 0){
             char name1 [] = "A";
-            RandBLAS::util::print_colmaj(m, n, A, name1);
+            //RandBLAS::util::print_colmaj(m, n, A, name1);
 
+            printf("Iter %d\n", iter);
             char name2 [] = "A_sk";
-            RandBLAS::util::print_colmaj(d, n, A_sk_const, name2);
+            //RandBLAS::util::print_colmaj(d, n, A_sk_const, name2);
+            printf("Size of a sketching operator: %ld by %ld\n", d, m);
         }
 
         // Performing QR with column pivoting

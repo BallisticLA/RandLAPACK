@@ -178,7 +178,7 @@ int main() {
     // Declare parameters
     int64_t m          = std::pow(2, 14);
     int64_t n          = 3328;
-    int64_t d_factor   = 1.125;
+    int64_t d_factor   = 2;
     int64_t b_sz       = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
