@@ -74,7 +74,7 @@ static void R_norm_ratio(
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
     CQRRP_blocked.qrcp = 1;
-/*
+
     // Running HQRRP
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
     RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
@@ -83,26 +83,10 @@ static void R_norm_ratio(
 
     // Clear and re-generate data
     data_regen<T, RNG>(m_info, all_data, state);
-*/
-    //printf("\nStarting CQRRP\n");
 
+    printf("\nStarting CQRRP\n");
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
-
-    //char name [] = "A"; 
-    //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
-
-    int ctr = 0;
-    for (int i = 0; i < m * n; ++ i)
-    {
-        if(std::isnan(all_data.A[i]) || std::isinf(all_data.A[i])) {
-            ++ctr;
-        }
-    }
-    printf("Nan inf in CQRRP output: %d\n", ctr);
-
-
-    std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
 
     // Declare a data file
     std::fstream file1("data_out/QR_R_norm_ratios_rows_"        + std::to_string(m)
@@ -112,10 +96,10 @@ static void R_norm_ratio(
                                     + ".dat", std::fstream::app);
 
     // Write the 1st metric info into a file.
-    //for (int i = 0; i < n; ++i)
-    //    file1 << R_norms_HQRRP[i] / R_norms_CQRRP[i] << ",  ";
+    for (int i = 0; i < n; ++i)
+        file1 << R_norms_HQRRP[i] / R_norms_CQRRP[i] << ",  ";
 }
-/*
+
 template <typename T, typename RNG>
 static void sv_ratio(
     RandLAPACK::gen::mat_gen_info<T> m_info,
@@ -173,7 +157,7 @@ static void sv_ratio(
     for (int i = 0; i < n; ++i)
         file2 << R_dat[(m + 1) * i] / S_dat[i] << ",  ";
 }
-*/
+
 int main() {
     // Declare parameters
     int64_t m          = std::pow(2, 14);
@@ -194,17 +178,8 @@ int main() {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
-    int ctr = 0;
-    for (int i = 0; i < m * n; ++ i)
-    {
-        if(std::isnan(all_data.A[i]) || std::isinf(all_data.A[i])) {
-            ++ctr;
-        }
-    }
-    printf("Nan inf in original data: %d\n", ctr);
-
     R_norm_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant1);
-    //printf("R done\n");
-    //sv_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant2);
-    //printf("SV done\n\n");
+    printf("R done\n");
+    sv_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant2);
+    printf("SV done\n\n");
 }
