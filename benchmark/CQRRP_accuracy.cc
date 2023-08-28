@@ -87,6 +87,7 @@ static void R_norm_ratio(
     printf("\nStarting CQRRP\n");
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+    std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
 
     // Declare a data file
     std::fstream file1("data_out/QR_R_norm_ratios_rows_"        + std::to_string(m)
