@@ -110,7 +110,7 @@ class TestCQRRP : public ::testing::Test
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T, typename RNG, typename alg_type>
     static void test_CQRRP_general(
-        int64_t d_factor, 
+        T d_factor, 
         T norm_A,
         CQRRPTestData<T> &all_data,
         alg_type &CQRRP,
@@ -146,7 +146,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_no_hqrrp) {
     int64_t m = 1024;//5000;
     int64_t n = 1024;//2000;
     int64_t k = 1600;
-    int64_t d_factor = 1.125;//1.0;
+    double d_factor = 1.125;//1.0;
     int64_t b_sz = 256;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);

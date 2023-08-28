@@ -27,7 +27,7 @@ class CQRRPalg {
             int64_t n,
             T* A,
             int64_t lda,
-            int64_t d_factor,
+            T d_factor,
             T* tau,
             int64_t* J,
             RandBLAS::RNGState<RNG> &state
@@ -91,7 +91,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             int64_t n,
             T* A,
             int64_t lda,
-            int64_t d_factor,
+            T d_factor,
             T* tau,
             int64_t* J,
             RandBLAS::RNGState<RNG> &state
@@ -131,7 +131,7 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t n,
     T* A,
     int64_t lda,
-    int64_t d_factor,
+    T d_factor,
     T* tau,
     int64_t* J,
     RandBLAS::RNGState<RNG> &state

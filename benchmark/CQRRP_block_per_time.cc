@@ -11,12 +11,12 @@ struct QR_speed_benchmark_data {
     int64_t row;
     int64_t col;
     T       tolerance;
-    int64_t sampling_factor;
+    T       sampling_factor;
     std::vector<T> A;
     std::vector<T> tau;
     std::vector<int64_t> J;
 
-    QR_speed_benchmark_data(int64_t m, int64_t n, T tol, int64_t d_factor) :
+    QR_speed_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
     A(m * n, 0.0),
     tau(n, 0.0),
     J(n, 0)
@@ -125,7 +125,7 @@ int main() {
     // Declare parameters
     int64_t m          = std::pow(2, 14);
     int64_t n          = std::pow(2, 14);
-    int64_t d_factor   = 1.125;
+    double d_factor   = 1.125;
     int64_t b_sz_start = 1024;
     int64_t b_sz_end   = 1024;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
