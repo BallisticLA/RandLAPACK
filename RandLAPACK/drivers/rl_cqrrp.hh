@@ -242,6 +242,9 @@ int CQRRP_blocked<T, RNG>::call(
     T* A_sk = ( T * ) calloc( d * n, sizeof( T ) );
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
     T* R_sk = NULL;
+    // View to the transpose of A_sk.
+    // Is of size n * d, with an lda n.
+    T* A_sk_trans = ( T * ) calloc( n * d, sizeof( T ) );
 
     // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
     // Also used to store the proper R11_full-factor after the 
@@ -315,6 +318,7 @@ int CQRRP_blocked<T, RNG>::call(
             qrcp_t_start = high_resolution_clock::now();
 
         // Performing QR with column pivoting
+        /*
         switch(this->qrcp) { 
             case 0: {
                 // HQRRP with Cholesky QR & smaller block size
@@ -331,6 +335,50 @@ int CQRRP_blocked<T, RNG>::call(
                 CQRRP_smaller.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
                 } break;
         }
+        */
+
+
+
+        
+        // Get a transpose of A_sk 
+        for(i = 0; i < cols; ++i)
+            blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
+
+
+        char name [] = "A_sk";
+        char name1 [] = "A_sk_trans";
+        RandBLAS::util::print_colmaj(d, n, A_sk, name);
+        RandBLAS::util::print_colmaj(n, d, A_sk_trans, name1);
+
+        //std::iota(&J_buffer[0], &J_buffer[n], 1);
+        // Perform a row-pivoted LU on a transpose of A_sk
+        lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer);
+
+        for (i = 0; i < cols; ++i)
+        {
+            printf("%d\n", J_buffer[i]);
+        }
+
+        // Apply pivots to A_sk
+        util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
+
+        RandBLAS::util::print_colmaj(d, n, A_sk, name);
+        return 0;
+
+        // Perform an unpivoted QR on A_sk
+        lapack::geqrf(sampling_dimension, cols, A_sk, d, Work4);
+    
+
+    /*
+        lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
+
+        for (i = 0; i < cols; ++i)
+        {
+            printf("%d\n", J_buffer[i]);
+        }
+
+        return 0;
+    */
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -362,9 +410,6 @@ int CQRRP_blocked<T, RNG>::call(
 
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
-        // STARTING TO GET NANS HEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
-        // There are no Infs and Nans in R_sk and in A before this line
-        // Last row of R_sk, however, has a bunch of zeros in it
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk, d, A_work, lda);
 
         if(this -> timing) {
