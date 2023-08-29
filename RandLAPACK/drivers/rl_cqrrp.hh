@@ -341,31 +341,37 @@ int CQRRP_blocked<T, RNG>::call(
                 } break;
         }
         */
-
-
-
         
-        // Get a transpose of A_sk 
-        for(i = 0; i < cols; ++i)
-            blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
+        //printf("cols: %ld, sampling_dim: %d\n", cols, sampling_dimension);
 
-        // Fill the pivot vector
-        std::iota(&J_buffer[0], &J_buffer[cols], 1);
-        // Perform a row-pivoted LU on a transpose of A_sk
-        lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer);
-        // Apply pivots to A_sk
-        util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
-        // Perform an unpivoted QR on A_sk
-        lapack::geqrf(sampling_dimension, cols, A_sk, d, Work4);
-    
+        if(sampling_dimension > cols)
+        {
+            printf("cols: %ld, sampling_dim: %d\n", cols, sampling_dimension);
+
+            // Get a transpose of A_sk 
+            for(i = 0; i < cols; ++i)
+                blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
+
+            //
+            //int64_t numpivs = std::max(cols, sampling_dimension);
+            // Fill the pivot vector
+            std::iota(&J_buffer[0], &J_buffer[n], 1);
+            // Perform a row-pivoted LU on a transpose of A_sk
+            lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer);
+            // Apply pivots to A_sk
+            util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
+            // Perform an unpivoted QR on A_sk
+            lapack::geqrf(sampling_dimension, cols, A_sk, d, Work4);
+        } else {
 
         //char name [] = "A_sk";
         //RandBLAS::util::print_colmaj(d, n, A_sk, name);
-
+        
     
-        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
+        lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
+        }
 
-        return 0;
+        //return 0;
     
 
         if(this -> timing) {

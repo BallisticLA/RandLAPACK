@@ -121,7 +121,7 @@ class TestCQRRP : public ::testing::Test
 
         CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
         all_data.rank = CQRRP.rank;
-        /*
+        
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
@@ -130,17 +130,13 @@ class TestCQRRP : public ::testing::Test
         
         lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
-        char name2 [] = "Q";
-        RandBLAS::util::print_colmaj(m, all_data.rank, all_data.Q.data(), name2);
-
-
         printf("RANK AS RETURNED BY CQRRP %4ld\n", all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data);
-        */
+        
     }
 };
 
@@ -205,8 +201,8 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
 TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     int64_t m = 5000;
     int64_t n = 2000;
-    int64_t k = 1600;
-    double d_factor = 1.125;
+    int64_t k = 2000;
+    double d_factor = 2.0;
     int64_t b_sz = 256;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
