@@ -338,7 +338,7 @@ int CQRRP_blocked<T, RNG>::call(
         */
 
 
-
+/*
         
         // Get a transpose of A_sk 
         for(i = 0; i < cols; ++i)
@@ -347,38 +347,38 @@ int CQRRP_blocked<T, RNG>::call(
 
         char name [] = "A_sk";
         char name1 [] = "A_sk_trans";
-        RandBLAS::util::print_colmaj(d, n, A_sk, name);
-        RandBLAS::util::print_colmaj(n, d, A_sk_trans, name1);
+        //RandBLAS::util::print_colmaj(d, n, A_sk, name);
+        //RandBLAS::util::print_colmaj(n, d, A_sk_trans, name1);
 
-        //std::iota(&J_buffer[0], &J_buffer[n], 1);
+        std::iota(&J_buffer[0], &J_buffer[n], 1);
         // Perform a row-pivoted LU on a transpose of A_sk
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer);
 
         for (i = 0; i < cols; ++i)
         {
-            printf("%d\n", J_buffer[i]);
+            //printf("%d\n", J_buffer[i]);
         }
 
         // Apply pivots to A_sk
         util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
 
-        RandBLAS::util::print_colmaj(d, n, A_sk, name);
-        return 0;
+        //RandBLAS::util::print_colmaj(d, n, A_sk, name);
+        //return 0;
 
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(sampling_dimension, cols, A_sk, d, Work4);
-    
+    */
 
-    /*
+    
         lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
 
         for (i = 0; i < cols; ++i)
         {
-            printf("%d\n", J_buffer[i]);
+            //printf("%d\n", J_buffer[i]);
         }
 
-        return 0;
-    */
+        //return 0;
+    
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
