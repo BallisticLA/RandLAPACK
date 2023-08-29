@@ -185,14 +185,16 @@ int CQRRP_blocked<T, RNG>::call(
         preallocation_t_start = high_resolution_clock::now();
     }
     int iter, i, j;
-    int64_t rows = m;
-    int64_t cols = n;
+    int64_t rows       = m;
+    int64_t cols       = n;
     // Describes sizes of full Q and R factors at a given iteration.
-    int64_t curr_sz = 0;
-    int64_t b_sz    = this->block_size;
-    int64_t maxiter = (int64_t) std::ceil(std::min(m, n) / (T) b_sz);
+    int64_t curr_sz    = 0;
+    int64_t b_sz       = this->block_size;
+    int64_t maxiter    = (int64_t) std::ceil(std::min(m, n) / (T) b_sz);
+    // Using this variable to work with matrices with leading dimension = b_sz.
+    int64_t b_sz_const = b_sz;
     // This will serve as lda of a sketch
-    int64_t d       = d_factor * b_sz;
+    int64_t d          = d_factor * b_sz;
     // We will be using this parameter when performing QRCP on a sketch.
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
@@ -252,9 +254,9 @@ int CQRRP_blocked<T, RNG>::call(
     // That is done by applying the sign vector D from orhr_col().
     // Eventually, will be used to store R11 (computed via trmm)
     // which is then copied into its appropriate space in the matrix A.
-    T* R_cholqr = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
+    T* R_cholqr = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
     // Pointer to matrix T from orhr_col at currect iteration, will point to Work2 space.
-    T* T_dat    = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
+    T* T_dat    = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work4    = ( T * ) calloc( n, sizeof( T ) );
@@ -303,7 +305,10 @@ int CQRRP_blocked<T, RNG>::call(
     CQRRP_smaller.qrcp = 0;
     CQRRP_smaller.timing_advanced = 0;
 
+
+    T* A_sk_const = A_sk;
     for(iter = 0; iter < maxiter; ++iter) {
+
         if (this->timing_advanced)
             iter_t_start  = high_resolution_clock::now();
 
@@ -338,46 +343,29 @@ int CQRRP_blocked<T, RNG>::call(
         */
 
 
-/*
+
         
         // Get a transpose of A_sk 
         for(i = 0; i < cols; ++i)
             blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
 
-
-        char name [] = "A_sk";
-        char name1 [] = "A_sk_trans";
-        //RandBLAS::util::print_colmaj(d, n, A_sk, name);
-        //RandBLAS::util::print_colmaj(n, d, A_sk_trans, name1);
-
-        std::iota(&J_buffer[0], &J_buffer[n], 1);
+        // Fill the pivot vector
+        std::iota(&J_buffer[0], &J_buffer[cols], 1);
         // Perform a row-pivoted LU on a transpose of A_sk
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer);
-
-        for (i = 0; i < cols; ++i)
-        {
-            //printf("%d\n", J_buffer[i]);
-        }
-
         // Apply pivots to A_sk
         util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
-
-        //RandBLAS::util::print_colmaj(d, n, A_sk, name);
-        //return 0;
-
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(sampling_dimension, cols, A_sk, d, Work4);
-    */
+    
+
+        //char name [] = "A_sk";
+        //RandBLAS::util::print_colmaj(d, n, A_sk, name);
 
     
-        lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
+        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
 
-        for (i = 0; i < cols; ++i)
-        {
-            //printf("%d\n", J_buffer[i]);
-        }
-
-        //return 0;
+        return 0;
     
 
         if(this -> timing) {
@@ -421,11 +409,11 @@ int CQRRP_blocked<T, RNG>::call(
             cholqr_t_start = high_resolution_clock::now();
 
         // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, lda, 0.0, R_cholqr, b_sz);
-        lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, lda, 0.0, R_cholqr, b_sz_const);
+        lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
 
         // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_cholqr, b_sz, A_work, lda);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_cholqr, b_sz_const, A_work, lda);
 
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
@@ -438,20 +426,21 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz, Work4);
+        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work4);
 
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
+
         for(i = 0; i < b_sz; ++i)
             for(j = 0; j < (i + 1); ++j)
-               R_cholqr[(b_sz * i) + j] *= Work4[j];
+               R_cholqr[(b_sz_const * i) + j] *= Work4[j];
 
         // Define a pointer to the current subportion of tau vector.
         tau_sub = &tau[curr_sz];
         // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
         for(i = 0; i < b_sz; ++i)
-            tau_sub[i] = T_dat[(b_sz + 1) * i];
+            tau_sub[i] = T_dat[(b_sz_const + 1) * i];
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -464,7 +453,7 @@ int CQRRP_blocked<T, RNG>::call(
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
-        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz, Work1, lda);
+        lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
 
         // Updating pivots
         if(iter == 0) {
@@ -476,13 +465,13 @@ int CQRRP_blocked<T, RNG>::call(
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk, d, R_cholqr, b_sz);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk, d, R_cholqr, b_sz_const);
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
         // R11 =  &A[(m + 1) * curr_sz];
         R11 = A_work;
-        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr, b_sz, A_work, lda);
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda);
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
