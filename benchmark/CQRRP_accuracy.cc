@@ -142,7 +142,7 @@ static void sv_ratio(
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
-        file2 << R_dat[(m + 1) * i] / S_dat[i] << ",  ";
+        file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
     
     file2  << ",\n";
 
@@ -154,13 +154,13 @@ static void sv_ratio(
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
-        file2 << R_dat[(m + 1) * i] / S_dat[i] << ",  ";
+        file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
 }
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
+    int64_t m          = std::pow(2, 10);
+    int64_t n          = std::pow(2, 10);
     double d_factor    = 1.125;
     int64_t b_sz       = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -174,7 +174,10 @@ int main() {
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     R_norm_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant1);
