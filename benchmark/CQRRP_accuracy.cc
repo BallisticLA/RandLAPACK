@@ -175,7 +175,7 @@ int main() {
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
+    m_info.cond_num = std::pow(10, 10);
     m_info.rank = n;
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
