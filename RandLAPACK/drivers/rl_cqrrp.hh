@@ -168,6 +168,10 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point updating2_t_stop;
     long updating2_t_dur = 0;
 
+    high_resolution_clock::time_point updating3_t_start;
+    high_resolution_clock::time_point updating3_t_stop;
+    long updating3_t_dur = 0;
+
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
     long total_t_dur = 0;
@@ -410,6 +414,12 @@ int CQRRP_blocked<T, RNG>::call(
         // With that, everything is placed where it should be, no copies required.
         lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
 
+        if(this -> timing) {
+            updating1_t_stop  = high_resolution_clock::now();
+            updating1_t_dur  += duration_cast<microseconds>(updating1_t_stop - updating1_t_start).count();
+            updating3_t_start = high_resolution_clock::now();
+        }
+
         // Updating pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer, 1, J, 1);
@@ -434,8 +444,8 @@ int CQRRP_blocked<T, RNG>::call(
         R12 = &R11[lda * b_sz];
 
         if(this -> timing) {
-            updating1_t_stop  = high_resolution_clock::now();
-            updating1_t_dur  += duration_cast<microseconds>(updating1_t_stop - updating1_t_start).count();
+            updating3_t_stop  = high_resolution_clock::now();
+            updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
         }
 
         // Estimate R norm, use Fro norm trick to compute the approximation error
@@ -463,9 +473,9 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + r_piv_t_dur);
-                this -> times.resize(11);
-                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, r_piv_t_dur, t_rest, total_t_dur};
+                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
+                this -> times.resize(12);
+                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
@@ -474,7 +484,8 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
                 printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
                 printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
-                printf("Factors updating time: %23ld μs,\n",               updating1_t_dur);
+                printf("Computing A_new, R12 time: %23ld μs,\n",           updating1_t_dur);
+                printf("Factors updating time: %23ld μs,\n",               updating3_t_dur);
                 printf("Sketch updating time: %24ld μs,\n",                updating2_t_dur);
                 printf("Trailing cols(R) pivoting time: %10ld μs,\n",      r_piv_t_dur);
                 printf("Other routines time: %24ld μs,\n",                 t_rest);
@@ -486,7 +497,8 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
                 printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
-                printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating1_t_dur       / (T) total_t_dur));
+                printf("Computing A_new, R12 takes %14.2f%% of runtime.\n",             100 * ((T) updating1_t_dur       / (T) total_t_dur));
+                printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating3_t_dur       / (T) total_t_dur));
                 printf("Sketch updating time takes %15.2f%% of runtime.\n",             100 * ((T) updating2_t_dur       / (T) total_t_dur));
                 printf("Trailing cols(R) pivoting takes %10.2f%% of runtime.\n",        100 * ((T) r_piv_t_dur           / (T) total_t_dur));
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
