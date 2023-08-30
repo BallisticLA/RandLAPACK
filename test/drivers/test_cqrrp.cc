@@ -155,7 +155,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, true, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
-    CQRRP_blocked.qrcp = 1;
+    CQRRP_blocked.qrcp = 3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
@@ -183,7 +183,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, true, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
-    CQRRP_blocked.qrcp = 1;
+    CQRRP_blocked.qrcp = 3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
@@ -201,7 +201,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
 TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     int64_t m = 5000;
     int64_t n = 2000;
-    int64_t k = 2000;
+    int64_t k = 1500;
     double d_factor = 2.0;
     int64_t b_sz = 256;
     double norm_A = 0;
@@ -212,7 +212,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, true, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
-    CQRRP_blocked.qrcp = 1;
+    CQRRP_blocked.qrcp = 3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
