@@ -324,7 +324,7 @@ int CQRRP_blocked<T, RNG>::call(
         RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_smaller(false, false, this->eps, b_sz / 2);
         CQRRP_smaller.nnz = this->nnz;
         CQRRP_smaller.num_threads = this->num_threads;
-        CQRRP_smaller.qrcp = 0;
+        CQRRP_smaller.qrcp = 3;
         CQRRP_smaller.timing_advanced = 0;
 
         // Performing QR with column pivoting
