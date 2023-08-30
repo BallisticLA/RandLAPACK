@@ -93,8 +93,7 @@ static std::vector<long> call_all_algs(
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_gen_0, 0);
 
-        // Testing CQRRP - best setuo
-        CQRRP_blocked.qrcp = 3;
+        // Testing CQRRP - best setup
         auto start_cqrrp = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg_0);
         auto stop_cqrrp = high_resolution_clock::now();

@@ -73,7 +73,6 @@ static void R_norm_ratio(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
-    CQRRP_blocked.qrcp = 1;
 
     // Running HQRRP
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
@@ -121,7 +120,6 @@ static void sv_ratio(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
-    CQRRP_blocked.qrcp = 1;
 
     std::fstream file2("data_out/QR_sv_ratios_rows_"            + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
