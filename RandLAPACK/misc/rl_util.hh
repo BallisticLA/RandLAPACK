@@ -141,22 +141,25 @@ void col_swap(
     if(k > n) 
         throw std::runtime_error("Incorrect rank parameter.");
 
-    int64_t* idx_dat = idx.data();
-
     int64_t i, j, l;
     for (i = 0, j = 0; i < k; ++i) {
-        j = idx_dat[i] - 1;
+        j = idx[i] - 1;
         blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
 
+        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
+        idx[it - (idx.begin())] = j + 1;
+/*
         // swap idx array elements
         // Find idx element with value i and assign it to j
         for(l = i; l < k; ++l) {
             if(idx[l] == i + 1) {
                     idx[l] = j + 1;
+                    printf("%d\n", l);
                     break;
             }
         }
         idx[i] = i + 1;
+*/
     }
 }
 
