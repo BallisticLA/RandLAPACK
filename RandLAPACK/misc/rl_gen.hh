@@ -403,19 +403,17 @@ void gen_kahan_mat(
 ) {
 
     std::vector<T> S(m * m, 0.0);
-    std::vector<T> P(m * m, 0.0);
     std::vector<T> C(m * m, 0.0);
 
     for (int i = 0; i < n; ++i) {
-        P[(m + 1) * i] = pertrub * std::numeric_limits<double>::epsilon() * (m - i);
+        A[(m + 1) * i] = pertrub * std::numeric_limits<double>::epsilon() * (m - i);
         S[(m + 1) * i] = std::pow(std::sin(i), i);
         for(int j = 0; j < i; ++ j)
             C[(m * i) + j] = std::cos(theta); 
         C[m * i + i] = 1.0;
     }
 
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, 1.0, P.data(), m, S.data(), m, 0.0, A.data(), m);
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, m, 1.0, C.data(), m, A.data(), m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, 1.0, S.data(), m, C.data(), m, 1.0, A.data(), m);
 }
 
 /// 'Entry point' routine for matrix generation.
