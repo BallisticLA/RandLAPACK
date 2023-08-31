@@ -392,14 +392,13 @@ void gen_bad_cholqr_mat(
 }
 
 /// Generates Kahan matrix
-template <typename T, typename RNG>
+template <typename T>
 void gen_kahan_mat(
     int64_t &m,
     int64_t &n,
     std::vector<T> &A,
     T theta,
-    T pertrub,
-    RandBLAS::RNGState<RNG> &state
+    T pertrub
 ) {
 
     std::vector<T> S(m * m, 0.0);
@@ -472,7 +471,7 @@ void mat_gen(
             break;
         case kahan: {
                 // Generates Kahan Matrix
-                RandLAPACK::gen::gen_kahan_mat(m, n, A, info.theta, info.pertrub, state);
+                RandLAPACK::gen::gen_kahan_mat(m, n, A, info.theta, info.pertrub);
             }
             break;
         default:

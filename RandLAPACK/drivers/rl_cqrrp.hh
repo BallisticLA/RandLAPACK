@@ -48,7 +48,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             block_size = b_sz;
-            qrcp = 3;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -117,8 +116,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // tuning SASOS
         int num_threads;
         int64_t nnz;
-
-        int qrcp;
 };
 
 // We are assuming that tau and J have been pre-allocated
@@ -264,7 +261,7 @@ int CQRRP_blocked<T, RNG>::call(
     T* T_dat    = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
-    T* Work4    = ( T * ) calloc( n, sizeof( T ) );
+    T* Work2    = ( T * ) calloc( n, sizeof( T ) );
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
     T norm_A     = lapack::lange(Norm::Fro, m, n, A, lda);
@@ -296,20 +293,6 @@ int CQRRP_blocked<T, RNG>::call(
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
     }
 
-    // Create an alternative to GEQP3 in form of a smaller CQRRP.
-    // This will be wasteful if we don't actually use it.
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_small(false, false, this->eps, b_sz / 4);
-    CQRRP_small.nnz = this->nnz;
-    CQRRP_small.num_threads = this->num_threads;
-    CQRRP_small.qrcp = 2;
-    CQRRP_small.timing_advanced = 0;
-
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_smaller(false, false, this->eps, b_sz / 2);
-    CQRRP_smaller.nnz = this->nnz;
-    CQRRP_smaller.num_threads = this->num_threads;
-    CQRRP_smaller.qrcp = 3;
-    CQRRP_smaller.timing_advanced = 0;
-
     for(iter = 0; iter < maxiter; ++iter) {
 
         if (this->timing_advanced)
@@ -321,50 +304,28 @@ int CQRRP_blocked<T, RNG>::call(
         // Zero-out data - may not be necessary
         std::fill(&J_buffer[0], &J_buffer[n], 0);
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
-        std::fill(&Work4[0], &Work4[n], 0.0);
+        std::fill(&Work2[0], &Work2[n], 0.0);
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
 
-        // Performing QR with column pivoting
-        switch(this->qrcp) { 
-            case 0: {
-                // HQRRP with Cholesky QR & smaller block size
-                std::iota(&J_buffer[0], &J_buffer[n], 1);
-                RandLAPACK::hqrrp(sampling_dimension, cols, A_sk, d, J_buffer, Work4, b_sz / 2, 0.06 * b_sz, 0, 0, state, (T*) nullptr);
-                } break;
-            case 1: {
-                // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
-                CQRRP_small.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
-                } break;
-            case 2: {
-                // Use CQRRP with smaller block size, which itself relies on HQRRP + Cholqr.
-                CQRRP_smaller.qrcp = 3;
-                CQRRP_smaller.call(sampling_dimension, cols, A_sk, d, d_factor, Work4, J_buffer, state);
-                } break;
-            case 3: {
-                // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
-                // Get a transpose of A_sk 
-                for(i = 0; i < cols; ++i)
-                    blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
-                // Perform a row-pivoted LU on a transpose of A_sk
-                lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
-                // Fill the pivot vector, apply swaps found via lu on A_sk'.
-                std::iota(&J_buffer[0], &J_buffer[cols], 1);
-                for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
-                    tmp = J_buffer[J_buffer_lu[i] - 1];
-                    J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
-                    J_buffer[i] = tmp;
-                }
-                // Apply pivots to A_sk
-                util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
-                // Perform an unpivoted QR on A_sk
-                lapack::geqrf(sampling_dimension, cols, A_sk, d, Work4);
-                } break;
-            case 4: {
-                lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work4);
-            } break;
+        // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
+        // Get a transpose of A_sk 
+        for(i = 0; i < cols; ++i)
+            blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
+        // Perform a row-pivoted LU on a transpose of A_sk
+        lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
+        // Fill the pivot vector, apply swaps found via lu on A_sk'.
+        std::iota(&J_buffer[0], &J_buffer[cols], 1);
+        for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
+            tmp = J_buffer[J_buffer_lu[i] - 1];
+            J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
+            J_buffer[i] = tmp;
         }
+        // Apply pivots to A_sk
+        util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
+        // Perform an unpivoted QR on A_sk
+        lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -424,7 +385,7 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work4);
+        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
 
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
@@ -432,7 +393,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         for(i = 0; i < b_sz; ++i)
             for(j = 0; j < (i + 1); ++j)
-               R_cholqr[(b_sz_const * i) + j] *= Work4[j];
+               R_cholqr[(b_sz_const * i) + j] *= Work2[j];
 
         // Define a pointer to the current subportion of tau vector.
         tau_sub = &tau[curr_sz];
