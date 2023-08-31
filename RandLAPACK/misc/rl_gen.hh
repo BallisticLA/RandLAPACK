@@ -402,22 +402,17 @@ void gen_kahan_mat(
     RandBLAS::RNGState<RNG> &state
 ) {
 
-    std::vector<T> s(m, 0.0);
-    std::vector<T> p(m, 0.0);
     std::vector<T> S(m * m, 0.0);
     std::vector<T> P(m * m, 0.0);
     std::vector<T> C(m * m, 0.0);
 
     for (int i = 0; i < n; ++i) {
-        P[i] = pertrub * std::numeric_limits<double>::epsilon() * (m - i);
-        S[i] = std::pow(std::sin(i), i);
+        P[(m + 1) * i] = pertrub * std::numeric_limits<double>::epsilon() * (m - i);
+        S[(m + 1) * i] = std::pow(std::sin(i), i);
         for(int j = 0; j < i; ++ j)
             C[(m * i) + j] = std::cos(theta); 
         C[m * i + i] = 1.0;
     }
-
-    RandLAPACK::util::diag(m, m, s, m, S);
-    RandLAPACK::util::diag(m, m, p, m, P);
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, 1.0, P.data(), m, S.data(), m, 0.0, A.data(), m);
     blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, m, 1.0, C.data(), m, A.data(), m);
