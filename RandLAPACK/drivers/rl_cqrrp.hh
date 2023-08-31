@@ -296,6 +296,20 @@ int CQRRP_blocked<T, RNG>::call(
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
     }
 
+    // Create an alternative to GEQP3 in form of a smaller CQRRP.
+    // This will be wasteful if we don't actually use it.
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_small(false, false, this->eps, b_sz / 4);
+    CQRRP_small.nnz = this->nnz;
+    CQRRP_small.num_threads = this->num_threads;
+    CQRRP_small.qrcp = 2;
+    CQRRP_small.timing_advanced = 0;
+
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_smaller(false, false, this->eps, b_sz / 2);
+    CQRRP_smaller.nnz = this->nnz;
+    CQRRP_smaller.num_threads = this->num_threads;
+    CQRRP_smaller.qrcp = 3;
+    CQRRP_smaller.timing_advanced = 0;
+
     for(iter = 0; iter < maxiter; ++iter) {
 
         if (this->timing_advanced)
@@ -311,21 +325,6 @@ int CQRRP_blocked<T, RNG>::call(
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
-
-
-        // Create an alternative to GEQP3 in form of a smaller CQRRP.
-        // This will be wasteful if we don't actually use it.
-        RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_small(false, false, this->eps, b_sz / 4);
-        CQRRP_small.nnz = this->nnz;
-        CQRRP_small.num_threads = this->num_threads;
-        CQRRP_small.qrcp = 2;
-        CQRRP_small.timing_advanced = 0;
-
-        RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_smaller(false, false, this->eps, b_sz / 2);
-        CQRRP_smaller.nnz = this->nnz;
-        CQRRP_smaller.num_threads = this->num_threads;
-        CQRRP_smaller.qrcp = 3;
-        CQRRP_smaller.timing_advanced = 0;
 
         // Performing QR with column pivoting
         switch(this->qrcp) { 
