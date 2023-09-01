@@ -80,7 +80,7 @@ static std::vector<long> call_all_algs(
     auto state_buf = state; 
 
     for (int i = 0; i < numruns; ++i) {
-
+        printf("ITERATION\n");
         // Testing GEQRF
         auto start_geqp3 = high_resolution_clock::now();
         lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -90,7 +90,6 @@ static std::vector<long> call_all_algs(
 
         data_regen<T, RNG>(m_info, all_data, state_buf, 0);
 
-        printf("ITERATION\n");
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
@@ -147,6 +146,7 @@ static std::vector<long> call_all_algs(
         // Making sure the states are unchanged
         state_gen_0 = state_gen_4;
         state_alg_0 = state_alg_4;
+        state_buf = state_gen_4;
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_gen_4, 0);
     }
