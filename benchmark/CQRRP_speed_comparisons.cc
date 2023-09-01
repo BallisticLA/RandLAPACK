@@ -77,13 +77,26 @@ static std::vector<long> call_all_algs(
     auto state_gen_0 = state;
     auto state_alg_0 = state;
 
+    auto state_buf = state; 
+
     for (int i = 0; i < numruns; ++i) {
+
+        // Testing GEQRF
+        auto start_geqp3 = high_resolution_clock::now();
+        lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+        auto stop_geqp3 = high_resolution_clock::now();
+        auto dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
+        printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
+
+        data_regen<T, RNG>(m_info, all_data, state_buf, 0);
+
         printf("ITERATION\n");
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqrf = high_resolution_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
+        printf("TOTAL TIME FOR GEQRF %ld\n", dur_geqrf);
         // Update best timing
         i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
 
@@ -149,11 +162,11 @@ static std::vector<long> call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
+    int64_t m          = 10000;//std::pow(2, 14);
+    int64_t n          = 10000;//std::pow(2, 14);
     double d_factor   = 1.0;
     int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 2048;
+    int64_t b_sz_end   = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;

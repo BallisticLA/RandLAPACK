@@ -146,11 +146,12 @@ void col_swap(
         j = idx[i] - 1;
         blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
 
+        // swap idx array elements
+        // Find idx element with value i and assign it to j
         auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
         idx[it - (idx.begin())] = j + 1;
 /*
-        // swap idx array elements
-        // Find idx element with value i and assign it to j
+        // Simple version of the above
         for(l = i; l < k; ++l) {
             if(idx[l] == i + 1) {
                     idx[l] = j + 1;
