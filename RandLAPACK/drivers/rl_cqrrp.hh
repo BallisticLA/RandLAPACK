@@ -74,7 +74,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         ///     The number of columns in the matrix A.
         ///
         /// @param[in] A
-        ///     The m-by-n matrix A, stored in a column-major format.
+        ///     Pointer to the m-by-n matrix A, stored in a column-major format.
         ///
         /// @param[in] lda
         ///     Leading dimension of A.
@@ -83,10 +83,10 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         ///     Embedding dimension of a sketch factor, m >= (d_factor * n) >= n.
         ///
         /// @param[in] tau
-        ///     Vector of size n. On entry, is empty.
+        ///     Pointer to a vector of size n. On entry, is empty.
         ///
         /// @param[out] A
-        ///     Overwritten by garbage.
+        ///     Overwritten by Implicit Q and explicit R factors.
         ///
         /// @param[out] tau
         ///     On output, similar in format to that in GEQP3.
