@@ -38,13 +38,25 @@ template <typename T, typename RNG>
 class CQRRP_blocked : public CQRRPalg<T, RNG> {
     public:
 
+        /// This algorithm serves as an extension of CQRRPT's idea - CQRRP presents a blocked version of
+        /// randomized QR with column pivoting that utilizes Cholesky QR.
+        ///
+        /// The base structure of CQRRP resembles that of Algorithm 4 from https://arxiv.org/abs/1509.06820. 
+        /// CQRRP allows for error-tolerance based adaptive stopping criteria, taken from Section 3 of 
+        /// https://arxiv.org/abs/1606.09402.
+        ///
+        /// The main computational bottlenecks of CQRRP are in its following two components:
+        ///     1. Performing QRCP on a sketch - in our case, is implemented via pivoted LU (see below for details).
+        ///     2. Applying Q-factor from Cholesky QR to the working area of matrix A (done via gemqrt).
+        ///
+        /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
+
+
         CQRRP_blocked(
-            bool verb,
             bool time_subroutines,
             T ep,
             int64_t b_sz
         ) {
-            verbosity = verb;
             timing = time_subroutines;
             eps = ep;
             block_size = b_sz;
@@ -53,8 +65,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         /// Computes a QR factorization with column pivots of the form:
         ///     A[:, J] = QR,
         /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
-        /// Detailed description of this algorithm may be found in Section 5.1.2.
-        /// of "the RandLAPACK book". 
+        /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -64,6 +75,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         ///
         /// @param[in] A
         ///     The m-by-n matrix A, stored in a column-major format.
+        ///
+        /// @param[in] lda
+        ///     Leading dimension of A.
         ///
         /// @param[in] d_factor
         ///     Embedding dimension of a sketch factor, m >= (d_factor * n) >= n.
@@ -82,8 +96,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         ///
         /// @return = 0: successful exit
         ///
-        /// @return = 1: cholesky factorization failed
-        ///
 
         int call(
             int64_t m,
@@ -97,7 +109,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         ) override;
 
     public:
-        bool verbosity;
         bool timing;
         bool timing_advanced;
         bool cond_check;

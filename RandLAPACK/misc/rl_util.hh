@@ -141,7 +141,7 @@ void col_swap(
     if(k > n) 
         throw std::runtime_error("Incorrect rank parameter.");
 
-    int64_t i, j, l;
+    int64_t i, j; //, l;
     for (i = 0, j = 0; i < k; ++i) {
         j = idx[i] - 1;
         blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);

@@ -57,7 +57,7 @@ static std::vector<long> call_all_algs(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, false, tol, b_sz);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
     // We are nbot using panel pivoting in performance testing.
