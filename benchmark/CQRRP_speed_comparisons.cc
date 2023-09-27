@@ -83,7 +83,7 @@ static std::vector<long> call_all_algs(
         printf("ITERATION\n");
         // Testing GEQRF
         auto start_geqp3 = high_resolution_clock::now();
-        lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+        //lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
         auto stop_geqp3 = high_resolution_clock::now();
         auto dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
@@ -162,11 +162,11 @@ static std::vector<long> call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = 10000;//std::pow(2, 14);
-    int64_t n          = 10000;//std::pow(2, 14);
+    int64_t m          = std::pow(2, 14);
+    int64_t n          = std::pow(2, 14);
     double d_factor   = 1.0;
     int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 256;
+    int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
