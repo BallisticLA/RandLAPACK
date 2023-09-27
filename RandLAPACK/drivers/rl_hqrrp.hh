@@ -794,8 +794,8 @@ int64_t hqrrp(
     buff_D  = ( T * ) calloc( nb_alg, sizeof( T ) );
 
     // Initialize matrices G and Y.
-    RandBLAS::DenseDist D{.n_rows = nb_alg + pp, .n_cols = m_A, .family=RandBLAS::DenseDistName::Uniform};
-    state = RandBLAS::fill_dense(D, buff_G, state);
+    RandBLAS::DenseDist D(nb_alg + pp, m_A, RandBLAS::DenseDistName::Uniform);
+    state = RandBLAS::fill_dense(D, buff_G, state).second;
     
     blas::gemm(Layout::ColMajor,
                 Op::NoTrans, Op::NoTrans, m_Y, n_Y, m_A, 

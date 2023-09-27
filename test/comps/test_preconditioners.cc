@@ -77,11 +77,7 @@ class Test_rpc_svd : public ::testing::Test
         // construct "A" with cond(A) >= sqrt_cond^2.
         std::vector<T> A(m*n, 0.0);
         T *a = A.data();
-        RandBLAS::DenseDist D{
-            .n_rows = m,
-            .n_cols = n,
-            .family = RandBLAS::DenseDistName::Uniform
-        };
+        RandBLAS::DenseDist D(m, n, RandBLAS::DenseDistName::Uniform);
         auto state = RandBLAS::RNGState(99);
         RandBLAS::fill_dense(D, a, state);
     
@@ -138,11 +134,7 @@ class Test_rpc_svd : public ::testing::Test
         // After regularization the augmented matrix will still be full-rank.
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
-        RandBLAS::DenseDist D{
-            .n_rows = m,
-            .n_cols = n,
-            .family = RandBLAS::DenseDistName::Uniform
-        };
+        RandBLAS::DenseDist D(m, n, RandBLAS::DenseDistName::Uniform);
         auto state = RandBLAS::RNGState(99);
         RandBLAS::fill_dense(D, a, state);
                       

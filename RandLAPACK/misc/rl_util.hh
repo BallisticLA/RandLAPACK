@@ -338,8 +338,8 @@ T estimate_spectral_norm(
     std::vector<T> buf (n, 0.0);
     std::vector<T> buf1 (m, 0.0);
 
-    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = 1};
-    state = RandBLAS::fill_dense(DV, buf.data(), state);
+    RandBLAS::DenseDist DV(n, 1);
+    state = RandBLAS::fill_dense(DV, buf.data(), state).second;
 
     T prev_norm_inv = 1.0;
     for(int i = 0; i < p; ++i) {

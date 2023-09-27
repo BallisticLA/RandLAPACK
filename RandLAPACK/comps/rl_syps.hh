@@ -140,8 +140,8 @@ int SYPS<T, RNG>::call(
      bool callers_skop_buff = skop_buff != nullptr;
      if (!callers_skop_buff)
          skop_buff = new T[m * k];
-    RandBLAS::DenseDist D{m, k};
-    state = RandBLAS::fill_dense(D, skop_buff, state);
+    RandBLAS::DenseDist D(m, k);
+    state = RandBLAS::fill_dense(D, skop_buff, state).second;
 
      bool callers_work_buff = work_buff != nullptr;
      if (!callers_work_buff)

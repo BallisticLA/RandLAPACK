@@ -79,10 +79,10 @@ void gen_singvec(
     T* tau_dat = tau.data();
     T* Gemm_buf_dat = Gemm_buf.data();
 
-    RandBLAS::DenseDist DU{.n_rows = m, .n_cols = k};
-    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = k};
-    state = RandBLAS::fill_dense(DU, U_dat, state);
-    state = RandBLAS::fill_dense(DV, V_dat, state);
+    RandBLAS::DenseDist DU(m, k);
+    RandBLAS::DenseDist DV(n, k);
+    state = RandBLAS::fill_dense(DU, U_dat, state).second;
+    state = RandBLAS::fill_dense(DV, V_dat, state).second;
 
     lapack::geqrf(m, k, U_dat, m, tau_dat);
     lapack::ungqr(m, k, k, U_dat, m, tau_dat);
@@ -262,8 +262,8 @@ void gen_spiked_mat(
     std::vector<T> V(n * n, 0.0);
     std::vector<T> tau(n, 0.0);
 
-    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = n};
-    state = RandBLAS::fill_dense(DV, V.data(), state);
+    RandBLAS::DenseDist DV(n, n);
+    state = RandBLAS::fill_dense(DV, V.data(), state).second;
 
     lapack::geqrf(n, n, V.data(), n, tau.data());
     lapack::ungqr(n, n, n, V.data(), n, tau.data());
@@ -311,11 +311,11 @@ void gen_oleg_adversarial_mat(
     std::vector<T> tau1(n, 0.0);
     std::vector<T> tau2(n, 0.0);
 
-    RandBLAS::DenseDist DU{.n_rows = m, .n_cols = n};
-    state = RandBLAS::fill_dense(DU, U.data(), state);
+    RandBLAS::DenseDist DU(m, n);
+    state = RandBLAS::fill_dense(DU, U.data(), state).second;
 
-    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = n};
-    state = RandBLAS::fill_dense(DV, V.data(), state);
+    RandBLAS::DenseDist DV(n, n);
+    state = RandBLAS::fill_dense(DV, V.data(), state).second;
 
     T* U_dat = U.data();
     for(int i = 0; i < n; ++i) {
@@ -441,8 +441,8 @@ void mat_gen(
             break;
         case gaussian: {
                 // Gaussian random matrix
-                RandBLAS::DenseDist D{.n_rows = m, .n_cols = n};
-                state = RandBLAS::fill_dense(D, A_dat, state);
+                RandBLAS::DenseDist D(m, n);
+                state = RandBLAS::fill_dense(D, A_dat, state).second;
             }
             break;
         case step: {
