@@ -375,6 +375,7 @@ int CQRRP_blocked<T, RNG>::call(
             preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
         }
 
+        /*
         if(this -> timing)
             cholqr_t_start = high_resolution_clock::now();
 
@@ -411,10 +412,16 @@ int CQRRP_blocked<T, RNG>::call(
         // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
         for(i = 0; i < b_sz; ++i)
             tau_sub[i] = T_dat[(b_sz_const + 1) * i];
+        */
+        tau_sub = &tau[curr_sz];
+        geqrf(rows, b_sz, A_work, lda, tau_sub);
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, A_work, lda, R_cholqr, b_sz_const);
+
+        lapack::larft( lapack::Direction::Forward, lapack::StoreV::Columnwise, rows, b_sz_const, A_work, lda, tau_sub, T_dat, b_sz_const);
 
         if(this -> timing) {
-            reconstruction_t_stop  = high_resolution_clock::now();
-            reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
+            //reconstruction_t_stop  = high_resolution_clock::now();
+            //reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
             updating1_t_start = high_resolution_clock::now();
         }
 
