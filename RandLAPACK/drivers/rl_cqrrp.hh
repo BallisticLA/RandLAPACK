@@ -414,7 +414,7 @@ int CQRRP_blocked<T, RNG>::call(
             tau_sub[i] = T_dat[(b_sz_const + 1) * i];
         */
         tau_sub = &tau[curr_sz];
-        geqrf(rows, b_sz, A_work, lda, tau_sub);
+        lapack::geqrf(rows, b_sz, A_work, lda, tau_sub);
         lapack::lacpy(MatrixType::Upper, b_sz, b_sz, A_work, lda, R_cholqr, b_sz_const);
 
         lapack::larft( lapack::Direction::Forward, lapack::StoreV::Columnwise, rows, b_sz_const, A_work, lda, tau_sub, T_dat, b_sz_const);
