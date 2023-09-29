@@ -53,7 +53,7 @@ jobs:
           mkdir lapackpp-build
           cd lapackpp-build
           cmake -DCMAKE_BUILD_TYPE=Debug \
-              -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
+              -Dblaspp_DIR=`pwd`/../blaspp-install/lib64/blaspp \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
               -DCMAKE_BINARY_DIR=`pwd` \
               -Dbuild_tests=OFF \
