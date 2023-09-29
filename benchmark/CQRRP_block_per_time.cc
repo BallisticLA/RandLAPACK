@@ -142,7 +142,9 @@ int main() {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
+#if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, all_data, state, state_constant);
     }
+#endif
 }

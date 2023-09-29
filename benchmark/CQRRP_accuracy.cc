@@ -182,8 +182,10 @@ int main() {
     //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
+#if !defined(__APPLE__)
     R_norm_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant1);
     printf("R done\n");
     sv_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant2);
     printf("SV done\n\n");
+#endif
 }

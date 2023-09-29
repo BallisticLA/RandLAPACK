@@ -145,12 +145,14 @@ int main() {
     
     int64_t total_time_cholqr = 0;
     int64_t total_time_geqrf = 0;
+#if !defined(__APPLE__)
     for (int rows = rows_start; rows >= rows_end; rows /= 2) {
         res = call_all_algs<double, r123::Philox4x32>(rows, m_info, numruns, all_data, state_constant);
         file << res[0]  << "  " << res[1] << "\n";
         total_time_cholqr += res[0];
         total_time_geqrf += res[1];
     }
+#endif
     printf("In total, CHOLQR takes %ld μs\n", total_time_cholqr);
     printf("In total, GEQRF takes %ld μs\n\n", total_time_geqrf);
 }
