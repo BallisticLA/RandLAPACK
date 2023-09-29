@@ -28,7 +28,10 @@ jobs:
           export TZ="America/Los_Angeles"
           sudo apt-get update -qq
           sudo apt-get install -qq -y git-core gcc g++ gfortran cmake subversion automake m4 libgtest-dev libopenblas-openmp-dev
-          sudo apt install intel-oneapi-mkl
+          wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+          | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
+          sudo apt update
 
       - name: install BLAS++
         run: |
