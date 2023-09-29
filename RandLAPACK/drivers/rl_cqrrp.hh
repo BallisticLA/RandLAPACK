@@ -247,6 +247,11 @@ int CQRRP_blocked<T, RNG>::call(
     // Special pivoting buffer for LU factorization, capturing the swaps on A_sk'.
     // Needs to be converted in a proper format of length rows(A_sk')
     int64_t* J_buffer_lu = ( int64_t * ) calloc( std::min(d, n), sizeof( int64_t ) );
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////EXPERIMENT
+    std::vector<T> Q_small_buf(b_sz_const * b_sz_const, 0.0);
+    T* Q_small = Q_small_buf.data();
+    std::vector<int64_t> buf (n, 0.0);
+    int64_t* buf_dat = buf.data();
 
     // A_sk serves as a skething matrix, of size d by n, lda d
     // Below algorithm does not perform repeated sampling, hence A_sk
@@ -316,6 +321,7 @@ int CQRRP_blocked<T, RNG>::call(
         std::fill(&J_buffer[0], &J_buffer[n], 0);
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
         std::fill(&Work2[0], &Work2[n], 0.0);
+        std::fill(&buf_dat[0], &buf_dat[n], 0.0);
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
@@ -375,6 +381,8 @@ int CQRRP_blocked<T, RNG>::call(
             preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
         }
 
+        /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////STRATEGY WITH CHOLQR
+        /*
         if(this -> timing)
             cholqr_t_start = high_resolution_clock::now();
 
@@ -411,10 +419,45 @@ int CQRRP_blocked<T, RNG>::call(
         // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
         for(i = 0; i < b_sz; ++i)
             tau_sub[i] = T_dat[(b_sz_const + 1) * i];
+        */
+        /*
+        /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////STRATEGY WITH GEQRF
+        tau_sub = &tau[curr_sz];
+        lapack::geqrf(rows, b_sz, A_work, lda, tau_sub);
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, A_work, lda, R_cholqr, b_sz_const);
+
+        lapack::larft( lapack::Direction::Forward, lapack::StoreV::Columnwise, rows, b_sz_const, A_work, lda, tau_sub, T_dat, b_sz_const);
+        */
+
+        /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////STRATEGY WITH Q-S
+        // Performing Cholesky QR
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, lda, 0.0, R_cholqr, b_sz_const);
+        lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
+
+        lapack::lacpy(MatrixType::General, b_sz, b_sz, A_work, lda, Q_small, b_sz_const);
+
+        // Compute Q_econ from Cholesky QR
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_cholqr, b_sz_const, Q_small, b_sz_const);
+
+        for(i = 0; i < b_sz; ++i) {
+            for(j = 0; j < (i + 1); ++j){
+               R_cholqr[(b_sz_const * i) + j] *= -1.0 * ((Q_small[j * b_sz_const + j] > 0) ? 1 : -1);
+               A_work[i * lda + j] -= R_cholqr[(b_sz_const * i) + j];
+            }
+        }
+
+        lapack::getrf(rows, b_sz, A_work, lda, buf.data());
+        // Copy U into T's space
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, A_work, lda, T_dat, b_sz_const);
+        // Do U * inv(R_cholqr)
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_cholqr, b_sz_const, T_dat, b_sz_const);
+        // Do U * inv(L')
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::NonUnit, b_sz, b_sz, 1.0, A_work, lda, T_dat, b_sz_const);
+        //blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, A_work, lda, T_dat, b_sz_const);
 
         if(this -> timing) {
-            reconstruction_t_stop  = high_resolution_clock::now();
-            reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
+            //reconstruction_t_stop  = high_resolution_clock::now();
+            //reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
             updating1_t_start = high_resolution_clock::now();
         }
 
@@ -424,6 +467,8 @@ int CQRRP_blocked<T, RNG>::call(
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
         lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
+        //lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
+
 
         if(this -> timing) {
             updating1_t_stop  = high_resolution_clock::now();
@@ -515,14 +560,6 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
-
-            free(J_buffer_lu);
-            free(A_sk);
-            free(A_sk_trans);
-            free(R_cholqr);
-            free(T_dat);
-            free(Work2);
-
             return 0;
         }
 
