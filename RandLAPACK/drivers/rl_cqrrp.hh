@@ -560,6 +560,14 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
+
+            free(J_buffer_lu);
+            free(A_sk);
+            free(A_sk_trans);
+            free(R_cholqr);
+            free(T_dat);
+            free(Work2);
+
             return 0;
         }
 
