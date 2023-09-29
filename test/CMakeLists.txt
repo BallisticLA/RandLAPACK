@@ -15,9 +15,7 @@ if (GTest_FOUND)
         comps/test_syrf.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
-#if !defined(__APPLE__)
         drivers/test_cqrrp.cc
-#endif
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
     )
