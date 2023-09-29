@@ -121,7 +121,7 @@ class TestCQRRP : public ::testing::Test
 
         CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
         all_data.rank = CQRRP.rank;
-        
+
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
@@ -135,8 +135,7 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-        error_check(norm_A, all_data);
-        
+        error_check(norm_A, all_data);        
     }
 };
 
@@ -220,4 +219,69 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
+}
+
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, smth) {
+    int64_t m = 5;
+    int64_t n = 3;
+    int64_t k = 3;
+    int64_t rows = m;
+    int64_t lda = m;
+    int64_t b_sz = n;
+    int64_t b_sz_const = n;
+
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
+    std::vector<double> T_mat (n * n, 0.0);
+    std::vector<double> R (n * n, 0.0);
+    std::vector<double> Q_s (n * n, 0.0);
+    std::vector<int64_t> buf (n, 0);
+
+    double* T_dat = T_mat.data();
+    double* Q_small = Q_s.data();
+    double* R_cholqr = R.data();
+    double* A_work = all_data.A.data();
+
+        char name [] = "A";
+        RandBLAS::util::print_colmaj(m, n, A_work, name);
+
+
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, lda, 0.0, R_cholqr, b_sz_const);
+        lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
+
+        lapack::lacpy(MatrixType::General, b_sz, b_sz, A_work, lda, Q_small, b_sz_const);
+
+        // Compute Q_econ from Cholesky QR
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_cholqr, b_sz_const, Q_small, b_sz_const);
+
+        for(int i = 0; i < b_sz; ++i) {
+            for(int j = 0; j < (i + 1); ++j){
+               R_cholqr[(b_sz_const * i) + j] *= -1.0 * ((Q_small[j * b_sz_const + j] > 0) ? 1 : -1);
+               printf("%f\n", -1.0 * ((Q_small[j * b_sz_const + j] > 0) ? 1 : -1));
+               A_work[i * lda + j] -= R_cholqr[(b_sz_const * i) + j];
+            }
+        }
+
+        lapack::getrf(rows, b_sz, A_work, lda, buf.data());
+        // Copy U into T's space
+        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, A_work, lda, T_dat, b_sz_const);
+        // Do U * inv(R_cholqr)
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_cholqr, b_sz_const, T_dat, b_sz_const);
+        // Do U * inv(L')
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::NonUnit, b_sz, b_sz, 1.0, A_work, lda, T_dat, b_sz_const);
+
+        char name1 [] = "L";
+        RandBLAS::util::print_colmaj(m, n, A_work, name1);
+
+        char name2 [] = "T";
+        RandBLAS::util::print_colmaj(n, n, T_dat, name2);
+
+        char name3 [] = "R";
+        RandBLAS::util::print_colmaj(n, n, R_cholqr, name3);
 }
