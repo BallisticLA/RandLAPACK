@@ -552,7 +552,9 @@ static int64_t CHOLQR_mod_WY(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
 
     // Perform Householder reconstruction
+#if !defined(__APPLE__)
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
+#endif
 
     // Update the signs in the R-factor
     int i, j;
