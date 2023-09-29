@@ -255,6 +255,8 @@ int CQRRP_blocked<T, RNG>::call(
     // As the algorithm needs to have access to the upper-triangular factor R
     // (stored in this matrix after geqp3) at all times. 
     T* A_sk = ( T * ) calloc( d * n, sizeof( T ) );
+    // Create a separate pointer to free when function terminates
+    T* A_sk_const = A_sk;
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
     T* R_sk = NULL;
     // View to the transpose of A_sk.
@@ -518,12 +520,12 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
             }
 
-            //free(J_buffer_lu);
-            //free(A_sk);
-            //free(A_sk_trans);
-            //free(R_cholqr);
-            //free(T_dat);
-            //free(Work2);
+            free(J_buffer_lu);
+            free(A_sk_const);
+            free(A_sk_trans);
+            free(R_cholqr);
+            free(T_dat);
+            free(Work2);
 
             return 0;
         }
