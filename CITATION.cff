@@ -1,0 +1,8 @@
+@software{RandLAPACK2023,
+  author = {Maksim, Melnichenko and Riley, Murray and Burlen, Loring and Parth, Nobel},
+  month = {10},
+  title = {{RandLAPACK Library}},
+  url = {https://github.com/BallisticLA/RandLAPACK},
+  version = {b8fd757},
+  year = {2023}
+}
