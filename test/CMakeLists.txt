@@ -18,6 +18,7 @@ if (GTest_FOUND)
         drivers/test_cqrrp.cc
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
+        #drivers/test_rbki.cc
     )
 
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
