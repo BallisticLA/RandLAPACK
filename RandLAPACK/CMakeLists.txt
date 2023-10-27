@@ -1,6 +1,6 @@
 
 set(RandLAPACK_cxx_sources
-    #rl_rbki.hh
+    rl_rbki.hh
     rl_lapackpp.hh
     rl_cqrrpt.hh
     rl_cqrrp.hh
