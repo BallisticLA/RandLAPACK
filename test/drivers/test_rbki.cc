@@ -26,13 +26,15 @@ class TestRBKI : public ::testing::Test
         std::vector<T> V;
         std::vector<T> Sigma;
         std::vector<T> A_cpy;
+        std::vector<T> Sigma_exact;
 
         RBKITestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0),
         U(m * n, 0.0),
         V(n * n, 0.0),
         Sigma(n, 0.0),
-        A_cpy(m * n, 0.0)
+        A_cpy(m * n, 0.0),
+        Sigma_exact(n, 0.0)
         {
             row = m;
             col = n;
@@ -61,6 +63,20 @@ class TestRBKI : public ::testing::Test
         auto k = all_data.rank;
 
         RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
+        // Compute singular values via a deterministic method
+        lapack::gesdd(Job::NoVec, m, n, all_data.A_cpy.data(), m, all_data.Sigma_exact.data(), NULL, m, NULL, n);
+        
+        // Find diff between singular values computed by two methods
+        int cnt = -1;
+        std::for_each(all_data.Sigma.data(), all_data.Sigma.data() + n,
+            // Lambda expression begins
+            [&cnt, &all_data](T &entry) {
+                    entry -= all_data.Sigma_exact[++cnt];
+            }
+        );
+        T norm = blas::nrm2(n, all_data.Sigma.data(), 1);
+        printf("||A_svd - A_rbki||_F: %e\n", norm);
+
     }
 };
 
