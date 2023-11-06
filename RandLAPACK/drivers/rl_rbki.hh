@@ -105,7 +105,6 @@ int RBKI<T, RNG>::call(
     T* X_i  = X;
     // Below pointers stay the same throughout the alg.
     T* Y_od = Y;
-    T* Y_od = Y;
     T* X_ev = X;
     // S and S pointers are offset at every step.
     T* R_i  = NULL;
@@ -126,18 +125,10 @@ int RBKI<T, RNG>::call(
     state = RandBLAS::fill_dense(D, Y_i, state).second;
 
     char name [] = "A input";
-    //RandBLAS::util::print_colmaj(m, n, A, name);
+    RandBLAS::util::print_colmaj(m, n, A, name);
 
     char name1 [] = "Y sketching";
-    //RandBLAS::util::print_colmaj(n, k, Y_i, name1);
-    char name2 [] = "Y_od";
-    char name3 [] = "R";
-
-    char name4 [] = "X_ev";
-    char name5 [] = "S";
-
-    char name6 [] = "Y_i";
-    char name7 [] = "X_i";
+    RandBLAS::util::print_colmaj(n, k, Y_i, name1);
 
     // [X_ev, ~] = qr(A * Y_i, 0)
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
@@ -164,8 +155,6 @@ int RBKI<T, RNG>::call(
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
             }
 
-            //RandBLAS::util::print_colmaj(n, k, Y_i, name6); 
-
             // [Y_i, R_ii] = qr(Y_i, 0)
             std::fill(&tau[0], &tau[k], 0.0);
             lapack::geqrf(n, k, Y_i, n, tau);
@@ -177,9 +166,6 @@ int RBKI<T, RNG>::call(
 
             // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
             lapack::ungqr(n, k, k, Y_i, n, tau);
-
-            //RandBLAS::util::print_colmaj(n, m, Y_od, name2);     
-            //RandBLAS::util::print_colmaj(n, n, R, name3);
 
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('double')))
@@ -208,8 +194,6 @@ int RBKI<T, RNG>::call(
             //X_i = X_i - X_ev * S_i;
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
             
-            //RandBLAS::util::print_colmaj(m, k, X_i, name7); 
-            
             // [X_i, S_ii] = qr(X_i, 0);
             std::fill(&tau[0], &tau[k], 0.0);
             lapack::geqrf(m, k, X_i, m, tau);
@@ -218,9 +202,6 @@ int RBKI<T, RNG>::call(
             lapack::lacpy(MatrixType::Upper, k, k, X_i, m, S_ii, n + k);
             // Convert X_i into an explicit form. It is now stored in X_ev as it should be
             lapack::ungqr(m, k, k, X_i, m, tau);
-
-            //RandBLAS::util::print_colmaj(m, m + k, X_ev, name4);     
-            //RandBLAS::util::print_colmaj(n + k, n, S, name5);
 
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
@@ -233,18 +214,14 @@ int RBKI<T, RNG>::call(
             // Advance R pointers
             S_i = &S_i[(n + k) * k];
             S_ii = &S_ii[((n + k)  + 1) * k];
-
             // Advance odd iteration count;
             ++iter_od;
         }
         ++iter;
         norm_R = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, n, n, R, n);
-        //printf("norm_R: %e\n", norm_R);
 
         //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
-        if(norm_R > threshold)
-        {
-            printf("TERMINATION 3\n");
+        if(norm_R > threshold) {
             break;
         }
     }
@@ -259,33 +236,15 @@ int RBKI<T, RNG>::call(
     if (iter % 2 == 0) {
         // [U_hat, Sigma, V_hat] = svd(R')
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
-        // V = Y_od * V_hat
-        // We actually perform VT = V_hat' * Y_odd'
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
-
     } else { 
-        
         // [U_hat, Sigma, V_hat] = svd(S)
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k, Sigma, U_hat, end_rows, VT_hat, end_cols);
-        // U = X_ev * U_hat
-        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
-        // V = Y_od * V_hat
-        // We actually perform VT = V_hat' * Y_odd'
-        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
     }
-
-    //RandBLAS::util::print_colmaj(m, m, X_ev, name4); 
-    //char name10 [] = "U_hat";
-    //RandBLAS::util::print_colmaj(end_rows, end_cols, U_hat, name10);
-    //RandBLAS::util::print_colmaj(n, m, Y_od, name2);  
-    char name11 [] = "VT_hat";
-    //RandBLAS::util::print_colmaj(end_cols, end_cols, VT_hat, name11);
-
-    //char name12 [] = "U";
-    //RandBLAS::util::print_colmaj(m, end_cols, U, name12);
-    char name13 [] = "VT";
-    //RandBLAS::util::print_colmaj(n, n, VT, name13);
+    // U = X_ev * U_hat
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
+    // V = Y_od * V_hat
+    // We actually perform VT = V_hat' * Y_odd'
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
 
     return 0;
 }
