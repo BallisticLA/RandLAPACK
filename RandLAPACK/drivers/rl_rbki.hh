@@ -82,30 +82,37 @@ int RBKI<T, RNG>::call(
 ){
     int64_t iter = 0, iter_od = 0, iter_ev = 0, i = 0, end_rows = 0, end_cols = 0;
     T norm_R = 0;
+    int64_t space_rows = k * std::ceil(m / (T) k);
+    printf("%ld\n", space_rows);
 
-    // Space for Y_i and Y_odd. (maybe needs to be n by m + k)
+    // We need a full copy of X and Y all the way through the algorithm
+    // due to an operation with X_odd and Y_odd happening at the end.
+    // Space for Y_i and Y_odd.
     T* Y = ( T * ) calloc( n * m, sizeof( T ) );
     // Space for X_i and X_ev. (maybe needs to be m by m + k)
-    T* X = ( T * ) calloc( m * m, sizeof( T ) );
+    T* X = ( T * ) calloc( m * (m + k), sizeof( T ) );
     // tau space for QR
     T* tau = ( T * ) calloc( k, sizeof( T ) );
-    //
+    // While R and S matrices are structured (both band), we cannot make use of this structure through
+    // BLAS-level functions.
+    // Note also that we store a transposed version of R.
     T* R = ( T * ) calloc( n * n, sizeof( T ) );
     T* S = ( T * ) calloc( (n + k) * n, sizeof( T ) );
 
     // Pointers allocation
-    // This will be offset by n * k at every even iteration.
+    // Below pointers will be offset by (n or m) * k at every even iteration.
     T* Y_i  = Y;
-    // This stays the same throughout execution.
+    T* X_i  = X;
+    // Below pointers stay the same throughout the alg.
     T* Y_od = Y;
+    T* Y_od = Y;
+    T* X_ev = X;
+    // S and S pointers are offset at every step.
     T* R_i  = NULL;
     T* R_ii = R;
-
-    T* X_i  = X; //&X_ev[m * k];
-    T* X_ev = X;
     T* S_i  = S;
     T* S_ii = &S[k];
-
+    // Pre-decloration of SVD-related buffers.
     T* U_hat = NULL;
     T* VT_hat = NULL;
 
@@ -135,7 +142,7 @@ int RBKI<T, RNG>::call(
     // [X_ev, ~] = qr(A * Y_i, 0)
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
     lapack::geqrf(m, k, X_i, m, tau);
-    // Convert X_i into an explicit form. It is now stored in X_ev as it should be
+    // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
     lapack::ungqr(m, k, k, X_i, m, tau);
 
     // Advance odd iteration count;
@@ -153,8 +160,7 @@ int RBKI<T, RNG>::call(
             if (iter != 0) {
                 // R_i' = Y_i' * Y_od
                 blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);
-                
-                // Y_i = Y_i - Y_od * R_i 
+                // Y_i = Y_i - Y_od * R_i
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
             }
 
@@ -164,12 +170,12 @@ int RBKI<T, RNG>::call(
             std::fill(&tau[0], &tau[k], 0.0);
             lapack::geqrf(n, k, Y_i, n, tau);
 
-            // Copy R_ii over to R's space under R_i (offset down by iter_ev * k)
+            // Copy R_ii over to R's (in transposed format).
             #pragma omp parallel for
             for(i = 0; i < k; ++i)
                 blas::copy(i + 1, &Y_i[i * n], 1, &R_ii[i], n);
 
-            // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be
+            // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
             lapack::ungqr(n, k, k, Y_i, n, tau);
 
             //RandBLAS::util::print_colmaj(n, m, Y_od, name2);     
@@ -177,9 +183,9 @@ int RBKI<T, RNG>::call(
 
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('double')))
-            if(std::abs(R_ii[n + k - 1]) < std::sqrt(std::numeric_limits<double>::epsilon()))
+            if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon()))
             {
-                printf("TERMINATION 1\n");
+                printf("TERMINATION 1 at iteration %d\n", iter_ev);
                 break;
             }
 
@@ -196,14 +202,13 @@ int RBKI<T, RNG>::call(
 
             // Move the X_i pointer;
             Y_i = &Y_i[n * k];
-
+            
             // S_i = X_ev' * X_i 
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
-  
             //X_i = X_i - X_ev * S_i;
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
             
-            RandBLAS::util::print_colmaj(m, k, X_i, name7); 
+            //RandBLAS::util::print_colmaj(m, k, X_i, name7); 
             
             // [X_i, S_ii] = qr(X_i, 0);
             std::fill(&tau[0], &tau[k], 0.0);
@@ -214,14 +219,14 @@ int RBKI<T, RNG>::call(
             // Convert X_i into an explicit form. It is now stored in X_ev as it should be
             lapack::ungqr(m, k, k, X_i, m, tau);
 
-            //RandBLAS::util::print_colmaj(m, m, X_ev, name4);     
+            //RandBLAS::util::print_colmaj(m, m + k, X_ev, name4);     
             //RandBLAS::util::print_colmaj(n + k, n, S, name5);
 
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
-            if(std::abs(S_ii[n + k + k - 1]) < std::sqrt(std::numeric_limits<double>::epsilon()))
+            if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon()))
             {
-                printf("TERMINATION 2\n");
+                printf("TERMINATION 2 at iteration %d\n", iter_od);
                 break;
             }
 
@@ -249,6 +254,8 @@ int RBKI<T, RNG>::call(
     U_hat = ( T * ) calloc( end_rows * end_cols, sizeof( T ) );
     VT_hat = ( T * ) calloc( end_cols * end_cols, sizeof( T ) );
 
+    printf("rows: %ld, cols: %ld\n", end_rows, end_cols);
+
     if (iter % 2 == 0) {
         // [U_hat, Sigma, V_hat] = svd(R')
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
@@ -262,10 +269,10 @@ int RBKI<T, RNG>::call(
         // [U_hat, Sigma, V_hat] = svd(S)
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k, Sigma, U_hat, end_rows, VT_hat, end_cols);
         // U = X_ev * U_hat
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
+        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
         // V = Y_od * V_hat
         // We actually perform VT = V_hat' * Y_odd'
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
+        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
     }
 
     //RandBLAS::util::print_colmaj(m, m, X_ev, name4); 
@@ -279,12 +286,6 @@ int RBKI<T, RNG>::call(
     //RandBLAS::util::print_colmaj(m, end_cols, U, name12);
     char name13 [] = "VT";
     //RandBLAS::util::print_colmaj(n, n, VT, name13);
-    
-
-
-    for(int j = 0; j < end_cols; ++j) {
-        printf("%e\n", *(Sigma +j));
-    }
 
     return 0;
 }

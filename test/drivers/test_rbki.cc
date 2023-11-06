@@ -68,13 +68,18 @@ class TestRBKI : public ::testing::Test
         
         // Find diff between singular values computed by two methods
         int cnt = -1;
-        std::for_each(all_data.Sigma.data(), all_data.Sigma.data() + n,
+
+        for(int i = 0; i < n; ++i) {
+            //printf("%e, %e\n", all_data.Sigma[i], all_data.Sigma_exact[i]);
+        }
+
+        std::for_each(all_data.Sigma.data(), all_data.Sigma.data() + k,
             // Lambda expression begins
             [&cnt, &all_data](T &entry) {
                     entry -= all_data.Sigma_exact[++cnt];
             }
         );
-        T norm = blas::nrm2(n, all_data.Sigma.data(), 1);
+        T norm = blas::nrm2(k, all_data.Sigma.data(), 1);
         printf("||A_svd - A_rbki||_F: %e\n", norm);
 
     }
@@ -82,9 +87,9 @@ class TestRBKI : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestRBKI, RBKI_basic) {
-    int64_t m = 10;
-    int64_t n = 8;
-    int64_t k = 2;
+    int64_t m = 4000;
+    int64_t n = 200;
+    int64_t k = 100;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
