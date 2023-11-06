@@ -124,12 +124,6 @@ int RBKI<T, RNG>::call(
     RandBLAS::DenseDist D(n, k);
     state = RandBLAS::fill_dense(D, Y_i, state).second;
 
-    char name [] = "A input";
-    RandBLAS::util::print_colmaj(m, n, A, name);
-
-    char name1 [] = "Y sketching";
-    RandBLAS::util::print_colmaj(n, k, Y_i, name1);
-
     // [X_ev, ~] = qr(A * Y_i, 0)
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
     lapack::geqrf(m, k, X_i, m, tau);
@@ -231,7 +225,7 @@ int RBKI<T, RNG>::call(
     U_hat = ( T * ) calloc( end_rows * end_cols, sizeof( T ) );
     VT_hat = ( T * ) calloc( end_cols * end_cols, sizeof( T ) );
 
-    printf("rows: %ld, cols: %ld\n", end_rows, end_cols);
+    //printf("rows: %ld, cols: %ld\n", end_rows, end_cols);
 
     if (iter % 2 == 0) {
         // [U_hat, Sigma, V_hat] = svd(R')
