@@ -45,15 +45,19 @@ set(
     Benchmark_libs
     RandLAPACK
 )
-# Lapack functionality benchmarks
-add_benchmark(NAME Chol_check CXX_SOURCES Chol_check.cc LINK_LIBS ${Benchmark_libs})
+# Performance profiling through GEMM
+add_benchmark(NAME GEMM_flop_count CXX_SOURCES bench_general/GEMM_flop_count.cc LINK_LIBS ${Benchmark_libs})
+# Lapack functionality benchmark
+add_benchmark(NAME Chol_check      CXX_SOURCES bench_general/Chol_check.cc      LINK_LIBS ${Benchmark_libs})
+# Data conversion helper script
+add_benchmark(NAME convert_time    CXX_SOURCES bench_general/convert_time.cc    LINK_LIBS ${Benchmark_libs})
 
-# Data conversion helper scripts
-add_benchmark(NAME convert_time CXX_SOURCES convert_time.cc LINK_LIBS ${Benchmark_libs})
+# CQRRPT benchmarks
+add_benchmark(NAME CQRRPT_speed_comparisons CXX_SOURCES bench_CQRRPT/CQRRPT_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRPT_inner_speed       CXX_SOURCES bench_CQRRPT/CQRRPT_inner_speed.cc       LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRPT_accuracy          CXX_SOURCES bench_CQRRPT/CQRRPT_accuracy.cc          LINK_LIBS ${Benchmark_libs})
 
-# QR speed comparisons with CQRRP benchmarks
-add_benchmark(NAME CQRRP_speed_comparisons CXX_SOURCES CQRRP_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CHOLQR_vs_GEQRF CXX_SOURCES CHOLQR_vs_GEQRF.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_block_per_time CXX_SOURCES CQRRP_block_per_time.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_inner_speed CXX_SOURCES CQRRP_inner_speed.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_accuracy CXX_SOURCES CQRRP_accuracy.cc LINK_LIBS ${Benchmark_libs})
+# CQRRP benchmarks
+add_benchmark(NAME CQRRP_speed_comparisons CXX_SOURCES bench_CQRRP/CQRRP_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRP_inner_speed       CXX_SOURCES bench_CQRRP/CQRRP_inner_speed.cc       LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRP_accuracy          CXX_SOURCES bench_CQRRP/CQRRP_accuracy.cc          LINK_LIBS ${Benchmark_libs})
