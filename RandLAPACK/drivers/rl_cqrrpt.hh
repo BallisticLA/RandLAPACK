@@ -191,6 +191,8 @@ int CQRRPT<T, RNG>::call(
 
     T* A_hat = ( T * ) calloc( d * n, sizeof( T ) );
     T* tau   = ( T * ) calloc( n, sizeof( T ) );
+    // Buffer for column pivoting.
+    std::vector<int64_t> J_buf(n, 0);
 
     if(this -> timing)
         saso_t_start = high_resolution_clock::now();
@@ -251,7 +253,6 @@ int CQRRPT<T, RNG>::call(
         a_mod_piv_t_start = high_resolution_clock::now();
 
     // Swap k columns of A with pivots from J
-    std::vector<int64_t> J_buf(n, 0);
     blas::copy(n, J, 1, J_buf.data(), 1);
     util::col_swap(m, n, k, A, lda, J_buf);
 
