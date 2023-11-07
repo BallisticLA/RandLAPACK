@@ -66,9 +66,6 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             oversampling = 10;
             use_cholqr = 0;
             panel_pivoting = 1;
-            naive_rank_estimate = 1;
-            use_fro_norm = 1;
-            cond_check = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -122,21 +119,15 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
     public:
         bool verbosity;
         bool timing;
-        bool cond_check;
         T eps;
         int64_t rank;
 
-        // 10 entries
+        // 8 entries
         std::vector<long> times;
 
         // tuning SASOS
         int num_threads;
         int64_t nnz;
-
-        // Buffers
-        std::vector<T> A_hat;
-        std::vector<T> tau;
-        std::vector<T> R_sp;
 
         // HQRRP-related
         int no_hqrrp;
@@ -144,14 +135,6 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         int64_t oversampling;
         int64_t panel_pivoting;
         int64_t use_cholqr;
-
-        // Rank estimate-related
-        int naive_rank_estimate;
-        int use_fro_norm;
-
-        // Preconditioning-related
-        T cond_num_A_pre;
-        T cond_num_A_norm_pre;
 };
 
 // -----------------------------------------------------------------------------
@@ -165,64 +148,60 @@ int CQRRPT<T, RNG>::call(
     std::vector<int64_t> &J,
     RandBLAS::RNGState<RNG> &state
 ){
-    //-------TIMING VARS--------/
+    ///--------------------TIMING VARS--------------------/
     high_resolution_clock::time_point saso_t_stop;
     high_resolution_clock::time_point saso_t_start;
-    long saso_t_dur = 0;
-
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
-    long qrcp_t_dur = 0;
-
     high_resolution_clock::time_point rank_reveal_t_start;
     high_resolution_clock::time_point rank_reveal_t_stop;
-    long rank_reveal_t_dur = 0;
-
     high_resolution_clock::time_point cholqr_t_start;
     high_resolution_clock::time_point cholqr_t_stop;
-    long cholqr_t_dur = 0;
-
     high_resolution_clock::time_point a_mod_piv_t_start;
     high_resolution_clock::time_point a_mod_piv_t_stop;
-    long a_mod_piv_t_dur = 0;
-
     high_resolution_clock::time_point a_mod_trsm_t_start;
     high_resolution_clock::time_point a_mod_trsm_t_stop;
-    long a_mod_trsm_t_dur = 0;
-
-    high_resolution_clock::time_point copy_t_start;
-    high_resolution_clock::time_point copy_t_stop;
-    long copy_t_dur = 0;
-
-    high_resolution_clock::time_point resize_t_start;
-    high_resolution_clock::time_point resize_t_stop;
-    long resize_t_dur = 0;
-
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
-    long total_t_dur = 0;
+    long saso_t_dur        = 0;
+    long qrcp_t_dur        = 0;
+    long rank_reveal_t_dur = 0;
+    long cholqr_t_dur      = 0;
+    long a_mod_piv_t_dur   = 0;
+    long a_mod_trsm_t_dur  = 0;
+    long total_t_dur       = 0;
 
-    if(this -> timing) {
+    if(this -> timing)
         total_t_start = high_resolution_clock::now();
-        resize_t_start = high_resolution_clock::now();
-    }
+
+    std::vector<T> A_hat;
+    std::vector<T> tau;
+    std::vector<T> R_sp;
+
 
     T* A_dat       = A.data();
-    T* A_hat_dat   = util::upsize(d * n, this->A_hat);
-    T* tau_dat     = util::upsize(n, this->tau);
+    T* A_hat_dat   = util::upsize(d * n, A_hat);
+    T* tau_dat     = util::upsize(n, tau);
     J.resize(n);
     int64_t* J_dat = J.data();
 
-    if(this -> timing) {
-        resize_t_stop = high_resolution_clock::now();
-        resize_t_dur = duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
+    int i;
+    int64_t k = n;
+    // A constant for initial rank estimation.
+    T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
+    // Variables for a posteriori rank estimation.
+    int64_t new_rank;
+    T running_max, running_min, curr_entry;
+
+    if(this -> timing)
         saso_t_start = high_resolution_clock::now();
-    }
     
+    /// Generating a SASO
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
     state = RandBLAS::fill_sparse(S);
 
+    /// Applying a SASO
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
         d, n, m, 1.0, S, 0, 0, A.data(), m, 0.0, A_hat_dat, d
@@ -233,100 +212,47 @@ int CQRRPT<T, RNG>::call(
         qrcp_t_start = high_resolution_clock::now();
     }
 
-    // QRCP - add failure condition
+    /// Performing QRCP on a sketch
     if(this->no_hqrrp) {
         lapack::geqp3(d, n, A_hat_dat, d, J_dat, tau_dat);
-    }
-    else {
+    } else {
         std::iota(J.begin(), J.end(), 1);
         hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T*) nullptr);
     }
 
-    if(this -> timing) {
+    if(this -> timing)
         qrcp_t_stop = high_resolution_clock::now();
-        resize_t_start = high_resolution_clock::now();
-    }
 
     T* R_dat = util::upsize(n * n, R);
     
-    if(this -> timing) {
-        resize_t_stop = high_resolution_clock::now();
-        resize_t_dur  += duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
+    if(this -> timing)
         rank_reveal_t_start = high_resolution_clock::now();
+
+    /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
+    /// The actual rank estimate k will be computed a posteriori. 
+    /// Using R[i,i] to approximate the i-th singular value of A_hat. 
+    /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
+    for(i = 0; i < n; ++i) {
+        if(std::abs(A_hat_dat[i * d + i]) / std::abs(A_hat_dat[0]) < eps_initial_rank_estimation) {
+            k = i;
+            break;
+        }
     }
+    this->rank = k;
 
-    int64_t k = n;
-    int i;
-    T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
-    if(this->naive_rank_estimate) {
-        /// Using R[i,i] to approximate the i-th singular value of A_hat. 
-        /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
-        for(i = 0; i < n; ++i) {
-            if(std::abs(A_hat_dat[i * d + i]) / std::abs(A_hat_dat[0]) < eps_initial_rank_estimation) {
-                k = i;
-                break;
-            }
-        }
-        this->rank = k;
-    }
-    else {
-        // Oleg's scheme for rank estimation
-        for(i = 0; i < n; ++i) {
-            // copy over an upper-triangular matrix R
-            // from col-maj to row-maj format
-            blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i], n);
-        }
-
-        T norm_R = 0.0;
-        if(this->use_fro_norm) {
-            // find fro norm of the full R
-            norm_R = lapack::lange(Norm::Fro, n, n, R_dat, n);
-        } else {
-            // find l2 norm of the full R
-            norm_R = RandLAPACK::util::estimate_spectral_norm(n, n, R_dat, 10, state);
-            eps_initial_rank_estimation = 5 * eps_initial_rank_estimation;
-        }
-
-        T norm_R_sub = lapack::lange(Norm::Fro, 1, n, &R_dat[(n - 1) * n], 1);
-        // Check if R is full column rank checking if||A[n - 1:, n - 1:]||_F > tau_trunk * ||A||_F
-        if ((norm_R_sub > eps_initial_rank_estimation * norm_R)) {
-            k = n;
-        } else {
-            k = RandLAPACK::util::rank_search_binary(0, n + 1, std::floor(n / 2), n, norm_R, eps_initial_rank_estimation, R_dat);
-        }
-
-        this->rank = k;
-        // Clear R
-        std::fill(R.begin(), R.end(), 0.0);
-    }
-
-    if(this -> timing) {
+    if(this -> timing)
         rank_reveal_t_stop = high_resolution_clock::now();
-        resize_t_start = high_resolution_clock::now();
-    }
 
-    T* R_sp_dat  = util::upsize(k * k, this->R_sp);
+    // Allocating space for a preconditioner buffer.
+    T* R_sp_dat  = util::upsize(k * k, R_sp);
+    /// Extracting a k by k upper-triangular R.
+    lapack::lacpy(MatrixType::Upper, k, k, A_hat_dat, d, R_sp_dat, k);
+    /// Extracting a k by n R representation (k by k upper-triangular, rest - general)
+    lapack::lacpy(MatrixType::Upper, k, k, A_hat_dat, d, R_dat, n);
+    lapack::lacpy(MatrixType::General, k, n - k, &A_hat_dat[d * k], d, &R_dat[n * k], n);
 
-    if(this -> timing) {
-        resize_t_stop = high_resolution_clock::now();
-        copy_t_start = high_resolution_clock::now();
-    }
-
-    // performing a copy column by column
-    for(i = 0; i < k; ++i) {
-        // extract k by k R
-        blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_sp_dat[i * k], 1);
-        // extract full R
-        blas::copy(i + 1, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
-    }
-    for(i = k; i < n; ++i) {
-        blas::copy(k, &A_hat_dat[i * d], 1, &R_dat[i * k], 1);
-    }
-
-    if(this -> timing) {
-        copy_t_stop = high_resolution_clock::now();
+    if(this -> timing)
         a_mod_piv_t_start = high_resolution_clock::now();
-    }
 
     // Swap k columns of A with pivots from J
     util::col_swap(m, n, k, A_dat, m, J);
@@ -339,90 +265,59 @@ int CQRRPT<T, RNG>::call(
     // A_pre * R_sp = AP
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
 
-    if(this -> timing)
+    if(this -> timing) {
         a_mod_trsm_t_stop = high_resolution_clock::now();
-
-    // Check the condition number of a A_pre
-    if(this -> cond_check)
-    {
-        // Check cond(A_pre)
-        std::vector<T> A_pre_cpy;
-        std::vector<T> s;
-        this->cond_num_A_pre = RandLAPACK::util::cond_num_check(m, k, A, A_pre_cpy, s, false);
-
-        A_pre_cpy.clear();
-        s.clear();
-        // Check cond(normc(A_pre))
-        std::vector<T> A_norm_pre;
-        RandLAPACK::util::normc(m, k, A, A_norm_pre);
-        this->cond_num_A_norm_pre = RandLAPACK::util::cond_num_check(m, k, A_norm_pre, A_pre_cpy, s, false);
-    }
-
-    if(this -> timing)
         cholqr_t_start = high_resolution_clock::now();
+    }
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_dat, m, 0.0, R_sp_dat, k);
-    if(lapack::potrf(Uplo::Upper, k, R_sp_dat, k)){
-        if(this->verbosity)
-            throw std::runtime_error("Cholesky decomposition failed.");
-        return 1;
-    }
+    lapack::potrf(Uplo::Upper, k, R_sp_dat, k);
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
     // This also automatically takes care of any potentical failures in Cholesky factorization.
     // Note that the diagonal of R_sp_dat may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp_dat)^2, where u is the unit roundoff for the numerical type T.
-    int64_t new_rank = k;
-    T running_max = R_sp_dat[0];
-    T running_min = R_sp_dat[0];
-    T curr_entry;
+    new_rank = k;
+    running_max = R_sp_dat[0];
+    running_min = R_sp_dat[0];
     
     for(i = 0; i < k; ++i) {
         curr_entry = std::abs(R_sp[i * k + i]);
-        
         if(curr_entry > running_max) running_max = curr_entry;
         if(curr_entry < running_min) running_max = running_min;
-
         if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
             new_rank = i - 1;
             break;
         }
     }
 
-    // Beware of that R_sp and R have k rows and need to be downsized by rows
-    RandLAPACK::util::row_resize(k, k, R_sp, new_rank);
-    RandLAPACK::util::row_resize(k, n, R, new_rank);
-    
-    k = new_rank;
-    this->rank = k;
-
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_dat, k, A_dat, m);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp_dat, k, A_dat, m);
 
     if(this -> timing)
         cholqr_t_stop = high_resolution_clock::now();
 
-    // Get R
-    // trmm
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, k, n, 1.0, R_sp_dat, k, R_dat, k);
+    // Get the final R-factor.
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp_dat, k, R_dat, n);
+
+    // Set the rank parameter to the value comuted a posteriori.
+    this->rank = k;
 
     if(this -> timing) {
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
         qrcp_t_dur        = duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
         rank_reveal_t_dur = duration_cast<microseconds>(rank_reveal_t_stop - rank_reveal_t_start).count();
-        resize_t_dur     += duration_cast<microseconds>(resize_t_stop - resize_t_start).count();
-        copy_t_dur       += duration_cast<microseconds>(copy_t_stop - copy_t_start).count();
         a_mod_piv_t_dur   = duration_cast<microseconds>(a_mod_piv_t_stop - a_mod_piv_t_start).count();
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
         cholqr_t_dur      = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur + copy_t_dur + resize_t_dur);
+        long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur);
 
         // Fill the data vector
-        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, copy_t_dur, resize_t_dur, t_rest, total_t_dur};
+        this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
     return 0;
 }

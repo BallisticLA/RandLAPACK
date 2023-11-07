@@ -116,6 +116,6 @@ int main() {
 
     for (;n_start <= n_stop; n_start *= 2) {
         res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, n_start, all_data, state_constant);
-        file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",  " << res[8] << ",  " << ",\n";
+        file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",\n";
     }
 }
