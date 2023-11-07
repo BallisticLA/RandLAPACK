@@ -19,9 +19,7 @@ namespace RandLAPACK {
 template <typename T, typename RNG>
 class RBKIalg {
     public:
-
         virtual ~RBKIalg() {}
-
         virtual int call(
             int64_t m,
             int64_t n,
@@ -38,7 +36,6 @@ class RBKIalg {
 template <typename T, typename RNG>
 class RBKI : public RBKIalg<T, RNG> {
     public:
-
         RBKI(
             bool verb,
             bool time_subroutines,
@@ -48,7 +45,6 @@ class RBKI : public RBKIalg<T, RNG> {
             timing = time_subroutines;
             tol = ep;
         }
-
         int call(
             int64_t m,
             int64_t n,
@@ -60,7 +56,6 @@ class RBKI : public RBKIalg<T, RNG> {
             T* Sigma,
             RandBLAS::RNGState<RNG> &state
         ) override;
-
     public:
         bool verbosity;
         bool timing;
@@ -163,8 +158,7 @@ int RBKI<T, RNG>::call(
 
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('double')))
-            if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon()))
-            {
+            if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
                 printf("TERMINATION 1 at iteration %d\n", iter_ev);
                 break;
             }
@@ -199,8 +193,7 @@ int RBKI<T, RNG>::call(
 
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
-            if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon()))
-            {
+            if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
                 printf("TERMINATION 2 at iteration %d\n", iter_od);
                 break;
             }
