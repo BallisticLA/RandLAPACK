@@ -71,7 +71,7 @@ static std::vector<long> call_all_algs(
         printf("Iteration %d start.\n", i);
 
         auto start_cqrrpt = high_resolution_clock::now();
-        CQRRPT.call(m, n, all_data.A, d_factor * n, all_data.R, all_data.J, state_alg);
+        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         auto stop_cqrrpt = high_resolution_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrpt - start_cqrrpt).count();
         // Update best timing

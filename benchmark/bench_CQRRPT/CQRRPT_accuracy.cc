@@ -80,7 +80,7 @@ static void R_norm_ratio(
     data_regen<T, RNG>(m_info, all_data, state);
 
     // Running CQRRP
-    CQRRPT.call(m, n, all_data.A, d_factor * n, all_data.R, all_data.J, state);
+    CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
     std::vector<T> R_norms_CQRRPT = get_norms<T, RNG>(all_data);
 
     // Declare a data file
@@ -141,7 +141,7 @@ static void sv_ratio(
     data_regen<T, RNG>(m_info, all_data, state1);
 
     // Running CQRRP
-    CQRRPT.call(m, n, all_data.A, d_factor * n, all_data.R, all_data.J, state);
+    CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
