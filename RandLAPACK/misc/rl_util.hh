@@ -53,23 +53,7 @@ void diag(
     blas::copy(k, s.data(), 1, S.data(), m + 1);
 }
 
-/// Captures k diagonal elements of A and stores them in buf.
-template <typename T>
-void extract_diag(
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    const std::vector<T> &A,
-    std::vector<T> &buf
-) {
-    if(k > std::min(m, n)) 
-        throw std::runtime_error("Incorrect rank parameter.");
-    for(int i = 0; i < k; ++i)
-        buf[i] = A[(i * m) + i];
-}
-
-/// Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
-/// Overwrites the passed-in matrix.
+/// Zeros-out the upper-triangular portion of A
 template <typename T>
 void get_L(
     int64_t m,
@@ -82,35 +66,6 @@ void get_L(
         
         if(overwrite_diagonal)
             A[i + m * i] = 1.0;
-    }
-}
-
-template <typename T>
-void get_L(
-    int64_t m,
-    int64_t n,
-    std::vector<T> &L,
-    int overwrite_diagonal
-) {
-    get_L(m, n, L.data(), overwrite_diagonal);
-}
-
-/// Stores the upper-triangualr portion of A in U.
-template <typename T>
-void get_U(
-    int64_t m,
-    int64_t n,
-    const std::vector<T> &A,
-    std::vector<T> &U // We are assuming U is n by n
-) {
-    // Vector end pointer
-    int size = m * n;
-
-    const T* A_dat = A.data();
-    T* U_dat = U.data();
-
-    for(int i = 0, j = 1, k = 0; i < size && j <= m; i += m, k +=n, ++j) {
-        blas::copy(j, &A_dat[i], 1, &U_dat[k], 1);
     }
 }
 
@@ -150,17 +105,6 @@ void col_swap(
         // Find idx element with value i and assign it to j
         auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
         idx[it - (idx.begin())] = j + 1;
-/*
-        // Simple version of the above
-        for(l = i; l < k; ++l) {
-            if(idx[l] == i + 1) {
-                    idx[l] = j + 1;
-                    printf("%d\n", l);
-                    break;
-            }
-        }
-        idx[i] = i + 1;
-*/
     }
 }
 
@@ -177,20 +121,15 @@ void col_swap(
 
     int64_t* idx_dat = idx.data();
 
-    int64_t i, j, l;
+    int64_t i, j;
     for (i = 0, j = 0; i < k; ++i) {
         j = idx_dat[i] - 1;
         std::swap(A[i], A[j]);
 
         // swap idx array elements
         // Find idx element with value i and assign it to j
-        for(l = i; l < k; ++l) {
-            if(idx[l] == i + 1) {
-                    idx[l] = j + 1;
-                    break;
-            }
-        }
-        idx[i] = i + 1;
+        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
+        idx[it - (idx.begin())] = j + 1;
     }
 }
 

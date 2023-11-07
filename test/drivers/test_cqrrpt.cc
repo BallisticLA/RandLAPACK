@@ -124,7 +124,6 @@ class TestCQRRPT : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data); 
-
     }
 };
 
