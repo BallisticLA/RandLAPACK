@@ -83,7 +83,7 @@ static std::vector<long> call_all_algs(
         auto start_geqp3 = high_resolution_clock::now();
         lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
         auto stop_geqp3 = high_resolution_clock::now();
-        auto dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
+        dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen);
@@ -99,7 +99,7 @@ static std::vector<long> call_all_algs(
 
         // Testing CQRRPT
         auto start_cqrrp = high_resolution_clock::now();
-        CQRRPT.call(m, n, all_data.A, d_factor * n, all_data.R, all_data.J, state_alg);
+        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
 
@@ -143,7 +143,7 @@ static std::vector<long> call_all_algs(
         lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
 #endif
         auto stop_geqr = high_resolution_clock::now();
-        long dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
+        dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
 #if !defined(__APPLE__)
         // GEQP3(R) part
         lapack::lacpy(MatrixType::Upper, n, n, all_data.A.data(), m, all_data.R.data(), n);
