@@ -39,6 +39,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         RandBLAS::RNGState<RNG> &state) {
 
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
