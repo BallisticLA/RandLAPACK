@@ -19,7 +19,7 @@ struct QR_benchmark_data {
 
     QR_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
     A(m * n, 0.0),
-    R(n, n),
+    R(n * n, 0.0),
     tau(n, 0.0),
     J(n, 0)
     {
@@ -37,6 +37,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         RandBLAS::RNGState<RNG> &state) {
 
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
@@ -56,7 +57,7 @@ static std::vector<long> call_all_algs(
     // Additional params setup.
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, true, tol);
     CQRRPT.nnz = 4;
-    CQRRPT.num_threads = 48;
+    CQRRPT.num_threads = 8;
     
     // Making sure the states are unchanged
     auto state_alg = state;
@@ -69,14 +70,12 @@ static std::vector<long> call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-
         auto start_cqrrpt = high_resolution_clock::now();
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         auto stop_cqrrpt = high_resolution_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrpt - start_cqrrpt).count();
         // Update best timing
         if (!i || dur_cqrrpt < t_cqrrpt_best) {t_cqrrpt_best = dur_cqrrpt; inner_timing_best = CQRRPT.times;}
-
         // Making sure the states are unchanged
         state_alg = state;
         state_gen = state;
@@ -89,9 +88,9 @@ static std::vector<long> call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m           = std::pow(2, 17);
+    int64_t m           = std::pow(2, 12);
     int64_t n_start     = std::pow(2, 5);
-    int64_t n_stop      = std::pow(2, 14);
+    int64_t n_stop      = std::pow(2, 5);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState();
