@@ -30,6 +30,7 @@ class TestCQRRPT : public ::testing::Test
 
         CQRRPTTestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0), 
+        R(n * n, 0.0),
         J(n, 0),  
         A_cpy1(m * n, 0.0),
         A_cpy2(m * n, 0.0),
@@ -76,7 +77,7 @@ class TestCQRRPT : public ::testing::Test
         T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
 
         // A - QR
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, k, -1.0, A_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, n, -1.0, A_dat, m);
         
         // Implementing max col norm metric
         T max_col_norm = 0.0;
@@ -106,7 +107,7 @@ class TestCQRRPT : public ::testing::Test
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T, typename RNG, typename alg_type>
     static void test_CQRRPT_general(
-        int64_t d, 
+        T d_factor, 
         T norm_A,
         CQRRPTTestData<T> &all_data,
         alg_type &CQRRPT,
@@ -115,7 +116,7 @@ class TestCQRRPT : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRPT.call(m, n, all_data.A, d, all_data.R, all_data.J, state);
+        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
 
         all_data.rank = CQRRPT.rank;
         printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
@@ -124,7 +125,6 @@ class TestCQRRPT : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data); 
-
     }
 };
 
@@ -133,7 +133,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     int64_t m = 10000;
     int64_t n = 200;
     int64_t k = 200;
-    int64_t d = 400;
+    double d_factor = 2;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -151,14 +151,14 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     int64_t m = 10000;
     int64_t n = 200;
     int64_t k = 100;
-    int64_t d = 400;
+    double d_factor = 2;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -176,7 +176,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
 // Using L2 norm rank estimation here is similar to using raive estimation. 
@@ -185,7 +185,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     int64_t m = 10e4;
     int64_t n = 300;
     int64_t k = 0;
-    int64_t d = 300;
+    double d_factor = 1;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::RNGState();
@@ -201,7 +201,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
 
