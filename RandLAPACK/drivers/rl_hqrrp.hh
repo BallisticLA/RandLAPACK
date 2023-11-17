@@ -97,11 +97,17 @@ void _LAPACK_lafrb(
         LAPACK_dlarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (double *) buff_U, & ldim_U, (double *) buff_T, & ldim_T, 
                     (double *) buff_B, & ldim_B, (double *) buff_W, & ldim_W
+                    #ifdef LAPACK_FORTRAN_STRLEN_END
+                    //, 1, 1, 1, 1
+                    #endif
                     );
     } else if (typeid(T) == typeid(float)) {
         LAPACK_slarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (float *) buff_U, & ldim_U, (float *) buff_T, & ldim_T, 
                     (float *) buff_B, & ldim_B, (float *) buff_W, & ldim_W
+                    #ifdef LAPACK_FORTRAN_STRLEN_END
+                    //, 1, 1, 1, 1
+                    #endif
                     );
     } else {
         // Unsupported type
@@ -129,6 +135,9 @@ void _LAPACK_larf(
             (double *) tau,
             (double *) C, & ldc_,
             (double *) work
+            #ifdef LAPACK_FORTRAN_STRLEN_END
+            //, 1
+            #endif
             );
     } else if (typeid(T) == typeid(float)) {
         LAPACK_slarf( & side_, & m_, & n_, 
@@ -136,6 +145,9 @@ void _LAPACK_larf(
             (float *) tau,
             (float *) C, & ldc_,
             (float *) work
+            #ifdef LAPACK_FORTRAN_STRLEN_END
+            //, 1
+            #endif
             );
     } else {
         // Unsupported type
@@ -386,7 +398,7 @@ static int64_t NoFLA_QRP_downdate_partial_norms(
     char dlmach_param = 'E';
     tol3z = sqrt( LAPACK_dlamch( & dlmach_param
     #ifdef LAPACK_FORTRAN_STRLEN_END
-    , 1
+    //, 1
     #endif
     ) );
     ptr_d  = buff_d;
