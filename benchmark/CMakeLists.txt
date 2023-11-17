@@ -54,10 +54,10 @@ add_benchmark(NAME convert_time    CXX_SOURCES bench_general/convert_time.cc    
 
 # CQRRPT benchmarks
 add_benchmark(NAME CQRRPT_speed_comparisons CXX_SOURCES bench_CQRRPT/CQRRPT_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRPT_inner_speed       CXX_SOURCES bench_CQRRPT/CQRRPT_inner_speed.cc       LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRPT_accuracy          CXX_SOURCES bench_CQRRPT/CQRRPT_accuracy.cc          LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRPT_runtime_breakdown CXX_SOURCES bench_CQRRPT/CQRRPT_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRPT_pivot_quality     CXX_SOURCES bench_CQRRPT/CQRRPT_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
 
 # CQRRP benchmarks
 add_benchmark(NAME CQRRP_speed_comparisons CXX_SOURCES bench_CQRRP/CQRRP_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_inner_speed       CXX_SOURCES bench_CQRRP/CQRRP_inner_speed.cc       LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_accuracy          CXX_SOURCES bench_CQRRP/CQRRP_accuracy.cc          LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRP_runtime_breakdown CXX_SOURCES bench_CQRRP/CQRRP_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRP_pivot_quality     CXX_SOURCES bench_CQRRP/CQRRP_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})

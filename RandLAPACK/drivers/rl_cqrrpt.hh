@@ -285,7 +285,7 @@ int CQRRPT<T, RNG>::call(
     for(i = 0; i < k; ++i) {
         curr_entry = std::abs(R_sp[i * k + i]);
         if(curr_entry > running_max) running_max = curr_entry;
-        if(curr_entry < running_min) running_max = running_min;
+        if(curr_entry < running_min) running_min = running_max;
         if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
             new_rank = i - 1;
             break;
