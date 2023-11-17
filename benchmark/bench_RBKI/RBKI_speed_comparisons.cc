@@ -101,6 +101,7 @@ static std::vector<long> call_all_algs(
     return res;
 }
 
+/*
 int main() {
     // Declare parameters
     int64_t m           = std::pow(10, 3);
@@ -120,6 +121,42 @@ int main() {
 
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+
+    // Declare a data file
+    std::fstream file("RBKI_speed_comp_m_"          + std::to_string(m)
+                                      + "_n_"       + std::to_string(n)
+                                      + "_k_start_" + std::to_string(k_start)
+                                      + "_k_stop_"  + std::to_string(k_stop)
+                                      + ".dat", std::fstream::app);
+
+    for (;k_start <= k_stop; k_start *= 2) {
+        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, k_start, all_data, state_constant);
+        file << res[0]  << ",  " << res[1]  << ",\n";
+    }
+}
+*/
+
+int main() {
+    // Declare parameters
+    int64_t m           = std::pow(10, 3);
+    int64_t n           = std::pow(10, 3);
+    int64_t k_start     = 100;
+    int64_t k_stop      = 100;
+    double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state          = RandBLAS::RNGState();
+    auto state_constant = state;
+    // Timing results
+    std::vector<long> res;
+    // Number of algorithm runs. We only record best times.
+    int64_t numruns = 5;
+
+    // Allocate basic workspace
+    RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);
+
+    // Generate the input matrix - gaussian suffices for performance tests.
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
+    custom_input.filename = argv[1];
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     // Declare a data file
