@@ -49,10 +49,11 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <RandBLAS.hh>
 #include <lapack/fortran.h>
 #include <lapack/config.h>
+#include <chrono>
 
 // Matrices with dimensions larger than THRESHOLD_FOR_DGEQP3 are processed 
 // with the new HQRRP code.
-#define THRESHOLD_FOR_DGEQP3  3
+#define THRESHOLD_FOR_DGEQP3  2
 
 // ============================================================================
 // Definition of macros.
@@ -62,6 +63,8 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 // Compilation declarations.
 
 #undef CHECK_DOWNDATING_OF_Y
+
+using namespace std::chrono;
 
 namespace RandLAPACK {
 
@@ -95,7 +98,7 @@ void _LAPACK_lafrb(
                     & m_, & n_, & k_, (double *) buff_U, & ldim_U, (double *) buff_T, & ldim_T, 
                     (double *) buff_B, & ldim_B, (double *) buff_W, & ldim_W
                     #ifdef LAPACK_FORTRAN_STRLEN_END
-                    , 1, 1, 1, 1
+                    //, 1, 1, 1, 1
                     #endif
                     );
     } else if (typeid(T) == typeid(float)) {
@@ -103,7 +106,7 @@ void _LAPACK_lafrb(
                     & m_, & n_, & k_, (float *) buff_U, & ldim_U, (float *) buff_T, & ldim_T, 
                     (float *) buff_B, & ldim_B, (float *) buff_W, & ldim_W
                     #ifdef LAPACK_FORTRAN_STRLEN_END
-                    , 1, 1, 1, 1
+                    //, 1, 1, 1, 1
                     #endif
                     );
     } else {
@@ -133,7 +136,7 @@ void _LAPACK_larf(
             (double *) C, & ldc_,
             (double *) work
             #ifdef LAPACK_FORTRAN_STRLEN_END
-            , 1
+            //, 1
             #endif
             );
     } else if (typeid(T) == typeid(float)) {
@@ -143,12 +146,36 @@ void _LAPACK_larf(
             (float *) C, & ldc_,
             (float *) work
             #ifdef LAPACK_FORTRAN_STRLEN_END
-            , 1
+            //, 1
             #endif
             );
     } else {
         // Unsupported type
     }
+    return;
+}
+// ============================================================================
+template <typename T>
+void _LAPACK_geqrf(
+    int64_t m, int64_t n, T *A, int64_t lda,
+    T *tau, T *work,
+    int64_t * lwork, int64_t * info) {
+    lapack_int m_      = (lapack_int) m;
+    lapack_int n_      = (lapack_int) n;
+    lapack_int lda_    = (lapack_int) lda;
+    lapack_int *lwork_ = (lapack_int *) lwork;
+    lapack_int *info_  = (lapack_int *) info;
+
+    if (typeid(T) == typeid(double)) {
+        LAPACK_dgeqrf(&m_, &n_, (double *) A, &lda_, (double *) tau, (double *) work, lwork_, info_);
+    } else if (typeid(T) == typeid(float)) {
+        LAPACK_sgeqrf(&m_, &n_, (float *) A, &lda_, (float *) tau, (float *) work, lwork_, info_);
+    } else {
+        // Unsupported type
+    }
+  
+    *info = (int64_t) *info_;
+    *lwork = (int64_t) *lwork_;
     return;
 }
 
@@ -169,7 +196,7 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) malloc( m_B * n_U * sizeof( T ) );
+    buff_W = ( T * ) calloc( m_B * n_U, sizeof( T ) );
     ldim_W = std::max<int64_t>( 1, m_B );
 
     // Apply the block transformation. 
@@ -212,7 +239,7 @@ int64_t NoFLA_Downdate_Y(
     int64_t    ldim_B      = m_G1;
 
     // Create object B.
-    buff_B = ( T * ) malloc( m_B * n_B * sizeof( T ) );
+    buff_B = ( T * ) calloc( m_B * n_B, sizeof( T ) );
 
     // B = G1.
     lapack::lacpy( MatrixType::General,
@@ -297,7 +324,7 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_NO_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) malloc( n_B * n_U * sizeof( T ) );
+    buff_W = ( T * ) calloc( n_B * n_U, sizeof( T ) );
     ldim_W = std::max<int64_t>( 1, n_B );
 
     // Apply the block transformation.
@@ -325,12 +352,23 @@ int64_t NoFLA_QRP_compute_norms(
 // It computes the column norms of matrix A. The norms are stored int64_to 
 // vectors d and e.
 //
+
+    high_resolution_clock::time_point nrm_t_start;
+    high_resolution_clock::time_point nrm_t_stop;
+    long nrm_dur  = 0;
+    long dur_curr = 0;
+
     int64_t     j, i_one = 1;
 
     // Main loop.
     //#pragma omp parallel for
     for( j = 0; j < n_A; j++ ) {
+        nrm_t_start = high_resolution_clock::now();
         * buff_d = blas::nrm2(m_A, buff_A, i_one);
+        nrm_t_stop = high_resolution_clock::now();
+        dur_curr = duration_cast<microseconds>(nrm_t_stop - nrm_t_start).count();
+        nrm_dur += dur_curr;
+
         * buff_e = * buff_d;
         buff_A += ldim_A;
         buff_d++;
@@ -360,7 +398,7 @@ static int64_t NoFLA_QRP_downdate_partial_norms(
     char dlmach_param = 'E';
     tol3z = sqrt( LAPACK_dlamch( & dlmach_param
     #ifdef LAPACK_FORTRAN_STRLEN_END
-    , 1
+    //, 1
     #endif
     ) );
     ptr_d  = buff_d;
@@ -447,34 +485,129 @@ static int64_t NoFLA_QRP_pivot_G_B_C(
     return 0;
 }
 
+// ==========================================================================
+template <typename T>
+static int64_t GEQRF_mod_WY(
+        int64_t num_stages,
+        int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
+        T * buff_t,
+        T * buff_T, int64_t ldim_T
+) {
+    //
+    // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
+    //
+
+    // Some initializations.
+    if( num_stages < 0 )
+        num_stages = std::min( m_A, n_A );;
+
+    // run unpivoted Householder QR on buff_A.
+    int64_t info[1];
+    T work_query[1];
+    int64_t lwork[1];
+    lwork[0] = -1;
+    _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, work_query, lwork, info);
+    lwork[0] = std::max((int64_t) blas::real(work_query[0]), n_A);
+    T *buff_workspace = ( T * ) calloc( lwork[0], sizeof( T ) );
+    _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, buff_workspace, lwork, info);
+
+    // Build T.
+    lapack::larft( lapack::Direction::Forward,
+                    lapack::StoreV::Columnwise,
+                    m_A, num_stages, buff_A, ldim_A, 
+                    buff_t, buff_T, ldim_T
+    );
+
+    // Remove auxiliary vectors.
+    free( buff_workspace );
+
+    return 0;
+}
+
+// ==========================================================================
+// TODO: pre-allocate workspace
+
+template <typename T>
+static int64_t CHOLQR_mod_WY(
+        int64_t num_stages,
+        int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
+        T * buff_t,
+        T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D
+        ) {
+    //
+    // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
+    //
+
+    // Some initializations.
+    if( num_stages < 0 )
+        num_stages = std::min( m_A, n_A );
+
+    // Find R = A^TA.
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, ldim_R);
+
+    // Perform Cholesky factorization on A.
+    lapack::potrf(Uplo::Upper, n_A, buff_R, ldim_R);
+    // Find Q = A * inv(R)
+
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
+
+    // Perform Householder reconstruction
+#if !defined(__APPLE__)
+    lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
+#endif
+
+    // Update the signs in the R-factor
+    int i, j;
+    for(i = 0; i < n_A; ++i)
+        for(j = 0; j < (i + 1); ++j)
+            buff_R[(ldim_R * i) + j] *= buff_D[j];
+
+    // Copy the R-factor into the upper-trianular portion of A
+    lapack::lacpy(MatrixType::Upper, n_A, n_A, buff_R, ldim_R, buff_A, ldim_A);
+
+    // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
+    for(i = 0; i < n_A; ++i)
+        buff_t[i] = buff_T[(ldim_T + 1) * i];
+
+    return 0;
+}
+
 // ============================================================================
 template <typename T>
 int64_t NoFLA_QRPmod_WY_unb_var4( 
-    int64_t pivoting, int64_t num_stages, 
+    int64_t use_cholqr, int64_t pivoting, int64_t num_stages, 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_p, T * buff_t, 
     int64_t pivot_B, int64_t m_B, T * buff_B, int64_t ldim_B,
     int64_t pivot_C, int64_t m_C, T * buff_C, int64_t ldim_C,
-    int64_t build_T, T * buff_T, int64_t ldim_T ) {
+    int64_t build_T, T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D) {
 //
-// It computes an unblocked QR factorization of matrix A with or without 
-// pivoting. Matrices B and C are optionally pivoted, and matrix T is
-// optionally built.
-//
-// Arguments:
 // "pivoting": If pivoting==1, then QR factorization with pivoting is used.
+//
 // "numstages": It tells the number of columns that are factorized.
 //   If "num_stages" is negative, the whole matrix A is factorized.
 //   If "num_stages" is positive, only the first "num_stages" are factorized.
-// "pivot_B": if "pivot_B" is true, matrix "B" is pivoted too.
-// "pivot_C": if "pivot_C" is true, matrix "C" is pivoted too.
-// "build_T": if "build_T" is true, matrix "T" is built.
+//   The typical use-case for this function is to call with num_stages=-1.
+//   Calling with num_stages > 0 only happens at HQRRP's last iteration.
 //
-    int64_t     j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
+// "pivot_B": if "pivot_B" is true, matrix "B" is pivoted too.
+//
+// "pivot_C": if "pivot_C" is true, matrix "C" is pivoted too.
+//
+// "build_T": if "build_T" is true, matrix "T" is built.
+//    The typical use-case for this function is to call with build_T=true.
+//    Calling with build_T=false is only done at HQRRP's last iteration.
+//
+
+    if (!pivoting && !use_cholqr) {
+        return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
+    } else if (!pivoting && use_cholqr) {
+        return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
+    }
+
+    int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
             i_one = 1, n_house_vector, m_rest;
     T  * buff_d, * buff_e, * buff_workspace, diag;
-
-    //// printf( "NoFLA_QRPmod_WY_unb_var4. pivoting: %d \n", pivoting );
 
     // Some initializations.
     mn_A    = std::min( m_A, n_A );
@@ -485,35 +618,32 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     }
 
     // Create auxiliary vectors.
-    buff_d         = ( T * ) malloc( n_A * sizeof( T ) );
-    buff_e         = ( T * ) malloc( n_A * sizeof( T ) );
-    buff_workspace = ( T * ) malloc( n_A * sizeof( T ) );
+    buff_d         = ( T * ) calloc( n_A, sizeof( T ) );
+    buff_e         = ( T * ) calloc( n_A, sizeof( T ) );
+    buff_workspace = ( T * ) calloc( n_A, sizeof( T ) );
 
-    if( pivoting == 1 ) {
-        // Compute initial norms of A int64_to d and e.
-        NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
-    }
+    // Compute initial norms of A int64_to d and e.
+    NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
 
     // Main Loop.
     for( j = 0; j < num_stages; j++ ) {
+
         n_dB  = n_A - j;
         m_a21 = m_A - j - 1;
         m_A22 = m_A - j - 1;
         n_A22 = n_A - j - 1;
 
-        if( pivoting == 1 ) {
-            // Obtain the index of the column with largest 2-norm.
-            idx_max_col = blas::iamax( n_dB, & buff_d[ j ], i_one ); // - 1;
+        // Obtain the index of the column with largest 2-norm.
+        idx_max_col = blas::iamax( n_dB, & buff_d[ j ], i_one ); // - 1;
 
-            // Swap columns of A, B, C, pivots, and norms vectors.
-            NoFLA_QRP_pivot_G_B_C( idx_max_col,
-                m_A, & buff_A[ 0 + j * ldim_A ], ldim_A,
-                pivot_B, m_B, & buff_B[ 0 + j * ldim_B ], ldim_B,
-                pivot_C, m_C, & buff_C[ 0 + j * ldim_C ], ldim_C,
-                & buff_p[ j ],
-                & buff_d[ j ],
-                & buff_e[ j ] );
-        }
+        // Swap columns of A, B, C, pivots, and norms vectors.
+        NoFLA_QRP_pivot_G_B_C( idx_max_col,
+            m_A, & buff_A[ 0 + j * ldim_A ], ldim_A,
+            pivot_B, m_B, & buff_B[ 0 + j * ldim_B ], ldim_B,
+            pivot_C, m_C, & buff_C[ 0 + j * ldim_C ], ldim_C,
+            & buff_p[ j ],
+            & buff_d[ j ],
+            & buff_e[ j ] );
 
         // Compute tau1 and u21 from alpha11 and a21 such that tau1 and u21
         // determine a Householder transform H such that applying H from the
@@ -542,14 +672,12 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         );
         buff_A[ j + j * ldim_A ] = diag;
 
-        if( pivoting == 1 ) {
-            // Update partial column norms.
-            NoFLA_QRP_downdate_partial_norms( m_A22, n_A22, 
-                & buff_d[ j+1 ], 1,
-                & buff_e[ j+1 ], 1,
-                & buff_A[ j + ( j+1 ) * ldim_A ], ldim_A,
-                & buff_A[ ( j+1 ) + std::min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
-        }
+        // Update partial column norms.
+        NoFLA_QRP_downdate_partial_norms( m_A22, n_A22, 
+            & buff_d[ j+1 ], 1,
+            & buff_e[ j+1 ], 1,
+            & buff_A[ j + ( j+1 ) * ldim_A ], ldim_A,
+            & buff_A[ ( j+1 ) + std::min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
     }
 
     // Build T.
@@ -605,17 +733,17 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, RandBLAS::RNGState<RNG> &state) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* time_per_block) {
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
             n_A11, m_A12, n_A12, m_A21, m_A22,
-            m_G, n_G, ldim_G;
+            m_G, n_G, ldim_G, ldim_R;
     T  * buff_Y, * buff_V, * buff_W, * buff_VR, * buff_YR, 
             * buff_s, * buff_sB, * buff_s1, 
             * buff_AR, * buff_AB1, * buff_A01, * buff_Y1, * buff_T1_T,
             * buff_A11, * buff_A21, * buff_A12,
-            * buff_Y2, * buff_G, * buff_G1, * buff_G2;
+            * buff_Y2, * buff_G, * buff_G1, * buff_G2, * buff_R, * buff_D;
     int64_t * buff_p, * buff_pB, * buff_p1;
     T  d_zero = 0.0;
     T  d_one  = 1.0;
@@ -644,35 +772,78 @@ int64_t hqrrp(
     // Create auxiliary objects.
     m_Y     = nb_alg + pp;
     n_Y     = n_A;
-    buff_Y  = ( T * ) malloc( m_Y * n_Y * sizeof( T ) );
+    buff_Y  = ( T * ) calloc( m_Y * n_Y, sizeof( T ) );
     ldim_Y  = m_Y;
 
     m_V     = nb_alg + pp;
     n_V     = n_A;
-    buff_V  = ( T * ) malloc( m_V * n_V * sizeof( T ) );
+    buff_V  = ( T * ) calloc( m_V * n_V, sizeof( T ) );
     ldim_V  = m_V;
 
     m_W     = nb_alg;
     n_W     = n_A;
-    buff_W  = ( T * ) malloc( m_W * n_W * sizeof( T ) );
+    buff_W  = ( T * ) calloc( m_W * n_W, sizeof( T ) );
     ldim_W  = m_W;
 
     m_G     = nb_alg + pp;
     n_G     = m_A;
-    buff_G  = ( T * ) malloc( m_G * n_G * sizeof( T ) );
+    buff_G  = ( T * ) calloc( m_G * n_G, sizeof( T ) );
     ldim_G  = m_G;
 
+    // Required for CHolesky QR
+    ldim_R = nb_alg;
+    buff_R  = ( T * ) calloc( nb_alg * nb_alg, sizeof( T ) );
+    buff_D  = ( T * ) calloc( nb_alg, sizeof( T ) );
+
     // Initialize matrices G and Y.
-    RandBLAS::DenseDist D{.n_rows = nb_alg + pp, .n_cols = m_A, .family=RandBLAS::DenseDistName::Uniform};
-    state = RandBLAS::fill_dense(D, buff_G, state);
+    RandBLAS::DenseDist D(nb_alg + pp, m_A, RandBLAS::DenseDistName::Uniform);
+    state = RandBLAS::fill_dense(D, buff_G, state).second;
     
     blas::gemm(Layout::ColMajor,
                 Op::NoTrans, Op::NoTrans, m_Y, n_Y, m_A, 
                 d_one, buff_G,  ldim_G, buff_A, ldim_A, 
                 d_zero, buff_Y, ldim_Y );
 
+    //**********************************
+    // This is for the advanced timing
+    
+    high_resolution_clock::time_point iter_t_start;
+    high_resolution_clock::time_point iter_t_stop;
+    /*
+    high_resolution_clock::time_point t1_start;
+    high_resolution_clock::time_point t1_stop;
+
+    high_resolution_clock::time_point t2_start;
+    high_resolution_clock::time_point t2_stop;
+
+    high_resolution_clock::time_point t3_start;
+    high_resolution_clock::time_point t3_stop;
+
+    high_resolution_clock::time_point t4_start;
+    high_resolution_clock::time_point t4_stop;
+
+    high_resolution_clock::time_point tcopy_start;
+    high_resolution_clock::time_point tcopy_stop;
+    */
+    if (time_per_block != nullptr) {
+        // The space required has already been preallocated
+        iter_t_start  = high_resolution_clock::now();
+    }
+
+    //**********************************
+    int ctr = 0;
+
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
+
+        if (time_per_block != nullptr) {
+            // The space required has already been preallocated
+            iter_t_start  = high_resolution_clock::now();
+        }
+
+
+        //t1_start  = high_resolution_clock::now();
+
         b = std::min( nb_alg, std::min( n_A - j, m_A - j ) );
 
         // Check whether it is the last iteration.
@@ -725,7 +896,7 @@ int64_t hqrrp(
         n_cyr    = n_Y - j;
         ldim_cyr = m_cyr;
         m_ABR    = m_A - j;
-        buff_cyr = ( T * ) malloc( m_cyr * n_cyr * sizeof( T ) );
+        buff_cyr = ( T * ) calloc( m_cyr * n_cyr, sizeof( T ) );
 
         //// FLA_Gemm( FLA_NO_TRANSPOSE, FLA_NO_TRANSPOSE, 
         ////           FLA_ONE, GR, ABR, FLA_ZERO, CYR ); 
@@ -734,9 +905,6 @@ int64_t hqrrp(
                     d_one, & buff_G[ 0 + j * ldim_G ], ldim_G,
                             & buff_A[ j + j * ldim_A ], ldim_A,
                     d_zero, & buff_cyr[ 0 + 0 * ldim_cyr ], ldim_cyr );
-
-        //// print_double_matrix( "cyr", m_cyr, n_cyr, buff_cyr, ldim_cyr );
-        //// print_double_matrix( "y", m_Y, n_Y, buff_Y, ldim_Y );
         sum = 0.0;
         //#pragma omp parallel for
         for( jj = 0; jj < n_cyr; jj++ ) {
@@ -752,32 +920,73 @@ int64_t hqrrp(
         free( buff_cyr );
 #endif
 
-        if( last_iter == 0 ) {
+        //t1_stop  = high_resolution_clock::now();
+        //printf("        Part 1 of HQRRP time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
+        //t2_start  = high_resolution_clock::now();
+
+        if( !last_iter ) {
             // Compute QRP of YR, and apply permutations to matrix AR.
             // A copy of YR is made into VR, and permutations are applied to YR.
+            //
+            //    Notes
+            //    -----
+            //    The "NoFLA" function below is basically running GEQP3 on the updated sketch.
+            //
+            //    I only see one reason for doing this with a custom function instead of GEQP3 itself.
+            //    Specifically, this custom function operates on three matrices (VR, AR, and YR) in
+            //    sync with one another, while GEQP3 only operates on one matrix.
+            //
+            //tcopy_start  = high_resolution_clock::now();
             lapack::lacpy( MatrixType::General,
                             m_V, n_VR,
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);
-            NoFLA_QRPmod_WY_unb_var4( 1, b,
+            //tcopy_stop  = high_resolution_clock::now();
+            //printf("            Copy time %ld\n", duration_cast<microseconds>(tcopy_stop - tcopy_start).count());
+            NoFLA_QRPmod_WY_unb_var4(0, 1, b,
                 m_V, n_VR,
                 buff_VR, ldim_V,
                 buff_pB, buff_sB,
                 1, m_A, buff_AR, ldim_A,
                 1, m_Y, buff_YR, ldim_Y,
-                0, buff_Y, ldim_Y );
+                0, (T*) nullptr, 0, (T*) nullptr, 0, (T*) nullptr 
+            );
         }
-
+        //t2_stop  = high_resolution_clock::now();
+        
+        //char name1 [] = "A before qr";
+        //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name1);
+        
+        //printf("        Part 2 of HQRRP time %ld\n", duration_cast<microseconds>(t2_stop - t2_start).count());
+        //t3_start  = high_resolution_clock::now();
         //
         // Compute QRP of panel AB1 = [ A11; A21 ].
         // Apply same permutations to A01 and Y1, and build T1_T.
         //
+        //    Notes
+        //    -----
+        //    The function below basically runs GEQP3 *or* GEQRF on
+        //    the updated sketch *and then* changes the representation of the
+        //    composition of Householder reflectors.
+        //
+        //    In the code path where we hit a GEQP3-like function we can't use
+        //    GEQP3 directly because we actually need to modify three matrices
+        //    (AB1, A01, and Y1) alongside one another.
+        //    
+        //    The code path where we hit a GEQRF-like function is very different;
+        //    it only operates on AB1!
+        //
 
-        NoFLA_QRPmod_WY_unb_var4( panel_pivoting, -1,
+        NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
             1, j, buff_A01, ldim_A,
             1, m_Y, buff_Y1, ldim_Y,
-            1, buff_T1_T, ldim_W );
+            1, buff_T1_T, ldim_W, buff_R, ldim_R, buff_D);
+
+        //t3_stop  = high_resolution_clock::now();
+        //printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
+
+        //t4_start  = high_resolution_clock::now();
 
         //
         // Update the rest of the matrix.
@@ -807,14 +1016,26 @@ int64_t hqrrp(
                 m_G, b, buff_G1, ldim_G,
                 std::max<int64_t>( 0, n_G - j - b ), buff_G2, ldim_G );
         }
-    }
 
+        //t4_stop  = high_resolution_clock::now();
+        //printf("        Part 4 of HQRRP time %ld\n", duration_cast<microseconds>(t4_stop - t4_start).count());
+
+        if (time_per_block != nullptr) {
+            // The space required has already been preallocated
+            iter_t_stop  = high_resolution_clock::now();
+            printf("+%ld\n", duration_cast<microseconds>(iter_t_stop - iter_t_start).count());
+            T* nextval = &(time_per_block[ctr]);
+            *nextval = (m_AB1 * (T) b) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
+            ++ctr;
+        }
+    }
     // Remove auxiliary objects.
     free( buff_G );
     free( buff_Y );
     free( buff_V );
     free( buff_W );
-
+    free( buff_R );
+    free( buff_D );
     return 0;
 }
 

@@ -48,7 +48,7 @@ void diag(
 ) {
 
     if(k > std::min(m, n)) 
-        throw std::runtime_error("Incorrect rank parameter.");
+        throw std::runtime_error("Invalid rank parameter.");
     // size of s
     blas::copy(k, s.data(), 1, S.data(), m + 1);
 }
@@ -63,7 +63,7 @@ void extract_diag(
     std::vector<T> &buf
 ) {
     if(k > std::min(m, n)) 
-        throw std::runtime_error("Incorrect rank parameter.");
+        throw std::runtime_error("Invalid rank parameter.");
     for(int i = 0; i < k; ++i)
         buf[i] = A[(i * m) + i];
 }
@@ -119,11 +119,11 @@ template <typename T>
 void get_U(
     int64_t m,
     int64_t n,
-    std::vector<T> &A
+    T* A,
+    int64_t lda
 ) {
-    T* A_dat = A.data();
     for(int i = 0; i < n - 1; ++i) {
-        std::fill(&A_dat[i * (m + 1) + 1], &A_dat[(i + 1) * m], 0.0);
+        std::fill(&A[i * (lda + 1) + 1], &A[(i * lda) + m], 0.0);
     }
 }
 
@@ -134,33 +134,49 @@ void col_swap(
     int64_t m,
     int64_t n,
     int64_t k,
-    std::vector<T> &A,
+    T* A,
+    int64_t lda,
     std::vector<int64_t> idx
 ) {
+    if(k > n) 
+        throw std::runtime_error("Invalid rank parameter.");
 
-    if(k > std::min(m, n)) 
-        throw std::runtime_error("Incorrect rank parameter.");
-
-    int64_t* idx_dat = idx.data();
-    T* A_dat = A.data();
-
-    int64_t i, j, l;
+    int64_t i, j; //, l;
     for (i = 0, j = 0; i < k; ++i) {
-        j = idx_dat[i] - 1;
-        blas::swap(m, &A_dat[i * m], 1, &A_dat[j * m], 1);
+        j = idx[i] - 1;
+        blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
 
         // swap idx array elements
         // Find idx element with value i and assign it to j
-        for(l = i; l < k; ++l) {
-            if(idx[l] == i + 1) {
-                    idx[l] = j + 1;
-                    break;
-            }
-        }
-        idx[i] = i + 1;
+        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
+        idx[it - (idx.begin())] = j + 1;
     }
 }
 
+/// A version of the above function to be used on a vector of integers
+template <typename T>
+void col_swap(
+    int64_t n,
+    int64_t k,
+    int64_t* A,
+    std::vector<int64_t> idx
+) {
+    if(k > n) 
+        throw std::runtime_error("Incorrect rank parameter.");
+
+    int64_t* idx_dat = idx.data();
+
+    int64_t i, j;
+    for (i = 0, j = 0; i < k; ++i) {
+        j = idx_dat[i] - 1;
+        std::swap(A[i], A[j]);
+
+        // swap idx array elements
+        // Find idx element with value i and assign it to j
+        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
+        idx[it - (idx.begin())] = j + 1;
+    }
+}
 
 /// Checks if the given size is larger than available. 
 /// If so, resizes the vector.
@@ -300,14 +316,14 @@ T estimate_spectral_norm(
     int64_t n,
     T const* A_dat,
     int p,
-    RandBLAS::RNGState<RNG> state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     std::vector<T> buf (n, 0.0);
     std::vector<T> buf1 (m, 0.0);
 
-    RandBLAS::DenseDist DV{.n_rows = n, .n_cols = 1};
-    state = RandBLAS::fill_dense(DV, buf.data(), state);
+    RandBLAS::DenseDist DV(n, 1);
+    state = RandBLAS::fill_dense(DV, buf.data(), state).second;
 
     T prev_norm_inv = 1.0;
     for(int i = 0; i < p; ++i) {

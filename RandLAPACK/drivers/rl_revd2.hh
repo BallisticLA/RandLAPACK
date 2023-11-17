@@ -220,7 +220,7 @@ int REVD2<T, RNG>::call(
         // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
         if(lapack::potrf(Uplo::Upper, k, R_dat, k))
             throw std::runtime_error("Cholesky decomposition failed.");
-        RandLAPACK::util::get_U(k, k, R);
+        RandLAPACK::util::get_U(k, k, R_dat, k);
 
         // B = Y(R')^-1 - need to transpose R
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
@@ -253,8 +253,8 @@ int REVD2<T, RNG>::call(
         // Using the first column of Omega as a buffer for a random vector
         // To perform the following safely, need to make sure Omega has at least 4 columns
         Omega_dat = util::upsize(m * 4, this->Omega);
-        RandBLAS::DenseDist  g{.n_rows = m, .n_cols = 1};
-        error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state);
+        RandBLAS::DenseDist  g(m, 1);
+        error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state).second;
 
         err = power_error_est(A, k, this->error_est_p, Omega_dat, V_dat, Y_dat, eigvals.data()); 
 

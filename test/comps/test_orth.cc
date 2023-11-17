@@ -58,8 +58,8 @@ class TestOrth : public ::testing::Test
         auto k = all_data.rank;
 
         // Fill the gaussian random matrix
-        RandBLAS::DenseDist D{.n_rows = n, .n_cols = k};
-        state = RandBLAS::fill_dense(D, all_data.Omega.data(), state);
+        RandBLAS::DenseDist D(n, k);
+        state = RandBLAS::fill_dense(D, all_data.Omega.data(), state).second;
         
         // Generate a reference identity
         RandLAPACK::util::eye(k, k, all_data.I_ref);
