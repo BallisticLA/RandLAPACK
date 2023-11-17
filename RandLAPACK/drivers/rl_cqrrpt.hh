@@ -16,7 +16,7 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-template <typename T>
+template <typename T, typename RNG>
 class CQRRPTalg {
     public:
 
@@ -28,12 +28,13 @@ class CQRRPTalg {
             std::vector<T> &A,
             int64_t d,
             std::vector<T> &R,
-            std::vector<int64_t> &J
+            std::vector<int64_t> &J,
+            RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
 
 template <typename T, typename RNG>
-class CQRRPT : public CQRRPTalg<T> {
+class CQRRPT : public CQRRPTalg<T, RNG> {
     public:
 
         /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
@@ -55,16 +56,15 @@ class CQRRPT : public CQRRPTalg<T> {
         CQRRPT(
             bool verb,
             bool time_subroutines,
-            RandBLAS::RNGState<RNG> st,
             T ep
         ) {
             verbosity = verb;
             timing = time_subroutines;
-            state = st;
             eps = ep;
             no_hqrrp = 1;
             nb_alg = 64;
             oversampling = 10;
+            use_cholqr = 0;
             panel_pivoting = 1;
             naive_rank_estimate = 1;
             use_fro_norm = 1;
@@ -115,17 +115,16 @@ class CQRRPT : public CQRRPTalg<T> {
             std::vector<T> &A,
             int64_t d,
             std::vector<T> &R,
-            std::vector<int64_t> &J
+            std::vector<int64_t> &J,
+            RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
         bool verbosity;
         bool timing;
         bool cond_check;
-        RandBLAS::RNGState<RNG> state;
         T eps;
         int64_t rank;
-        int64_t b_sz;
 
         // 10 entries
         std::vector<long> times;
@@ -144,6 +143,7 @@ class CQRRPT : public CQRRPTalg<T> {
         int64_t nb_alg;
         int64_t oversampling;
         int64_t panel_pivoting;
+        int64_t use_cholqr;
 
         // Rank estimate-related
         int naive_rank_estimate;
@@ -162,7 +162,8 @@ int CQRRPT<T, RNG>::call(
     std::vector<T> &A,
     int64_t d,
     std::vector<T> &R,
-    std::vector<int64_t> &J
+    std::vector<int64_t> &J,
+    RandBLAS::RNGState<RNG> &state
 ){
     //-------TIMING VARS--------/
     high_resolution_clock::time_point saso_t_stop;
@@ -220,7 +221,7 @@ int CQRRPT<T, RNG>::call(
     
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    RandBLAS::fill_sparse(S);
+    state = RandBLAS::fill_sparse(S);
 
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
@@ -238,7 +239,7 @@ int CQRRPT<T, RNG>::call(
     }
     else {
         std::iota(J.begin(), J.end(), 1);
-        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->state);
+        hqrrp(d, n, A_hat_dat, d, J_dat, tau_dat, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T*) nullptr);
     }
 
     if(this -> timing) {
@@ -328,7 +329,7 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Swap k columns of A with pivots from J
-    util::col_swap(m, n, k, A, J);
+    util::col_swap(m, n, k, A_dat, m, J);
 
     if(this -> timing) {
         a_mod_piv_t_stop = high_resolution_clock::now();
@@ -425,6 +426,5 @@ int CQRRPT<T, RNG>::call(
     }
     return 0;
 }
-
 } // end namespace RandLAPACK
 #endif

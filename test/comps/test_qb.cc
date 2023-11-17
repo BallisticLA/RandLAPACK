@@ -130,7 +130,7 @@ class TestQB : public ::testing::Test
         T* B_dat = all_data.B.data();
         T* B_cpy_dat = all_data.B_cpy.data();
 
-        printf("Inner dimension of QB: %-25lld\n", k);
+        printf("Inner dimension of QB: %-25ld\n", k);
 
         std::vector<T> Ident(k * k, 0.0);
         T* Ident_dat = Ident.data();
@@ -205,7 +205,7 @@ class TestQB : public ::testing::Test
         Q_dat = all_data.Q.data();
         B_dat = all_data.B.data();
 
-        printf("Inner dimension of QB: %lld\n", k_est);
+        printf("Inner dimension of QB: %ld\n", k_est);
 
         // A_hat = Q * B
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);

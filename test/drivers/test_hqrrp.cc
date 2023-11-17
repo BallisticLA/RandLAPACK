@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 
-class TestCQRRPT : public ::testing::Test
+class TestHQRRP : public ::testing::Test
 {
     protected:
 
@@ -17,20 +17,24 @@ class TestCQRRPT : public ::testing::Test
     virtual void TearDown() {};
 
     template <typename T>
-    struct CQRRPTTestData {
+    struct HQRRPtestData {
         int64_t row;
         int64_t col;
         int64_t rank; // has to be modifiable
         std::vector<T> A;
+        std::vector<T> Q;
         std::vector<T> R;
+        std::vector<T> tau;
         std::vector<int64_t> J;
         std::vector<T> A_cpy1;
         std::vector<T> A_cpy2;
         std::vector<T> I_ref;
 
-        CQRRPTTestData(int64_t m, int64_t n, int64_t k) :
-        A(m * n, 0.0), 
-        J(n, 0),  
+        HQRRPtestData(int64_t m, int64_t n, int64_t k) :
+        A(m * n, 0.0),
+        Q(m * n, 0.0),
+        tau(n, 0.0),
+        J(n, 0),
         A_cpy1(m * n, 0.0),
         A_cpy2(m * n, 0.0),
         I_ref(k * k, 0.0) 
@@ -42,20 +46,21 @@ class TestCQRRPT : public ::testing::Test
     };
 
     template <typename T, typename RNG>
-    static void norm_and_copy_computational_helper(T &norm_A, CQRRPTTestData<T> &all_data) {
+    static void norm_and_copy_computational_helper(T &norm_A, HQRRPtestData<T> &all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
 
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
+        std::iota(all_data.J.begin(), all_data.J.end(), 1);
     }
 
 
     /// This routine also appears in benchmarks, but idk if it should be put into utils
     template <typename T>
     static void
-    error_check(T &norm_A, CQRRPTTestData<T> &all_data) {
+    error_check(T &norm_A, HQRRPtestData<T> &all_data) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -66,7 +71,7 @@ class TestCQRRPT : public ::testing::Test
 
         T* A_dat         = all_data.A_cpy1.data();
         T const* A_cpy_dat = all_data.A_cpy2.data();
-        T const* Q_dat   = all_data.A.data();
+        T const* Q_dat   = all_data.Q.data();
         T const* R_dat   = all_data.R.data();
         T* I_ref_dat     = all_data.I_ref.data();
 
@@ -92,57 +97,63 @@ class TestCQRRPT : public ::testing::Test
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF AP - QR:    %15e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
+        printf("REL NORM OF AP - QR:    %14e\n", norm_AQR / norm_A);
+        printf("MAX COL NORM METRIC:    %14e\n", max_col_norm / col_norm_A);
+        printf("FRO NORM OF (Q'Q - I):  %14e\n\n", norm_0 / std::sqrt((T) n));
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
         ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
-        ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
+        ASSERT_NEAR(norm_0, 0.0, atol);
     }
 
-    /// General test for CQRRPT:
+    /// General test for HQRRP:
     /// Computes QR factorzation, and computes A[:, J] - QR.
-    template <typename T, typename RNG, typename alg_type>
-    static void test_CQRRPT_general(
-        int64_t d, 
+    template <typename T, typename RNG>
+    static void test_HQRRP_general(
+        T d_factor, 
+        int64_t b_sz,
+        int64_t use_cholqr,
+        int panel_pivoting,
         T norm_A,
-        CQRRPTTestData<T> &all_data,
-        alg_type &CQRRPT,
+        HQRRPtestData<T> &all_data,
         RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRPT.call(m, n, all_data.A, d, all_data.R, all_data.J, state);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state, (T*) nullptr);
+            
+        RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
-        all_data.rank = CQRRPT.rank;
-        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
+        lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
+
+        // I don't think hqrrp actually returns anything.
+        //printf("RANK AS RETURNED BY HQRRP %4ld\n", all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-        error_check(norm_A, all_data); 
-
+        error_check(norm_A, all_data);
+             
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
-    int64_t m = 10000;
+TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
+    int64_t m = 500;
     int64_t n = 200;
     int64_t k = 200;
-    int64_t d = 400;
+    double d_factor = 1.0;
+    int64_t b_sz = 50;
+    int64_t use_cholqr = 1;
+    int panel_pivoting = 0;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.num_threads = 4;
-    CQRRPT.no_hqrrp = 1;
+    HQRRPtestData<double> all_data(m, n, k);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -151,57 +162,8 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
+// This test uses orhr_col
+#if !defined(__APPLE__)
+    test_HQRRP_general<double, r123::Philox4x32>(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
+#endif
 }
-
-TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
-    int64_t m = 10000;
-    int64_t n = 200;
-    int64_t k = 100;
-    int64_t d = 400;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.num_threads = 4;
-    CQRRPT.no_hqrrp = 0;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
-
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
-}
-
-// Using L2 norm rank estimation here is similar to using raive estimation. 
-// Fro norm underestimates rank even worse. 
-TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
-    int64_t m = 10e4;
-    int64_t n = 300;
-    int64_t k = 0;
-    int64_t d = 300;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.num_threads = 4;
-    CQRRPT.no_hqrrp = 1;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::adverserial);
-    m_info.scaling = 1e7;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
-
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRPT, state);
-}
-
-

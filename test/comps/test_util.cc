@@ -100,7 +100,7 @@ class TestUtil : public ::testing::Test
         
         int64_t k = RandLAPACK::util::rank_search_binary(0, m, 0, n, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75), A.data());
 
-        printf("K IS %lld\n", k);
+        printf("K IS %ld\n", k);
         ASSERT_EQ(k, 0);
     }
 };
@@ -201,7 +201,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
         RandBLAS::DenseDist D{n, n};
         RandBLAS::RNGState state(1);
         double *A1 = new double[n*n];
-        state = RandBLAS::fill_dense(D, A1, state);
+        state = RandBLAS::fill_dense(D, A1, state).second;
         double *A2 = new double[n*n];
         blas::copy(n*n, A1, 1, A2, 1);
         RandLAPACK::util::transpose_square(A2, n);
