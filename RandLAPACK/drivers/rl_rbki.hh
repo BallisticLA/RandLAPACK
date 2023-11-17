@@ -60,6 +60,7 @@ class RBKI : public RBKIalg<T, RNG> {
         bool verbosity;
         bool timing;
         T tol;
+        int num_krylov_iters;
 };
 
 // -----------------------------------------------------------------------------
@@ -83,16 +84,16 @@ int RBKI<T, RNG>::call(
     // We need a full copy of X and Y all the way through the algorithm
     // due to an operation with X_odd and Y_odd happening at the end.
     // Space for Y_i and Y_odd.
-    T* Y = ( T * ) calloc( n * m, sizeof( T ) );
+    T* Y   = ( T * ) calloc( n * m, sizeof( T ) );
     // Space for X_i and X_ev. (maybe needs to be m by m + k)
-    T* X = ( T * ) calloc( m * (m + k), sizeof( T ) );
+    T* X   = ( T * ) calloc( m * (m + k), sizeof( T ) );
     // tau space for QR
     T* tau = ( T * ) calloc( k, sizeof( T ) );
     // While R and S matrices are structured (both band), we cannot make use of this structure through
     // BLAS-level functions.
     // Note also that we store a transposed version of R.
-    T* R = ( T * ) calloc( n * n, sizeof( T ) );
-    T* S = ( T * ) calloc( (n + k) * n, sizeof( T ) );
+    T* R   = ( T * ) calloc( n * n, sizeof( T ) );
+    T* S   = ( T * ) calloc( (n + k) * n, sizeof( T ) );
 
     // Pointers allocation
     // Below pointers will be offset by (n or m) * k at every even iteration.
@@ -159,7 +160,7 @@ int RBKI<T, RNG>::call(
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('double')))
             if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
-                printf("TERMINATION 1 at iteration %d\n", iter_ev);
+                printf("TERMINATION 1 at iteration %ld\n", iter_ev);
                 break;
             }
 
@@ -194,7 +195,7 @@ int RBKI<T, RNG>::call(
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
             if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
-                printf("TERMINATION 2 at iteration %d\n", iter_od);
+                printf("TERMINATION 2 at iteration %ld\n", iter_od);
                 break;
             }
 
@@ -213,9 +214,10 @@ int RBKI<T, RNG>::call(
         }
     }
 
+    this->num_krylov_iters = iter;
     iter % 2 == 0 ? end_rows = k * (iter_ev + 1), end_cols = k * iter_ev : end_rows = k * (iter_od + 1), end_cols = k * iter_od;
 
-    U_hat = ( T * ) calloc( end_rows * end_cols, sizeof( T ) );
+    U_hat  = ( T * ) calloc( end_rows * end_cols, sizeof( T ) );
     VT_hat = ( T * ) calloc( end_cols * end_cols, sizeof( T ) );
 
     //printf("rows: %ld, cols: %ld\n", end_rows, end_cols);
@@ -232,6 +234,14 @@ int RBKI<T, RNG>::call(
     // V = Y_od * V_hat
     // We actually perform VT = V_hat' * Y_odd'
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
+
+    free(Y);
+    free(X);
+    free(tau);
+    free(R);
+    free(S);
+    free(U_hat);
+    free(VT_hat);
 
     return 0;
 }
