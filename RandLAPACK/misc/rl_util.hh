@@ -48,7 +48,7 @@ void diag(
 ) {
 
     if(k > std::min(m, n)) 
-        throw std::runtime_error("Incorrect rank parameter.");
+        throw std::runtime_error("Invalid rank parameter.");
     // size of s
     blas::copy(k, s.data(), 1, S.data(), m + 1);
 }
@@ -63,7 +63,7 @@ void extract_diag(
     std::vector<T> &buf
 ) {
     if(k > std::min(m, n)) 
-        throw std::runtime_error("Incorrect rank parameter.");
+        throw std::runtime_error("Invalid rank parameter.");
     for(int i = 0; i < k; ++i)
         buf[i] = A[(i * m) + i];
 }
@@ -139,7 +139,7 @@ void col_swap(
     std::vector<int64_t> idx
 ) {
     if(k > n) 
-        throw std::runtime_error("Incorrect rank parameter.");
+        throw std::runtime_error("Invalid rank parameter.");
 
     int64_t i, j; //, l;
     for (i = 0, j = 0; i < k; ++i) {
@@ -150,17 +150,6 @@ void col_swap(
         // Find idx element with value i and assign it to j
         auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
         idx[it - (idx.begin())] = j + 1;
-/*
-        // Simple version of the above
-        for(l = i; l < k; ++l) {
-            if(idx[l] == i + 1) {
-                    idx[l] = j + 1;
-                    printf("%d\n", l);
-                    break;
-            }
-        }
-        idx[i] = i + 1;
-*/
     }
 }
 
@@ -177,20 +166,15 @@ void col_swap(
 
     int64_t* idx_dat = idx.data();
 
-    int64_t i, j, l;
+    int64_t i, j;
     for (i = 0, j = 0; i < k; ++i) {
         j = idx_dat[i] - 1;
         std::swap(A[i], A[j]);
 
         // swap idx array elements
         // Find idx element with value i and assign it to j
-        for(l = i; l < k; ++l) {
-            if(idx[l] == i + 1) {
-                    idx[l] = j + 1;
-                    break;
-            }
-        }
-        idx[i] = i + 1;
+        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
+        idx[it - (idx.begin())] = j + 1;
     }
 }
 
@@ -449,25 +433,6 @@ void eat_lda_slack(
         blas::copy(vec_len, work, 1, &buff[i*vec_len], 1);
     }
     delete [] work;
-}
-
-template <typename T>
-void householder_unpacking(
-    int64_t m,
-    int64_t n,
-    int64_t b_sz,
-    T* Q_compressed,
-    T* Q_decompressed,
-    T* T_mat
-) {
-    int64_t rows = m;
-    RandLAPACK::util::eye(m, m, Q_decompressed);
-    
-    for(int64_t curr_sz = 0; curr_sz < n; curr_sz += b_sz) {
-        lapack::gemqrt(Side::Right, Op::NoTrans, m, rows, b_sz, b_sz, &Q_compressed[curr_sz], m, &T_mat[b_sz * curr_sz], b_sz, &Q_decompressed[m * curr_sz], m);
-        Q_compressed = &Q_compressed[m * b_sz];
-        rows    -= b_sz;
-    }
 }
 
 } // end namespace util

@@ -733,7 +733,7 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* block_per_time) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* time_per_block) {
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -825,7 +825,7 @@ int64_t hqrrp(
     high_resolution_clock::time_point tcopy_start;
     high_resolution_clock::time_point tcopy_stop;
     */
-    if (block_per_time != nullptr) {
+    if (time_per_block != nullptr) {
         // The space required has already been preallocated
         iter_t_start  = high_resolution_clock::now();
     }
@@ -836,7 +836,7 @@ int64_t hqrrp(
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
 
-        if (block_per_time != nullptr) {
+        if (time_per_block != nullptr) {
             // The space required has already been preallocated
             iter_t_start  = high_resolution_clock::now();
         }
@@ -905,9 +905,6 @@ int64_t hqrrp(
                     d_one, & buff_G[ 0 + j * ldim_G ], ldim_G,
                             & buff_A[ j + j * ldim_A ], ldim_A,
                     d_zero, & buff_cyr[ 0 + 0 * ldim_cyr ], ldim_cyr );
-
-        //// print_double_matrix( "cyr", m_cyr, n_cyr, buff_cyr, ldim_cyr );
-        //// print_double_matrix( "y", m_Y, n_Y, buff_Y, ldim_Y );
         sum = 0.0;
         //#pragma omp parallel for
         for( jj = 0; jj < n_cyr; jj++ ) {
@@ -1023,11 +1020,11 @@ int64_t hqrrp(
         //t4_stop  = high_resolution_clock::now();
         //printf("        Part 4 of HQRRP time %ld\n", duration_cast<microseconds>(t4_stop - t4_start).count());
 
-        if (block_per_time != nullptr) {
+        if (time_per_block != nullptr) {
             // The space required has already been preallocated
             iter_t_stop  = high_resolution_clock::now();
             printf("+%ld\n", duration_cast<microseconds>(iter_t_stop - iter_t_start).count());
-            T* nextval = &(block_per_time[ctr]);
+            T* nextval = &(time_per_block[ctr]);
             *nextval = (m_AB1 * (T) b) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
             ++ctr;
         }

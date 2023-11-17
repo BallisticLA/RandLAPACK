@@ -40,7 +40,7 @@ struct mat_gen_info {
     bool diag;
     bool check_true_rank;
     T theta;
-    T pertrub;
+    T perturb;
 
     mat_gen_info(int64_t m, int64_t n, mat_type t) {
         rows = m;
@@ -53,7 +53,7 @@ struct mat_gen_info {
         scaling = 1.0;
         exponent = 1.0;
         theta = 1.0;
-        pertrub = 1.0;
+        perturb = 1.0;
     }
 };
 
@@ -394,18 +394,18 @@ void gen_bad_cholqr_mat(
 /// Generates Kahan matrix
 template <typename T>
 void gen_kahan_mat(
-    int64_t &m,
-    int64_t &n,
+    int64_t m,
+    int64_t n,
     std::vector<T> &A,
     T theta,
-    T pertrub
+    T perturb
 ) {
 
     std::vector<T> S(m * m, 0.0);
     std::vector<T> C(m * m, 0.0);
 
     for (int i = 0; i < n; ++i) {
-        A[(m + 1) * i] = pertrub * std::numeric_limits<double>::epsilon() * (m - i);
+        A[(m + 1) * i] = perturb * std::numeric_limits<double>::epsilon() * (m - i);
         S[(m + 1) * i] = std::pow(std::sin(i), i);
         for(int j = 0; j < i; ++ j)
             C[(m * i) + j] = std::cos(theta); 
@@ -471,7 +471,7 @@ void mat_gen(
             break;
         case kahan: {
                 // Generates Kahan Matrix
-                RandLAPACK::gen::gen_kahan_mat(m, n, A, info.theta, info.pertrub);
+                RandLAPACK::gen::gen_kahan_mat(m, n, A, info.theta, info.perturb);
             }
             break;
         default:
