@@ -452,13 +452,18 @@ void process_input_mat(
         workspace_query_mod = 0;
     } else {
         double value;
+        int i, j;
         // Read input file
         std::ifstream inputMat(filename);
 
         // Place the contents of a file into the matrix space.
-        int i = -1;
-        while (inputMat >> value){    
-            A[++i] = value;
+        // Matrix is input in a row-major order, we process data in column-major.
+        // Reads here are, unfortunately, sequential;
+        for(j = 0; j < m; ++j) {
+            for(i = 0; i < n; ++i) {
+                inputMat >> value;
+                A[m * i + j] = value;
+            }
         }
     }
 }

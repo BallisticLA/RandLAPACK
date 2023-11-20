@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     printf("rows %ld, cols %ld\n", m_info.rows, m_info.cols);
-    printf("%e\n", *(all_data.A.data() + 1));
+    printf("%e\n", *(all_data.A.data() + m));
 /*
     // Declare a data file
     std::fstream file("RBKI_speed_comp_m_"          + std::to_string(m)
