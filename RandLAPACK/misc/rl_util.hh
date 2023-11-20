@@ -187,26 +187,20 @@ template <typename T>
 T cond_num_check(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A,
-    std::vector<T> &A_cpy,
-    std::vector<T> &s,
+    T* A,
+    T* A_cpy,
+    T* s,
     bool verbose
 ) {
 
-    // Copy to avoid any changes
-    T* A_cpy_dat = upsize(m * n, A_cpy);
-    T* s_dat = upsize(n, s);
+    // TODO: GET RID OF THE INTERNAL ALLOCATIONS
+    A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    s     = ( T * ) calloc( n, sizeof( T ) );
 
-    // Packed storage check
-    if (A.size() < A_cpy.size()) {
-        // Convert to normal format
-        lapack::tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
-    } else {
-        lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
-    }
-    lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
+    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
-    T cond_num = s_dat[0] / s_dat[n - 1];
+    T cond_num = s[0] / s[n - 1];
 
     if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
@@ -219,16 +213,21 @@ template <typename T>
 int64_t rank_check(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A
+    T* A
 ) {
-    std::vector<T> A_pre_cpy;
-    std::vector<T> s;
+    T* A_pre_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    T* s     = ( T * ) calloc( n, sizeof( T ) );
+
     RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
 
     for(int i = 0; i < n; ++i) {
         if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
             return i - 1;
     }
+
+    free(A_pre_cpy);
+    free(s);
+
     return n;
 }
 

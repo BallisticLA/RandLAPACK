@@ -160,7 +160,7 @@ int RS<T, RNG>::call(
         ++ p_done;
 
         if(this->cond_check)
-            this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->Omega_1_cpy, this->s, this->verbosity));
+            this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1.data(), (this->Omega_1_cpy).data(), (this->s).data(), this->verbosity));
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1)))
             return 1;
@@ -170,7 +170,7 @@ int RS<T, RNG>::call(
         ++ p_done;
 
         if (this->cond_check)
-            this->cond_nums.push_back(util::cond_num_check(n, k, Omega, this->Omega_cpy, this->s, this->verbosity));
+            this->cond_nums.push_back(util::cond_num_check(n, k, Omega.data(), (this->Omega_cpy).data(), (this->s).data(), this->verbosity));
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
             return 1;

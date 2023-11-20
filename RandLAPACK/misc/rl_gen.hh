@@ -497,14 +497,14 @@ void mat_gen(
                 // This matrix may be numerically rank deficient
                 RandLAPACK::gen::gen_spiked_mat(info.rows, info.cols, A, info.scaling, state);
                 if(info.check_true_rank)
-                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A_mat);
+                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A);
             }
             break;
         case adverserial: {
                 // This matrix may be numerically rank deficient
                 RandLAPACK::gen::gen_oleg_adversarial_mat(info.rows, info.cols, A, info.scaling, state);
                 if(info.check_true_rank)
-                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A_mat);
+                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A);
             }
             break;
         case bad_cholqr: {
