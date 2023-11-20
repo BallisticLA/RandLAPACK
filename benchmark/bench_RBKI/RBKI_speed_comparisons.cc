@@ -193,12 +193,7 @@ int main(int argc, char *argv[]) {
     m_info.filename = argv[1];
     m_info.workspace_query_mod = 1;
     // Workspace query;
-    std::vector<double> buf;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, buf, state);
-    // Allocate basic workspace.
-    RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);
-    // Fill the data matrix;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, NULL, state);
 
     // Update basic params.
     m = m_info.rows;
@@ -206,8 +201,18 @@ int main(int argc, char *argv[]) {
     k_start = std::max((int64_t) 1, n / 100);
     k_stop  = n;
 
-    printf("rows %ld, cols %ld\n", m_info.rows, m_info.cols);
+    // Allocate basic workspace.
+    RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);
+  
+  
+    printf("%d\n", all_data.A.size());
+  
+    // Fill the data matrix;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
+    printf("rows %ld, cols %ld\n", m_info.rows, m_info.cols);
+    printf("%e\n", *(all_data.A.data() + 1));
+/*
     // Declare a data file
     std::fstream file("RBKI_speed_comp_m_"          + std::to_string(m)
                                       + "_n_"       + std::to_string(n)
@@ -215,7 +220,7 @@ int main(int argc, char *argv[]) {
                                       + "_k_stop_"  + std::to_string(k_stop)
                                       + ".dat", std::fstream::app); 
 
-/*
+
     for (;k_start <= k_stop; k_start *= 2) {
         res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, k_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",\n";

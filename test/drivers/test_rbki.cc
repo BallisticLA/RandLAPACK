@@ -98,7 +98,7 @@ TEST_F(TestRBKI, RBKI_basic) {
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
     test_RBKI_general<double, r123::Philox4x32, RandLAPACK::RBKI<double, r123::Philox4x32>>(norm_A, all_data, RBKI, state);

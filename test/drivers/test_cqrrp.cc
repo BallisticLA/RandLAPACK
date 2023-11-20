@@ -160,7 +160,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 #if !defined(__APPLE__)
@@ -189,7 +189,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 #if !defined(__APPLE__)
@@ -219,7 +219,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 #if !defined(__APPLE__)
@@ -245,9 +245,9 @@ TEST_F(TestCQRRP, something) {
     std::vector<double> tau(n * 2, 0.0);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B, state);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, D, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B.data(), state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, D.data(), state);
     lapack::lacpy(MatrixType::General, m, n, D.data(), m, D_cpy.data(), m);
 
     lapack::geqrf(m, n, A.data(), m, tau.data());
@@ -285,7 +285,7 @@ TEST_F(TestCQRRP, something2) {
     std::vector<double> tau(n * 2, 0.0);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
 
     lapack::geqr(m, n, A.data(), m, tau.data(), -1);
     int64_t tsize = (int64_t) t_3[0]; 

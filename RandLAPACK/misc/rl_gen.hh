@@ -457,8 +457,9 @@ void process_input_mat(
 
         // Place the contents of a file into the matrix space.
         int i = -1;
-        while (inputMat >> value)
+        while (inputMat >> value){    
             A[++i] = value;
+        }
     }
 }
 
@@ -467,10 +468,9 @@ void process_input_mat(
 template <typename T, typename RNG>
 void mat_gen(
     mat_gen_info<T> &info,
-    std::vector<T> &A_mat,
+    T* A,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* A = A_mat.data();
 
     switch(info.m_type) {
         case polynomial:
