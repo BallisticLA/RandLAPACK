@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <vector>
 #include <cstdint>
+#include <sstream>
+#include <fstream>
 
 namespace RandLAPACK::gen {
 
@@ -42,9 +44,10 @@ struct mat_gen_info {
     bool check_true_rank;
     T theta;
     T perturb;
-    std::string filename;
+    char* filename;
+    int workspace_query_mod;
 
-    mat_gen_info(int64_t m, int64_t n, mat_type t) {
+    mat_gen_info(int64_t& m, int64_t& n, mat_type t) {
         rows = m;
         cols = n;
         m_type = t;
@@ -402,7 +405,6 @@ void gen_kahan_mat(
     T theta,
     T perturb
 ) {
-
     std::vector<T> S(m * m, 0.0);
     std::vector<T> C(m * m, 0.0);
 
@@ -423,27 +425,39 @@ void process_input_mat(
     int64_t &m,
     int64_t &n,
     std::vector<T> &A,
-    std::string filename
+    char* filename,
+    int& workspace_query_mod
 ) {
-    std::string line;
-    std::string line_entry;
-    double value;
-   
-    // Read input file
-    std::ifstream inputMat(filename);
+    // We only check the size of the input data.
+    if (workspace_query_mod) {
+        std::string line;
+        std::string line_entry;
 
-    // Count numcols
-    std::istringstream iss(line);
-    while (iss >> line_entry)
-        ++n;
-    // Count numrows.
-    while (std::getline(inputMat, line))
+        // Read input file
+        std::ifstream inputMat(filename);
+
+        // Count numcols.
+        std::getline(inputMat, line);
+        std::istringstream lineStream(line);
+        while (lineStream >> line_entry)
+            ++n;
+
+        // Count numrows - already got through row 1.
         ++m;
+        while (std::getline(inputMat, line))
+            ++m;
 
-    // Place the contents of a file into the matrix space.
-    double value;
-    while (inputMat >> value)
-        A.push_back(value);
+        // Exit querying mod.
+        workspace_query_mod = 0;
+    } else {
+        double value;
+        // Read input file
+        std::ifstream inputMat(filename);
+
+        // Place the contents of a file into the matrix space.
+        while (inputMat >> value)
+            A.push_back(value);
+    }
 }
 
 /// 'Entry point' routine for matrix generation.
@@ -454,60 +468,56 @@ void mat_gen(
     std::vector<T> &A,
     RandBLAS::RNGState<RNG> &state
 ) {
-    // Base parameters
-    int64_t m = info.rows;
-    int64_t n = info.cols;
-    int64_t k = info.rank;
-    T* A_dat = RandLAPACK::util::upsize(m * n, A);
+    T* A_dat = RandLAPACK::util::upsize(info.rows * info.cols, A);
 
     switch(info.m_type) {
         case polynomial:
                 // Generating matrix with polynomially decaying singular values
-                RandLAPACK::gen::gen_poly_mat(m, n, A, k, info.cond_num, info.exponent, info.diag, state);
+                RandLAPACK::gen::gen_poly_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.exponent, info.diag, state);
                 break;
         case exponential:
                 // Generating matrix with exponentially decaying singular values
-                RandLAPACK::gen::gen_exp_mat(m, n, A, k, info.cond_num, info.diag, state);
+                RandLAPACK::gen::gen_exp_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
                 break;
             break;
         case gaussian: {
                 // Gaussian random matrix
-                RandBLAS::DenseDist D(m, n);
+                RandBLAS::DenseDist D(info.rows, info.cols);
                 state = RandBLAS::fill_dense(D, A_dat, state).second;
             }
             break;
         case step: {
                 // Generating matrix with a staircase-like spectrum
-                RandLAPACK::gen::gen_step_mat(m, n, A, k, info.cond_num, info.diag, state);
+                RandLAPACK::gen::gen_step_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
             }    
             break;
         case spiked: {
                 // This matrix may be numerically rank deficient
-                RandLAPACK::gen::gen_spiked_mat(m, n, A, info.scaling, state);
+                RandLAPACK::gen::gen_spiked_mat(info.rows, info.cols, A, info.scaling, state);
                 if(info.check_true_rank)
-                    k = RandLAPACK::util::rank_check(m, n, A);
+                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A);
             }
             break;
         case adverserial: {
                 // This matrix may be numerically rank deficient
-                RandLAPACK::gen::gen_oleg_adversarial_mat(m, n, A, info.scaling, state);
+                RandLAPACK::gen::gen_oleg_adversarial_mat(info.rows, info.cols, A, info.scaling, state);
                 if(info.check_true_rank)
-                    k = RandLAPACK::util::rank_check(m, n, A);
+                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A);
             }
             break;
         case bad_cholqr: {
                 // Per Oleg's suggestion, this is supposed to make QB fail with CholQR for orth/stab
-                RandLAPACK::gen::gen_bad_cholqr_mat(m, n, A, k, info.cond_num, info.diag, state);
+                RandLAPACK::gen::gen_bad_cholqr_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.diag, state);
             }
             break;
         case kahan: {
                 // Generates Kahan Matrix
-                RandLAPACK::gen::gen_kahan_mat(m, n, A, info.theta, info.perturb);
+                RandLAPACK::gen::gen_kahan_mat(info.rows, info.cols, A, info.theta, info.perturb);
             }
             break;
         case custom_input: {
                 // Generates Kahan Matrix
-                RandLAPACK::gen::process_input_mat(m, n, A, info.filename);
+                RandLAPACK::gen::process_input_mat(info.rows, info.cols, A, info.filename, info.workspace_query_mod);
             }
             break;
         default:
