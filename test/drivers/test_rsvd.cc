@@ -136,7 +136,7 @@ class TestRSVD : public ::testing::Test
         // Construnct A_approx_determ = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
-        RandLAPACK::util::diag(k, k, all_data.s1, k, all_data.S1);
+        RandLAPACK::util::diag(k, k, all_data.s1.data(), k, all_data.S1.data());
         // U1 * S1 = A_approx_determ_duf
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_approx_determ_duf_dat, m);
         // A_approx_determ_duf * VT1 =  A_approx_determ
@@ -147,7 +147,7 @@ class TestRSVD : public ::testing::Test
 
         // zero out the trailing singular values
         std::fill(s_dat + k, s_dat + n, 0.0);
-        RandLAPACK::util::diag(n, n, all_data.s, n, all_data.S);
+        RandLAPACK::util::diag(n, n, all_data.s.data(), n, all_data.S.data());
 
         // TEST 4: Below is A_k - A_approx_determ = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);

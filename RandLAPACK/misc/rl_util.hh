@@ -42,15 +42,15 @@ template <typename T>
 void diag(
     int64_t m,
     int64_t n,
-    const std::vector<T> &s,
+    T* s,
     int64_t k, // size of s, < min(m, n)
-    std::vector<T> &S // Assuming S is m by n
+    T* S // Assuming S is m by n
 ) {
 
     if(k > std::min(m, n)) 
         throw std::runtime_error("Invalid rank parameter.");
     // size of s
-    blas::copy(k, s.data(), 1, S.data(), m + 1);
+    blas::copy(k, s, 1, S, m + 1);
 }
 
 /// Zeros-out the upper-triangular portion of A

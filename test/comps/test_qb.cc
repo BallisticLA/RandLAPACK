@@ -150,7 +150,7 @@ class TestQB : public ::testing::Test
 
         // zero out the trailing singular values
         std::fill(s_dat + k, s_dat + n, 0.0);
-        RandLAPACK::util::diag(n, n, all_data.s, n, all_data.S);
+        RandLAPACK::util::diag(n, n, all_data.s.data(), n, all_data.S.data());
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);

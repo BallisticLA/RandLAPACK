@@ -68,38 +68,37 @@ template <typename T, typename RNG>
 void gen_singvec(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    T* A,
     int64_t k,
-    std::vector<T> &S,
+    T* S,
     RandBLAS::RNGState<RNG> &state
 ) {
-    std::vector<T> U(m * k, 0.0);
-    std::vector<T> V(n * k, 0.0);
-    std::vector<T> tau(k, 2.0);
-    std::vector<T> Gemm_buf(m * k, 0.0);
-
-    // Data pointer predeclarations for whatever is accessed more than once
-    T* U_dat = U.data();
-    T* V_dat = V.data();
-    T* tau_dat = tau.data();
-    T* Gemm_buf_dat = Gemm_buf.data();
+    T* U        = ( T * ) calloc( m * k, sizeof( T ) );
+    T* V        = ( T * ) calloc( n * k, sizeof( T ) );
+    T* tau      = ( T * ) calloc( k    , sizeof( T ) );
+    T* Gemm_buf = ( T * ) calloc( m * k, sizeof( T ) );
 
     RandBLAS::DenseDist DU(m, k);
     RandBLAS::DenseDist DV(n, k);
-    state = RandBLAS::fill_dense(DU, U_dat, state).second;
-    state = RandBLAS::fill_dense(DV, V_dat, state).second;
+    state = RandBLAS::fill_dense(DU, U, state).second;
+    state = RandBLAS::fill_dense(DV, V, state).second;
 
-    lapack::geqrf(m, k, U_dat, m, tau_dat);
-    lapack::ungqr(m, k, k, U_dat, m, tau_dat);
+    lapack::geqrf(m, k, U, m, tau);
+    lapack::ungqr(m, k, k, U, m, tau);
 
-    lapack::geqrf(n, k, V_dat, n, tau_dat);
-    lapack::ungqr(n, k, k, V_dat, n, tau_dat);
+    lapack::geqrf(n, k, V, n, tau);
+    lapack::ungqr(n, k, k, V, n, tau);
 
-    blas::copy(m * k, U_dat, 1, Gemm_buf_dat, 1);
+    blas::copy(m * k, U, 1, Gemm_buf, 1);
     for(int i = 0; i < k; ++i)
-        blas::scal(m, S[i + k * i], &Gemm_buf_dat[i * m], 1);
+        blas::scal(m, S[i + k * i], &Gemm_buf[i * m], 1);
 
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf_dat, m, V_dat, n, 0.0, A.data(), m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf, m, V, n, 0.0, A, m);
+
+    free(U);
+    free(V);
+    free(tau);
+    free(Gemm_buf);
 }
 
 /// Generates a matrix with polynomially-decaying spectrum of the following form:
@@ -112,7 +111,7 @@ template <typename T, typename RNG>
 void gen_poly_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     int64_t k,
     T cond,
     T p,
@@ -121,8 +120,8 @@ void gen_poly_mat(
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
-    std::vector<T> s(k, 1.0);
-    std::vector<T> S(k * k, 0.0);
+    T* s = ( T * ) calloc( k,     sizeof( T ) );
+    T* S = ( T * ) calloc( k * k, sizeof( T ) );
 
     // The first 10% of the singular values will be equal to one
     int offset = (int) floor(k * 0.1);
@@ -131,7 +130,8 @@ void gen_poly_mat(
     T a = std::pow((std::pow(last_entry, -1 / p) - std::pow(first_entry, -1 / p)) / (k - offset), p);
     T b = std::pow(a * first_entry, -1 / p) - offset;
     // apply lambda function to every entry of s
-    std::for_each(s.begin() + offset, s.end(),
+    std::fill(s, s + offset, 1.0);
+    std::for_each(s + offset, s + k,
         // Lambda expression begins
         [&p, &offset, &a, &b](T &entry) {
                 entry = 1 / (a * std::pow(offset + b, p));
@@ -143,15 +143,13 @@ void gen_poly_mat(
     RandLAPACK::util::diag(k, k, s, k, S);
 
     if (diagon) {
-        if (!(m == k || n == k)) {
-            m = k;
-            n = k;
-            A.resize(k * k);
-        }
-        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
     } else {
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
+
+    free(s);
+    free(S);
 }
 
 /// Generates a matrix with exponentially-decaying spectrum of the following form:
@@ -163,15 +161,14 @@ template <typename T, typename RNG>
 void gen_exp_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     int64_t k,
     T cond,
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-
-    std::vector<T> s(k, 1.0);
-    std::vector<T> S(k * k, 0.0);
+    T* s = ( T * ) calloc( k,     sizeof( T ) );
+    T* S = ( T * ) calloc( k * k, sizeof( T ) );
 
     // The first 10% of the singular values will be =1
     int offset = (int) floor(k * 0.1);
@@ -181,7 +178,8 @@ void gen_exp_mat(
     T cnt = 0.0;
     // apply lambda function to every entry of s
     // Please make sure that the first singular value is always 1
-    std::for_each(s.begin() + offset, s.end(),
+    std::fill(s, s + offset, 1.0);
+    std::for_each(s + offset, s + k,
         // Lambda expression begins
         [&t, &cnt](T &entry) {
                 entry = (std::exp(++cnt * -t));
@@ -191,15 +189,13 @@ void gen_exp_mat(
     // form a diagonal S
     RandLAPACK::util::diag(k, k, s, k, S);
     if (diagon) {
-        if (!(m == k || n == k)) {
-                m = k;
-                n = k;
-                A.resize(k * k);
-        }
-        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
     } else {
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
+
+    free(s);
+    free(S);
 }
 
 /// Generates matrix with a staircase spectrum with 4 steps.
@@ -211,7 +207,7 @@ template <typename T, typename RNG>
 void gen_step_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     int64_t k,
     T cond,
     bool diagon,
@@ -219,30 +215,28 @@ void gen_step_mat(
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
-    std::vector<T> s(k, 1.0);
-    std::vector<T> S(k * k, 0.0);
+    T* s = ( T * ) calloc( k,     sizeof( T ) );
+    T* S = ( T * ) calloc( k * k, sizeof( T ) );
 
     // We will have 4 steps controlled by the condition number size and starting with 1
     int offset = (int) (k / 4);
 
-    std::fill(s.begin(), s.begin() + offset, 1);
-    std::fill(s.begin() + offset + 1, s.begin() + 2 * offset, 8.0 / cond);
-    std::fill(s.begin() + 2 * offset + 1, s.begin() + 3 * offset, 4.0 / cond);
-    std::fill(s.begin() + 3 * offset + 1, s.end(), 1.0 / cond);
+    std::fill(s, s + offset, 1.0);
+    std::fill(s + offset + 1, s + 2 * offset, 8.0 / cond);
+    std::fill(s + 2 * offset + 1, s + 3 * offset, 4.0 / cond);
+    std::fill(s + 3 * offset + 1, s + k, 1.0 / cond);
 
     // form a diagonal S
     RandLAPACK::util::diag(k, k, s, k, S);
 
     if (diagon) {
-        if (!(m == k || n == k)) {
-            m = k;
-            n = k;
-            A.resize(k * k);
-        }
-        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
     } else {
-        gen_singvec(m, n, A, k, S, state);
+        RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
+
+    free(s);
+    free(S);
 }
 
 /// Generates a matrix with high coherence between the left singular vectors.
@@ -253,7 +247,7 @@ template <typename T, typename RNG>
 void gen_spiked_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     T spike_scale,
     RandBLAS::RNGState<RNG> &state
 ) {
@@ -264,14 +258,14 @@ void gen_spiked_mat(
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
     state = RandBLAS::fill_sparse(S);
 
-    std::vector<T> V(n * n, 0.0);
-    std::vector<T> tau(n, 0.0);
+    T* V   = ( T * ) calloc( n * n, sizeof( T ) );
+    T* tau = ( T * ) calloc( n,     sizeof( T ) );
 
     RandBLAS::DenseDist DV(n, n);
-    state = RandBLAS::fill_dense(DV, V.data(), state).second;
+    state = RandBLAS::fill_dense(DV, V, state).second;
 
-    lapack::geqrf(n, n, V.data(), n, tau.data());
-    lapack::ungqr(n, n, n, V.data(), n, tau.data());
+    lapack::geqrf(n, n, V, n, tau);
+    lapack::ungqr(n, n, n, V, n, tau);
 
     // Fill A with stacked copies of V
     int start = 0;
@@ -289,6 +283,9 @@ void gen_spiked_mat(
         }
         start += m;
     }
+
+    free(V);
+    free(tau);
 }
 
 /// Generates a numerically rank-deficient matrix.
@@ -303,7 +300,7 @@ template <typename T, typename RNG>
 void gen_oleg_adversarial_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     T sigma,
     RandBLAS::RNGState<RNG> &state
 ) {
@@ -311,39 +308,42 @@ void gen_oleg_adversarial_mat(
     T scaling_factor_U = sigma;
     T scaling_factor_V = 10e-3;
 
-    std::vector<T> U(m * n, 0.0);
-    std::vector<T> V(n * n, 0.0);
-    std::vector<T> tau1(n, 0.0);
-    std::vector<T> tau2(n, 0.0);
+    T* U    = ( T * ) calloc( m * n, sizeof( T ) );
+    T* V    = ( T * ) calloc( n * n, sizeof( T ) );
+    T* tau1 = ( T * ) calloc( n,     sizeof( T ) );
+    T* tau2 = ( T * ) calloc( n,     sizeof( T ) );
 
     RandBLAS::DenseDist DU(m, n);
-    state = RandBLAS::fill_dense(DU, U.data(), state).second;
+    state = RandBLAS::fill_dense(DU, U, state).second;
 
     RandBLAS::DenseDist DV(n, n);
-    state = RandBLAS::fill_dense(DV, V.data(), state).second;
+    state = RandBLAS::fill_dense(DV, V, state).second;
 
-    T* U_dat = U.data();
     for(int i = 0; i < n; ++i) {
         //U_dat[m * i + 1] *= scaling_factor_U;
         for(int j = 0; j < 10; ++j) {
-            U_dat[m * i + j] *= scaling_factor_U;
+            U[m * i + j] *= scaling_factor_U;
         }
     }
 
-    lapack::geqrf(m, n, U.data(), m, tau1.data());
-    lapack::ungqr(m, n, n, U.data(), m, tau1.data());
+    lapack::geqrf(m, n, U, m, tau1);
+    lapack::ungqr(m, n, n, U, m, tau1);
 
-    lapack::geqrf(n, n, V.data(), n, tau2.data());
-    lapack::ungqr(n, n, n, V.data(), n, tau2.data());
+    lapack::geqrf(n, n, V, n, tau2);
+    lapack::ungqr(n, n, n, V, n, tau2);
 
     // Grab an upper-triangular portion of V
-    RandLAPACK::util::get_U(n, n, V.data(), n);
+    RandLAPACK::util::get_U(n, n, V, n);
 
-    T* V_dat = V.data();
     for(int i = 11; i < n; ++i)
-        V_dat[n * i + i] *= scaling_factor_V;
+        V[n * i + i] *= scaling_factor_V;
 
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U.data(), m, V.data(), n, 0.0, A.data(), m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U, m, V, n, 0.0, A, m);
+
+    free(U);
+    free(V);
+    free(tau1);
+    free(tau2);
 }
 
 /// Per Oleg Balabanov's suggestion, this matrix is supposed to break QB with Cholesky QR.
@@ -356,18 +356,18 @@ template <typename T, typename RNG>
 void gen_bad_cholqr_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     int64_t k,
     T cond,
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-
-    std::vector<T> s(n, 1.0);
-    std::vector<T> S(n * n, 0.0);
+    T* s = ( T * ) calloc( n,     sizeof( T ) );
+    T* S = ( T * ) calloc( n * n, sizeof( T ) );
 
     // The first k singular values will be =1
     int offset = k;
+    std::fill(s, s + offset, 1.0);
 
     // Then, we start with 10^-8 and decrease exponentially
     T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
@@ -375,7 +375,7 @@ void gen_bad_cholqr_mat(
     T cnt = 0.0;
     // apply lambda function to every entry of s
     // Please make sure that the first singular value is always 1
-    std::for_each(s.begin() + offset, s.end(),
+    std::for_each(s + offset, s + k,
         // Lambda expression begins
         [&t, &cnt](T &entry) {
                 entry = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
@@ -385,15 +385,13 @@ void gen_bad_cholqr_mat(
     // form a diagonal S
     RandLAPACK::util::diag(k, k, s, k, S);
     if (diagon) {
-        if (!(m == k || n == k)) {
-                m = k;
-                n = k;
-                A.resize(k * k);
-        }
-        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
     } else {
-        gen_singvec(m, n, A, k, S, state);
+        RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
+
+    free(s);
+    free(S);
 }
 
 /// Generates Kahan matrix
@@ -401,12 +399,12 @@ template <typename T>
 void gen_kahan_mat(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    T* A,
     T theta,
     T perturb
 ) {
-    std::vector<T> S(m * m, 0.0);
-    std::vector<T> C(m * m, 0.0);
+    T* S = ( T * ) calloc( m * m, sizeof( T ) );
+    T* C = ( T * ) calloc( m * m, sizeof( T ) );
 
     for (int i = 0; i < n; ++i) {
         A[(m + 1) * i] = perturb * std::numeric_limits<double>::epsilon() * (m - i);
@@ -416,7 +414,10 @@ void gen_kahan_mat(
         C[m * i + i] = 1.0;
     }
 
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, 1.0, S.data(), m, C.data(), m, 1.0, A.data(), m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, 1.0, S, m, C, m, 1.0, A, m);
+
+    free(S);
+    free(C);
 }
 
 /// Generates Kahan matrix
@@ -424,7 +425,7 @@ template <typename T>
 void process_input_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     char* filename,
     int& workspace_query_mod
 ) {
@@ -455,8 +456,9 @@ void process_input_mat(
         std::ifstream inputMat(filename);
 
         // Place the contents of a file into the matrix space.
+        int i = -1;
         while (inputMat >> value)
-            A.push_back(value);
+            A[++i] = value;
     }
 }
 
@@ -465,10 +467,10 @@ void process_input_mat(
 template <typename T, typename RNG>
 void mat_gen(
     mat_gen_info<T> &info,
-    std::vector<T> &A,
+    std::vector<T> &A_mat,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* A_dat = RandLAPACK::util::upsize(info.rows * info.cols, A);
+    T* A = A_mat.data();
 
     switch(info.m_type) {
         case polynomial:
@@ -483,7 +485,7 @@ void mat_gen(
         case gaussian: {
                 // Gaussian random matrix
                 RandBLAS::DenseDist D(info.rows, info.cols);
-                state = RandBLAS::fill_dense(D, A_dat, state).second;
+                state = RandBLAS::fill_dense(D, A, state).second;
             }
             break;
         case step: {
@@ -495,14 +497,14 @@ void mat_gen(
                 // This matrix may be numerically rank deficient
                 RandLAPACK::gen::gen_spiked_mat(info.rows, info.cols, A, info.scaling, state);
                 if(info.check_true_rank)
-                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A);
+                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A_mat);
             }
             break;
         case adverserial: {
                 // This matrix may be numerically rank deficient
                 RandLAPACK::gen::gen_oleg_adversarial_mat(info.rows, info.cols, A, info.scaling, state);
                 if(info.check_true_rank)
-                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A);
+                    info.rank = RandLAPACK::util::rank_check(info.rows, info.cols, A_mat);
             }
             break;
         case bad_cholqr: {
