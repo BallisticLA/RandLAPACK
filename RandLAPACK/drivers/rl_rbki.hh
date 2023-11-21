@@ -79,7 +79,6 @@ int RBKI<T, RNG>::call(
     int64_t iter = 0, iter_od = 0, iter_ev = 0, i = 0, end_rows = 0, end_cols = 0;
     T norm_R = 0;
     int64_t space_rows = k * std::ceil(m / (T) k);
-    printf("%ld\n", space_rows);
 
     // We need a full copy of X and Y all the way through the algorithm
     // due to an operation with X_odd and Y_odd happening at the end.
@@ -160,7 +159,7 @@ int RBKI<T, RNG>::call(
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('double')))
             if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
-                printf("TERMINATION 1 at iteration %ld\n", iter_ev);
+                //printf("TERMINATION 1 at iteration %ld\n", iter_ev);
                 break;
             }
 
@@ -195,7 +194,7 @@ int RBKI<T, RNG>::call(
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
             if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
-                printf("TERMINATION 2 at iteration %ld\n", iter_od);
+                //printf("TERMINATION 2 at iteration %ld\n", iter_od);
                 break;
             }
 

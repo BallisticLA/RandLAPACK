@@ -273,24 +273,3 @@ TEST_F(TestCQRRP, something) {
     char name1 [] = "D through gemm";
     RandBLAS::util::print_colmaj(m, n, D_space.data(), name1);
 }
-
-/*
-// Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, something2) {
-    int64_t m = 10;
-    int64_t n = 5;
-    auto state = RandBLAS::RNGState();
-
-    std::vector<double> A(m * n, 0.0);
-    std::vector<double> tau(n * 2, 0.0);
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
-
-    lapack::geqr(m, n, A.data(), m, tau.data(), -1);
-    int64_t tsize = (int64_t) t_3[0]; 
-    t_3.resize(tsize);
-    auto sart_geqr = high_resolution_clock::now();
-    lapack::geqr(m, n, A_1.data(), m, t_3.data(), tsize);
-}
-*/
