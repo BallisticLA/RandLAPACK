@@ -11,6 +11,7 @@
 #include <vector>
 #include <chrono>
 #include <numeric>
+#include <climits>
 
 using namespace std::chrono;
 
@@ -44,6 +45,7 @@ class RBKI : public RBKIalg<T, RNG> {
             verbosity = verb;
             timing = time_subroutines;
             tol = ep;
+            max_krylov_iters = INT_MAX;
         }
         int call(
             int64_t m,
@@ -61,6 +63,9 @@ class RBKI : public RBKIalg<T, RNG> {
         bool timing;
         T tol;
         int num_krylov_iters;
+        int max_krylov_iters;
+        std::vector<long> times;
+        T norm_R_end;
 };
 
 // -----------------------------------------------------------------------------
@@ -76,6 +81,20 @@ int RBKI<T, RNG>::call(
     T* Sigma,
     RandBLAS::RNGState<RNG> &state
 ){
+
+    high_resolution_clock::time_point preallocation_t_start;
+    high_resolution_clock::time_point preallocation_t_stop;
+    high_resolution_clock::time_point total_t_start;
+    high_resolution_clock::time_point total_t_stop;
+
+    long preallocation_t_dur   = 0;
+    long total_t_dur           = 0;
+
+    if(this -> timing) {
+        total_t_start = high_resolution_clock::now();
+        preallocation_t_start  = high_resolution_clock::now();
+    }
+
     int64_t iter = 0, iter_od = 0, iter_ev = 0, i = 0, end_rows = 0, end_cols = 0;
     T norm_R = 0;
     int64_t space_rows = k * std::ceil(m / (T) k);
@@ -83,16 +102,19 @@ int RBKI<T, RNG>::call(
     // We need a full copy of X and Y all the way through the algorithm
     // due to an operation with X_odd and Y_odd happening at the end.
     // Space for Y_i and Y_odd.
-    T* Y   = ( T * ) calloc( n * m, sizeof( T ) );
+    T* Y   = ( T * ) calloc( n * m,       sizeof( T ) );
     // Space for X_i and X_ev. (maybe needs to be m by m + k)
     T* X   = ( T * ) calloc( m * (m + k), sizeof( T ) );
     // tau space for QR
-    T* tau = ( T * ) calloc( k, sizeof( T ) );
+    T* tau = ( T * ) calloc( k,           sizeof( T ) );
     // While R and S matrices are structured (both band), we cannot make use of this structure through
     // BLAS-level functions.
     // Note also that we store a transposed version of R.
-    T* R   = ( T * ) calloc( n * n, sizeof( T ) );
+    T* R   = ( T * ) calloc( n * n,       sizeof( T ) );
     T* S   = ( T * ) calloc( (n + k) * n, sizeof( T ) );
+
+    T* Y_orth_buf = ( T * ) calloc( k * n, sizeof( T ) );
+    T* X_orth_buf = ( T * ) calloc( k * (n + k), sizeof( T ) );
 
     // Pointers allocation
     // Below pointers will be offset by (n or m) * k at every even iteration.
@@ -109,6 +131,11 @@ int RBKI<T, RNG>::call(
     // Pre-decloration of SVD-related buffers.
     T* U_hat = NULL;
     T* VT_hat = NULL;
+
+    if(this -> timing) {
+        preallocation_t_stop  = high_resolution_clock::now();
+        preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
+    }
 
     // Pre-conpute Fro norm of an input matrix.
     T norm_A = lapack::lange(Norm::Fro, m, n, A, lda);
@@ -129,7 +156,7 @@ int RBKI<T, RNG>::call(
     ++iter_od;
 
     // Iterate until in-loop termination criteria is met.
-    while(1) {
+    while((iter_ev + iter_od) < max_krylov_iters) {
         if (iter % 2 == 0) {
             // Y_i = A' * X_i 
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, X_i, m, 0.0, Y_i, n);
@@ -142,6 +169,10 @@ int RBKI<T, RNG>::call(
                 blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);
                 // Y_i = Y_i - Y_od * R_i
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
+
+                // Reorthogonalization
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, Y_orth_buf, k);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, Y_orth_buf, k, 1.0, Y_i, n);
             }
 
             // [Y_i, R_ii] = qr(Y_i, 0)
@@ -181,6 +212,10 @@ int RBKI<T, RNG>::call(
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
             //X_i = X_i - X_ev * S_i;
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
+
+            // Reorthogonalization
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, X_orth_buf, n + k);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, X_orth_buf, n + k, 1.0, X_i, m);
             
             // [X_i, S_ii] = qr(X_i, 0);
             std::fill(&tau[0], &tau[k], 0.0);
@@ -206,13 +241,14 @@ int RBKI<T, RNG>::call(
         }
         ++iter;
         norm_R = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, n, n, R, n);
-
+        
         //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
         if(norm_R > threshold) {
             break;
         }
     }
 
+    this -> norm_R_end = norm_R;
     this->num_krylov_iters = iter;
     iter % 2 == 0 ? end_rows = k * (iter_ev + 1), end_cols = k * iter_ev : end_rows = k * (iter_od + 1), end_cols = k * iter_od;
 
@@ -241,6 +277,22 @@ int RBKI<T, RNG>::call(
     free(S);
     free(U_hat);
     free(VT_hat);
+    free(Y_orth_buf);
+    free(X_orth_buf);
+
+        if(this -> timing) {
+            total_t_stop = high_resolution_clock::now();
+            total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+            long t_rest  = total_t_dur - (preallocation_t_dur);
+            this -> times.resize(3);
+            this -> times = {preallocation_t_dur, t_rest, total_t_dur};
+
+            printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
+            printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
+
+            printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
+            printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
+        }
 
     return 0;
 }

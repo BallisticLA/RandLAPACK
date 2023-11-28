@@ -117,7 +117,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int64_t rank;
         int64_t block_size;
 
-        // 11 entries - logs time for different portions of the algorithm
+        // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
         // Times each iteration of the algorithm, divides size of a processed matrix by the time it took to process.
         // At each iteration, the algorithm will process rows by b_sz matrix; rows -= b_sz.
@@ -145,50 +145,39 @@ int CQRRP_blocked<T, RNG>::call(
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
-    long preallocation_t_dur = 0;
-
     high_resolution_clock::time_point saso_t_stop;
     high_resolution_clock::time_point saso_t_start;
-    long saso_t_dur = 0;
-
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
-    long qrcp_t_dur = 0;
-
     high_resolution_clock::time_point cholqr_t_start;
     high_resolution_clock::time_point cholqr_t_stop;
-    long cholqr_t_dur = 0;
-
     high_resolution_clock::time_point reconstruction_t_start;
     high_resolution_clock::time_point reconstruction_t_stop;
-    long reconstruction_t_dur = 0;
-
     high_resolution_clock::time_point preconditioning_t_start;
     high_resolution_clock::time_point preconditioning_t_stop;
-    long preconditioning_t_dur = 0;
-
     high_resolution_clock::time_point r_piv_t_start;
     high_resolution_clock::time_point r_piv_t_stop;
-    long r_piv_t_dur = 0;
-
     high_resolution_clock::time_point updating1_t_start;
     high_resolution_clock::time_point updating1_t_stop;
-    long updating1_t_dur = 0;
-
     high_resolution_clock::time_point updating2_t_start;
     high_resolution_clock::time_point updating2_t_stop;
-    long updating2_t_dur = 0;
-
     high_resolution_clock::time_point updating3_t_start;
     high_resolution_clock::time_point updating3_t_stop;
-    long updating3_t_dur = 0;
-
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
-    long total_t_dur = 0;
-
     high_resolution_clock::time_point iter_t_start;
     high_resolution_clock::time_point iter_t_stop;
+    long preallocation_t_dur   = 0;
+    long saso_t_dur            = 0;
+    long qrcp_t_dur            = 0;
+    long cholqr_t_dur          = 0;
+    long reconstruction_t_dur  = 0;
+    long preconditioning_t_dur = 0;
+    long r_piv_t_dur           = 0;
+    long updating1_t_dur       = 0;
+    long updating2_t_dur       = 0;
+    long updating3_t_dur       = 0;
+    long total_t_dur           = 0;
 
     if(this -> timing) {
         total_t_start = high_resolution_clock::now();
