@@ -91,6 +91,7 @@ static void call_all_algs(
     // Setting up Lanchosz - RBKI with k = 1.
     RandLAPACK::RBKI<double, r123::Philox4x32> Lanchosz(false, false, tol);
     //Lanchosz.max_krylov_iters = 1500;
+    Lanchosz.max_krylov_iters = num_krylov_iters;
 
     // Additional params setup.
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
