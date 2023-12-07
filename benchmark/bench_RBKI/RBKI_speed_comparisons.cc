@@ -81,9 +81,11 @@ static void call_all_algs(
     auto m        = all_data.row;
     auto n        = all_data.col;
     auto tol      = all_data.tolerance;
-    T norm_svd;
+    T norm_svd_k;
+    T norm_svd_lanc;
     T err_rbki;
     T err_lan;
+    int64_t k_lanc = std::min((int64_t) (num_krylov_iters / (T) 2), k);
 
     // Set the threshold for Lanchosz 
     // Setting up Lanchosz - RBKI with k = 1.
@@ -116,7 +118,7 @@ static void call_all_algs(
         dur_lanchosz = duration_cast<microseconds>(stop_lanchosz - start_lanchosz).count();
 
         // Update best timing and save the singular values.
-        update_best_time<T>(i, t_lanchosz_best, dur_lanchosz, all_data.Sigma.data(), all_data.Sigma_cpy_3.data(), 1);
+        update_best_time<T>(i, t_lanchosz_best, dur_lanchosz, all_data.Sigma.data(), all_data.Sigma_cpy_3.data(), k_lanc);
 
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen);
@@ -148,13 +150,17 @@ static void call_all_algs(
         data_regen<T, RNG>(m_info, all_data, state_gen);
     }
 
-    for(j = 0; j < k; ++j) {
+    for(j = 0; j < k; ++j)
         all_data.Sigma_cpy_1[j] -= all_data.Sigma_cpy_2[j];
+
+    for(j = 0; j < k_lanc; ++j) 
         all_data.Sigma_cpy_3[j] -= all_data.Sigma_cpy_2[j];
-    } 
-    norm_svd = blas::nrm2(k, all_data.Sigma_cpy_2.data(), 1);
-    err_rbki = blas::nrm2(k, all_data.Sigma_cpy_1.data(), 1) / norm_svd;
-    err_lan  = blas::nrm2(k, all_data.Sigma_cpy_3.data(), 1) / norm_svd;
+
+    norm_svd_k    = blas::nrm2(k,      all_data.Sigma_cpy_2.data(), 1);
+    norm_svd_lanc = blas::nrm2(k_lanc, all_data.Sigma_cpy_2.data(), 1);
+    
+    err_rbki = blas::nrm2(k,      all_data.Sigma_cpy_1.data(), 1) / norm_svd_k;
+    err_lan  = blas::nrm2(k_lanc, all_data.Sigma_cpy_3.data(), 1) / norm_svd_lanc;
 
     // Print accuracy info
     printf("||Sigma_ksvd - Sigma_rbki||_F / ||Sigma_ksvd||_F: %.16e\n", err_rbki);
@@ -179,7 +185,7 @@ int main(int argc, char *argv[]) {
     int64_t k_stop                 = 0;
     int64_t num_krylov_iters_start = 2;
     int64_t num_krylov_iters_curr  = num_krylov_iters_start;
-    int64_t num_krylov_iters_stop  = 2048;
+    int64_t num_krylov_iters_stop  = 64;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
