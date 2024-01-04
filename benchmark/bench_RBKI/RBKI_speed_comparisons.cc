@@ -90,7 +90,6 @@ static void call_all_algs(
     // Set the threshold for Lanchosz 
     // Setting up Lanchosz - RBKI with k = 1.
     RandLAPACK::RBKI<double, r123::Philox4x32> Lanchosz(false, false, tol);
-    //Lanchosz.max_krylov_iters = 1500;
     Lanchosz.max_krylov_iters = num_krylov_iters;
 
     // Additional params setup.
@@ -114,7 +113,7 @@ static void call_all_algs(
 
         // Testing Lanchosz
         auto start_lanchosz = high_resolution_clock::now();
-        Lanchosz.call(m, n, all_data.A.data(), m, 1, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
+        //Lanchosz.call(m, n, all_data.A.data(), m, 1, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
         auto stop_lanchosz = high_resolution_clock::now();
         dur_lanchosz = duration_cast<microseconds>(stop_lanchosz - start_lanchosz).count();
 
@@ -190,7 +189,7 @@ int main(int argc, char *argv[]) {
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 1;
+    int numruns                    = 10;
     std::vector<long> res;
 
     // Generate the input matrix.
@@ -204,7 +203,7 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     k_start = 2;//std::max((int64_t) 1, n / 10);
-    k_stop  = n;//std::max((int64_t) 1, n / 10);
+    k_stop  = 2048;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);

@@ -152,19 +152,21 @@ int RBKI<T, RNG>::call(
     // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
     lapack::ungqr(m, k, k, X_i, m, tau);
 
-    // Advance odd iteration count;
+    // Advance odd iteration count.
     ++iter_od;
+    // Advance iteration count.
+    ++iter;
 
     // Iterate until in-loop termination criteria is met.
     while((iter_ev + iter_od) < max_krylov_iters) {
-        if (iter % 2 == 0) {
+        if (iter % 2 != 0) {
             // Y_i = A' * X_i 
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, X_i, m, 0.0, Y_i, n);
 
             // Move the X_i pointer;
             X_i = &X_i[m * k];
 
-            if (iter != 0) {
+            if (iter != 1) {
                 // R_i' = Y_i' * Y_od
                 blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);
                 // Y_i = Y_i - Y_od * R_i
@@ -195,7 +197,7 @@ int RBKI<T, RNG>::call(
             }
 
             // Advance R pointers
-            iter == 0 ? R_i = &R_ii[k] : R_i = &R_i[k];
+            iter == 1 ? R_i = &R_ii[k] : R_i = &R_i[k];
             R_ii = &R_ii[(n + 1) * k];
 
             // Advance even iteration count;
@@ -269,6 +271,9 @@ int RBKI<T, RNG>::call(
     // V = Y_od * V_hat
     // We actually perform VT = V_hat' * Y_odd'
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
+
+    printf("%e\n", *Sigma);
+    printf("%e\n", *(Sigma+1));
 
     free(Y);
     free(X);
