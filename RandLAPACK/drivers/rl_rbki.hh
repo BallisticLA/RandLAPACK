@@ -81,7 +81,6 @@ int RBKI<T, RNG>::call(
     T* Sigma,
     RandBLAS::RNGState<RNG> &state
 ){
-
     high_resolution_clock::time_point allocation_t_start;
     high_resolution_clock::time_point allocation_t_stop;
     high_resolution_clock::time_point get_factors_t_start;
@@ -113,6 +112,7 @@ int RBKI<T, RNG>::call(
     int64_t iter = 0, iter_od = 0, iter_ev = 0, i = 0, end_rows = 0, end_cols = 0;
     T norm_R = 0;
     int64_t space_rows = k * std::ceil(m / (T) k);
+    int max_iters = std::min(this->max_krylov_iters, (int) (n / (T) k));
 
     // We need a full copy of X and Y all the way through the algorithm
     // due to an operation with X_odd and Y_odd happening at the end.
@@ -197,7 +197,7 @@ int RBKI<T, RNG>::call(
     ++iter;
 
     // Iterate until in-loop termination criteria is met.
-    while((iter_ev + iter_od) < max_krylov_iters) {
+    while((iter_ev + iter_od) < max_iters) {
         if (iter % 2 != 0) {
             
             if(this -> timing)

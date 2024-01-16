@@ -123,7 +123,7 @@ static void call_all_algs(
         //Lanchosz.call(m, n, all_data.A.data(), m, 1, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
         auto stop_lanchosz = high_resolution_clock::now();
         dur_lanchosz = duration_cast<microseconds>(stop_lanchosz - start_lanchosz).count();
-        
+
         // Update best timing and save the singular values.
         update_best_time<T>(i, t_lanchosz_best, dur_lanchosz, all_data.Sigma.data(), all_data.Sigma_cpy_3.data(), k_lanc, Lanc_timing_breakdown.data(), Lanchosz.times.data(), false);
 
@@ -133,6 +133,7 @@ static void call_all_algs(
         // Testing RBKI
         auto start_rbki = high_resolution_clock::now();
         RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
+
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
@@ -231,7 +232,7 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     k_start = 2;//std::max((int64_t) 1, n / 10);
-    k_stop  = 128;//std::max((int64_t) 1, n / 10);
+    k_stop  = 256;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);
