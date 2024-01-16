@@ -58,7 +58,7 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
         blas::copy(k, S1, 1, S2, 1);
     }
     if (timing)
-        blas::copy(8, break_out, 1, break_in, 1);
+        blas::copy(13, break_out, 1, break_in, 1);
 }
 /*
 template <typename T>
@@ -88,7 +88,7 @@ static void call_all_algs(
     T err_rbki;
     T err_lan;
     int64_t k_lanc = std::min((int64_t) (num_krylov_iters / (T) 2), k);
-    bool time_subroutines = true;
+    bool time_subroutines = false;
 
     // Set the threshold for Lanchosz 
     // Setting up Lanchosz - RBKI with k = 1.
@@ -112,8 +112,8 @@ static void call_all_algs(
     //auto state_alg = state;
 
     // Timing breakdown vectors;
-    std::vector<long> Lanc_timing_breakdown (8, 0.0);
-    std::vector<long> RBKI_timing_breakdown (8, 0.0);
+    std::vector<long> Lanc_timing_breakdown (13, 0.0);
+    std::vector<long> RBKI_timing_breakdown (13, 0.0);
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
@@ -180,14 +180,24 @@ static void call_all_algs(
         printf("Reorthogonalization time:        %25ld μs,\n", RBKI_timing_breakdown[3]);
         printf("QR time:                         %25ld μs,\n", RBKI_timing_breakdown[4]);
         printf("GEMM A time:                     %25ld μs,\n", RBKI_timing_breakdown[5]);
+        printf("Sketching time:                  %25ld μs,\n", RBKI_timing_breakdown[7]);
+        printf("R_ii cpy time:                   %25ld μs,\n", RBKI_timing_breakdown[8]);
+        printf("S_ii cpy time:                   %25ld μs,\n", RBKI_timing_breakdown[9]);
+        printf("Norm time:                       %25ld μs,\n", RBKI_timing_breakdown[10]);
 
-        printf("\nAllocation takes %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[0] / (T) RBKI_timing_breakdown[7]));
-        printf("Factors takes    %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[1] / (T) RBKI_timing_breakdown[7]));
-        printf("Ungqr takes      %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[2] / (T) RBKI_timing_breakdown[7]));
-        printf("Reorth takes     %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[3] / (T) RBKI_timing_breakdown[7]));
-        printf("QR takes         %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[4] / (T) RBKI_timing_breakdown[7]));
-        printf("GEMM A takes     %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[5] / (T) RBKI_timing_breakdown[7]));
-        printf("Rest takes       %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[6] / (T) RBKI_timing_breakdown[7]));
+        printf("\nAllocation takes %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[0] / (T) RBKI_timing_breakdown[12]));
+        printf("Factors takes    %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[1] / (T) RBKI_timing_breakdown[12]));
+        printf("Ungqr takes      %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[2] / (T) RBKI_timing_breakdown[12]));
+        printf("Reorth takes     %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[3] / (T) RBKI_timing_breakdown[12]));
+        printf("QR takes         %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[4] / (T) RBKI_timing_breakdown[12]));
+        printf("GEMM A takes     %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[5] / (T) RBKI_timing_breakdown[12]));
+        printf("Sketching takes  %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[7] / (T) RBKI_timing_breakdown[12]));
+        printf("R_ii cpy takes   %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[8] / (T) RBKI_timing_breakdown[12]));
+        printf("S_ii cpy takes   %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[9] / (T) RBKI_timing_breakdown[12]));
+        printf("Norm R takes     %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[10] / (T) RBKI_timing_breakdown[12]));
+        printf("Rest takes       %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[11] / (T) RBKI_timing_breakdown[12]));
+
+        printf("\nMain loop takes  %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[6] / (T) RBKI_timing_breakdown[12]));
         printf("/-------------RBKI TIMING RESULTS END-------------/\n\n");
     }
 
