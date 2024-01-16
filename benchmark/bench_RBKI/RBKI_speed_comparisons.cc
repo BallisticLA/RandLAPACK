@@ -49,7 +49,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 }
 
 template <typename T>
-static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2, int64_t k)
+static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2, int64_t k, long* break_in, long* break_out, int timing)
 {
     // Can also do this is one line 
     // i == 0 ? (void) (t_rbki_best = dur_rbki, accuracy_check ? blas::copy(n, all_data.Sigma.data(), 1, all_data.Sigma_cpy_1.data(), 1): (void) NULL) : (dur_rbki < t_rbki_best) ? ((void) (t_rbki_best = dur_rbki), accuracy_check ? blas::copy(n, all_data.Sigma.data(), 1, all_data.Sigma_cpy_1.data(), 1): (void) NULL) : (void) NULL;
@@ -57,6 +57,8 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
         t_best = t_curr;
         blas::copy(k, S1, 1, S2, 1);
     }
+    if (timing)
+        blas::copy(8, break_out, 1, break_in, 1);
 }
 /*
 template <typename T>
@@ -86,6 +88,7 @@ static void call_all_algs(
     T err_rbki;
     T err_lan;
     int64_t k_lanc = std::min((int64_t) (num_krylov_iters / (T) 2), k);
+    bool time_subroutines = true;
 
     // Set the threshold for Lanchosz 
     // Setting up Lanchosz - RBKI with k = 1.
@@ -93,7 +96,7 @@ static void call_all_algs(
     Lanchosz.max_krylov_iters = num_krylov_iters;
 
     // Additional params setup.
-    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
+    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
     RBKI.max_krylov_iters = num_krylov_iters;
 
     // timing vars
@@ -108,6 +111,10 @@ static void call_all_algs(
     auto state_gen = state;
     //auto state_alg = state;
 
+    // Timing breakdown vectors;
+    std::vector<long> Lanc_timing_breakdown (8, 0.0);
+    std::vector<long> RBKI_timing_breakdown (8, 0.0);
+
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
 
@@ -116,9 +123,9 @@ static void call_all_algs(
         //Lanchosz.call(m, n, all_data.A.data(), m, 1, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
         auto stop_lanchosz = high_resolution_clock::now();
         dur_lanchosz = duration_cast<microseconds>(stop_lanchosz - start_lanchosz).count();
-
+        
         // Update best timing and save the singular values.
-        update_best_time<T>(i, t_lanchosz_best, dur_lanchosz, all_data.Sigma.data(), all_data.Sigma_cpy_3.data(), k_lanc);
+        update_best_time<T>(i, t_lanchosz_best, dur_lanchosz, all_data.Sigma.data(), all_data.Sigma_cpy_3.data(), k_lanc, Lanc_timing_breakdown.data(), Lanchosz.times.data(), false);
 
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen);
@@ -130,7 +137,7 @@ static void call_all_algs(
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
         // Update best timing and save the singular values.
-        update_best_time<T>(i, t_rbki_best, dur_rbki, all_data.Sigma.data(), all_data.Sigma_cpy_1.data(), k);
+        update_best_time<T>(i, t_rbki_best, dur_rbki, all_data.Sigma.data(), all_data.Sigma_cpy_1.data(), k, RBKI_timing_breakdown.data(), RBKI.times.data(), time_subroutines);
 
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen);
@@ -144,12 +151,12 @@ static void call_all_algs(
         blas::copy(n, all_data.Sigma.data(), 1, all_data.Sigma_cpy_2.data(), 1);
 
         // Update best timing and save the singular values.
-        update_best_time<T>(i, t_other_best, dur_other, all_data.Sigma.data(), all_data.Sigma_cpy_2.data(), k);
+        update_best_time<T>(i, t_other_best, dur_other, all_data.Sigma.data(), all_data.Sigma_cpy_2.data(), k, NULL, NULL, 0);
 
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen);
     }
-
+    
     for(j = 0; j < k; ++j)
         all_data.Sigma_cpy_1[j] -= all_data.Sigma_cpy_2[j];
 
@@ -161,6 +168,27 @@ static void call_all_algs(
     
     err_rbki = blas::nrm2(k,      all_data.Sigma_cpy_1.data(), 1) / norm_svd_k;
     err_lan  = blas::nrm2(k_lanc, all_data.Sigma_cpy_3.data(), 1) / norm_svd_lanc;
+
+    if (time_subroutines) {
+        printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
+        printf("Basic info: b_sz=%ld krylov_iters=%ld\n",      k, num_krylov_iters);
+
+        printf("Allocate and free time:          %25ld μs,\n", RBKI_timing_breakdown[0]);
+        printf("Time to acquire the SVD factors: %25ld μs,\n", RBKI_timing_breakdown[1]);
+        printf("UNGQR time:                      %25ld μs,\n", RBKI_timing_breakdown[2]);
+        printf("Reorthogonalization time:        %25ld μs,\n", RBKI_timing_breakdown[3]);
+        printf("QR time:                         %25ld μs,\n", RBKI_timing_breakdown[4]);
+        printf("GEMM A time:                     %25ld μs,\n", RBKI_timing_breakdown[5]);
+
+        printf("\nAllocation takes %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[0] / (T) RBKI_timing_breakdown[7]));
+        printf("Factors takes    %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[1] / (T) RBKI_timing_breakdown[7]));
+        printf("Ungqr takes      %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[2] / (T) RBKI_timing_breakdown[7]));
+        printf("Reorth takes     %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[3] / (T) RBKI_timing_breakdown[7]));
+        printf("QR takes         %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[4] / (T) RBKI_timing_breakdown[7]));
+        printf("GEMM A takes     %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[5] / (T) RBKI_timing_breakdown[7]));
+        printf("Rest takes       %22.2f%% of runtime.\n", 100 * ((T) RBKI_timing_breakdown[6] / (T) RBKI_timing_breakdown[7]));
+        printf("/-------------RBKI TIMING RESULTS END-------------/\n\n");
+    }
 
     // Print accuracy info
     printf("||Sigma_ksvd - Sigma_rbki||_F / ||Sigma_ksvd||_F: %.16e\n", err_rbki);
@@ -203,7 +231,7 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     k_start = 2;//std::max((int64_t) 1, n / 10);
-    k_stop  = 2048;//std::max((int64_t) 1, n / 10);
+    k_stop  = 128;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);

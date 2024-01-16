@@ -82,17 +82,32 @@ int RBKI<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
 
-    high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point preallocation_t_stop;
+    high_resolution_clock::time_point allocation_t_start;
+    high_resolution_clock::time_point allocation_t_stop;
+    high_resolution_clock::time_point get_factors_t_start;
+    high_resolution_clock::time_point get_factors_t_stop;
+    high_resolution_clock::time_point ungqr_t_start;
+    high_resolution_clock::time_point ungqr_t_stop;
+    high_resolution_clock::time_point reorth_t_start;
+    high_resolution_clock::time_point reorth_t_stop;
+    high_resolution_clock::time_point qr_t_start;
+    high_resolution_clock::time_point qr_t_stop;
+    high_resolution_clock::time_point gemm_A_t_start;
+    high_resolution_clock::time_point gemm_A_t_stop;
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
 
-    long preallocation_t_dur   = 0;
-    long total_t_dur           = 0;
+    long allocation_t_dur  = 0;
+    long get_factors_t_dur = 0;
+    long ungqr_t_dur       = 0;
+    long reorth_t_dur      = 0;
+    long qr_t_dur          = 0;
+    long gemm_A_t_dur      = 0;
+    long total_t_dur       = 0;
 
     if(this -> timing) {
         total_t_start = high_resolution_clock::now();
-        preallocation_t_start  = high_resolution_clock::now();
+        allocation_t_start  = high_resolution_clock::now();
     }
 
     int64_t iter = 0, iter_od = 0, iter_ev = 0, i = 0, end_rows = 0, end_cols = 0;
@@ -133,8 +148,8 @@ int RBKI<T, RNG>::call(
     T* VT_hat = NULL;
 
     if(this -> timing) {
-        preallocation_t_stop  = high_resolution_clock::now();
-        preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
+        allocation_t_stop  = high_resolution_clock::now();
+        allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
     }
 
     // Pre-conpute Fro norm of an input matrix.
@@ -146,11 +161,35 @@ int RBKI<T, RNG>::call(
     RandBLAS::DenseDist D(n, k);
     state = RandBLAS::fill_dense(D, Y_i, state).second;
 
+    if(this -> timing)
+        gemm_A_t_start = high_resolution_clock::now();
+
     // [X_ev, ~] = qr(A * Y_i, 0)
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
+
+    if(this -> timing) {
+        gemm_A_t_stop = high_resolution_clock::now();
+        gemm_A_t_dur  = duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
+    }
+
+    if(this -> timing)
+        qr_t_start = high_resolution_clock::now();
+
     lapack::geqrf(m, k, X_i, m, tau);
+
+    if(this -> timing) {
+        qr_t_stop = high_resolution_clock::now();
+        qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+        ungqr_t_start  = high_resolution_clock::now();
+    }
+
     // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
     lapack::ungqr(m, k, k, X_i, m, tau);
+
+    if(this -> timing) {
+        ungqr_t_stop  = high_resolution_clock::now();
+        ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+    }
 
     // Advance odd iteration count.
     ++iter_od;
@@ -160,8 +199,17 @@ int RBKI<T, RNG>::call(
     // Iterate until in-loop termination criteria is met.
     while((iter_ev + iter_od) < max_krylov_iters) {
         if (iter % 2 != 0) {
+            
+            if(this -> timing)
+                gemm_A_t_start = high_resolution_clock::now();
+            
             // Y_i = A' * X_i 
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, X_i, m, 0.0, Y_i, n);
+
+            if(this -> timing) {
+                gemm_A_t_stop = high_resolution_clock::now();
+                gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
+            }
 
             // Move the X_i pointer;
             X_i = &X_i[m * k];
@@ -172,22 +220,47 @@ int RBKI<T, RNG>::call(
                 // Y_i = Y_i - Y_od * R_i
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
 
+                if(this -> timing)
+                    reorth_t_start  = high_resolution_clock::now();
+
                 // Reorthogonalization
                 blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, Y_orth_buf, k);
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, Y_orth_buf, k, 1.0, Y_i, n);
+
+                if(this -> timing) {
+                    reorth_t_stop  = high_resolution_clock::now();
+                    reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
+                }
             }
 
             // [Y_i, R_ii] = qr(Y_i, 0)
             std::fill(&tau[0], &tau[k], 0.0);
+
+            if(this -> timing)
+                qr_t_start = high_resolution_clock::now();
+
             lapack::geqrf(n, k, Y_i, n, tau);
+
+            if(this -> timing) {
+                qr_t_stop = high_resolution_clock::now();
+                qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+            }
 
             // Copy R_ii over to R's (in transposed format).
             #pragma omp parallel for
             for(i = 0; i < k; ++i)
                 blas::copy(i + 1, &Y_i[i * n], 1, &R_ii[i], n);
 
+            if(this -> timing)
+                ungqr_t_start  = high_resolution_clock::now();
+
             // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
             lapack::ungqr(n, k, k, Y_i, n, tau);
+
+            if(this -> timing) {
+                ungqr_t_stop  = high_resolution_clock::now();
+                ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+            }
 
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('double')))
@@ -204,8 +277,17 @@ int RBKI<T, RNG>::call(
             ++iter_ev;
         }
         else {
+
+            if(this -> timing)
+                gemm_A_t_start = high_resolution_clock::now();
+
             // X_i = A * Y_i
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
+
+            if(this -> timing) {
+                gemm_A_t_stop = high_resolution_clock::now();
+                gemm_A_t_dur  =+ duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
+            }
 
             // Move the X_i pointer;
             Y_i = &Y_i[n * k];
@@ -214,19 +296,45 @@ int RBKI<T, RNG>::call(
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
             //X_i = X_i - X_ev * S_i;
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
+                
+            if(this -> timing)
+                reorth_t_start  = high_resolution_clock::now();
 
             // Reorthogonalization
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, X_orth_buf, n + k);
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, X_orth_buf, n + k, 1.0, X_i, m);
             
+            if(this -> timing) {
+                reorth_t_stop  = high_resolution_clock::now();
+                reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
+            }
+
             // [X_i, S_ii] = qr(X_i, 0);
             std::fill(&tau[0], &tau[k], 0.0);
+
+            if(this -> timing)
+                qr_t_start = high_resolution_clock::now();
+
             lapack::geqrf(m, k, X_i, m, tau);
+
+            if(this -> timing) {
+                qr_t_stop = high_resolution_clock::now();
+                qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+            }
 
             // Copy S_ii over to S's space under S_i (offset down by iter_od * k)
             lapack::lacpy(MatrixType::Upper, k, k, X_i, m, S_ii, n + k);
+
+            if(this -> timing)
+                ungqr_t_start  = high_resolution_clock::now();
+
             // Convert X_i into an explicit form. It is now stored in X_ev as it should be
             lapack::ungqr(m, k, k, X_i, m, tau);
+
+            if(this -> timing) {
+                ungqr_t_stop  = high_resolution_clock::now();
+                ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+            }
 
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
@@ -254,10 +362,18 @@ int RBKI<T, RNG>::call(
     this->num_krylov_iters = iter;
     iter % 2 == 0 ? end_rows = k * (iter_ev + 1), end_cols = k * iter_ev : end_rows = k * (iter_od + 1), end_cols = k * iter_od;
 
+    if(this -> timing) {
+        allocation_t_start  = high_resolution_clock::now();
+    }
+
     U_hat  = ( T * ) calloc( end_rows * end_cols, sizeof( T ) );
     VT_hat = ( T * ) calloc( end_cols * end_cols, sizeof( T ) );
 
-    //printf("rows: %ld, cols: %ld\n", end_rows, end_cols);
+    if(this -> timing) {
+        allocation_t_stop  = high_resolution_clock::now();
+        allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+        get_factors_t_start  = high_resolution_clock::now();
+    }
 
     if (iter % 2 == 0) {
         // [U_hat, Sigma, V_hat] = svd(R')
@@ -272,8 +388,11 @@ int RBKI<T, RNG>::call(
     // We actually perform VT = V_hat' * Y_odd'
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
 
-    printf("%e\n", *Sigma);
-    printf("%e\n", *(Sigma+1));
+    if(this -> timing) {
+        get_factors_t_stop  = high_resolution_clock::now();
+        get_factors_t_dur   = duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
+        allocation_t_start  = high_resolution_clock::now();
+    }
 
     free(Y);
     free(X);
@@ -285,18 +404,38 @@ int RBKI<T, RNG>::call(
     free(Y_orth_buf);
     free(X_orth_buf);
 
+    if(this -> timing) {
+        allocation_t_stop  = high_resolution_clock::now();
+        allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+    }
+
         if(this -> timing) {
             total_t_stop = high_resolution_clock::now();
             total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-            long t_rest  = total_t_dur - (preallocation_t_dur);
-            this -> times.resize(3);
-            this -> times = {preallocation_t_dur, t_rest, total_t_dur};
+            long t_rest  = total_t_dur - (allocation_t_dur + get_factors_t_dur + ungqr_t_dur + reorth_t_dur + qr_t_dur + gemm_A_t_dur);
+            this -> times.resize(8);
+            this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, t_rest, total_t_dur};
 
-            printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
-            printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
+            if (this -> verbosity) {
+                printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
+                printf("Basic info: b_sz=%ld krylov_iters=%ld\n",      k, num_krylov_iters);
 
-            printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-            printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
+                printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
+                printf("Time to acquire the SVD factors: %25ld μs,\n", get_factors_t_dur);
+                printf("UNGQR time:                      %25ld μs,\n", ungqr_t_dur);
+                printf("Reorthogonalization time:        %25ld μs,\n", reorth_t_dur);
+                printf("QR time:                         %25ld μs,\n", qr_t_dur);
+                printf("GEMM A time:                     %25ld μs,\n", gemm_A_t_dur);
+
+                printf("\nAllocation takes %22.2f%% of runtime.\n",                  100 * ((T) allocation_t_dur  / (T) total_t_dur));
+                printf("Factors takes    %22.2f%% of runtime.\n",                  100 * ((T) get_factors_t_dur / (T) total_t_dur));
+                printf("Ungqr takes      %22.2f%% of runtime.\n",                  100 * ((T) ungqr_t_dur       / (T) total_t_dur));
+                printf("Reorth takes     %22.2f%% of runtime.\n",                  100 * ((T) reorth_t_dur      / (T) total_t_dur));
+                printf("QR takes         %22.2f%% of runtime.\n",                  100 * ((T) qr_t_dur          / (T) total_t_dur));
+                printf("GEMM A takes     %22.2f%% of runtime.\n",                  100 * ((T) gemm_A_t_dur      / (T) total_t_dur));
+                printf("Rest takes       %22.2f%% of runtime.\n",                  100 * ((T) t_rest            / (T) total_t_dur));
+                printf("/-------------RBKI TIMING RESULTS END-------------/\n\n");
+            }
         }
 
     return 0;
