@@ -59,6 +59,7 @@ void rpc_data_svd(
         A, lda,
         0.0, A_sk, lda_sk
     );
+    blas::scal(d*n, 1.0/std::sqrt(d), A_sk, 1);
 
     // step 2: apply an LAPACK SVD function to A_sk and process the output.
     if (layout == Layout::ColMajor) {
