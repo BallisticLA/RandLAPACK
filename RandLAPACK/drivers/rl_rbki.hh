@@ -176,8 +176,11 @@ int RBKI<T, RNG>::call(
         sketching_t_start  = high_resolution_clock::now();
 
     // Generate a dense Gaussian random matrx.
+    // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
+    omp_set_num_threads(4);
     RandBLAS::DenseDist D(n, k);
     state = RandBLAS::fill_dense(D, Y_i, state).second;
+    omp_set_num_threads(48);
 
     if(this -> timing) {
         sketching_t_stop  = high_resolution_clock::now();
@@ -274,8 +277,10 @@ int RBKI<T, RNG>::call(
             }
 
             // Copy R_ii over to R's (in transposed format).
+            omp_set_num_threads(4);
             for(i = 0; i < k; ++i)
                 blas::copy(i + 1, &Y_i[i * n], 1, &R_ii[i], n);
+            omp_set_num_threads(48);
 
             if(this -> timing) {
                 r_cpy_t_stop  = high_resolution_clock::now();

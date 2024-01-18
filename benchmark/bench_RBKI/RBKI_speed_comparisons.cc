@@ -214,9 +214,12 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if(argc <= 1)
-        // No input
+    printf("Function begin\n");
+
+    if(argc <= 1) {
+        printf("No input provided\n");
         return 0;
+    }
 
     int64_t m                      = 0;
     int64_t n                      = 0;
@@ -249,6 +252,8 @@ int main(int argc, char *argv[]) {
   
     // Fill the data matrix;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+    printf("Finished data preparation\n");
 
     // Declare a data file
     std::string output_filename = "RBKI_speed_comp_m_"                         + std::to_string(m)
