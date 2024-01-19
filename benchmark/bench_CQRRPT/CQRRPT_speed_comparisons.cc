@@ -167,7 +167,7 @@ static std::vector<long> call_all_algs(
 
     return res;
 }
-
+/*
 int main() {
     // Declare parameters
     int64_t m           = std::pow(2, 17);
@@ -199,4 +199,25 @@ int main() {
         res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, n_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",\n";
     }
+}
+*/
+
+int main() {
+    // Declare parameters
+    int64_t m  = 1000000;
+    int64_t n  = std::pow(2, 12);
+    auto state = RandBLAS::RNGState();
+
+    std::vector<double> A (m * n, 0.0);
+    std::vector<double> tau (n, 0.0);
+
+    omp_set_num_threads(4);
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, A.data(), state).second;
+    omp_set_num_threads(48);
+
+    lapack::geqr(m, n, A.data(), m,  tau.data(), -1);
+    int64_t tsize = (int64_t) tau[0]; 
+    tau.resize(tsize);
+    lapack::geqr(m, n, A.data(), m, tau.data(), tsize);
 }
