@@ -240,11 +240,12 @@ class TestNystromPrecond : public ::testing::Test
         alg_state.key.incr();
         std::vector<T> V(0);
         std::vector<T> lambda(0);
-        int64_t k = 1;
+        int64_t k0 = 1;
         T mu_min = 1e-5;
         RandLAPACK::nystrom_pc_data(
-            Uplo::Lower, G.data(), m, V, lambda, k, mu_min, alg_state
-        ); // k has been updated.
+            Uplo::Lower, G.data(), m, V, lambda, k0, mu_min, alg_state
+        );
+        int64_t k = lambda.size();
 
         /* Verify algorithm output */
         EXPECT_TRUE(k > 5);

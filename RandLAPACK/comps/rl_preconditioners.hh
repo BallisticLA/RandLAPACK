@@ -28,7 +28,7 @@ void rpc_data_svd(
     Layout layout,
     int64_t m, // number of rows in A
     int64_t n, // number of columns in A
-    T *A, // buffer of size at least m*n
+    const T *A, // buffer of size at least m*n
     int64_t lda, // leading dimension for mat(A).
     SKOP &S, // d-by-m sketching operator.
     T *V_sk, // buffer of size at least d*n.
@@ -233,10 +233,10 @@ int64_t make_right_orthogonalizer(
  *      Such a preconditioners will lead to (A + mu*I)*P^{-1} being well-conditioned
  *      if the spectral norm error || A - V diag(eigvals) V' || is no larger than mu.
  * 
- * This function computes (V, eigvals) in an iterative process. The matrix V has "k_in"
- * columns at the first iteration, where "k_in" the value of k on entry. Each iteration
- * ends by computing an estimate for || A - V diag(eigvals) V' ||. If this estimate
- * falls below tol = mu_min/5, then we return. Otherwise, we double k and try again.
+ * This function computes (V, eigvals) in an iterative process. The matrix V has k
+ * columns at the first iteration. Each iteration ends by computing an estimate for
+ * || A - V diag(eigvals) V' ||. If this estimate falls below tol = mu_min/5, then
+ * we return. Otherwise, we double k and try again.
  * 
  * Optional arguments to this function can trade-off greater computational cost
  * with (1) better approximations A_hat = V diag(eigvals) V' for fixed k and (2)
@@ -248,14 +248,13 @@ int64_t make_right_orthogonalizer(
  *      for allocating any memory it might need when called.
  * @param[out] V
  *      A std::vector that gives a column-major representation of an m-by-k_out
- *      column-orthgonal matrix, where k_out is the value of k on exit.
+ *      column-orthgonal matrix, where k_out is the size of eigvals on exit.
   * @param[out] eigvals
- *      A std::vector of length k_out, where k_out is the value of k on exit.
- *      The entries of this vector are positive and they define the eigenvalues
- *      of A_hat = V diag(eigvals) V'.
- * @param[in,out] k
- *      On entry: the number of columns to be used in V for the first iteration.
- *      On exit: the number of columns in V.
+ *      A std::vector of length k_out on exit.
+ *      The entries of this vector are positive, sorted in decreasing order,
+ *      and they define the eigenvalues of A_hat = V diag(eigvals) V'.
+ * @param[in] k
+ *      The number of columns to be used in V for the first iteration.
  * @param[in] mu_min
  *      The smallest value of mu for which we want (V, eigvals) to define a useful
  *      preconditioner for regularized linear systems (A + mu*I)x = b.
@@ -282,12 +281,13 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     SymmetricLinearOperator<T> &A,
     std::vector<T> &V,
     std::vector<T> &eigvals,
-    int64_t &k,
+    int64_t k,
     T mu_min,
     RandBLAS::RNGState<RNG> state,
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
+    randblas_require(k >= 1);
     RandLAPACK::SYPS<T, RNG> SYPS(num_syps_passes, 1, false, false);
     // ^ Define a symmetric power sketch algorithm.
     //      (*) Stabilize power iteration with pivoted-LU after every
@@ -309,7 +309,10 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     T tol = mu_min / 5;
     // ^ Set tolerance to something materially smaller than the smallest
     //   regularization parameter the user claims to need.
-    return NystromAlg.call(A, k, tol, V, eigvals, state);
+    auto out_state = NystromAlg.call(A, k, tol, V, eigvals, state);
+    V.resize(k * A.m);
+    eigvals.resize(k);
+    return out_state;
 }
 
 /**
@@ -323,7 +326,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     int64_t m,
     std::vector<T> &V,
     std::vector<T> &eigvals,
-    int64_t &k,
+    int64_t k,
     T mu_min,
     RandBLAS::RNGState<RNG> state,
     int64_t num_syps_passes = 3,
