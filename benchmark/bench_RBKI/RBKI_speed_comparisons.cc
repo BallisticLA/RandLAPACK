@@ -66,10 +66,14 @@ static long run_svd(
     RBKI_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state)
 {
-
     auto m        = all_data.row;
     auto n        = all_data.col;
     auto tol      = all_data.tolerance;
+
+    // Using this call for BLAS/LAPACK warmup
+    lapack::gesdd(Job::NoVec, 10, 10, all_data.A.data(), 10, all_data.Sigma.data(), all_data.U.data(), 10, all_data.V.data(), 10);
+    auto state_gen = state;
+    data_regen<T, RNG>(m_info, all_data, state_gen, 1);
 
     // Testing Other - SVD
     auto start_svd = high_resolution_clock::now();
@@ -79,7 +83,7 @@ static long run_svd(
 
     blas::copy(n, all_data.Sigma.data(), 1, all_data.Sigma_cpy_SVD.data(), 1);
 
-    auto state_gen = state;
+    state_gen = state;
     data_regen<T, RNG>(m_info, all_data, state_gen, 1);
   
     return dur_svd;

@@ -167,7 +167,7 @@ static std::vector<long> call_all_algs(
 
     return res;
 }
-/*
+
 int main() {
     // Declare parameters
     int64_t m           = std::pow(2, 17);
@@ -180,7 +180,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 1;
+    int64_t numruns = 75;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
@@ -200,8 +200,8 @@ int main() {
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",\n";
     }
 }
-*/
 
+/*
 int main() {
     // Declare parameters
     int64_t m  = 1000000;
@@ -221,3 +221,4 @@ int main() {
     tau.resize(tsize);
     lapack::geqr(m, n, A.data(), m, tau.data(), tsize);
 }
+*/
