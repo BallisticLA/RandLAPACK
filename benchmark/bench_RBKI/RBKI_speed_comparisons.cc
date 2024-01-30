@@ -140,15 +140,15 @@ static void call_all_algs(
 
         // Testing Lanchosz
         auto start_lanchosz = high_resolution_clock::now();
-        //Lanchosz.call(m, n, all_data.A.data(), m, 1, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
+        Lanchosz.call(m, n, all_data.A.data(), m, 1, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
         auto stop_lanchosz = high_resolution_clock::now();
         dur_lanchosz = duration_cast<microseconds>(stop_lanchosz - start_lanchosz).count();
 
         // Update best timing and save the singular values.
-        //update_best_time<T>(i, t_lanchosz_best, dur_lanchosz, all_data.Sigma.data(), all_data.Sigma_cpy_Other.data(), k_lanc, Lanc_timing_breakdown.data(), Lanchosz.times.data(), false);
+        update_best_time<T>(i, t_lanchosz_best, dur_lanchosz, all_data.Sigma.data(), all_data.Sigma_cpy_Other.data(), k_lanc, Lanc_timing_breakdown.data(), Lanchosz.times.data(), false);
 
-        //state_gen = state;
-        //data_regen<T, RNG>(m_info, all_data, state_gen, 0);
+        state_gen = state;
+        data_regen<T, RNG>(m_info, all_data, state_gen, 0);
         
         // Testing RBKI
         auto start_rbki = high_resolution_clock::now();
