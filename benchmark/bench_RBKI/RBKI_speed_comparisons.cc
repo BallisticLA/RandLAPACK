@@ -110,7 +110,7 @@ static void call_all_algs(
     T err_rbki;
     T err_lan;
     int64_t k_lanc = std::min((int64_t) (num_krylov_iters / (T) 2), k);
-    bool time_subroutines = false;
+    bool time_subroutines = true;
 
     // Set the threshold for Lanchosz 
     // Setting up Lanchosz - RBKI with k = 1.
