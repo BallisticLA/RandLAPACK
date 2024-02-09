@@ -54,11 +54,11 @@ struct mat_gen_info {
 
 /// Given singular values, generates left and right singular vectors and combines all into a single matrix.
 /// Note: Printed matrix A may have different rank from actual generated matrix A
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void gen_singvec(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    VEC &A,
     int64_t k,
     std::vector<T> &S,
     RandBLAS::RNGState<RNG> &state
@@ -98,11 +98,11 @@ void gen_singvec(
 /// singular values are equal to one.
 /// User can optionally choose for the matrix to be diagonal.
 /// The output matrix has k singular values. 
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void gen_poly_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    VEC &A,
     int64_t k,
     T cond,
     T p,
@@ -149,11 +149,11 @@ void gen_poly_mat(
 /// the first 10 percent of the singular values are equal to one.
 /// User can optionally choose for the matrix to be diagonal.
 /// The output matrix has k singular values. 
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void gen_exp_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    VEC &A,
     int64_t k,
     T cond,
     bool diagon,
@@ -197,11 +197,11 @@ void gen_exp_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void gen_step_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    VEC &A,
     int64_t k,
     T cond,
     bool diagon,
@@ -239,11 +239,11 @@ void gen_step_mat(
 /// Output matrix is m by n, full-rank.
 /// Such matrix would be difficult to sketch.
 /// Right singular vectors are sampled uniformly at random.
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void gen_spiked_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    VEC &A,
     T spike_scale,
     RandBLAS::RNGState<RNG> &state
 ) {
@@ -265,9 +265,10 @@ void gen_spiked_mat(
 
     // Fill A with stacked copies of V
     int start = 0;
+    T* A_ = A.data();
     while(start + n <= m){
         for(int j = 0; j < n; ++j) {
-            blas::copy(n, &V[m * j], 1, &A[start + (m * j)], 1);
+            blas::copy(n, &V[m * j], 1, &A_[start + (m * j)], 1);
         }
         start += n;
     }
@@ -275,7 +276,7 @@ void gen_spiked_mat(
     start = 0;
     while (start + m <= m * n) {
         for(int i = 0; i < num_rows_sampled; ++i) {
-            A[start + (S.cols)[i] - 1] *= spike_scale;
+            A_[start + (S.cols)[i] - 1] *= spike_scale;
         }
         start += m;
     }
@@ -289,11 +290,11 @@ void gen_spiked_mat(
 /// was orthonormalized with a Householder QR. 
 /// The matrix V is the upper triangular part of an n × n 
 /// orthonormalized Gaussian matrix with modified diagonal entries to diag(V) *= [1, 10^-15, . . . , 10^-15, 10^-15].
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void gen_oleg_adversarial_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    VEC &A,
     T sigma,
     RandBLAS::RNGState<RNG> &state
 ) {
@@ -342,11 +343,11 @@ void gen_oleg_adversarial_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void gen_bad_cholqr_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    VEC &A,
     int64_t k,
     T cond,
     bool diagon,
@@ -388,17 +389,18 @@ void gen_bad_cholqr_mat(
 
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename VEC>
 void mat_gen(
     mat_gen_info<T> info,
-    std::vector<T> &A,
+    VEC &A,
     RandBLAS::RNGState<RNG> &state
 ) {
     // Base parameters
     int64_t m = info.rows;
     int64_t n = info.cols;
     int64_t k = info.rank;
-    T* A_dat = RandLAPACK::util::upsize(m * n, A);
+    A.resize(m * n);
+    T* A_dat = A.data();
 
     switch(info.m_type) {
         case polynomial:

@@ -27,24 +27,24 @@ void eye(
         A[(m * j) + j] = 1.0;
 }
 
-template <typename T>
+template <typename VEC>
 void eye(
     int64_t m,
     int64_t n,
-    std::vector<T> &A
+    VEC &A
 ) {
     eye(m, n, A.data());
 }
 
 /// Diagonalization - turns a vector into a diagonal matrix. Overwrites the
 /// diagonal entries of matrix S with those stored in s.
-template <typename T>
+template <typename VEC>
 void diag(
     int64_t m,
     int64_t n,
-    const std::vector<T> &s,
+    const VEC &s,
     int64_t k, // size of s, < min(m, n)
-    std::vector<T> &S // Assuming S is m by n
+    VEC &S // Assuming S is m by n
 ) {
 
     if(k > std::min(m, n)) 
@@ -54,18 +54,20 @@ void diag(
 }
 
 /// Captures k diagonal elements of A and stores them in buf.
-template <typename T>
+template <typename VEC1, typename VEC2>
 void extract_diag(
     int64_t m,
     int64_t n,
     int64_t k,
-    const std::vector<T> &A,
-    std::vector<T> &buf
+    const VEC1 &A,
+    VEC2 &buf
 ) {
     if(k > std::min(m, n)) 
         throw std::runtime_error("Incorrect rank parameter.");
+    auto A_ = A.data();
+    auto buf_ = buf.data();
     for(int i = 0; i < k; ++i)
-        buf[i] = A[(i * m) + i];
+        buf_[i] = A_[(i * m) + i];
 }
 
 /// Extracts the l-portion of the GETRF result, places 1's on the main diagonal.
@@ -85,29 +87,29 @@ void get_L(
     }
 }
 
-template <typename T>
+template <typename VEC>
 void get_L(
     int64_t m,
     int64_t n,
-    std::vector<T> &L,
+    VEC &L,
     int overwrite_diagonal
 ) {
     get_L(m, n, L.data(), overwrite_diagonal);
 }
 
 /// Stores the upper-triangualr portion of A in U.
-template <typename T>
+template <typename VEC1, typename VEC2>
 void get_U(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A,
-    std::vector<T> &U // We are assuming U is n by n
+    const VEC1 &A,
+    VEC2 &U // We are assuming U is n by n
 ) {
     // Vector end pointer
     int size = m * n;
 
-    const T* A_dat = A.data();
-    T* U_dat = U.data();
+    const auto A_dat = A.data();
+    auto U_dat = U.data();
 
     for(int i = 0, j = 1, k = 0; i < size && j <= m; i += m, k +=n, ++j) {
         blas::copy(j, &A_dat[i], 1, &U_dat[k], 1);
@@ -115,13 +117,13 @@ void get_U(
 }
 
 /// Zeros-out the lower-triangular portion of A
-template <typename T>
+template <typename VEC>
 void get_U(
     int64_t m,
     int64_t n,
-    std::vector<T> &A
+    VEC &A
 ) {
-    T* A_dat = A.data();
+    auto A_dat = A.data();
     for(int i = 0; i < n - 1; ++i) {
         std::fill(&A_dat[i * (m + 1) + 1], &A_dat[(i + 1) * m], 0.0);
     }
@@ -129,12 +131,12 @@ void get_U(
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
-template <typename T>
+template <typename VEC>
 void col_swap(
     int64_t m,
     int64_t n,
     int64_t k,
-    std::vector<T> &A,
+    VEC &A,
     std::vector<int64_t> idx
 ) {
 
@@ -142,7 +144,7 @@ void col_swap(
         throw std::runtime_error("Incorrect rank parameter.");
 
     int64_t* idx_dat = idx.data();
-    T* A_dat = A.data();
+    auto A_dat = A.data();
 
     int64_t i, j, l;
     for (i = 0, j = 0; i < k; ++i) {
@@ -164,10 +166,10 @@ void col_swap(
 
 /// Checks if the given size is larger than available. 
 /// If so, resizes the vector.
-template <typename T>
-T* upsize(
+template <typename VEC>
+auto upsize(
     int64_t target_sz,
-    std::vector<T> &A
+    VEC &A
 ) {
     if ((int64_t) A.size() < target_sz)
         A.resize(target_sz, 0);
@@ -177,15 +179,15 @@ T* upsize(
 
 
 /// Changes the number of rows of a column-major matrix.
-template <typename T>
-T* row_resize(
+template <typename VEC>
+auto row_resize(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    VEC &A,
     int64_t k
 ) {
 
-    T* A_dat = A.data();
+    auto A_dat = A.data();
 
     // SIZING DOWN - just moving data
     if(m > k) {
@@ -212,19 +214,19 @@ T* row_resize(
 }
 
 /// Find the condition number of a given matrix A.
-template <typename T>
-T cond_num_check(
+template <typename VEC1, typename VEC2, typename VEC3>
+auto cond_num_check(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A,
-    std::vector<T> &A_cpy,
-    std::vector<T> &s,
+    const VEC1 &A,
+    VEC2 &A_cpy,
+    VEC3 &s,
     bool verbose
 ) {
 
     // Copy to avoid any changes
-    T* A_cpy_dat = upsize(m * n, A_cpy);
-    T* s_dat = upsize(n, s);
+    auto A_cpy_dat = upsize(m * n, A_cpy);
+    auto s_dat = upsize(n, s);
 
     // Packed storage check
     if (A.size() < A_cpy.size()) {
@@ -235,7 +237,7 @@ T cond_num_check(
     }
     lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
 
-    T cond_num = s_dat[0] / s_dat[n - 1];
+    auto cond_num = s_dat[0] / s_dat[n - 1];
 
     if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
@@ -244,43 +246,45 @@ T cond_num_check(
 }
 
 // Computes the numerical rank of a given matirx
-template <typename T>
+template <typename VEC>
 int64_t rank_check(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A
+    const VEC &A
 ) {
+    auto typehelper_ptr = A.data();
+    auto typehelper_val = typehelper_ptr[0];
+    using T = decltype(typehelper_val);
     std::vector<T> A_pre_cpy;
     std::vector<T> s;
     RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
-
+    T* s_ = s.data();
     for(int i = 0; i < n; ++i) {
-        if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
+        if (s_[i] / s_[0] <= 5 * std::numeric_limits<T>::epsilon())
             return i - 1;
     }
     return n;
 }
 
 /// Checks whether matrix A has orthonormal columns.
-template <typename T>
+template <typename VEC1, typename VEC2>
 bool orthogonality_check(
     int64_t m,
     int64_t n,
     int64_t k,
-    const std::vector<T> &A,
-    std::vector<T> &A_gram,
+    const VEC1 &A,
+    VEC2 &A_gram,
     bool verbose
 ) {
-
-    const T* A_dat = A.data();
-    T* A_gram_dat = A_gram.data();
+    const auto A_dat = A.data();
+    auto A_gram_dat = A_gram.data();
 
     blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, n, m, 1.0, A_dat, m, 0.0, A_gram_dat, n);
 
     for (int oi = 0; oi < k; ++oi) {
         A_gram_dat[oi * n + oi] -= 1.0;
     }
-    T orth_err = lapack::lange(Norm::Fro, n, n, A_gram_dat, k);
+    auto orth_err = lapack::lange(Norm::Fro, n, n, A_gram_dat, k);
 
     if(verbose) {
         printf("Q ERROR:   %e\n\n", orth_err);
@@ -361,21 +365,21 @@ int64_t rank_search_binary(
 }
 
 /// Normalizes columns of a given matrix, writes the result into a buffer
-template <typename T>
+template <typename VEC1, typename VEC2>
 void normc(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A,
-    std::vector<T> &A_norm
+    const VEC1 &A,
+    VEC2 &A_norm
 ) {
-    util::upsize(m * n, A_norm);
-
-    T col_nrm = 0.0;
+    auto A_norm_ = util::upsize(m * n, A_norm);
+    const auto A_ = A.data();
+    auto col_nrm = 0.0 * A_[0];
     for(int i = 0; i < n; ++i) {
-        col_nrm = blas::nrm2(m, &A[m * i], 1);
+        col_nrm = blas::nrm2(m, &A_[m * i], 1);
         if(col_nrm != 0) {
             for (int j = 0; j < m; ++j) {
-                A_norm[m * i + j] = A[m * i + j] / col_nrm;
+                A_norm_[m * i + j] =  A_[m * i + j] / col_nrm;
             }
         }
     }
