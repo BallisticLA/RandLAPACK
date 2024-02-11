@@ -2,7 +2,16 @@ cmake_minimum_required(VERSION 3.2)
 
 project(RandLAPACK)
 
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+set(CMAKE_CUDA_VISIBILITY_PRESET hidden)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
+
+# cuda stuff
+include(find_cuda)
 
 # configure the build
 enable_testing()
