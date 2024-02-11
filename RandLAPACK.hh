@@ -23,4 +23,7 @@
 #include "RandLAPACK/drivers/rl_revd2.hh"
 #include "RandLAPACK/drivers/rl_rbki.hh"
 
+// Cuda
+#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
+
 #endif
