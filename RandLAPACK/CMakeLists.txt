@@ -17,6 +17,11 @@ set(RandLAPACK_cxx_sources
     rl_gen.hh
     rl_blaspp.hh
     rl_linops.hh
+
+    rl_cusolver.hh
+    rl_cuda_kernels.hh
+    rl_cuda_macros.hh
+    rl_cqrrpt_gpu.hh
 )
 
 set(RandLAPACK_libs
