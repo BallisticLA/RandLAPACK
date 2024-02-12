@@ -88,6 +88,9 @@ static void call_all_algs(
     // Making sure the states are unchanged
     auto state_gen = state;
 
+    // Pre-compute the 2-norm of the Sigma vector from Direct SVD
+    norm_svd_k = blas::nrm2(target_rank, all_data.Sigma_SVD.data(),  1);
+
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
         
@@ -96,26 +99,22 @@ static void call_all_algs(
         RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
+    
+        for(j = 0; j < target_rank; ++j)
+            all_data.Sigma[j] -= all_data.Sigma_SVD[j];
 
-        // Update best timing and save the singular values.
-        update_best_time<T>(i, t_rbki_best, dur_rbki, all_data.Sigma.data(), all_data.Sigma_cpy_RBKI.data(), target_rank);
+        err_rbki   = blas::nrm2(target_rank, all_data.Sigma.data(), 1) / norm_svd_k;
 
+        // Print accuracy info
+        printf("||Sigma_ksvd - Sigma_rbki||_F / ||Sigma_ksvd||_F: %.16e\n", err_rbki);
+        printf("RBKI is %f times faster that SVD.\n", (T) dur_svd / t_rbki_best);
+
+        std::ofstream file(output_filename, std::ios::app);
+        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << err_rbki <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
+    
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen, 0);
     }
-    
-    for(j = 0; j < target_rank; ++j)
-        all_data.Sigma_cpy_RBKI[j] -= all_data.Sigma_SVD[j];
-
-    norm_svd_k = blas::nrm2(target_rank, all_data.Sigma_SVD.data(),  1);
-    err_rbki   = blas::nrm2(target_rank, all_data.Sigma_cpy_RBKI.data(), 1) / norm_svd_k;
-
-    // Print accuracy info
-    printf("||Sigma_ksvd - Sigma_rbki||_F / ||Sigma_ksvd||_F: %.16e\n", err_rbki);
-    printf("RBKI is %f times faster that SVD.\n", (T) dur_svd / t_rbki_best);
-
-    std::ofstream file(output_filename, std::ios::app);
-    file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << err_rbki <<  ",  " << t_rbki_best  << ",  " << dur_svd << ",\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -131,7 +130,7 @@ int main(int argc, char *argv[]) {
     int64_t n                      = 0;
     int64_t b_sz_start             = 0;
     int64_t b_sz_stop              = 0;
-    int64_t target_rank_start      = 256;
+    int64_t target_rank_start      = 512;
     int64_t target_rank_curr       = target_rank_start;
     int64_t target_rank_stop       = 4096;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -151,7 +150,7 @@ int main(int argc, char *argv[]) {
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 2;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 8;//std::max((int64_t) 1, n / 10);
     b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
