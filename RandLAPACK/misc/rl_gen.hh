@@ -420,7 +420,7 @@ void gen_kahan_mat(
     free(C);
 }
 
-/// Generates Kahan matrix
+/// Reads a matrix from a file
 template <typename T>
 void process_input_mat(
     int64_t &m,
