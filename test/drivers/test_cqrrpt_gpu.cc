@@ -177,8 +177,7 @@ TEST_F(TestCQRRPT, something) {
     cudaGetDeviceCount(&deviceCount);
     printf("Device count: %d\n", deviceCount);
 
-    /*    
-    blas::Queue blas_queue(1);
+    blas::Queue blas_queue(0);
     double* A_device;
     double* B_device;
     double* C_device;
@@ -190,6 +189,8 @@ TEST_F(TestCQRRPT, something) {
     cudaMemcpy(B.data(), B_device, n * n, cudaMemcpyHostToDevice);
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_device, m, B_device, n, 1.0, C_device, m, blas_queue);
+    blas_queue.sync();
+
     cudaMemcpy(C_device, C_received.data(),  m * n, cudaMemcpyDeviceToHost);
 
     cudaFree(A_device);
@@ -198,5 +199,4 @@ TEST_F(TestCQRRPT, something) {
 
     char name2 [] = "C received device";
     RandBLAS::util::print_colmaj(m, n, C_received.data(), name2);
-    */
 }
