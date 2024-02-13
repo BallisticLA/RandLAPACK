@@ -15,6 +15,7 @@ if (GTest_FOUND)
         comps/test_syrf.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
+        drivers/test_cqrrpt_gpu.cc
         drivers/test_cqrrp.cc
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
