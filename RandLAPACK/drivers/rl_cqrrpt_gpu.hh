@@ -10,6 +10,7 @@
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include "lapack/device.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -146,6 +147,29 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         int64_t use_cholqr;
 };
 
+
+template <typename T>
+__global__ void kernelFunction(const T* R_sp_device, int64_t k, T eps, int64_t* new_rank_device) {
+
+    T running_max = 0; 
+    T running_min = 0;
+    T curr_entry = 0;
+    int new_rank = k;
+
+    for (int i = 0; i < k; ++i) {
+        curr_entry = std::abs(R_sp_device[i * k + i]);
+        running_max = std::max(running_max, curr_entry);
+        running_min = std::min(running_min, curr_entry);
+
+        if (running_max / running_min >= sqrt(eps / std::numeric_limits<T>::epsilon())) {
+            new_rank = i - 1;
+            break;
+        }
+    }
+
+    new_rank_device[0] = new_rank;
+}
+
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int CQRRPT_GPU<T, RNG>::call(
@@ -190,9 +214,6 @@ int CQRRPT_GPU<T, RNG>::call(
     int64_t d = d_factor * n;
     // A constant for initial rank estimation.
     T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
-    // Variables for a posteriori rank estimation.
-    int64_t new_rank;
-    T running_max, running_min, curr_entry;
 
     T* A_hat = ( T * ) calloc( d * n, sizeof( T ) );
     T* tau   = ( T * ) calloc( n, sizeof( T ) );
@@ -284,13 +305,25 @@ int CQRRPT_GPU<T, RNG>::call(
     //
     // Allocating device data & performing copies:
     T* A_device;
+    T* R_device;
     T* R_sp_device;
+
+    // Variables for a posteriori rank estimation.
+    __device__ int64_t new_rank;
+    __device__ T running_max, running_min, curr_entry;
+
+    using lapack::device_info_int;
     blas::Queue blas_queue(0);
-    //lapack::Queue queue(0)
-    cudaMalloc(&A_device, m * n);
-    cudaMalloc(&R_sp_device, k * k);
-    cudaMemcpy(A, A_device, m * n, cudaMemcpyHostToDevice);
-    cudaMemcpy(R_sp, R_sp_device, k * k, cudaMemcpyHostToDevice);
+    lapack::Queue lapack_queue(0);
+    device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    
+    cudaMalloc(&A_device, m * n * sizeof(T));
+    cudaMalloc(&R_device, ldr * n * sizeof(T));
+    cudaMalloc(&R_sp_device, k * k * sizeof(T));
+
+    cudaMemcpy(A_device, A, m * n * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(R_device, R, ldr * n * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(R_sp_device, R_sp, k * k * sizeof(T), cudaMemcpyHostToDevice);
 
     char name [] = "A";
     RandBLAS::util::print_colmaj(m, n, A, name);
@@ -298,21 +331,15 @@ int CQRRPT_GPU<T, RNG>::call(
     // A_pre * R_sp = AP
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
-    cudaMemcpy(A_device, A, m * n, cudaMemcpyDeviceToHost);
-    cudaFree(A_device);
-    cudaFree(R_sp_device);
-
-    RandBLAS::util::print_colmaj(m, n, A, name);
-/*
-
     if(this -> timing) {
         a_mod_trsm_t_stop = high_resolution_clock::now();
         cholqr_t_start = high_resolution_clock::now();
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, k);
-    lapack::potrf(Uplo::Upper, k, R_sp, k);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_device, lda, 0.0, R_sp_device, k, blas_queue);
+    lapack::potrf(Uplo::Upper, k, R_sp_device, k, d_info, lapack_queue);
+    blas_queue.sync();
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
@@ -320,11 +347,21 @@ int CQRRPT_GPU<T, RNG>::call(
     // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
     new_rank = k;
-    running_max = R_sp[0];
-    running_min = R_sp[0];
-    
+    running_max = R_sp_device[0];
+    running_min = R_sp_device[0];
+ 
+    int64_t* new_rank_device;
+
+     // Set the block and grid sizes based on the problem size
+    dim3 blockSize(256);  // You might need to adjust this based on your specific problem
+    dim3 gridSize((k + blockSize.x - 1) / blockSize.x);
+    kernelFunction<<<gridSize, blockSize>>>(R_sp_device, k, eps, new_rank_device);
+ 
+ /*   
+    printf("%f, \n", R_sp_device[1]);
+
     for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp[i * k + i]);
+        curr_entry = std::abs(R_sp_device[i * k + i]);
         running_max = std::max(running_max, curr_entry);
         running_min = std::min(running_min, curr_entry);
         if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
@@ -332,14 +369,15 @@ int CQRRPT_GPU<T, RNG>::call(
             break;
         }
     }
-
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, k, A, lda);
+*/
+/*
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing)
         cholqr_t_stop = high_resolution_clock::now();
 
     // Get the final R-factor.
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp, k, R, ldr);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp_device, k, R_device, ldr, blas_queue);
 
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = k;
@@ -360,10 +398,16 @@ int CQRRPT_GPU<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
+    cudaMemcpy(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaMemcpy(R, R_device, ldr * n * sizeof(T), cudaMemcpyDeviceToHost);
+    
+    cudaFree(A_device);
+    cudaFree(R_device);
+    cudaFree(R_sp_device);
     free(A_hat);
     free(R_sp);
     free(tau);
-    */
+*/
     return 0;
 }
 } // end namespace RandLAPACK

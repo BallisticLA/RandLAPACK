@@ -3,6 +3,10 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
+//#include "rl_cuda_macros.hh"
+//#include <cuda.h>
+//#include <cuda_runtime.h>
+
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -130,10 +134,10 @@ class TestCQRRPT : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
-    int64_t m = 20;
-    int64_t n = 10;
-    int64_t k = 5;
-    double d_factor = 1.1;
+    int64_t m = 5;
+    int64_t n = 5;
+    int64_t k = 2;
+    double d_factor = 1.0;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -181,17 +185,17 @@ TEST_F(TestCQRRPT, something) {
     double* A_device;
     double* B_device;
     double* C_device;
-    cudaMalloc(&A_device, m * n);
-    cudaMalloc(&B_device, n * n);
-    cudaMalloc(&C_device, m * n);
+    cudaMalloc(&A_device, m * n * sizeof(double));
+    cudaMalloc(&B_device, n * n * sizeof(double));
+    cudaMalloc(&C_device, m * n * sizeof(double));
 
-    cudaMemcpy(A.data(), A_device, m * n, cudaMemcpyHostToDevice);
-    cudaMemcpy(B.data(), B_device, n * n, cudaMemcpyHostToDevice);
+    cudaMemcpy(A_device, A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(B_device, B.data(), n * n * sizeof(double), cudaMemcpyHostToDevice);
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_device, m, B_device, n, 1.0, C_device, m, blas_queue);
-    blas_queue.sync();
+    //blas_queue.sync();
 
-    cudaMemcpy(C_device, C_received.data(),  m * n, cudaMemcpyDeviceToHost);
+    cudaMemcpy(C_received.data(), C_device,  m * n * sizeof(double), cudaMemcpyDeviceToHost);
 
     cudaFree(A_device);
     cudaFree(B_device);
@@ -200,3 +204,4 @@ TEST_F(TestCQRRPT, something) {
     char name2 [] = "C received device";
     RandBLAS::util::print_colmaj(m, n, C_received.data(), name2);
 }
+
