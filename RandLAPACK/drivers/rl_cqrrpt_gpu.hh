@@ -355,7 +355,7 @@ int CQRRPT_GPU<T, RNG>::call(
      // Set the block and grid sizes based on the problem size
     dim3 blockSize(256);  // You might need to adjust this based on your specific problem
     dim3 gridSize((k + blockSize.x - 1) / blockSize.x);
-    kernelFunction<<<gridSize, blockSize>>>(R_sp_device, k, eps, new_rank_device);
+    //kernelFunction<<<gridSize, blockSize>>>(R_sp_device, k, eps, new_rank_device);
  
  /*   
     printf("%f, \n", R_sp_device[1]);
