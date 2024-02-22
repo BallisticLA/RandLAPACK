@@ -55,7 +55,7 @@ static std::vector<long> call_all_algs(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, true, tol);
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT(true, true, tol);
     CQRRPT.nnz = 4;
     CQRRPT.num_threads = 48;
 
