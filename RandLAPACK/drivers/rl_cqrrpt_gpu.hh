@@ -147,29 +147,6 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         int64_t use_cholqr;
 };
 
-
-template <typename T>
-__global__ void kernelFunction(const T* R_sp_device, int64_t k, T eps, int64_t* new_rank_device) {
-
-    T running_max = 0; 
-    T running_min = 0;
-    T curr_entry = 0;
-    int new_rank = k;
-
-    for (int i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp_device[i * k + i]);
-        running_max = std::max(running_max, curr_entry);
-        running_min = std::min(running_min, curr_entry);
-
-        if (running_max / running_min >= sqrt(eps / std::numeric_limits<T>::epsilon())) {
-            new_rank = i - 1;
-            break;
-        }
-    }
-
-    new_rank_device[0] = new_rank;
-}
-
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int CQRRPT_GPU<T, RNG>::call(
@@ -325,8 +302,8 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaMemcpy(R_device, R, ldr * n * sizeof(T), cudaMemcpyHostToDevice);
     cudaMemcpy(R_sp_device, R_sp, k * k * sizeof(T), cudaMemcpyHostToDevice);
 
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, A, name);
+    //char name [] = "A";
+    //RandBLAS::util::print_colmaj(m, n, A, name);
 
     // A_pre * R_sp = AP
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_device, k, A_device, lda, blas_queue);
@@ -346,22 +323,25 @@ int CQRRPT_GPU<T, RNG>::call(
     // This also automatically takes care of any potentical failures in Cholesky factorization.
     // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
-    new_rank = k;
-    running_max = R_sp_device[0];
-    running_min = R_sp_device[0];
- 
-    int64_t* new_rank_device;
+    //
+    // The approach is slightly complicated due the fact that R_sp is currently allocated on device.
+    // In order to avoid creating a specialized kerken function, we would copy the diagonal of R_sp 
+    // back to the host using a strided cuda Memcopy (beware of performance issues).
 
-     // Set the block and grid sizes based on the problem size
-    dim3 blockSize(256);  // You might need to adjust this based on your specific problem
-    dim3 gridSize((k + blockSize.x - 1) / blockSize.x);
-    //kernelFunction<<<gridSize, blockSize>>>(R_sp_device, k, eps, new_rank_device);
- 
- /*   
-    printf("%f, \n", R_sp_device[1]);
+    // spitch  (2nd argument) - width of the row vectors in the source array - sizeof(T), since we have a column vector.
+    // dpitch  (4nd argument) - width of the row vectors in the source array - (k + 1) * sizeof(T), since we have a k by k matrix and 
+    //                                                                         want the "vector" to start with a diagonal element.
+    // width   (5th argument) - number of columns in data transfer           - sizeof(T), since we transfer one element per column.
+    // heighth (6th argument) - numer of rows in data transfer               - k, since we will be transferring k elements total.
+    T* R_sp_diag = ( T * ) calloc( k, sizeof( T ) );
+    cudaMemcpy2D(R_sp_diag, sizeof(T), R_sp_device, (k + 1) * sizeof(T), sizeof(T), k, cudaMemcpyDeviceToHost);
+
+    new_rank = k;
+    running_max = R_sp_diag[0];
+    running_min = R_sp_diag[0];
 
     for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp_device[i * k + i]);
+        curr_entry = std::abs(R_sp_diag[i]);
         running_max = std::max(running_max, curr_entry);
         running_min = std::min(running_min, curr_entry);
         if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
@@ -369,8 +349,7 @@ int CQRRPT_GPU<T, RNG>::call(
             break;
         }
     }
-*/
-/*
+
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing)
@@ -407,7 +386,8 @@ int CQRRPT_GPU<T, RNG>::call(
     free(A_hat);
     free(R_sp);
     free(tau);
-*/
+    free(R_sp_diag);
+
     return 0;
 }
 } // end namespace RandLAPACK
