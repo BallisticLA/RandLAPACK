@@ -122,22 +122,22 @@ class TestCQRRPT : public ::testing::Test
 
         CQRRPT_GPU.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
 
-        //all_data.rank = CQRRPT_GPU.rank;
-        //printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
+        all_data.rank = CQRRPT_GPU.rank;
+        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
 
-        //RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        //RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-        //error_check(norm_A, all_data); 
+        error_check(norm_A, all_data); 
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
-    int64_t m = 5;
-    int64_t n = 5;
-    int64_t k = 2;
-    double d_factor = 1.0;
+    int64_t m = 1000;
+    int64_t n = 200;
+    int64_t k = 200;
+    double d_factor = 2.0;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
