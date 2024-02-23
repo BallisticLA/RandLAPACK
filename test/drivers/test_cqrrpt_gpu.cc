@@ -6,6 +6,7 @@
 //#include "rl_cuda_macros.hh"
 //#include <cuda.h>
 //#include <cuda_runtime.h>
+#include "rl_cuda_kernels.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -203,5 +204,25 @@ TEST_F(TestCQRRPT, something) {
 
     char name2 [] = "C received device";
     RandBLAS::util::print_colmaj(m, n, C_received.data(), name2);
+}
+
+TEST_F(TestCQRRPT, something1) {
+    
+    int64_t m = 10;
+    int64_t n = 5;
+
+    cudaStream_t strm;
+    cudaStreamCreate(&strm);
+
+    blas::Queue blas_queue(0);
+    double* A;
+    double* B;
+    double* C;
+    cudaMalloc(&A, m * n * sizeof(double));
+    cudaMalloc(&B, n * n * sizeof(double));
+    cudaMalloc(&C, m * n * sizeof(double));
+
+    int i = 0;
+    RandLAPACK::cuda_kernels::somefun(i);
 }
 
