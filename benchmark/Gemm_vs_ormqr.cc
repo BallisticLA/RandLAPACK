@@ -65,7 +65,7 @@ test_speed(int64_t m, int64_t n, int64_t runs, RandBLAS::RNGState<RNG> const_sta
 }
 
 int main() {
-    auto state = RandBLAS::RNGState();
+    auto state = RandBLAS::RNGState<r123::Philox4x32>();
     test_speed<double, r123::Philox4x32>(std::pow(2, 10), std::pow(2, 5),  10, state);
     test_speed<double, r123::Philox4x32>(std::pow(2, 11), std::pow(2, 6),  10, state);
     test_speed<double, r123::Philox4x32>(std::pow(2, 12), std::pow(2, 7),  10, state);

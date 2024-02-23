@@ -54,7 +54,7 @@ test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
 }
 
 int main() {
-    auto state = RandBLAS::RNGState();
+    auto state = RandBLAS::RNGState<r123::Philox4x32>();
     test_flops<double, r123::Philox4x32>(1000, state);
     return 0;
 }
