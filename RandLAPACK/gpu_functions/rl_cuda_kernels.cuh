@@ -1,8 +1,8 @@
 #ifndef CUDA_KERNELS_H
 #define CUDA_KERNELS_H
-#if USE_CUDA
+//#if USE_CUDA
 
-#include "macros.h"
+#include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
 
@@ -227,5 +227,5 @@ void somefun(int i)
 }
 
 } // end namespace cuda_kernels
-#endif
+//#endif
 #endif

@@ -3,10 +3,10 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
-//#include "rl_cuda_macros.hh"
-//#include <cuda.h>
-//#include <cuda_runtime.h>
-#include "rl_cuda_kernels.hh"
+#include "rl_cuda_macros.hh"
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "rl_cuda_kernels.cuh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -207,22 +207,47 @@ TEST_F(TestCQRRPT, something) {
 }
 
 TEST_F(TestCQRRPT, something1) {
-    
-    int64_t m = 10;
-    int64_t n = 5;
+    // Matrix dimensions
+    int m = 3; // Number of rows
+    int n = 2; // Number of columns
 
-    cudaStream_t strm;
-    cudaStreamCreate(&strm);
+    // Host matrices
+    std::vector<float> A = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    std::vector<float> B = {7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f};
 
-    blas::Queue blas_queue(0);
-    double* A;
-    double* B;
-    double* C;
-    cudaMalloc(&A, m * n * sizeof(double));
-    cudaMalloc(&B, n * n * sizeof(double));
-    cudaMalloc(&C, m * n * sizeof(double));
+    // Host workspace and info
+    std::vector<float> work;
+    int lwork;
 
-    int i = 0;
-    RandLAPACK::cuda_kernels::somefun(i);
+    int *devInfo = nullptr;
+
+    // CUDA device pointers
+    float *d_A = nullptr;
+    float *d_B = nullptr;
+
+    // CUDA handles
+    cusolverDnHandle_t cusolverH = nullptr;
+
+    // Create cusolver handle
+    cusolverDnCreate(&cusolverH);
+
+    // Allocate CUDA memory for matrices and workspace
+    cudaMalloc((void**)&d_A, m * n * sizeof(float));
+    cudaMalloc((void**)&d_B, m * sizeof(float));
+    cudaMalloc((void**)&devInfo, sizeof(int));
+
+    // Copy matrices from host to device
+    cudaMemcpy(d_A, A.data(), m * n * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, B.data(), m * sizeof(float), cudaMemcpyHostToDevice);
+
+    // Compute optimal workspace size
+    cusolverDnSormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_N, m, 1, n, d_A, m, nullptr, d_B, m, nullptr);
+
+    // Allocate workspace
+    work.resize(lwork);
+    cudaMalloc((void**)&work[0], lwork * sizeof(float));
+
+    // Perform QR factorization and solve the least squares problem
+    cusolverDnSormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_N, m, 1, n, d_A, m, nullptr, d_B, m, nullptr, lwork, devInfo);
 }
 
