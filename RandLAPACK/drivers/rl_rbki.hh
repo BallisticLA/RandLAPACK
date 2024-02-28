@@ -192,9 +192,6 @@ int RBKI<T, RNG>::call(
         sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
         gemm_A_t_start = high_resolution_clock::now();
     }
-    printf("m %d, n %d, k %d\n", m, n, k);
-    char name[] = "A";
-    //RandBLAS::util::print_colmaj(n, k, Y_i, name);
 
     // [X_ev, ~] = qr(A * Y_i, 0)
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
@@ -235,7 +232,6 @@ int RBKI<T, RNG>::call(
             main_loop_t_start = high_resolution_clock::now();
 
         if (iter % 2 != 0) {
-            printf("First\n");
             if(this -> timing)
                 gemm_A_t_start = high_resolution_clock::now();
             
@@ -307,7 +303,7 @@ int RBKI<T, RNG>::call(
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('double')))
             if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
-                printf("TERMINATION 1 at iteration %ld\n", iter);
+                //printf("TERMINATION 1 at iteration %ld\n", iter);
                 break;
             }
 
@@ -319,7 +315,6 @@ int RBKI<T, RNG>::call(
             ++iter_ev;
         }
         else {
-            printf("Second\n");
             if(this -> timing)
                 gemm_A_t_start = high_resolution_clock::now();
 
@@ -386,7 +381,7 @@ int RBKI<T, RNG>::call(
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
             if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
-                printf("TERMINATION 2 at iteration %ld\n", iter);
+                //printf("TERMINATION 2 at iteration %ld\n", iter);
                 break;
             }
 
@@ -418,18 +413,14 @@ int RBKI<T, RNG>::call(
         ++iter;
         //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
         if(norm_R > threshold) {
-            printf("Threshold termination\n");
+            //printf("Threshold termination\n");
             break;
         }
-        printf("Iter_ev + iter_od %d\n", iter_ev + iter_od);
     }
-    printf("Total iters %d\n", iter);
 
     this -> norm_R_end = norm_R;
     this->num_krylov_iters = iter;
     iter % 2 == 0 ? end_rows = k * (iter_ev + 1), end_cols = k * iter_ev : end_rows = k * (iter_od + 1), end_cols = k * iter_od;
-
-    printf("End rows & cols %d, %d\n", end_rows, end_cols);
 
     if(this -> timing) {
         allocation_t_start  = high_resolution_clock::now();
@@ -445,23 +436,11 @@ int RBKI<T, RNG>::call(
     }
 
     if (iter % 2 != 0) {
-        printf("First option\n");
         // [U_hat, Sigma, V_hat] = svd(R')
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
     } else { 
-        printf("Second option\n");
         // [U_hat, Sigma, V_hat] = svd(S)
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k, Sigma, U_hat, end_rows, VT_hat, end_cols);
-    /*
-        char name1[] = "U_hat";
-        RandBLAS::util::print_colmaj(end_rows, end_cols, U_hat, name1);
-
-        char name3[] = "Sigma";
-        RandBLAS::util::print_colmaj(n, 1, Sigma, name3);
-
-        char name2[] = "V_hat";
-        RandBLAS::util::print_colmaj(end_cols, end_cols, VT_hat, name2);
-    */
     }
     // U = X_ev * U_hat
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);

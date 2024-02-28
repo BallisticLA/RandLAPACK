@@ -71,29 +71,17 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
         // Scale columns of U by S
         for (int i = 0; i < target_rank; ++i)
             blas::scal(n, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
-
         // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A.data(), m, all_data.VT.data(), n, -1.0, U_cpy_dat, m);
 
         // A'U - VS
         // Scale columns of V by S
         // Since we have VT, we will be scaling its rows
-
-        //char name[] = "V_cpy_pre";
-        //RandBLAS::util::print_colmaj(n, n, VT_cpy_dat, name);
-
         for (int i = 0; i < n; ++i)
             blas::scal(custom_rank, all_data.Sigma[i], &VT_cpy_dat[i], n);
-
-        //char name1[] = "V_cpy_post";
-        //RandBLAS::util::print_colmaj(n, n, VT_cpy_dat, name1);
-
         // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
         // We will actually have to perform U' * A - Sigma * VT.
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, target_rank, custom_rank, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
-
-        //char name3[] = "A'U";
-        //RandBLAS::util::print_colmaj(n, n, VT_cpy_dat, name3);
 
         T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m) / std::sqrt(custom_rank);
         T nrm2 = lapack::lange(Norm::Fro, target_rank, custom_rank, VT_cpy_dat, n) / std::sqrt(custom_rank);
@@ -145,27 +133,17 @@ static void call_all_algs(
         RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
-
-        char name[] = "A";
-        //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
-
-        char name1[] = "U";
-        //RandBLAS::util::print_colmaj(m, target_rank, all_data.U.data(), name1);
-
-        char name3[] = "Sigma";
-        //RandBLAS::util::print_colmaj(target_rank, 1, all_data.Sigma.data(), name3);
-
-        char name2[] = "VT";
-        //RandBLAS::util::print_colmaj(n, n, all_data.VT.data(), name2);
     
 
-        T residual_err = residual_error_comp<T>(all_data, target_rank, custom_rank);
+        T residual_err_custom = residual_error_comp<T>(all_data, target_rank, custom_rank);
+        T residual_err_target = residual_error_comp<T>(all_data, target_rank, target_rank);
 
         // Print accuracy info
-        printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err);
+        printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
+        printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
         
         std::ofstream file(output_filename, std::ios::app);
-        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
+        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target <<  ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
     
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen, 0);
@@ -187,12 +165,12 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t target_rank_start      = 512;
     int64_t target_rank_curr       = target_rank_start;
-    int64_t target_rank_stop       = 512;
-    int64_t custom_rank            = 32;
+    int64_t target_rank_stop       = 4096;
+    int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 1;
+    int numruns                    = 3;
     long dur_svd = 0;
     std::vector<long> res;
 
@@ -206,8 +184,8 @@ int main(int argc, char *argv[]) {
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 16;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 8;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
