@@ -83,10 +83,10 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
         // We will actually have to perform U' * A - Sigma * VT.
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, target_rank, custom_rank, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
 
-        T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m) / std::sqrt(custom_rank);
-        T nrm2 = lapack::lange(Norm::Fro, target_rank, custom_rank, VT_cpy_dat, n) / std::sqrt(custom_rank);
+        T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
+        T nrm2 = lapack::lange(Norm::Fro, target_rank, custom_rank, VT_cpy_dat, n);
 
-        return std::sqrt( std::pow(nrm2, 2) );
+        return std::sqrt(std::pow(nrm1, 2) +  std::pow(nrm2, 2));
     }
 
 template <typename T, typename RNG>
@@ -165,7 +165,7 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t target_rank_start      = 512;
     int64_t target_rank_curr       = target_rank_start;
-    int64_t target_rank_stop       = 4096;
+    int64_t target_rank_stop       = 512;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
@@ -184,8 +184,8 @@ int main(int argc, char *argv[]) {
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 8;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 16;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
