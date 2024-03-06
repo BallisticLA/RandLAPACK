@@ -187,6 +187,17 @@ int RBKI<T, RNG>::call(
     state = RandBLAS::fill_dense(D, Y_i, state).second;
     //omp_set_num_threads(48);
 
+
+/***********************************************************************************/
+    std::ofstream file("SKETCHING_OPERATOR.txt", std::ios::app);
+    for (int i = 0; i < k; ++i) {
+        for (int j = 0; j < n; ++j) {
+            file << *(Y_i + i * n + j)  << " ";
+        }
+        file << "\n";  // Move to the next line after each row
+    }
+/***********************************************************************************/
+
     if(this -> timing) {
         sketching_t_stop  = high_resolution_clock::now();
         sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
@@ -417,6 +428,7 @@ int RBKI<T, RNG>::call(
             break;
         }
     }
+    printf("Total iters %d\n", iter);
 
     this -> norm_R_end = norm_R;
     this->num_krylov_iters = iter;
@@ -433,6 +445,15 @@ int RBKI<T, RNG>::call(
         allocation_t_stop  = high_resolution_clock::now();
         allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
         get_factors_t_start  = high_resolution_clock::now();
+    }
+
+    printf("%ld, %ld\n", end_rows, end_cols);
+    std::ofstream file2("S_TO_DECOMPOSE.txt", std::ios::app);
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < (n+k); ++j) {
+            file2 << *(S + i * (n + k) + j)  << " ";
+        }
+        file2 << "\n";  // Move to the next line after each row
     }
 
     if (iter % 2 != 0) {

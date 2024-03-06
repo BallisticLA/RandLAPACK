@@ -57,7 +57,7 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
     template <typename T>
     static T
     residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64_t custom_rank) {
-
+        printf("%ld\n", custom_rank);
         auto m = all_data.row;
         auto n = all_data.col;
 
@@ -86,7 +86,9 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
         T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
         T nrm2 = lapack::lange(Norm::Fro, target_rank, custom_rank, VT_cpy_dat, n);
 
-        return std::sqrt(std::pow(nrm1, 2) +  std::pow(nrm2, 2));
+        printf("%e %e\n", nrm1, nrm2);
+
+        return std::sqrt(std::pow(nrm1, 2) + std::pow(nrm2, 2));
     }
 
 template <typename T, typename RNG>
@@ -133,6 +135,28 @@ static void call_all_algs(
         RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
+
+        std::ofstream file1("U.txt", std::ios::app);
+        for (int i = 0; i < target_rank; ++i) {
+            for (int j = 0; j < m; ++j) {
+                file1 << *(all_data.U.data() + i * m + j)  << " ";
+            }
+            file1 << "\n";  // Move to the next line after each row
+        }
+
+        std::ofstream file2("VT.txt", std::ios::app);
+        for (int i = 0; i < n; ++i) {
+            for (int j = 0; j < target_rank; ++j) {
+                file2 << *(all_data.VT.data() + i * n + j)  << " ";
+            }
+            file2 << "\n";  // Move to the next line after each row
+        }
+
+        std::ofstream file3("S.txt", std::ios::app);
+        for (int i = 0; i < target_rank; ++i) {
+            file3 << *(all_data.Sigma.data() + i)  << " ";
+            file3 << "\n";  // Move to the next line after each row
+        }
     
 
         T residual_err_custom = residual_error_comp<T>(all_data, target_rank, custom_rank);
@@ -142,9 +166,7 @@ static void call_all_algs(
         printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
         printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
         
-        std::ofstream file(output_filename, std::ios::app);
-        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target <<  ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
-    
+std::ofstream file(output_filename, std::ios::app);
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen, 0);
     }
@@ -170,7 +192,7 @@ int main(int argc, char *argv[]) {
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 3;
+    int numruns                    = 1;
     long dur_svd = 0;
     std::vector<long> res;
 
