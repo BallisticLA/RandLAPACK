@@ -5,6 +5,7 @@
 
 #include <RandBLAS.hh>
 #include <fstream>
+#include <iomanip>
 
 template <typename T>
 struct RBKI_benchmark_data {
@@ -61,30 +62,37 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
         auto m = all_data.row;
         auto n = all_data.col;
 
-        T* U_cpy_dat = RandLAPACK::util::upsize(m * target_rank, all_data.U_cpy);
-        T* VT_cpy_dat = RandLAPACK::util::upsize(n * target_rank, all_data.VT_cpy);
+        T* U_cpy_dat = RandLAPACK::util::upsize(m * n, all_data.U_cpy);
+        T* VT_cpy_dat = RandLAPACK::util::upsize(n * n, all_data.VT_cpy);
 
-        lapack::lacpy(MatrixType::General, m, target_rank, all_data.U.data(), m, U_cpy_dat, m);
-        lapack::lacpy(MatrixType::General, n, target_rank, all_data.VT.data(), n, VT_cpy_dat, n);
+        lapack::lacpy(MatrixType::General, m, n, all_data.U.data(), m, U_cpy_dat, m);
+        lapack::lacpy(MatrixType::General, n, n, all_data.VT.data(), n, VT_cpy_dat, n);
 
         // AV - US
         // Scale columns of U by S
-        for (int i = 0; i < target_rank; ++i)
-            blas::scal(n, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
+        for (int i = 0; i < custom_rank; ++i)
+            blas::scal(m, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
+
+
         // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A.data(), m, all_data.VT.data(), n, -1.0, U_cpy_dat, m);
+
 
         // A'U - VS
         // Scale columns of V by S
         // Since we have VT, we will be scaling its rows
-        for (int i = 0; i < n; ++i)
-            blas::scal(custom_rank, all_data.Sigma[i], &VT_cpy_dat[i], n);
+        // The data is, however, stored in a column-major format, so it is a bit weird.
+        //for (int i = 0; i < n; ++i)
+        //    blas::scal(custom_rank, all_data.Sigma[i], &VT_cpy_dat[i], n);
+        for (int i = 0; i < custom_rank; ++i)
+            blas::scal(n, all_data.Sigma[i], &VT_cpy_dat[i], n);
         // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
         // We will actually have to perform U' * A - Sigma * VT.
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, target_rank, custom_rank, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
+
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
 
         T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
-        T nrm2 = lapack::lange(Norm::Fro, target_rank, custom_rank, VT_cpy_dat, n);
+        T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
 
         printf("%e %e\n", nrm1, nrm2);
 
@@ -136,25 +144,28 @@ static void call_all_algs(
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
-        std::ofstream file1("U.txt", std::ios::app);
+        std::ofstream file1("run_out/U.txt", std::ios::trunc);
         for (int i = 0; i < target_rank; ++i) {
             for (int j = 0; j < m; ++j) {
-                file1 << *(all_data.U.data() + i * m + j)  << " ";
+                file1 << std::setprecision(20) << *(all_data.U.data() + i * m + j)  << " ";
             }
             file1 << "\n";  // Move to the next line after each row
         }
 
-        std::ofstream file2("VT.txt", std::ios::app);
+        std::ofstream file2("run_out/VT.txt", std::ios::trunc);
         for (int i = 0; i < n; ++i) {
             for (int j = 0; j < target_rank; ++j) {
-                file2 << *(all_data.VT.data() + i * n + j)  << " ";
+                file2 << std::setprecision(20) << *(all_data.VT.data() + i * n + j)  << " ";
             }
             file2 << "\n";  // Move to the next line after each row
         }
 
-        std::ofstream file3("S.txt", std::ios::app);
+        char name [] = "VT";
+        //RandBLAS::util::print_colmaj(n, n, all_data.VT.data(), name);
+
+        std::ofstream file3("run_out/S.txt", std::ios::trunc);
         for (int i = 0; i < target_rank; ++i) {
-            file3 << *(all_data.Sigma.data() + i)  << " ";
+            file3 << std::setprecision(20) << *(all_data.Sigma.data() + i)  << " ";
             file3 << "\n";  // Move to the next line after each row
         }
     
@@ -166,7 +177,8 @@ static void call_all_algs(
         printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
         printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
         
-std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::app);
+        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
         state_gen = state;
         data_regen<T, RNG>(m_info, all_data, state_gen, 0);
     }

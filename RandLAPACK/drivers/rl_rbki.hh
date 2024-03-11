@@ -12,6 +12,7 @@
 #include <chrono>
 #include <numeric>
 #include <climits>
+#include <iomanip>
 
 using namespace std::chrono;
 
@@ -187,12 +188,11 @@ int RBKI<T, RNG>::call(
     state = RandBLAS::fill_dense(D, Y_i, state).second;
     //omp_set_num_threads(48);
 
-
 /***********************************************************************************/
-    std::ofstream file("SKETCHING_OPERATOR.txt", std::ios::app);
+    std::ofstream file("run_out/SKETCHING_OPERATOR.txt", std::ios::trunc);
     for (int i = 0; i < k; ++i) {
         for (int j = 0; j < n; ++j) {
-            file << *(Y_i + i * n + j)  << " ";
+            file << std::setprecision(20) << *(Y_i + i * n + j)  << " ";
         }
         file << "\n";  // Move to the next line after each row
     }
@@ -237,7 +237,8 @@ int RBKI<T, RNG>::call(
     ++iter;
 
     // Iterate until in-loop termination criteria is met.
-
+    char name [] = "S_TO_DECOMPOSE";
+    char name1 [] = "Y_i";
     while(1) {
         if(this -> timing)
             main_loop_t_start = high_resolution_clock::now();
@@ -245,7 +246,6 @@ int RBKI<T, RNG>::call(
         if (iter % 2 != 0) {
             if(this -> timing)
                 gemm_A_t_start = high_resolution_clock::now();
-            
             // Y_i = A' * X_i 
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, X_i, m, 0.0, Y_i, n);
 
@@ -276,13 +276,12 @@ int RBKI<T, RNG>::call(
                     reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
                 }
             }
-
+            /****************************************ISSUE ABOVE****************************************************************************/
             // [Y_i, R_ii] = qr(Y_i, 0)
             std::fill(&tau[0], &tau[k], 0.0);
 
             if(this -> timing)
                 qr_t_start = high_resolution_clock::now();
-
             lapack::geqrf(n, k, Y_i, n, tau);
 
             if(this -> timing) {
@@ -305,7 +304,7 @@ int RBKI<T, RNG>::call(
 
             // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
             lapack::ungqr(n, k, k, Y_i, n, tau);
-
+            
             if(this -> timing) {
                 ungqr_t_stop  = high_resolution_clock::now();
                 ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
@@ -331,7 +330,7 @@ int RBKI<T, RNG>::call(
 
             // X_i = A * Y_i
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
-
+            
             if(this -> timing) {
                 gemm_A_t_stop = high_resolution_clock::now();
                 gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
@@ -363,7 +362,7 @@ int RBKI<T, RNG>::call(
 
             if(this -> timing)
                 qr_t_start = high_resolution_clock::now();
-
+            
             lapack::geqrf(m, k, X_i, m, tau);
 
             if(this -> timing) {
@@ -401,6 +400,7 @@ int RBKI<T, RNG>::call(
             S_ii = &S_ii[((n + k)  + 1) * k];
             // Advance odd iteration count;
             ++iter_od;
+            //RandBLAS::util::print_colmaj(n+k, n, S, name);
         }
 
         if(this -> timing)
@@ -432,7 +432,10 @@ int RBKI<T, RNG>::call(
 
     this -> norm_R_end = norm_R;
     this->num_krylov_iters = iter;
-    iter % 2 == 0 ? end_rows = k * (iter_ev + 1), end_cols = k * iter_ev : end_rows = k * (iter_od + 1), end_cols = k * iter_od;
+    //iter % 2 == 0 ? end_rows = k * (iter_ev + 1), end_cols = k * iter_ev : end_rows = k * (iter_od + 1), end_cols = k * iter_od;
+    end_cols = num_krylov_iters * k / 2;
+    iter % 2 == 0 ? end_rows = end_cols + k : end_rows = end_cols;
+    
 
     if(this -> timing) {
         allocation_t_start  = high_resolution_clock::now();
@@ -448,26 +451,82 @@ int RBKI<T, RNG>::call(
     }
 
     printf("%ld, %ld\n", end_rows, end_cols);
-    std::ofstream file2("S_TO_DECOMPOSE.txt", std::ios::app);
+    std::ofstream file2("run_out/S_TO_DECOMPOSE.txt", std::ios::trunc);
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < (n+k); ++j) {
-            file2 << *(S + i * (n + k) + j)  << " ";
+            file2 << std::setprecision(20) << *(S + i * (n + k) + j)  << " ";
         }
         file2 << "\n";  // Move to the next line after each row
     }
 
+    char name_A [] = "A";
+    //RandBLAS::util::print_colmaj(m, n, A, name_A);
+
+    char name0 [] = "S TO DECOMPOSE";
+    //RandBLAS::util::print_colmaj(n + k, n, S, name0);
+
+
+    //RandBLAS::util::print_colmaj(n+k, n, S, name);
     if (iter % 2 != 0) {
+        printf("Decomposing R\n");
         // [U_hat, Sigma, V_hat] = svd(R')
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
     } else { 
+        printf("Decomposing S\n");
         // [U_hat, Sigma, V_hat] = svd(S)
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k, Sigma, U_hat, end_rows, VT_hat, end_cols);
     }
+
+    char name2 [] = "U_hat";
+    char name3 [] = "VT_hat";
+    char name4 [] = "Sigma";
+
+    //RandBLAS::util::print_colmaj(end_rows, end_cols, U_hat, name2);
+    //RandBLAS::util::print_colmaj(end_cols, end_cols, VT_hat, name3);
+    //RandBLAS::util::print_colmaj(end_cols, 1, Sigma, name4);
+ 
+    std::ofstream file5("run_out/U_hat.txt", std::ios::trunc);
+    for (int i = 0; i < end_cols; ++i) {
+        for (int j = 0; j < end_rows; ++j) {
+            file5 << std::setprecision(20) << *(U_hat + i * end_rows + j)  << " ";
+        }
+        file5 << "\n";  // Move to the next line after each row
+    }
+
+
+    std::ofstream file6("run_out/VT_hat.txt", std::ios::trunc);
+    for (int i = 0; i < end_cols; ++i) {
+        for (int j = 0; j < end_cols; ++j) {
+            file6 << std::setprecision(20) << *(VT_hat + i * end_cols + j)  << " ";
+        }
+        file6 << "\n";  // Move to the next line after each row
+    }
+
+
+
     // U = X_ev * U_hat
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
     // V = Y_od * V_hat
     // We actually perform VT = V_hat' * Y_odd'
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
+
+    
+    std::ofstream file3("run_out/X_ev.txt", std::ios::trunc);
+    for (int i = 0; i < end_rows; ++i) {
+        for (int j = 0; j < m; ++j) {
+            file3 << std::setprecision(20) << *(X_ev + i * m + j)  << " ";
+        }
+        file3 << "\n";  // Move to the next line after each row
+    }
+
+
+    std::ofstream file4("run_out/Y_od.txt", std::ios::trunc);
+    for (int i = 0; i < end_cols; ++i) {
+        for (int j = 0; j < n; ++j) {
+            file4 << std::setprecision(20) << *(Y_od + i * n + j)  << " ";
+        }
+        file4 << "\n";  // Move to the next line after each row
+    }
 
     if(this -> timing) {
         get_factors_t_stop  = high_resolution_clock::now();
