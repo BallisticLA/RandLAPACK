@@ -58,7 +58,6 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
     template <typename T>
     static T
     residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64_t custom_rank) {
-        printf("%ld\n", custom_rank);
         auto m = all_data.row;
         auto n = all_data.col;
 
@@ -94,8 +93,6 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
         T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
         T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
 
-        printf("%e %e\n", nrm1, nrm2);
-
         return std::sqrt(std::pow(nrm1, 2) + std::pow(nrm2, 2));
     }
 
@@ -126,7 +123,6 @@ static void call_all_algs(
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
     RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
-    printf("Max Krylov iters %d\n", RBKI.max_krylov_iters);
 
     // timing vars
     long dur_rbki    = 0;
@@ -143,32 +139,6 @@ static void call_all_algs(
         RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
-
-        std::ofstream file1("run_out/U.txt", std::ios::trunc);
-        for (int i = 0; i < target_rank; ++i) {
-            for (int j = 0; j < m; ++j) {
-                file1 << std::setprecision(20) << *(all_data.U.data() + i * m + j)  << " ";
-            }
-            file1 << "\n";  // Move to the next line after each row
-        }
-
-        std::ofstream file2("run_out/VT.txt", std::ios::trunc);
-        for (int i = 0; i < n; ++i) {
-            for (int j = 0; j < target_rank; ++j) {
-                file2 << std::setprecision(20) << *(all_data.VT.data() + i * n + j)  << " ";
-            }
-            file2 << "\n";  // Move to the next line after each row
-        }
-
-        char name [] = "VT";
-        //RandBLAS::util::print_colmaj(n, n, all_data.VT.data(), name);
-
-        std::ofstream file3("run_out/S.txt", std::ios::trunc);
-        for (int i = 0; i < target_rank; ++i) {
-            file3 << std::setprecision(20) << *(all_data.Sigma.data() + i)  << " ";
-            file3 << "\n";  // Move to the next line after each row
-        }
-    
 
         T residual_err_custom = residual_error_comp<T>(all_data, target_rank, custom_rank);
         T residual_err_target = residual_error_comp<T>(all_data, target_rank, target_rank);
@@ -199,7 +169,7 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t target_rank_start      = 512;
     int64_t target_rank_curr       = target_rank_start;
-    int64_t target_rank_stop       = 512;
+    int64_t target_rank_stop       = 4096;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
@@ -211,15 +181,15 @@ int main(int argc, char *argv[]) {
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
     m_info.filename = argv[1];
-    m_info.workspace_query_mod = 1;
+    m_info.workspace_query_mod = 3;
     // Workspace query;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, NULL, state);
 
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 16;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 8;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 256;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);

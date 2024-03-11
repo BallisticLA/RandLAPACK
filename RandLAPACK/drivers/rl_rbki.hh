@@ -428,7 +428,6 @@ int RBKI<T, RNG>::call(
             break;
         }
     }
-    printf("Total iters %d\n", iter);
 
     this -> norm_R_end = norm_R;
     this->num_krylov_iters = iter;
@@ -450,83 +449,19 @@ int RBKI<T, RNG>::call(
         get_factors_t_start  = high_resolution_clock::now();
     }
 
-    printf("%ld, %ld\n", end_rows, end_cols);
-    std::ofstream file2("run_out/S_TO_DECOMPOSE.txt", std::ios::trunc);
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < (n+k); ++j) {
-            file2 << std::setprecision(20) << *(S + i * (n + k) + j)  << " ";
-        }
-        file2 << "\n";  // Move to the next line after each row
-    }
-
-    char name_A [] = "A";
-    //RandBLAS::util::print_colmaj(m, n, A, name_A);
-
-    char name0 [] = "S TO DECOMPOSE";
-    //RandBLAS::util::print_colmaj(n + k, n, S, name0);
-
-
-    //RandBLAS::util::print_colmaj(n+k, n, S, name);
     if (iter % 2 != 0) {
-        printf("Decomposing R\n");
         // [U_hat, Sigma, V_hat] = svd(R')
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
     } else { 
-        printf("Decomposing S\n");
         // [U_hat, Sigma, V_hat] = svd(S)
         lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k, Sigma, U_hat, end_rows, VT_hat, end_cols);
     }
-
-    char name2 [] = "U_hat";
-    char name3 [] = "VT_hat";
-    char name4 [] = "Sigma";
-
-    //RandBLAS::util::print_colmaj(end_rows, end_cols, U_hat, name2);
-    //RandBLAS::util::print_colmaj(end_cols, end_cols, VT_hat, name3);
-    //RandBLAS::util::print_colmaj(end_cols, 1, Sigma, name4);
- 
-    std::ofstream file5("run_out/U_hat.txt", std::ios::trunc);
-    for (int i = 0; i < end_cols; ++i) {
-        for (int j = 0; j < end_rows; ++j) {
-            file5 << std::setprecision(20) << *(U_hat + i * end_rows + j)  << " ";
-        }
-        file5 << "\n";  // Move to the next line after each row
-    }
-
-
-    std::ofstream file6("run_out/VT_hat.txt", std::ios::trunc);
-    for (int i = 0; i < end_cols; ++i) {
-        for (int j = 0; j < end_cols; ++j) {
-            file6 << std::setprecision(20) << *(VT_hat + i * end_cols + j)  << " ";
-        }
-        file6 << "\n";  // Move to the next line after each row
-    }
-
-
 
     // U = X_ev * U_hat
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
     // V = Y_od * V_hat
     // We actually perform VT = V_hat' * Y_odd'
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
-
-    
-    std::ofstream file3("run_out/X_ev.txt", std::ios::trunc);
-    for (int i = 0; i < end_rows; ++i) {
-        for (int j = 0; j < m; ++j) {
-            file3 << std::setprecision(20) << *(X_ev + i * m + j)  << " ";
-        }
-        file3 << "\n";  // Move to the next line after each row
-    }
-
-
-    std::ofstream file4("run_out/Y_od.txt", std::ios::trunc);
-    for (int i = 0; i < end_cols; ++i) {
-        for (int j = 0; j < n; ++j) {
-            file4 << std::setprecision(20) << *(Y_od + i * n + j)  << " ";
-        }
-        file4 << "\n";  // Move to the next line after each row
-    }
 
     if(this -> timing) {
         get_factors_t_stop  = high_resolution_clock::now();
