@@ -101,13 +101,13 @@ static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t b_sz,
-    int64_t target_rank,
+    int64_t num_matmuls,
     int64_t custom_rank,
     RBKI_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename, 
     long dur_svd) {
-    printf("\nBlock size %ld, target rank %ld\n", b_sz, target_rank);
+    printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);
 
     int i, j;
     auto m   = all_data.row;
@@ -122,7 +122,11 @@ static void call_all_algs(
     // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
-    RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
+    // RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
+    // 
+    // Instead of the above approach, we now pre-specify the maximum number of Krylov iters that we allow for in num_matmuls.
+    RBKI.max_krylov_iters = (int) num_matmuls;
+    int64_t target_rank = b_sz * num_matmuls / 2;
 
     // timing vars
     long dur_rbki    = 0;
@@ -167,29 +171,29 @@ int main(int argc, char *argv[]) {
     int64_t n                      = 0;
     int64_t b_sz_start             = 0;
     int64_t b_sz_stop              = 0;
-    int64_t target_rank_start      = 512;
-    int64_t target_rank_curr       = target_rank_start;
-    int64_t target_rank_stop       = 4096;
+    int64_t num_matmuls_start      = 2;
+    int64_t num_matmuls_curr       = num_matmuls_start;
+    int64_t num_matmuls_stop       = 20;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 1;
+    int numruns                    = 5;
     long dur_svd = 0;
     std::vector<long> res;
 
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
     m_info.filename = argv[1];
-    m_info.workspace_query_mod = 3;
+    m_info.workspace_query_mod = 1;
     // Workspace query;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, NULL, state);
 
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 8;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 256;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
@@ -204,14 +208,14 @@ int main(int argc, char *argv[]) {
                                       + "_n_"                      + std::to_string(n)
                                       + "_b_sz_start_"             + std::to_string(b_sz_start)
                                       + "_b_sz_stop_"              + std::to_string(b_sz_stop)
-                                      + "_num_krylov_iters_start_" + std::to_string(target_rank_start)
-                                      + "_num_krylov_iters_stop_"  + std::to_string(target_rank_stop)
+                                      + "_num_matmuls_start_" + std::to_string(num_matmuls_start)
+                                      + "_num_matmuls_stop_"  + std::to_string(num_matmuls_stop)
                                       + ".dat"; 
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
-        for (;target_rank_curr <= target_rank_stop; target_rank_curr *=2) {
-            call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, target_rank_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
+        for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
+            call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
         }
-        target_rank_curr = target_rank_start;
+        num_matmuls_curr = num_matmuls_start;
     }
 }
