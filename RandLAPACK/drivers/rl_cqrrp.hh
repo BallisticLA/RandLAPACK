@@ -85,6 +85,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         /// @param[in] tau
         ///     Pointer to a vector of size n. On entry, is empty.
         ///
+        /// @param[in] state
+        ///     RNG state parameter, required for sketching operator generation.
+        ///
         /// @param[out] A
         ///     Overwritten by Implicit Q and explicit R factors.
         ///

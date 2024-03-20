@@ -21,6 +21,21 @@ namespace RandLAPACK {
 template <typename T, typename RNG>
 class RBKIalg {
     public:
+
+        /// RBKI algorithm is a method for finding truncated SVD based on block Krylov iterations.
+        /// This algorithm is a version of Algroithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
+        /// 
+        /// The main difference is in the fact that an economy SVD is performed only once at the very end 
+        /// of the algorithm run and that the termination criteria is not based on singular vectir residual evaluation.
+        /// Instead, the scheme terminates if:
+        ///     1. ||R||_F > sqrt(1 - eps^2) ||A||_F, which ensures that we've exhausted all vectors and doing more 
+        ///        iterations would bring no benefit or that ||A - hat(A)||_F < eps * ||A||_F.
+        ///     2. Stop if the bottom right entry of R or S is numerically close to zero (up to square root of machine eps).
+        /// 
+        /// The main cos of this algorithm comes from large GEMMs with the input matrix A.
+        ///
+        /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
+
         virtual ~RBKIalg() {}
         virtual int call(
             int64_t m,
@@ -48,6 +63,51 @@ class RBKI : public RBKIalg<T, RNG> {
             tol = ep;
             max_krylov_iters = INT_MAX;
         }
+
+        /// Computes a QR factorization with column pivots of the form:
+        ///     A[:, J] = QR,
+        /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
+        /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
+        ///
+        /// @param[in] m
+        ///     The number of rows in the matrix A.
+        ///
+        /// @param[in] n
+        ///     The number of columns in the matrix A.
+        ///
+        /// @param[in] A
+        ///     Pointer to the m-by-n matrix A, stored in a column-major format.
+        ///
+        /// @param[in] lda
+        ///     Leading dimension of A.
+        ///
+        /// @param[in] k
+        ///     Sampling dimension of a sketching operator, m >= (k * n) >= n.
+        ///
+        /// @param[in] U
+        ///     On output, an empty matrix.
+        ///
+        /// @param[in] VT
+        ///     On output, an empty matrix.
+        ///
+        /// @param[in] Sigma
+        ///     On output, an empty matrix.
+        ///
+        /// @param[in] state
+        ///     RNG state parameter, required for sketching operator generation.
+        ///
+        /// @param[out] U
+        ///     Stores m by ((num_iters / 2) * k) orthonormal matrix of left singular vectors.
+        ///
+        /// @param[out] VT
+        ///     Stores ((num_iters / 2) * k) * n orthonormal matrix of right singular vectors.
+        ///
+        /// @param[out] Sigma
+        ///     Stores ((num_iters / 2) * k) singular values. 
+        ///
+        /// @return = 0: successful exit
+        ///
+
         int call(
             int64_t m,
             int64_t n,
