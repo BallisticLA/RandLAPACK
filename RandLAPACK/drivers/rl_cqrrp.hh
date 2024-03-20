@@ -314,8 +314,8 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
         
-        lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
-        /*
+        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
+        
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
         #pragma omp parallel for
@@ -334,7 +334,7 @@ int CQRRP_blocked<T, RNG>::call(
         util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
-        */
+        
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();

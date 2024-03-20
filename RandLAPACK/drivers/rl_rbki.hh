@@ -187,7 +187,6 @@ int RBKI<T, RNG>::call(
 
     int64_t iter = 0, iter_od = 0, iter_ev = 0, i = 0, end_rows = 0, end_cols = 0;
     T norm_R = 0;
-    int64_t space_rows = k * std::ceil(m / (T) k);
     int max_iters = this->max_krylov_iters;//std::min(this->max_krylov_iters, (int) (n / (T) k));
 
     // We need a full copy of X and Y all the way through the algorithm
@@ -248,16 +247,6 @@ int RBKI<T, RNG>::call(
     state = RandBLAS::fill_dense(D, Y_i, state).second;
     //omp_set_num_threads(48);
 
-/***********************************************************************************/
-    std::ofstream file("run_out/SKETCHING_OPERATOR.txt", std::ios::trunc);
-    for (int i = 0; i < k; ++i) {
-        for (int j = 0; j < n; ++j) {
-            file << std::setprecision(20) << *(Y_i + i * n + j)  << " ";
-        }
-        file << "\n";  // Move to the next line after each row
-    }
-/***********************************************************************************/
-
     if(this -> timing) {
         sketching_t_stop  = high_resolution_clock::now();
         sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
@@ -297,8 +286,6 @@ int RBKI<T, RNG>::call(
     ++iter;
 
     // Iterate until in-loop termination criteria is met.
-    char name [] = "S_TO_DECOMPOSE";
-    char name1 [] = "Y_i";
     while(1) {
         if(this -> timing)
             main_loop_t_start = high_resolution_clock::now();
@@ -553,7 +540,7 @@ int RBKI<T, RNG>::call(
 
             if (this -> verbosity) {
                 printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
-                printf("Basic info: b_sz=%ld krylov_iters=%ld\n",      k, num_krylov_iters);
+                printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
 
                 printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
                 printf("Time to acquire the SVD factors: %25ld μs,\n", get_factors_t_dur);

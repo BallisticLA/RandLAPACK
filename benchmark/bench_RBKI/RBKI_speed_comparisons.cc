@@ -53,48 +53,48 @@ static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2,
     }
 }
 
-    // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
-    // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
-    template <typename T>
-    static T
-    residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64_t custom_rank) {
-        auto m = all_data.row;
-        auto n = all_data.col;
+// This routine computes the residual norm error, consisting of two parts (one of which) vanishes
+// in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
+template <typename T>
+static T
+residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64_t custom_rank) {
+    auto m = all_data.row;
+    auto n = all_data.col;
 
-        T* U_cpy_dat = RandLAPACK::util::upsize(m * n, all_data.U_cpy);
-        T* VT_cpy_dat = RandLAPACK::util::upsize(n * n, all_data.VT_cpy);
+    T* U_cpy_dat = RandLAPACK::util::upsize(m * n, all_data.U_cpy);
+    T* VT_cpy_dat = RandLAPACK::util::upsize(n * n, all_data.VT_cpy);
 
-        lapack::lacpy(MatrixType::General, m, n, all_data.U.data(), m, U_cpy_dat, m);
-        lapack::lacpy(MatrixType::General, n, n, all_data.VT.data(), n, VT_cpy_dat, n);
+    lapack::lacpy(MatrixType::General, m, n, all_data.U.data(), m, U_cpy_dat, m);
+    lapack::lacpy(MatrixType::General, n, n, all_data.VT.data(), n, VT_cpy_dat, n);
 
-        // AV - US
-        // Scale columns of U by S
-        for (int i = 0; i < custom_rank; ++i)
-            blas::scal(m, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
-
-
-        // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A.data(), m, all_data.VT.data(), n, -1.0, U_cpy_dat, m);
+    // AV - US
+    // Scale columns of U by S
+    for (int i = 0; i < custom_rank; ++i)
+        blas::scal(m, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
 
 
-        // A'U - VS
-        // Scale columns of V by S
-        // Since we have VT, we will be scaling its rows
-        // The data is, however, stored in a column-major format, so it is a bit weird.
-        //for (int i = 0; i < n; ++i)
-        //    blas::scal(custom_rank, all_data.Sigma[i], &VT_cpy_dat[i], n);
-        for (int i = 0; i < custom_rank; ++i)
-            blas::scal(n, all_data.Sigma[i], &VT_cpy_dat[i], n);
-        // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
-        // We will actually have to perform U' * A - Sigma * VT.
+    // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A.data(), m, all_data.VT.data(), n, -1.0, U_cpy_dat, m);
 
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
 
-        T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
-        T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
+    // A'U - VS
+    // Scale columns of V by S
+    // Since we have VT, we will be scaling its rows
+    // The data is, however, stored in a column-major format, so it is a bit weird.
+    //for (int i = 0; i < n; ++i)
+    //    blas::scal(custom_rank, all_data.Sigma[i], &VT_cpy_dat[i], n);
+    for (int i = 0; i < custom_rank; ++i)
+        blas::scal(n, all_data.Sigma[i], &VT_cpy_dat[i], n);
+    // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
+    // We will actually have to perform U' * A - Sigma * VT.
 
-        return std::sqrt(std::pow(nrm1, 2) + std::pow(nrm2, 2));
-    }
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
+
+    T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
+    T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
+
+    return std::sqrt(std::pow(nrm1, 2) + std::pow(nrm2, 2));
+}
 
 template <typename T, typename RNG>
 static void call_all_algs(
@@ -173,12 +173,12 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t num_matmuls_start      = 2;
     int64_t num_matmuls_curr       = num_matmuls_start;
-    int64_t num_matmuls_stop       = 20;
+    int64_t num_matmuls_stop       = 50;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 5;
+    int numruns                    = 3;
     long dur_svd = 0;
     std::vector<long> res;
 
@@ -204,7 +204,7 @@ int main(int argc, char *argv[]) {
     printf("Finished data preparation\n");
 
     // Declare a data file
-    std::string output_filename = "RBKI_speed_comp_m_"             + std::to_string(m)
+    std::string output_filename = "COMBINED_1_2_3_4_5_RBKI_speed_comp_m_"             + std::to_string(m)
                                       + "_n_"                      + std::to_string(n)
                                       + "_b_sz_start_"             + std::to_string(b_sz_start)
                                       + "_b_sz_stop_"              + std::to_string(b_sz_stop)
