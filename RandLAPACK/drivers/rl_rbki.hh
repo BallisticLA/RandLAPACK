@@ -191,12 +191,16 @@ int RBKI<T, RNG>::call(
 
     // We need a full copy of X and Y all the way through the algorithm
     // due to an operation with X_odd and Y_odd happening at the end.
+    // Below pointers stay the same throughout the alg; the space will be alloacted iteratively
     // Space for Y_i and Y_odd.
-    T* Y   = ( T * ) calloc( n * m,       sizeof( T ) );
-    // Space for X_i and X_ev. (maybe needs to be m by m + k)
-    T* X   = ( T * ) calloc( m * (m + k), sizeof( T ) );
-    // tau space for QR
-    T* tau = ( T * ) calloc( k,           sizeof( T ) );
+    T* Y_od  = ( T * ) calloc( n * m,       sizeof( T ) );
+    //T* Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
+    int64_t curr_Y_cols = k;
+    // Space for X_i and X_ev. 
+    T* X_ev  = ( T * ) calloc( m * (n + k), sizeof( T ) );
+    //T* X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
+    int64_t curr_X_cols = k;
+
     // While R and S matrices are structured (both band), we cannot make use of this structure through
     // BLAS-level functions.
     // Note also that we store a transposed version of R.
@@ -213,11 +217,8 @@ int RBKI<T, RNG>::call(
 
     // Pointers allocation
     // Below pointers will be offset by (n or m) * k at every even iteration.
-    T* Y_i  = Y;
-    T* X_i  = X;
-    // Below pointers stay the same throughout the alg.
-    T* Y_od = Y;
-    T* X_ev = X;
+    T* Y_i  = Y_od;
+    T* X_i  = X_ev;
     // S and S pointers are offset at every step.
     T* R_i  = NULL;
     T* R_ii = R;
@@ -226,6 +227,8 @@ int RBKI<T, RNG>::call(
     // Pre-decloration of SVD-related buffers.
     T* U_hat = NULL;
     T* VT_hat = NULL;
+    // tau space for QR
+    T* tau = ( T * ) calloc( k, sizeof( T ) );
 
     if(this -> timing) {
         allocation_t_stop  = high_resolution_clock::now();
@@ -300,8 +303,13 @@ int RBKI<T, RNG>::call(
                 gemm_A_t_stop = high_resolution_clock::now();
                 gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
             }
-
+/*
+            // Allocate more spece for Y_od
+            curr_X_cols += k;
+            realloc(X_ev, m * curr_X_cols * sizeof( T ));
             // Move the X_i pointer;
+            X_i = &X_ev[m * (curr_X_cols * k)];
+*/
             X_i = &X_i[m * k];
 
             if (iter != 1) {
@@ -382,10 +390,15 @@ int RBKI<T, RNG>::call(
                 gemm_A_t_stop = high_resolution_clock::now();
                 gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
             }
-
+/*
+            // Allocate more spece for Y_od
+            curr_Y_cols += k;
+            realloc(Y_od, n * curr_Y_cols * sizeof( T ));
             // Move the X_i pointer;
+            Y_i = &Y_od[n * (curr_Y_cols - k)];
+*/
             Y_i = &Y_i[n * k];
-            
+
             // S_i = X_ev' * X_i 
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
             
@@ -516,8 +529,8 @@ int RBKI<T, RNG>::call(
         allocation_t_start  = high_resolution_clock::now();
     }
 
-    free(Y);
-    free(X);
+    free(Y_od);
+    free(X_ev);
     free(tau);
     free(R);
     free(S);
