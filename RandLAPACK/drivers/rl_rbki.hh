@@ -501,7 +501,6 @@ int RBKI<T, RNG>::call(
 
     this -> norm_R_end = norm_R;
     this->num_krylov_iters = iter;
-    //iter % 2 == 0 ? end_rows = k * (iter_ev + 1), end_cols = k * iter_ev : end_rows = k * (iter_od + 1), end_cols = k * iter_od;
     end_cols = num_krylov_iters * k / 2;
     iter % 2 == 0 ? end_rows = end_cols + k : end_rows = end_cols;
     
