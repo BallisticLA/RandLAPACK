@@ -107,11 +107,11 @@ class TestRBKI : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestRBKI, RBKI_basic) {
-    int64_t m           = 4000;
+    int64_t m           = 400;
     int64_t n           = 200;
     int64_t b_sz        = 10;
     int64_t target_rank = 200;
-    int64_t custom_rank = 10;
+    int64_t custom_rank = 100;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 

@@ -193,12 +193,10 @@ int RBKI<T, RNG>::call(
     // due to an operation with X_odd and Y_odd happening at the end.
     // Below pointers stay the same throughout the alg; the space will be alloacted iteratively
     // Space for Y_i and Y_odd.
-    T* Y_od  = ( T * ) calloc( n * m,       sizeof( T ) );
-    //T* Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
+    T* Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
     int64_t curr_Y_cols = k;
     // Space for X_i and X_ev. 
-    T* X_ev  = ( T * ) calloc( m * (n + k), sizeof( T ) );
-    //T* X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
+    T* X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
     int64_t curr_X_cols = k;
 
     // While R and S matrices are structured (both band), we cannot make use of this structure through
@@ -209,9 +207,12 @@ int RBKI<T, RNG>::call(
     // At the end, size of R would by d x d and size of S would
     // be (d + 1) x d, where d = numiters_complete * b_sz, d <= n.
     // Note that the total amount of iterations will always be numiters <= n * 2 / block_size
-    T* R   = ( T * ) calloc( n * n, sizeof( T ) );
-    T* S   = ( T * ) calloc( (n + k) * n, sizeof( T ) );
+    //T* R   = ( T * ) calloc( n * n, sizeof( T ) );
+    T* R    = ( T * ) calloc( n * k, sizeof( T ) );
+    //T* S   = ( T * ) calloc( (n + k) * n, sizeof( T ) );
+    T* S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
 
+    // These buffers are of constant size
     T* Y_orth_buf = ( T * ) calloc( k * n, sizeof( T ) );
     T* X_orth_buf = ( T * ) calloc( k * (n + k), sizeof( T ) );
 
@@ -303,14 +304,14 @@ int RBKI<T, RNG>::call(
                 gemm_A_t_stop = high_resolution_clock::now();
                 gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
             }
-/*
+
             // Allocate more spece for Y_od
             curr_X_cols += k;
-            realloc(X_ev, m * curr_X_cols * sizeof( T ));
+            X_ev = ( T * ) realloc(X_ev, m * curr_X_cols * sizeof( T ));
             // Move the X_i pointer;
-            X_i = &X_ev[m * (curr_X_cols * k)];
-*/
-            X_i = &X_i[m * k];
+            X_i = &X_ev[m * (curr_X_cols - k)];
+
+            //X_i = &X_i[m * k];
 
             if (iter != 1) {
                 // R_i' = Y_i' * Y_od
@@ -331,7 +332,7 @@ int RBKI<T, RNG>::call(
                     reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
                 }
             }
-            /****************************************ISSUE ABOVE****************************************************************************/
+
             // [Y_i, R_ii] = qr(Y_i, 0)
             std::fill(&tau[0], &tau[k], 0.0);
 
@@ -372,9 +373,16 @@ int RBKI<T, RNG>::call(
                 break;
             }
 
+            // Allocate more space for R
+            R = ( T * ) realloc(R, n * curr_X_cols * sizeof( T ));
+            // Need to make sure the newly-allocated space is empty
+            memset(&R[n * (curr_X_cols - k)], 0.0, n * k * sizeof( T ));
+
             // Advance R pointers
-            iter == 1 ? R_i = &R_ii[k] : R_i = &R_i[k];
-            R_ii = &R_ii[(n + 1) * k];
+            //iter == 1 ? R_i = &R_ii[k] : R_i = &R_i[k];
+            //R_ii = &R_ii[(n + 1) * k];
+            R_i = &R[(iter_ev + 1) * k];
+            R_ii = &R[(n * k * (iter_ev + 1)) + k + (k * (iter_ev))];
 
             // Advance even iteration count;
             ++iter_ev;
@@ -390,14 +398,14 @@ int RBKI<T, RNG>::call(
                 gemm_A_t_stop = high_resolution_clock::now();
                 gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
             }
-/*
+
             // Allocate more spece for Y_od
             curr_Y_cols += k;
-            realloc(Y_od, n * curr_Y_cols * sizeof( T ));
+            Y_od = ( T * ) realloc(Y_od, n * curr_Y_cols * sizeof( T ));
             // Move the X_i pointer;
             Y_i = &Y_od[n * (curr_Y_cols - k)];
-*/
-            Y_i = &Y_i[n * k];
+
+            //Y_i = &Y_i[n * k];
 
             // S_i = X_ev' * X_i 
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
@@ -455,12 +463,23 @@ int RBKI<T, RNG>::call(
                 break;
             }
 
-            // Advance R pointers
-            S_i = &S_i[(n + k) * k];
-            S_ii = &S_ii[((n + k)  + 1) * k];
+            // Allocate more space for S
+            S = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
+            // Need to make sure the newly-allocated space is empty
+            memset(&S[(n + k)* (curr_Y_cols - k)], 0.0, (n + k) * k * sizeof( T ));
+
+            //char name [] = "S";
+            //RandBLAS::util::print_colmaj(n + k, curr_Y_cols, S, name);
+
+            // Advance S pointers
+            //S_i = &S_i[(n + k) * k];
+            //S_ii = &S_ii[((n + k)  + 1) * k];
+            S_i  = &S[(n + k) * k * iter_od];
+            S_ii = &S[(n + k) * k * iter_od + k + (iter_od * k)];
+
             // Advance odd iteration count;
             ++iter_od;
-            //RandBLAS::util::print_colmaj(n+k, n, S, name);
+
         }
 
         if(this -> timing)
@@ -528,7 +547,6 @@ int RBKI<T, RNG>::call(
         get_factors_t_dur   = duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
         allocation_t_start  = high_resolution_clock::now();
     }
-
     free(Y_od);
     free(X_ev);
     free(tau);
