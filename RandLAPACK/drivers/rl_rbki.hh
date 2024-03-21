@@ -207,9 +207,7 @@ int RBKI<T, RNG>::call(
     // At the end, size of R would by d x d and size of S would
     // be (d + 1) x d, where d = numiters_complete * b_sz, d <= n.
     // Note that the total amount of iterations will always be numiters <= n * 2 / block_size
-    //T* R   = ( T * ) calloc( n * n, sizeof( T ) );
     T* R    = ( T * ) calloc( n * k, sizeof( T ) );
-    //T* S   = ( T * ) calloc( (n + k) * n, sizeof( T ) );
     T* S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
 
     // These buffers are of constant size
@@ -379,8 +377,6 @@ int RBKI<T, RNG>::call(
             memset(&R[n * (curr_X_cols - k)], 0.0, n * k * sizeof( T ));
 
             // Advance R pointers
-            //iter == 1 ? R_i = &R_ii[k] : R_i = &R_i[k];
-            //R_ii = &R_ii[(n + 1) * k];
             R_i = &R[(iter_ev + 1) * k];
             R_ii = &R[(n * k * (iter_ev + 1)) + k + (k * (iter_ev))];
 
@@ -468,12 +464,7 @@ int RBKI<T, RNG>::call(
             // Need to make sure the newly-allocated space is empty
             memset(&S[(n + k)* (curr_Y_cols - k)], 0.0, (n + k) * k * sizeof( T ));
 
-            //char name [] = "S";
-            //RandBLAS::util::print_colmaj(n + k, curr_Y_cols, S, name);
-
             // Advance S pointers
-            //S_i = &S_i[(n + k) * k];
-            //S_ii = &S_ii[((n + k)  + 1) * k];
             S_i  = &S[(n + k) * k * iter_od];
             S_ii = &S[(n + k) * k * iter_od + k + (iter_od * k)];
 
