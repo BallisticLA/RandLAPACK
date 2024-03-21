@@ -150,7 +150,7 @@ class TestQB : public ::testing::Test
 
         // zero out the trailing singular values
         std::fill(s_dat + k, s_dat + n, 0.0);
-        RandLAPACK::util::diag(n, n, all_data.s, n, all_data.S);
+        RandLAPACK::util::diag(n, n, all_data.s.data(), n, all_data.S.data());
 
         // TEST 4: Below is A_k - A_hat = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
@@ -251,7 +251,7 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A.data(), state);
 
     svd_and_copy_computational_helper<double>(*all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(block_sz, tol, *all_data, *all_algs, state);
@@ -283,7 +283,7 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     m_info.cond_num = 6.7;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A.data(), state);
     
     svd_and_copy_computational_helper<double>(*all_data);
     test_QB2_low_exact_rank<double, r123::Philox4x32, algorithm_objects<double, r123::Philox4x32>>(block_sz, tol, *all_data, *all_algs, state);
@@ -315,7 +315,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A.data(), state);
 
     double norm_A = lapack::lange(Norm::Fro, m, n, (*all_data).A.data(), m);
     test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, *all_data, *all_algs, state);
@@ -347,7 +347,7 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, (*all_data).A.data(), state);
 
     double norm_A = lapack::lange(Norm::Fro, m, n, (*all_data).A.data(), m);
     test_QB2_k_eq_min<double, r123::Philox4x32>(block_sz, tol, norm_A, *all_data, *all_algs, state);

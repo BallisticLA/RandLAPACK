@@ -129,7 +129,7 @@ int RF<T, RNG>::call(
 
     if(this->cond_check)
         // Writes into this->cond_nums
-        this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->Q_cpy, this->s, this->verbosity));
+        this->cond_nums.push_back(util::cond_num_check(m, k, Q.data(), (this->Q_cpy).data(), (this->s).data(), this->verbosity));
 
     if(this->Orth_Obj.call(m, k, Q))
         return 2; // Orthogonalization failed

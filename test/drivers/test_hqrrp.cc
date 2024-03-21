@@ -159,7 +159,7 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 // This test uses orhr_col

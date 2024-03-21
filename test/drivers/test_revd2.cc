@@ -161,7 +161,7 @@ class TestREVD2 : public ::testing::Test
         // Construnct A_hat = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
-        RandLAPACK::util::diag(k, k, all_data.eigvals, k, all_data.E);
+        RandLAPACK::util::diag(k, k, all_data.eigvals.data(), k, all_data.E.data());
         // V * E = Buf
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, V_dat, m, E_dat, k, 0.0, Buf_dat, m);
         // A - Buf * V' - should be close to 0
@@ -199,8 +199,8 @@ class TestREVD2 : public ::testing::Test
         T* work_l_dat = all_data.A_l.data();
         T* A_approx_dat = all_data.work.data();
 
-        RandLAPACK::util::diag(k, k, all_data.eigvals_u, k, all_data.E_u);
-        RandLAPACK::util::diag(k, k, all_data.eigvals_l, k, all_data.E_l);
+        RandLAPACK::util::diag(k, k, all_data.eigvals_u.data(), k, all_data.E_u.data());
+        RandLAPACK::util::diag(k, k, all_data.eigvals_l.data(), k, all_data.E_l.data());
 
         // Reconstruct factorizations, compare the result
         // V_u * E_u = work_u
@@ -249,7 +249,7 @@ TEST_F(TestREVD2, Underestimation1) {
     m_info.cond_num = std::pow(10, 8);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
     test_REVD2_general<double, RNG>(
@@ -287,7 +287,7 @@ TEST_F(TestREVD2, Underestimation2) {
     m_info.cond_num = std::pow(10, 8);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
     test_REVD2_general<double, RNG>(
@@ -325,7 +325,7 @@ TEST_F(TestREVD2, Overestimation1) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
     test_REVD2_general<double, RNG>(
@@ -363,7 +363,7 @@ TEST_F(TestREVD2, Oversetimation2) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
     test_REVD2_general<double, RNG>(
@@ -401,7 +401,7 @@ TEST_F(TestREVD2, Exactness) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
     test_REVD2_general<double, RNG>(
@@ -437,7 +437,7 @@ TEST_F(TestREVD2, Uplo) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.work, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.work.data(), state);
 
     uplo_computational_helper<double, RNG>(all_data);
     

@@ -95,8 +95,8 @@ int CholQRQ<T>::call(
 
     // Scheme may succeed, but output garbage
     if(this->cond_check) {
-        if(util::cond_num_check(k, k, Q_gram, this->Q_gram_cpy, this->s, this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
-        //        return 1;
+        if(util::cond_num_check(k, k, Q_gram.data(), (this->Q_gram_cpy).data(), (this->s).data(), this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
+                //return 1;
         }
     }
 

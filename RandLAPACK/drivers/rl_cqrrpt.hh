@@ -92,6 +92,9 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///     Represents the upper-triangular R factor of QR factorization.
         ///     On entry, is empty and may not have any space allocated for it.
         ///
+        /// @param[in] state
+        ///     RNG state parameter, required for sketching operator generation.
+        ///
         /// @param[out] A
         ///     Overwritten by an m-by-k orthogonal Q factor.
         ///     Matrix is stored explicitly.

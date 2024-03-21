@@ -160,7 +160,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 #if !defined(__APPLE__)
@@ -189,7 +189,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 #if !defined(__APPLE__)
@@ -219,10 +219,57 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 #if !defined(__APPLE__)
     test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
+}
+
+
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, something) {
+    int64_t m = 10;
+    int64_t n = 5;
+    auto state = RandBLAS::RNGState();
+
+    std::vector<double> A(m * n, 0.0);
+    std::vector<double> B(m * n, 0.0);
+    std::vector<double> C(m * 2 * n, 0.0);
+    std::vector<double> D(m * n, 0.0);
+    std::vector<double> D_cpy(m * n, 0.0);
+    std::vector<double> D_space(m * n, 0.0);
+
+    std::vector<double> tau(n * 2, 0.0);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B.data(), state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, D.data(), state);
+    lapack::lacpy(MatrixType::General, m, n, D.data(), m, D_cpy.data(), m);
+
+    lapack::geqrf(m, n, A.data(), m, tau.data());
+    lapack::geqrf(m, n, B.data(), m, tau.data() + n);
+
+    // Method 1
+    lapack::lacpy(MatrixType::Lower, m, n, A.data(), m, C.data(), m);
+    lapack::lacpy(MatrixType::Lower, m, n, B.data(), m, C.data() + (m * n), m);
+    lapack::ormqr(Side::Left, Op::NoTrans, m, n, m, C.data(), m, tau.data(), D.data(), m);
+
+    char name [] = "D through ormqr";
+    RandBLAS::util::print_colmaj(m, n, D.data(), name);
+
+    // Method 2
+    lapack::ungqr(m, n, n, A.data(), m, tau.data());
+    lapack::ungqr(m, n, n, B.data(), m, tau.data() + n);
+
+    lapack::lacpy(MatrixType::General, m, n, A.data(), m, C.data(), m);
+    lapack::lacpy(MatrixType::General, m, n, B.data(), m, C.data() + (m * n), m);
+
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, n, m, 1.0, C.data(), m, D_cpy.data(), m, 0.0, D_space.data(), m);
+
+    char name1 [] = "D through gemm";
+    RandBLAS::util::print_colmaj(m, n, D_space.data(), name1);
 }
