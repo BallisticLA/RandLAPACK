@@ -205,6 +205,9 @@ T cond_num_check(
     if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
 
+    free(A_cpy);
+    free(s);
+
     return cond_num;
 }
 

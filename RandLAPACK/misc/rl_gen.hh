@@ -131,19 +131,11 @@ void gen_poly_mat(
     T b = std::pow(a * first_entry, -1 / p) - offset;
     // apply lambda function to every entry of s
     std::fill(s, s + offset, 1.0);
-    std::for_each(s + offset, s + k,
-        // Lambda expression begins
-        [&p, &offset, &a, &b](T &entry) {
-                entry = 1 / (a * std::pow(offset + b, p));
-                ++offset;
-        }
-    );
-/*
     for (int i = offset; i < k; ++i) {
         s[i] = 1 / (a * std::pow(offset + b, p));
         ++offset;
     }
-*/
+
     // form a diagonal S
     RandLAPACK::util::diag(k, k, s, k, S);
 
