@@ -85,6 +85,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         /// @param[in] tau
         ///     Pointer to a vector of size n. On entry, is empty.
         ///
+        /// @param[in] state
+        ///     RNG state parameter, required for sketching operator generation.
+        ///
         /// @param[out] A
         ///     Overwritten by Implicit Q and explicit R factors.
         ///
@@ -117,7 +120,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int64_t rank;
         int64_t block_size;
 
-        // 11 entries - logs time for different portions of the algorithm
+        // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
         // Times each iteration of the algorithm, divides size of a processed matrix by the time it took to process.
         // At each iteration, the algorithm will process rows by b_sz matrix; rows -= b_sz.
@@ -145,50 +148,39 @@ int CQRRP_blocked<T, RNG>::call(
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
-    long preallocation_t_dur = 0;
-
     high_resolution_clock::time_point saso_t_stop;
     high_resolution_clock::time_point saso_t_start;
-    long saso_t_dur = 0;
-
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
-    long qrcp_t_dur = 0;
-
     high_resolution_clock::time_point cholqr_t_start;
     high_resolution_clock::time_point cholqr_t_stop;
-    long cholqr_t_dur = 0;
-
     high_resolution_clock::time_point reconstruction_t_start;
     high_resolution_clock::time_point reconstruction_t_stop;
-    long reconstruction_t_dur = 0;
-
     high_resolution_clock::time_point preconditioning_t_start;
     high_resolution_clock::time_point preconditioning_t_stop;
-    long preconditioning_t_dur = 0;
-
     high_resolution_clock::time_point r_piv_t_start;
     high_resolution_clock::time_point r_piv_t_stop;
-    long r_piv_t_dur = 0;
-
     high_resolution_clock::time_point updating1_t_start;
     high_resolution_clock::time_point updating1_t_stop;
-    long updating1_t_dur = 0;
-
     high_resolution_clock::time_point updating2_t_start;
     high_resolution_clock::time_point updating2_t_stop;
-    long updating2_t_dur = 0;
-
     high_resolution_clock::time_point updating3_t_start;
     high_resolution_clock::time_point updating3_t_stop;
-    long updating3_t_dur = 0;
-
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
-    long total_t_dur = 0;
-
     high_resolution_clock::time_point iter_t_start;
     high_resolution_clock::time_point iter_t_stop;
+    long preallocation_t_dur   = 0;
+    long saso_t_dur            = 0;
+    long qrcp_t_dur            = 0;
+    long cholqr_t_dur          = 0;
+    long reconstruction_t_dur  = 0;
+    long preconditioning_t_dur = 0;
+    long r_piv_t_dur           = 0;
+    long updating1_t_dur       = 0;
+    long updating2_t_dur       = 0;
+    long updating3_t_dur       = 0;
+    long total_t_dur           = 0;
 
     if(this -> timing) {
         total_t_start = high_resolution_clock::now();
@@ -298,7 +290,7 @@ int CQRRP_blocked<T, RNG>::call(
 
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, 1.0, S, 0, 0, A, lda, 0.0, A_sk, d
+        d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_sk, d
     );
 
     if(this -> timing) {
@@ -317,15 +309,17 @@ int CQRRP_blocked<T, RNG>::call(
         // Zero-out data - may not be necessary
         std::fill(&J_buffer[0], &J_buffer[n], 0);
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
-        std::fill(&Work2[0], &Work2[n], 0.0);
+        std::fill(&Work2[0], &Work2[n], (T) 0.0);
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
-
+        
+        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
+        
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
-        for(i = 0; i < cols; ++i)
-            blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
+        util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
+        
         // Perform a row-pivoted LU on a transpose of A_sk
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
@@ -339,7 +333,7 @@ int CQRRP_blocked<T, RNG>::call(
         util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
-
+        
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
@@ -370,7 +364,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_sk, d, A_work, lda);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -381,11 +375,11 @@ int CQRRP_blocked<T, RNG>::call(
             cholqr_t_start = high_resolution_clock::now();
 
         // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, 1.0, A_work, lda, 0.0, R_cholqr, b_sz_const);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
         lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
 
         // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, 1.0, R_cholqr, b_sz_const, A_work, lda);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
 
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
@@ -447,7 +441,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R_sk, d, R_cholqr, b_sz_const);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
@@ -546,11 +540,11 @@ int CQRRP_blocked<T, RNG>::call(
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
         RandLAPACK::util::get_U(b_sz, b_sz, R_sk, d);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, 1.0, R11, lda, R_sk, d);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d);
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, -1.0, R_sk, d, R12, lda, 1.0, &R_sk[d * b_sz], d);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk, d, R12, lda, (T) 1.0, &R_sk[d * b_sz], d);
         
         // Changing the sampling dimension parameter
         sampling_dimension = std::min(sampling_dimension, cols);

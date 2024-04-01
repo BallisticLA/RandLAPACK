@@ -42,15 +42,15 @@ template <typename T>
 void diag(
     int64_t m,
     int64_t n,
-    const std::vector<T> &s,
+    T* s,
     int64_t k, // size of s, < min(m, n)
-    std::vector<T> &S // Assuming S is m by n
+    T* S // Assuming S is m by n
 ) {
 
     if(k > std::min(m, n)) 
         throw std::runtime_error("Invalid rank parameter.");
     // size of s
-    blas::copy(k, s.data(), 1, S.data(), m + 1);
+    blas::copy(k, s, 1, S, m + 1);
 }
 
 /// Zeros-out the upper-triangular portion of A
@@ -187,29 +187,26 @@ template <typename T>
 T cond_num_check(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A,
-    std::vector<T> &A_cpy,
-    std::vector<T> &s,
+    const T* A,
+    T* A_cpy,
+    T* s,
     bool verbose
 ) {
 
-    // Copy to avoid any changes
-    T* A_cpy_dat = upsize(m * n, A_cpy);
-    T* s_dat = upsize(n, s);
+    // TODO: GET RID OF THE INTERNAL ALLOCATIONS
+    A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    s     = ( T * ) calloc( n, sizeof( T ) );
 
-    // Packed storage check
-    if (A.size() < A_cpy.size()) {
-        // Convert to normal format
-        lapack::tfttr(Op::NoTrans, Uplo::Upper, n, A.data(), A_cpy_dat, m);
-    } else {
-        lapack::lacpy(MatrixType::General, m, n, A.data(), m, A_cpy_dat, m);
-    }
-    lapack::gesdd(Job::NoVec, m, n, A_cpy_dat, m, s_dat, NULL, m, NULL, n);
+    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
-    T cond_num = s_dat[0] / s_dat[n - 1];
+    T cond_num = s[0] / s[n - 1];
 
     if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
+
+    free(A_cpy);
+    free(s);
 
     return cond_num;
 }
@@ -219,16 +216,21 @@ template <typename T>
 int64_t rank_check(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A
+    const T* A
 ) {
-    std::vector<T> A_pre_cpy;
-    std::vector<T> s;
+    T* A_pre_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    T* s     = ( T * ) calloc( n, sizeof( T ) );
+
     RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
 
     for(int i = 0; i < n; ++i) {
         if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
             return i - 1;
     }
+
+    free(A_pre_cpy);
+    free(s);
+
     return n;
 }
 
@@ -388,6 +390,31 @@ void eat_lda_slack(
         blas::copy(vec_len, work, 1, &buff[i*vec_len], 1);
     }
     delete [] work;
+}
+
+// Perform an explicit transposition of a given matrix, 
+// write the transpose into a buffer.
+// WARNING: OMP parallelism occasionally tanks the performance.
+template <typename T>
+void transposition(
+    int64_t m,
+    int64_t n,
+    const T* A,
+    int64_t lda,
+    T* AT,
+    int64_t ldat,
+    int copy_upper_triangle
+) {
+    if (copy_upper_triangle) {
+        // Only transposing the upper-triangular portion of the original
+        #pragma omp parallel for
+        for(int i = 0; i < n; ++i)
+            blas::copy(i + 1, &A[i * lda], 1, &AT[i], ldat);
+    } else {
+        #pragma omp parallel for
+        for(int i = 0; i < n; ++i)
+            blas::copy(m, &A[i * lda], 1, &AT[i], ldat);
+    }
 }
 
 } // end namespace util

@@ -1,3 +1,13 @@
+/*
+CQRRPT runtime breakdown benchmark - assesses the time taken by each subcomponent of CQRRPT.
+There are 6 things that we time:
+                1. SASO generation and application time
+                2. QRCP time.
+                3. Time it takes to compute numerical rank k.
+                4. piv(A).
+                5. TRSM(A).
+                6. Time to perform Cholesky QR.
+*/
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -36,7 +46,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
     std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
@@ -104,7 +114,7 @@ int main() {
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     // Declare a data file
     std::fstream file("CQRRPT_inner_speed_"              + std::to_string(m)

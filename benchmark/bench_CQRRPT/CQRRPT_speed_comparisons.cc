@@ -1,3 +1,14 @@
+/*
+CQRRPT speed comparison benchmark - runs:
+    1. CQRRPT
+    2. GEQR
+    3. GEQRF
+    4. GEQP3
+    5. GEQPT
+    6. SCHOLQR
+for a matrix with fixed number of rows and a varying number of columns.
+Records the best timing, saves that into a file.
+*/
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -36,7 +47,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
     std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
@@ -180,13 +191,13 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 1;
+    int64_t numruns = 75;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A, state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     // Declare a data file
     std::fstream file("CQRRPT_speed_comp_"              + std::to_string(m)
@@ -200,3 +211,25 @@ int main() {
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",\n";
     }
 }
+
+/*
+int main() {
+    // Declare parameters
+    int64_t m  = 1000000;
+    int64_t n  = std::pow(2, 12);
+    auto state = RandBLAS::RNGState();
+
+    std::vector<double> A (m * n, 0.0);
+    std::vector<double> tau (n, 0.0);
+
+    omp_set_num_threads(4);
+    RandBLAS::DenseDist D(m, n);
+    state = RandBLAS::fill_dense(D, A.data(), state).second;
+    omp_set_num_threads(48);
+
+    lapack::geqr(m, n, A.data(), m,  tau.data(), -1);
+    int64_t tsize = (int64_t) tau[0]; 
+    tau.resize(tsize);
+    lapack::geqr(m, n, A.data(), m, tau.data(), tsize);
+}
+*/
