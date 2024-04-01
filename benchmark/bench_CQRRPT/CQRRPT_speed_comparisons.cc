@@ -1,3 +1,14 @@
+/*
+CQRRPT speed comparison benchmark - runs:
+    1. CQRRPT
+    2. GEQR
+    3. GEQRF
+    4. GEQP3
+    5. GEQPT
+    6. SCHOLQR
+for a matrix with fixed number of rows and a varying number of columns.
+Records the best timing, saves that into a file.
+*/
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

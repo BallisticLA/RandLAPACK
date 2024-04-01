@@ -1,3 +1,14 @@
+/*
+ICQRRP speed comparison benchmark - runs:
+    1. ICQRRP
+    2. GEQRF
+    3. GEQP3 - takes too long!
+    5. HQRRP + CholQR
+    6. HQRRP + GEQRF
+for a matrix with fixed number of rows and columns and a varying ICQRRP block size.
+Records the best timing, saves that into a file.
+*/
+
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

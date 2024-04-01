@@ -1,3 +1,7 @@
+/*
+This benchmarks compares single-precision ICQRRP with double-precision GETRF and GEQRF.
+We anticipate that single-precision ICQRRP can be used as part of the linear system solving process.
+*/
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

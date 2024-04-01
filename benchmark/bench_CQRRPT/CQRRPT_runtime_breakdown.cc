@@ -1,3 +1,13 @@
+/*
+CQRRPT runtime breakdown benchmark - assesses the time taken by each subcomponent of CQRRPT.
+There are 6 things that we time:
+                1. SASO generation and application time
+                2. QRCP time.
+                3. Time it takes to compute numerical rank k.
+                4. piv(A).
+                5. TRSM(A).
+                6. Time to perform Cholesky QR.
+*/
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

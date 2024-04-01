@@ -1,3 +1,18 @@
+/*
+RBKI runtime breakdown benchmark - assesses the time taken by each subcomponent of RBKI.
+Records all, data, not just the best.
+There are 10 things that we time:
+                1.Allocate and free time.
+                2.Time to acquire the SVD factors.
+                3.UNGQR time.
+                4.Reorthogonalization time.
+                5.QR time.
+                6.GEMM A time.
+                7.Sketching time.
+                8.R_ii cpy time.
+                9.S_ii cpy time.
+                10.Norm R time.
+*/
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -68,35 +83,30 @@ static void call_all_algs(
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
     RBKI.max_krylov_iters = num_krylov_iters;
 
-    
     // Making sure the states are unchanged
     auto state_gen = state;
 
     // Timing vars
-    long dur_rbki    = 0;
-    long t_rbki_best = 0;
-    std::vector<long> inner_timing_best;
+    std::vector<long> inner_timing;
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        auto start_rbki = high_resolution_clock::now();
         RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
-        auto stop_rbki = high_resolution_clock::now();
-        dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
-        // Update best timing
-        if (!i || dur_rbki < t_rbki_best) {t_rbki_best = dur_rbki; inner_timing_best = RBKI.times;}
+        
+        // Update timing vector
+        inner_timing = RBKI.times;
+        // Add info about the run
+        inner_timing.insert (inner_timing.begin(), k);
+        inner_timing.insert (inner_timing.begin(), num_krylov_iters);
+
+        std::ofstream file(output_filename, std::ios::app);
+        std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<int>(file, ", "));
+        file << "\n";
+
         // Clear and re-generate data
         data_regen<T, RNG>(m_info, all_data, state_gen, 0);
         state_gen = state;
     }
-
-    // Add info about the run
-    inner_timing_best.insert (inner_timing_best.begin(), k);
-    inner_timing_best.insert (inner_timing_best.begin(), num_krylov_iters);
-
-    std::ofstream file(output_filename, std::ios::app);
-    std::copy(inner_timing_best.begin(), inner_timing_best.end(), std::ostream_iterator<int>(file, ", "));
-    file << "\n";
 }
 
 int main(int argc, char *argv[]) {

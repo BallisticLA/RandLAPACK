@@ -60,8 +60,8 @@ add_benchmark(NAME CQRRPT_pivot_quality     CXX_SOURCES bench_CQRRPT/CQRRPT_pivo
 # CQRRP benchmarks
 add_benchmark(NAME CQRRP_speed_comparisons       CXX_SOURCES bench_CQRRP/CQRRP_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/CQRRP_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_Apple_runtime_breakdown CXX_SOURCES bench_CQRRP/CQRRP_Apple_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRP_single_precision        CXX_SOURCES bench_CQRRP/CQRRP_single_precision.cc  LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_pivot_quality           CXX_SOURCES bench_CQRRP/CQRRP_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
 
 add_benchmark(NAME RBKI_speed_comparisons CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME RBKI_runtime_benchmark CXX_SOURCES bench_RBKI/RBKI_runtime_benchmark.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME RBKI_runtime_breakdown CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})

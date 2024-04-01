@@ -318,9 +318,8 @@ int CQRRP_blocked<T, RNG>::call(
         
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
-        #pragma omp parallel for
-        for(i = 0; i < cols; ++i)
-            blas::copy(sampling_dimension, &A_sk[i * d], 1, &A_sk_trans[i], n);
+        util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
+        
         // Perform a row-pivoted LU on a transpose of A_sk
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
         // Fill the pivot vector, apply swaps found via lu on A_sk'.

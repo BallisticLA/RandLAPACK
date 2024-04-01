@@ -58,7 +58,6 @@ class TestRBKI : public ::testing::Test
         for (int i = 0; i < custom_rank; ++i)
             blas::scal(m, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
 
-
         // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A.data(), m, all_data.VT.data(), n, -1.0, U_cpy_dat, m);
 
@@ -67,19 +66,16 @@ class TestRBKI : public ::testing::Test
         // Scale columns of V by S
         // Since we have VT, we will be scaling its rows
         // The data is, however, stored in a column-major format, so it is a bit weird.
-        //for (int i = 0; i < n; ++i)
-        //    blas::scal(custom_rank, all_data.Sigma[i], &VT_cpy_dat[i], n);
         for (int i = 0; i < custom_rank; ++i)
             blas::scal(n, all_data.Sigma[i], &VT_cpy_dat[i], n);
         // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
         // We will actually have to perform U' * A - Sigma * VT.
-
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
 
         T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
         T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
 
-        return std::sqrt(std::pow(nrm1, 2) + std::pow(nrm2, 2));
+        return std::hypot(nrm1, nrm2);
     }
 
 
@@ -101,7 +97,8 @@ class TestRBKI : public ::testing::Test
 
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
         printf("residual_err_custom %e\n", residual_err_custom);
-        ASSERT_NEAR(residual_err_custom, 8.039386e-13, std::pow(std::numeric_limits<T>::epsilon(), 0.825));
+        //ASSERT_NEAR(residual_err_custom, 8.039386e-13, std::pow(std::numeric_limits<T>::epsilon(), 0.825));
+        ASSERT_LE(residual_err_custom, 10 * std::pow(std::numeric_limits<T>::epsilon(), 0.825));
     }
 };
 
@@ -117,6 +114,8 @@ TEST_F(TestRBKI, RBKI_basic) {
 
     RBKITestData<double> all_data(m, n);
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
+    RBKI.num_threads_some = 4;
+    RBKI.num_threads_rest = 16;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);

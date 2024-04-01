@@ -1,3 +1,17 @@
+/*
+ICQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of ICQRRP.
+There are 9 things that we time:
+                1. SASO generation and application time
+                2. QRCP time.
+                3. Preconditioning time.
+                4. Time to perform Cholesky QR.
+                5. Time to restore Householder vectors.
+                6. Time to compute A_new, R12.
+                7. Time to update factors Q, R.
+                8. Time to update the sketch.
+                9. Time to pivot trailing columns of R-factor.
+*/
+
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

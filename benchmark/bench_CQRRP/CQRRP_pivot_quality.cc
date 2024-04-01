@@ -1,3 +1,7 @@
+/*
+Performs computations in order to assess the pivot quality of ICQRRP.
+The setup is described in detail in Section 4 of The CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
+*/
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"

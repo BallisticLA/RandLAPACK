@@ -1,3 +1,11 @@
+/*
+RBKI speed comparison benchmark - technically only runs RBKI, but has an option to run SVD (gesdd()) to be compared against RBKI (direct SVD is WAY slower than RBKI). 
+The user is required to provide a matrix file to be read, set min and max numbers of large gemms (Krylov iterations) that the algorithm is allowed to perform min and max block sizes that RBKI is to use; 
+furthermore, the user is to provide a 'custom rank' parameter (number of singular vectors to approximate by RBKI). 
+The benchmark outputs the basic data of a given run, as well as the RBKI runtime and singular vector residual error, 
+which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(custom_rank)" (for "custom rank" singular vectors and values).
+*/
+
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -93,7 +101,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64
     T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
     T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
 
-    return std::sqrt(std::pow(nrm1, 2) + std::pow(nrm2, 2));
+    return std::hypot(nrm1, nrm2);
 }
 
 template <typename T, typename RNG>
@@ -109,16 +117,16 @@ static void call_all_algs(
     long dur_svd) {
     printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);
 
-    int i, j;
+    int i;
     auto m   = all_data.row;
     auto n   = all_data.col;
     auto tol = all_data.tolerance;
-    T norm_svd_k;
-    T err_rbki;
     bool time_subroutines = false;
 
     // Additional params setup.
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
+    RBKI.num_threads_some = 4;
+    RBKI.num_threads_rest = 48;
     // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
@@ -130,7 +138,6 @@ static void call_all_algs(
 
     // timing vars
     long dur_rbki    = 0;
-    long t_rbki_best = 0;
 
     // Making sure the states are unchanged
     auto state_gen = state;

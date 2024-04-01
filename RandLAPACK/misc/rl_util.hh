@@ -187,7 +187,7 @@ template <typename T>
 T cond_num_check(
     int64_t m,
     int64_t n,
-    T* A,
+    const T* A,
     T* A_cpy,
     T* s,
     bool verbose
@@ -213,7 +213,7 @@ template <typename T>
 int64_t rank_check(
     int64_t m,
     int64_t n,
-    T* A
+    const T* A
 ) {
     T* A_pre_cpy = ( T * ) calloc( m * n, sizeof( T ) );
     T* s     = ( T * ) calloc( n, sizeof( T ) );
@@ -387,6 +387,31 @@ void eat_lda_slack(
         blas::copy(vec_len, work, 1, &buff[i*vec_len], 1);
     }
     delete [] work;
+}
+
+// Perform an explicit transposition of a given matrix, 
+// write the transpose into a buffer.
+// WARNING: OMP parallelism occasionally tanks the performance.
+template <typename T>
+void transposition(
+    int64_t m,
+    int64_t n,
+    const T* A,
+    int64_t lda,
+    T* AT,
+    int64_t ldat,
+    int copy_upper_triangle
+) {
+    if (copy_upper_triangle) {
+        // Only transposing the upper-triangular portion of the original
+        #pragma omp parallel for
+        for(int i = 0; i < n; ++i)
+            blas::copy(i + 1, &A[i * lda], 1, &AT[i], ldat);
+    } else {
+        #pragma omp parallel for
+        for(int i = 0; i < n; ++i)
+            blas::copy(m, &A[i * lda], 1, &AT[i], ldat);
+    }
 }
 
 } // end namespace util

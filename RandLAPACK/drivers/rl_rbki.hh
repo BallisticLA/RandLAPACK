@@ -127,6 +127,9 @@ class RBKI : public RBKIalg<T, RNG> {
         int max_krylov_iters;
         std::vector<long> times;
         T norm_R_end;
+
+        int num_threads_some;
+        int num_threads_rest;
 };
 
 // -----------------------------------------------------------------------------
@@ -185,7 +188,7 @@ int RBKI<T, RNG>::call(
         allocation_t_start  = high_resolution_clock::now();
     }
 
-    int64_t iter = 0, iter_od = 0, iter_ev = 0, i = 0, end_rows = 0, end_cols = 0;
+    int64_t iter = 0, iter_od = 0, iter_ev = 0, end_rows = 0, end_cols = 0;
     T norm_R = 0;
     int max_iters = this->max_krylov_iters;//std::min(this->max_krylov_iters, (int) (n / (T) k));
 
@@ -244,10 +247,10 @@ int RBKI<T, RNG>::call(
 
     // Generate a dense Gaussian random matrx.
     // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
-    //omp_set_num_threads(4);
+    omp_set_num_threads(this->num_threads_some);
     RandBLAS::DenseDist D(n, k);
     state = RandBLAS::fill_dense(D, Y_i, state).second;
-    //omp_set_num_threads(48);
+    omp_set_num_threads(this->num_threads_rest);
 
     if(this -> timing) {
         sketching_t_stop  = high_resolution_clock::now();
@@ -345,10 +348,9 @@ int RBKI<T, RNG>::call(
             }
 
             // Copy R_ii over to R's (in transposed format).
-            omp_set_num_threads(4);
-            for(i = 0; i < k; ++i)
-                blas::copy(i + 1, &Y_i[i * n], 1, &R_ii[i], n);
-            omp_set_num_threads(48);
+            omp_set_num_threads(this->num_threads_some);
+            util::transposition(0, k, Y_i, n, R_ii, n, 1);
+            omp_set_num_threads(this->num_threads_rest);
 
             if(this -> timing) {
                 r_cpy_t_stop  = high_resolution_clock::now();
@@ -499,7 +501,7 @@ int RBKI<T, RNG>::call(
         }
     }
 
-    this -> norm_R_end = norm_R;
+    this->norm_R_end = norm_R;
     this->num_krylov_iters = iter;
     end_cols = num_krylov_iters * k / 2;
     iter % 2 == 0 ? end_rows = end_cols + k : end_rows = end_cols;
@@ -556,7 +558,7 @@ int RBKI<T, RNG>::call(
             total_t_stop = high_resolution_clock::now();
             total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
             long t_rest  = total_t_dur - (allocation_t_dur + get_factors_t_dur + ungqr_t_dur + reorth_t_dur + qr_t_dur + gemm_A_t_dur + sketching_t_dur + r_cpy_t_dur + s_cpy_t_dur + norm_t_dur);
-            this -> times.resize(11);
+            this -> times.resize(13);
             this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
 
             if (this -> verbosity) {
