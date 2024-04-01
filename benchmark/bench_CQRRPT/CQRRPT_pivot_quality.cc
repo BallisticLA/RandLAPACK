@@ -1,6 +1,6 @@
 /*
 Performs computations in order to assess the pivot quality of CQRRPT.
-The setup is described in detail in Section 4 of The CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
+The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
 */
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
