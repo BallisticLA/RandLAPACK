@@ -111,7 +111,7 @@ template <typename T, typename RNG>
 void gen_poly_mat(
     int64_t &m,
     int64_t &n,
-    std::vector<T> &A,
+    T* A,
     int64_t k,
     T cond,
     T p,
@@ -120,8 +120,8 @@ void gen_poly_mat(
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
-    std::vector<T> s(k, 1.0);
-    std::vector<T> S(k * k, 0.0);
+    T* s = ( T * ) calloc( k,     sizeof( T ) );
+    T* S = ( T * ) calloc( k * k, sizeof( T ) );
 
     // The first 10% of the singular values will be equal to one
     int offset = (int) floor(k * 0.1);
@@ -130,27 +130,31 @@ void gen_poly_mat(
     T a = std::pow((std::pow(last_entry, -1 / p) - std::pow(first_entry, -1 / p)) / (k - offset), p);
     T b = std::pow(a * first_entry, -1 / p) - offset;
     // apply lambda function to every entry of s
-    std::for_each(s.begin() + offset, s.end(),
+    std::fill(s, s + offset, 1.0);
+    std::for_each(s + offset, s + k,
         // Lambda expression begins
         [&p, &offset, &a, &b](T &entry) {
                 entry = 1 / (a * std::pow(offset + b, p));
                 ++offset;
         }
     );
-
+/*
+    for (int i = offset; i < k; ++i) {
+        s[i] = 1 / (a * std::pow(offset + b, p));
+        ++offset;
+    }
+*/
     // form a diagonal S
     RandLAPACK::util::diag(k, k, s, k, S);
 
     if (diagon) {
-        if (!(m == k || n == k)) {
-            m = k;
-            n = k;
-            A.resize(k * k);
-        }
-        lapack::lacpy(MatrixType::General, k, k, S.data(), k, A.data(), k);
+        lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
     } else {
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
+
+    free(s);
+    free(S);
 }
 
 /// Generates a matrix with exponentially-decaying spectrum of the following form:
