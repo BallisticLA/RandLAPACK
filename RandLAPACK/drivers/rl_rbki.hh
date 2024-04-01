@@ -247,10 +247,14 @@ int RBKI<T, RNG>::call(
 
     // Generate a dense Gaussian random matrx.
     // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
+#if !defined(__APPLE__)
     omp_set_num_threads(this->num_threads_some);
+#endif
     RandBLAS::DenseDist D(n, k);
     state = RandBLAS::fill_dense(D, Y_i, state).second;
+#if !defined(__APPLE__)
     omp_set_num_threads(this->num_threads_rest);
+#endif
 
     if(this -> timing) {
         sketching_t_stop  = high_resolution_clock::now();
