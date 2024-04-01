@@ -352,9 +352,13 @@ int RBKI<T, RNG>::call(
             }
 
             // Copy R_ii over to R's (in transposed format).
+#if !defined(__APPLE__)
             omp_set_num_threads(this->num_threads_some);
+#endif
             util::transposition(0, k, Y_i, n, R_ii, n, 1);
+#if !defined(__APPLE__)
             omp_set_num_threads(this->num_threads_rest);
+#endif
 
             if(this -> timing) {
                 r_cpy_t_stop  = high_resolution_clock::now();
