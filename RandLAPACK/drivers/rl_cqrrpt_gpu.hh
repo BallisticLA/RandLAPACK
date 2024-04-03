@@ -286,8 +286,8 @@ int CQRRPT_GPU<T, RNG>::call(
     T* R_sp_device;
 
     // Variables for a posteriori rank estimation.
-    __device__ int64_t new_rank;
-    __device__ T running_max, running_min, curr_entry;
+    int64_t new_rank;
+    T running_max, running_min, curr_entry;
 
     using lapack::device_info_int;
     blas::Queue blas_queue(0);

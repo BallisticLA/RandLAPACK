@@ -160,7 +160,7 @@ TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
 }
 
 TEST_F(TestCQRRPT, something) {
-    
+    // Simple cuda gemm
     int64_t m = 10;
     int64_t n = 5;
     auto state = RandBLAS::RNGState();
@@ -205,7 +205,7 @@ TEST_F(TestCQRRPT, something) {
     char name2 [] = "C received device";
     RandBLAS::util::print_colmaj(m, n, C_received.data(), name2);
 }
-
+/*
 TEST_F(TestCQRRPT, something1) {
     // Matrix dimensions
     int m = 3; // Number of rows
@@ -250,4 +250,5 @@ TEST_F(TestCQRRPT, something1) {
     // Perform QR factorization and solve the least squares problem
     cusolverDnSormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_N, m, 1, n, d_A, m, nullptr, d_B, m, nullptr, lwork, devInfo);
 }
+*/
 
