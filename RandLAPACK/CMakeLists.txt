@@ -22,11 +22,7 @@ set(RandLAPACK_cxx_sources
     rl_cuda_kernels.cuh
     rl_cuda_macros.hh
     rl_cqrrpt_gpu.hh
-)
-
-set(RandLAPACK_cuh_sources
-
-    rl_cuda_kernels.cuh
+    rl_cqrrp_gpu.hh
 )
 
 set(RandLAPACK_libs
@@ -55,7 +51,6 @@ target_compile_options(RandLAPACK INTERFACE ${RandLAPACK_cxx_opts})
 #set_source_files_properties(${RandLAPACK_cxx_sources}
 #    PROPERTIES COMPILE_OPTIONS "${RandLAPACK_cxx_opts}"
 #)
-set_source_files_properties(${RandLAPACK_cuh_sources} PROPERTIES LANGUAGE CUDA)
 
 target_include_directories(
     RandLAPACK INTERFACE

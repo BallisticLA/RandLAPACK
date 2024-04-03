@@ -221,11 +221,6 @@ void diagonal_dense_matmul(const T *A, const T *B, T *C, size_t n, size_t m, siz
     }
 }
 
-void somefun(int i)
-{
-    i = i + 1;
-}
-
 } // end namespace cuda_kernels
 //#endif
 #endif
