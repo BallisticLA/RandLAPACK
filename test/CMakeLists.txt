@@ -15,17 +15,26 @@ if (GTest_FOUND)
         comps/test_syrf.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
-        drivers/test_cqrrpt_gpu.cc
         drivers/test_cqrrp.cc
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
         drivers/test_rbki.cc
     )
 
+    set(RandLAPACK_test_cu_srcs
+        drivers/test_cqrrpt_gpu.cu
+        drivers/test_cqrrp_gpu.cu
+    )
+    set_source_files_properties(${RandLAPACK_test_cu_srcs} PROPERTIES LANGUAGE CUDA)
+    add_executable(RandLAPACK_tests_gpu ${RandLAPACK_test_cu_srcs})
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
+
+    target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main)
+    set_property(TARGET RandLAPACK_tests_gpu PROPERTY CUDA_ARCHITECTURES OFF)
 
     target_link_libraries(RandLAPACK_tests RandLAPACK GTest::GTest GTest::Main)
 
+    gtest_discover_tests(RandLAPACK_tests_gpu)
     gtest_discover_tests(RandLAPACK_tests)
 
     add_executable(test_pcgls comps/test_pcgls.cc)
