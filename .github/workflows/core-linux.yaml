@@ -18,6 +18,9 @@ jobs:
         run: |
           git submodule update --init --recursive
 
+      - name: cuda-toolkit
+        uses: Jimver/cuda-toolkit@v0.2.14
+
       - name: configure OS
         run: |
           # os level stuff
