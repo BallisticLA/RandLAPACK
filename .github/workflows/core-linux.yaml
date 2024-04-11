@@ -18,9 +18,6 @@ jobs:
         run: |
           git submodule update --init --recursive
 
-      - name: cuda-toolkit
-        uses: Jimver/cuda-toolkit@v0.2.14
-
       - name: configure OS
         run: |
           # os level stuff
@@ -35,6 +32,9 @@ jobs:
           | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
           echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
           sudo apt update
+
+      - name: cuda-toolkit
+        uses: Jimver/cuda-toolkit@v0.2.14
 
       - name: install BLAS++
         run: |
