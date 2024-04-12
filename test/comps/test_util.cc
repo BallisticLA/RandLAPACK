@@ -3,7 +3,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include <RandBLAS/test_util.hh>
+#include <RandBLAS/test/comparison.hh>
 
 #include <math.h>
 #include <chrono>
@@ -187,7 +187,6 @@ TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     test_binary_rank_search_zero_mat<double>(m, n, A);
 }
 
-
 class Test_Inplace_Square_Transpose : public ::testing::Test
 {
     protected:
@@ -205,7 +204,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
         double *A2 = new double[n*n];
         blas::copy(n*n, A1, 1, A2, 1);
         RandLAPACK::util::transpose_square(A2, n);
-        RandBLAS_Testing::Util::matrices_approx_equal(
+        test::comparison::matrices_approx_equal(
             layout, blas::Op::Trans, n, n, A1, n, A2, n, 
             __PRETTY_FUNCTION__, __FILE__, __LINE__
         );
@@ -214,6 +213,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
     }
 
 };
+
 
 TEST_F(Test_Inplace_Square_Transpose, random_matrix_colmajor) {
     apply(blas::Layout::ColMajor);
