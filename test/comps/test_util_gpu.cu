@@ -36,12 +36,14 @@ class TestUtil : public ::testing::Test
         std::vector<T> A;
         std::vector<T> A_host_buffer;
         std::vector<int64_t> J;
+        std::vector<int64_t> J_host_buffer;
         T* A_device;
         T* J_device;
 
         ColSwpTestData(int64_t m, int64_t n) :
         A(m * n, 0.0),
         A_host_buffer(m * n, 0.0),
+        J_host_buffer(n, 0.0),
         J(n, 0.0)
         {
             row = m;
@@ -62,13 +64,26 @@ class TestUtil : public ::testing::Test
         char host_name [] = "host";
         char device_name [] = "device";
         RandBLAS::util::print_colmaj(m, n, all_data.A.data(), host_name);
+        int i;
+        for(i = 0; i < n; ++i)
+            printf("%ld, ", all_data.J[i]);
+        printf("\n");
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A.data(), m, all_data.J);
         RandLAPACK::cuda_kernels::col_swap_gpu(m, n, n, all_data.A_device, m, all_data.J_device, strm);
         cudaMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+        cudaMemcpy(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
+        // This prints correctly
         RandBLAS::util::print_colmaj(m, n, all_data.A_host_buffer.data(), device_name);
+        for(i = 0; i < n; ++i)
+            printf("%ld, ", all_data.J_host_buffer[i]);
+        printf("\n");
+
         RandBLAS::util::print_colmaj(m, n, all_data.A.data(), host_name);
+        for(i = 0; i < n; ++i)
+            printf("%ld, ", all_data.J[i]);
+        printf("\n");
 
         for(int i = 0; i < m*n; ++i)
             all_data.A[i] -= all_data.A_host_buffer[i];
@@ -92,6 +107,7 @@ TEST_F(TestUtil, test_col_swp_gpu) {
     m_info.rank = n;
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    //all_data.A = { 10.0, 20, 30.0, 40.0, 50.0 }; 
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
     
     // Fill and randomly shuffle a vector

@@ -84,7 +84,7 @@ void get_U(
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
-template <typename T>
+/*template <typename T>
 void col_swap(
     int64_t m,
     int64_t n,
@@ -105,6 +105,46 @@ void col_swap(
         // Find idx element with value i and assign it to j
         auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
         idx[it - (idx.begin())] = j + 1;
+    }
+}
+*/
+template <typename T>
+void col_swap(
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    T* A,
+    int64_t lda,
+    std::vector<int64_t> idx
+) {
+    if(k > n) 
+        throw std::runtime_error("Invalid rank parameter.");
+    T buf;
+    int64_t i, j, l;
+    for (i = 0, j = 0; i < k; ++i) {
+        j = idx[i] - 1;
+        //blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
+        for (int s = 0; s < m; ++s) {
+            buf = A[i * lda + s];
+            A[s + i * lda] = A[s + j * lda];
+            A[s + j * lda] = buf;
+        }
+
+
+        // swap idx array elements
+        // Find idx element with value i and assign it to j
+        for(l = i; l < k; ++l) {
+            if(idx[l] == i + 1) {
+                    idx[l] = j + 1;
+                    break;
+            }
+        }
+        idx[i] = i + 1;
+        if(n < 10) {
+            for(int f = 0; f < n; ++f)
+                printf("%ld, ", idx[f]);
+            printf("\n");
+        }
     }
 }
 
