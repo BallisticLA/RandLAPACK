@@ -64,7 +64,7 @@ bool valid_index(size_t q, size_t m)
 template <typename T>
 inline
 __device__
-void find(const T* array, int64_t size, T target, T* result) {
+void find(T* array, int64_t size, T target, T* result) {
     
     size_t q = array_index();
     if (!valid_index(q, size))
@@ -88,28 +88,38 @@ void col_swap_gpu(
     int64_t lda,
     T* idx)
 {
-    size_t q = array_index();
+    //T* idx_buf;
+    //cudaMalloc(&idx_buf, n * sizeof(int64_t));
+    //cudaMemcpy(idx_buf, idx, n * sizeof(int64_t), cudaMemcpyDeviceToDevice);
+    //size_t q = array_index();
 
-    if (!valid_index(q, m))
-        return;
+    //if (!valid_index(q, m))
+        //return;
 
-    if(k > n) 
-        throw std::runtime_error("Invalid rank parameter.");
-
-    int64_t i, j;
-    T it;
+    int64_t i, j, l;
     T buf;
     for (i = 0, j = 0; i < k; ++i) {
         j = idx[i] - 1;
         //blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
-        buf = A[i * lda + q];
-        A[q + i * lda] = A[q + j * lda];
-        A[q + j * lda] = buf;
+        //buf = A[i * lda + q];
+        //A[q + i * lda] = A[q + j * lda];
+        //A[q + j * lda] = buf;
 
+        for (int s = 0; s < m; ++s) {
+            buf = A[i * lda + s];
+            A[s + i * lda] = A[s + j * lda];
+            A[s + j * lda] = buf;
+        }
+        
         // swap idx array elements
         // Find idx element with value i and assign it to j
-        find(idx, k, i + 1, it);
-        idx[it - idx] = j + 1;
+        for(l = i; l < k; ++l) {
+            if(idx[l] == i + 1) {
+                    idx[l] = j + 1;
+                    break;
+            }
+        }
+        idx[i] = i + 1;
     }
 }
 
@@ -126,10 +136,8 @@ void col_swap_gpu(
     int64_t lda,
     T* idx, cudaStream_t strm)
 {
-    printf("HEREEEEEEEEEEEEE\n");
 #ifdef USE_CUDA
     auto [tg, bg] = partition_1d(n, m, lda);
-    printf("HEREEEEEEEEEEEEE\n");
     col_swap_gpu<<<tg, bg, 0, strm>>>(m, n, k, A, lda, idx);
 #endif
 
