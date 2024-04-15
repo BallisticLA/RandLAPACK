@@ -126,9 +126,10 @@ void col_swap_gpu(
     int64_t lda,
     T* idx, cudaStream_t strm)
 {
+    printf("HEREEEEEEEEEEEEE\n");
 #ifdef USE_CUDA
     auto [tg, bg] = partition_1d(n, m, lda);
-
+    printf("HEREEEEEEEEEEEEE\n");
     col_swap_gpu<<<tg, bg, 0, strm>>>(m, n, k, A, lda, idx);
 #endif
 
