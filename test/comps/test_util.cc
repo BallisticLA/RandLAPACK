@@ -116,10 +116,10 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_double_precision) {
     m_info.cond_num = 2025;
     m_info.rank = n;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
@@ -132,10 +132,10 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::adverserial);
     m_info.scaling = std::pow(10, 15);
     m_info.rank = n;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
@@ -149,10 +149,10 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
     m_info.cond_num = 2;
     m_info.rank = n;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<float>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
@@ -165,10 +165,10 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
     RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::adverserial);
     m_info.scaling = std::pow(10, 7);
     m_info.rank = n;
-    RandLAPACK::gen::mat_gen<float>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_normc) {

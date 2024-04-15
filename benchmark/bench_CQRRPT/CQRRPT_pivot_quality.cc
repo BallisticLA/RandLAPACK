@@ -175,7 +175,7 @@ int main() {
     m_info.cond_num = std::pow(10, 10);
     m_info.rank = n;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     R_norm_ratio<double>(m_info, all_data, state_constant1);
     printf("R done\n");

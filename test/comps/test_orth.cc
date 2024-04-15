@@ -113,8 +113,8 @@ TEST_F(TestOrth, Test_CholQRQ)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     sketch_and_copy_computational_helper<double>(state, all_data);
-    test_orth_sketch<double>(all_data, CholQRQ);
+    test_orth_sketch(all_data, CholQRQ);
 }

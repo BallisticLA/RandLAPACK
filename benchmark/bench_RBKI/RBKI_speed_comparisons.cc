@@ -46,7 +46,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         RandBLAS::RNGState<> &state, int overwrite_A) {
 
     if (overwrite_A)
-        RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+        RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.U.begin(), all_data.U.end(), 0.0);
     std::fill(all_data.VT.begin(), all_data.VT.end(), 0.0);
     std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
     RBKI_benchmark_data<double> all_data(m, n, tol);
   
     // Fill the data matrix;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     printf("Finished data preparation\n");
 
@@ -221,7 +221,7 @@ int main(int argc, char *argv[]) {
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
         for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
-            call_all_algs<double>(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
+            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
         }
         num_matmuls_curr = num_matmuls_start;
     }

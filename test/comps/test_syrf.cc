@@ -159,11 +159,11 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
-    orth_and_copy_computational_helper<double>(all_data);
-    test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
+    orth_and_copy_computational_helper(all_data);
+    test_SYRF_general(state, all_data, all_algs);
 }
 
 TEST_F(TestSYRF, Polynomial_Decay_general2)
@@ -184,9 +184,9 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     m_info.cond_num = 2025;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
-    orth_and_copy_computational_helper<double>(all_data);
-    test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
+    orth_and_copy_computational_helper(all_data);
+    test_SYRF_general(state, all_data, all_algs);
 }

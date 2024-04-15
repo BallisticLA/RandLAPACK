@@ -184,12 +184,12 @@ int main() {
     //m_info.cond_num = std::pow(10, 10);
     //m_info.rank = n;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
 #if !defined(__APPLE__)
-    R_norm_ratio<double>(m_info, b_sz, all_data, state_constant1);
+    R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("R done\n");
-    sv_ratio<double>(m_info, b_sz, all_data, state_constant2);
+    sv_ratio(m_info, b_sz, all_data, state_constant2);
     printf("SV done\n\n");
 #endif
 }

@@ -148,13 +148,13 @@ int main() {
     QR_speed_benchmark_data<double> all_data_d(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info_d(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double>(m_info_d, all_data_d.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info_d, all_data_d.A.data(), state);
 
     // Allocate basic workspace - float
     QR_speed_benchmark_data<float> all_data_f(m, n, (float) tol, (float) d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<float> m_info_f(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<float>(m_info_f, all_data_f.A.data(), state_cpy);
+    RandLAPACK::gen::mat_gen(m_info_f, all_data_f.A.data(), state_cpy);
 
     // Declare a data file
     std::fstream file("Apple_QR_time_raw_rows_"              + std::to_string(m)
@@ -165,7 +165,7 @@ int main() {
                                     + ".dat", std::fstream::app);
 #if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double, float>(m_info_f, m_info_d, numruns, b_sz_start, all_data_f, all_data_d, state_constant);
+        res = call_all_algs(m_info_f, m_info_d, numruns, b_sz_start, all_data_f, all_data_d, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",\n";
     }
 #endif

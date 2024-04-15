@@ -15,7 +15,7 @@ chol_check(int64_t m, int64_t k, RandBLAS::RNGState<> state) {
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, m, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 8);
-    RandLAPACK::gen::mat_gen<double>(m_info, A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, A.data(), state);
 
     T* A_dat = A.data();
     T* A_leading_submat_symm_dat = A_leading_submat_symm.data();

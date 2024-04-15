@@ -197,7 +197,7 @@ int main() {
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
     std::fstream file("CQRRPT_speed_comp_"              + std::to_string(m)

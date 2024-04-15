@@ -159,11 +159,11 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double>(norm_A, all_data);
+    norm_and_copy_computational_helper(norm_A, all_data);
 // This test uses orhr_col
 #if !defined(__APPLE__)
-    test_HQRRP_general<double>(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
+    test_HQRRP_general(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
 #endif
 }

@@ -190,7 +190,7 @@ int main() {
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
     std::fstream file("ICQRRP_QP3_QR_time_raw_rows_"              + std::to_string(m)
@@ -201,7 +201,7 @@ int main() {
                                     + ".dat", std::fstream::app);
 #if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double>(m_info, numruns, b_sz_start, all_data, state_constant);
+        res = call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",\n";
     }
 #endif

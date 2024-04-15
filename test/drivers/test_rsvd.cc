@@ -182,8 +182,8 @@ TEST_F(TestRSVD, SimpleTest)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
-    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    computational_helper<double>(all_data);
-    test_RSVD1_general<double, r123::Philox4x32>(tol, all_data, all_algs, state);
+    computational_helper(all_data);
+    test_RSVD1_general(tol, all_data, all_algs, state);
 }
