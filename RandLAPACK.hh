@@ -26,5 +26,6 @@
 // Cuda
 #include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
 #include "RandLAPACK/drivers/rl_cqrrp_gpu.hh"
+#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
 
 #endif

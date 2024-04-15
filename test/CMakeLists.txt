@@ -22,6 +22,7 @@ if (GTest_FOUND)
     )
 
     set(RandLAPACK_test_cu_srcs
+        comps/test_util_gpu.cu
         drivers/test_cqrrpt_gpu.cu
         drivers/test_cqrrp_gpu.cu
     )
