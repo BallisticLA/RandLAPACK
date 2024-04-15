@@ -36,8 +36,8 @@ test_speed(int64_t m, int64_t n, int64_t runs, RandBLAS::RNGState<RNG> const_sta
         auto state = const_state;
 
         RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A, state);
-        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B1, state);
+        RandLAPACK::gen::mat_gen<double>(m_info, A, state);
+        RandLAPACK::gen::mat_gen<double>(m_info, B1, state);
         lapack::lacpy(MatrixType::General, m, n, B1_dat, m, B2_dat, m);
 
         // Get the implicit Q-factor in A_dat

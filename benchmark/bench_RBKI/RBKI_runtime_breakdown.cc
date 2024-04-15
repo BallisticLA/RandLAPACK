@@ -58,7 +58,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         RandBLAS::RNGState<> &state, int overwrite_A) {
 
     if (overwrite_A)
-        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+        RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
     std::fill(all_data.U.begin(), all_data.U.end(), 0.0);
     std::fill(all_data.V.begin(), all_data.V.end(), 0.0);
     std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
@@ -136,7 +136,7 @@ int main(int argc, char *argv[]) {
     m_info.filename = argv[1];
     m_info.workspace_query_mod = 1;
     // Workspace query;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, NULL, state);
+    RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
 
     // Update basic params.
     m = m_info.rows;
@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
     RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);
   
     // Fill the data matrix;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
 
     printf("Finished data preparation\n");
 

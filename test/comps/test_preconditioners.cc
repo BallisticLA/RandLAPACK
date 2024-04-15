@@ -278,7 +278,7 @@ TEST_F(TestNystromPrecond, basictest) {
     mat_info.exponent = 2.0;
     std::vector<double> A(m * m, 0.0);
     RandBLAS::RNGState data_state(0);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(mat_info, A.data(), data_state);
+    RandLAPACK::gen::mat_gen<double>(mat_info, A.data(), data_state);
     std::vector<double> G(m * m, 0.0);
     blas::syrk(Layout::ColMajor, Uplo::Lower, Op::NoTrans, m, m, 1.0,
         A.data(), m, 0.0, G.data(), m

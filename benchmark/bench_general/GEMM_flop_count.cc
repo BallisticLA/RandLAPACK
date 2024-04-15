@@ -34,8 +34,8 @@ test_flops(int64_t k, RandBLAS::RNGState<> state) {
         T* C_dat = C.data();
 
         RandLAPACK::gen::mat_gen_info<double> m_info(k, k, RandLAPACK::gen::gaussian);
-        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
-        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B.data(), state);
+        RandLAPACK::gen::mat_gen<double>(m_info, A.data(), state);
+        RandLAPACK::gen::mat_gen<double>(m_info, B.data(), state);
 
         // Get the timing
         auto start = high_resolution_clock::now();

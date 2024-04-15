@@ -148,7 +148,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double>(norm_A, all_data);
     test_CQRRPT_general<double, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
@@ -173,7 +173,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double>(norm_A, all_data);
     test_CQRRPT_general<double, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
@@ -198,7 +198,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::adverserial);
     m_info.scaling = 1e7;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper<double>(norm_A, all_data);
     test_CQRRPT_general<double, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);

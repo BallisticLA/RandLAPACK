@@ -64,14 +64,14 @@ struct mat_gen_info {
 
 /// Given singular values, generates left and right singular vectors and combines all into a single matrix.
 /// Note: Printed matrix A may have different rank from actual generated matrix A
-template <typename T, typename RNG>
+template <typename T>
 void gen_singvec(
     int64_t m,
     int64_t n,
     T* A,
     int64_t k,
     T* S,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
     T* U        = ( T * ) calloc( m * k, sizeof( T ) );
     T* V        = ( T * ) calloc( n * k, sizeof( T ) );
@@ -107,7 +107,7 @@ void gen_singvec(
 /// singular values are equal to one.
 /// User can optionally choose for the matrix to be diagonal.
 /// The output matrix has k singular values. 
-template <typename T, typename RNG>
+template <typename T>
 void gen_poly_mat(
     int64_t &m,
     int64_t &n,
@@ -116,7 +116,7 @@ void gen_poly_mat(
     T cond,
     T p,
     bool diagon,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -154,7 +154,7 @@ void gen_poly_mat(
 /// the first 10 percent of the singular values are equal to one.
 /// User can optionally choose for the matrix to be diagonal.
 /// The output matrix has k singular values. 
-template <typename T, typename RNG>
+template <typename T>
 void gen_exp_mat(
     int64_t &m,
     int64_t &n,
@@ -162,7 +162,7 @@ void gen_exp_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
     T* s = ( T * ) calloc( k,     sizeof( T ) );
     T* S = ( T * ) calloc( k * k, sizeof( T ) );
@@ -198,7 +198,7 @@ void gen_exp_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T, typename RNG>
+template <typename T>
 void gen_step_mat(
     int64_t &m,
     int64_t &n,
@@ -206,7 +206,7 @@ void gen_step_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
@@ -238,19 +238,19 @@ void gen_step_mat(
 /// Output matrix is m by n, full-rank.
 /// Such matrix would be difficult to sketch.
 /// Right singular vectors are sampled uniformly at random.
-template <typename T, typename RNG>
+template <typename T>
 void gen_spiked_mat(
     int64_t &m,
     int64_t &n,
     T* A,
     T spike_scale,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
     int64_t num_rows_sampled = n / 2;
 
     /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
     RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
-    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+    RandBLAS::SparseSkOp<T> S(DS, state);
     state = RandBLAS::fill_sparse(S);
 
     T* V   = ( T * ) calloc( n * n, sizeof( T ) );
@@ -291,13 +291,13 @@ void gen_spiked_mat(
 /// was orthonormalized with a Householder QR. 
 /// The matrix V is the upper triangular part of an n × n 
 /// orthonormalized Gaussian matrix with modified diagonal entries to diag(V) *= [1, 10^-15, . . . , 10^-15, 10^-15].
-template <typename T, typename RNG>
+template <typename T>
 void gen_oleg_adversarial_mat(
     int64_t &m,
     int64_t &n,
     T* A,
     T sigma,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
 
     T scaling_factor_U = sigma;
@@ -347,7 +347,7 @@ void gen_oleg_adversarial_mat(
 /// Boolean parameter 'diag' signifies whether the matrix is to be
 /// generated as diagonal.
 /// Parameter 'cond' signfies the condition number of a generated matrix.
-template <typename T, typename RNG>
+template <typename T>
 void gen_bad_cholqr_mat(
     int64_t &m,
     int64_t &n,
@@ -355,7 +355,7 @@ void gen_bad_cholqr_mat(
     int64_t k,
     T cond,
     bool diagon,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
     T* s = ( T * ) calloc( n,     sizeof( T ) );
     T* S = ( T * ) calloc( n * n, sizeof( T ) );
@@ -465,11 +465,11 @@ void process_input_mat(
 
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
-template <typename T, typename RNG>
+template <typename T>
 void mat_gen(
     mat_gen_info<T> &info,
     T* A,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<> &state
 ) {
 
     switch(info.m_type) {
