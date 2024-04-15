@@ -47,9 +47,9 @@ class TestOrth : public ::testing::Test
         }
     };
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void sketch_and_copy_computational_helper(
-        RandBLAS::RNGState<RNG> state,
+        RandBLAS::RNGState<> state,
         OrthTestData<T> &all_data
     ) {
 
@@ -70,7 +70,7 @@ class TestOrth : public ::testing::Test
 
     /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
     /// Checks I - \transpose{Q}Q.
-    template <typename T, typename RNG>
+    template <typename T>
     static void test_orth_sketch(
         OrthTestData<T> &all_data, 
         RandLAPACK::CholQRQ<T> &CholQRQ
@@ -115,6 +115,6 @@ TEST_F(TestOrth, Test_CholQRQ)
     m_info.rank = k;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    sketch_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
-    test_orth_sketch<double, r123::Philox4x32>(all_data, CholQRQ);
+    sketch_and_copy_computational_helper<double>(state, all_data);
+    test_orth_sketch<double>(all_data, CholQRQ);
 }

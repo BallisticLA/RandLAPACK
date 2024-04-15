@@ -61,7 +61,7 @@ class TestSYRF : public ::testing::Test
             {}
     };
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void orth_and_copy_computational_helper(SYRFTestData<T> &all_data) {
         
         auto m = all_data.row;
@@ -162,7 +162,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+    orth_and_copy_computational_helper<double>(all_data);
     test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
 }
 
@@ -187,6 +187,6 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
-    orth_and_copy_computational_helper<double, r123::Philox4x32>(all_data);
+    orth_and_copy_computational_helper<double>(all_data);
     test_SYRF_general<double, r123::Philox4x32>(state, all_data, all_algs);
 }

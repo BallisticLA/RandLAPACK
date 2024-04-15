@@ -42,7 +42,7 @@ class TestCQRRPT : public ::testing::Test
         }
     };
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void norm_and_copy_computational_helper(T &norm_A, CQRRPTTestData<T> &all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
@@ -105,13 +105,13 @@ class TestCQRRPT : public ::testing::Test
 
     /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
-    template <typename T, typename RNG, typename alg_type>
+    template <typename T, typename alg_type>
     static void test_CQRRPT_general(
         T d_factor, 
         T norm_A,
         CQRRPTTestData<T> &all_data,
         alg_type &CQRRPT,
-        RandBLAS::RNGState<RNG> &state) {
+        RandBLAS::RNGState<> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -150,8 +150,8 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
+    norm_and_copy_computational_helper<double>(norm_A, all_data);
+    test_CQRRPT_general<double, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
@@ -175,8 +175,8 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
+    norm_and_copy_computational_helper<double>(norm_A, all_data);
+    test_CQRRPT_general<double, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
 // Using L2 norm rank estimation here is similar to using raive estimation. 
@@ -200,8 +200,8 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     m_info.scaling = 1e7;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
+    norm_and_copy_computational_helper<double>(norm_A, all_data);
+    test_CQRRPT_general<double, RandLAPACK::CQRRPT<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT, state);
 }
 
 

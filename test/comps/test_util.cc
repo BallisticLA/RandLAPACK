@@ -60,9 +60,9 @@ class TestUtil : public ::testing::Test
         }
     };
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void 
-    test_spectral_norm(RandBLAS::RNGState<RNG> state, SpectralTestData<T> &all_data) {
+    test_spectral_norm(RandBLAS::RNGState<> state, SpectralTestData<T> &all_data) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -119,7 +119,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_double_precision) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
     
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double, r123::Philox4x32>(state, all_data);
+    test_spectral_norm<double>(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
@@ -135,7 +135,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double, r123::Philox4x32>(state, all_data);
+    test_spectral_norm<double>(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
@@ -152,7 +152,7 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
     RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float, r123::Philox4x32>(state, all_data);
+    test_spectral_norm<float>(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
@@ -168,7 +168,7 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
     RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A.data(), state);
     
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float, r123::Philox4x32>(state, all_data);
+    test_spectral_norm<float>(state, all_data);
 }
 
 TEST_F(TestUtil, test_normc) {

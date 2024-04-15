@@ -45,7 +45,7 @@ class TestCQRRP : public ::testing::Test
         }
     };
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void norm_and_copy_computational_helper(T &norm_A, CQRRPTestData<T> &all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
@@ -108,13 +108,13 @@ class TestCQRRP : public ::testing::Test
 
     /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
-    template <typename T, typename RNG, typename alg_type>
+    template <typename T, typename alg_type>
     static void test_CQRRP_general(
         T d_factor, 
         T norm_A,
         CQRRPTestData<T> &all_data,
         alg_type &CQRRP,
-        RandBLAS::RNGState<RNG> &state) {
+        RandBLAS::RNGState<> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -162,9 +162,9 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper<double>(norm_A, all_data);
 #if !defined(__APPLE__)
-    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_CQRRP_general<double, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
 
@@ -191,9 +191,9 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
     //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper<double>(norm_A, all_data);
 #if !defined(__APPLE__)
-    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_CQRRP_general<double, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
 
@@ -221,9 +221,9 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper<double>(norm_A, all_data);
 #if !defined(__APPLE__)
-    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_CQRRP_general<double, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
 
