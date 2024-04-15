@@ -16,6 +16,8 @@
 #ifndef USE_CUDA
 #define USE_CUDA
 
+#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh
+
 using namespace std::chrono;
 
 

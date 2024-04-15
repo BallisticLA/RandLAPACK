@@ -10,6 +10,10 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+#ifndef USE_CUDA
+#define USE_CUDA
+#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
+
 class TestCQRRPT : public ::testing::Test
 {
     protected:
@@ -248,3 +252,4 @@ TEST_F(TestCQRRPT, something1) {
     cusolverDnSormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_N, m, 1, n, d_A, m, nullptr, d_B, m, nullptr, lwork, devInfo);
 }
 */
+#endif

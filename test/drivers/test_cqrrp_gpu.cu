@@ -10,6 +10,11 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+// Use cuda kernels.
+#ifndef USE_CUDA
+#define USE_CUDA
+#include "RandLAPACK/drivers/rl_cqrrp_gpu.hh"
+
 class TestCQRRP : public ::testing::Test
 {
     protected:
@@ -228,3 +233,4 @@ TEST_F(TestCQRRP, CQRRP_blocked_GPU_low_rank) {
     //test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
 #endif
 }
+#endif
