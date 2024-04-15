@@ -52,10 +52,10 @@ struct RBKI_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T, typename RNG>
+template <typename T>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         RBKI_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state, int overwrite_A) {
+                                        RandBLAS::RNGState<> &state, int overwrite_A) {
 
     if (overwrite_A)
         RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
@@ -64,14 +64,14 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
 }
 
-template <typename T, typename RNG>
+template <typename T>
 static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t k,
     int64_t num_krylov_iters,
     RBKI_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state,
+    RandBLAS::RNGState<> &state,
     std::string output_filename) {
 
     auto m   = all_data.row;
@@ -104,7 +104,7 @@ static void call_all_algs(
         file << "\n";
 
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen, 0);
+        data_regen<T>(m_info, all_data, state_gen, 0);
         state_gen = state;
     }
 }
@@ -163,7 +163,7 @@ int main(int argc, char *argv[]) {
 
     for (;k_start <= k_stop; k_start *=2) {
         for (;num_krylov_iters_curr <= num_krylov_iters_stop; num_krylov_iters_curr *=2) {
-            call_all_algs<double, r123::Philox4x32>(m_info, numruns, k_start, num_krylov_iters_curr, all_data, state_constant, output_filename);
+            call_all_algs<double>(m_info, numruns, k_start, num_krylov_iters_curr, all_data, state_constant, output_filename);
         }
         num_krylov_iters_curr = num_krylov_iters_start;
     }

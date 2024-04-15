@@ -40,10 +40,10 @@ struct RBKI_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T, typename RNG>
+template <typename T>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         RBKI_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state, int overwrite_A) {
+                                        RandBLAS::RNGState<> &state, int overwrite_A) {
 
     if (overwrite_A)
         RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
@@ -104,7 +104,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64
     return std::hypot(nrm1, nrm2);
 }
 
-template <typename T, typename RNG>
+template <typename T>
 static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
@@ -112,7 +112,7 @@ static void call_all_algs(
     int64_t num_matmuls,
     int64_t custom_rank,
     RBKI_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state,
+    RandBLAS::RNGState<> &state,
     std::string output_filename, 
     long dur_svd) {
     printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);
@@ -161,7 +161,7 @@ static void call_all_algs(
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
         state_gen = state;
-        data_regen<T, RNG>(m_info, all_data, state_gen, 0);
+        data_regen<T>(m_info, all_data, state_gen, 0);
     }
 }
 
@@ -221,7 +221,7 @@ int main(int argc, char *argv[]) {
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
         for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
-            call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
+            call_all_algs<double>(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
         }
         num_matmuls_curr = num_matmuls_start;
     }

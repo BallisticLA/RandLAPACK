@@ -40,10 +40,10 @@ struct QR_speed_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T, typename RNG>
+template <typename T>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         QR_speed_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state, int apply_itoa) {
+                                        RandBLAS::RNGState<> &state, int apply_itoa) {
 
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
@@ -54,13 +54,13 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     }
 }
 
-template <typename T, typename RNG>
+template <typename T>
 static std::vector<long> call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state) {
+    RandBLAS::RNGState<> &state) {
 
     auto m        = all_data.row;
     auto n        = all_data.col;
@@ -99,7 +99,7 @@ static std::vector<long> call_all_algs(
         auto dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
 
-        data_regen<T, RNG>(m_info, all_data, state_buf, 0);
+        data_regen<T>(m_info, all_data, state_buf, 0);
 
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
@@ -114,7 +114,7 @@ static std::vector<long> call_all_algs(
         auto state_gen_1 = state_gen_0;
         auto state_alg_1 = state_alg_0;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_0, 0);
+        data_regen<T>(m_info, all_data, state_gen_0, 0);
 
         // Testing CQRRP - best setup
         auto start_cqrrp = high_resolution_clock::now();
@@ -128,7 +128,7 @@ static std::vector<long> call_all_algs(
         auto state_gen_3 = state_gen_1;
         auto state_alg_3 = state_alg_1;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_1, 1);
+        data_regen<T>(m_info, all_data, state_gen_1, 1);
 
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
@@ -143,7 +143,7 @@ static std::vector<long> call_all_algs(
         auto state_gen_4 = state_gen_3;
         auto state_alg_4 = state_alg_3;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_3, 1);
+        data_regen<T>(m_info, all_data, state_gen_3, 1);
 
         // Testing HQRRP with Cholqr
         auto start_hqrrp_cholqr = high_resolution_clock::now();
@@ -159,7 +159,7 @@ static std::vector<long> call_all_algs(
         state_alg_0 = state_alg_4;
         state_buf = state_gen_4;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_4, 0);
+        data_regen<T>(m_info, all_data, state_gen_4, 0);
     }
 
     printf("CQRRP takes %ld μs\n", t_cqrrp_best);
@@ -201,7 +201,7 @@ int main() {
                                     + ".dat", std::fstream::app);
 #if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, all_data, state_constant);
+        res = call_all_algs<double>(m_info, numruns, b_sz_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",\n";
     }
 #endif

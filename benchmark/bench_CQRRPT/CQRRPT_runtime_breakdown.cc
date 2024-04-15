@@ -41,10 +41,10 @@ struct QR_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T, typename RNG>
+template <typename T>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         QR_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state) {
+                                        RandBLAS::RNGState<> &state) {
 
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
     std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
@@ -52,13 +52,13 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
 
-template <typename T, typename RNG>
+template <typename T>
 static std::vector<long> call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t n,
     QR_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state) {
+    RandBLAS::RNGState<> &state) {
 
     auto m        = all_data.row;
     auto tol      = all_data.tolerance;
@@ -90,7 +90,7 @@ static std::vector<long> call_all_algs(
         state_alg = state;
         state_gen = state;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen);
+        data_regen<T>(m_info, all_data, state_gen);
     }
 
     return inner_timing_best;
@@ -124,7 +124,7 @@ int main() {
                                       + ".dat", std::fstream::app);
 
     for (;n_start <= n_stop; n_start *= 2) {
-        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, n_start, all_data, state_constant);
+        res = call_all_algs<double>(m_info, numruns, n_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",\n";
     }
 }
