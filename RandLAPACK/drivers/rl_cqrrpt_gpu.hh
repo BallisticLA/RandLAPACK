@@ -271,7 +271,7 @@ int CQRRPT_GPU<T, RNG>::call(
     }
 
     /******************************GPU REGION BEGIN*********************************/
-    // The reasons for using GPUs for this part only ar ethe following: 
+    // The reasons for using GPUs for this part only ar the following: 
     // 1. There is no geqp3 available in any GPU linalg libraries. 
     //    We could port HQRRP to GPUs, but that takes additional time.
     // 2. There are no lacpy functions on any GPU linalg libraries. Those, however, 

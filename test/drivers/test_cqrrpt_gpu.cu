@@ -3,15 +3,12 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
-#include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include "rl_cuda_kernels.cuh"
 
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
-
 
 class TestCQRRPT : public ::testing::Test
 {
@@ -251,4 +248,3 @@ TEST_F(TestCQRRPT, something1) {
     cusolverDnSormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_N, m, 1, n, d_A, m, nullptr, d_B, m, nullptr, lwork, devInfo);
 }
 */
-

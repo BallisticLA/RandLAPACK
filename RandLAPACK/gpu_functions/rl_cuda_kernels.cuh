@@ -1,12 +1,12 @@
-#ifndef CUDA_KERNELS_H
-#define CUDA_KERNELS_H
-//#if USE_CUDA
+// This consitional allows us to make sure that the cuda kernels are only compiled with nvcc.
 
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
 
 namespace RandLAPACK::cuda_kernels {
+
+#ifdef USE_CUDA
 
 /** Given the dimensions of a matrix decompose the work for CUDA.
  * @param[in] m number of rows
@@ -53,174 +53,92 @@ bool valid_index(size_t q, size_t m, size_t n, size_t lda)
     return ((q < m*lda) && ((q % lda) < n));
 }
 
+inline
+__device__
+bool valid_index(size_t q, size_t m)
+{
+    return (q < m);
+}
+
+ 
+template <typename T>
+inline
+__device__
+void find(const T* array, int64_t size, T target, T* result) {
+    
+    size_t q = array_index();
+    if (!valid_index(q, size))
+        return;
+    
+    if (q < size && array[q] == target) {
+        *result = q;
+    }
+}
 
 
-/** takes the product of two matrices element wise.
- * Currently hard wired for column major order.
- *
- * @param[in] A a matrix with n rows and m columns
- * @param[in] B a matrix with n rows and m columns
- * @param[out] C a matrix with n rows and m column
- * @param[in] m number of rows in A,B, and C
- * @param[in] n number of cols in A,B, and C
- * @param[in] lda the number of elements between each row
- */
+/// Positions columns of A in accordance with idx vector of length k.
+/// idx array modified ONLY within the scope of this function.
 template <typename T>
  __global__
-void hadamard_product(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda)
+void col_swap_gpu(    
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    T* A,
+    int64_t lda,
+    T* idx)
 {
     size_t q = array_index();
 
-    if (!valid_index(q, m, n, lda))
+    if (!valid_index(q, m))
         return;
 
-    C[q] = A[q] * B[q];
+    if(k > n) 
+        throw std::runtime_error("Invalid rank parameter.");
+
+    int64_t i, j;
+    T it;
+    T buf;
+    for (i = 0, j = 0; i < k; ++i) {
+        j = idx[i] - 1;
+        //blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
+        buf = A[i * lda + q];
+        A[q + i * lda] = A[q + j * lda];
+        A[q + j * lda] = buf;
+
+        // swap idx array elements
+        // Find idx element with value i and assign it to j
+        find(idx, k, i + 1, it);
+        idx[it - idx] = j + 1;
+    }
 }
 
-/** takes the product of a diagonal and a dense matrix.
- * Currently hard wired for column major order.
- *
- * @param[in] A the diagonal of a diagonal matrix with n rows and n columns
- * @param[in] B a matrix with n rows and m columns
- * @param[out] C a matrix with n rows and m column
- * @param[in] m number of rows in A,B, and C
- * @param[in] n number of cols in A,B, and C
- * @param[in] lda the number of elements between each row
- */
+#endif
+
+/// Positions columns of A in accordance with idx vector of length k.
+/// idx array modified ONLY within the scope of this function.
 template <typename T>
- __global__
-void diagonal_dense_matmul(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda)
+void col_swap_gpu(    
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    T* A,
+    int64_t lda,
+    T* idx, cudaStream_t strm)
 {
-    size_t q = array_index(); // i + lda * j
-
-    if (!valid_index(q, m, n, lda))
-        return;
-
-    C[q] = A[q % lda] * B[q];
-}
-
-
-/** 
- * @param[in] A: (n, m) matrix
- * @param[in] out
- */
-template <typename T>
- __global__
-void max_l2_column(const T *A, T* out, size_t n, size_t m, size_t lda)
-{
-    size_t q = array_index(); // i + lda * j
-
-    if (!valid_index(q, m, n, lda))
-        return;
-
-    /*
-     * Find y_i = \|a_i\|_2 for each column of A (use blaspp)
-     * Find max y_i (use thrust)
-     */
-}
-
-/** 
- * 
- *
- * @param[in] x  a vector of length n
- * @param[in] y  a vector of length n
- * @param[out] z  a vector of length n
- * @param[in] epsilon
- * @param[in] n number of cols in A,B, and C
- * @param[in] lda the number of elements between each row
- */
-template <typename T>
- __global__
-void elementwise_division(const T *A, const T *B, T *C, T epsilon, size_t n, size_t m, size_t lda)
-{
-    size_t q = array_index();
-
-    if (!valid_index(q, m, n, lda))
-        return;
-
-    T denominator = B[q];
-
-    if (denominator < epsilon)
-        denominator = epsilon;
-    C[q] = A[q] / denominator;
-}
-
-/** takes the product of two matrices element wise.
- * Currently hard wired for coluimn major order.
- *
- * @param[in] A a matrix with n rows and m columns
- * @param[in] B a matrix with n rows and m columns
- * @param[out] C a matrix with n rows and m column
- * @param[in] n number of cols in A,B, and C
- * @param[in] m number of rows in A,B, and C
- * @param[in] lda the number of elements between each row
- */
-template <typename T>
-void hadamard_product(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda, cudaStream_t strm)
-{
+#ifdef USE_CUDA
     auto [tg, bg] = partition_1d(n, m, lda);
 
-    hadamard_product<<<tg, bg, 0, strm>>>(A, B, C, n, m, lda);
+    col_swap_gpu<<<tg, bg, 0, strm>>>(m, n, k, A, lda, idx);
+#endif
 
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch hadamard_product. " << cudaGetErrorString(ierr))
+        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
 
-/** Evaluates A / B elementwise; but if |B| < epsilon evaluates A / epsilon
- * Currently hard wired for coluimn major order.
- *
- * @param[in] A a matrix with n rows and m columns
- * @param[in] B a matrix with n rows and m columns
- * @param[out] C a matrix with n rows and m column
- * @param[in] n number of cols in A,B, and C
- * @param[in] m number of rows in A,B, and C
- * @param[in] lda the number of elements between each row
- */
-template <typename T>
-void elementwise_division(const T *A, const T *B, T *C, T epsilon, size_t n, size_t m, size_t lda, cudaStream_t strm)
-{
-    auto [tg, bg] = partition_1d(n, m, lda);
-
-    elementwise_division<<<tg, bg, 0, strm>>>(A, B, C, epsilon, n, m, lda);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        BPCG_ERROR("Failed to launch elementwise_division. " << cudaGetErrorString(ierr))
-        abort();
-    }
-}
-
-
-/** Evaluates C = diag(A) @ B
- * Currently hard wired for coluimn major order.
- *
- * @param[in] A a vector with n entries
- * @param[in] B a matrix with n rows and m columns
- * @param[out] C a matrix with n rows and m column
- * @param[in] n number of cols in B, and C
- * @param[in] m number of rows in B, and C
- * @param[in] lda the number of elements between each row
- */
-template <typename T>
-void diagonal_dense_matmul(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda, cudaStream_t strm)
-{
-    auto [tg, bg] = partition_1d(n, m, lda);
-
-    diagonal_dense_matmul<<<tg, bg, 0, strm>>>(A, B, C, n, m, lda);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        BPCG_ERROR("Failed to launch elementwise_division. " << cudaGetErrorString(ierr))
-        abort();
-    }
-}
 
 } // end namespace cuda_kernels
-//#endif
-#endif
