@@ -57,9 +57,16 @@ class TestUtil : public ::testing::Test
         auto n = all_data.col;
         cudaStream_t strm = cudaStreamPerThread;
 
+        char host_name [] = "host";
+        char device_name [] = "device";
+        RandBLAS::util::print_colmaj(m, n, all_data.A.data(), host_name);
+
         RandLAPACK::util::col_swap(m, n, n, all_data.A.data(), m, all_data.J);
         RandLAPACK::cuda_kernels::col_swap_gpu(m, n, n, all_data.A_device, m, all_data.J_device, strm);
         cudaMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+
+        RandBLAS::util::print_colmaj(m, n, all_data.A_host_buffer.data(), device_name);
+        RandBLAS::util::print_colmaj(m, n, all_data.A.data(), host_name);
 
         for(int i = 0; i < m*n; ++i)
             all_data.A[i] -= all_data.A_host_buffer[i];
@@ -73,8 +80,8 @@ class TestUtil : public ::testing::Test
 
 TEST_F(TestUtil, test_col_swp_gpu) {
     
-    int64_t m = 1000;
-    int64_t n = 100;
+    int64_t m = 5;
+    int64_t n = 5;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 
@@ -83,9 +90,13 @@ TEST_F(TestUtil, test_col_swp_gpu) {
     m_info.rank = n;
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
     
+    // Fill and randomly shuffle a vector
+    std::iota(all_data.J.begin(), all_data.J.end(), 1);
+    std::random_shuffle(all_data.J.begin(), all_data.J.begin() + n);
+    cudaMemcpy(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
+
     test_col_swp_gpu<double>(all_data);
 }
 #endif
