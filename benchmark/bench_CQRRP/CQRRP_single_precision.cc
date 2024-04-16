@@ -38,7 +38,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state, int apply_itoa) {
 
-    RandLAPACK::gen::mat_gen<T>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     if (apply_itoa) {
         std::iota(all_data.J.begin(), all_data.J.end(), 1);
