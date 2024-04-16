@@ -13,7 +13,7 @@ using namespace RandLAPACK;
 
 template <typename T>
 static void 
-test_speed(int64_t m, int64_t n, int64_t runs, RandBLAS::RNGState<RNG> const_state) {
+test_speed(int64_t m, int64_t n, int64_t runs, RandBLAS::RNGState<> const_state) {
 
     // Matrix to decompose.
     std::vector<T> A(m * n, 0.0);
