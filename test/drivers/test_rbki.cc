@@ -117,7 +117,7 @@ TEST_F(TestRBKI, RBKI_basic) {
     RBKI.num_threads_rest = 16;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    test_RBKI_general<double, r123::Philox4x32, RandLAPACK::RBKI<double, r123::Philox4x32>>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
+    test_RBKI_general(b_sz, target_rank, custom_rank, all_data, RBKI, state);
 }

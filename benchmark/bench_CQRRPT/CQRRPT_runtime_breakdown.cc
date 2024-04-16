@@ -46,7 +46,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
@@ -90,7 +90,7 @@ static std::vector<long> call_all_algs(
         state_alg = state;
         state_gen = state;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen);
     }
 
     return inner_timing_best;
@@ -114,7 +114,7 @@ int main() {
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
     std::fstream file("CQRRPT_inner_speed_"              + std::to_string(m)
@@ -124,7 +124,7 @@ int main() {
                                       + ".dat", std::fstream::app);
 
     for (;n_start <= n_stop; n_start *= 2) {
-        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, n_start, all_data, state_constant);
+        res = call_all_algs(m_info, numruns, n_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",\n";
     }
 }

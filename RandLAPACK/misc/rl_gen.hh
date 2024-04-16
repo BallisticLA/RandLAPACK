@@ -59,6 +59,7 @@ struct mat_gen_info {
         exponent = 1.0;
         theta = 1.0;
         perturb = 1.0;
+        check_true_rank = false;
     }
 };
 
@@ -250,7 +251,7 @@ void gen_spiked_mat(
 
     /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
     RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
-    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+    RandBLAS::SparseSkOp<T> S(DS, state);
     state = RandBLAS::fill_sparse(S);
 
     T* V   = ( T * ) calloc( n * n, sizeof( T ) );

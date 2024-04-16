@@ -70,7 +70,7 @@ class TestOrth : public ::testing::Test
 
     /// Tests orthogonality of a matrix Q, obtained by orthogonalizing a Gaussian sketch.
     /// Checks I - \transpose{Q}Q.
-    template <typename T, typename RNG>
+    template <typename T>
     static void test_orth_sketch(
         OrthTestData<T> &all_data, 
         RandLAPACK::CholQRQ<T> &CholQRQ
@@ -113,8 +113,8 @@ TEST_F(TestOrth, Test_CholQRQ)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    sketch_and_copy_computational_helper<double, r123::Philox4x32>(state, all_data);
-    test_orth_sketch<double, r123::Philox4x32>(all_data, CholQRQ);
+    sketch_and_copy_computational_helper(state, all_data);
+    test_orth_sketch(all_data, CholQRQ);
 }

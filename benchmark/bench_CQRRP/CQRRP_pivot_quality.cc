@@ -40,13 +40,13 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
 
 // Re-generate and clear data
-template <typename T, typename RNG>
+template <typename T>
 static std::vector<T> get_norms( QR_speed_benchmark_data<T> &all_data) {
 
     int64_t m = all_data.row;
@@ -82,16 +82,16 @@ static void R_norm_ratio(
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
     //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-    std::vector<T> R_norms_HQRRP = get_norms<T, RNG>(all_data);
+    std::vector<T> R_norms_HQRRP = get_norms(all_data);
     printf("\nDone with HQRRP\n");
 
     // Clear and re-generate data
-    data_regen<T, RNG>(m_info, all_data, state);
+    data_regen(m_info, all_data, state);
 
     printf("\nStarting CQRRP\n");
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
-    std::vector<T> R_norms_CQRRP = get_norms<T, RNG>(all_data);
+    std::vector<T> R_norms_CQRRP = get_norms(all_data);
 
     // Declare a data file
     std::fstream file1("data_out/QR_R_norm_ratios_rows_"        + std::to_string(m)
@@ -139,7 +139,7 @@ static void sv_ratio(
     lapack::gesdd(Job::NoVec, m, n, all_data.A.data(), m, all_data.S.data(), (T*) nullptr, m, (T*) nullptr, n);
 
     // Clear and re-generate data
-    data_regen<T, RNG>(m_info, all_data, state);
+    data_regen(m_info, all_data, state);
 
     // Running GEQP3
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
@@ -153,7 +153,7 @@ static void sv_ratio(
     file2  << ",\n";
 
     // Clear and re-generate data
-    data_regen<T, RNG>(m_info, all_data, state1);
+    data_regen(m_info, all_data, state1);
 
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
@@ -184,12 +184,12 @@ int main() {
     //m_info.cond_num = std::pow(10, 10);
     //m_info.rank = n;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
 #if !defined(__APPLE__)
-    R_norm_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant1);
+    R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("R done\n");
-    sv_ratio<double, r123::Philox4x32>(m_info, b_sz, all_data, state_constant2);
+    sv_ratio(m_info, b_sz, all_data, state_constant2);
     printf("SV done\n\n");
 #endif
 }
