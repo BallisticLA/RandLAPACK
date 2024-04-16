@@ -82,7 +82,7 @@ static void R_norm_ratio(
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
     //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-    std::vector<T> R_norms_HQRRP = get_norms<T>(all_data);
+    std::vector<T> R_norms_HQRRP = get_norms(all_data);
     printf("\nDone with HQRRP\n");
 
     // Clear and re-generate data
@@ -91,7 +91,7 @@ static void R_norm_ratio(
     printf("\nStarting CQRRP\n");
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
-    std::vector<T> R_norms_CQRRP = get_norms<T>(all_data);
+    std::vector<T> R_norms_CQRRP = get_norms(all_data);
 
     // Declare a data file
     std::fstream file1("data_out/QR_R_norm_ratios_rows_"        + std::to_string(m)
@@ -139,7 +139,7 @@ static void sv_ratio(
     lapack::gesdd(Job::NoVec, m, n, all_data.A.data(), m, all_data.S.data(), (T*) nullptr, m, (T*) nullptr, n);
 
     // Clear and re-generate data
-    data_regen<T>(m_info, all_data, state);
+    data_regen(m_info, all_data, state);
 
     // Running GEQP3
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
@@ -153,7 +153,7 @@ static void sv_ratio(
     file2  << ",\n";
 
     // Clear and re-generate data
-    data_regen<T>(m_info, all_data, state1);
+    data_regen(m_info, all_data, state1);
 
     // Running CQRRP
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);

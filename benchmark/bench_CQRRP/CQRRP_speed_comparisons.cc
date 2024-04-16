@@ -99,7 +99,7 @@ static std::vector<long> call_all_algs(
         auto dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
 
-        data_regen<T>(m_info, all_data, state_buf, 0);
+        data_regen(m_info, all_data, state_buf, 0);
 
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
@@ -114,7 +114,7 @@ static std::vector<long> call_all_algs(
         auto state_gen_1 = state_gen_0;
         auto state_alg_1 = state_alg_0;
         // Clear and re-generate data
-        data_regen<T>(m_info, all_data, state_gen_0, 0);
+        data_regen(m_info, all_data, state_gen_0, 0);
 
         // Testing CQRRP - best setup
         auto start_cqrrp = high_resolution_clock::now();
@@ -128,7 +128,7 @@ static std::vector<long> call_all_algs(
         auto state_gen_3 = state_gen_1;
         auto state_alg_3 = state_alg_1;
         // Clear and re-generate data
-        data_regen<T>(m_info, all_data, state_gen_1, 1);
+        data_regen(m_info, all_data, state_gen_1, 1);
 
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
@@ -143,7 +143,7 @@ static std::vector<long> call_all_algs(
         auto state_gen_4 = state_gen_3;
         auto state_alg_4 = state_alg_3;
         // Clear and re-generate data
-        data_regen<T>(m_info, all_data, state_gen_3, 1);
+        data_regen(m_info, all_data, state_gen_3, 1);
 
         // Testing HQRRP with Cholqr
         auto start_hqrrp_cholqr = high_resolution_clock::now();
@@ -159,7 +159,7 @@ static std::vector<long> call_all_algs(
         state_alg_0 = state_alg_4;
         state_buf = state_gen_4;
         // Clear and re-generate data
-        data_regen<T>(m_info, all_data, state_gen_4, 0);
+        data_regen(m_info, all_data, state_gen_4, 0);
     }
 
     printf("CQRRP takes %ld μs\n", t_cqrrp_best);

@@ -67,8 +67,6 @@ static std::vector<long> call_all_algs(
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 48;
     // We are nbot using panel pivoting in performance testing.
-    int panel_pivoting = 0;
-
     // timing vars
     long dur_cqrrp    = 0;
     long dur_geqrf    = 0;
@@ -87,12 +85,12 @@ static std::vector<long> call_all_algs(
         auto start_getrf = high_resolution_clock::now();
         lapack::getrf(m, n, all_data_rest.A.data(), m, all_data_rest.J.data());
         auto stop_getrf = high_resolution_clock::now();
-        auto dur_getrf = duration_cast<microseconds>(stop_getrf - start_getrf).count();
+        dur_getrf = duration_cast<microseconds>(stop_getrf - start_getrf).count();
         printf("TOTAL TIME FOR GETRF %ld\n", dur_getrf);
         // Update best timing
         i == 0 ? t_getrf_best = dur_getrf : (dur_getrf < t_getrf_best) ? t_getrf_best = dur_getrf : NULL;
 
-        data_regen<T_rest>(m_info_rest, all_data_rest, state_gen, 0);
+        data_regen(m_info_rest, all_data_rest, state_gen, 0);
         state_gen = state;
 
         // Testing GEQRF
@@ -105,7 +103,7 @@ static std::vector<long> call_all_algs(
         i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
 
         // Clear and re-generate data
-        data_regen<T_rest>(m_info_rest, all_data_rest, state_gen, 0);
+        data_regen(m_info_rest, all_data_rest, state_gen, 0);
         state_gen = state;
 
         // Testing CQRRP - best setup
@@ -118,7 +116,7 @@ static std::vector<long> call_all_algs(
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
         // Clear and re-generate data
-        data_regen<T_cqrrp>(m_info_cqrrp, all_data_cqrrp, state_gen, 1);
+        data_regen(m_info_cqrrp, all_data_cqrrp, state_gen, 1);
         state_gen = state;
         state_alg = state;
     }

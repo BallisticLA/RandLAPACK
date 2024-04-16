@@ -104,7 +104,7 @@ static void call_all_algs(
         file << "\n";
 
         // Clear and re-generate data
-        data_regen<T>(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 0);
         state_gen = state;
     }
 }

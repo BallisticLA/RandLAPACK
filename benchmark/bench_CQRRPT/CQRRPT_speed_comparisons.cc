@@ -97,7 +97,7 @@ static std::vector<long> call_all_algs(
         dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
         state_gen = state;
-        data_regen<T>(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
@@ -106,7 +106,7 @@ static std::vector<long> call_all_algs(
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
         state_gen = state;
-        data_regen<T>(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing CQRRPT
         auto start_cqrrp = high_resolution_clock::now();
@@ -116,7 +116,7 @@ static std::vector<long> call_all_algs(
 
         state_gen = state;
         state_alg = state;
-        data_regen<T>(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing SCHOLQR3
         auto start_scholqr = high_resolution_clock::now();
@@ -141,7 +141,7 @@ static std::vector<long> call_all_algs(
         dur_scholqr = duration_cast<microseconds>(stop_scholqr - start_scholqr).count();
 
         auto state_gen = state;
-        data_regen<T>(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing GEQR + GEQPT
         auto start_geqpt = high_resolution_clock::now();
@@ -164,7 +164,7 @@ static std::vector<long> call_all_algs(
         dur_geqpt = duration_cast<microseconds>(stop_geqpt - start_geqpt).count();
 
         state_gen = state;
-        data_regen<T>(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen);
     
         i == 0 ? t_cqrrpt_best  = dur_cqrrpt  : (dur_cqrrpt < t_cqrrpt_best)   ? t_cqrrpt_best = dur_cqrrpt   : NULL;
         i == 0 ? t_geqpt_best   = dur_geqpt   : (dur_geqpt < t_geqpt_best)     ? t_geqpt_best = dur_geqpt     : NULL;

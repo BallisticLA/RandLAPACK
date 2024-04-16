@@ -90,7 +90,7 @@ static std::vector<long> call_all_algs(
         state_alg = state;
         state_gen = state;
         // Clear and re-generate data
-        data_regen<T>(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen);
     }
 
     return inner_timing_best;

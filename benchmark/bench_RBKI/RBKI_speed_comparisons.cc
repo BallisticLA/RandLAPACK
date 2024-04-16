@@ -161,7 +161,7 @@ static void call_all_algs(
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
         state_gen = state;
-        data_regen<T>(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 0);
     }
 }
 
