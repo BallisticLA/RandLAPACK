@@ -11,7 +11,7 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 using namespace std::chrono;
 using namespace RandLAPACK;
 
-template <typename T, typename RNG>
+template <typename T>
 static void 
 test_speed(int64_t m, int64_t n, int64_t runs, RandBLAS::RNGState<RNG> const_state) {
 
@@ -66,11 +66,11 @@ test_speed(int64_t m, int64_t n, int64_t runs, RandBLAS::RNGState<RNG> const_sta
 
 int main() {
     auto state = RandBLAS::RNGState();
-    test_speed<double, r123::Philox4x32>(std::pow(2, 10), std::pow(2, 5),  10, state);
-    test_speed<double, r123::Philox4x32>(std::pow(2, 11), std::pow(2, 6),  10, state);
-    test_speed<double, r123::Philox4x32>(std::pow(2, 12), std::pow(2, 7),  10, state);
-    test_speed<double, r123::Philox4x32>(std::pow(2, 13), std::pow(2, 8),  10, state);
-    test_speed<double, r123::Philox4x32>(std::pow(2, 14), std::pow(2, 9),  10, state);
-    test_speed<double, r123::Philox4x32>(std::pow(2, 15), std::pow(2, 10), 10, state);
+    test_speed<double>(std::pow(2, 10), std::pow(2, 5),  10, state);
+    test_speed<double>(std::pow(2, 11), std::pow(2, 6),  10, state);
+    test_speed<double>(std::pow(2, 12), std::pow(2, 7),  10, state);
+    test_speed<double>(std::pow(2, 13), std::pow(2, 8),  10, state);
+    test_speed<double>(std::pow(2, 14), std::pow(2, 9),  10, state);
+    test_speed<double>(std::pow(2, 15), std::pow(2, 10), 10, state);
     return 0;
 }
