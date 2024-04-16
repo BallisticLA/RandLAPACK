@@ -45,7 +45,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state, int apply_itoa) {
 
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     if (apply_itoa) {
         std::iota(all_data.J.begin(), all_data.J.end(), 1);
@@ -99,11 +99,11 @@ static std::vector<long> call_all_algs(
         auto dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
 
-        data_regen<T, RNG>(m_info, all_data, state_buf, 0);
+        data_regen(m_info, all_data, state_buf, 0);
 
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
-        //lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqrf = high_resolution_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
         printf("TOTAL TIME FOR GEQRF %ld\n", dur_geqrf);
@@ -114,7 +114,7 @@ static std::vector<long> call_all_algs(
         auto state_gen_1 = state_gen_0;
         auto state_alg_1 = state_alg_0;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_0, 0);
+        data_regen(m_info, all_data, state_gen_0, 0);
 
         // Testing CQRRP - best setup
         auto start_cqrrp = high_resolution_clock::now();
@@ -128,11 +128,11 @@ static std::vector<long> call_all_algs(
         auto state_gen_3 = state_gen_1;
         auto state_alg_3 = state_alg_1;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_1, 1);
+        data_regen(m_info, all_data, state_gen_1, 1);
 
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
-        //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg_1, (T*) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg_1, (T*) nullptr);
         auto stop_hqrrp_geqrf = high_resolution_clock::now();
         dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
         printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
@@ -143,11 +143,11 @@ static std::vector<long> call_all_algs(
         auto state_gen_4 = state_gen_3;
         auto state_alg_4 = state_alg_3;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_3, 1);
+        data_regen(m_info, all_data, state_gen_3, 1);
 
         // Testing HQRRP with Cholqr
         auto start_hqrrp_cholqr = high_resolution_clock::now();
-        //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg_3, (T*) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg_3, (T*) nullptr);
         auto stop_hqrrp_cholqr = high_resolution_clock::now();
         dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
         printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
@@ -159,7 +159,7 @@ static std::vector<long> call_all_algs(
         state_alg_0 = state_alg_4;
         state_buf = state_gen_4;
         // Clear and re-generate data
-        data_regen<T, RNG>(m_info, all_data, state_gen_4, 0);
+        data_regen(m_info, all_data, state_gen_4, 0);
     }
 
     printf("CQRRP takes %ld μs\n", t_cqrrp_best);
@@ -190,7 +190,7 @@ int main() {
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
     std::fstream file("ICQRRP_QP3_QR_time_raw_rows_"              + std::to_string(m)
@@ -201,7 +201,7 @@ int main() {
                                     + ".dat", std::fstream::app);
 #if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double, r123::Philox4x32>(m_info, numruns, b_sz_start, all_data, state_constant);
+        res = call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",\n";
     }
 #endif

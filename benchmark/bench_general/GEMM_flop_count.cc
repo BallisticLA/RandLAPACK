@@ -13,7 +13,8 @@ using namespace RandLAPACK;
 
 template <typename T, typename RNG>
 static void 
-test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
+test_flops(int64_t k, 
+        RandBLAS::RNGState<RNG> state) {
     int size = k * k;
 
     // Flops in gemm of given size - overflows
@@ -34,8 +35,8 @@ test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
         T* C_dat = C.data();
 
         RandLAPACK::gen::mat_gen_info<double> m_info(k, k, RandLAPACK::gen::gaussian);
-        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
-        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B.data(), state);
+        RandLAPACK::gen::mat_gen(m_info, A.data(), state);
+        RandLAPACK::gen::mat_gen(m_info, B.data(), state);
 
         // Get the timing
         auto start = high_resolution_clock::now();
@@ -54,7 +55,7 @@ test_flops(int64_t k, RandBLAS::RNGState<RNG> state) {
 }
 
 int main() {
-    auto state = RandBLAS::RNGState<r123::Philox4x32>();
-    test_flops<double, r123::Philox4x32>(1000, state);
+    auto state = RandBLAS::RNGState();
+    test_flops<double>(1000, state);
     return 0;
 }

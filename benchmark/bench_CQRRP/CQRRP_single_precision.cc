@@ -38,7 +38,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state, int apply_itoa) {
 
-    RandLAPACK::gen::mat_gen<T, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     if (apply_itoa) {
         std::iota(all_data.J.begin(), all_data.J.end(), 1);
@@ -47,7 +47,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     }
 }
 
-template <typename T_rest, typename T_cqrrp, typename RNG>
+template <typename T_rest, typename RNG, typename T_cqrrp>
 static std::vector<long> call_all_algs(
     RandLAPACK::gen::mat_gen_info<T_cqrrp> m_info_cqrrp,
     RandLAPACK::gen::mat_gen_info<T_rest> m_info_rest,
@@ -67,8 +67,6 @@ static std::vector<long> call_all_algs(
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 48;
     // We are nbot using panel pivoting in performance testing.
-    int panel_pivoting = 0;
-
     // timing vars
     long dur_cqrrp    = 0;
     long dur_geqrf    = 0;
@@ -87,12 +85,12 @@ static std::vector<long> call_all_algs(
         auto start_getrf = high_resolution_clock::now();
         lapack::getrf(m, n, all_data_rest.A.data(), m, all_data_rest.J.data());
         auto stop_getrf = high_resolution_clock::now();
-        auto dur_getrf = duration_cast<microseconds>(stop_getrf - start_getrf).count();
+        dur_getrf = duration_cast<microseconds>(stop_getrf - start_getrf).count();
         printf("TOTAL TIME FOR GETRF %ld\n", dur_getrf);
         // Update best timing
         i == 0 ? t_getrf_best = dur_getrf : (dur_getrf < t_getrf_best) ? t_getrf_best = dur_getrf : NULL;
 
-        data_regen<T_rest, RNG>(m_info_rest, all_data_rest, state_gen, 0);
+        data_regen(m_info_rest, all_data_rest, state_gen, 0);
         state_gen = state;
 
         // Testing GEQRF
@@ -105,7 +103,7 @@ static std::vector<long> call_all_algs(
         i == 0 ? t_geqrf_best = dur_geqrf : (dur_geqrf < t_geqrf_best) ? t_geqrf_best = dur_geqrf : NULL;
 
         // Clear and re-generate data
-        data_regen<T_rest, RNG>(m_info_rest, all_data_rest, state_gen, 0);
+        data_regen(m_info_rest, all_data_rest, state_gen, 0);
         state_gen = state;
 
         // Testing CQRRP - best setup
@@ -118,7 +116,7 @@ static std::vector<long> call_all_algs(
         i == 0 ? t_cqrrp_best = dur_cqrrp : (dur_cqrrp < t_cqrrp_best) ? t_cqrrp_best = dur_cqrrp : NULL;
 
         // Clear and re-generate data
-        data_regen<T_cqrrp, RNG>(m_info_cqrrp, all_data_cqrrp, state_gen, 1);
+        data_regen(m_info_cqrrp, all_data_cqrrp, state_gen, 1);
         state_gen = state;
         state_alg = state;
     }
@@ -148,13 +146,13 @@ int main() {
     QR_speed_benchmark_data<double> all_data_d(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info_d(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info_d, all_data_d.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info_d, all_data_d.A.data(), state);
 
     // Allocate basic workspace - float
     QR_speed_benchmark_data<float> all_data_f(m, n, (float) tol, (float) d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<float> m_info_f(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info_f, all_data_f.A.data(), state_cpy);
+    RandLAPACK::gen::mat_gen(m_info_f, all_data_f.A.data(), state_cpy);
 
     // Declare a data file
     std::fstream file("Apple_QR_time_raw_rows_"              + std::to_string(m)
@@ -165,7 +163,7 @@ int main() {
                                     + ".dat", std::fstream::app);
 #if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        res = call_all_algs<double, float, r123::Philox4x32>(m_info_f, m_info_d, numruns, b_sz_start, all_data_f, all_data_d, state_constant);
+        res = call_all_algs(m_info_f, m_info_d, numruns, b_sz_start, all_data_f, all_data_d, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",\n";
     }
 #endif

@@ -45,7 +45,7 @@ class TestCQRRP : public ::testing::Test
         }
     };
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void norm_and_copy_computational_helper(T &norm_A, CQRRPTestData<T> &all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
@@ -160,11 +160,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper(norm_A, all_data);
 #if !defined(__APPLE__)
-    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
 
@@ -189,11 +189,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper(norm_A, all_data);
 #if !defined(__APPLE__)
-    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
 
@@ -219,11 +219,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     //m_info.cond_num = 2;
     //m_info.rank = k;
     //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper(norm_A, all_data);
 #if !defined(__APPLE__)
-    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
 
@@ -245,9 +245,9 @@ TEST_F(TestCQRRP, something) {
     std::vector<double> tau(n * 2, 0.0);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, A.data(), state);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, B.data(), state);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, D.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, B.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, D.data(), state);
     lapack::lacpy(MatrixType::General, m, n, D.data(), m, D_cpy.data(), m);
 
     lapack::geqrf(m, n, A.data(), m, tau.data());

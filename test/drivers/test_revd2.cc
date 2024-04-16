@@ -97,7 +97,7 @@ class TestREVD2 : public ::testing::Test
             {}
     };
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void symm_mat_and_copy_computational_helper(T &norm_A, REVD2TestData<T> &all_data) {
         auto m = all_data.dim;
         // We're using Nystrom, the original must be positive semidefinite
@@ -113,7 +113,7 @@ class TestREVD2 : public ::testing::Test
         norm_A = lapack::lange(Norm::Fro, m, m, all_data.A_cpy.data(), m);
     }
 
-    template <typename T, typename RNG>
+    template <typename T>
     static void uplo_computational_helper(REVD2UploTestData<T> &all_data) {
         auto m = all_data.dim;
         T* A_u_dat = all_data.A_u.data();
@@ -249,10 +249,10 @@ TEST_F(TestREVD2, Underestimation1) {
     m_info.cond_num = std::pow(10, 8);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
-    symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
-    test_REVD2_general<double, RNG>(
+    symm_mat_and_copy_computational_helper(norm_A, all_data);
+    test_REVD2_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
@@ -287,10 +287,10 @@ TEST_F(TestREVD2, Underestimation2) {
     m_info.cond_num = std::pow(10, 8);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
-    symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
-    test_REVD2_general<double, RNG>(
+    symm_mat_and_copy_computational_helper(norm_A, all_data);
+    test_REVD2_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
@@ -325,10 +325,10 @@ TEST_F(TestREVD2, Overestimation1) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
-    symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
-    test_REVD2_general<double, RNG>(
+    symm_mat_and_copy_computational_helper(norm_A, all_data);
+    test_REVD2_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
@@ -363,10 +363,10 @@ TEST_F(TestREVD2, Oversetimation2) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
-    symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
-    test_REVD2_general<double, RNG>(
+    symm_mat_and_copy_computational_helper(norm_A, all_data);
+    test_REVD2_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
@@ -401,10 +401,10 @@ TEST_F(TestREVD2, Exactness) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A_cpy.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
-    symm_mat_and_copy_computational_helper<double, RNG>(norm_A, all_data);
-    test_REVD2_general<double, RNG>(
+    symm_mat_and_copy_computational_helper(norm_A, all_data);
+    test_REVD2_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
@@ -437,9 +437,9 @@ TEST_F(TestREVD2, Uplo) {
     m_info.cond_num = std::pow(10, 2);
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.work.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.work.data(), state);
 
-    uplo_computational_helper<double, RNG>(all_data);
+    uplo_computational_helper(all_data);
     
-    test_REVD2_uplo<double, RNG>(k_start, tol, err_expectation, all_data, all_algs, state);
+    test_REVD2_uplo(k_start, tol, err_expectation, all_data, all_algs, state);
 }

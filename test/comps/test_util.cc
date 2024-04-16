@@ -3,7 +3,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include <RandBLAS/test_util.hh>
+#include <RandBLAS/test/comparison.hh>
 
 #include <math.h>
 #include <chrono>
@@ -167,10 +167,10 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_double_precision) {
     m_info.cond_num = 2025;
     m_info.rank = n;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double, r123::Philox4x32>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
@@ -183,10 +183,10 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_double_precision) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::adverserial);
     m_info.scaling = std::pow(10, 15);
     m_info.rank = n;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<double, r123::Philox4x32>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
@@ -200,10 +200,10 @@ TEST_F(TestUtil, test_spectral_norm_polynomial_decay_single_precision) {
     m_info.cond_num = 2;
     m_info.rank = n;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float, r123::Philox4x32>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
@@ -216,10 +216,10 @@ TEST_F(TestUtil, test_spectral_norm_rank_def_mat_single_precision) {
     RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::adverserial);
     m_info.scaling = std::pow(10, 7);
     m_info.rank = n;
-    RandLAPACK::gen::mat_gen<float, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
-    test_spectral_norm<float, r123::Philox4x32>(state, all_data);
+    test_spectral_norm(state, all_data);
 }
 
 TEST_F(TestUtil, test_normc) {
@@ -227,7 +227,7 @@ TEST_F(TestUtil, test_normc) {
     int64_t n = 1;
     NormcTestData<double> all_data(m, n);
 
-    test_normc<double>(all_data);
+    test_normc(all_data);
 }
 
 TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
@@ -235,9 +235,8 @@ TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     int64_t n = 100;
     std::vector<double> A(m * n, 0.0); 
 
-    test_binary_rank_search_zero_mat<double>(m, n, A);
+    test_binary_rank_search_zero_mat(m, n, A);
 }
-
 
 class Test_Inplace_Square_Transpose : public ::testing::Test
 {
@@ -256,7 +255,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
         double *A2 = new double[n*n];
         blas::copy(n*n, A1, 1, A2, 1);
         RandLAPACK::util::transpose_square(A2, n);
-        RandBLAS_Testing::Util::matrices_approx_equal(
+        test::comparison::matrices_approx_equal(
             layout, blas::Op::Trans, n, n, A1, n, A2, n, 
             __PRETTY_FUNCTION__, __FILE__, __LINE__
         );
@@ -265,6 +264,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
     }
 
 };
+
 
 TEST_F(Test_Inplace_Square_Transpose, random_matrix_colmajor) {
     apply(blas::Layout::ColMajor);
