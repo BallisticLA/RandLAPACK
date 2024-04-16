@@ -35,10 +35,10 @@ struct QR_speed_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T>
+template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         QR_speed_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<> &state) {
+                                        RandBLAS::RNGState<RNG> &state) {
 
     RandLAPACK::gen::mat_gen<double>(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
@@ -61,12 +61,12 @@ static std::vector<T> get_norms( QR_speed_benchmark_data<T> &all_data) {
     return R_norms;
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void R_norm_ratio(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<> &state) {
+    RandBLAS::RNGState<RNG> &state) {
 
     auto m        = all_data.row;
     auto n        = all_data.col;
@@ -105,12 +105,12 @@ static void R_norm_ratio(
         file1 << R_norms_HQRRP[i] / R_norms_CQRRP[i] << ",  ";
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void sv_ratio(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<> &state) {
+    RandBLAS::RNGState<RNG> &state) {
 
     auto m        = all_data.row;
     auto n        = all_data.col;

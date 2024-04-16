@@ -79,14 +79,14 @@ class TestRBKI : public ::testing::Test
     }
 
 
-    template <typename T, typename alg_type>
+    template <typename T, typename RNG, typename alg_type>
     static void test_RBKI_general(
         int64_t b_sz,
         int64_t target_rank,
         int64_t custom_rank,
         RBKITestData<T> &all_data,
         alg_type &RBKI,
-        RandBLAS::RNGState<> &state) {
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;

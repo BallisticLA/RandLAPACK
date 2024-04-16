@@ -105,13 +105,13 @@ class TestCQRRPT : public ::testing::Test
 
     /// General test for CQRRPT:
     /// Computes QR factorzation, and computes A[:, J] - QR.
-    template <typename T, typename alg_type>
+    template <typename T, typename RNG, typename alg_type>
     static void test_CQRRPT_general(
         T d_factor, 
         T norm_A,
         CQRRPTTestData<T> &all_data,
         alg_type &CQRRPT,
-        RandBLAS::RNGState<> &state) {
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;

@@ -52,10 +52,10 @@ struct RBKI_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T>
+template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         RBKI_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<> &state, int overwrite_A) {
+                                        RandBLAS::RNGState<RNG> &state, int overwrite_A) {
 
     if (overwrite_A)
         RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -64,14 +64,14 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t k,
     int64_t num_krylov_iters,
     RBKI_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<> &state,
+    RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
 
     auto m   = all_data.row;

@@ -11,9 +11,10 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 using namespace std::chrono;
 using namespace RandLAPACK;
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
-test_flops(int64_t k, RandBLAS::RNGState<> state) {
+test_flops(int64_t k, 
+        RandBLAS::RNGState<RNG> state) {
     int size = k * k;
 
     // Flops in gemm of given size - overflows

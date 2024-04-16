@@ -40,10 +40,10 @@ struct RBKI_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T>
+template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         RBKI_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<> &state, int overwrite_A) {
+                                        RandBLAS::RNGState<RNG> &state, int overwrite_A) {
 
     if (overwrite_A)
         RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -104,7 +104,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64
     return std::hypot(nrm1, nrm2);
 }
 
-template <typename T>
+template <typename T, typename RNG>
 static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
@@ -112,7 +112,7 @@ static void call_all_algs(
     int64_t num_matmuls,
     int64_t custom_rank,
     RBKI_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<> &state,
+    RandBLAS::RNGState<RNG> &state,
     std::string output_filename, 
     long dur_svd) {
     printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);

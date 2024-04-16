@@ -33,10 +33,10 @@ struct QR_speed_benchmark_data {
 };
 
 // Re-generate and clear data
-template <typename T>
+template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         QR_speed_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<> &state, int apply_itoa) {
+                                        RandBLAS::RNGState<RNG> &state, int apply_itoa) {
 
     RandLAPACK::gen::mat_gen<T>(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
@@ -47,7 +47,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     }
 }
 
-template <typename T_rest, typename T_cqrrp>
+template <typename T_rest, typename RNG, typename T_cqrrp>
 static std::vector<long> call_all_algs(
     RandLAPACK::gen::mat_gen_info<T_cqrrp> m_info_cqrrp,
     RandLAPACK::gen::mat_gen_info<T_rest> m_info_rest,
@@ -55,7 +55,7 @@ static std::vector<long> call_all_algs(
     int64_t b_sz,
     QR_speed_benchmark_data<T_cqrrp> &all_data_cqrrp,
     QR_speed_benchmark_data<T_rest> &all_data_rest,
-    RandBLAS::RNGState<> &state) {
+    RandBLAS::RNGState<RNG> &state) {
 
     auto m        = all_data_cqrrp.row;
     auto n        = all_data_cqrrp.col;

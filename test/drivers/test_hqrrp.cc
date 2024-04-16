@@ -109,7 +109,7 @@ class TestHQRRP : public ::testing::Test
 
     /// General test for HQRRP:
     /// Computes QR factorzation, and computes A[:, J] - QR.
-    template <typename T>
+    template <typename T, typename RNG>
     static void test_HQRRP_general(
         T d_factor, 
         int64_t b_sz,
@@ -117,7 +117,7 @@ class TestHQRRP : public ::testing::Test
         int panel_pivoting,
         T norm_A,
         HQRRPtestData<T> &all_data,
-        RandBLAS::RNGState<> &state) {
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;

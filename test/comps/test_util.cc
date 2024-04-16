@@ -60,9 +60,9 @@ class TestUtil : public ::testing::Test
         }
     };
 
-    template <typename T>
+    template <typename T, typename RNG>
     static void 
-    test_spectral_norm(RandBLAS::RNGState<> state, SpectralTestData<T> &all_data) {
+    test_spectral_norm(RandBLAS::RNGState<RNG> state, SpectralTestData<T> &all_data) {
 
         auto m = all_data.row;
         auto n = all_data.col;

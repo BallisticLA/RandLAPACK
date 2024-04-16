@@ -11,9 +11,12 @@ Auxillary benchmark routine, computes flops using GEMM for a given system
 using namespace std::chrono;
 using namespace RandLAPACK;
 
-template <typename T>
+template <typename T, typename RNG>
 static void 
-test_speed(int64_t m, int64_t n, int64_t runs, RandBLAS::RNGState<> const_state) {
+test_speed(int64_t m, 
+        int64_t n, 
+        int64_t runs, 
+        RandBLAS::RNGState<RNG> const_state) {
 
     // Matrix to decompose.
     std::vector<T> A(m * n, 0.0);

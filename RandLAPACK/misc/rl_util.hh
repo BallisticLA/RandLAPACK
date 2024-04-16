@@ -267,13 +267,13 @@ bool orthogonality_check(
 
 /// Computes an L-2 norm of a given matrix using
 /// p steps of power iteration.
-template <typename T>
+template <typename T, typename RNG>
 T estimate_spectral_norm(
     int64_t m,
     int64_t n,
     T const* A_dat,
     int p,
-    RandBLAS::RNGState<>& state
+    RandBLAS::RNGState<RNG>& state
 ) {
 
     std::vector<T> buf (n, 0.0);

@@ -100,13 +100,13 @@ class TestQB : public ::testing::Test
     /// 2. B - \transpose{Q}A
     /// 3. I - \transpose{Q}Q
     /// 4. A_k - QB = U_k\Sigma_k\transpose{V_k} - QB
-    template <typename T, typename alg_type>
+    template <typename T, typename RNG, typename alg_type>
     static void test_QB2_low_exact_rank(
         int64_t block_sz, 
         T tol,  
         QBTestData<T> &all_data,
         alg_type &all_algs,
-        RandBLAS::RNGState<> &state) {
+        RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;

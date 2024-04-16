@@ -47,9 +47,9 @@ class TestOrth : public ::testing::Test
         }
     };
 
-    template <typename T>
+    template <typename T, typename RNG>
     static void sketch_and_copy_computational_helper(
-        RandBLAS::RNGState<> state,
+        RandBLAS::RNGState<RNG> state,
         OrthTestData<T> &all_data
     ) {
 
