@@ -115,6 +115,6 @@ TEST_F(TestOrth, Test_CholQRQ)
     m_info.rank = k;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    sketch_and_copy_computational_helper<double>(state, all_data);
+    sketch_and_copy_computational_helper(state, all_data);
     test_orth_sketch(all_data, CholQRQ);
 }

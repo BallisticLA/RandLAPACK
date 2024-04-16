@@ -176,7 +176,7 @@ TEST_F(TestUtil, test_normc) {
     int64_t n = 1;
     NormcTestData<double> all_data(m, n);
 
-    test_normc<double>(all_data);
+    test_normc(all_data);
 }
 
 TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
@@ -184,7 +184,7 @@ TEST_F(TestUtil, test_binary_rank_search_zero_mat) {
     int64_t n = 100;
     std::vector<double> A(m * n, 0.0); 
 
-    test_binary_rank_search_zero_mat<double>(m, n, A);
+    test_binary_rank_search_zero_mat(m, n, A);
 }
 
 class Test_Inplace_Square_Transpose : public ::testing::Test
