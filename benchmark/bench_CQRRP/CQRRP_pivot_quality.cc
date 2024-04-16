@@ -86,7 +86,7 @@ static void R_norm_ratio(
     printf("\nDone with HQRRP\n");
 
     // Clear and re-generate data
-    data_regen<T>(m_info, all_data, state);
+    data_regen(m_info, all_data, state);
 
     printf("\nStarting CQRRP\n");
     // Running CQRRP
