@@ -51,6 +51,8 @@ add_benchmark(NAME GEMM_flop_count CXX_SOURCES bench_general/GEMM_flop_count.cc 
 add_benchmark(NAME Chol_check      CXX_SOURCES bench_general/Chol_check.cc      LINK_LIBS ${Benchmark_libs})
 # Data conversion helper script
 add_benchmark(NAME convert_time    CXX_SOURCES bench_general/convert_time.cc    LINK_LIBS ${Benchmark_libs})
+# Compare GEMM and ORMQR performance
+add_benchmark(NAME Gemm_vs_ormqr   CXX_SOURCES bench_general/Gemm_vs_ormqr.cc   LINK_LIBS ${Benchmark_libs})
 
 # CQRRPT benchmarks
 add_benchmark(NAME CQRRPT_speed_comparisons CXX_SOURCES bench_CQRRPT/CQRRPT_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
@@ -62,6 +64,7 @@ add_benchmark(NAME CQRRP_speed_comparisons       CXX_SOURCES bench_CQRRP/CQRRP_s
 add_benchmark(NAME CQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/CQRRP_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_single_precision        CXX_SOURCES bench_CQRRP/CQRRP_single_precision.cc  LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_pivot_quality           CXX_SOURCES bench_CQRRP/CQRRP_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME HQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/HQRRP_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
 
 add_benchmark(NAME RBKI_speed_comparisons CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME RBKI_runtime_breakdown CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})

@@ -1,15 +1,13 @@
 /*
-ICQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of ICQRRP.
-There are 9 things that we time:
-                1. SASO generation and application time
-                2. QRCP time.
-                3. Preconditioning time.
-                4. Time to perform Cholesky QR.
-                5. Time to restore Householder vectors.
-                6. Time to compute A_new, R12.
-                7. Time to update factors Q, R.
-                8. Time to update the sketch.
-                9. Time to pivot trailing columns of R-factor.
+HQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of HQRRP.
+There are 7 things that we time:
+                1. Preallocation time.
+                2. Sketch generation and application time.
+                3. Downdating time.
+                4. QRCP time.
+                5. QR time.
+                6. Updating A time.
+                7. Updating Sketch time.
 */
 
 #include "RandLAPACK.hh"
@@ -66,30 +64,28 @@ static void call_all_algs(
     auto n        = all_data.col;
     auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
-
-    // Additional params setup.
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 8;
     
     // Making sure the states are unchanged
     auto state_gen = state;
     auto state_alg = state;
+    int panel_pivoting = 0;
 
     // Timing vars
-    std::vector<long> inner_timing;
+    std::vector<long> times;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION\n");
+        printf("Iteration %d start.\n", i);
 
-        // Testing CQRRP - best setuo
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-
+        // Testing HQRRP
+        // No CholQR
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) times.data());
 
         // Update timing vector
-        inner_timing = CQRRP_blocked.times;
+        times.insert (times.begin(), n);
+        times.insert (times.begin(), b_sz);
+
         std::ofstream file(output_filename, std::ios::app);
-        std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<int>(file, ", "));
+        std::copy(times.begin(), times.end(), std::ostream_iterator<int>(file, ", "));
         file << "\n";
 
         // Clear and re-generate data
@@ -101,8 +97,8 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
+    int64_t m          = std::pow(2, 16);
+    int64_t n          = std::pow(2, 16);
     double  d_factor   = 1.125;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;

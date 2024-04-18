@@ -85,13 +85,14 @@ static void call_all_algs(
 
     // Making sure the states are unchanged
     auto state_gen = state;
+    auto state_alg = state;
 
     // Timing vars
     std::vector<long> inner_timing;
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state);
+        RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state_alg);
         
         // Update timing vector
         inner_timing = RBKI.times;
@@ -106,6 +107,7 @@ static void call_all_algs(
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
         state_gen = state;
+        state_alg = state;
     }
 }
 
