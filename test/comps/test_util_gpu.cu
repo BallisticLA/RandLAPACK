@@ -3,7 +3,6 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include <RandBLAS/test_util.hh>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
