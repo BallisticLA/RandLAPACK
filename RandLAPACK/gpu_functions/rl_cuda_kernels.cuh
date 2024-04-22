@@ -77,7 +77,7 @@ void find(T* array, int64_t size, T target, T* result) {
 
 
 /// Positions columns of A in accordance with idx vector of length k.
-/// idx array modified ONLY within the scope of this function.
+/// idx array is to modified modified ONLY within the scope of this function.
 template <typename T>
  __global__
 void col_swap_gpu(    
@@ -88,11 +88,6 @@ void col_swap_gpu(
     int64_t lda,
     T* idx)
 {
-    //T* idx_buf;
-    //cudaMalloc(&idx_buf, n * sizeof(int64_t));
-    //cudaMemcpy(idx_buf, idx, n * sizeof(int64_t), cudaMemcpyDeviceToDevice);
-    //size_t q = array_index();
-
     //if (!valid_index(q, m))
         //return;
 
@@ -123,6 +118,19 @@ void col_swap_gpu(
     }
 }
 
+
+template <typename T>
+ __global__
+void hadamard_product(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda)
+{
+    size_t q = array_index();
+
+    if (!valid_index(q, m, n, lda))
+        return;
+
+    C[q] = A[q] * B[q];
+}
+
 #endif
 
 /// Positions columns of A in accordance with idx vector of length k.
@@ -145,6 +153,23 @@ void col_swap_gpu(
     if (ierr != cudaSuccess)
     {
         BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
+}
+
+
+template <typename T>
+void hadamard_product(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda, cudaStream_t strm)
+{
+    auto [tg, bg] = partition_1d(n, m, lda);
+#ifdef USE_CUDA
+    printf("Kernel Execution Begin.");
+    hadamard_product<<<tg, bg, 0, strm>>>(A, B, C, n, m, lda);
+#endif
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch hadamard_product. " << cudaGetErrorString(ierr))
         abort();
     }
 }

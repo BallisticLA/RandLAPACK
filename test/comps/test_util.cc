@@ -60,6 +60,28 @@ class TestUtil : public ::testing::Test
         }
     };
 
+    template <typename T>
+    struct ColSwpTestData {
+        int64_t row;
+        int64_t col;
+        std::vector<T> A;
+        std::vector<T> A_cpy;
+        std::vector<T> Ident;
+        std::vector<T> tau;
+        std::vector<int64_t> J;
+
+        ColSwpTestData(int64_t m, int64_t n) :
+        A(m * n, 0.0),
+        A_cpy(m * n, 0.0),
+        Ident(m * n, 0.0),
+        tau(n, 0.0),
+        J(n, 0.0)
+        {
+            row = m;
+            col = n;
+        }
+    };
+
     template <typename T, typename RNG>
     static void 
     test_spectral_norm(RandBLAS::RNGState<RNG> state, SpectralTestData<T> &all_data) {
@@ -102,6 +124,35 @@ class TestUtil : public ::testing::Test
 
         printf("K IS %ld\n", k);
         ASSERT_EQ(k, 0);
+    }
+
+    template <typename T>
+    static void 
+    test_col_swp(ColSwpTestData<T> &all_data) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+    
+        // Perform Pivoted QR
+        lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+
+        // Swap columns in A's copy
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy.data(), m, all_data.J);
+
+        // Create an identity and store Q in it.
+        RandLAPACK::util::eye(m, n, all_data.Ident.data());
+        lapack::ormqr(Side::Left, Op::NoTrans, m, n, n, all_data.A.data(), m,  all_data.tau.data(),  all_data.Ident.data(), m);
+
+        // Q * R -> Identity space
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.A.data(), m, all_data.Ident.data(), m);
+
+        // A_piv - A_cpy
+        for(int i = 0; i < m * n; ++i)
+            all_data.A_cpy[i] -= all_data.Ident[i];
+
+        T norm = lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m);
+        printf("||A_piv - QB||_F:  %e\n", norm);
+        ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 };
 
@@ -221,4 +272,21 @@ TEST_F(Test_Inplace_Square_Transpose, random_matrix_colmajor) {
 
 TEST_F(Test_Inplace_Square_Transpose, random_matrix_rowmajor) {
     apply(blas::Layout::RowMajor);
+}
+
+TEST_F(TestUtil, test_col_swp) {
+    
+    int64_t m = 5;
+    int64_t n = 5;
+    auto state = RandBLAS::RNGState();
+    ColSwpTestData<double> all_data(m, n);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
+
+    test_col_swp<double>(all_data);
 }

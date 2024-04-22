@@ -113,7 +113,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
 
     public:
         bool timing;
-        bool timing_advanced;
         bool cond_check;
         RandBLAS::RNGState<RNG> state;
         T eps;
@@ -122,10 +121,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
 
         // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
-        // Times each iteration of the algorithm, divides size of a processed matrix by the time it took to process.
-        // At each iteration, the algorithm will process rows by b_sz matrix; rows -= b_sz.
-        // Array will be of size std::ceil(n / b_sz).
-        std::vector<T> block_per_time;
 
         // tuning SASOS
         int num_threads;
@@ -168,8 +163,6 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point updating3_t_stop;
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
-    high_resolution_clock::time_point iter_t_start;
-    high_resolution_clock::time_point iter_t_stop;
     long preallocation_t_dur   = 0;
     long saso_t_dur            = 0;
     long qrcp_t_dur            = 0;
@@ -202,10 +195,6 @@ int CQRRP_blocked<T, RNG>::call(
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
-
-    // Advanced timing feature
-    if (this->timing_advanced)
-        RandLAPACK::util::upsize(maxiter, this->block_per_time);
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -299,9 +288,6 @@ int CQRRP_blocked<T, RNG>::call(
     }
 
     for(iter = 0; iter < maxiter; ++iter) {
-
-        if (this->timing_advanced)
-            iter_t_start  = high_resolution_clock::now();
 
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
@@ -476,11 +462,6 @@ int CQRRP_blocked<T, RNG>::call(
             // Termination criteria reached
             this -> rank = curr_sz;
 
-            if(this->timing_advanced) {
-                iter_t_stop  = high_resolution_clock::now();
-                this->block_per_time[iter] = ((T) rows * b_sz) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
-            }
-
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
@@ -562,11 +543,6 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             updating2_t_stop  = high_resolution_clock::now();
             updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
-        }
-
-        if(this->timing_advanced) {
-            iter_t_stop  = high_resolution_clock::now();
-            this->block_per_time[iter] = ((T) rows * b_sz) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
         }
 
         // Data size decreases by block_size per iteration.
