@@ -71,21 +71,17 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    std::vector<long> times;
+    T* times = ( T * ) calloc(11, sizeof( T ) );
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
 
         // Testing HQRRP
         // No CholQR
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) times.data());
-
-        // Update timing vector
-        times.insert (times.begin(), n);
-        times.insert (times.begin(), b_sz);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times);
 
         std::ofstream file(output_filename, std::ios::app);
-        std::copy(times.begin(), times.end(), std::ostream_iterator<int>(file, ", "));
+        std::copy(times, times + 11, std::ostream_iterator<int>(file, ", "));
         file << "\n";
 
         // Clear and re-generate data
@@ -93,9 +89,12 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
     }
+
+    free(times);
 }
 
 int main() {
+
     // Declare parameters
     int64_t m          = std::pow(2, 16);
     int64_t n          = std::pow(2, 16);
@@ -107,7 +106,7 @@ int main() {
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
-    // Number of algorithm runs. We only record best times.
+    // Number of algorithm runs.
     int64_t numruns = 5;
 
     // Allocate basic workspace
@@ -117,7 +116,7 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string file= "CQRRP_inner_speed_"              + std::to_string(m)
+    std::string file= "HQRRP_inner_speed_"              + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_start_"   + std::to_string(b_sz_start)
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)

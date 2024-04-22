@@ -1063,21 +1063,23 @@ int64_t hqrrp(
     if(timing != nullptr) {
 
         // Make sure that timing points to a sufficient amount of space.
-        timing = ( T * ) calloc( 9, sizeof( long ) );
+        timing = ( T * ) realloc(timing, 11 * sizeof( T ) );
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long other_t_dur  = total_t_dur - (preallocation_t_dur + sketching_t_dur + downdating_t_dur + qrcp_t_dur + qr_t_dur + updating_A_t_dur + updating_Sketch_t_dur);
 
-        timing[0] = preallocation_t_dur;
-        timing[1] = sketching_t_dur;
-        timing[2] = downdating_t_dur;
-        timing[3] = qrcp_t_dur;
-        timing[4] = qr_t_dur;
-        timing[5] = updating_A_t_dur;
-        timing[6] = updating_Sketch_t_dur;
-        timing[7] = other_t_dur;
-        timing[8] = total_t_dur;
+        timing[0] = n_A;
+        timing[1] = nb_alg;
+        timing[2] = preallocation_t_dur;
+        timing[3] = sketching_t_dur;
+        timing[4] = downdating_t_dur;
+        timing[5] = qrcp_t_dur;
+        timing[6] = qr_t_dur;
+        timing[7] = updating_A_t_dur;
+        timing[8] = updating_Sketch_t_dur;
+        timing[9] = other_t_dur;
+        timing[10] = total_t_dur;
 
         printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
         printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
