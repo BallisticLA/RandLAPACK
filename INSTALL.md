@@ -12,6 +12,12 @@ of the corresponding instructions in Section 1.
 
 *We recommend that you not bother with Section 5 the first time you build RandLAPACK.*
 
+## 0. Software requirements
+RandLAPACK_GPU temporary requirements:
+GNU 13.1.0
+NVIDIA 12.4.131 (make sure to use driver v 550)
+CMAKE 3.29.2
+All that is used to ensure we can compile with C++20 features with no issues.
 
 ## 1. Optional dependencies
 
@@ -35,6 +41,9 @@ in randomized numerical linear algebra.
 It requires BLAS++ and Random123.
 Right now we list RandBLAS and Random123 as separate dependencies, but in time
 we'll hide the Random123 dependency entirely within RandBLAS.
+RandBLAS can be installed separately, if desired.
+In the context of RandLAPACK, RandBLAS is used as a submodule and should be 
+initialized accordingly.
 
 We give recipes for installing BLAS++, LAPACK++, and Random123 below.
 Later on, we'll assume these recipes were executed from a directory
@@ -61,7 +70,7 @@ git clone https://github.com/icl-utk-edu/lapackpp.git
 mkdir lapackpp-build
 cd lapackpp-build
 cmake -DCMAKE_BUILD_TYPE=Release \
-    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp \
+    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
     -DCMAKE_BINARY_DIR=`pwd` \
     -Dbuild_tests=OFF \
@@ -77,20 +86,28 @@ cd random123/
 make prefix=`pwd`/../random123-install install-include
 ```
 
-One can compile and install RandBLAS from [source](https://github.com/BallisticLA/RandBLAS)
+If desired, one can compile and install RandBLAS from [source](https://github.com/BallisticLA/RandBLAS)
 by running
 ```shell
 git clone https://github.com/BallisticLA/RandBLAS.git
 mkdir RandBLAS-build
 cd RandBLAS-build
 cmake -DCMAKE_BUILD_TYPE=Release \
-    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/blaspp/ \
+    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp/ \
     -DRandom123_DIR=`pwd`/../random123-install/include/ \
     -DCMAKE_BINARY_DIR=`pwd` \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../RandBLAS-install \
     ../RandBLAS/
 make -j install
 ctest  # run unit tests (only if GTest was found by CMake)
+```
+To use RandBLAS in the conetxt of RandLAPACK, one stall first download RandLAPACK from [source](https://github.com/BallisticLA/RandLAPACK.git)
+and then initialize it as such:
+```shell
+git clone https://github.com/BallisticLA/RandLAPACK.git
+cd RandLAPACK
+git submodule init
+git submodule update
 ```
 
 ## 3. Building and installing RandLAPACK
@@ -106,8 +123,9 @@ git clone https://github.com/BallisticLA/RandLAPACK.git
 mkdir RandLAPACK-build
 cd RandLAPACK-build
 cmake -DCMAKE_BUILD_TYPE=Release \
-    -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/lapackpp/ \
-    -DRandBLAS_DIR=`pwd`/../RandBLAS-install/lib/cmake/ \
+    -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp/ \
+    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp/ \
+    -DRandom123_DIR=`pwd`/../random123-install/include/ \
     -DCMAKE_BINARY_DIR=`pwd` \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
     ../RandLAPACK/
