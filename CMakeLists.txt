@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.29)
 
 project(RandLAPACK LANGUAGES CXX CUDA)
 
