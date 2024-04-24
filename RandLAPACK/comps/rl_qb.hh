@@ -201,7 +201,7 @@ int QB<T, RNG>::call(
 
     T* QtQi_dat = util::upsize(this->curr_lim * block_sz, this->QtQi);
     T* Q_i_dat = util::upsize(m * block_sz, this->Q_i);
-    T* B_i_dat = util::upsize(block_sz * n, this->B_i);
+    T* B_i_dat = util::upsize(n * block_sz, this->B_i);
 
     T* Q_dat = Q.data();
     T* B_dat = B.data();
@@ -215,7 +215,8 @@ int QB<T, RNG>::call(
         if(next_sz > this->curr_lim) {
             this->curr_lim = std::min(2 * this->curr_lim, k);
             Q_dat = util::upsize(this->curr_lim * m, Q);
-            B_dat = util::row_resize(curr_sz, n, B, this->curr_lim);
+            B_dat = util::upsize(this->curr_lim * n, B);
+            //B_dat = util::row_resize(curr_sz, n, B, this->curr_lim);
             QtQi_dat = util::upsize(this->curr_lim * block_sz, QtQi);
             if(this->orth_check)
                 util::upsize(this->curr_lim * this->curr_lim, Q_gram);
@@ -243,10 +244,13 @@ int QB<T, RNG>::call(
         }
 
         //B_i = Q_i' * A
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
+        //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
+        // B_i' = A' * Q_i
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, block_sz, m, 1.0, A_cpy_dat, m, Q_i_dat, m, 0.0, B_i_trans_dat, n);
+
 
         // Updating B norm estimation
-        T norm_B_i = lapack::lange(Norm::Fro, block_sz, n, B_i_dat, block_sz);
+        T norm_B_i = lapack::lange(Norm::Fro, n, block_sz, B_i_dat, n);
         norm_B = std::hypot(norm_B, norm_B_i);
         // Updating approximation error
         prev_err = approx_err;
@@ -263,7 +267,7 @@ int QB<T, RNG>::call(
 
         // Update the matrices Q and B
         lapack::lacpy(MatrixType::General, m, block_sz, &Q_i_dat[0], m, &Q_dat[m * curr_sz], m);
-        lapack::lacpy(MatrixType::General, block_sz, n, &B_i_dat[0], block_sz, &B_dat[curr_sz], this->curr_lim);
+        lapack::lacpy(MatrixType::General, n, block_sz, &B_i_trans_dat[0], n, &B_dat[n * curr_sz], n);
 
         if(this->orth_check) {
             if (util::orthogonality_check(m, this->curr_lim, next_sz, Q.data(), this->verbosity)) {
@@ -285,7 +289,7 @@ int QB<T, RNG>::call(
 
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_dat, block_sz, 1.0, A_cpy_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_dat, n, 1.0, A_cpy_dat, m);
     }
     // Reached expected rank without achieving the tolerance
     return 3;

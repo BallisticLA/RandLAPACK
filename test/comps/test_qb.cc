@@ -140,9 +140,9 @@ class TestQB : public ::testing::Test
         blas::copy(k * n, B_dat, 1, B_cpy_dat, 1);
 
         // A_hat = Q * B
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Q_dat, m, B_dat, n, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q_dat, m, B_dat, k, 1.0, A_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, -1.0, Q_dat, m, B_dat, n, 1.0, A_dat, m);
         // TEST 2: B - Q'A = 0
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, B_cpy_dat, k);
         // TEST 3: Q'Q = I
@@ -208,9 +208,9 @@ class TestQB : public ::testing::Test
         printf("Inner dimension of QB: %ld\n", k_est);
 
         // A_hat = Q * B
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k_est, 1.0, Q_dat, m, B_dat, n, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k_est, -1.0, Q_dat, m, B_dat, n, 1.0, A_dat, m);
 
         T norm_test_1 = lapack::lange(Norm::Fro, m, n, A_dat, m);
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
