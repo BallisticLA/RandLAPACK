@@ -12,6 +12,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 
 # cuda stuff
+include(compiler_flags)
 include(find_cuda)
 
 # configure the build
