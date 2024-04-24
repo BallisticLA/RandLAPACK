@@ -75,7 +75,7 @@ class TestSYRF : public ::testing::Test
             blas::copy(m - i, &A_cpy_dat[i + ((i-1) * m)], 1, &A_cpy_dat[(i - 1) + (i * m)], m);
 
         RandLAPACK::HQRQ<T> HQRQ(false, false);
-        HQRQ.call(m, m, all_data.A_cpy);
+        HQRQ.call(m, m, all_data.A_cpy.data());
 
         lapack::lacpy(MatrixType::General, m, m, all_data.A_cpy.data(), m, all_data.Q_hat_cpy.data(), m);
     }

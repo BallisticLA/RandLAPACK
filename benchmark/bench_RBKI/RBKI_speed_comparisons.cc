@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
     printf("Finished data preparation\n");
 
     // Declare a data file
-    std::string output_filename = "COMBINED_1_2_3_4_5_RBKI_speed_comp_m_"             + std::to_string(m)
+    std::string output_filename = "RBKI_speed_comp_m_"             + std::to_string(m)
                                       + "_n_"                      + std::to_string(n)
                                       + "_b_sz_start_"             + std::to_string(b_sz_start)
                                       + "_b_sz_stop_"              + std::to_string(b_sz_stop)

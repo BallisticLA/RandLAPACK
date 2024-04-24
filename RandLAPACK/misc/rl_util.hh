@@ -188,14 +188,10 @@ T cond_num_check(
     int64_t m,
     int64_t n,
     const T* A,
-    T* A_cpy,
-    T* s,
     bool verbose
 ) {
-
-    // TODO: GET RID OF THE INTERNAL ALLOCATIONS
-    A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
-    s     = ( T * ) calloc( n, sizeof( T ) );
+    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    T* s     = ( T * ) calloc( n, sizeof( T ) );
 
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
@@ -218,17 +214,18 @@ int64_t rank_check(
     int64_t n,
     const T* A
 ) {
-    T* A_pre_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
     T* s     = ( T * ) calloc( n, sizeof( T ) );
 
-    RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
+    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
     for(int i = 0; i < n; ++i) {
         if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
             return i - 1;
     }
 
-    free(A_pre_cpy);
+    free(A_cpy);
     free(s);
 
     return n;

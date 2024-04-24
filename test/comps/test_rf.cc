@@ -73,7 +73,7 @@ class TestRF : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
         
         RandLAPACK::HQRQ<T> HQRQ(false, false);
-        HQRQ.call(m, n, all_data.A_cpy);
+        HQRQ.call(m, n, all_data.A_cpy.data());
 
         lapack::lacpy(MatrixType::General, m, n, all_data.A_cpy.data(), m, all_data.Q_hat_cpy.data(), m);
     }
@@ -94,7 +94,7 @@ class TestRF : public ::testing::Test
         auto n = all_data.col;
         auto k = all_data.rank;
 
-        all_algs.RF.call(m, n, all_data.A, k, all_data.Q, state);
+        all_algs.RF.call(m, n, all_data.A.data(), k, all_data.Q.data(), state);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();
