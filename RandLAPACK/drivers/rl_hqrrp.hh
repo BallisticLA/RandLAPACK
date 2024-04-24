@@ -1069,17 +1069,17 @@ int64_t hqrrp(
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long other_t_dur  = total_t_dur - (preallocation_t_dur + sketching_t_dur + downdating_t_dur + qrcp_t_dur + qr_t_dur + updating_A_t_dur + updating_Sketch_t_dur);
 
-        timing[0] = n_A;
-        timing[1] = nb_alg;
-        timing[2] = preallocation_t_dur;
-        timing[3] = sketching_t_dur;
-        timing[4] = downdating_t_dur;
-        timing[5] = qrcp_t_dur;
-        timing[6] = qr_t_dur;
-        timing[7] = updating_A_t_dur;
-        timing[8] = updating_Sketch_t_dur;
-        timing[9] = other_t_dur;
-        timing[10] = total_t_dur;
+        timing[0]  = (T) n_A;
+        timing[1]  = (T) nb_alg;
+        timing[2]  = (T) preallocation_t_dur;
+        timing[3]  = (T) sketching_t_dur;
+        timing[4]  = (T) downdating_t_dur;
+        timing[5]  = (T) qrcp_t_dur;
+        timing[6]  = (T) qr_t_dur;
+        timing[7]  = (T) updating_A_t_dur;
+        timing[8]  = (T) updating_Sketch_t_dur;
+        timing[9]  = (T) other_t_dur;
+        timing[10] = (T) total_t_dur;
 
         printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
         printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);

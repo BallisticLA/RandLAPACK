@@ -101,7 +101,7 @@ static void call_all_algs(
         inner_timing.insert (inner_timing.begin(), num_krylov_iters);
 
         std::ofstream file(output_filename, std::ios::app);
-        std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<int>(file, ", "));
+        std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
         file << "\n";
 
         // Clear and re-generate data
