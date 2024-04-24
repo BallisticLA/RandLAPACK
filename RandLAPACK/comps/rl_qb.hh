@@ -226,7 +226,7 @@ int QB<T, RNG>::call(
             return 6; // RF failed
 
         if(this->orth_check) {
-            if (util::orthogonality_check(m, block_sz, block_sz, Q_i, Q_i_gram, this->verbosity)) {
+            if (util::orthogonality_check(m, block_sz, block_sz, Q_i.data(), this->verbosity)) {
                 // Lost orthonormality of Q
                 util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
@@ -266,7 +266,7 @@ int QB<T, RNG>::call(
         lapack::lacpy(MatrixType::General, block_sz, n, &B_i_dat[0], block_sz, &B_dat[curr_sz], this->curr_lim);
 
         if(this->orth_check) {
-            if (util::orthogonality_check(m, this->curr_lim, next_sz, Q, Q_gram, this->verbosity)) {
+            if (util::orthogonality_check(m, this->curr_lim, next_sz, Q.data(), this->verbosity)) {
                 // Lost orthonormality of Q
                 util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;

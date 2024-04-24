@@ -237,20 +237,18 @@ bool orthogonality_check(
     int64_t m,
     int64_t n,
     int64_t k,
-    const std::vector<T> &A,
-    std::vector<T> &A_gram,
+    T* A,
     bool verbose
 ) {
 
-    const T* A_dat = A.data();
-    T* A_gram_dat = A_gram.data();
+    T* A_gram  = ( T * ) calloc( k * k, sizeof( T ) );
 
-    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, n, m, 1.0, A_dat, m, 0.0, A_gram_dat, n);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
 
-    for (int oi = 0; oi < k; ++oi) {
-        A_gram_dat[oi * n + oi] -= 1.0;
+    for (int i = 0; i < k; ++i) {
+        A_gram[i * k + i] -= 1.0;
     }
-    T orth_err = lapack::lange(Norm::Fro, n, n, A_gram_dat, k);
+    T orth_err = lapack::lange(Norm::Fro, k, k, A_gram, k);
 
     if(verbose) {
         printf("Q ERROR:   %e\n\n", orth_err);
