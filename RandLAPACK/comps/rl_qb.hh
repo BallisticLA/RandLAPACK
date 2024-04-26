@@ -107,7 +107,7 @@ class QB : public QBalg<T, RNG> {
         ///     Has the same number of rows of A, and orthonormal columns.
         ///
         /// @param[out] B
-        ///     Has the same number of columns of A.
+        ///     Number of rows in B is equal to number of columns in A (B is returned in a transposed format).
         ///
         /// @return = 0: successful exit
         ///
@@ -129,9 +129,6 @@ class QB : public QBalg<T, RNG> {
         RandLAPACK::Stabilization<T> &Orth_Obj;
         bool verbosity;
         bool orth_check;
-
-        std::vector<T> Q_gram;
-        std::vector<T> Q_i_gram;
 
         std::vector<T> QtQi;
         std::vector<T> Q_i;
@@ -194,11 +191,6 @@ int QB<T, RNG>::call(
     T prev_err = 0.0;
     T approx_err = 0.0;
 
-    if(this->orth_check) {
-        util::upsize(this->curr_lim * this->curr_lim, this->Q_gram);
-        util::upsize(block_sz * block_sz, this->Q_i_gram);
-    }
-
     T* QtQi_dat = util::upsize(this->curr_lim * block_sz, this->QtQi);
     T* Q_i_dat = util::upsize(m * block_sz, this->Q_i);
     T* B_i_trans_dat = util::upsize(block_sz * n, this->B_i);
@@ -247,12 +239,8 @@ int QB<T, RNG>::call(
             this->Orth_Obj.call(m, block_sz, (this->Q_i).data());
         }
 
-        //B_i = Q_i' * A
-        //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, block_sz, n, m, 1.0, Q_i_dat, m, A_cpy_dat, m, 0.0, B_i_dat, block_sz);
         //B_i' = A' * Q_i'
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, block_sz, m, 1.0, A_cpy_dat, m, Q_i_dat, m, 0.0, B_i_trans_dat, n);
-        //RandBLAS::util::print_colmaj(n, block_sz, B_i_trans_dat, name);
-
 
         // Updating B norm estimation
         T norm_B_i = lapack::lange(Norm::Fro, n, block_sz, B_i_trans_dat, n);
@@ -273,13 +261,6 @@ int QB<T, RNG>::call(
         // Update the matrices Q and B
         lapack::lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, &Q_dat[m * curr_sz], m);
         lapack::lacpy(MatrixType::General, n, block_sz, B_i_trans_dat, n, &B_dat[n * curr_sz], n);
-
-        printf("curr_sz %d\n", curr_sz);
-        printf("curr_lim %d\n", this->curr_lim);
-        printf("k %d\n", k);
-        printf("b_sz %d\n", block_sz);
-        RandBLAS::util::print_colmaj(n, block_sz, B_i_trans_dat, name);
-        RandBLAS::util::print_colmaj(n, this->curr_lim, B_dat, name1);
 
         if(this->orth_check) {
             if (util::orthogonality_check(m, this->curr_lim, next_sz, Q.data(), this->verbosity)) {
