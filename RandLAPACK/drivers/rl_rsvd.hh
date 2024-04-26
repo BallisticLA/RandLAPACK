@@ -129,11 +129,11 @@ int RSVD<T, RNG>::call(
     std::vector<T> &VT,
     RandBLAS::RNGState<RNG> &state
 ){
-    T* Q = NULL;
-    T* B = NULL; 
+    T* Q = nullptr;
+    T* B = nullptr; 
     // Q and B sizes will be adjusted automatically
     this->QB_Obj.call(m, n, A.data(), k, this->block_sz, tol, Q, B, state);
-/*
+
     // Making sure all vectors are large enough
     util::upsize(m * k, U);
     util::upsize(k * k, this->U_buf);
@@ -144,8 +144,7 @@ int RSVD<T, RNG>::call(
     lapack::gesdd(Job::SomeVec, k, n, B, k, S.data(), this->U_buf.data(), k, VT.data(), k);
     // Adjusting U
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q, m, this->U_buf.data(), k, 0.0, U.data(), m);
-*/
-    fprintf( stderr, "Segfault on Free?\n");
+
     free(Q);
     free(B);
     return 0;

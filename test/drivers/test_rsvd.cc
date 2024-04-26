@@ -132,7 +132,7 @@ class TestRSVD : public ::testing::Test
 
         // Regular QB2 call
         all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1, state);
-/*
+
         // Construnct A_approx_determ = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
@@ -157,10 +157,9 @@ class TestRSVD : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_approx_determ_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
-*/
     }
 };
-/*
+
 TEST_F(TestRSVD, SimpleTest)
 { 
     int64_t m = 100;
@@ -188,4 +187,3 @@ TEST_F(TestRSVD, SimpleTest)
     computational_helper(all_data);
     test_RSVD1_general(tol, all_data, all_algs, state);
 }
-*/

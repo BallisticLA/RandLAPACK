@@ -105,7 +105,7 @@ class TestQB : public ::testing::Test
         QBTestData<T> &all_data,
         alg_type &all_algs,
         RandBLAS::RNGState<RNG> &state) {
-/*
+
         auto m = all_data.row;
         auto n = all_data.col;
         auto k = all_data.rank;
@@ -119,25 +119,16 @@ class TestQB : public ::testing::Test
         T* s_dat = all_data.s.data();
         T* S_dat = all_data.S.data();
         T* VT_dat = all_data.VT.data();
-*/  
-        int64_t m = 0;
-        int64_t n = 0;
-        int64_t k = 0;
-        T* A;
-        T* Q;
-        T* B;
+
+        T* Q = nullptr;
+        T* B = nullptr;
 
         // Regular QB2 call
-        all_algs.QB.call(m, n, A, k, block_sz, tol, Q, B, state);
+        all_algs.QB.call(m, n,  all_data.A.data(), k, block_sz, tol, Q, B, state);
 
-        printf("%f\n", Q[0]);
-        free(A);
-        free(Q);
-        free(B);
-/*
         // Reassing pointers because Q, B have been resized
-        T* Q_dat = all_data.Q.data();
-        T* B_dat = all_data.B.data();
+        T* Q_dat = Q;
+        T* B_dat = B;
         T* B_cpy_dat = all_data.B_cpy.data();
 
         printf("Inner dimension of QB: %-25ld\n", k);
@@ -184,7 +175,6 @@ class TestQB : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         ASSERT_NEAR(norm_test_4, 0, test_tol);
-*/
     }
 
     /// k = min(m, n) test for CholQRCP:
@@ -209,12 +199,15 @@ class TestQB : public ::testing::Test
         T* B_dat = all_data.B.data();
         T* A_hat_dat = all_data.A_hat.data();
 
+        T* Q = nullptr;
+        T* B = nullptr;
+
         // Regular QB2 call
-        all_algs.QB.call(m, n, all_data.A.data(), k_est, block_sz, tol, all_data.Q.data(), all_data.B.data(), state);
+        all_algs.QB.call(m, n, all_data.A.data(), k_est, block_sz, tol, Q, B, state);
 
         // Reassing pointers because Q, B have been resized
-        Q_dat = all_data.Q.data();
-        B_dat = all_data.B.data();
+        Q_dat = Q;
+        B_dat = B;
 
         printf("Inner dimension of QB: %ld\n", k_est);
 
@@ -249,9 +242,9 @@ class TestQB : public ::testing::Test
 
 TEST_F(TestQB, Polynomial_Decay_general1)
 {
-    int64_t m = 10;
-    int64_t n = 10;
-    int64_t k = 5;
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
     int64_t p = 2;
     int64_t passes_per_iteration = 1;
     int64_t block_sz = 2;
@@ -280,14 +273,6 @@ TEST_F(TestQB, Polynomial_Decay_general1)
 }
 
 
-TEST_F(TestQB, test_rand)
-{
-    int* ptr;
-    rand_fun(ptr);
-    printf("%d\n", ptr[0]);
-}
-
-/*
 TEST_F(TestQB, Polynomial_Decay_general2)
 {
     int64_t m = 100;
@@ -385,7 +370,6 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
 }
 
 
-*/
 TEST_F(TestQB, random_test)
 {
     /*
