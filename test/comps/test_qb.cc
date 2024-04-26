@@ -123,15 +123,8 @@ class TestQB : public ::testing::Test
         T* VT_dat = all_data.VT.data();
 
         // Regular QB2 call
-        int err = all_algs.QB.call(m, n, all_data.A, k, block_sz, tol, all_data.Q, all_data.B, state);
+        int err = all_algs.QB.call(m, n, all_data.A.data(), k, block_sz, tol, all_data.Q.data(), all_data.B.data(), state);
         printf("Erro num %d\n", err);
-
-        char name1 [] = "Q";
-        char name2 [] = "B";
-        char name3 [] = "A";
-        RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name3);
-        RandBLAS::util::print_colmaj(m, k, all_data.Q.data(), name1);
-        RandBLAS::util::print_colmaj(n, k, all_data.B.data(), name2);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();
@@ -207,7 +200,7 @@ class TestQB : public ::testing::Test
         T* A_hat_dat = all_data.A_hat.data();
 
         // Regular QB2 call
-        all_algs.QB.call(m, n, all_data.A, k_est, block_sz, tol, all_data.Q, all_data.B, state);
+        all_algs.QB.call(m, n, all_data.A.data(), k_est, block_sz, tol, all_data.Q.data(), all_data.B.data(), state);
 
         // Reassing pointers because Q, B have been resized
         Q_dat = all_data.Q.data();

@@ -24,12 +24,12 @@ class QBalg {
         virtual int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t &k,
             int64_t block_sz,
             T tol,
-            std::vector<T> &Q,
-            std::vector<T> &B,
+            T* Q,
+            T* B,
             RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
@@ -115,12 +115,12 @@ class QB : public QBalg<T, RNG> {
         int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t &k,
             int64_t block_sz,
             T tol,
-            std::vector<T> &Q,
-            std::vector<T> &B,
+            T* Q,
+            T* B,
             RandBLAS::RNGState<RNG> &state
         ) override;
 
@@ -129,10 +129,6 @@ class QB : public QBalg<T, RNG> {
         RandLAPACK::Stabilization<T> &Orth_Obj;
         bool verbosity;
         bool orth_check;
-
-        std::vector<T> QtQi;
-        std::vector<T> Q_i;
-        std::vector<T> B_i;
 
         //This represents how much space is currently allocated for cols of Q and rows of B.
         //This is <= k. We are assuming that the user may not have given "enough"
@@ -148,59 +144,52 @@ template <typename T, typename RNG>
 int QB<T, RNG>::call(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    T* A,
     int64_t &k,
     int64_t block_sz,
     T tol,
-    std::vector<T> &Q,
-    std::vector<T> &B,
+    T* Q,
+    T* B,
     RandBLAS::RNGState<RNG> &state
 ){
 
     int64_t curr_sz = 0;
     int64_t next_sz = 0;
-
-    T* A_dat = A.data();
-    // pre-compute nrom
-    T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
-    // Immediate termination criteria
-    if(norm_A == 0.0) {
-        // Zero matrix termination
-        k = curr_sz;
-        return 1;
-    }
-
+    this->curr_lim = k;
     tol = std::max(tol, 100 * std::numeric_limits<T>::epsilon());
-    // If the space allocated for col in Q and row in B is insufficient for any iterations ...
-    if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k) {
-        // ... allocate more!
-        this->curr_lim = std::min(this->dim_growth_factor * block_sz, k);
-        // No need for data movement in this case
-        util::upsize(m * this->curr_lim, Q);
-        util::upsize(this->curr_lim * n, B);
-    } else {
-        this->curr_lim = k;
-    }
-
-    // Copy the initial data to avoid unwanted modification TODO #1
-    std::vector<T> A_cpy (m * n, 0.0);
-    T* A_cpy_dat = A_cpy.data();
-    lapack::lacpy(MatrixType::General, m, n, A_dat, m, A_cpy_dat, m);
-
     T norm_B = 0.0;
     T prev_err = 0.0;
     T approx_err = 0.0;
 
-    T* QtQi_dat = util::upsize(this->curr_lim * block_sz, this->QtQi);
-    T* Q_i_dat = util::upsize(m * block_sz, this->Q_i);
-    T* B_i_trans_dat = util::upsize(block_sz * n, this->B_i);
+    T* A_cpy     = ( T * ) calloc( m * n,                     sizeof( T ) );
+    T* QtQi      = ( T * ) calloc( this->curr_lim * block_sz, sizeof( T ) );
+    T* Q_i       = ( T * ) calloc( m * block_sz,              sizeof( T ) );
+    T* B_i_trans = ( T * ) calloc( block_sz * n,              sizeof( T ) );
+    // Make sure Q, B have space for at least one iteration
+    
+    if(!Q) {
+        Q = ( T * ) realloc(Q, m * n * sizeof( T ) );
+    }
+    if(!B) {
+        B = ( T * ) realloc(B, n * n * sizeof( T ) );
+    }
+    
 
-    T* Q_dat = Q.data();
-    T* B_dat = B.data();
+    // pre-compute nrom
+    T norm_A = lapack::lange(Norm::Fro, m, n, A, m);
+    // Immediate termination criteria
+    if(norm_A == 0.0) {
+        // Zero matrix termination
+        k = curr_sz;
+        free(A_cpy);
+        free(QtQi);
+        free(Q_i);
+        free(B_i_trans);
+        return 1;
+    }
 
-
-    char name [] = "B_i";
-    char name1 [] = "B";
+    // Copy the initial data to avoid unwanted modification TODO #1
+    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
 
     while(k > curr_sz) {
         // Dynamically changing block size
@@ -210,23 +199,23 @@ int QB<T, RNG>::call(
         // Make sure we have enough space for everything
         if(next_sz > this->curr_lim) {
             this->curr_lim = std::min(2 * this->curr_lim, k);
-            Q_dat = util::upsize(this->curr_lim * m, Q);
-            B_dat = util::upsize(this->curr_lim * n, B);
-            //B_dat = util::row_resize(curr_sz, n, B, this->curr_lim);
-            QtQi_dat = util::upsize(this->curr_lim * block_sz, QtQi);
-            if(this->orth_check)
-                util::upsize(this->curr_lim * this->curr_lim, Q_gram);
+            Q    = ( T * ) realloc(Q,    this->curr_lim * m * sizeof( T ));
+            B    = ( T * ) realloc(B,    this->curr_lim * n * sizeof( T ));
+            QtQi = ( T * ) realloc(QtQi, this->curr_lim * block_sz * sizeof( T ));
         }
 
         // Calling RangeFinder
-        if(this->RF_Obj.call(m, n, A_cpy.data(), block_sz, (this->Q_i).data(), state))
+        if(this->RF_Obj.call(m, n, A_cpy, block_sz, Q_i, state))
             return 6; // RF failed
 
         if(this->orth_check) {
-            if (util::orthogonality_check(m, block_sz, block_sz, Q_i.data(), this->verbosity)) {
+            if (util::orthogonality_check(m, block_sz, block_sz, Q_i, this->verbosity)) {
                 // Lost orthonormality of Q
-                //util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
+                free(A_cpy);
+                free(QtQi);
+                free(Q_i);
+                free(B_i_trans);
                 return 4;
             }
         }
@@ -234,16 +223,16 @@ int QB<T, RNG>::call(
         // No need to reorthogonalize on the 1st pass
         if(curr_sz != 0) {
             // Q_i = orth(Q_i - Q(Q'Q_i))
-            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q_dat, m, Q_i_dat, m, 0.0, QtQi_dat, this->curr_lim);
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q_dat, m, QtQi_dat, this->curr_lim, 1.0, Q_i_dat, m);
-            this->Orth_Obj.call(m, block_sz, (this->Q_i).data());
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, block_sz, m, 1.0, Q, m, Q_i, m, 0.0, QtQi, this->curr_lim);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, block_sz, curr_sz, -1.0, Q, m, QtQi, this->curr_lim, 1.0, Q_i, m);
+            this->Orth_Obj.call(m, block_sz, Q_i);
         }
 
         //B_i' = A' * Q_i'
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, block_sz, m, 1.0, A_cpy_dat, m, Q_i_dat, m, 0.0, B_i_trans_dat, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, block_sz, m, 1.0, A_cpy, m, Q_i, m, 0.0, B_i_trans, n);
 
         // Updating B norm estimation
-        T norm_B_i = lapack::lange(Norm::Fro, n, block_sz, B_i_trans_dat, n);
+        T norm_B_i = lapack::lange(Norm::Fro, n, block_sz, B_i_trans, n);
         norm_B = std::hypot(norm_B, norm_B_i);
         // Updating approximation error
         prev_err = approx_err;
@@ -253,20 +242,26 @@ int QB<T, RNG>::call(
         if ((curr_sz > 0) && (approx_err > prev_err)) {
             // Early termination - error growth
             // Only need to move B's data, no resizing
-            //util::row_resize(this->curr_lim, n, B, curr_sz);
             k = curr_sz;
+            free(A_cpy);
+            free(QtQi);
+            free(Q_i);
+            free(B_i_trans);
             return 2;
         }
 
         // Update the matrices Q and B
-        lapack::lacpy(MatrixType::General, m, block_sz, Q_i_dat, m, &Q_dat[m * curr_sz], m);
-        lapack::lacpy(MatrixType::General, n, block_sz, B_i_trans_dat, n, &B_dat[n * curr_sz], n);
+        lapack::lacpy(MatrixType::General, m, block_sz, Q_i, m, &Q[m * curr_sz], m);
+        lapack::lacpy(MatrixType::General, n, block_sz, B_i_trans, n, &B[n * curr_sz], n);
 
         if(this->orth_check) {
-            if (util::orthogonality_check(m, this->curr_lim, next_sz, Q.data(), this->verbosity)) {
+            if (util::orthogonality_check(m, this->curr_lim, next_sz, Q, this->verbosity)) {
                 // Lost orthonormality of Q
-                //util::row_resize(this->curr_lim, n, B, curr_sz);
                 k = curr_sz;
+                free(A_cpy);
+                free(QtQi);
+                free(Q_i);
+                free(B_i_trans);
                 return 5;
             }
         }
@@ -275,15 +270,24 @@ int QB<T, RNG>::call(
         // Termination criteria
         if (approx_err < tol) {
             // Reached the required error tol
-            //util::row_resize(this->curr_lim, n, B, curr_sz);
             k = curr_sz;
+            free(A_cpy);
+            free(QtQi);
+            free(Q_i);
+            free(B_i_trans);
             return 0;
         }
 
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, block_sz, -1.0, Q_i_dat, m, B_i_trans_dat, n, 1.0, A_cpy_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, block_sz, -1.0, Q_i, m, B_i_trans, n, 1.0, A_cpy, m);
     }
+
+    free(A_cpy);
+    free(QtQi);
+    free(Q_i);
+    free(B_i_trans);
+
     // Reached expected rank without achieving the tolerance
     return 3;
 }
