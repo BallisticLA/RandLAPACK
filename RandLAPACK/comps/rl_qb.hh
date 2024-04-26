@@ -161,8 +161,9 @@ int QB<T, RNG>::call(
     // Allocate buffers
     T* QtQi  = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
     T* A_cpy = ( T * ) calloc( m * n,       sizeof( T ) );
-    T* Q_i   = ( T * ) calloc( m * b_sz,    sizeof( T ) );
-    T* BT_i  = ( T * ) calloc( b_sz * n,    sizeof( T ) );
+    // Declate pointers to the iteration buffers.
+    T* Q_i;
+    T* BT_i;
 
     // pre-compute nrom
     T norm_A = lapack::lange(Norm::Fro, m, n, A, m);
@@ -179,9 +180,14 @@ int QB<T, RNG>::call(
         // Allocate more space in Q, B, QtQi buffer if needed.
         if (curr_sz != 0) {
             Q    = ( T * ) realloc(Q,    next_sz * m * sizeof( T ));
-            BT    = ( T * ) realloc(BT,    next_sz * n * sizeof( T ));
+            BT   = ( T * ) realloc(BT,   next_sz * n * sizeof( T ));
             QtQi = ( T * ) realloc(QtQi, next_sz * b_sz * sizeof( T ));
         }
+
+        // Avoid extra buffer allocation, but be careful about pointing to the
+        // correct location.
+        Q_i = &Q[m * curr_sz];
+        BT_i = &BT[n * curr_sz];
 
         // Calling RangeFinder
         if(this->RF_Obj.call(m, n, A_cpy, b_sz, Q_i, state)) {
@@ -189,8 +195,6 @@ int QB<T, RNG>::call(
             k = curr_sz;
             free(A_cpy);
             free(QtQi);
-            free(Q_i);
-            free(BT_i);
             return 6;
         }
 
@@ -200,8 +204,6 @@ int QB<T, RNG>::call(
                 k = curr_sz;
                 free(A_cpy);
                 free(QtQi);
-                free(Q_i);
-                free(BT_i);
                 return 4;
             }
         }
@@ -230,14 +232,8 @@ int QB<T, RNG>::call(
             k = curr_sz;
             free(A_cpy);
             free(QtQi);
-            free(Q_i);
-            free(BT_i);
             return 2;
         }
-
-        // Update the matrices Q and B
-        lapack::lacpy(MatrixType::General, m, b_sz, Q_i, m, &Q[m * curr_sz], m);
-        lapack::lacpy(MatrixType::General, n, b_sz, BT_i, n, &BT[n * curr_sz], n);
 
         if(this->orth_check) {
             if (util::orthogonality_check(m, next_sz, next_sz, Q, this->verbosity)) {
@@ -245,8 +241,6 @@ int QB<T, RNG>::call(
                 k = curr_sz;
                 free(A_cpy);
                 free(QtQi);
-                free(Q_i);
-                free(BT_i);
                 return 5;
             }
         }
@@ -260,8 +254,6 @@ int QB<T, RNG>::call(
             k = curr_sz;
             free(A_cpy);
             free(QtQi);
-            free(Q_i);
-            free(BT_i);
             return 0;
         }
 
@@ -272,8 +264,6 @@ int QB<T, RNG>::call(
 
     free(A_cpy);
     free(QtQi);
-    free(Q_i);
-    free(BT_i);
 
     // Reached expected rank without achieving the tolerance
     return 3;

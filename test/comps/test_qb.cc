@@ -230,14 +230,6 @@ class TestQB : public ::testing::Test
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
     }
-
-    void rand_fun(int* &ptr)
-    {
-        ptr = (int*) realloc(ptr, 3 * sizeof(int));
-        ptr[0] = 1;
-        ptr[2] = 2;
-        ptr[3] = 3;
-    }
 };
 
 TEST_F(TestQB, Polynomial_Decay_general1)
