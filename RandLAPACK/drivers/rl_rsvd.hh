@@ -144,11 +144,11 @@ int RSVD<T, RNG>::call(
     lapack::gesdd(Job::SomeVec, k, n, B, k, S.data(), this->U_buf.data(), k, VT.data(), k);
     // Adjusting U
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q, m, this->U_buf.data(), k, 0.0, U.data(), m);
-
+*/
+    fprintf( stderr, "Segfault on Free?\n");
     free(Q);
     free(B);
     return 0;
-*/
 }
 
 } // end namespace RandLAPACK

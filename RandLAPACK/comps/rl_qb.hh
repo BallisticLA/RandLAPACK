@@ -97,11 +97,11 @@ class QB : public QBalg<T, RNG> {
         ///
         /// @param[in] Q
         ///     Buffer for the Q-factor.
-        ///     Initially, may not have any space allocated for it.
+        ///     Q is REQUIRED to be either nullptr or to point to >= m * b_sz * sizeof(T) bytes.
         ///
         /// @param[in] B
         ///     Buffer for the B-factor.
-        ///     Initially, may not have any space allocated for it.
+        ///     B is REQUIRED to be either nullptr or to point to >= n * b_sz * sizeof(T) bytes.
         ///
         /// @param[out] Q
         ///     Has the same number of rows of A, and orthonormal columns.
@@ -161,20 +161,21 @@ int QB<T, RNG>::call(
     T prev_err = 0.0;
     T approx_err = 0.0;
 
+    fprintf( stderr,"%d\n", m);
+    fprintf( stderr,"%d\n", n);
+    fprintf( stderr,"%ld\n", block_sz);
+
+    // Make sure Q, B have space for at least one iteration
+    if(!Q)
+        Q = ( T * ) realloc(Q, m * block_sz * sizeof( T ) );
+    if(!B)
+        B = ( T * ) realloc(B, n * block_sz * sizeof( T ) );
+
     T* A_cpy     = ( T * ) calloc( m * n,                     sizeof( T ) );
     T* QtQi      = ( T * ) calloc( this->curr_lim * block_sz, sizeof( T ) );
     T* Q_i       = ( T * ) calloc( m * block_sz,              sizeof( T ) );
     T* B_i_trans = ( T * ) calloc( block_sz * n,              sizeof( T ) );
-    // Make sure Q, B have space for at least one iteration
     
-    if(!Q) {
-        Q = ( T * ) realloc(Q, m * n * sizeof( T ) );
-    }
-    if(!B) {
-        B = ( T * ) realloc(B, n * n * sizeof( T ) );
-    }
-    
-
     // pre-compute nrom
     T norm_A = lapack::lange(Norm::Fro, m, n, A, m);
     // Immediate termination criteria
@@ -190,23 +191,34 @@ int QB<T, RNG>::call(
 
     // Copy the initial data to avoid unwanted modification TODO #1
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
-
+    int ctr = 0;
     while(k > curr_sz) {
         // Dynamically changing block size
         block_sz = std::min(block_sz, k - curr_sz);
         next_sz = curr_sz + block_sz;
 
+        fprintf( stderr,"Next sz %d\n", next_sz);
+        fprintf( stderr,"this->curr_lim %d\n", this->curr_lim);
         // Make sure we have enough space for everything
         if(next_sz > this->curr_lim) {
             this->curr_lim = std::min(2 * this->curr_lim, k);
-            Q    = ( T * ) realloc(Q,    this->curr_lim * m * sizeof( T ));
-            B    = ( T * ) realloc(B,    this->curr_lim * n * sizeof( T ));
-            QtQi = ( T * ) realloc(QtQi, this->curr_lim * block_sz * sizeof( T ));
+            Q    = ( T * ) realloc(Q,    (this->curr_lim) * m * sizeof( T ));
+            B    = ( T * ) realloc(B,    (this->curr_lim) * n * sizeof( T ));
+            QtQi = ( T * ) realloc(QtQi, (this->curr_lim) * block_sz * sizeof( T ));
         }
 
+        fprintf( stderr, "Size Q %ld\n", (this->curr_lim) * m );
+        fprintf( stderr, "Size B %ld\n", (this->curr_lim) * n );
+        fprintf( stderr, "Size QtQi %ld\n", (this->curr_lim) * block_sz );
+
         // Calling RangeFinder
-        if(this->RF_Obj.call(m, n, A_cpy, block_sz, Q_i, state))
+        if(this->RF_Obj.call(m, n, A_cpy, block_sz, Q_i, state)) {
+            free(A_cpy);
+            free(QtQi);
+            free(Q_i);
+            free(B_i_trans);
             return 6; // RF failed
+        }
 
         if(this->orth_check) {
             if (util::orthogonality_check(m, block_sz, block_sz, Q_i, this->verbosity)) {
@@ -250,9 +262,23 @@ int QB<T, RNG>::call(
             return 2;
         }
 
+        fprintf( stderr,"before copy\n");
+
+        fprintf( stderr,"Curr_sz %d\n", curr_sz);
+
+        if (ctr == 1) {
+            free(A_cpy);
+            free(QtQi);
+            free(Q_i);
+            free(B_i_trans);
+            return 0;
+        }
+
         // Update the matrices Q and B
         lapack::lacpy(MatrixType::General, m, block_sz, Q_i, m, &Q[m * curr_sz], m);
         lapack::lacpy(MatrixType::General, n, block_sz, B_i_trans, n, &B[n * curr_sz], n);
+
+        fprintf( stderr,"Copy\n");
 
         if(this->orth_check) {
             if (util::orthogonality_check(m, this->curr_lim, next_sz, Q, this->verbosity)) {
@@ -266,6 +292,8 @@ int QB<T, RNG>::call(
             }
         }
 
+        fprintf( stderr,"After orth\n\n");
+
         curr_sz += block_sz;
         // Termination criteria
         if (approx_err < tol) {
@@ -277,10 +305,11 @@ int QB<T, RNG>::call(
             free(B_i_trans);
             return 0;
         }
-
+        
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, block_sz, -1.0, Q_i, m, B_i_trans, n, 1.0, A_cpy, m);
+        ++ ctr;
     }
 
     free(A_cpy);
