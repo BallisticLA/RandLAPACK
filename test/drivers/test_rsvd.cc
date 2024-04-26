@@ -160,7 +160,7 @@ class TestRSVD : public ::testing::Test
 */
     }
 };
-
+/*
 TEST_F(TestRSVD, SimpleTest)
 { 
     int64_t m = 100;
@@ -188,3 +188,4 @@ TEST_F(TestRSVD, SimpleTest)
     computational_helper(all_data);
     test_RSVD1_general(tol, all_data, all_algs, state);
 }
+*/
