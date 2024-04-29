@@ -71,7 +71,7 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    T* times = ( T * ) calloc(11, sizeof( T ) );
+    T* times = ( T * ) calloc(31, sizeof( T ) );
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
@@ -81,7 +81,7 @@ static void call_all_algs(
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times);
 
         std::ofstream file(output_filename, std::ios::app);
-        std::copy(times, times + 11, std::ostream_iterator<T>(file, ", "));
+        std::copy(times, times + 31, std::ostream_iterator<T>(file, ", "));
         file << "\n";
 
         // Clear and re-generate data
@@ -100,14 +100,14 @@ int main() {
     int64_t n          = std::pow(2, 16);
     double  d_factor   = 1.125;
     int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 256;
+    int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs.
-    int64_t numruns = 1;
+    int64_t numruns = 4;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
@@ -116,11 +116,11 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string file= "HQRRP_inner_speed_"              + std::to_string(m)
-                                    + "_cols_"         + std::to_string(n)
-                                    + "_b_sz_start_"   + std::to_string(b_sz_start)
-                                    + "_b_sz_end_"     + std::to_string(b_sz_end)
-                                    + "_d_factor_"     + std::to_string(d_factor)
+    std::string file= "HQRRP_inner_speed_"           + std::to_string(m)
+                                    + "_cols_"       + std::to_string(n)
+                                    + "_b_sz_start_" + std::to_string(b_sz_start)
+                                    + "_b_sz_end_"   + std::to_string(b_sz_end)
+                                    + "_d_factor_"   + std::to_string(d_factor)
                                     + ".dat";
 
 #if !defined(__APPLE__)
