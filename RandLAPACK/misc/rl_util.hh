@@ -218,9 +218,12 @@ bool orthogonality_check(
         printf("Q ERROR:   %e\n\n", orth_err);
     }
 
-    if (orth_err > 1.0e-10)
+    if (orth_err > 1.0e-10) {
+        free(A_gram);
         return true;
+    }
 
+    free(A_gram);
     return false;
 }
 
