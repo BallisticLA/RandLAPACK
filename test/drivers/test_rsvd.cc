@@ -121,9 +121,10 @@ class TestRSVD : public ::testing::Test
         T* A_approx_determ_duf_dat = all_data.A_approx_determ_duf.data();
         T* A_k_dat = all_data.A_k.data();
 
-        T* U1_dat = all_data.U1.data();
-        T* S1_dat = all_data.S1.data();
-        T* VT1_dat = all_data.VT1.data();
+        T* U1_dat  = nullptr;
+        T* s1_dat  = nullptr;
+        T* VT1_dat = nullptr;
+        T* S1_dat  = all_data.S1.data();
 
         T* U_dat = all_data.U.data();
         T* s_dat = all_data.s.data();
@@ -131,12 +132,12 @@ class TestRSVD : public ::testing::Test
         T* VT_dat = all_data.VT.data();
 
         // Regular QB2 call
-        all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1, state);
+        all_algs.RSVD.call(m, n, all_data.A.data(), k, tol, U1_dat, s1_dat, VT1_dat, state);
 
         // Construnct A_approx_determ = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix
-        RandLAPACK::util::diag(k, k, all_data.s1.data(), k, all_data.S1.data());
+        RandLAPACK::util::diag(k, k, s1_dat, k, S1_dat);
         // U1 * S1 = A_approx_determ_duf
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_approx_determ_duf_dat, m);
         // A_approx_determ_duf * VT1 =  A_approx_determ
@@ -157,6 +158,10 @@ class TestRSVD : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_approx_determ_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+
+        free(U1_dat);
+        free(s1_dat);
+        free(VT1_dat);
     }
 };
 

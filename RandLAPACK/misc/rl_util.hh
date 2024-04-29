@@ -146,42 +146,6 @@ T* upsize(
     return A.data();
 }
 
-
-/// Changes the number of rows of a column-major matrix.
-template <typename T>
-T* row_resize(
-    int64_t m,
-    int64_t n,
-    std::vector<T> &A,
-    int64_t k
-) {
-
-    T* A_dat = A.data();
-
-    // SIZING DOWN - just moving data
-    if(m > k) {
-        uint64_t end = k;
-        for (int i = 1; i < n; ++i) {
-            // Place ith column (of k entries) after the (i - 1)st column
-            blas::copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
-            end += k;
-        }
-    } else { //SIZING UP
-        // How many rows are being added: k - m
-        A_dat = upsize(k * n, A);
-
-        int64_t end = k * (n - 1);
-        for(int i = n - 1; i > 0; --i) {
-            // Copy in reverse order to avoid overwriting
-            blas::copy(m, &A_dat[m * i], -1, &A_dat[end], -1);
-            std::fill(&A_dat[m * i], &A_dat[end], 0.0);
-            end -= k;
-        }
-    }
-
-    return A_dat;
-}
-
 /// Find the condition number of a given matrix A.
 template <typename T>
 T cond_num_check(

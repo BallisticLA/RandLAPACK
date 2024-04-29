@@ -21,12 +21,12 @@ class RSVDalg {
         virtual int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t &k,
             T tol,
-            std::vector<T> &U,
-            std::vector<T> &S,
-            std::vector<T> &VT,
+            T* &U,
+            T* &S,
+            T* &VT,
             RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
@@ -97,12 +97,12 @@ class RSVD : public RSVDalg<T, RNG> {
         int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t &k,
             T tol,
-            std::vector<T> &U,
-            std::vector<T> &S,
-            std::vector<T> &VT,
+            T* &U,
+            T* &S,
+            T* &VT,
             RandBLAS::RNGState<RNG> &state
         ) override;
 
@@ -110,10 +110,6 @@ class RSVD : public RSVDalg<T, RNG> {
         RandLAPACK::QBalg<T, RNG> &QB_Obj;
         bool verbosity;
         int64_t block_sz;
-
-        std::vector<T> Q;
-        std::vector<T> B;
-        std::vector<T> U_buf;
 };
 
 // -----------------------------------------------------------------------------
@@ -121,32 +117,33 @@ template <typename T, typename RNG>
 int RSVD<T, RNG>::call(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    T* A,
     int64_t &k,
     T tol,
-    std::vector<T> &U,
-    std::vector<T> &S,
-    std::vector<T> &VT,
+    T* &U,
+    T* &S,
+    T* &VT,
     RandBLAS::RNGState<RNG> &state
 ){
     T* Q = nullptr;
     T* B = nullptr; 
     // Q and B sizes will be adjusted automatically
-    this->QB_Obj.call(m, n, A.data(), k, this->block_sz, tol, Q, B, state);
+    this->QB_Obj.call(m, n, A, k, this->block_sz, tol, Q, B, state);
 
+    T* U_buf  = ( T * ) calloc(k * k, sizeof( T ) );
     // Making sure all vectors are large enough
-    util::upsize(m * k, U);
-    util::upsize(k * k, this->U_buf);
-    util::upsize(k, S);
-    util::upsize(k * n, VT);
+    U  = ( T * ) calloc(m * k, sizeof( T ) );
+    S  = ( T * ) calloc(k,         sizeof( T ) );
+    VT = ( T * ) calloc(n * k, sizeof( T ) );
 
     // SVD of B
-    lapack::gesdd(Job::SomeVec, k, n, B, k, S.data(), this->U_buf.data(), k, VT.data(), k);
+    lapack::gesdd(Job::SomeVec, k, n, B, k, S, U_buf, k, VT, k);
     // Adjusting U
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q, m, this->U_buf.data(), k, 0.0, U.data(), m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q, m, U_buf, k, 0.0, U, m);
 
     free(Q);
     free(B);
+    free(U_buf);
     return 0;
 }
 

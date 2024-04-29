@@ -175,6 +175,8 @@ class TestQB : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         ASSERT_NEAR(norm_test_4, 0, test_tol);
+        free(Q);
+        free(B);
     }
 
     /// k = min(m, n) test for CholQRCP:
@@ -229,6 +231,8 @@ class TestQB : public ::testing::Test
             printf("FRO NORM OF A:         %e\n", norm_A);
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
+        free(Q);
+        free(B);
     }
 };
 
