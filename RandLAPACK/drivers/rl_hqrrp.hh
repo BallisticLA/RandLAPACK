@@ -676,12 +676,12 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         m_A22 = m_A - j - 1;
         n_A22 = n_A - j - 1;
 
-        // Obtain the index of the column with largest 2-norm.
-        idx_max_col = blas::iamax( n_dB, & buff_d[ j ], i_one ); // - 1;
-
         if(timing != nullptr) {
             pivoting_t_start = high_resolution_clock::now();
         }
+
+        // Obtain the index of the column with largest 2-norm.
+        idx_max_col = blas::iamax( n_dB, & buff_d[ j ], i_one ); // - 1;
 
         // Swap columns of A, B, C, pivots, and norms vectors.
         NoFLA_QRP_pivot_G_B_C( idx_max_col,
@@ -765,6 +765,17 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     if(timing != nullptr) {
         gen_T_t_stop = high_resolution_clock::now();
         gen_T_t_dur  = duration_cast<microseconds>(gen_T_t_stop - gen_T_t_start).count();
+        preallocation_t_start = high_resolution_clock::now();
+    }
+
+    // Remove auxiliary vectors.
+    free( buff_d );
+    free( buff_e );
+    free( buff_workspace );
+
+    if(timing != nullptr) {
+        preallocation_t_stop = high_resolution_clock::now();
+        preallocation_t_dur  += duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
     }
 
     if(timing != nullptr) {
@@ -778,18 +789,10 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         timing[3] += (T) gen_reflector_1_t_dur;
         timing[4] += (T) gen_reflector_2_t_dur;
         timing[5] += (T) downdating_t_dur;
-        timing[6] += (T) downdating_t_dur;
-        timing[7] += (T) gen_T_t_dur;
-        timing[8] += (T) other_t_dur;
-        timing[9] += (T) total_t_dur;
-        //printf("%ld\n", timing[7]);
-        //printf("%ld\n", timing[8]);
+        timing[6] += (T) gen_T_t_dur;
+        timing[7] += (T) other_t_dur;
+        timing[8] += (T) total_t_dur;
     }
-
-    // Remove auxiliary vectors.
-    free( buff_d );
-    free( buff_e );
-    free( buff_workspace );
 
     return 0;
 }
@@ -1158,7 +1161,7 @@ int64_t hqrrp(
     if(timing != nullptr) {
 
         // Make sure that timing points to a sufficient amount of space.
-        timing = ( T * ) realloc(timing, 31 * sizeof( T ) );
+        timing = ( T * ) realloc(timing, 29 * sizeof( T ) );
 
         total_t_stop = high_resolution_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
@@ -1175,8 +1178,8 @@ int64_t hqrrp(
         timing[8]  = (T) updating_Sketch_t_dur;
         timing[9]  = (T) other_t_dur;
         timing[10] = (T) total_t_dur;
-        blas::copy(10, timing_QRCP, 1, &timing[11], 1);
-        blas::copy(10, timing_QR,   1, &timing[21], 1);
+        blas::copy(9, timing_QRCP, 1, &timing[11], 1);
+        blas::copy(9, timing_QR,   1, &timing[20], 1);
 
         free( timing_QRCP );
         free( timing_QR );

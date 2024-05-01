@@ -71,7 +71,7 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    T* times = ( T * ) calloc(31, sizeof( T ) );
+    T* times = ( T * ) calloc(29, sizeof( T ) );
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
@@ -81,7 +81,7 @@ static void call_all_algs(
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times);
 
         std::ofstream file(output_filename, std::ios::app);
-        std::copy(times, times + 31, std::ostream_iterator<T>(file, ", "));
+        std::copy(times, times + 29, std::ostream_iterator<T>(file, ", "));
         file << "\n";
 
         // Clear and re-generate data
