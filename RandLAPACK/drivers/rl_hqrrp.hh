@@ -659,10 +659,10 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         preallocation_t_dur  = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
         norms_t_start        = high_resolution_clock::now();
     }
-
-    // Compute initial norms of A int64_to d and e.
-    NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
-
+    if( pivoting == 1 ) {
+        // Compute initial norms of A int64_to d and e.
+        NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
+    }
     if(timing != nullptr) {
         norms_t_stop = high_resolution_clock::now();
         norms_t_dur  = duration_cast<microseconds>(norms_t_stop - norms_t_start).count();
@@ -679,18 +679,19 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         if(timing != nullptr) {
             pivoting_t_start = high_resolution_clock::now();
         }
+        if( pivoting == 1 ) {
+            // Obtain the index of the column with largest 2-norm.
+            idx_max_col = blas::iamax( n_dB, & buff_d[ j ], i_one ); // - 1;
 
-        // Obtain the index of the column with largest 2-norm.
-        idx_max_col = blas::iamax( n_dB, & buff_d[ j ], i_one ); // - 1;
-
-        // Swap columns of A, B, C, pivots, and norms vectors.
-        NoFLA_QRP_pivot_G_B_C( idx_max_col,
-            m_A, & buff_A[ 0 + j * ldim_A ], ldim_A,
-            pivot_B, m_B, & buff_B[ 0 + j * ldim_B ], ldim_B,
-            pivot_C, m_C, & buff_C[ 0 + j * ldim_C ], ldim_C,
-            & buff_p[ j ],
-            & buff_d[ j ],
-            & buff_e[ j ] );
+            // Swap columns of A, B, C, pivots, and norms vectors.
+            NoFLA_QRP_pivot_G_B_C( idx_max_col,
+                m_A, & buff_A[ 0 + j * ldim_A ], ldim_A,
+                pivot_B, m_B, & buff_B[ 0 + j * ldim_B ], ldim_B,
+                pivot_C, m_C, & buff_C[ 0 + j * ldim_C ], ldim_C,
+                & buff_p[ j ],
+                & buff_d[ j ],
+                & buff_e[ j ] );
+        }
 
         if(timing != nullptr) {
             pivoting_t_stop       = high_resolution_clock::now();
@@ -736,14 +737,14 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
             gen_reflector_2_t_dur  += duration_cast<microseconds>(gen_reflector_2_t_stop - gen_reflector_2_t_start).count();
             downdating_t_start   = high_resolution_clock::now();
         }
-
-        // Update partial column norms.
-        NoFLA_QRP_downdate_partial_norms( m_A22, n_A22, 
-            & buff_d[ j+1 ], 1,
-            & buff_e[ j+1 ], 1,
-            & buff_A[ j + ( j+1 ) * ldim_A ], ldim_A,
-            & buff_A[ ( j+1 ) + std::min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
-            
+        if( pivoting == 1 ) {
+            // Update partial column norms.
+            NoFLA_QRP_downdate_partial_norms( m_A22, n_A22, 
+                & buff_d[ j+1 ], 1,
+                & buff_e[ j+1 ], 1,
+                & buff_A[ j + ( j+1 ) * ldim_A ], ldim_A,
+                & buff_A[ ( j+1 ) + std::min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
+        }
         if(timing != nullptr) {
             downdating_t_stop = high_resolution_clock::now();
             downdating_t_dur  += duration_cast<microseconds>(downdating_t_stop - downdating_t_start).count();
