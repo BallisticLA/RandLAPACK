@@ -168,6 +168,7 @@ static long GEQRF_refinement(RandLAPACK::gen::mat_gen_info<T> m_info,
     char name [] = "A";
     char name1 [] = "b";
     char name2 [] = "work";
+    char name3 [] = "x";
     RandBLAS::util::print_colmaj(m, n, A, name);
     RandBLAS::util::print_colmaj(m, 1, b, name1);
 
@@ -188,14 +189,17 @@ static long GEQRF_refinement(RandLAPACK::gen::mat_gen_info<T> m_info,
         // After this, r will be stored in work (m by 1).
         std::transform(b, &b[m], work, [](double d) { return static_cast<float>(d); });
         blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, n, A, m, x, 1, -1.0, work, 1);
+        RandBLAS::util::print_colmaj(m, 1, work, name2);
         // 2. Solve Qy = r for y in single precision.
         // Since Q' = inv(Q); y = Q'r.
         // After this, y will be stored in work (m by 1).
         lapack::ormqr(Side::Left, Op::Trans, m, 1, n, A_single, m, tau, work, m);
+        RandBLAS::util::print_colmaj(m, 1, work, name2);
         // 3. Solve Rz = y for z in single precision.
         // A_single stores single-precision R.
         // After this, z will be stored in work (n by 1).
         blas::trmv(Layout::ColMajor, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, A_single, m, work, 1);	
+        RandBLAS::util::print_colmaj(m, 1, work, name2);
         // 4. Check if ||z|| <= tol.
         T nrm = blas::nrm2(n, work, 1);
         if (nrm <= tol)
@@ -205,6 +209,7 @@ static long GEQRF_refinement(RandLAPACK::gen::mat_gen_info<T> m_info,
         std::transform(work, &work[n], work_double, [](float f) { return static_cast<double>(f); });
         // 6. x = x + z.
         blas::axpy(n, -1.0, work, 1, x, 1);	
+        RandBLAS::util::print_colmaj(n, 1, x, name3);
         ++ctr;
     }
     auto stop_geqrf_refine = high_resolution_clock::now();
