@@ -47,11 +47,13 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         RandBLAS::RNGState<RNG> &state,
                                         int zero_Q) {
 
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    auto state_const = state;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state_const);
     std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
+    state_const = state;
     if (zero_Q) {
-        RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
+        RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state_const);
     }
 }
 
@@ -121,14 +123,15 @@ static void call_all_algs(
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
         auto stop_cholqr = high_resolution_clock::now();
         dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
-/*
+
         char name [] = "A";
         char name1 [] = "Q";
         char name2 [] = "R";
-        RandBLAS::util::print_colmaj(m, n, all_data.A_cpy.data(), name);
-        RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name1);
-        RandBLAS::util::print_colmaj(n, n, all_data.R.data(), name2);
-*/
+        //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+        //RandBLAS::util::print_colmaj(m, n, all_data.A_cpy.data(), name);
+        //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name1);
+        //RandBLAS::util::print_colmaj(n, n, all_data.R.data(), name2);
+
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, all_data.A.data(), m, all_data.R.data(), n, -1.0, all_data.A_cpy.data(), m);
         printf("NORM CHOLQR A-QR: %e\n", lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m));
 
@@ -142,9 +145,9 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m           = std::pow(2, 17);
-    int64_t n_start     = std::pow(2, 9);
-    int64_t n_stop      = std::pow(2, 13);
+    int64_t m           = std::pow(2, 4);
+    int64_t n_start     = std::pow(2, 2);
+    int64_t n_stop      = std::pow(2, 2);
     auto state          = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
