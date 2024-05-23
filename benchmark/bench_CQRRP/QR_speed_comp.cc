@@ -105,7 +105,7 @@ static void call_all_algs(
         lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
         lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqr_ungqr = high_resolution_clock::now();
-        dur_geqr = duration_cast<microseconds>(stop_geqr_ungqr - start_geqr_ungqr).count();
+        dur_geqr_ungqr = duration_cast<microseconds>(stop_geqr_ungqr - start_geqr_ungqr).count();
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 0);
