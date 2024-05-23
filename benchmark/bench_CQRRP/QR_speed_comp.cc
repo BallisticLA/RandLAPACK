@@ -74,10 +74,6 @@ static void call_all_algs(
     // Making sure the states are unchanged
     auto state_gen = state;
 
-    char name1 [] = "A";
-    char name2 [] = "R";
-    char name3 [] = "Q";
-
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
         // Testing GEQRF
@@ -140,7 +136,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 1;
+    int64_t numruns = 5;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop);
