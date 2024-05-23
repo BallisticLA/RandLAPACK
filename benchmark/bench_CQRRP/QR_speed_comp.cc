@@ -63,6 +63,8 @@ static void call_all_algs(
     auto m        = all_data.row;
     auto tol      = all_data.tolerance;
 
+    int64_t tsize = 0;
+
     // timing vars
     long dur_geqrf      = 0;
     long dur_geqr       = 0;
@@ -85,7 +87,10 @@ static void call_all_algs(
 
         // Testing GEQR
         auto start_geqr = high_resolution_clock::now();
-        lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), n);
+        lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
+        tsize = (int64_t) all_data.tau[0]; 
+        all_data.tau.resize(tsize);
+        lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
         auto stop_geqr = high_resolution_clock::now();
         dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
 
@@ -94,7 +99,10 @@ static void call_all_algs(
 
         // Testing GEQR + UNGQR
         auto start_geqr_ungqr = high_resolution_clock::now();
-        lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), n);
+        lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
+        tsize = (int64_t) all_data.tau[0]; 
+        all_data.tau.resize(tsize);
+        lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
         lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqr_ungqr = high_resolution_clock::now();
         dur_geqr = duration_cast<microseconds>(stop_geqr_ungqr - start_geqr_ungqr).count();
