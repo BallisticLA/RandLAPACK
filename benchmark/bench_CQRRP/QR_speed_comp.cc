@@ -21,14 +21,18 @@ struct QR_benchmark_data {
     T       tolerance;
     T sampling_factor;
     std::vector<T> A;
+    std::vector<T> A_cpy;
     std::vector<T> R;
     std::vector<T> Q;
+    std::vector<T> QR;
     std::vector<T> tau;
 
     QR_benchmark_data(int64_t m, int64_t n) :
     A(m * n, 0.0),
+    A_cpy(m * n, 0.0),
     R(n * n, 0.0),
     Q(m * n, 0.0),
+    QR(m * n, 0.0),
     tau(n, 0.0)
     {
         row = m;
@@ -47,7 +51,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     if (zero_Q) {
-        std::fill(all_data.Q.begin(), all_data.Q.end(), 0.0);
+        RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
     }
 }
 
@@ -117,6 +121,16 @@ static void call_all_algs(
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
         auto stop_cholqr = high_resolution_clock::now();
         dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
+/*
+        char name [] = "A";
+        char name1 [] = "Q";
+        char name2 [] = "R";
+        RandBLAS::util::print_colmaj(m, n, all_data.A_cpy.data(), name);
+        RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name1);
+        RandBLAS::util::print_colmaj(n, n, all_data.R.data(), name2);
+*/
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, all_data.A.data(), m, all_data.R.data(), n, -1.0, all_data.A_cpy.data(), m);
+        printf("NORM CHOLQR A-QR: %e\n", lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m));
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
@@ -128,21 +142,23 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m           = std::pow(2, 17);
-    int64_t n_start     = std::pow(2, 9);
-    int64_t n_stop      = std::pow(2, 13);
+    int64_t m           = std::pow(2, 3);
+    int64_t n_start     = std::pow(2, 2);
+    int64_t n_stop      = std::pow(2, 2);
     auto state          = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 5;
+    int64_t numruns = 1;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    lapack::lacpy(MatrixType::General, m, n_stop, all_data.A.data(), m, all_data.A_cpy.data(), m);
 
     // Declare a data file
     std::string output_filename = "QR_speed_comp_"              + std::to_string(m)
