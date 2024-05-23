@@ -45,6 +45,7 @@ set(
     Benchmark_libs
     RandLAPACK
 )
+
 # Performance profiling through GEMM
 add_benchmark(NAME GEMM_flop_count CXX_SOURCES bench_general/GEMM_flop_count.cc LINK_LIBS ${Benchmark_libs})
 # Lapack functionality benchmark
@@ -65,7 +66,31 @@ add_benchmark(NAME CQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/CQRRP_r
 add_benchmark(NAME CQRRP_single_precision        CXX_SOURCES bench_CQRRP/CQRRP_single_precision.cc  LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_pivot_quality           CXX_SOURCES bench_CQRRP/CQRRP_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME HQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/HQRRP_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_linear_solver           CXX_SOURCES bench_CQRRP/CQRRP_linear_solver.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRP_linear_solver           CXX_SOURCES bench_CQRRP/CQRRP_linear_solver.cc     LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME QR_speed_comp                 CXX_SOURCES bench_CQRRP/QR_speed_comp.cc           LINK_LIBS ${Benchmark_libs})
 
 add_benchmark(NAME RBKI_speed_comparisons CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME RBKI_runtime_breakdown CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
+
+
+# EIGEN dependency
+#include(FetchContent)
+#FetchContent_Declare(
+#        eigen_lib
+#        GIT_REPOSITORY https://gitlab.com/libeigen/eigen
+#        GIT_TAG master
+#        GIT_SHALLOW TRUE
+#)
+#FetchContent_MakeAvailable(eigen_lib)
+#target_link_libraries(RBKI_speed_comparisons spectra_lib::spectra_lib)
+
+# SPECTRA dependency
+#include(FetchContent)
+#FetchContent_Declare(
+#        spectra_lib
+#        GIT_REPOSITORY https://github.com/yixuan/spectra/
+#        GIT_TAG master
+#        GIT_SHALLOW TRUE
+#)
+#FetchContent_MakeAvailable(spectra_lib)
+#target_link_libraries(RBKI_speed_comparisons spectra_lib::spectra_lib)
