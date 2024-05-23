@@ -31,8 +31,8 @@ struct QR_benchmark_data {
     Q(m * n, 0.0),
     tau(n, 0.0)
     {
-        row             = m;
-        col             = n;
+        row = m;
+        col = n;
     }
 };
 
@@ -74,6 +74,10 @@ static void call_all_algs(
     // Making sure the states are unchanged
     auto state_gen = state;
 
+    char name1 [] = "A";
+    char name2 [] = "R";
+    char name3 [] = "Q";
+
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
         // Testing GEQRF
@@ -114,7 +118,7 @@ static void call_all_algs(
         auto start_cholqr = high_resolution_clock::now();
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
         lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.Q.data(), m);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
         auto stop_cholqr = high_resolution_clock::now();
         dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
 
@@ -136,7 +140,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 5;
+    int64_t numruns = 1;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop);
