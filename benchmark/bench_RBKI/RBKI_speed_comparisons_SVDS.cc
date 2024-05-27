@@ -203,7 +203,7 @@ static void call_all_algs(
         
         state_alg = state;
         state_gen = state;
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 1);
 
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
@@ -220,14 +220,12 @@ static void call_all_algs(
         
         state_alg = state;
         state_gen = state;
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 1);
 
         // Running SVDS
         auto start_svds = high_resolution_clock::now();
-        printf("%ld\n", all_data.A_spectra.rows());
-        printf("%ld\n", all_data.A_spectra.cols());
-
         Spectra::PartialSVDSolver<Eigen::MatrixXd> svds(all_data.A_spectra, custom_rank, 2 * custom_rank);
+        svds.compute();
         auto stop_svds = high_resolution_clock::now();
         dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
 
@@ -240,22 +238,20 @@ static void call_all_algs(
         printf("%ld\n", U_spectra.rows());
         printf("%ld\n", U_spectra.cols());
 
-        //Eigen::Map<Eigen::MatrixXd>(all_data.U, m, custom_rank)  = U_spectra;
-/*
+        Eigen::Map<Eigen::MatrixXd>(all_data.U, m, custom_rank)  = U_spectra;
         Eigen::Map<Eigen::MatrixXd>(all_data.VT, n, custom_rank) = V_spectra.transpose();
         Eigen::Map<Eigen::VectorXd>(all_data.Sigma, custom_rank) = S_spectra;
 
-
         residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
         residual_err_target = residual_error_comp<T>(all_data, target_rank);
-*/
+
         // Print accuracy info
         printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
         printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
         
         state_alg = state;
         state_gen = state;
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 1);
 
 
         //std::ofstream file(output_filename, std::ios::app);
