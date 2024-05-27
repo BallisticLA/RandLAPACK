@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
+
+# cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../install/random123-install/include/  -Dblaspp_DIR=`pwd`/../../install/blaspp_GPU-install/lib64/blaspp/  -DRandLAPACK_DIR=`pwd`/../../install/RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../install/lapackpp-install/lib64/lapackpp/  -DCMAKE_BINARY_DIR=`pwd`     ../../randlibs/RandLAPACK/benchmark/
+# ^ Example CMake configuration line with "install," "build" and "randlibs" folders.
+
 project(benchmark)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -41,9 +45,40 @@ function(add_benchmark)
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
 endfunction()
 
+# EIGEN dependency.
+include(FetchContent)
+FetchContent_Declare(
+        eigen_lib
+        GIT_REPOSITORY https://gitlab.com/libeigen/eigen
+        GIT_TAG master
+        GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(eigen_lib)
+# Exporting Eigen target.
+install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION lib/cmake/Eigen3)
+
+# SPECTRA dependency
+FetchContent_Declare(
+        spectra_lib
+        GIT_REPOSITORY https://github.com/yixuan/spectra/
+        GIT_TAG master
+        GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(spectra_lib)
+# Linking Spectra and Eigen.
+target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
+
 set(
     Benchmark_libs
     RandLAPACK
+)
+
+# Declaring a full set of libs needed for one of RBKI benchmarks.
+set(
+    Benchmark_libs_external
+    RandLAPACK
+    Eigen3::Eigen
+    Spectra
 )
 
 # Performance profiling through GEMM
@@ -69,28 +104,7 @@ add_benchmark(NAME HQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/HQRRP_r
 add_benchmark(NAME CQRRP_linear_solver           CXX_SOURCES bench_CQRRP/CQRRP_linear_solver.cc     LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME QR_speed_comp                 CXX_SOURCES bench_CQRRP/QR_speed_comp.cc           LINK_LIBS ${Benchmark_libs})
 
-add_benchmark(NAME RBKI_speed_comparisons CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME RBKI_runtime_breakdown CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
-
-
-# EIGEN dependency
-#include(FetchContent)
-#FetchContent_Declare(
-#        eigen_lib
-#        GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-#        GIT_TAG master
-#        GIT_SHALLOW TRUE
-#)
-#FetchContent_MakeAvailable(eigen_lib)
-#target_link_libraries(RBKI_speed_comparisons spectra_lib::spectra_lib)
-
-# SPECTRA dependency
-#include(FetchContent)
-#FetchContent_Declare(
-#        spectra_lib
-#        GIT_REPOSITORY https://github.com/yixuan/spectra/
-#        GIT_TAG master
-#        GIT_SHALLOW TRUE
-#)
-#FetchContent_MakeAvailable(spectra_lib)
-#target_link_libraries(RBKI_speed_comparisons spectra_lib::spectra_lib)
+# RBKI benchmarks
+add_benchmark(NAME RBKI_speed_comparisons      CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc      LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME RBKI_runtime_breakdown      CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc      LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME RBKI_speed_comparisons_SVDS CXX_SOURCES bench_RBKI/RBKI_speed_comparisons_SVDS.cc LINK_LIBS ${Benchmark_libs_external})
