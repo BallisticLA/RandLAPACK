@@ -1,5 +1,5 @@
 /*
-RBKI speed comparison benchmark - technically only runs RBKI, but has an option to run SVD (gesdd()) to be compared against RBKI (direct SVD is WAY slower than RBKI). 
+Additional RBKI speed comparison benchmark - runs RBKI, RSVD and SVDS from Spectra library.
 The user is required to provide a matrix file to be read, set min and max numbers of large gemms (Krylov iterations) that the algorithm is allowed to perform min and max block sizes that RBKI is to use; 
 furthermore, the user is to provide a 'custom rank' parameter (number of singular vectors to approximate by RBKI). 
 The benchmark outputs the basic data of a given run, as well as the RBKI runtime and singular vector residual error, 
@@ -15,28 +15,68 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(custom_rank
 #include <fstream>
 #include <iomanip>
 
+// External libs includes
+#include <Eigen/Dense>
+#include <Spectra/contrib/PartialSVDSolver.h>
+using Matrix = Eigen::MatrixXd;
+using Vector = Eigen::VectorXd;
+
 template <typename T>
 struct RBKI_benchmark_data {
     int64_t row;
     int64_t col;
     T tolerance;
-    std::vector<T> A;
-    std::vector<T> U;
-    std::vector<T> VT; // RBKI returns V'
-    std::vector<T> Sigma;
-    std::vector<T> U_cpy;
-    std::vector<T> VT_cpy;
+    T* A;
+    T* U;
+    T* VT; // RBKI returns V'
+    T* Sigma;
+    T* U_cpy;
+    T* VT_cpy;
+    Matrix A_spectra;
 
     RBKI_benchmark_data(int64_t m, int64_t n, T tol) :
-    A(m * n, 0.0),
-    U(m * n, 0.0),
-    VT(n * n, 0.0),
-    Sigma(n, 0.0)
+    A_spectra(m, n)
     {
+        A     = ( T * ) calloc(m * n, sizeof( T ) );
+        U     = ( T * ) calloc(m * n, sizeof( T ) );
+        VT    = ( T * ) calloc(n * n, sizeof( T ) );
+        Sigma = ( T * ) calloc(m,     sizeof( T ) );
         row = m;
         col = n;
         tolerance = tol;
     }
+};
+
+template <typename T, typename RNG>
+struct RBKI_algorithm_objects {
+    RandLAPACK::PLUL<T> Stab;
+    RandLAPACK::RS<T, RNG> RS;
+    RandLAPACK::CholQRQ<T> Orth_RF;
+    RandLAPACK::RF<T, RNG> RF;
+    RandLAPACK::CholQRQ<T> Orth_QB;
+    RandLAPACK::QB<T, RNG> QB;
+    RandLAPACK::RSVD<T, RNG> RSVD;
+    RandLAPACK::RBKI<T, RNG> RBKI;
+
+    RBKI_algorithm_objects(
+        bool verbosity, 
+        bool cond_check, 
+        bool orth_check, 
+        bool time_subroutines, 
+        int64_t p, 
+        int64_t passes_per_iteration, 
+        int64_t block_sz,
+        T tol
+    ) :
+        Stab(cond_check, verbosity),
+        RS(Stab, p, passes_per_iteration, verbosity, cond_check),
+        Orth_RF(cond_check, verbosity),
+        RF(RS, Orth_RF, verbosity, cond_check),
+        Orth_QB(cond_check, verbosity),
+        QB(RF, Orth_QB, verbosity, orth_check),
+        RSVD(QB, verbosity, block_sz),
+        RBKI(verbosity, time_subroutines, tol)
+        {}
 };
 
 // Re-generate and clear data
@@ -45,35 +85,31 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         RBKI_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state, int overwrite_A) {
 
-    if (overwrite_A)
-        RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-    std::fill(all_data.U.begin(), all_data.U.end(), 0.0);
-    std::fill(all_data.VT.begin(), all_data.VT.end(), 0.0);
-    std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
-}
+    auto m = all_data.row;
+    auto n = all_data.col;
 
-template <typename T>
-static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2, int64_t target_rank)
-{
-    if (iter == 0 || t_curr < t_best) {
-        t_best = t_curr;
-        blas::copy(target_rank, S1, 1, S2, 1);
+    if (overwrite_A) {
+        RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+        Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
     }
+    std::fill(all_data.U,     &all_data.U[m * n],  0.0);
+    std::fill(all_data.VT,    &all_data.VT[n * n], 0.0);
+    std::fill(all_data.Sigma, &all_data.Sigma[n],  0.0);
 }
 
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
 // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
 template <typename T>
 static T
-residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64_t custom_rank) {
+residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
-    T* U_cpy_dat = RandLAPACK::util::upsize(m * n, all_data.U_cpy);
-    T* VT_cpy_dat = RandLAPACK::util::upsize(n * n, all_data.VT_cpy);
+    T* U_cpy_dat  = ( T * ) calloc(m * n, sizeof( T ) ); 
+    T* VT_cpy_dat = ( T * ) calloc(n * n, sizeof( T ) );
 
-    lapack::lacpy(MatrixType::General, m, n, all_data.U.data(), m, U_cpy_dat, m);
-    lapack::lacpy(MatrixType::General, n, n, all_data.VT.data(), n, VT_cpy_dat, n);
+    lapack::lacpy(MatrixType::General, m, n, all_data.U, m, U_cpy_dat, m);
+    lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, VT_cpy_dat, n);
 
     // AV - US
     // Scale columns of U by S
@@ -82,7 +118,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64
 
 
     // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A.data(), m, all_data.VT.data(), n, -1.0, U_cpy_dat, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A, m, all_data.VT, n, -1.0, U_cpy_dat, m);
 
 
     // A'U - VS
@@ -96,7 +132,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64
     // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
     // We will actually have to perform U' * A - Sigma * VT.
 
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A, m, -1.0, VT_cpy_dat, n);
 
     T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
     T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
@@ -111,6 +147,7 @@ static void call_all_algs(
     int64_t b_sz,
     int64_t num_matmuls,
     int64_t custom_rank,
+    RBKI_algorithm_objects<T, RNG> &all_algs,
     RBKI_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename, 
@@ -124,44 +161,105 @@ static void call_all_algs(
     bool time_subroutines = false;
 
     // Additional params setup.
-    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
-    RBKI.num_threads_some = 4;
-    RBKI.num_threads_rest = 48;
+    all_algs.RSVD.block_sz = b_sz;
+    all_algs.RBKI.num_threads_some = 4;
+    all_algs.RBKI.num_threads_rest = 48;
     // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
     // RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
     // 
     // Instead of the above approach, we now pre-specify the maximum number of Krylov iters that we allow for in num_matmuls.
-    RBKI.max_krylov_iters = (int) num_matmuls;
+    all_algs.RBKI.max_krylov_iters = (int) num_matmuls;
     int64_t target_rank = b_sz * num_matmuls / 2;
 
     // timing vars
-    long dur_rbki    = 0;
+    long dur_rbki = 0;
+    long dur_rsvd = 0;
+    long dur_svds = 0;
 
     // Making sure the states are unchanged
     auto state_gen = state;
+    auto state_alg = state;
+
+    T residual_err_custom = 0;
+    T residual_err_target = 0;
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
         
-        // Testing RBKI
+        // Running RBKI
         auto start_rbki = high_resolution_clock::now();
-        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
+        all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
-        T residual_err_custom = residual_error_comp<T>(all_data, target_rank, custom_rank);
-        T residual_err_target = residual_error_comp<T>(all_data, target_rank, target_rank);
+        residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target = residual_error_comp<T>(all_data, target_rank);
 
         // Print accuracy info
-        printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
-        printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
+        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
+        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
         
-        std::ofstream file(output_filename, std::ios::app);
-        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
+        state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 0);
+
+        // Running RSVD
+        auto start_rsvd = high_resolution_clock::now();
+        all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.VT, state_alg);
+        auto stop_rsvd = high_resolution_clock::now();
+        dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
+
+        residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target = residual_error_comp<T>(all_data, target_rank);
+
+        // Print accuracy info
+        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
+        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
+        
+        state_alg = state;
+        state_gen = state;
+        data_regen(m_info, all_data, state_gen, 0);
+
+        // Running SVDS
+        auto start_svds = high_resolution_clock::now();
+        printf("%ld\n", all_data.A_spectra.rows());
+        printf("%ld\n", all_data.A_spectra.cols());
+
+        Spectra::PartialSVDSolver<Eigen::MatrixXd> svds(all_data.A_spectra, custom_rank, 2 * custom_rank);
+        auto stop_svds = high_resolution_clock::now();
+        dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
+
+        // Copy data from Spectra (Eigen) format to the nomal C++.
+        Matrix U_spectra = svds.matrix_U(custom_rank);
+        Matrix V_spectra = svds.matrix_V(custom_rank);
+        Vector S_spectra = svds.singular_values();
+
+
+        printf("%ld\n", U_spectra.rows());
+        printf("%ld\n", U_spectra.cols());
+
+        //Eigen::Map<Eigen::MatrixXd>(all_data.U, m, custom_rank)  = U_spectra;
+/*
+        Eigen::Map<Eigen::MatrixXd>(all_data.VT, n, custom_rank) = V_spectra.transpose();
+        Eigen::Map<Eigen::VectorXd>(all_data.Sigma, custom_rank) = S_spectra;
+
+
+        residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target = residual_error_comp<T>(all_data, target_rank);
+*/
+        // Print accuracy info
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
+        
+        state_alg = state;
+        state_gen = state;
+        data_regen(m_info, all_data, state_gen, 0);
+
+
+        //std::ofstream file(output_filename, std::ios::app);
+        //file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
     }
 }
 
@@ -180,12 +278,12 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t num_matmuls_start      = 2;
     int64_t num_matmuls_curr       = num_matmuls_start;
-    int64_t num_matmuls_stop       = 50;
+    int64_t num_matmuls_stop       = 2;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 3;
+    int numruns                    = 1;
     long dur_svd = 0;
     std::vector<long> res;
 
@@ -195,23 +293,29 @@ int main(int argc, char *argv[]) {
     m_info.workspace_query_mod = 1;
     // Workspace query;
     RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
-
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
-
+    b_sz_start = 10;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 10;//std::max((int64_t) 1, n / 10);
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
-  
     // Fill the data matrix;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
     printf("Finished data preparation\n");
 
+    // Declare objects for RSVD and RBKI
+    int64_t p = 10;
+    int64_t passes_per_iteration = 1;
+    // Block size will need to be altered.
+    int64_t block_sz = 0;
+    RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
+
+    // Copying input data into a Spectra (Eigen) matrix object
+    Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
+
     // Declare a data file
-    std::string output_filename = "RBKI_speed_comp_m_"             + std::to_string(m)
+    std::string output_filename = "RBKI_speed_comp_SVDS_m_"        + std::to_string(m)
                                       + "_n_"                      + std::to_string(n)
                                       + "_b_sz_start_"             + std::to_string(b_sz_start)
                                       + "_b_sz_stop_"              + std::to_string(b_sz_stop)
@@ -221,7 +325,7 @@ int main(int argc, char *argv[]) {
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
         for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
-            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
+            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, dur_svd);
         }
         num_matmuls_curr = num_matmuls_start;
     }

@@ -52,15 +52,6 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
 }
 
-template <typename T>
-static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2, int64_t target_rank)
-{
-    if (iter == 0 || t_curr < t_best) {
-        t_best = t_curr;
-        blas::copy(target_rank, S1, 1, S2, 1);
-    }
-}
-
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
 // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
 template <typename T>
