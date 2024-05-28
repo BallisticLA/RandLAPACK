@@ -30,6 +30,9 @@ struct RBKI_benchmark_data {
     T* U;
     T* VT; // RBKI returns V'
     T* Sigma;
+    T* A_lowrank_svd;
+    T* Buffer;
+    T* Sigma_cpy;
     T* U_cpy;
     T* VT_cpy;
     Matrix A_spectra;
@@ -37,13 +40,17 @@ struct RBKI_benchmark_data {
     RBKI_benchmark_data(int64_t m, int64_t n, T tol) :
     A_spectra(m, n)
     {
-        A     = ( T * ) calloc(m * n, sizeof( T ) );
-        U     = ( T * ) calloc(m * n, sizeof( T ) );
-        VT    = ( T * ) calloc(n * n, sizeof( T ) );
-        Sigma = ( T * ) calloc(m,     sizeof( T ) );
-        row = m;
-        col = n;
-        tolerance = tol;
+        A             = ( T * ) calloc(m * n, sizeof( T ) );
+        U             = ( T * ) calloc(m * n, sizeof( T ) );
+        VT            = ( T * ) calloc(n * n, sizeof( T ) );
+        Sigma         = ( T * ) calloc(m,     sizeof( T ) );
+        Sigma_cpy     = nullptr;
+        U_cpy         = nullptr;
+        VT_cpy        = nullptr;
+        A_lowrank_svd = nullptr;
+        row           = m;
+        col           = n;
+        tolerance     = tol;
     }
 };
 
@@ -105,20 +112,21 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
-    T* U_cpy_dat  = ( T * ) calloc(m * n, sizeof( T ) ); 
-    T* VT_cpy_dat = ( T * ) calloc(n * n, sizeof( T ) );
+    if(all_data.U_cpy == nullptr)
+        all_data.U_cpy  = ( T * ) calloc(m * n, sizeof( T ) ); 
+        all_data.VT_cpy = ( T * ) calloc(n * n, sizeof( T ) );
 
-    lapack::lacpy(MatrixType::General, m, n, all_data.U, m, U_cpy_dat, m);
-    lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, VT_cpy_dat, n);
+    lapack::lacpy(MatrixType::General, m, n, all_data.U, m, all_data.U_cpy, m);
+    lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, all_data.VT_cpy, n);
 
     // AV - US
     // Scale columns of U by S
     for (int i = 0; i < custom_rank; ++i)
-        blas::scal(m, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
+        blas::scal(m, all_data.Sigma[i], &all_data.U_cpy[m * i], 1);
 
 
     // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A, m, all_data.VT, n, -1.0, U_cpy_dat, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A, m, all_data.VT, n, -1.0, all_data.U_cpy, m);
 
 
     // A'U - VS
@@ -126,18 +134,47 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     // Since we have VT, we will be scaling its rows
     // The data is, however, stored in a column-major format, so it is a bit weird.
     //for (int i = 0; i < n; ++i)
-    //    blas::scal(custom_rank, all_data.Sigma[i], &VT_cpy_dat[i], n);
+    //    blas::scal(custom_rank, all_data.Sigma[i], &all_data.VT_cpy[i], n);
     for (int i = 0; i < custom_rank; ++i)
-        blas::scal(n, all_data.Sigma[i], &VT_cpy_dat[i], n);
+        blas::scal(n, all_data.Sigma[i], &all_data.VT_cpy[i], n);
     // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
     // We will actually have to perform U' * A - Sigma * VT.
 
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A, m, -1.0, VT_cpy_dat, n);
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A, m, -1.0, all_data.VT_cpy, n);
 
-    T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
-    T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
+    T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, all_data.U_cpy, m);
+    T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, all_data.VT_cpy, n);
 
     return std::hypot(nrm1, nrm2);
+}
+
+template <typename T>
+static void
+approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
+    auto m = all_data.row;
+    auto n = all_data.col;
+/*
+    if(all_data.Buffer == nullptr) {
+        all_data.Buffer    = ( T * ) calloc(m * n, sizeof( T ) ); 
+        all_data.Sigma_cpy = ( T * ) calloc(n * n, sizeof( T ) ); 
+    } else {
+        std::fill(all_data.Buffer,    &all_data.Buffer[m * n],    0.0);
+        std::fill(all_data.Sigma_cpy, &all_data.Sigma_cpy[n * n], 0.0);
+    } 
+
+    RandLAPACK::util::diag(n, n, all_data.Sigma, custom_rank, all_data.Sigma_cpy);
+
+    lapack::lacpy(MatrixType::General, m, n, all_data.U, m, all_data.U_cpy, m);
+    lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, all_data.VT_cpy, n);
+
+    // U * S = Buffer
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, custom_rank, 1.0, all_data.U_cpy, m, all_data.Sigma_cpy, n, 1.0, all_data.Buffer, m);
+    // Buffer * VT1 - A_cpy ~= 0?
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, custom_rank, 1.0, all_data.Buffer, m, all_data.VT_cpy, n, -1.0, all_data.A_lowrank_svd, m);
+
+    T nrm = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
+    printf("||A_hat_cursom_rank - A_svd_custom_rank||_F: %e\n", nrm);
+*/
 }
 
 template <typename T, typename RNG>
@@ -182,8 +219,13 @@ static void call_all_algs(
     auto state_gen = state;
     auto state_alg = state;
 
-    T residual_err_custom = 0;
-    T residual_err_target = 0;
+    T residual_err_custom_RBKI = 0;
+    T residual_err_target_RBKI = 0;
+    T residual_err_custom_RSVD = 0;
+    T residual_err_target_RSVD = 0;
+    T residual_err_custom_SVDS = 0;
+    T residual_err_target_SVDS = 0;
+
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
@@ -194,13 +236,15 @@ static void call_all_algs(
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
-        residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target = residual_error_comp<T>(all_data, target_rank);
+        residual_err_custom_RBKI = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target_RBKI = residual_error_comp<T>(all_data, target_rank);
+        if (all_data.A_lowrank_svd != nullptr)
+            approx_error_comp(all_data, custom_rank);
 
         // Print accuracy info
-        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
-        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
-        
+        printf("\nRBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
+        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RBKI);
+
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
@@ -211,12 +255,14 @@ static void call_all_algs(
         auto stop_rsvd = high_resolution_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
 
-        residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target = residual_error_comp<T>(all_data, target_rank);
+        residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
+        if (all_data.A_lowrank_svd != nullptr)
+            approx_error_comp(all_data, custom_rank);
 
         // Print accuracy info
-        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
-        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
+        printf("\nRSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
+        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RSVD);
         
         state_alg = state;
         state_gen = state;
@@ -234,28 +280,29 @@ static void call_all_algs(
         Matrix V_spectra = svds.matrix_V(custom_rank);
         Vector S_spectra = svds.singular_values();
 
-
-        printf("%ld\n", U_spectra.rows());
-        printf("%ld\n", U_spectra.cols());
-
         Eigen::Map<Eigen::MatrixXd>(all_data.U, m, custom_rank)  = U_spectra;
         Eigen::Map<Eigen::MatrixXd>(all_data.VT, n, custom_rank) = V_spectra.transpose();
         Eigen::Map<Eigen::VectorXd>(all_data.Sigma, custom_rank) = S_spectra;
 
-        residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target = residual_error_comp<T>(all_data, target_rank);
+        residual_err_custom_SVDS = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target_SVDS = residual_error_comp<T>(all_data, target_rank);
+        if (all_data.A_lowrank_svd != nullptr)
+            approx_error_comp(all_data, custom_rank);
 
         // Print accuracy info
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
+        printf("\nSVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVDS);
         
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
 
 
-        //std::ofstream file(output_filename, std::ios::app);
-        //file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
+        std::ofstream file(output_filename, std::ios::app);
+        file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " 
+        << residual_err_target_RBKI << ",  " << residual_err_custom_RBKI <<  ",  " << dur_rbki  << ",  " 
+        << residual_err_target_RSVD << ",  " << residual_err_custom_RSVD <<  ",  " << dur_rsvd  << ",  "
+        << residual_err_target_SVDS << ",  " << residual_err_custom_SVDS <<  ",  " << dur_svds  << ",\n";
     }
 }
 
@@ -298,7 +345,6 @@ int main(int argc, char *argv[]) {
     RBKI_benchmark_data<double> all_data(m, n, tol);
     // Fill the data matrix;
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
-    printf("Finished data preparation\n");
 
     // Declare objects for RSVD and RBKI
     int64_t p = 10;
@@ -309,6 +355,17 @@ int main(int argc, char *argv[]) {
 
     // Copying input data into a Spectra (Eigen) matrix object
     Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
+
+    // Optional pass of lowrank SVD matrix into the benchmark
+    if (argc > 2) {
+        printf("Name passed\n");
+        RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
+        m_info_A_svd.filename = argv[2];
+        m_info_A_svd.workspace_query_mod = 0;
+        all_data.A_lowrank_svd = ( double * ) calloc(m * n, sizeof( double ) );
+        RandLAPACK::gen::mat_gen<double>(m_info_A_svd, all_data.A_lowrank_svd, state);
+    }
+    printf("Finished data preparation\n");
 
     // Declare a data file
     std::string output_filename = "RBKI_speed_comp_SVDS_m_"        + std::to_string(m)

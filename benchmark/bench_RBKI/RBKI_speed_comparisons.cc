@@ -132,13 +132,14 @@ static void call_all_algs(
 
     // Making sure the states are unchanged
     auto state_gen = state;
+    auto state_alg = state;
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
         
         // Testing RBKI
         auto start_rbki = high_resolution_clock::now();
-        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
+        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state_alg);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
@@ -152,6 +153,7 @@ static void call_all_algs(
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
         state_gen = state;
+        state_alg = state;
         data_regen(m_info, all_data, state_gen, 0);
     }
 }
