@@ -112,9 +112,10 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
-    if(all_data.U_cpy == nullptr)
+    if(all_data.U_cpy == nullptr) {
         all_data.U_cpy  = ( T * ) calloc(m * n, sizeof( T ) ); 
         all_data.VT_cpy = ( T * ) calloc(n * n, sizeof( T ) );
+    }
 
     lapack::lacpy(MatrixType::General, m, n, all_data.U, m, all_data.U_cpy, m);
     lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, all_data.VT_cpy, n);
