@@ -180,7 +180,7 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 0);
 
         std::ofstream file(output_filename, std::ios::app);
-        file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " dur_hqrrp_geqrf << ",  " dur_geqrf << ",  " << dur_geqp3 << ",\n";
+        file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_geqrf << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
     }
 }
 
