@@ -57,8 +57,8 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             T ep,
             int64_t b_sz
         ) {
-            timing = time_subroutines;
-            eps = ep;
+            timing     = time_subroutines;
+            eps        = ep;
             block_size = b_sz;
         }
 
@@ -121,6 +121,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
 
         // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
+
+        // QRCP option
+        bool use_qp3;
 
         // tuning SASOS
         int num_threads;
@@ -300,26 +303,28 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
         
-        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
-        
-        // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
-        // Get a transpose of A_sk 
-        util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
-        
-        // Perform a row-pivoted LU on a transpose of A_sk
-        lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
-        // Fill the pivot vector, apply swaps found via lu on A_sk'.
-        std::iota(&J_buffer[0], &J_buffer[cols], 1);
-        for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
-            tmp = J_buffer[J_buffer_lu[i] - 1];
-            J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
-            J_buffer[i] = tmp;
+        if (this -> use_qp3) {
+            lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
+        } else {
+            // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
+            // Get a transpose of A_sk 
+            util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
+            
+            // Perform a row-pivoted LU on a transpose of A_sk
+            lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
+            // Fill the pivot vector, apply swaps found via lu on A_sk'.
+            std::iota(&J_buffer[0], &J_buffer[cols], 1);
+            for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
+                tmp = J_buffer[J_buffer_lu[i] - 1];
+                J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
+                J_buffer[i] = tmp;
+            }
+            // Apply pivots to A_sk
+            util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
+            // Perform an unpivoted QR on A_sk
+            lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         }
-        // Apply pivots to A_sk
-        util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
-        // Perform an unpivoted QR on A_sk
-        lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
-        
+
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();

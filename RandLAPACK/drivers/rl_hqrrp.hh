@@ -575,7 +575,7 @@ static int64_t CHOLQR_mod_WY(
 // ============================================================================
 template <typename T>
 int64_t NoFLA_QRPmod_WY_unb_var4( 
-    int64_t use_cholqr, int64_t pivoting, int64_t num_stages, 
+    int64_t qr_type, int64_t pivoting, int64_t num_stages, 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_p, T * buff_t, 
     int64_t pivot_B, int64_t m_B, T * buff_B, int64_t ldim_B,
@@ -598,14 +598,12 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
 //    The typical use-case for this function is to call with build_T=true.
 //    Calling with build_T=false is only done at HQRRP's last iteration.
 //
-/*-----------------------------------COMMENTED THIS OUT TO TEST THE BASIC HQRRP-----------------------------------*/
-/*
-    if (!pivoting && !use_cholqr) {
+    /*--------------------------------CUSOM APPROACHES TO QR WITH NO PANEL PIVOTING--------------------------------*/
+    if (!pivoting && (qr_type == 1)) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
-    } else if (!pivoting && use_cholqr) {
+    } else if (!pivoting && (qr_type = 2)) {
         return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
-*/
 
     high_resolution_clock::time_point preallocation_t_start;
     high_resolution_clock::time_point preallocation_t_stop;
@@ -794,7 +792,6 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         timing[7] += (T) other_t_dur;
         timing[8] += (T) total_t_dur;
     }
-
     return 0;
 }
 
@@ -835,7 +832,7 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* timing) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t qr_type, RandBLAS::RNGState<RNG> &state, T* timing) {
 
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
@@ -959,8 +956,6 @@ int64_t hqrrp(
     }
 
     //**********************************
-    int ctr = 0;
-
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
 
@@ -1106,7 +1101,7 @@ int64_t hqrrp(
         if(timing != nullptr)
             qr_t_start = high_resolution_clock::now();
 
-        NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
+        NoFLA_QRPmod_WY_unb_var4(qr_type, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
             1, j, buff_A01, ldim_A,
             1, m_Y, buff_Y1, ldim_Y,

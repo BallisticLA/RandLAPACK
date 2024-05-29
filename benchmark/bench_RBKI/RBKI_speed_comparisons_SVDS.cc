@@ -107,6 +107,11 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     std::fill(all_data.U,     &all_data.U[m * n],  0.0);
     std::fill(all_data.VT,    &all_data.VT[n * n], 0.0);
     std::fill(all_data.Sigma, &all_data.Sigma[n],  0.0);
+
+    std::fill(all_data.Buffer,    &all_data.Buffer[m * n],  0.0);
+    std::fill(all_data.Sigma_cpy, &all_data.Sigma_cpy[n * n],  0.0);
+    std::fill(all_data.U_cpy,     &all_data.U_cpy[m * n],  0.0);
+    std::fill(all_data.VT_cpy,    &all_data.VT_cpy[n * n],  0.0);
 }
 
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
@@ -216,10 +221,29 @@ static void call_all_algs(
     T residual_err_custom_SVDS = 0;
     T residual_err_target_SVDS = 0;
 
+    T residual_err_custom_SVD = 0;
+    T residual_err_target_SVD = 0;
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        
+
+        // Running SVD
+        lapack::gesdd(Job::AllVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
+
+        residual_err_custom_SVD = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target_SVD = residual_error_comp<T>(all_data, target_rank);
+
+        // Print accuracy info
+        printf("\nSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVD);
+        printf("SVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVD);
+
+        //if (all_data.A_lowrank_svd != nullptr)
+        approx_error_comp(all_data, custom_rank);
+
+        state_alg = state;
+        state_gen = state;
+        data_regen(m_info, all_data, state_gen, 1);
+
         // Running RBKI
         auto start_rbki = high_resolution_clock::now();
         all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
@@ -239,13 +263,13 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-
+        
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
         all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.VT, state_alg);
         auto stop_rsvd = high_resolution_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
-
+/*
         char name1 [] = "A";
         char name2 [] = "A_lowrank";
         char name3 [] = "U";
@@ -257,7 +281,7 @@ static void call_all_algs(
         RandBLAS::util::print_colmaj(m, n, all_data.U, name3);
         RandBLAS::util::print_colmaj(n, 1, all_data.Sigma, name4);
         RandBLAS::util::print_colmaj(n, n, all_data.VT, name5);
-
+*/
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
         residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
 
@@ -302,7 +326,6 @@ static void call_all_algs(
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
 
-
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " 
         << residual_err_target_RBKI << ",  " << residual_err_custom_RBKI <<  ",  " << dur_rbki  << ",  " 
@@ -344,8 +367,8 @@ int main(int argc, char *argv[]) {
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 2;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 2;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 10;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 10;//std::max((int64_t) 1, n / 10);
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
     // Fill the data matrix;

@@ -113,7 +113,6 @@ class TestQB : public ::testing::Test
         T* A_dat = all_data.A.data();
         T* A_hat_dat = all_data.A_hat.data();
         T* A_k_dat = all_data.A_k.data();
-        T* A_cpy_2_dat = all_data.A_cpy_2.data();
 
         T* U_dat = all_data.U.data();
         T* s_dat = all_data.s.data();

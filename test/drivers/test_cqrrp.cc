@@ -119,24 +119,8 @@ class TestCQRRP : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        if (m < 10) {
-            char name1 [] = "A_pre";
-            RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name1);
-        }
-
         CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
         all_data.rank = CQRRP.rank;
-
-        if (m < 10) {
-            char name [] = "A_post";
-            RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
-            int64_t* J_dat = all_data.J.data();
-            for(int i = 0; i < n; ++i) {
-                printf("%d\n", J_dat[i]);
-            }
-            
-        }
-
 
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
