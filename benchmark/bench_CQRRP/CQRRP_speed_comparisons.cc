@@ -92,7 +92,7 @@ static void call_all_algs(
         printf("\nITERATION %d\n", i);
         // Testing GEQRF
         auto start_geqp3 = high_resolution_clock::now();
-        //lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+        lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
         auto stop_geqp3 = high_resolution_clock::now();
         dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
@@ -114,7 +114,7 @@ static void call_all_algs(
 
         // Testing CQRRP - best setup
         auto start_cqrrp = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
         printf("TOTAL TIME FOR CQRRP %ld\n", dur_cqrrp);
@@ -123,12 +123,12 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        //data_regen(m_info, all_data, state_gen, 0);
 
         // Testing CQRRP - using QP3
         CQRRP_blocked.use_qp3 = true;
         auto start_cqrrp_qp3 = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp_qp3 = high_resolution_clock::now();
         CQRRP_blocked.use_qp3 = false;
         dur_cqrrp_qp3 = duration_cast<microseconds>(stop_cqrrp_qp3 - start_cqrrp_qp3).count();
@@ -138,11 +138,11 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        //data_regen(m_info, all_data, state_gen, 1);
 
         // Testing HQRRP DEFAULT
         auto start_hqrrp = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) nullptr);
+        //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) nullptr);
         auto stop_hqrrp = high_resolution_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
         printf("TOTAL TIME FOR HQRRP %ld\n", dur_hqrrp);
@@ -151,11 +151,11 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        //data_regen(m_info, all_data, state_gen, 1);
 
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg, (T*) nullptr);
+        //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg, (T*) nullptr);
         auto stop_hqrrp_geqrf = high_resolution_clock::now();
         dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
         printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
@@ -164,11 +164,11 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        //data_regen(m_info, all_data, state_gen, 1);
 
         // Testing HQRRP with CholQR
         auto start_hqrrp_cholqr = high_resolution_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 2, state_alg, (T*) nullptr);
+        //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 2, state_alg, (T*) nullptr);
         auto stop_hqrrp_cholqr = high_resolution_clock::now();
         dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
         printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
@@ -177,7 +177,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        //data_regen(m_info, all_data, state_gen, 0);
 
         std::ofstream file(output_filename, std::ios::app);
         file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_geqrf << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
@@ -186,18 +186,18 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 16);
-    int64_t n          = std::pow(2, 16);
+    int64_t m          = 10000;
+    int64_t n          = 10000;
     double d_factor    = 1.25;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 2048;
+    int64_t b_sz_start = 64;
+    int64_t b_sz_end   = 64;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 2;
+    int64_t numruns = 50;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);

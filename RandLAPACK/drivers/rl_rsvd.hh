@@ -26,7 +26,7 @@ class RSVDalg {
             T tol,
             T* &U,
             T* &S,
-            T* &VT,
+            T* &V,
             RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
@@ -80,7 +80,7 @@ class RSVD : public RSVDalg<T, RNG> {
         ///     Initially, may not have any space allocated for it.
         ///
         /// @param[in] VT
-        ///     Buffer for the \transpose{V}-factor.
+        ///     Buffer for the V-factor.
         ///     Initially, may not have any space allocated for it.
         ///
         /// @param[out] U
@@ -89,8 +89,8 @@ class RSVD : public RSVDalg<T, RNG> {
         /// @param[out] S
         ///     Stores k-by-k factor \Sigma.
         ///
-        /// @param[out] VT
-        ///     Stores k-by-n factor \transpose{V}.
+        /// @param[out] V
+        ///     Stores k-by-n factor V.
         ///
         /// @returns 0 if successful
 
@@ -102,7 +102,7 @@ class RSVD : public RSVDalg<T, RNG> {
             T tol,
             T* &U,
             T* &S,
-            T* &VT,
+            T* &V,
             RandBLAS::RNGState<RNG> &state
         ) override;
 
@@ -122,28 +122,28 @@ int RSVD<T, RNG>::call(
     T tol,
     T* &U,
     T* &S,
-    T* &VT,
+    T* &V,
     RandBLAS::RNGState<RNG> &state
 ){
     T* Q = nullptr;
-    T* B = nullptr; 
+    T* BT = nullptr; 
     // Q and B sizes will be adjusted automatically
-    this->QB_Obj.call(m, n, A, k, this->block_sz, tol, Q, B, state);
+    this->QB_Obj.call(m, n, A, k, this->block_sz, tol, Q, BT, state);
 
-    T* U_buf  = ( T * ) calloc(k * k, sizeof( T ) );
+    T* UT_buf  = ( T * ) calloc(k * k, sizeof( T ) );
     // Making sure all vectors are large enough
     U  = ( T * ) calloc(m * k, sizeof( T ) );
     S  = ( T * ) calloc(k,         sizeof( T ) );
-    VT = ( T * ) calloc(n * k, sizeof( T ) );
+    V = ( T * ) calloc(n * k, sizeof( T ) );
 
     // SVD of B
-    lapack::gesdd(Job::SomeVec, k, n, B, k, S, U_buf, k, VT, k);
+    lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
     // Adjusting U
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, Q, m, U_buf, k, 0.0, U, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k, 1.0, Q, m, UT_buf, k, 0.0, U, m);
 
     free(Q);
-    free(B);
-    free(U_buf);
+    free(BT);
+    free(UT_buf);
     return 0;
 }
 
