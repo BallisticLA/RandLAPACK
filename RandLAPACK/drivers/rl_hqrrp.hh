@@ -601,7 +601,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     /*--------------------------------CUSOM APPROACHES TO QR WITH NO PANEL PIVOTING--------------------------------*/
     if (!pivoting && (qr_type == 1)) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
-    } else if (!pivoting && (qr_type = 2)) {
+    } else if (!pivoting && (qr_type == 2)) {
         return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
 
@@ -1179,7 +1179,7 @@ int64_t hqrrp(
 
         free( timing_QRCP );
         free( timing_QR );
-
+        
         printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
         printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
         printf("Sketching time: %34ld μs,\n",                      sketching_t_dur);
