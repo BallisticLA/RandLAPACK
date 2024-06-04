@@ -315,11 +315,10 @@ static void call_all_algs(
         Vector S_spectra = svds.singular_values();
 
         Eigen::Map<Eigen::MatrixXd>(all_data.U, m, custom_rank)  = U_spectra;
-        Eigen::Map<Eigen::MatrixXd>(all_data.VT, n, custom_rank) = V_spectra.transpose();
+        Eigen::Map<Eigen::MatrixXd>(all_data.V, n, custom_rank)  = V_spectra;
         Eigen::Map<Eigen::VectorXd>(all_data.Sigma, custom_rank) = S_spectra;
 
-        residual_err_custom_SVDS = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target_SVDS = residual_error_comp<T>(all_data, target_rank);
+        RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
         // Print accuracy info
         printf("\nSVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);
@@ -356,7 +355,7 @@ int main(int argc, char *argv[]) {
     int64_t num_matmuls_start      = 2;
     int64_t num_matmuls_curr       = num_matmuls_start;
     int64_t num_matmuls_stop       = 2;
-    int64_t custom_rank            = 10;
+    int64_t custom_rank            = 5;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
@@ -381,7 +380,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     // Declare objects for RSVD and RBKI
-    int64_t p = 250;
+    int64_t p = 5;
     int64_t passes_per_iteration = 1;
     // Block size will need to be altered.
     int64_t block_sz = 0;
@@ -418,3 +417,4 @@ int main(int argc, char *argv[]) {
         num_matmuls_curr = num_matmuls_start;
     }
 }
+
