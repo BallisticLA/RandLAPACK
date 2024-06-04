@@ -29,6 +29,7 @@ struct RBKI_benchmark_data {
     T* A;
     T* U;
     T* VT; // RBKI returns V'
+    T* V;  // RSVD returns V
     T* Sigma;
     T* A_lowrank_svd;
     T* A_lowrank_svd_const;
@@ -44,6 +45,7 @@ struct RBKI_benchmark_data {
         A                   = ( T * ) calloc(m * n, sizeof( T ) );
         U                   = ( T * ) calloc(m * n, sizeof( T ) );
         VT                  = ( T * ) calloc(n * n, sizeof( T ) );
+        V                   = ( T * ) calloc(n * n, sizeof( T ) );
         Sigma               = ( T * ) calloc(m,     sizeof( T ) );
         Buffer              = ( T * ) calloc(m * n, sizeof( T ) );
         Sigma_cpy           = ( T * ) calloc(n * n, sizeof( T ) );
@@ -104,14 +106,16 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
         Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
         lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     }
-    std::fill(all_data.U,     &all_data.U[m * n],  0.0);
-    std::fill(all_data.VT,    &all_data.VT[n * n], 0.0);
-    std::fill(all_data.Sigma, &all_data.Sigma[n],  0.0);
 
-    std::fill(all_data.Buffer,    &all_data.Buffer[m * n],  0.0);
-    std::fill(all_data.Sigma_cpy, &all_data.Sigma_cpy[n * n],  0.0);
-    std::fill(all_data.U_cpy,     &all_data.U_cpy[m * n],  0.0);
-    std::fill(all_data.VT_cpy,    &all_data.VT_cpy[n * n],  0.0);
+    std::fill(all_data.U,         &all_data.U[m * n],         0.0);
+    std::fill(all_data.VT,        &all_data.VT[n * n],        0.0);
+    std::fill(all_data.V,         &all_data.V[n * n],         0.0);
+    std::fill(all_data.Sigma,     &all_data.Sigma[n],         0.0);
+
+    std::fill(all_data.Buffer,    &all_data.Buffer[m * n],    0.0);
+    std::fill(all_data.Sigma_cpy, &all_data.Sigma_cpy[n * n], 0.0);
+    std::fill(all_data.U_cpy,     &all_data.U_cpy[m * n],     0.0);
+    std::fill(all_data.VT_cpy,    &all_data.VT_cpy[n * n],    0.0);
 }
 
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
@@ -266,9 +270,11 @@ static void call_all_algs(
         
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
-        all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.VT, state_alg);
+        all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
         auto stop_rsvd = high_resolution_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
+
+        RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 /*
         char name1 [] = "A";
         char name2 [] = "A_lowrank";
@@ -281,10 +287,10 @@ static void call_all_algs(
         RandBLAS::util::print_colmaj(m, n, all_data.U, name3);
         RandBLAS::util::print_colmaj(n, 1, all_data.Sigma, name4);
         RandBLAS::util::print_colmaj(n, n, all_data.VT, name5);
-*/
+
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
         residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
-
+*/
         // Print accuracy info
         printf("\nRSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
         printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RSVD);
@@ -375,7 +381,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     // Declare objects for RSVD and RBKI
-    int64_t p = 10;
+    int64_t p = 250;
     int64_t passes_per_iteration = 1;
     // Block size will need to be altered.
     int64_t block_sz = 0;
