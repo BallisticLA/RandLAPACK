@@ -52,11 +52,13 @@ struct RBKI_benchmark_data {
         U_cpy               = ( T * ) calloc(m * n, sizeof( T ) );
         VT_cpy              = ( T * ) calloc(n * n, sizeof( T ) );
 
-        A_lowrank_svd       = ( T * ) calloc(m * n, sizeof( T ) );
-        A_lowrank_svd_const = ( T * ) calloc(m * n, sizeof( T ) );
-        row           = m;
-        col           = n;
-        tolerance     = tol;
+        //A_lowrank_svd       = ( T * ) calloc(m * n, sizeof( T ) );
+        //A_lowrank_svd_const = ( T * ) calloc(m * n, sizeof( T ) );
+        A_lowrank_svd       = nullptr;
+        A_lowrank_svd_const = nullptr;
+        row                 = m;
+        col                 = n;
+        tolerance           = tol;
     }
 };
 
@@ -104,7 +106,8 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     if (overwrite_A) {
         RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
         Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
-        lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
+        if (all_data.A_lowrank_svd != nullptr)
+            lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     }
 
     std::fill(all_data.U,         &all_data.U[m * n],         0.0);
@@ -147,9 +150,6 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
         blas::scal(n, all_data.Sigma[i], &all_data.VT_cpy[i], n);
     // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
     // We will actually have to perform U' * A - Sigma * VT.
-
-    //char name [] = "VT_Cpy";
-    //RandBLAS::util::print_colmaj(n, n, all_data.VT_cpy, name);
 
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A, m, -1.0, all_data.VT_cpy, n);
 
@@ -250,8 +250,8 @@ static void call_all_algs(
         printf("\nSVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVD);
         printf("SVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVD);
 
-        //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+        if (all_data.A_lowrank_svd != nullptr)
+            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
 
         state_alg = state;
         state_gen = state;
@@ -270,8 +270,8 @@ static void call_all_algs(
         printf("\nRBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
         printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RBKI);
 
-        //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+        if (all_data.A_lowrank_svd != nullptr)
+            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
 
         state_alg = state;
         state_gen = state;
@@ -304,8 +304,8 @@ static void call_all_algs(
         printf("\nRSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
         printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RSVD);
 
-        //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+        if (all_data.A_lowrank_svd != nullptr)
+            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
         
         state_alg = state;
         state_gen = state;
@@ -336,8 +336,8 @@ static void call_all_algs(
         printf("\nSVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);
         printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVDS);
 
-        //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+        if (all_data.A_lowrank_svd != nullptr)
+            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
         
         state_alg = state;
         state_gen = state;
@@ -406,13 +406,14 @@ int main(int argc, char *argv[]) {
     if (argc > 2) {
         printf("Name passed\n");
         RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
-        m_info_A_svd.filename = argv[2];
+        m_info_A_svd.filename            = argv[2];
         m_info_A_svd.workspace_query_mod = 0;
-        //all_data.A_lowrank_svd = ( double * ) calloc(m * n, sizeof( double ) );
+        all_data.A_lowrank_svd           = ( double * ) calloc(m * n, sizeof( double ) );
+        all_data.A_lowrank_svd_const     = ( double * ) calloc(m * n, sizeof( double ) );
         RandLAPACK::gen::mat_gen<double>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
         lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     
-        // Pre-compute norm(A) for future benchmarking
+        // Pre-compute norm(A lowrank) for future benchmarking
         norm_A_lowrank = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
     }
 
