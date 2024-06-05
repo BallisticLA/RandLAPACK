@@ -161,7 +161,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
 
 template <typename T>
 static void
-approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
+approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank, T norm_A_lowrank) {
     
     auto m = all_data.row;
     auto n = all_data.col;
@@ -176,7 +176,7 @@ approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, custom_rank, 1.0, all_data.Buffer, m, all_data.VT_cpy, n, -1.0, all_data.A_lowrank_svd, m);
 
     T nrm = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
-    printf("||A_hat_cursom_rank - A_svd_custom_rank||_F: %e\n", nrm);
+    printf("||A_hat_cursom_rank - A_svd_custom_rank||_F / ||A_svd_custom_rank||_F: %e\n", nrm / norm_A_lowrank);
 }
 
 template <typename T, typename RNG>
@@ -190,7 +190,8 @@ static void call_all_algs(
     RBKI_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename, 
-    long dur_svd) {
+    long dur_svd,
+    T norm_A_lowrank) {
     printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);
 
     int i;
@@ -237,15 +238,20 @@ static void call_all_algs(
         // Running SVD
         lapack::gesdd(Job::AllVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
 
+        // Standard SVD destorys matrix A, need to re-read it before running accuracy tests.
+        state_gen = state;
+        RandLAPACK::gen::mat_gen(m_info, all_data.A, state_gen);
+
         residual_err_custom_SVD = residual_error_comp<T>(all_data, custom_rank);
         residual_err_target_SVD = residual_error_comp<T>(all_data, target_rank);
 
+
         // Print accuracy info
-        printf("\nSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVD);
-        printf("SVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVD);
+        printf("\nSVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVD);
+        printf("SVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVD);
 
         //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank);
+        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
 
         state_alg = state;
         state_gen = state;
@@ -265,7 +271,7 @@ static void call_all_algs(
         printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RBKI);
 
         //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank);
+        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
 
         state_alg = state;
         state_gen = state;
@@ -290,9 +296,6 @@ static void call_all_algs(
         RandBLAS::util::print_colmaj(m, n, all_data.U, name3);
         RandBLAS::util::print_colmaj(n, 1, all_data.Sigma, name4);
         RandBLAS::util::print_colmaj(n, n, all_data.VT, name5);
-
-        residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
 */
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
         residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
@@ -302,7 +305,7 @@ static void call_all_algs(
         printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RSVD);
 
         //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank);
+        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
         
         state_alg = state;
         state_gen = state;
@@ -334,7 +337,7 @@ static void call_all_algs(
         printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVDS);
 
         //if (all_data.A_lowrank_svd != nullptr)
-        approx_error_comp(all_data, custom_rank);
+        approx_error_comp(all_data, custom_rank, norm_A_lowrank);
         
         state_alg = state;
         state_gen = state;
@@ -369,7 +372,8 @@ int main(int argc, char *argv[]) {
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
     int numruns                    = 1;
-    long dur_svd = 0;
+    long dur_svd                   = 0;
+    double norm_A_lowrank          = 0;
     std::vector<long> res;
 
     // Generate the input matrix.
@@ -407,7 +411,11 @@ int main(int argc, char *argv[]) {
         //all_data.A_lowrank_svd = ( double * ) calloc(m * n, sizeof( double ) );
         RandLAPACK::gen::mat_gen<double>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
         lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
+    
+        // Pre-compute norm(A) for future benchmarking
+        norm_A_lowrank = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
     }
+
     printf("Finished data preparation\n");
 
     // Declare a data file
@@ -421,7 +429,7 @@ int main(int argc, char *argv[]) {
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
         for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
-            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, dur_svd);
+            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, dur_svd, norm_A_lowrank);
         }
         num_matmuls_curr = num_matmuls_start;
     }
