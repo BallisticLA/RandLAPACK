@@ -148,6 +148,9 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
     // We will actually have to perform U' * A - Sigma * VT.
 
+    //char name [] = "VT_Cpy";
+    //RandBLAS::util::print_colmaj(n, n, all_data.VT_cpy, name);
+
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A, m, -1.0, all_data.VT_cpy, n);
 
     T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, all_data.U_cpy, m);
@@ -291,6 +294,9 @@ static void call_all_algs(
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
         residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
 */
+        residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
+
         // Print accuracy info
         printf("\nRSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
         printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RSVD);
@@ -319,6 +325,9 @@ static void call_all_algs(
         Eigen::Map<Eigen::VectorXd>(all_data.Sigma, custom_rank) = S_spectra;
 
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
+
+        residual_err_custom_SVDS = residual_error_comp<T>(all_data, custom_rank);
+        residual_err_target_SVDS = residual_error_comp<T>(all_data, target_rank);
 
         // Print accuracy info
         printf("\nSVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);

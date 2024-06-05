@@ -110,7 +110,7 @@ static void call_all_algs(
         // Making sure the states are unchanged
         state_gen = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 1);
 
         // Testing CQRRP - best setup
         auto start_cqrrp = high_resolution_clock::now();
@@ -142,7 +142,7 @@ static void call_all_algs(
 
         // Testing HQRRP DEFAULT
         auto start_hqrrp = high_resolution_clock::now();
-        //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) nullptr);
         auto stop_hqrrp = high_resolution_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
         printf("TOTAL TIME FOR HQRRP %ld\n", dur_hqrrp);
@@ -151,7 +151,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        //data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen, 0);
 
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
@@ -186,18 +186,18 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = 10000;
-    int64_t n          = 10000;
+    int64_t m          = 7000;
+    int64_t n          = 7000;
     double d_factor    = 1.25;
-    int64_t b_sz_start = 64;
-    int64_t b_sz_end   = 64;
+    int64_t b_sz_start = 256;
+    int64_t b_sz_end   = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 50;
+    int64_t numruns = 20;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
