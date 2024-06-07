@@ -113,6 +113,7 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 1);
 
         // Testing CQRRP - best setup
+        CQRRP_blocked.use_qp3 = false;
         auto start_cqrrp = high_resolution_clock::now();
         //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp = high_resolution_clock::now();
@@ -186,8 +187,8 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = 7000;
-    int64_t n          = 7000;
+    int64_t m          = 8000;
+    int64_t n          = 8000;
     double d_factor    = 1.25;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 256;

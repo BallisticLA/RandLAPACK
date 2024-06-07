@@ -160,7 +160,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
 }
 
 template <typename T>
-static void
+static T
 approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank, T norm_A_lowrank) {
     
     auto m = all_data.row;
@@ -177,6 +177,8 @@ approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank, T norm_
 
     T nrm = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
     printf("||A_hat_cursom_rank - A_svd_custom_rank||_F / ||A_svd_custom_rank||_F: %e\n", nrm / norm_A_lowrank);
+
+    return nrm / norm_A_lowrank;
 }
 
 template <typename T, typename RNG>
@@ -211,7 +213,6 @@ static void call_all_algs(
     // 
     // Instead of the above approach, we now pre-specify the maximum number of Krylov iters that we allow for in num_matmuls.
     all_algs.RBKI.max_krylov_iters = (int) num_matmuls;
-    int64_t target_rank = b_sz * num_matmuls / 2;
 
     // timing vars
     long dur_rbki = 0;
@@ -222,15 +223,15 @@ static void call_all_algs(
     auto state_gen = state;
     auto state_alg = state;
 
+    T residual_err_custom_SVD  = 0;
     T residual_err_custom_RBKI = 0;
-    T residual_err_target_RBKI = 0;
     T residual_err_custom_RSVD = 0;
-    T residual_err_target_RSVD = 0;
     T residual_err_custom_SVDS = 0;
-    T residual_err_target_SVDS = 0;
 
-    T residual_err_custom_SVD = 0;
-    T residual_err_target_SVD = 0;
+    T lowrank_err_SVD  = 0;
+    T lowrank_err_RBKI = 0;
+    T lowrank_err_RSVD = 0;
+    T lowrank_err_SVDS = 0;
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
@@ -243,15 +244,10 @@ static void call_all_algs(
         RandLAPACK::gen::mat_gen(m_info, all_data.A, state_gen);
 
         residual_err_custom_SVD = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target_SVD = residual_error_comp<T>(all_data, target_rank);
-
-
-        // Print accuracy info
         printf("\nSVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVD);
-        printf("SVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVD);
 
         if (all_data.A_lowrank_svd != nullptr)
-            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+            lowrank_err_SVD = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
 
         state_alg = state;
         state_gen = state;
@@ -264,14 +260,10 @@ static void call_all_algs(
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
         residual_err_custom_RBKI = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target_RBKI = residual_error_comp<T>(all_data, target_rank);
-
-        // Print accuracy info
         printf("\nRBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
-        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RBKI);
 
         if (all_data.A_lowrank_svd != nullptr)
-            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+            lowrank_err_RBKI = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
 
         state_alg = state;
         state_gen = state;
@@ -284,28 +276,12 @@ static void call_all_algs(
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
 
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
-/*
-        char name1 [] = "A";
-        char name2 [] = "A_lowrank";
-        char name3 [] = "U";
-        char name4 [] = "S";
-        char name5 [] = "VT";
 
-        RandBLAS::util::print_colmaj(m, n, all_data.A, name1);
-        RandBLAS::util::print_colmaj(m, n, all_data.A_lowrank_svd, name2);
-        RandBLAS::util::print_colmaj(m, n, all_data.U, name3);
-        RandBLAS::util::print_colmaj(n, 1, all_data.Sigma, name4);
-        RandBLAS::util::print_colmaj(n, n, all_data.VT, name5);
-*/
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target_RSVD = residual_error_comp<T>(all_data, target_rank);
-
-        // Print accuracy info
         printf("\nRSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
-        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_RSVD);
 
         if (all_data.A_lowrank_svd != nullptr)
-            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+            lowrank_err_RSVD = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
         
         state_alg = state;
         state_gen = state;
@@ -330,24 +306,20 @@ static void call_all_algs(
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
         residual_err_custom_SVDS = residual_error_comp<T>(all_data, custom_rank);
-        residual_err_target_SVDS = residual_error_comp<T>(all_data, target_rank);
-
-        // Print accuracy info
         printf("\nSVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target_SVDS);
 
         if (all_data.A_lowrank_svd != nullptr)
-            approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+            lowrank_err_SVDS = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
         
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
 
         std::ofstream file(output_filename, std::ios::app);
-        file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " 
-        << residual_err_target_RBKI << ",  " << residual_err_custom_RBKI <<  ",  " << dur_rbki  << ",  " 
-        << residual_err_target_RSVD << ",  " << residual_err_custom_RSVD <<  ",  " << dur_rsvd  << ",  "
-        << residual_err_target_SVDS << ",  " << residual_err_custom_SVDS <<  ",  " << dur_svds  << ",\n";
+        file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 
+        << residual_err_custom_RBKI << ",  " << lowrank_err_RBKI <<  ",  " << dur_rbki    << ",  " 
+        << residual_err_custom_RSVD << ",  " << lowrank_err_RSVD <<  ",  " << dur_rsvd    << ",  "
+        << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",\n";
     }
 }
 
@@ -366,12 +338,12 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t num_matmuls_start      = 2;
     int64_t num_matmuls_curr       = num_matmuls_start;
-    int64_t num_matmuls_stop       = 2;
-    int64_t custom_rank            = 5;
+    int64_t num_matmuls_stop       = 50;
+    int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 1;
+    int numruns                    = 3;
     long dur_svd                   = 0;
     double norm_A_lowrank          = 0;
     std::vector<long> res;
@@ -385,8 +357,8 @@ int main(int argc, char *argv[]) {
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 10;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 10;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
     // Fill the data matrix;
