@@ -199,7 +199,7 @@ int main() {
     }
 }
 */
-
+/*
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
@@ -244,8 +244,8 @@ int main(int argc, char *argv[]) {
 
     call_all_algs(m_info, numruns, n, all_data, state_constant, output_filename);
 }
+*/
 
-/*
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
@@ -290,4 +290,3 @@ int main(int argc, char *argv[]) {
 
     call_all_algs(m_info, numruns, n, all_data, state_constant, output_filename);
 }
-*/
