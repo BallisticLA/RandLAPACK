@@ -208,7 +208,7 @@ int CQRRPT<T, RNG>::call(
     /// Applying a SASO
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, 1.0, S, 0, 0, A, lda, 0.0, A_hat, d
+        d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
 
     if(this -> timing) {
