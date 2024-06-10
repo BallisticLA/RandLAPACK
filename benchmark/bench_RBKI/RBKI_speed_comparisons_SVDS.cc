@@ -322,7 +322,7 @@ static void call_all_algs(
         << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",\n";
     }
 }
-
+/*
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
@@ -407,4 +407,177 @@ int main(int argc, char *argv[]) {
         num_matmuls_curr = num_matmuls_start;
     }
 }
+*/
+
+int main(int argc, char *argv[]) {
+
+    printf("Function begin\n");
+
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+
+    int64_t m                      = 0;
+    int64_t n                      = 0;
+    int64_t b_sz_start             = 0;
+    int64_t b_sz_stop              = 0;
+    int64_t num_matmuls_start      = 2;
+    int64_t num_matmuls_curr       = num_matmuls_start;
+    int64_t num_matmuls_stop       = 50;
+    int64_t custom_rank            = 10;
+    double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state                     = RandBLAS::RNGState();
+    auto state_constant            = state;
+    int numruns                    = 3;
+    long dur_svd                   = 0;
+    double norm_A_lowrank          = 0;
+    std::vector<long> res;
+
+    // Generate the input matrix.
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
+    m_info.filename = argv[1];
+    m_info.workspace_query_mod = 1;
+    // Workspace query;
+    RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
+    // Update basic params.
+    m = m_info.rows;
+    n = m_info.cols;
+    b_sz_start = 2;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 64;//std::max((int64_t) 1, n / 10);
+    // Allocate basic workspace.
+    RBKI_benchmark_data<double> all_data(m, n, tol);
+    // Fill the data matrix;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+
+    // Declare objects for RSVD and RBKI
+    int64_t p = 2;
+    int64_t passes_per_iteration = 1;
+    // Block size will need to be altered.
+    int64_t block_sz = 0;
+    RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
+
+    // Copying input data into a Spectra (Eigen) matrix object
+    Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
+
+    // Optional pass of lowrank SVD matrix into the benchmark
+    if (argc > 2) {
+        printf("Name passed\n");
+        RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
+        m_info_A_svd.filename            = argv[2];
+        m_info_A_svd.workspace_query_mod = 0;
+        all_data.A_lowrank_svd           = ( double * ) calloc(m * n, sizeof( double ) );
+        all_data.A_lowrank_svd_const     = ( double * ) calloc(m * n, sizeof( double ) );
+        RandLAPACK::gen::mat_gen<double>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
+        lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
+    
+        // Pre-compute norm(A lowrank) for future benchmarking
+        norm_A_lowrank = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
+    }
+
+    printf("Finished data preparation\n");
+
+    // Declare a data file
+    std::string output_filename = "RBKI_speed_comp_SVDS_m_"        + std::to_string(m)
+                                      + "_n_"                      + std::to_string(n)
+                                      + "_b_sz_start_"             + std::to_string(b_sz_start)
+                                      + "_b_sz_stop_"              + std::to_string(b_sz_stop)
+                                      + "_num_matmuls_start_" + std::to_string(num_matmuls_start)
+                                      + "_num_matmuls_stop_"  + std::to_string(num_matmuls_stop)
+                                      + ".dat"; 
+
+    for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
+        for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
+            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, dur_svd, norm_A_lowrank);
+        }
+        num_matmuls_curr = num_matmuls_start;
+    }
+}
+
+/*
+int main(int argc, char *argv[]) {
+
+    printf("Function begin\n");
+
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+
+    int64_t m                      = 0;
+    int64_t n                      = 0;
+    int64_t b_sz_start             = 0;
+    int64_t b_sz_stop              = 0;
+    int64_t num_matmuls_start      = 2;
+    int64_t num_matmuls_curr       = num_matmuls_start;
+    int64_t num_matmuls_stop       = 50;
+    int64_t custom_rank            = 10;
+    float tol                     = std::pow(std::numeric_limits<float>::epsilon(), 0.85);
+    auto state                     = RandBLAS::RNGState();
+    auto state_constant            = state;
+    int numruns                    = 3;
+    long dur_svd                   = 0;
+    float norm_A_lowrank          = 0;
+    std::vector<long> res;
+
+    // Generate the input matrix.
+    RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::custom_input);
+    m_info.filename = argv[1];
+    m_info.workspace_query_mod = 1;
+    // Workspace query;
+    RandLAPACK::gen::mat_gen<float>(m_info, NULL, state);
+    // Update basic params.
+    m = m_info.rows;
+    n = m_info.cols;
+    b_sz_start = 2;//std::max((int64_t) 1, n / 10);
+    b_sz_stop  = 64;//std::max((int64_t) 1, n / 10);
+    // Allocate basic workspace.
+    RBKI_benchmark_data<float> all_data(m, n, tol);
+    // Fill the data matrix;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+
+    // Declare objects for RSVD and RBKI
+    int64_t p = 2;
+    int64_t passes_per_iteration = 1;
+    // Block size will need to be altered.
+    int64_t block_sz = 0;
+    RBKI_algorithm_objects<float, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
+
+    // Copying input data into a Spectra (Eigen) matrix object
+    Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
+
+    // Optional pass of lowrank SVD matrix into the benchmark
+    if (argc > 2) {
+        printf("Name passed\n");
+        RandLAPACK::gen::mat_gen_info<float> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
+        m_info_A_svd.filename            = argv[2];
+        m_info_A_svd.workspace_query_mod = 0;
+        all_data.A_lowrank_svd           = ( float * ) calloc(m * n, sizeof( float ) );
+        all_data.A_lowrank_svd_const     = ( float * ) calloc(m * n, sizeof( float ) );
+        RandLAPACK::gen::mat_gen<float>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
+        lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
+    
+        // Pre-compute norm(A lowrank) for future benchmarking
+        norm_A_lowrank = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
+    }
+
+    printf("Finished data preparation\n");
+
+    // Declare a data file
+    std::string output_filename = "RBKI_speed_comp_SVDS_m_"        + std::to_string(m)
+                                      + "_n_"                      + std::to_string(n)
+                                      + "_b_sz_start_"             + std::to_string(b_sz_start)
+                                      + "_b_sz_stop_"              + std::to_string(b_sz_stop)
+                                      + "_num_matmuls_start_" + std::to_string(num_matmuls_start)
+                                      + "_num_matmuls_stop_"  + std::to_string(num_matmuls_stop)
+                                      + ".dat"; 
+
+    for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
+        for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
+            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, dur_svd, norm_A_lowrank);
+        }
+        num_matmuls_curr = num_matmuls_start;
+    }
+}
+*/
 
