@@ -68,7 +68,7 @@ static void call_all_algs(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 8;
     

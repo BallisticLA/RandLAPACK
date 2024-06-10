@@ -259,7 +259,7 @@ static void call_all_algs(
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
         residual_err_custom_RBKI = residual_error_comp<T>(all_data, custom_rank);
-        printf("\nRBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
+        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
 
         if (all_data.A_lowrank_svd != nullptr)
             lowrank_err_RBKI = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
@@ -277,7 +277,7 @@ static void call_all_algs(
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
-        printf("\nRSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
+        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
 
         if (all_data.A_lowrank_svd != nullptr)
             lowrank_err_RSVD = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
@@ -305,7 +305,7 @@ static void call_all_algs(
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
         residual_err_custom_SVDS = residual_error_comp<T>(all_data, custom_rank);
-        printf("\nSVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);
 
         if (all_data.A_lowrank_svd != nullptr)
             lowrank_err_SVDS = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
