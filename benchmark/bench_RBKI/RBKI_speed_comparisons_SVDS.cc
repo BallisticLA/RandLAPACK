@@ -237,8 +237,7 @@ static void call_all_algs(
         printf("Iteration %d start.\n", i);
 
         // Running SVD
-        lapack::gesdd(Job::AllVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
-
+        lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
         // Standard SVD destorys matrix A, need to re-read it before running accuracy tests.
         state_gen = state;
         RandLAPACK::gen::mat_gen(m_info, all_data.A, state_gen);
@@ -476,6 +475,7 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Finished data preparation\n");
+    printf("%ld, %ld\n", m, n);
 
     // Declare a data file
     std::string output_filename = "RBKI_speed_comp_SVDS_m_"        + std::to_string(m)
