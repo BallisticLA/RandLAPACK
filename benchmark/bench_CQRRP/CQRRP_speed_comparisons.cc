@@ -89,6 +89,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
+        
         printf("\nITERATION %d\n", i);
         // Testing GEQP3
         auto start_geqp3 = high_resolution_clock::now();
@@ -111,7 +112,7 @@ static void call_all_algs(
         state_gen = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 1);
-
+        /*
         // Testing CQRRP - best setup
         CQRRP_blocked.use_qp3 = false;
         auto start_cqrrp = high_resolution_clock::now();
@@ -124,7 +125,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        //data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 0);
 
         // Testing CQRRP - using QP3
         CQRRP_blocked.use_qp3 = true;
@@ -139,8 +140,8 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        //data_regen(m_info, all_data, state_gen, 1);
-
+        data_regen(m_info, all_data, state_gen, 1);
+        */
         // Testing HQRRP DEFAULT
         auto start_hqrrp = high_resolution_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) nullptr);
@@ -153,7 +154,7 @@ static void call_all_algs(
         state_alg = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
-
+        /*
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg, (T*) nullptr);
@@ -179,19 +180,22 @@ static void call_all_algs(
         state_alg = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
-
+        */
         std::ofstream file(output_filename, std::ios::app);
-        file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_geqrf << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
+        file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
     }
 }
-/*
-int main() {
+
+int main(int argc, char *argv[]) {
+
+    auto size = argv[1];
+
     // Declare parameters
-    int64_t m          = 8000;
-    int64_t n          = 8000;
+    int64_t m          = std::stoll(size);
+    int64_t n          = std::stoll(size);
     double d_factor    = 1.25;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 256;
+    int64_t b_sz_start = 32;
+    int64_t b_sz_end   = 32;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
@@ -207,7 +211,7 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = "ICQRRP_QP3_QR_time_raw_rows_"              + std::to_string(m)
+    std::string output_filename = "ICQRRP_time_raw_rows_"              + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_start_"   + std::to_string(b_sz_start)
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)
@@ -219,106 +223,3 @@ int main() {
     }
 #endif
 }
-*/
-
-int main(int argc, char *argv[]) {
-
-    printf("Function begin\n");
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
-    }
-
-    // Declare parameters
-    int64_t m              = 0;
-    int64_t n              = 0;
-    double  d_factor        = 1.125;
-    double  tol             = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto    state          = RandBLAS::RNGState();
-    auto    state_constant = state;
-    // Timing results
-    std::vector<long> res;
-    // Number of algorithm runs. We only record best times.
-    int64_t numruns = 75;
-
-    // Generate the input matrix.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[1];
-    m_info.workspace_query_mod = 1;
-    // Workspace query;
-    RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
-    // Update basic params.
-    m = m_info.rows;
-    n = m_info.cols;
-    // Allocate basic workspace.
-    QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
-    // Fill the data matrix;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    // Declare a data file
-    std::string output_filename = "CQRRPT_double_speed_comp_" + std::to_string(m)
-                                      + "_col_start_"  + std::to_string(n)
-                                      + "_col_stop_"   + std::to_string(n)
-                                      + "_d_factor_"   + std::to_string(d_factor)
-                                      + ".dat";
-
-    int64_t b_sz_start = 8;
-    int64_t b_sz_end   = 128;
-
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, output_filename);
-    }
-}
-/*
-int main(int argc, char *argv[]) {
-
-    printf("Function begin\n");
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
-    }
-
-    // Declare parameters
-    int64_t m              = 0;
-    int64_t n              = 0;
-    float  d_factor        = 1.125;
-    float  tol             = std::pow(std::numeric_limits<float>::epsilon(), 0.85);
-    auto    state          = RandBLAS::RNGState();
-    auto    state_constant = state;
-    // Timing results
-    std::vector<long> res;
-    // Number of algorithm runs. We only record best times.
-    int64_t numruns = 75;
-
-    // Generate the input matrix.
-    RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[1];
-    m_info.workspace_query_mod = 1;
-    // Workspace query;
-    RandLAPACK::gen::mat_gen<float>(m_info, NULL, state);
-    // Update basic params.
-    m = m_info.rows;
-    n = m_info.cols;
-    // Allocate basic workspace.
-    QR_speed_benchmark_data<float> all_data(m, n, tol, d_factor);
-    // Fill the data matrix;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    // Declare a data file
-    std::string output_filename = "CQRRPT_single_speed_comp_" + std::to_string(m)
-                                      + "_col_start_"  + std::to_string(n)
-                                      + "_col_stop_"   + std::to_string(n)
-                                      + "_d_factor_"   + std::to_string(d_factor)
-                                      + ".dat";
-
-    int64_t b_sz_start = 8;
-    int64_t b_sz_end   = 128;
-
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, output_filename);
-    }
-}
-*/
-

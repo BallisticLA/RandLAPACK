@@ -106,6 +106,7 @@ static void call_all_algs(
         // Testing CQRRPT
         auto start_cqrrp = high_resolution_clock::now();
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+        printf("CQRRPT RANK: %ld\n", CQRRPT.rank);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
 
