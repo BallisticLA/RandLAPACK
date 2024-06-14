@@ -416,15 +416,10 @@ int main(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
 
-    printf("Function begin\n");
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
-    }
+    auto size = argv[1];
 
     int64_t m    = 100000;
-    int64_t n    = 100000;
+    int64_t n    = std::stoll(size);
     int64_t b_sz = 16;
     double tol   = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state   = RandBLAS::RNGState();
