@@ -423,7 +423,7 @@ int main(int argc, char *argv[]) {
     int64_t b_sz = 16;
     double tol   = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state   = RandBLAS::RNGState();
-    int64_t p    = 5;
+    int64_t p    = 2;
     int64_t passes_per_iteration = 1;
 
     double* A  = ( double * ) calloc(m * n, sizeof( double ) );
@@ -433,9 +433,10 @@ int main(int argc, char *argv[]) {
 
     RandBLAS::DenseDist D(m, n);
     RandBLAS::fill_dense(D, A, state).second;
-
+    printf("Matrix constructed\n");
     RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, b_sz, tol);
-
+    printf("Objects constructed\n");
     all_algs.RSVD.call(m, n, A, n, tol, U, S, V, state);
+    printf("Terminated\n");
 }
 
