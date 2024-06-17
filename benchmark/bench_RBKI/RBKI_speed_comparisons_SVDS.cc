@@ -455,15 +455,9 @@ int main(int argc, char *argv[]) {
 
     int64_t m                      = 0;
     int64_t n                      = 0;
-    int64_t b_sz_start             = 0;
-    int64_t b_sz_stop              = 0;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 3;
-    long dur_svd                   = 0;
-    double norm_A_lowrank          = 0;
-    std::vector<long> res;
 
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
@@ -488,6 +482,6 @@ int main(int argc, char *argv[]) {
 
     printf("Finished data preparation\n");
 
-    all_algs.RSVD.call(m, n, all_data.A.data(), n, tol, all_data.U.data(), all_data.S.data(), all_data.V.data(), state);
+    all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.S, all_data.V, state);
 }
 

@@ -93,7 +93,7 @@ static void call_all_algs(
         printf("\nITERATION %d\n", i);
         // Testing GEQP3
         auto start_geqp3 = high_resolution_clock::now();
-        lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+        //lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
         auto stop_geqp3 = high_resolution_clock::now();
         dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
@@ -112,7 +112,7 @@ static void call_all_algs(
         state_gen = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 1);
-        /*
+        
         // Testing CQRRP - best setup
         CQRRP_blocked.use_qp3 = false;
         auto start_cqrrp = high_resolution_clock::now();
@@ -141,7 +141,7 @@ static void call_all_algs(
         state_alg = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 1);
-        */
+        
         // Testing HQRRP DEFAULT
         auto start_hqrrp = high_resolution_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) nullptr);
@@ -154,7 +154,7 @@ static void call_all_algs(
         state_alg = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
-        /*
+        
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg, (T*) nullptr);
@@ -180,7 +180,7 @@ static void call_all_algs(
         state_alg = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
-        */
+        
         std::ofstream file(output_filename, std::ios::app);
         file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
     }
@@ -191,18 +191,18 @@ int main(int argc, char *argv[]) {
     auto size = argv[1];
 
     // Declare parameters
-    int64_t m          = std::stoll(size);
-    int64_t n          = std::stoll(size);
+    int64_t m          = std::pow(2, 16);
+    int64_t n          = std::pow(2, 16);
     double d_factor    = 1.25;
-    int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 32;
+    int64_t b_sz_start = 256;
+    int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 20;
+    int64_t numruns = 10;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
