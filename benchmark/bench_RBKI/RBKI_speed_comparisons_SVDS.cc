@@ -413,7 +413,7 @@ int main(int argc, char *argv[]) {
     }
 }
 */
-
+/*
 int main(int argc, char *argv[]) {
 
     auto size = argv[1];
@@ -427,6 +427,8 @@ int main(int argc, char *argv[]) {
     int64_t passes_per_iteration = 1;
 
     double* A  = ( double * ) calloc(m * n, sizeof( double ) );
+    double* Q  = ( double * ) calloc(m * n, sizeof( double ) );
+    double* BT = ( double * ) calloc(n * n, sizeof( double ) );
     double* S;
     double* U;
     double* V;
@@ -436,7 +438,56 @@ int main(int argc, char *argv[]) {
     printf("Matrix constructed\n");
     RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, b_sz, tol);
     printf("Objects constructed\n");
-    all_algs.RSVD.call(m, n, A, n, tol, U, S, V, state);
+    //all_algs.RSVD.call(m, n, A, n, tol, U, S, V, state);
+    all_algs.QB.call(m, n, A, n, 16, tol, Q, BT, state);
+    all_algs.RF.call(m, n, A, n, Q, state);
     printf("Terminated\n");
+}
+*/
+int main(int argc, char *argv[]) {
+
+    printf("Function begin\n");
+
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+
+    int64_t m                      = 0;
+    int64_t n                      = 0;
+    int64_t b_sz_start             = 0;
+    int64_t b_sz_stop              = 0;
+    double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state                     = RandBLAS::RNGState();
+    auto state_constant            = state;
+    int numruns                    = 3;
+    long dur_svd                   = 0;
+    double norm_A_lowrank          = 0;
+    std::vector<long> res;
+
+    // Generate the input matrix.
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
+    m_info.filename = argv[1];
+    m_info.workspace_query_mod = 1;
+    // Workspace query;
+    RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
+    // Update basic params.
+    m = m_info.rows;
+    n = m_info.cols;
+    // Allocate basic workspace.
+    RBKI_benchmark_data<double> all_data(m, n, tol);
+    // Fill the data matrix;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+
+    // Declare objects for RSVD and RBKI
+    int64_t p = 5;
+    int64_t passes_per_iteration = 1;
+    // Block size will need to be altered.
+    int64_t block_sz = 1024;
+    RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
+
+    printf("Finished data preparation\n");
+
+    all_algs.RSVD.call(m, n, all_data.A.data(), n, tol, all_data.U.data(), all_data.S.data(), all_data.V.data(), state);
 }
 

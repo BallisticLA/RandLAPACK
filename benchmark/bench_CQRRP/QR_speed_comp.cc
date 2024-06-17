@@ -26,6 +26,8 @@ struct QR_benchmark_data {
     std::vector<T> Q;
     std::vector<T> QR;
     std::vector<T> tau;
+    std::vector<T> T_mat;
+    std::vector<T> D;
 
     QR_benchmark_data(int64_t m, int64_t n) :
     A(m * n, 0.0),
@@ -33,7 +35,9 @@ struct QR_benchmark_data {
     R(n * n, 0.0),
     Q(m * n, 0.0),
     QR(m * n, 0.0),
-    tau(n, 0.0)
+    tau(n, 0.0),
+    T_mat(n * n, 0.0),
+    D(n, 0.0)
     {
         row = m;
         col = n;
@@ -72,10 +76,11 @@ static void call_all_algs(
     int64_t tsize = 0;
 
     // timing vars
-    long dur_geqrf      = 0;
-    long dur_geqr       = 0;
-    long dur_geqr_ungqr = 0;
-    long dur_cholqr     = 0;
+    long dur_geqrf       = 0;
+    long dur_geqr        = 0;
+    long dur_geqr_ungqr  = 0;
+    long dur_cholqr      = 0;
+    long dur_cholqr_orhr = 0;
     
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -127,23 +132,17 @@ static void call_all_algs(
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
         auto stop_cholqr = high_resolution_clock::now();
         dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
-
-        char name [] = "A";
-        char name1 [] = "Q";
-        char name2 [] = "R";
-        //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
-        //RandBLAS::util::print_colmaj(m, n, all_data.A_cpy.data(), name);
-        //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name1);
-        //RandBLAS::util::print_colmaj(n, n, all_data.R.data(), name2);
-
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, all_data.A.data(), m, all_data.R.data(), n, -1.0, all_data.A_cpy.data(), m);
-        printf("NORM CHOLQR A-QR: %e\n", lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m));
+        lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
+        auto stop_cholqr_orhr = high_resolution_clock::now();
+        dur_cholqr_orhr = duration_cast<microseconds>(stop_cholqr_orhr - start_cholqr).count();
+        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, all_data.A.data(), m, all_data.R.data(), n, -1.0, all_data.A_cpy.data(), m);
+        //printf("NORM CHOLQR A-QR: %e\n", lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m));
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
     
         std::ofstream file(output_filename, std::ios::app);
-        file << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_geqr_ungqr << ",  " << dur_cholqr << ",\n";
+        file << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_geqr_ungqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_orhr << ",\n";
     }
 }
 
