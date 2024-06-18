@@ -84,7 +84,7 @@ void get_U(
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
-/*template <typename T>
+template <typename T>
 void col_swap(
     int64_t m,
     int64_t n,
@@ -107,90 +107,6 @@ void col_swap(
         idx[it - (idx.begin())] = j + 1;
     }
 }
-*/
-
-template <typename T>
-void col_swap(
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    T* A,
-    int64_t lda,
-    std::vector<int64_t> idx
-) {
-    char name [] = "A pivoted";
-    if(k > n) 
-        throw std::runtime_error("Invalid rank parameter.");
-    T buf;
-    int64_t i, j, l;
-    for (i = 0, j = 0; i < k; ++i) {
-        j = idx[i] - 1;
-        //blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
-        for (int s = 0; s < m; ++s) {
-            buf = A[i * lda + s];
-            A[s + i * lda] = A[s + j * lda];
-            A[s + j * lda] = buf;
-        }
-
-
-        // swap idx array elements
-        // Find idx element with value i and assign it to j
-        for(l = i; l < k; ++l) {
-            if(idx[l] == i + 1) {
-                    idx[l] = j + 1;
-                    break;
-            }
-        }
-        idx[i] = i + 1;
-        
-        if(n <= 20) {
-            for(int f = 0; f < n; ++f)
-                printf("%ld, ", idx[f]);
-            printf("\n");
-            RandBLAS::util::print_colmaj(m, n, A, name);
-        }
-    }
-}
-
-/*
-template <typename T>
-void col_swap(
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    T* A,
-    int64_t lda,
-    std::vector<int64_t> idx
-) {
-    char name [] = "A pivoted";
-    if(k > n) 
-        throw std::runtime_error("Invalid rank parameter.");
-    T buf;
-    int64_t i, j, l;
-    for (i = 0, j = 0; i < k; ++i) {
-        j = idx[i] - 1;
-        //blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
-        if (j != i) {
-            for (int s = 0; s < m; ++s) {
-                buf = A[i * lda + s];
-                A[s + i * lda] = A[s + j * lda];
-                A[s + j * lda] = buf;
-            }
-
-            buf = idx[i];
-            idx[i] = idx[j];
-            idx[j] = buf;
-        }
-        
-        if(n <= 20) {
-            for(int f = 0; f < n; ++f)
-                printf("%ld, ", idx[f]);
-            printf("\n");
-            RandBLAS::util::print_colmaj(m, n, A, name);
-        }
-    }
-}
-*/
 
 /// A version of the above function to be used on a vector of integers
 template <typename T>

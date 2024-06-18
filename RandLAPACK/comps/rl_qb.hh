@@ -173,17 +173,24 @@ int QB<T, RNG>::call(
         return 1;
     }
 
+    printf("Size Q %ld\n", Q.size());
+
     tol = std::max(tol, 100 * std::numeric_limits<T>::epsilon());
     // If the space allocated for col in Q and row in B is insufficient for any iterations ...
     if(std::max( Q.size() / m, B.size() / n) < (uint64_t)k) {
         // ... allocate more!
         this->curr_lim = std::min(this->dim_growth_factor * block_sz, k);
+        printf("%d\n", this->dim_growth_factor);
+        printf("Current lim %ld\n", this->curr_lim);
+        printf("%ld\n", block_sz);
         // No need for data movement in this case
         util::upsize(m * this->curr_lim, Q);
         util::upsize(this->curr_lim * n, B);
     } else {
         this->curr_lim = k;
     }
+
+    printf("Size Q %ld\n", Q.size());
 
     // Copy the initial data to avoid unwanted modification TODO #1
     std::vector<T> A_cpy (m * n, 0.0);
@@ -220,6 +227,10 @@ int QB<T, RNG>::call(
             if(this->orth_check)
                 util::upsize(this->curr_lim * this->curr_lim, Q_gram);
         }
+
+        printf("Size Q %ld\n", Q.size());
+        printf("Size B %ld\n", B.size());
+        printf("Size QtQi %ld\n", QtQi.size());
 
         // Calling RangeFinder
         if(this->RF_Obj.call(m, n, A_cpy, block_sz, this->Q_i, state))

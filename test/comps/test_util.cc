@@ -151,7 +151,7 @@ class TestUtil : public ::testing::Test
             all_data.A_cpy[i] -= all_data.Ident[i];
 
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m);
-        printf("||A_piv - QB||_F:  %e\n", norm);
+        printf("||A_piv - QR||_F:  %e\n", norm);
         ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 };
@@ -276,8 +276,8 @@ TEST_F(Test_Inplace_Square_Transpose, random_matrix_rowmajor) {
 
 TEST_F(TestUtil, test_col_swp) {
     
-    int64_t m = 5;
-    int64_t n = 5;
+    int64_t m = 1000;
+    int64_t n = 1000;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 
