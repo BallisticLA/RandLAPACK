@@ -50,28 +50,23 @@ inline
 __device__
 bool valid_index(size_t q, size_t m, size_t n, size_t lda)
 {
-    return ((q < m*lda) && ((q % lda) < n));
+    return ((q < m * lda) && ((q % lda) < n));
 }
 
-inline
-__device__
-bool valid_index(size_t q, size_t m)
-{
-    return (q < m);
+__global__ void __launch_bounds__(128) copy(int64_t* src, int64_t* dest, int64_t n) {
+    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
+    if (id < n) {
+        dest[id] = src[id];
+    }
 }
-
  
 template <typename T>
-inline
-__device__
-void find(T* array, int64_t size, T target, T* result) {
-    
-    size_t q = array_index();
-    if (!valid_index(q, size))
-        return;
-    
-    if (q < size && array[q] == target) {
-        *result = q;
+__device__ void swap(T* a, T* b, int64_t n) {
+    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
+    if (id < n) {
+        T const v{a[id]};
+        a[id] = b[id];
+        b[id] = v;
     }
 }
 
@@ -86,35 +81,20 @@ void col_swap_gpu(
     int64_t k,
     T* A,
     int64_t lda,
-    T* idx)
+    int64_t* idx
+    )
 {
-    //if (!valid_index(q, m))
-        //return;
-
-    int64_t i, j, l;
-    T buf;
-    for (i = 0, j = 0; i < k; ++i) {
-        j = idx[i] - 1;
-        //blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
-        //buf = A[i * lda + q];
-        //A[q + i * lda] = A[q + j * lda];
-        //A[q + j * lda] = buf;
-
-        for (int s = 0; s < m; ++s) {
-            buf = A[i * lda + s];
-            A[s + i * lda] = A[s + j * lda];
-            A[s + j * lda] = buf;
+    A -= lda;
+    int64_t* end = idx + k;
+    for (int64_t i = 1; i <= k; ++i, ++idx) {
+        // swap rows IFF mismatched
+        if (int64_t const j = *idx; i != j) {
+            // swap columns
+            swap(A + i * lda, A + j * lda, m); 
+            __syncthreads();
+            // swap indices
+            std::iter_swap(idx, std::find(idx, end, i));
         }
-        
-        // swap idx array elements
-        // Find idx element with value i and assign it to j
-        for(l = i; l < k; ++l) {
-            if(idx[l] == i + 1) {
-                    idx[l] = j + 1;
-                    break;
-            }
-        }
-        idx[i] = i + 1;
     }
 }
 
@@ -142,11 +122,18 @@ void col_swap_gpu(
     int64_t k,
     T* A,
     int64_t lda,
-    T* idx, cudaStream_t strm)
+    int64_t* idx,
+    int64_t* temp_buf,
+    cudaStream_t strm)
 {
 #ifdef USE_CUDA
-    auto [tg, bg] = partition_1d(n, m, lda);
-    col_swap_gpu<<<tg, bg, 0, strm>>>(m, n, k, A, lda, idx);
+    blas::Queue blas_queue(0);
+    // threads per block
+    int tpb = 128;
+    // num blcoks to spawn
+    int nb = (m + tpb - 1) / tpb;
+    copy<<<nb, tpb, 0, strm>>>(idx, temp_buf, n);
+    col_swap_gpu<<<nb, tpb, 0, strm>>>(m, n, k, A, lda, idx);
 #endif
 
     cudaError_t ierr = cudaGetLastError();
