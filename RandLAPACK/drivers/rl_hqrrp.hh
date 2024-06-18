@@ -598,12 +598,14 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
 //    The typical use-case for this function is to call with build_T=true.
 //    Calling with build_T=false is only done at HQRRP's last iteration.
 //
-
+/*-----------------------------------COMMENTED THIS OUT TO TEST THE BASIC HQRRP-----------------------------------*/
+/*
     if (!pivoting && !use_cholqr) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
     } else if (!pivoting && use_cholqr) {
         return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
+*/
 
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
             i_one = 1, n_house_vector, m_rest;
@@ -733,7 +735,38 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* time_per_block) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t use_cholqr, RandBLAS::RNGState<RNG> &state, T* timing) {
+
+    //-------TIMING VARS--------/
+    high_resolution_clock::time_point preallocation_t_stop;
+    high_resolution_clock::time_point preallocation_t_start;
+    high_resolution_clock::time_point sketching_t_stop;
+    high_resolution_clock::time_point sketching_t_start;
+    high_resolution_clock::time_point downdating_t_stop;
+    high_resolution_clock::time_point downdating_t_start;
+    high_resolution_clock::time_point qrcp_t_start;
+    high_resolution_clock::time_point qrcp_t_stop;
+    high_resolution_clock::time_point qr_t_start;
+    high_resolution_clock::time_point qr_t_stop;
+    high_resolution_clock::time_point updating_A_t_start;
+    high_resolution_clock::time_point updating_A_t_stop;
+    high_resolution_clock::time_point updating_Sketch_t_start;
+    high_resolution_clock::time_point updating_Sketch_t_stop;
+    high_resolution_clock::time_point total_t_start;
+    high_resolution_clock::time_point total_t_stop;
+    long preallocation_t_dur   = 0;
+    long sketching_t_dur       = 0;
+    long downdating_t_dur      = 0;
+    long qrcp_t_dur            = 0;
+    long qr_t_dur              = 0;
+    long updating_A_t_dur      = 0;
+    long updating_Sketch_t_dur = 0;
+    long total_t_dur           = 0;
+
+    if(timing != nullptr) {
+        total_t_start = high_resolution_clock::now();
+        preallocation_t_start = high_resolution_clock::now();
+    }
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
             m_W, n_W, ldim_W, n_VR, m_AB1, n_AB1, ldim_T1_T,
@@ -795,6 +828,12 @@ int64_t hqrrp(
     buff_R  = ( T * ) calloc( nb_alg * nb_alg, sizeof( T ) );
     buff_D  = ( T * ) calloc( nb_alg, sizeof( T ) );
 
+    if(timing != nullptr) {
+        preallocation_t_stop = high_resolution_clock::now();
+        preallocation_t_dur  = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
+        sketching_t_start    = high_resolution_clock::now();
+    }
+
     // Initialize matrices G and Y.
     RandBLAS::DenseDist D(nb_alg + pp, m_A, RandBLAS::DenseDistName::Uniform);
     state = RandBLAS::fill_dense(D, buff_G, state).second;
@@ -803,31 +842,10 @@ int64_t hqrrp(
                 Op::NoTrans, Op::NoTrans, m_Y, n_Y, m_A, 
                 d_one, buff_G,  ldim_G, buff_A, ldim_A, 
                 d_zero, buff_Y, ldim_Y );
-
-    //**********************************
-    // This is for the advanced timing
     
-    high_resolution_clock::time_point iter_t_start;
-    high_resolution_clock::time_point iter_t_stop;
-    /*
-    high_resolution_clock::time_point t1_start;
-    high_resolution_clock::time_point t1_stop;
-
-    high_resolution_clock::time_point t2_start;
-    high_resolution_clock::time_point t2_stop;
-
-    high_resolution_clock::time_point t3_start;
-    high_resolution_clock::time_point t3_stop;
-
-    high_resolution_clock::time_point t4_start;
-    high_resolution_clock::time_point t4_stop;
-
-    high_resolution_clock::time_point tcopy_start;
-    high_resolution_clock::time_point tcopy_stop;
-    */
-    if (time_per_block != nullptr) {
-        // The space required has already been preallocated
-        iter_t_start  = high_resolution_clock::now();
+    if(timing != nullptr) {
+        sketching_t_stop  = high_resolution_clock::now();
+        sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
     }
 
     //**********************************
@@ -835,14 +853,6 @@ int64_t hqrrp(
 
     // Main Loop.
     for( j = 0; j < mn_A; j += nb_alg ) {
-
-        if (time_per_block != nullptr) {
-            // The space required has already been preallocated
-            iter_t_start  = high_resolution_clock::now();
-        }
-
-
-        //t1_start  = high_resolution_clock::now();
 
         b = std::min( nb_alg, std::min( n_A - j, m_A - j ) );
 
@@ -856,7 +866,6 @@ int64_t hqrrp(
         buff_pB = & buff_p[ j ];
         buff_sB = & buff_s[ j ];
         buff_AR = & buff_A[ 0 + j * ldim_A ];
-
         m_AB1     = m_A - j;
         n_AB1     = b;
         buff_AB1  = & buff_A[ j + j * ldim_A ];
@@ -885,7 +894,11 @@ int64_t hqrrp(
         buff_Y2 = & buff_Y[ 0 + std::min( n_Y - 1, j + b ) * ldim_Y ];
         buff_G1 = & buff_G[ 0 + j * ldim_G ];
         buff_G2 = & buff_G[ 0 + std::min( n_G - 1, j + b ) * ldim_G ];
-            
+
+
+        if(timing != nullptr)
+            downdating_t_start = high_resolution_clock::now();
+
 #ifdef CHECK_DOWNDATING_OF_Y
         // Check downdating of matrix Y: Compare downdated matrix Y with 
         // matrix Y computed from scratch.
@@ -919,6 +932,11 @@ int64_t hqrrp(
 
         free( buff_cyr );
 #endif
+        if(timing != nullptr) {
+            downdating_t_stop = high_resolution_clock::now();
+            downdating_t_dur  += duration_cast<microseconds>(downdating_t_stop - downdating_t_start).count();
+            sketching_t_start = high_resolution_clock::now();
+        }
 
         //t1_stop  = high_resolution_clock::now();
         //printf("        Part 1 of HQRRP time %ld\n", duration_cast<microseconds>(t1_stop - t1_start).count());
@@ -936,13 +954,15 @@ int64_t hqrrp(
             //    Specifically, this custom function operates on three matrices (VR, AR, and YR) in
             //    sync with one another, while GEQP3 only operates on one matrix.
             //
-            //tcopy_start  = high_resolution_clock::now();
+
             lapack::lacpy( MatrixType::General,
                             m_V, n_VR,
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);
-            //tcopy_stop  = high_resolution_clock::now();
-            //printf("            Copy time %ld\n", duration_cast<microseconds>(tcopy_stop - tcopy_start).count());
+
+            if(timing != nullptr)
+                qrcp_t_start    = high_resolution_clock::now();
+
             NoFLA_QRPmod_WY_unb_var4(0, 1, b,
                 m_V, n_VR,
                 buff_VR, ldim_V,
@@ -951,14 +971,14 @@ int64_t hqrrp(
                 1, m_Y, buff_YR, ldim_Y,
                 0, (T*) nullptr, 0, (T*) nullptr, 0, (T*) nullptr 
             );
+
+            if(timing != nullptr) {
+                qrcp_t_stop = high_resolution_clock::now();
+                qrcp_t_dur  += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
+            }
+
         }
-        //t2_stop  = high_resolution_clock::now();
-        
-        //char name1 [] = "A before qr";
-        //RandBLAS::util::print_colmaj(ldim_A, n_A, buff_A, name1);
-        
-        //printf("        Part 2 of HQRRP time %ld\n", duration_cast<microseconds>(t2_stop - t2_start).count());
-        //t3_start  = high_resolution_clock::now();
+
         //
         // Compute QRP of panel AB1 = [ A11; A21 ].
         // Apply same permutations to A01 and Y1, and build T1_T.
@@ -977,16 +997,20 @@ int64_t hqrrp(
         //    it only operates on AB1!
         //
 
+        if(timing != nullptr)
+            qr_t_start = high_resolution_clock::now();
+
         NoFLA_QRPmod_WY_unb_var4(use_cholqr, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
             1, j, buff_A01, ldim_A,
             1, m_Y, buff_Y1, ldim_Y,
             1, buff_T1_T, ldim_W, buff_R, ldim_R, buff_D);
 
-        //t3_stop  = high_resolution_clock::now();
-        //printf("        Part 3 of HQRRP time %ld\n", duration_cast<microseconds>(t3_stop - t3_start).count());
-
-        //t4_start  = high_resolution_clock::now();
+        if(timing != nullptr) {
+            qr_t_stop = high_resolution_clock::now();
+            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+            updating_A_t_start = high_resolution_clock::now();
+        }
 
         //
         // Update the rest of the matrix.
@@ -1003,6 +1027,12 @@ int64_t hqrrp(
             n_A12, buff_A12, ldim_A );
         }
 
+        if(timing != nullptr) {
+            updating_A_t_stop = high_resolution_clock::now();
+            updating_A_t_dur  += duration_cast<microseconds>(updating_A_t_stop - updating_A_t_start).count();
+            updating_Sketch_t_start = high_resolution_clock::now();
+        }
+
         //
         // Downdate matrix Y.
         //
@@ -1017,16 +1047,9 @@ int64_t hqrrp(
                 std::max<int64_t>( 0, n_G - j - b ), buff_G2, ldim_G );
         }
 
-        //t4_stop  = high_resolution_clock::now();
-        //printf("        Part 4 of HQRRP time %ld\n", duration_cast<microseconds>(t4_stop - t4_start).count());
-
-        if (time_per_block != nullptr) {
-            // The space required has already been preallocated
-            iter_t_stop  = high_resolution_clock::now();
-            printf("+%ld\n", duration_cast<microseconds>(iter_t_stop - iter_t_start).count());
-            T* nextval = &(time_per_block[ctr]);
-            *nextval = (m_AB1 * (T) b) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
-            ++ctr;
+        if(timing != nullptr) {
+            updating_Sketch_t_stop = high_resolution_clock::now();
+            updating_Sketch_t_dur  += duration_cast<microseconds>(updating_Sketch_t_stop - updating_Sketch_t_start).count();
         }
     }
     // Remove auxiliary objects.
@@ -1036,6 +1059,47 @@ int64_t hqrrp(
     free( buff_W );
     free( buff_R );
     free( buff_D );
+
+    if(timing != nullptr) {
+
+        // Make sure that timing points to a sufficient amount of space.
+        timing = ( T * ) calloc( 9, sizeof( long ) );
+
+        total_t_stop = high_resolution_clock::now();
+        total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+        long other_t_dur  = total_t_dur - (preallocation_t_dur + sketching_t_dur + downdating_t_dur + qrcp_t_dur + qr_t_dur + updating_A_t_dur + updating_Sketch_t_dur);
+
+        timing[0] = preallocation_t_dur;
+        timing[1] = sketching_t_dur;
+        timing[2] = downdating_t_dur;
+        timing[3] = qrcp_t_dur;
+        timing[4] = qr_t_dur;
+        timing[5] = updating_A_t_dur;
+        timing[6] = updating_Sketch_t_dur;
+        timing[7] = other_t_dur;
+        timing[8] = total_t_dur;
+
+        printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
+        printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
+        printf("Sketching time: %34ld μs,\n",                      sketching_t_dur);
+        printf("Downdating A time: %34ld μs,\n",                   downdating_t_dur);
+        printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
+        printf("QR time: %32ld μs,\n",                             qr_t_dur);
+        printf("Updating A time: %23ld μs,\n",                     updating_A_t_dur);
+        printf("Updating Sketch time: %23ld μs,\n",                updating_Sketch_t_dur);
+        printf("Other routines time: %24ld μs,\n",                 other_t_dur);
+        printf("Total time: %35ld μs.\n",                          total_t_dur);
+
+        printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
+        printf("Sketch generation and application takes %2.2f%% of runtime.\n", 100 * ((T) sketching_t_dur       / (T) total_t_dur));
+        printf("Downdating takes %32.2f%% of runtime.\n",                       100 * ((T) downdating_t_dur      / (T) total_t_dur));
+        printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
+        printf("QR takes %32.2f%% of runtime.\n",                               100 * ((T) qr_t_dur              / (T) total_t_dur));
+        printf("Updating A takes %14.2f%% of runtime.\n",                       100 * ((T) updating_A_t_dur      / (T) total_t_dur));
+        printf("Updating Sketch takes %14.2f%% of runtime.\n",                  100 * ((T) updating_Sketch_t_dur / (T) total_t_dur));
+        printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) other_t_dur           / (T) total_t_dur));
+        printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
+    }
     return 0;
 }
 

@@ -17,6 +17,12 @@ set(RandLAPACK_cxx_sources
     rl_gen.hh
     rl_blaspp.hh
     rl_linops.hh
+
+    rl_cusolver.hh
+    rl_cuda_kernels.cuh
+    rl_cuda_macros.hh
+    rl_cqrrpt_gpu.hh
+    rl_cqrrp_gpu.hh
 )
 
 set(RandLAPACK_libs
@@ -54,11 +60,13 @@ target_include_directories(
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/comps>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/drivers>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/misc>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/gpu_functions>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/comps>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/drivers>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/misc>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/gpu_functions>
 )
 
 target_link_libraries(RandLAPACK INTERFACE ${RandLAPACK_libs})

@@ -66,7 +66,7 @@ static std::vector<long> call_all_algs(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, true, tol);
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT(true, true, tol);
     CQRRPT.nnz = 4;
     CQRRPT.num_threads = 48;
 
@@ -186,12 +186,12 @@ int main() {
     int64_t n_stop      = std::pow(2, 13);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state          = RandBLAS::RNGState();
+    auto state          = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 75;
+    int64_t numruns = 10;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);

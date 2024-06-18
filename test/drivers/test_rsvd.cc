@@ -133,6 +133,9 @@ class TestRSVD : public ::testing::Test
         // Regular QB2 call
         all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1, state);
         
+        char name [] = "S";
+        RandBLAS::util::print_colmaj(n, 1, all_data.s1.data(), name);
+
         // Construnct A_approx_determ = U1 * S1 * VT1
 
         // Turn vector into diagonal matrix

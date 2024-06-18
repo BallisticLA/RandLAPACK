@@ -23,4 +23,11 @@
 #include "RandLAPACK/drivers/rl_revd2.hh"
 #include "RandLAPACK/drivers/rl_rbki.hh"
 
+// Cuda functions - issues with linking/visibility when present here.
+// Added a temporary fix to pass tests, will hopefully not encounter the issue of
+// function repitition in benchmarks.
+//#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
+//#include "RandLAPACK/drivers/rl_cqrrp_gpu.hh"
+//#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
+
 #endif

@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
     int64_t num_matmuls_stop       = 50;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state                     = RandBLAS::RNGState();
+    auto state                     = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant            = state;
     int numruns                    = 3;
     long dur_svd = 0;
