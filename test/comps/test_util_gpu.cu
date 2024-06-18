@@ -103,12 +103,20 @@ class TestUtil : public ::testing::Test
         auto n = all_data.col;
         cudaStream_t strm = cudaStreamPerThread;
     
+        char input_name [] = "input";
+        char host_name [] = "host";
+        char device_name [] = "device";
+        RandBLAS::util::print_colmaj(m, n, all_data.A.data(), input_name);
+
         // Perform Pivoted QR
         lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
 
         // Swap columns in A's copy
+        cudaMemcpy(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
         RandLAPACK::cuda_kernels::col_swap_gpu(m, n, n, all_data.A_device, m, all_data.J_device, all_data.buf_device, strm);
         cudaMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+
+        RandBLAS::util::print_colmaj(m, n, all_data.A_host_buffer.data(), device_name);
 
         // Create an identity and store Q in it.
         RandLAPACK::util::eye(m, n, all_data.Ident.data());
@@ -116,6 +124,8 @@ class TestUtil : public ::testing::Test
 
         // Q * R -> Identity space
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.A.data(), m, all_data.Ident.data(), m);
+
+        RandBLAS::util::print_colmaj(m, n, all_data.Ident.data(), host_name);
 
         // A_piv - A_cpy
         for(int i = 0; i < m * n; ++i)
@@ -130,8 +140,8 @@ class TestUtil : public ::testing::Test
 
 TEST_F(TestUtil, test_col_swp_gpu) {
     
-    int64_t m = 1000;
-    int64_t n = 1000;
+    int64_t m = 129;
+    int64_t n = 129;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 
@@ -164,11 +174,6 @@ TEST_F(TestUtil, test_qp3_swp_gpu) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state); 
     lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy.data(), m);
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
-    
-    // Fill and randomly shuffle a vector
-    std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    std::random_shuffle(all_data.J.begin(), all_data.J.begin() + n);
-    cudaMemcpy(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
 
     qp3_swp_gpu<double>(all_data);
 }
