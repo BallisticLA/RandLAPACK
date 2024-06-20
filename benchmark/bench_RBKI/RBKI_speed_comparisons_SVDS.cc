@@ -235,7 +235,7 @@ static void call_all_algs(
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-
+/*
         // There is no reason to run SVD many times, as it always outputs the same result.
         if (num_matmuls == 2) {
             // Running SVD
@@ -254,7 +254,7 @@ static void call_all_algs(
             state_gen = state;
             data_regen(m_info, all_data, state_gen, 1);
         }
-
+*/
         // Running RBKI
         auto start_rbki = high_resolution_clock::now();
         all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
@@ -270,7 +270,7 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-        
+/*        
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
         all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
@@ -288,7 +288,7 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-
+*/
         // There is no reason to run SVDS many times, as it always outputs the same result.
         if (num_matmuls == 2) {
             // Running SVDS
@@ -327,7 +327,7 @@ static void call_all_algs(
         << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",\n";
     }
 }
-/*
+
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
@@ -412,7 +412,7 @@ int main(int argc, char *argv[]) {
         num_matmuls_curr = num_matmuls_start;
     }
 }
-*/
+
 /*
 int main(int argc, char *argv[]) {
 
@@ -443,7 +443,7 @@ int main(int argc, char *argv[]) {
     all_algs.RF.call(m, n, A, n, Q, state);
     printf("Terminated\n");
 }
-*/
+
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
@@ -477,11 +477,11 @@ int main(int argc, char *argv[]) {
     int64_t p = 5;
     int64_t passes_per_iteration = 1;
     // Block size will need to be altered.
-    int64_t block_sz = 1024;
+    int64_t block_sz = 16;
     RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
 
     printf("Finished data preparation\n");
 
-    all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.S, all_data.V, state);
+    all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state);
 }
-
+*/
