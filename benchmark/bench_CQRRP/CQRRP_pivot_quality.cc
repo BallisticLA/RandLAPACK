@@ -197,19 +197,16 @@ int main() {
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
     m_info.cond_num = std::pow(10, 10);
     m_info.rank = n;
     m_info.exponent = 2.0;
     m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
-
 
 #if !defined(__APPLE__)
-    //R_norm_ratio(m_info, b_sz, all_data, state_constant1);
+    R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     //printf("R done\n");
     //sv_ratio(m_info, b_sz, all_data, state_constant2);
     //printf("SV done\n\n");
