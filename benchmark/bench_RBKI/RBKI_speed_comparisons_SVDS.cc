@@ -235,11 +235,13 @@ static void call_all_algs(
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-/*
+
         // There is no reason to run SVD many times, as it always outputs the same result.
         if (num_matmuls == 2) {
             // Running SVD
-            lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
+            // WARINING: GESDD works for large matrices only when Job::NoVec is used.
+            //lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
+            lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.V, n);
             // Standard SVD destorys matrix A, need to re-read it before running accuracy tests.
             state_gen = state;
             RandLAPACK::gen::mat_gen(m_info, all_data.A, state_gen);
@@ -254,7 +256,7 @@ static void call_all_algs(
             state_gen = state;
             data_regen(m_info, all_data, state_gen, 1);
         }
-*/
+
         // Running RBKI
         auto start_rbki = high_resolution_clock::now();
         all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
@@ -270,7 +272,7 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-/*        
+        
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
         all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
@@ -288,7 +290,7 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-*/
+
         // There is no reason to run SVDS many times, as it always outputs the same result.
         if (num_matmuls == 2) {
             // Running SVDS
@@ -348,7 +350,7 @@ int main(int argc, char *argv[]) {
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
-    int numruns                    = 3;
+    int numruns                    = 2;
     long dur_svd                   = 0;
     double norm_A_lowrank          = 0;
     std::vector<long> res;

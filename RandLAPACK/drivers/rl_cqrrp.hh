@@ -122,6 +122,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
 
+        // Skething operator option
+        bool use_gaussian;
+
         // QRCP option
         bool use_qp3;
 
@@ -198,6 +201,11 @@ int CQRRP_blocked<T, RNG>::call(
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
+    // Variables fro the termination criteria
+    T curr_entry = 0;
+    T running_max = 0;
+    T running_min = 0;
+    bool termination_criteria = false;
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -275,15 +283,23 @@ int CQRRP_blocked<T, RNG>::call(
         saso_t_start = high_resolution_clock::now();
     }
 
-    // Skethcing in an embedding regime
-    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
-    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    state = RandBLAS::fill_sparse(S);
+    if (this -> use_gaussian) {
+        T* S  = ( T * ) calloc( d * m, sizeof( T ) );
+        RandBLAS::DenseDist D(d, m);
+        state = RandBLAS::fill_dense(D, S, state).second;
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
+        free(S);
+    } else {
+        // Skethcing in an embedding regime
+        RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
+        RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+        state = RandBLAS::fill_sparse(S);
 
-    RandBLAS::sketch_general(
-        Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_sk, d
-    );
+        RandBLAS::sketch_general(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_sk, d
+        );
+    }
 
     if(this -> timing) {
         saso_t_stop  = high_resolution_clock::now();
@@ -291,7 +307,7 @@ int CQRRP_blocked<T, RNG>::call(
     }
 
     for(iter = 0; iter < maxiter; ++iter) {
-
+        printf("iteration %d\n", iter);
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
@@ -449,21 +465,32 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_stop  = high_resolution_clock::now();
             updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
         }
-
-        // Estimate R norm, use Fro norm trick to compute the approximation error
-        // Keep in mind that R11 is Upper triangular and R12 is rectangular.
-        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11, lda);
-        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12, lda);
-        norm_R_i = std::hypot(norm_R11, norm_R12);
-        norm_R   = std::hypot(norm_R, norm_R_i);
-        // Updating approximation error
-        approx_err = ((norm_A - norm_R) * (norm_A + norm_R)) / norm_A_sq;
+        /*
+        Termination criteria based on the estimate for the comdition number of a sketch at a given iteration.
+        Does not detect low rank.
+        Is only useful for "bad inputs."
+        */
+       /*
+        if (iter != 0) {
+            //running_max = A_sk[0];
+            running_min = A_sk[0];
+            for(i = 0; i < std::min(sampling_dimension, cols); ++i) {
+                curr_entry = std::abs(A_sk[i * d + i]);
+                running_max = std::max(running_max, curr_entry);
+                running_min = std::min(running_min, curr_entry);
+                if(std::abs(running_min / running_max) <= this->eps) {
+                    printf("%e\n", std::abs(running_min / running_max));
+                    termination_criteria = 1;
+                    break;
+                }
+            }
+        }
+        */
 
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if((approx_err < this->eps) || (curr_sz >= n)) {
-
+        if(termination_criteria || (curr_sz >= n)) {
             // Termination criteria reached
             this -> rank = curr_sz;
 

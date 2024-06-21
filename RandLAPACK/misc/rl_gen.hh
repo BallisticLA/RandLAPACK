@@ -253,7 +253,7 @@ void gen_spiked_mat(
     RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
     RandBLAS::SparseSkOp<T> S(DS, state);
     state = RandBLAS::fill_sparse(S);
-
+    
     T* V   = ( T * ) calloc( n * n, sizeof( T ) );
     T* tau = ( T * ) calloc( n,     sizeof( T ) );
 
@@ -265,19 +265,19 @@ void gen_spiked_mat(
 
     // Fill A with stacked copies of V
     int start = 0;
+    int i, j;
     while(start + n <= m){
-        for(int j = 0; j < n; ++j) {
+        for( j = 0; j < n; ++j) {
             blas::copy(n, &V[m * j], 1, &A[start + (m * j)], 1);
         }
         start += n;
     }
-    // Scale randomly sampled rows
-    start = 0;
-    while (start + m <= m * n) {
-        for(int i = 0; i < num_rows_sampled; ++i) {
-            A[start + (S.cols)[i] - 1] *= spike_scale;
+
+    for (i = 0; i < n; ++ i) {
+        for (j = 0; j < num_rows_sampled; ++j) {
+            A[m * i + S.rows[j]] *= spike_scale;
         }
-        start += m;
+        j = 0;
     }
 
     free(V);
