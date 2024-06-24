@@ -239,9 +239,7 @@ static void call_all_algs(
         // There is no reason to run SVD many times, as it always outputs the same result.
         if (num_matmuls == 2) {
             // Running SVD
-            // WARINING: GESDD works for large matrices only when Job::NoVec is used.
-            //lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
-            lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.V, n);
+            lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
             // Standard SVD destorys matrix A, need to re-read it before running accuracy tests.
             state_gen = state;
             RandLAPACK::gen::mat_gen(m_info, all_data.A, state_gen);
@@ -329,7 +327,7 @@ static void call_all_algs(
         << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",\n";
     }
 }
-/*
+
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
@@ -414,70 +412,3 @@ int main(int argc, char *argv[]) {
         num_matmuls_curr = num_matmuls_start;
     }
 }
-*/
-
-int main() {
-
-    int64_t m    = 1000000;
-    int64_t n    = 2048;
-    int64_t b_sz = 16;
-    double tol   = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state   = RandBLAS::RNGState();
-    int64_t p    = 2;
-    int64_t passes_per_iteration = 1;
-
-    double* A = ( double * ) calloc(m * n, sizeof( double ) );
-    double* S = ( double * ) calloc(n,     sizeof( double ) );
-    double* U = ( double * ) calloc(m * n, sizeof( double ) );
-    double* V = ( double * ) calloc(n * n, sizeof( double ) );
-
-    RandBLAS::DenseDist D(m, n);
-    RandBLAS::fill_dense(D, A, state).second;
-    printf("Matrix constructed\n");
-    RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, b_sz, tol);
-    printf("Objects constructed\n");
-    lapack::gesdd(Job::SomeVec, m, n, A, m, S, U, m, V, n);
-    printf("Terminated\n");
-}
-/*
-int main(int argc, char *argv[]) {
-
-    printf("Function begin\n");
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
-    }
-
-    int64_t m                      = 0;
-    int64_t n                      = 0;
-    double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state                     = RandBLAS::RNGState();
-    auto state_constant            = state;
-
-    // Generate the input matrix.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[1];
-    m_info.workspace_query_mod = 1;
-    // Workspace query;
-    RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
-    // Update basic params.
-    m = m_info.rows;
-    n = m_info.cols;
-    // Allocate basic workspace.
-    RBKI_benchmark_data<double> all_data(m, n, tol);
-    // Fill the data matrix;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
-
-    // Declare objects for RSVD and RBKI
-    int64_t p = 5;
-    int64_t passes_per_iteration = 1;
-    // Block size will need to be altered.
-    int64_t block_sz = 16;
-    RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
-
-    printf("Finished data preparation\n");
-
-    all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state);
-}
-*/

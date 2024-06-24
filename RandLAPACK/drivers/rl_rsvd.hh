@@ -137,9 +137,7 @@ int RSVD<T, RNG>::call(
     V  = ( T * ) calloc(n * k, sizeof( T ) );
 
     // SVD of B
-    // WARINING: GESDD works for large matrices only when Job::NoVec is used.
-    //lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
-    lapack::gesvd(Job::SomeVec, Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
+    lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
     // Adjusting U
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k, 1.0, Q, m, UT_buf, k, 0.0, U, m);
 
