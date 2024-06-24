@@ -172,7 +172,6 @@ int QB<T, RNG>::call(
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
 
     while(curr_sz < k) {
-        printf("QB iteration\n");
         // Dynamically changing block size.
         b_sz = std::min(b_sz, k - curr_sz);
         next_sz = curr_sz + b_sz;

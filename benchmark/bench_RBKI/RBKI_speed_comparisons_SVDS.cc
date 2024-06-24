@@ -329,7 +329,7 @@ static void call_all_algs(
         << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",\n";
     }
 }
-
+/*
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
@@ -414,38 +414,32 @@ int main(int argc, char *argv[]) {
         num_matmuls_curr = num_matmuls_start;
     }
 }
+*/
 
-/*
-int main(int argc, char *argv[]) {
+int main() {
 
-    auto size = argv[1];
-
-    int64_t m    = 100000;
-    int64_t n    = std::stoll(size);
+    int64_t m    = 1000000;
+    int64_t n    = 2048;
     int64_t b_sz = 16;
     double tol   = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state   = RandBLAS::RNGState();
     int64_t p    = 2;
     int64_t passes_per_iteration = 1;
 
-    double* A  = ( double * ) calloc(m * n, sizeof( double ) );
-    double* Q  = ( double * ) calloc(m * n, sizeof( double ) );
-    double* BT = ( double * ) calloc(n * n, sizeof( double ) );
-    double* S;
-    double* U;
-    double* V;
+    double* A = ( double * ) calloc(m * n, sizeof( double ) );
+    double* S = ( double * ) calloc(n,     sizeof( double ) );
+    double* U = ( double * ) calloc(m * n, sizeof( double ) );
+    double* V = ( double * ) calloc(n * n, sizeof( double ) );
 
     RandBLAS::DenseDist D(m, n);
     RandBLAS::fill_dense(D, A, state).second;
     printf("Matrix constructed\n");
     RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, b_sz, tol);
     printf("Objects constructed\n");
-    //all_algs.RSVD.call(m, n, A, n, tol, U, S, V, state);
-    all_algs.QB.call(m, n, A, n, 16, tol, Q, BT, state);
-    all_algs.RF.call(m, n, A, n, Q, state);
+    lapack::gesdd(Job::SomeVec, m, n, A, m, S, U, m, V, n);
     printf("Terminated\n");
 }
-
+/*
 int main(int argc, char *argv[]) {
 
     printf("Function begin\n");
