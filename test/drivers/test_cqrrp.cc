@@ -228,11 +228,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_pivot_qual) {
-    int64_t m = std::pow(2, 8);
-    int64_t n = std::pow(2, 8);
-    int64_t k = std::pow(2, 7);
+    int64_t m = std::pow(2, 10);
+    int64_t n = std::pow(2, 10);
+    int64_t k = std::pow(2, 10);
     double d_factor = 1.25;
-    int64_t b_sz = 64;
+    int64_t b_sz = 256;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -244,14 +244,11 @@ TEST_F(TestCQRRP, CQRRP_pivot_qual) {
     CQRRP_blocked.use_qp3      = 1;
     CQRRP_blocked.use_gaussian = 1;
 
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
     m_info.cond_num = std::pow(10, 10);
     m_info.rank = k;
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    char name [] = "A";
-    //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
 
     norm_and_copy_computational_helper(norm_A, all_data);
 #if !defined(__APPLE__)

@@ -89,7 +89,7 @@ static void R_norm_ratio(
     //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state_alg, (T*) nullptr);
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
     std::vector<T> R_norms_HQRRP = get_norms(all_data);
-    printf("\nDone with HQRRP\n");
+    printf("\nDone with QP3\n");
 
     // Clear and re-generate data
     state_gen = state;
@@ -111,6 +111,10 @@ static void R_norm_ratio(
     // Write the 1st metric info into a file.
     for (int i = 0; i < n; ++i)
         file1 << R_norms_HQRRP[i] / R_norms_CQRRP[i] << ",  ";
+
+    // Clear and re-generate data
+    state_gen = state;
+    data_regen(m_info, all_data, state_gen);
 }
 
 template <typename T, typename RNG>
@@ -178,6 +182,10 @@ static void sv_ratio(
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
         file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
+
+    // Clear and re-generate data
+    state_gen = state;
+    data_regen(m_info, all_data, state_gen);
 }
 
 int main() {
@@ -197,18 +205,17 @@ int main() {
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::spiked);
     m_info.cond_num = std::pow(10, 10);
     m_info.rank = n;
     m_info.exponent = 2.0;
     m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-
 #if !defined(__APPLE__)
     R_norm_ratio(m_info, b_sz, all_data, state_constant1);
-    //printf("R done\n");
-    //sv_ratio(m_info, b_sz, all_data, state_constant2);
-    //printf("SV done\n\n");
+    printf("R done\n");
+    sv_ratio(m_info, b_sz, all_data, state_constant2);
+    printf("SV done\n\n");
 #endif
 }

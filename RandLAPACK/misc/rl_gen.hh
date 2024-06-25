@@ -74,9 +74,10 @@ void gen_singvec(
     T* S,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* U        = ( T * ) calloc( m * k, sizeof( T ) );
-    T* V        = ( T * ) calloc( n * k, sizeof( T ) );
-    T* tau      = ( T * ) calloc( k    , sizeof( T ) );
+    std::fill(&A[0], &A[m * n], 0.0);
+    T* U   = ( T * ) calloc( m * k, sizeof( T ) );
+    T* V   = ( T * ) calloc( n * k, sizeof( T ) );
+    T* tau = ( T * ) calloc( k    , sizeof( T ) );
 
     RandBLAS::DenseDist DU(m, k);
     RandBLAS::DenseDist DV(n, k);
