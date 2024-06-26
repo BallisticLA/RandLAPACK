@@ -379,5 +379,50 @@ void transposition(
     }
 }
 
+// Custom implementation of orhr_col.
+// Allows to choose whether to output T or tau.
+template <typename T>
+void rl_orhr_col(
+    int64_t m,
+    int64_t n,
+    T* A,
+    int64_t lda,
+    T* T_dat,
+    T* D,
+    bool output_tau
+) {
+    // We assume that the space for S, D has ben pre-allocated
+    T buf = 0;
+
+    int i;
+    for(i = 0; i < n; ++i) {
+        // S(i, i) = − sgn(Q(i, i)); = 1 if Q(i, i) == 0
+        buf = A[i * lda + i];
+        buf == 0 ? D[i] = 1 : D[i] = -((T(0) < buf) - (buf < T(0)));
+        A[i * lda + i] -= D[i];
+        // Scale ith column if L by diagonal element
+        blas::scal(m - (i + 1), 1 / A[i * (lda + 1)], &A[(lda + 1) * i + 1], 1);
+        // Perform Schur compliment update
+        // A(i+1:m, i+1:n) = A(i+1:m, i+1:n) - (A(i+1:m, i) * A(i, i+1:n))
+        blas::ger(Layout::ColMajor, m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], m, &A[(lda + 1) * (i + 1)], lda);	
+    }
+
+    if(output_tau) {
+        // In this case, we are assuming that T_dat stores a vector tau of length n.
+        blas::copy(n, A, lda + 1, T_dat, 1);
+        #pragma omp parallel for
+        for(i = 0; i < n; ++i)
+            T_dat[i] *= -D[i];
+    } else {
+        // In this case, we are assuming that T_dat stores matrix T of size n by n.
+        // Fing T = -R * diag(D) * Q_11^{-T}
+        lapack::lacpy(MatrixType::Upper, n, n, A, lda, T_dat, n);
+        for(i = 0; i < n; ++i) {
+            blas::scal(i + 1, -D[i], &T_dat[n * i], 1);
+        }
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::Unit, n, n, 1.0, A, lda, T_dat, n);	
+    }
+}
+
 } // end namespace util
 #endif
