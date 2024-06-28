@@ -90,17 +90,6 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         
-        printf("\nITERATION %d\n", i);
-        // Testing GEQP3
-        auto start_geqp3 = high_resolution_clock::now();
-        //lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-        auto stop_geqp3 = high_resolution_clock::now();
-        dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
-        printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
-
-        state_gen = state;
-        data_regen(m_info, all_data, state_gen, 0);
-
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
@@ -111,7 +100,7 @@ static void call_all_algs(
         // Making sure the states are unchanged
         state_gen = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen, 0);
         
         // Testing CQRRP - best setup
         CQRRP_blocked.use_qp3 = false;
@@ -153,7 +142,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen, 1);
         
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = high_resolution_clock::now();
@@ -180,6 +169,19 @@ static void call_all_algs(
         state_alg = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
+
+        if ((i <= 2) && (b_sz == 256)) {
+            printf("\nITERATION %d\n", i);
+            // Testing GEQP3
+            auto start_geqp3 = high_resolution_clock::now();
+            lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
+            auto stop_geqp3 = high_resolution_clock::now();
+            dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
+            printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
+
+            state_gen = state;
+            data_regen(m_info, all_data, state_gen, 0);
+        }
         
         std::ofstream file(output_filename, std::ios::app);
         file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
@@ -191,8 +193,8 @@ int main(int argc, char *argv[]) {
     auto size = argv[1];
 
     // Declare parameters
-    int64_t m          = std::pow(2, 16);
-    int64_t n          = std::pow(2, 16);
+    int64_t m          = std::stol(size);
+    int64_t n          = std::stol(size);
     double d_factor    = 1.25;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;

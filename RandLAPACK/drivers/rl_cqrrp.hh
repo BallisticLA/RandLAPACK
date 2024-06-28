@@ -205,7 +205,6 @@ int CQRRP_blocked<T, RNG>::call(
     T curr_entry = 0;
     T running_max = 0;
     T running_min = 0;
-    bool termination_criteria = false;
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -268,14 +267,6 @@ int CQRRP_blocked<T, RNG>::call(
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work2    = ( T * ) calloc( n, sizeof( T ) );
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
-
-    T norm_A     = lapack::lange(Norm::Fro, m, n, A, lda);
-    T norm_A_sq  = std::pow(norm_A, 2);
-    T norm_R     = 0.0;
-    T norm_R11   = 0.0;
-    T norm_R12   = 0.0;
-    T norm_R_i   = 0.0;
-    T approx_err = 0.0;
 
     if(this -> timing) {
         preallocation_t_stop  = high_resolution_clock::now();
@@ -490,7 +481,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if(termination_criteria || (curr_sz >= n)) {
+        if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
 
