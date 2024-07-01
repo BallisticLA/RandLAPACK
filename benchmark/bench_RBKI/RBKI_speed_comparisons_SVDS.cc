@@ -192,7 +192,6 @@ static void call_all_algs(
     RBKI_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename, 
-    long dur_svd,
     T norm_A_lowrank) {
     printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);
 
@@ -218,6 +217,7 @@ static void call_all_algs(
     long dur_rbki = 0;
     long dur_rsvd = 0;
     long dur_svds = 0;
+    long dur_svd  = 0;
 
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -237,9 +237,14 @@ static void call_all_algs(
         printf("Iteration %d start.\n", i);
 
         // There is no reason to run SVD many times, as it always outputs the same result.
-        if (num_matmuls == 2) {
+        if ((num_matmuls == 2) && (i == 0)) {
             // Running SVD
+            auto start_svd = high_resolution_clock::now();
             lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
+            auto stop_svd = high_resolution_clock::now();
+            dur_svd = duration_cast<microseconds>(stop_svd - start_svd).count();
+            printf("TOTAL TIME FOR SVD %ld\n", dur_svd);
+
             // Standard SVD destorys matrix A, need to re-read it before running accuracy tests.
             state_gen = state;
             RandLAPACK::gen::mat_gen(m_info, all_data.A, state_gen);
@@ -260,6 +265,7 @@ static void call_all_algs(
         all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
+        printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
 
         residual_err_custom_RBKI = residual_error_comp<T>(all_data, custom_rank);
         printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
@@ -270,12 +276,13 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-        
+/*        
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
         all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
         auto stop_rsvd = high_resolution_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
+        printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
@@ -297,6 +304,7 @@ static void call_all_algs(
             svds.compute();
             auto stop_svds = high_resolution_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
+            printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
             // Copy data from Spectra (Eigen) format to the nomal C++.
             Matrix U_spectra = svds.matrix_U(custom_rank);
@@ -319,12 +327,12 @@ static void call_all_algs(
             state_gen = state;
             data_regen(m_info, all_data, state_gen, 1);
         }
-
+*/
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 
         << residual_err_custom_RBKI << ",  " << lowrank_err_RBKI <<  ",  " << dur_rbki    << ",  " 
         << residual_err_custom_RSVD << ",  " << lowrank_err_RSVD <<  ",  " << dur_rsvd    << ",  "
-        << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",\n";
+        << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",  " << dur_svd << ",\n";
     }
 }
 
@@ -349,7 +357,6 @@ int main(int argc, char *argv[]) {
     auto state                     = RandBLAS::RNGState();
     auto state_constant            = state;
     int numruns                    = 2;
-    long dur_svd                   = 0;
     double norm_A_lowrank          = 0;
     std::vector<long> res;
 
@@ -407,7 +414,7 @@ int main(int argc, char *argv[]) {
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
         for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
-            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, dur_svd, norm_A_lowrank);
+            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, norm_A_lowrank);
         }
         num_matmuls_curr = num_matmuls_start;
     }
