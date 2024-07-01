@@ -139,10 +139,10 @@ int SYRF<T, RNG>::call(
         util::upsize(m * k, this->cond_work_mat);
         util::upsize(k, this->cond_work_vec);
         this->cond_nums.push_back(
-            util::cond_num_check(m, k, Q.data(), (this->cond_work_mat).data(), (this->cond_work_vec).data(), this->verbose)
+            util::cond_num_check(m, k, Q.data(), this->verbose)
         );
     }
-    if(this->Orth_Obj.call(m, k, Q))
+    if(this->Orth_Obj.call(m, k, Q.data()))
         throw std::runtime_error("Orthogonalization failed.");
     
     if (!callers_work_buff)

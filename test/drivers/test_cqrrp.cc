@@ -121,12 +121,11 @@ class TestCQRRP : public ::testing::Test
 
         CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
         all_data.rank = CQRRP.rank;
-        
+
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
-        
-        lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
+        lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
         
         lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
@@ -227,8 +226,38 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
 #endif
 }
 
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, CQRRP_pivot_qual) {
+    int64_t m = std::pow(2, 10);
+    int64_t n = std::pow(2, 10);
+    int64_t k = std::pow(2, 10);
+    double d_factor = 1.25;
+    int64_t b_sz = 256;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.nnz          = 4;
+    CQRRP_blocked.num_threads  = 8;
+    CQRRP_blocked.use_qp3      = 1;
+    CQRRP_blocked.use_gaussian = 1;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
+    m_info.cond_num = std::pow(10, 10);
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+#if !defined(__APPLE__)
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+#endif
+}
 
 
+/*
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, something) {
     int64_t m = 10;
@@ -273,3 +302,4 @@ TEST_F(TestCQRRP, something) {
     char name1 [] = "D through gemm";
     RandBLAS::util::print_colmaj(m, n, D_space.data(), name1);
 }
+*/

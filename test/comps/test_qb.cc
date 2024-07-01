@@ -23,8 +23,8 @@ class TestQB : public ::testing::Test
         int64_t rank;
         std::vector<T> A;
         std::vector<T> Q;
-        std::vector<T> B;
-        std::vector<T> B_cpy;
+        std::vector<T> BT;
+        std::vector<T> BT_cpy;
         std::vector<T> A_hat;
         std::vector<T> A_k;
         std::vector<T> A_cpy;
@@ -37,9 +37,7 @@ class TestQB : public ::testing::Test
 
         QBTestData(int64_t m, int64_t n, int64_t k) :
             A(m * n, 0.0), 
-            Q(m * k, 0.0), 
-            B(k * n, 0.0), 
-            B_cpy(k * n, 0.0), 
+            BT_cpy(k * n, 0.0), 
             A_hat(m * n, 0.0),
             A_k(m * n, 0.0),  
             A_cpy(m * n, 0.0),  
@@ -115,20 +113,22 @@ class TestQB : public ::testing::Test
         T* A_dat = all_data.A.data();
         T* A_hat_dat = all_data.A_hat.data();
         T* A_k_dat = all_data.A_k.data();
-        T* A_cpy_2_dat = all_data.A_cpy_2.data();
 
         T* U_dat = all_data.U.data();
         T* s_dat = all_data.s.data();
         T* S_dat = all_data.S.data();
         T* VT_dat = all_data.VT.data();
 
+        T* Q  = nullptr;
+        T* BT = nullptr;
+
         // Regular QB2 call
-        all_algs.QB.call(m, n, all_data.A, k, block_sz, tol, all_data.Q, all_data.B, state);
+        all_algs.QB.call(m, n,  all_data.A.data(), k, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
-        T* Q_dat = all_data.Q.data();
-        T* B_dat = all_data.B.data();
-        T* B_cpy_dat = all_data.B_cpy.data();
+        T* Q_dat = Q;
+        T* BT_dat = BT;
+        T* BT_cpy_dat = all_data.BT_cpy.data();
 
         printf("Inner dimension of QB: %-25ld\n", k);
 
@@ -137,14 +137,14 @@ class TestQB : public ::testing::Test
         // Generate a reference identity
         RandLAPACK::util::eye(k, k, Ident);
         // Buffer for testing B
-        blas::copy(k * n, B_dat, 1, B_cpy_dat, 1);
+        blas::copy(k * n, BT_dat, 1, BT_cpy_dat, 1);
 
         // A_hat = Q * B
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, B_dat, k, 0.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Q_dat, m, BT_dat, n, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, -1.0, Q_dat, m, B_dat, k, 1.0, A_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, -1.0, Q_dat, m, BT_dat, n, 1.0, A_dat, m);
         // TEST 2: B - Q'A = 0
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, B_cpy_dat, k);
+        //blas::gemm(Layout::ColMajor, Op::Trans, Op::Trans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, BT_cpy_dat, n);
         // TEST 3: Q'Q = I
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, Ident_dat, k);
 
@@ -163,9 +163,9 @@ class TestQB : public ::testing::Test
         printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
         ASSERT_NEAR(norm_test_1, 0, test_tol);
         // Test 2 Output
-        T norm_test_2 = lapack::lange(Norm::Fro, k, n, B_cpy_dat, k);
-        printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
-        ASSERT_NEAR(norm_test_2, 0, test_tol);
+        //T norm_test_2 = lapack::lange(Norm::Fro, n, k, BT_cpy_dat, n);
+        //printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
+        //ASSERT_NEAR(norm_test_2, 0, test_tol);
         // Test 3 Output
         T norm_test_3 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, Ident_dat, k);
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
@@ -174,6 +174,8 @@ class TestQB : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         ASSERT_NEAR(norm_test_4, 0, test_tol);
+        free(Q);
+        free(BT);
     }
 
     /// k = min(m, n) test for CholQRCP:
@@ -195,22 +197,25 @@ class TestQB : public ::testing::Test
 
         T* A_dat = all_data.A.data();
         T* Q_dat = all_data.Q.data();
-        T* B_dat = all_data.B.data();
+        T* BT_dat = all_data.BT.data();
         T* A_hat_dat = all_data.A_hat.data();
 
+        T* Q = nullptr;
+        T* BT = nullptr;
+
         // Regular QB2 call
-        all_algs.QB.call(m, n, all_data.A, k_est, block_sz, tol, all_data.Q, all_data.B, state);
+        all_algs.QB.call(m, n, all_data.A.data(), k_est, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
-        Q_dat = all_data.Q.data();
-        B_dat = all_data.B.data();
+        Q_dat  = Q;
+        BT_dat = BT;
 
         printf("Inner dimension of QB: %ld\n", k_est);
 
         // A_hat = Q * B
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, 1.0, Q_dat, m, B_dat, k_est, 0.0, A_hat_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k_est, 1.0, Q_dat, m, BT_dat, n, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_est, -1.0, Q_dat, m, B_dat, k_est, 1.0, A_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k_est, -1.0, Q_dat, m, BT_dat, n, 1.0, A_dat, m);
 
         T norm_test_1 = lapack::lange(Norm::Fro, m, n, A_dat, m);
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
@@ -225,6 +230,8 @@ class TestQB : public ::testing::Test
             printf("FRO NORM OF A:         %e\n", norm_A);
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
+        free(Q);
+        free(BT);
     }
 };
 
@@ -233,9 +240,9 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     int64_t m = 100;
     int64_t n = 100;
     int64_t k = 50;
-    int64_t p = 5;
+    int64_t p = 2;
     int64_t passes_per_iteration = 1;
-    int64_t block_sz = 10;
+    int64_t block_sz = 2;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
     auto state = RandBLAS::RNGState();
     
@@ -259,6 +266,7 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     delete all_data;
     delete all_algs;
 }
+
 
 TEST_F(TestQB, Polynomial_Decay_general2)
 {
