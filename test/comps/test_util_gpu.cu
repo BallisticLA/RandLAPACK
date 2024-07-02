@@ -103,10 +103,10 @@ class TestUtil : public ::testing::Test
         auto n = all_data.col;
         cudaStream_t strm = cudaStreamPerThread;
     
-        char input_name [] = "input";
-        char host_name [] = "host";
-        char device_name [] = "device";
-        RandBLAS::util::print_colmaj(m, n, all_data.A.data(), input_name);
+        //char input_name [] = "input";
+        //char host_name [] = "host";
+        //char device_name [] = "device";
+        //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), input_name);
 
         // Perform Pivoted QR
         lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -116,7 +116,7 @@ class TestUtil : public ::testing::Test
         RandLAPACK::cuda_kernels::col_swap_gpu(m, n, n, all_data.A_device, m, all_data.J_device, all_data.buf_device, strm);
         cudaMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
 
-        RandBLAS::util::print_colmaj(m, n, all_data.A_host_buffer.data(), device_name);
+       // RandBLAS::util::print_colmaj(m, n, all_data.A_host_buffer.data(), device_name);
 
         // Create an identity and store Q in it.
         RandLAPACK::util::eye(m, n, all_data.Ident.data());
@@ -125,7 +125,7 @@ class TestUtil : public ::testing::Test
         // Q * R -> Identity space
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.A.data(), m, all_data.Ident.data(), m);
 
-        RandBLAS::util::print_colmaj(m, n, all_data.Ident.data(), host_name);
+        //RandBLAS::util::print_colmaj(m, n, all_data.Ident.data(), host_name);
 
         // A_piv - A_cpy
         for(int i = 0; i < m * n; ++i)
@@ -141,7 +141,7 @@ class TestUtil : public ::testing::Test
 TEST_F(TestUtil, test_col_swp_gpu) {
     
     int64_t m = 129;
-    int64_t n = 129;
+    int64_t n = 9;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 

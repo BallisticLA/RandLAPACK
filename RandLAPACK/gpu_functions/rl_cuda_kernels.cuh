@@ -14,44 +14,6 @@ namespace RandLAPACK::cuda_kernels {
  * @param[in] lda the number of elements between each row
  * @returns a tuple of 1. thread grid, 2. block grid, 3. number of blocks
  */
-inline
-auto partition_1d(size_t n, size_t m, size_t lda, size_t threads_per_block = 128)
-{
-    (void) m;
-
-    size_t n_elem = n*lda;
-
-    dim3 thread_grid;
-    thread_grid.x = threads_per_block;
-    thread_grid.y = 1;
-    thread_grid.z = 1;
-
-    size_t n_blocks = n_elem / threads_per_block;
-
-    if (n_elem % threads_per_block)
-        ++n_blocks;
-
-    dim3 block_grid;
-    block_grid.x = n_blocks;
-    block_grid.y = 1;
-    block_grid.z = 1;
-
-    return std::make_tuple(thread_grid, block_grid);
-}
-
-inline
-__device__
-size_t array_index()
-{
-    return threadIdx.x + blockDim.x*blockIdx.x;
-}
-
-inline
-__device__
-bool valid_index(size_t q, size_t m, size_t n, size_t lda)
-{
-    return ((q < m * lda) && ((q % lda) < n));
-}
 
 __global__ void __launch_bounds__(128) copy(int64_t* src, int64_t* dest, int64_t n) {
     int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
@@ -69,7 +31,6 @@ __device__ void swap(T* a, T* b, int64_t n) {
         b[id] = v;
     }
 }
-
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
@@ -98,17 +59,28 @@ void col_swap_gpu(
     }
 }
 
-
+// Transposes the input matrix, copying the transposed version into the buffer.
+// If an option is passes, stores only the upper-triangular portion of the transposed factor.
+// This functioin would require a copy with an adjustible stride.
 template <typename T>
  __global__
-void hadamard_product(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda)
-{
-    size_t q = array_index();
-
-    if (!valid_index(q, m, n, lda))
-        return;
-
-    C[q] = A[q] * B[q];
+void transposition_gpu(
+    int64_t m,
+    int64_t n,
+    const T* A,
+    int64_t lda,
+    T* AT,
+    int64_t ldat,
+    int copy_upper_triangle
+) {
+    if (copy_upper_triangle) {
+        // Only transposing the upper-triangular portion of the original
+        for(int i = 0; i < n; ++i)
+            blas::copy(i + 1, &A[i * lda], 1, &AT[i], ldat);
+    } else {
+        for(int i = 0; i < n; ++i)
+            blas::copy(m, &A[i * lda], 1, &AT[i], ldat);
+    }
 }
 
 #endif
@@ -133,9 +105,9 @@ void col_swap_gpu(
     // num blcoks to spawn
     int nb = (m + tpb - 1) / tpb;
     copy<<<nb, tpb, 0, strm>>>(idx, temp_buf, n);
+    cudaStreamSynchronize(strm);
     col_swap_gpu<<<nb, tpb, 0, strm>>>(m, n, k, A, lda, idx);
 #endif
-
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
@@ -144,22 +116,31 @@ void col_swap_gpu(
     }
 }
 
-
 template <typename T>
-void hadamard_product(const T *A, const T *B, T *C, size_t n, size_t m, size_t lda, cudaStream_t strm)
-{
-    auto [tg, bg] = partition_1d(n, m, lda);
+void transposition_gpu(
+    int64_t m,
+    int64_t n,
+    const T* A,
+    int64_t lda,
+    T* AT,
+    int64_t ldat,
+    int copy_upper_triangle,
+    cudaStream_t strm
+) {
 #ifdef USE_CUDA
-    printf("Kernel Execution Begin.");
-    hadamard_product<<<tg, bg, 0, strm>>>(A, B, C, n, m, lda);
+    blas::Queue blas_queue(0);
+    // threads per block
+    int tpb = 128;
+    // num blcoks to spawn
+    int nb = (m + tpb - 1) / tpb;
+    transposition_gpu<<<nb, tpb, 0, strm>>>(m, n, A, lda, AT, ldat, copy_upper_triangle);
 #endif
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch hadamard_product. " << cudaGetErrorString(ierr))
+        BPCG_ERROR("Failed to launch transposition_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
-
 
 } // end namespace cuda_kernels
