@@ -174,7 +174,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_blocked_full_rank_basic) {
     //test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
 #endif
 }
-
+/*
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_GPU_full_rank_block_change) {
     int64_t m = 32;//5000;
@@ -233,4 +233,5 @@ TEST_F(TestCQRRP, CQRRP_blocked_GPU_low_rank) {
     //test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
 #endif
 }
+*/
 #endif

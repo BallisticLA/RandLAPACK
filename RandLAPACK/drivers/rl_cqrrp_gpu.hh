@@ -316,6 +316,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* R_sk_device;
     T* R_cholqr_device;
     int64_t* J_buffer_device;
+    int64_t* temp_buffer_device;
     int64_t* J_buffer_lu_device;
 
     char * d_work_getrf, d_work_geqrf;
@@ -332,6 +333,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     cudaMalloc(&A_sk_device, d * n * sizeof(T));
     cudaMalloc(&A_sk_trans_device, n * d * sizeof(T));
     cudaMalloc(&J_buffer_device, n * sizeof(T));
+    cudaMalloc(&temp_buffer_device, n * sizeof(T));
     cudaMalloc(&J_buffer_lu_device, std::min(d, n) * sizeof(T));
     cudaMalloc(&Work2_device, n * sizeof(T));
     cudaMalloc(&R_cholqr_device, b_sz_const * b_sz_const * sizeof(T));
@@ -359,9 +361,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
-        #pragma omp parallel for
-        for(i = 0; i < cols; ++i)
-            blas::copy(sampling_dimension, &A_sk_device[i * d], 1, &A_sk_trans_device[i], n, blas_queue);
+        RandLAPACK::cuda_kernels::transposition_gpu(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0, strm);
         // Perform a row-pivoted LU on a transpose of A_sk
         //lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
         // Probing workspace size - performed only once.
@@ -383,7 +383,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         // Apply pivots to A_sk
-        //RandLAPACK::cuda_kernels::col_swap_gpu(sampling_dimension, cols, cols, A_sk_device, d, J_buffer_device, strm);
+        RandLAPACK::cuda_kernels::col_swap_gpu(sampling_dimension, cols, cols, A_sk_device, lda, J_buffer_device, temp_buffer_device, strm)
 /*        
         // Perform an unpivoted QR on A_sk
         //lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
