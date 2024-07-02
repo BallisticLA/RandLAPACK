@@ -355,7 +355,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         std::fill(&J_buffer[0], &J_buffer[n], 0);
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
         std::fill(&Work2[0], &Work2[n], (T) 0.0);
-
+/*
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
 
@@ -383,8 +383,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::col_swap_gpu(sampling_dimension, cols, cols, A_sk_device, lda, J_buffer_device, temp_buffer_device, strm)
-/*        
+        RandLAPACK::cuda_kernels::col_swap_gpu(sampling_dimension, cols, cols, A_sk_device, lda, J_buffer_device, temp_buffer_device, strm);
+
         // Perform an unpivoted QR on A_sk
         //lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         if(iter == 0) {
