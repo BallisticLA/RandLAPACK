@@ -58,7 +58,7 @@ void col_swap_gpu(
         }
     }
 }
-
+/*
 // Transposes the input matrix, copying the transposed version into the buffer.
 // If an option is passes, stores only the upper-triangular portion of the transposed factor.
 // This functioin would require a copy with an adjustible stride.
@@ -82,6 +82,7 @@ void transposition_gpu(
             blas::copy(m, &A[i * lda], 1, &AT[i], ldat);
     }
 }
+*/
 
 #endif
 
@@ -115,7 +116,7 @@ void col_swap_gpu(
         abort();
     }
 }
-
+/*
 template <typename T>
 void transposition_gpu(
     int64_t m,
@@ -142,5 +143,5 @@ void transposition_gpu(
         abort();
     }
 }
-
+*/
 } // end namespace cuda_kernels

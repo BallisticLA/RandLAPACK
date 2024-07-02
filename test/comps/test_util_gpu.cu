@@ -141,7 +141,7 @@ class TestUtil : public ::testing::Test
 TEST_F(TestUtil, test_col_swp_gpu) {
     
     int64_t m = 129;
-    int64_t n = 9;
+    int64_t n = 129;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 
