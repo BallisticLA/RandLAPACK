@@ -20,7 +20,7 @@
 using namespace std::chrono;
 
 
-class TestUtil : public ::testing::Test
+class TestUtil_GPU : public ::testing::Test
 {
     protected:
 
@@ -67,6 +67,28 @@ class TestUtil : public ::testing::Test
     };
 
     template <typename T>
+    struct TranspTestData {
+        int64_t row;
+        int64_t col;
+        std::vector<T> A;
+        std::vector<T> A_T;
+        std::vector<T> A_T_buffer;
+        T* A_device;
+        T* A_device_T;
+
+        TranspTestData(int64_t m, int64_t n) :
+        A(m * n, 0.0),
+        A_T(n * m, 0.0),
+        A_T_buffer(n * m, 0.0)
+        {
+            row = m;
+            col = n;
+            cudaMalloc(&A_device,   m * n * sizeof(T));
+            cudaMalloc(&A_device_T, n * m * sizeof(T));
+        }
+    };
+
+    template <typename T>
     static void 
     col_swp_gpu(ColSwpTestData<T> &all_data) {
 
@@ -80,7 +102,7 @@ class TestUtil : public ::testing::Test
         //RandBLAS::util::print_colmaj(m, n, all_data.A.data(), input_name);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A.data(), m, all_data.J);
-        RandLAPACK::cuda_kernels::col_swap_gpu(m, n, n, all_data.A_device, m, all_data.J_device, all_data.buf_device, strm);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
         cudaMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
         cudaMemcpy(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
@@ -113,7 +135,7 @@ class TestUtil : public ::testing::Test
 
         // Swap columns in A's copy
         cudaMemcpy(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
-        RandLAPACK::cuda_kernels::col_swap_gpu(m, n, n, all_data.A_device, m, all_data.J_device, all_data.buf_device, strm);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
         cudaMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
 
        // RandBLAS::util::print_colmaj(m, n, all_data.A_host_buffer.data(), device_name);
@@ -136,12 +158,32 @@ class TestUtil : public ::testing::Test
         ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 
+    template <typename T>
+    static void 
+    transp_gpu(TranspTestData<T> &all_data) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        cudaStream_t strm = cudaStreamPerThread;
+    
+        RandLAPACK::util::transposition(m, n, all_data.A.data(), m, all_data.A_T.data(), n, 0);
+        RandLAPACK::cuda_kernels::transposition_gpu(strm, m, n, all_data.A_device, m, all_data.A_device_T, n, 0);
+        cudaMemcpy(all_data.A_T_buffer.data(), all_data.A_device_T, n * m * sizeof(T), cudaMemcpyDeviceToHost);
+
+        // A_piv - A_cpy
+        for(int i = 0; i < m * n; ++i)
+            all_data.A_T[i] -= all_data.A_T_buffer[i];
+
+        T norm = lapack::lange(Norm::Fro, n, m, all_data.A_T.data(), n);
+        printf("||A_T_host - A_T_device||_F:  %e\n", norm);
+        ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+    }
 };
 
-TEST_F(TestUtil, test_col_swp_gpu) {
+TEST_F(TestUtil_GPU, test_col_swp_gpu) {
     
-    int64_t m = 129;
-    int64_t n = 129;
+    int64_t m = 1000;
+    int64_t n = 1000;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 
@@ -160,7 +202,7 @@ TEST_F(TestUtil, test_col_swp_gpu) {
     col_swp_gpu<double>(all_data);
 }
 
-TEST_F(TestUtil, test_qp3_swp_gpu) {
+TEST_F(TestUtil_GPU, test_qp3_swp_gpu) {
     
     int64_t m = 4;
     int64_t n = 4;
@@ -176,5 +218,22 @@ TEST_F(TestUtil, test_qp3_swp_gpu) {
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
     qp3_swp_gpu<double>(all_data);
+}
+
+TEST_F(TestUtil_GPU, test_transp_gpu) {
+    
+    int64_t m = 641;
+    int64_t n = 641;
+    auto state = RandBLAS::RNGState();
+    TranspTestData<double> all_data(m, n);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state); 
+    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+
+    transp_gpu<double>(all_data);
 }
 #endif

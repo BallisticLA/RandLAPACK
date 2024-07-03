@@ -15,50 +15,57 @@ namespace RandLAPACK::cuda_kernels {
  * @returns a tuple of 1. thread grid, 2. block grid, 3. number of blocks
  */
 
-__global__ void __launch_bounds__(128) copy(int64_t* src, int64_t* dest, int64_t n) {
+template <typename T>
+__global__ void __launch_bounds__(128) copy_gpu(int64_t n, T const* src, int64_t incr_src, T* dest, int64_t incr_dest) {
     int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
     if (id < n) {
-        dest[id] = src[id];
+        dest[id * incr_dest] = src[id * incr_src];
     }
 }
- 
+
 template <typename T>
-__device__ void swap(T* a, T* b, int64_t n) {
+__global__ void __launch_bounds__(128) swap_gpu(T* a, int64_t incr_a, T* b, int64_t n, int64_t incr_b) {
     int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
     if (id < n) {
-        T const v{a[id]};
-        a[id] = b[id];
-        b[id] = v;
+        T const v{a[id * incr_a]};
+        a[id * incr_a] = b[id * incr_b];
+        b[id * incr_b] = v;
     }
 }
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
 template <typename T>
- __global__
-void col_swap_gpu(    
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    T* A,
-    int64_t lda,
-    int64_t* idx
-    )
-{
+__global__ void __launch_bounds__(128) col_swap_gpu(
+    int64_t m, int64_t n, int64_t k,
+    T* A, int64_t lda,
+    int64_t const* idx
+) {
+    extern __shared__ int64_t local_idx[];
+    if (k > n) {
+        return;
+    }
     A -= lda;
-    int64_t* end = idx + k;
-    for (int64_t i = 1; i <= k; ++i, ++idx) {
+    for (int64_t i = threadIdx.x; i < k; i += blockDim.x) {
+        local_idx[i] = idx[i];
+    }
+    __syncthreads();
+    int64_t* curr = local_idx;
+    int64_t* end = local_idx + k;
+    for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
-        if (int64_t const j = *idx; i != j) {
-            // swap columns
-            swap(A + i * lda, A + j * lda, m); 
+        if (int64_t const j = *curr; i != j) {
+            for (int64_t l = blockIdx.x * blockDim.x + threadIdx.x; l < m; l += blockDim.x * gridDim.x) {
+                std::iter_swap(A + i * lda + l, A + j * lda + l);
+            }
+            if (threadIdx.x == 0) {
+                std::iter_swap(curr, std::find(curr, end, i));
+            }
             __syncthreads();
-            // swap indices
-            std::iter_swap(idx, std::find(idx, end, i));
         }
     }
 }
-/*
+
 // Transposes the input matrix, copying the transposed version into the buffer.
 // If an option is passes, stores only the upper-triangular portion of the transposed factor.
 // This functioin would require a copy with an adjustible stride.
@@ -71,43 +78,53 @@ void transposition_gpu(
     int64_t lda,
     T* AT,
     int64_t ldat,
-    int copy_upper_triangle
+    int copy_upper_triangle,
+    int64_t num_blocks,
+    int64_t threadsPerBlock
 ) {
     if (copy_upper_triangle) {
         // Only transposing the upper-triangular portion of the original
-        for(int i = 0; i < n; ++i)
-            blas::copy(i + 1, &A[i * lda], 1, &AT[i], ldat);
+        for(int64_t i = threadIdx.x; i < n; i += blockDim.x)
+            copy_gpu<<<num_blocks, threadsPerBlock>>>(i + 1, &A[i * lda], 1, &AT[i], ldat);
+            __syncthreads();
     } else {
-        for(int i = 0; i < n; ++i)
-            blas::copy(m, &A[i * lda], 1, &AT[i], ldat);
+        for(int64_t i = threadIdx.x; i < n; i += blockDim.x)
+            copy_gpu<<<num_blocks, threadsPerBlock>>>(m, &A[i * lda], 1, &AT[i], ldat);
+            __syncthreads();
     }
 }
-*/
 
 #endif
+
+
+template <typename T>
+void copy_gpu(cudaStream_t stream, int64_t n, T const* src, int64_t incr_src, T* dest, int64_t incr_dest) {
+    
+#ifdef USE_CUDA
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
+    copy_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, src, incr_src, dest, incr_dest);
+    cudaStreamSynchronize(stream);
+#endif
+}
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
 template <typename T>
-void col_swap_gpu(    
-    int64_t m,
-    int64_t n,
+void col_swap_gpu(
+    cudaStream_t stream, 
+    int64_t m, 
+    int64_t n, 
     int64_t k,
-    T* A,
+    T* A, 
     int64_t lda,
-    int64_t* idx,
-    int64_t* temp_buf,
-    cudaStream_t strm)
-{
+    int64_t const* idx
+) {
 #ifdef USE_CUDA
-    blas::Queue blas_queue(0);
-    // threads per block
-    int tpb = 128;
-    // num blcoks to spawn
-    int nb = (m + tpb - 1) / tpb;
-    copy<<<nb, tpb, 0, strm>>>(idx, temp_buf, n);
-    cudaStreamSynchronize(strm);
-    col_swap_gpu<<<nb, tpb, 0, strm>>>(m, n, k, A, lda, idx);
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
+    col_swap_gpu<<<num_blocks, threadsPerBlock, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
+    cudaStreamSynchronize(stream);
 #endif
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
@@ -116,25 +133,24 @@ void col_swap_gpu(
         abort();
     }
 }
-/*
+
+
 template <typename T>
 void transposition_gpu(
+    cudaStream_t stream, 
     int64_t m,
     int64_t n,
     const T* A,
     int64_t lda,
     T* AT,
     int64_t ldat,
-    int copy_upper_triangle,
-    cudaStream_t strm
+    int copy_upper_triangle
 ) {
 #ifdef USE_CUDA
-    blas::Queue blas_queue(0);
-    // threads per block
-    int tpb = 128;
-    // num blcoks to spawn
-    int nb = (m + tpb - 1) / tpb;
-    transposition_gpu<<<nb, tpb, 0, strm>>>(m, n, A, lda, AT, ldat, copy_upper_triangle);
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks_copy{(m + threadsPerBlock - 1) / threadsPerBlock};
+    int64_t num_blocks_transposition{(n + threadsPerBlock - 1) / threadsPerBlock};
+    transposition_gpu<<<num_blocks_transposition, threadsPerBlock, 0, stream>>>(m, n, A, lda, AT, ldat, copy_upper_triangle, num_blocks_copy, threadsPerBlock);
 #endif
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
@@ -143,5 +159,4 @@ void transposition_gpu(
         abort();
     }
 }
-*/
 } // end namespace cuda_kernels
