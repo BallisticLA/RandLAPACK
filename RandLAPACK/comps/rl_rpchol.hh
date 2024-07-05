@@ -63,9 +63,9 @@ void downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F
 } // end namespace RandLAPACK::_rpchol_impl
 
 /***
- * Computes a rank-k approximation of an implicit N-by-N matrix whose (i,j)^{th}
+ * Computes a rank-k approximation of an implicit n-by-n matrix whose (i,j)^{th}
  * entry is A_stateless(i,j), where A_stateless is a stateless function. We build
- * the approximation iteratively and increase the rank by at most "B" at each iteration.
+ * the approximation iteratively and increase the rank by at most "b" at each iteration.
  * 
  * Implements Algorithm 4 from https://arxiv.org/abs/2304.12465.
  * 
@@ -92,9 +92,14 @@ void downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F
  *      RandBLAS::RNGState state_in(0);
  *      auto state_out = rp_cholesky(cols_x, A, k, selection.data(), F.data(), 64, state_in);
  * 
+ * Notes
+ * -----
+ * Compare to 
+ * https://github.com/eepperly/Robust-randomized-preconditioning-for-kernel-ridge-regression/blob/main/code/choleskybase.m
+ * 
  */
 template <typename T, typename FUNC_T, typename STATE>
-STATE rp_cholesky(int64_t N, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t B, STATE state) {
+STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t b, STATE state) {
     // TODO: make this function robust to rank-deficient matrices. 
     using RandBLAS::util::sample_indices_iid;
     using RandBLAS::util::weights_to_cdf;
@@ -103,34 +108,33 @@ STATE rp_cholesky(int64_t N, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
     auto layout = blas::Layout::ColMajor;
     auto uplo = blas::Uplo::Upper;
 
-    std::vector<T> work_mat(B*k, 0.0);
-    std::vector<T> work_d(N, 0.0);
-    std::vector<T> work_cdf(N);
+    std::vector<T> work_mat(b*k, 0.0);
+    std::vector<T> d(n, 0.0);
+    std::vector<T> cdf(n);
 
     std::vector<int64_t> Sprime{};
     
-    for (int64_t i = 0; i < N; ++i)
-        work_d[i] = A_stateless(i,i);
-    work_cdf = work_d;
-    weights_to_cdf(work_cdf.data(), N);
+    for (int64_t i = 0; i < n; ++i)
+        d[i] = A_stateless(i,i);
+    cdf = d;
+    weights_to_cdf(cdf.data(), n);
 
     int64_t ell = 0;
     while (ell < k) {
         //
         //  1. Compute the next block of column indices
         //
-        int64_t curr_B = std::min(B, k - ell);
+        int64_t curr_B = std::min(b, k - ell);
         Sprime.resize(curr_B);
-        state = sample_indices_iid(work_cdf.data(), N, Sprime.data(), curr_B, state);
+        state = sample_indices_iid(cdf.data(), n, Sprime.data(), curr_B, state);
         std::sort( Sprime.begin(), Sprime.end() );
         Sprime.erase( unique( Sprime.begin(), Sprime.end() ), Sprime.end() );
         int64_t ell_incr = Sprime.size();
-        std::copy(Sprime.begin(), Sprime.end(), S + ell);
 
         //
         //  2. Compute F_panel: the next block of ell_incr columns in F.
         //
-        T* F_panel = F + ell*N;
+        T* F_panel = F + ell*n;
         //
         //      2.1. Overwrite F_panel with the matrix "G" from Line 5 of [arXiv:2304.12465, Algorithm 4].
         //
@@ -138,18 +142,18 @@ STATE rp_cholesky(int64_t N, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
         //           The downdate is delicate since the output matrix shares a buffer with one of the
         //           input matrices, but it's okay since they're non-overlapping regions of that buffer.
         //
-        _rpchol_impl::compute_columns(layout, N, A_stateless, Sprime, F_panel);
+        _rpchol_impl::compute_columns(layout, n, A_stateless, Sprime, F_panel);
         //           ^ F_panel = A(:, Sprime).
-        _rpchol_impl::pack_selected_rows(layout, N, ell, F, Sprime, work_mat.data());
+        _rpchol_impl::pack_selected_rows(layout, n, ell, F, Sprime, work_mat.data());
         //           ^ work_mat is a copy of F(Sprime, 1:ell).
         blas::gemm(
-            layout, Op::NoTrans, Op::Trans, N, ell_incr, ell,
-            -1.0, F, N, work_mat.data(), ell_incr, 1.0, F_panel, N
+            layout, Op::NoTrans, Op::Trans, n, ell_incr, ell,
+            -1.0, F, n, work_mat.data(), ell_incr, 1.0, F_panel, n
         );
         //
         //      2.2. Execute Lines 6 and 7 of [arXiv:2304.12465, Algorithm 4].     
         //
-        _rpchol_impl::pack_selected_rows(layout, N, ell_incr, F_panel, Sprime, work_mat.data());
+        _rpchol_impl::pack_selected_rows(layout, n, ell_incr, F_panel, Sprime, work_mat.data());
         int status = lapack::potrf(uplo, ell_incr, work_mat.data(), ell_incr);
         if (status) {
             std::cout << "Cholesky failed with exit code " << status << ". Returning early!";
@@ -158,13 +162,14 @@ STATE rp_cholesky(int64_t N, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
         }
         blas::trsm(
             layout, blas::Side::Right, uplo, Op::NoTrans, blas::Diag::NonUnit,
-            N, ell_incr, 1.0, work_mat.data(), ell_incr, F_panel, N
+            n, ell_incr, 1.0, work_mat.data(), ell_incr, F_panel, n
         );
 
         //
-        // 3. Update work_d, work_cdf, and ell.
+        // 3. Update S, d, cdf and ell.
         //
-        _rpchol_impl::downdate_d_and_cdf(layout, N, Sprime, F_panel, work_d, work_cdf);
+        std::copy(Sprime.begin(), Sprime.end(), S + ell);
+        _rpchol_impl::downdate_d_and_cdf(layout, n, Sprime, F_panel, d, cdf);
         ell = ell + ell_incr;
     }
     return state;
