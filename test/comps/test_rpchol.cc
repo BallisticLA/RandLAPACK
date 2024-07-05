@@ -52,57 +52,57 @@ class TestRPCholesky : public ::testing::Test {
     virtual void TearDown() {};
 
     template <typename T, typename FUNC>
-    void run_exact(int64_t N, FUNC &A, T* Abuff, int64_t B, T atol, T rtol, uint32_t seed) {
+    void run_exact(int64_t n, FUNC &A, T* Abuff, int64_t b, T atol, T rtol, uint32_t seed) {
         using std::vector;
 
-        int64_t k = N;
-        vector<T> F(N*k, 0.0);
+        int64_t k = n;
+        vector<T> F(n*k, 0.0);
         vector<int64_t> selection(k, -1);
         RandBLAS::RNGState state_in(seed);
-        auto state_out = RandLAPACK::rp_cholesky(N, A, k, selection.data(), F.data(), B, state_in);
+        auto state_out = RandLAPACK::rp_cholesky(n, A, k, selection.data(), F.data(), b, state_in);
 
         vector<T> Arecovered(F);
-        full_gram(N, Arecovered, blas::Op::NoTrans, k);
+        full_gram(n, Arecovered, blas::Op::NoTrans, k);
         test::comparison::matrices_approx_equal(
-            blas::Layout::ColMajor, blas::Op::NoTrans, N, N, Abuff, N, Arecovered.data(), N, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+            blas::Layout::ColMajor, blas::Op::NoTrans, n, n, Abuff, n, Arecovered.data(), n, __PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
-        // Check that the pivots are reasonable and nontrivial (i.e., not the sequence from 0 to N-1).
+        // Check that the pivots are reasonable and nontrivial (i.e., not the sequence from 0 to n-1).
         std::set<int64_t> selection_unique{};
         for (auto pivot : selection) {
             if (pivot != -1)
                 selection_unique.insert(pivot);
         }
         ASSERT_EQ(selection_unique.size(), k) << "using seed " << seed;
-        if (N > 4)
+        if (n > 4)
             ASSERT_FALSE(std::is_sorted(selection.begin(), selection.end())) <<  "using seed " << seed;
         // ^ is_sorted() checks if we're in increasing order
         return;
     }
 
     template <typename T>
-    void run_exact_diag(int64_t N, int64_t B, int64_t power, uint32_t seed) {  
-        std::vector<T> Avec(N * N, 0.0);
-        for (int64_t i = 0; i < N; ++i)
-            Avec[i + N*i] = std::pow((T) i + 1, power);
+    void run_exact_diag(int64_t n, int64_t b, int64_t power, uint32_t seed) {  
+        std::vector<T> Avec(n * n, 0.0);
+        for (int64_t i = 0; i < n; ++i)
+            Avec[i + n*i] = std::pow((T) i + 1, power);
         auto Abuff = Avec.data();
-        auto A = [Abuff, N](int64_t i, int64_t j) { return Abuff[i + N*j]; };
+        auto A = [Abuff, n](int64_t i, int64_t j) { return Abuff[i + n*j]; };
 
-        T atol = std::sqrt(N) * std::numeric_limits<T>::epsilon();
-        T rtol = std::sqrt(N) * std::numeric_limits<T>::epsilon();
-        run_exact(N, A, Abuff, B, atol, rtol, seed);
+        T atol = std::sqrt(n) * std::numeric_limits<T>::epsilon();
+        T rtol = std::sqrt(n) * std::numeric_limits<T>::epsilon();
+        run_exact(n, A, Abuff, b, atol, rtol, seed);
         return;
     }
 
     template <typename T>
-    void run_exact_kahan_gram(int64_t N, int64_t B, uint32_t seed) {
+    void run_exact_kahan_gram(int64_t n, int64_t b, uint32_t seed) {
         using std::vector;
-        vector<T> Avec(N * N, 0.0);
+        vector<T> Avec(n * n, 0.0);
         T theta = 1.2;
         T perturb = 10;
-        RandLAPACK::gen::gen_kahan_mat(N, N, Avec.data(), theta, perturb);
+        RandLAPACK::gen::gen_kahan_mat(n, n, Avec.data(), theta, perturb);
         vector<T> kahan(Avec);
-        full_gram(N, Avec, blas::Op::Trans);
+        full_gram(n, Avec, blas::Op::Trans);
         // ^ Avec now represents the Gram matrix of the Kahan matrix.
 
         std::vector<T> gk_chol(Avec); 
@@ -110,27 +110,27 @@ class TestRPCholesky : public ::testing::Test {
         //   and compare to the Kahan matrix itself. This helps us get
         //   a realistic tolerance considering the numerical nastyness
         //   of the Kahan matrix.
-        auto status = lapack::potrf(blas::Uplo::Upper, N, gk_chol.data(), N);
+        auto status = lapack::potrf(blas::Uplo::Upper, n, gk_chol.data(), n);
         randblas_require(status == 0);
         T atol = 0.0;
-        RandLAPACK::util::get_U(N, N, gk_chol.data(), N);
-        for (int64_t i = 0; i < N*N; ++i) {
+        RandLAPACK::util::get_U(n, n, gk_chol.data(), n);
+        for (int64_t i = 0; i < n*n; ++i) {
             T val1 = std::abs(kahan[i] - gk_chol[i]);
             T val2 = std::abs(kahan[i] + gk_chol[i]);
             atol = std::max(atol, std::min(val1, val2));
         }
-        atol = std::sqrt(N) * atol;
+        atol = std::sqrt(n) * atol;
 
         T* Abuff = Avec.data();
-        auto A = [Abuff, N](int64_t i, int64_t j) { return Abuff[i + N*j]; };
-        run_exact(N, A, Abuff, B, atol, atol, seed);
+        auto A = [Abuff, n](int64_t i, int64_t j) { return Abuff[i + n*j]; };
+        run_exact(n, A, Abuff, b, atol, atol, seed);
         // ^ use the same value for rtol and atol
         return;
     }
 };
 
 
-TEST_F(TestRPCholesky, test_exact_diag_B1) {
+TEST_F(TestRPCholesky, test_exact_diag_b1) {
     for (uint32_t i = 2012; i < 2019; ++i) {
         run_exact_diag<float>(5,   1, 2, i);
         run_exact_diag<float>(10,  1, 1, i);
@@ -140,7 +140,7 @@ TEST_F(TestRPCholesky, test_exact_diag_B1) {
     }
 }
 
-TEST_F(TestRPCholesky, test_exact_diag_B2) {
+TEST_F(TestRPCholesky, test_exact_diag_b2) {
     for (uint32_t i = 2012; i < 2019; ++i) {
         run_exact_diag<float>(10,  2, 1, i);
         run_exact_diag<float>(10,  2, 2, i);
@@ -148,14 +148,14 @@ TEST_F(TestRPCholesky, test_exact_diag_B2) {
     }
 }
 
-TEST_F(TestRPCholesky, test_exact_kahan_gram_B1) {
+TEST_F(TestRPCholesky, test_exact_kahan_gram_b1) {
     for (uint32_t i = 2012; i < 2019; ++i) {
         run_exact_kahan_gram<float>(5,  1, i);
         run_exact_kahan_gram<float>(10, 1, i);
     }
 }
 
-TEST_F(TestRPCholesky, test_exact_kahan_gram_B2) {
+TEST_F(TestRPCholesky, test_exact_kahan_gram_b2) {
     for (uint32_t i = 2012; i < 2019; ++i) {
         run_exact_kahan_gram<float>(10,  2, i);
         run_exact_kahan_gram<float>(11,  2, i);
@@ -163,7 +163,7 @@ TEST_F(TestRPCholesky, test_exact_kahan_gram_B2) {
     }
 }
 
-TEST_F(TestRPCholesky, test_exact_kahan_gram_B3) {
+TEST_F(TestRPCholesky, test_exact_kahan_gram_b3) {
     for (uint32_t i = 2012; i < 2019; ++i) {
         run_exact_kahan_gram<float>(9,   3, i);
         run_exact_kahan_gram<float>(10,  3, i);
