@@ -1,3 +1,4 @@
+#if !defined(__APPLE__)
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -163,9 +164,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -192,9 +191,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 
@@ -222,9 +219,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 
@@ -273,3 +268,4 @@ TEST_F(TestCQRRP, something) {
     char name1 [] = "D through gemm";
     RandBLAS::util::print_colmaj(m, n, D_space.data(), name1);
 }
+#endif

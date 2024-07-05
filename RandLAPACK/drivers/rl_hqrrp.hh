@@ -346,29 +346,17 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
 // ============================================================================
 template <typename T>
 int64_t NoFLA_QRP_compute_norms(
-    int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
-    T * buff_d, T * buff_e ) {
-//
-// It computes the column norms of matrix A. The norms are stored int64_to 
-// vectors d and e.
-//
-
-    high_resolution_clock::time_point nrm_t_start;
-    high_resolution_clock::time_point nrm_t_stop;
-    long nrm_dur  = 0;
-    long dur_curr = 0;
-
-    int64_t     j, i_one = 1;
+    int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A, T * buff_d, T * buff_e
+) {
+    //
+    // It computes the column norms of matrix A. The norms are stored int64_to 
+    // vectors d and e.
+    //
 
     // Main loop.
     //#pragma omp parallel for
-    for( j = 0; j < n_A; j++ ) {
-        nrm_t_start = high_resolution_clock::now();
-        * buff_d = blas::nrm2(m_A, buff_A, i_one);
-        nrm_t_stop = high_resolution_clock::now();
-        dur_curr = duration_cast<microseconds>(nrm_t_stop - nrm_t_start).count();
-        nrm_dur += dur_curr;
-
+    for(int64_t j = 0; j < n_A; j++ ) {
+        * buff_d = blas::nrm2(m_A, buff_A, 1);
         * buff_e = * buff_d;
         buff_A += ldim_A;
         buff_d++;
@@ -534,6 +522,7 @@ static int64_t CHOLQR_mod_WY(
         T * buff_t,
         T * buff_T, int64_t ldim_T, T* buff_R, int64_t ldim_R, T* buff_D
         ) {
+#if !defined(__APPLE__)
     //
     // Simplification of NoFLA_QRPmod_WY_unb_var4 for the case when pivoting=0.
     //
@@ -552,9 +541,7 @@ static int64_t CHOLQR_mod_WY(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
 
     // Perform Householder reconstruction
-#if !defined(__APPLE__)
     lapack::orhr_col(m_A, n_A, n_A, buff_A, ldim_A, buff_T, ldim_T, buff_D);
-#endif
 
     // Update the signs in the R-factor
     int i, j;
@@ -568,8 +555,13 @@ static int64_t CHOLQR_mod_WY(
     // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
-
     return 0;
+#else
+    UNUSED(num_stages); UNUSED(m_A); UNUSED(n_A); UNUSED(buff_A); UNUSED(ldim_A);
+    UNUSED(buff_t); UNUSED(buff_T); UNUSED(ldim_T); UNUSED(buff_R); UNUSED(ldim_R);
+    UNUSED(buff_D); 
+    return 1;
+#endif
 }
 
 // ============================================================================

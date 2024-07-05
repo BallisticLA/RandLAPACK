@@ -1,3 +1,4 @@
+#if !defined(__APPLE__)
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -6,7 +7,6 @@
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
-
 
 class TestHQRRP : public ::testing::Test
 {
@@ -163,7 +163,6 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
 
     norm_and_copy_computational_helper(norm_A, all_data);
 // This test uses orhr_col
-#if !defined(__APPLE__)
     test_HQRRP_general(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
-#endif
 }
+#endif
