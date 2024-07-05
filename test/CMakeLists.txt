@@ -13,6 +13,7 @@ if (GTest_FOUND)
         comps/test_preconditioners.cc
         comps/test_rf.cc
         comps/test_syrf.cc
+        comps/test_rpchol.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
         drivers/test_cqrrp.cc
