@@ -72,8 +72,8 @@ void euclidean_distance_submatrix(
     int64_t rows_x, int64_t cols_x, T* X, T* sq_colnorms_x,
     int64_t rows_eds, int64_t cols_eds, T* Eds, int64_t ro_eds, int64_t co_eds
 ) {
-    randblas_require((0 <= co_eds) && ((co_eds + cols_eds) < cols_x));
-    randblas_require((0 <= ro_eds) && ((ro_eds + rows_eds) < cols_x));
+    randblas_require((0 <= co_eds) && ((co_eds + cols_eds) <= cols_x));
+    randblas_require((0 <= ro_eds) && ((ro_eds + rows_eds) <= cols_x));
     for (int64_t i = 0; i < rows_eds; ++i) {
         T a = sq_colnorms_x[i + ro_eds];
         for (int64_t j = 0; j < cols_eds; ++j) {
@@ -117,10 +117,11 @@ void squared_exp_kernel_submatrix(
     int64_t rows_ksub, int64_t cols_ksub,  T* Ksub, int64_t ro_ksub, int64_t co_ksub,
     T bandwidth
 ) {
+    randblas_require(bandwidth > 0);
     // First, compute the relevant submatrix of the Euclidean distance matrix
     euclidean_distance_submatrix(rows_x, cols_x, X, sq_colnorms_x, rows_ksub, cols_ksub, Ksub, ro_ksub, co_ksub);
-    // Next, scale by 1/(2*bandwidth^2).
-    T scale = 1.0 / (2.0 * bandwidth * bandwidth);
+    // Next, scale by -1/(2*bandwidth^2).
+    T scale = -1.0 / (2.0 * bandwidth * bandwidth);
     int64_t size_Ksub = rows_ksub * cols_ksub;
     blas::scal(size_Ksub, scale, Ksub, 1);
     // Finally, apply an elementwise exponential function
@@ -132,14 +133,14 @@ void squared_exp_kernel_submatrix(
 }
 
 template <typename T>
-void squared_exp_kernel(int64_t dim, T* x, T* y, T bandwidth) {
+T squared_exp_kernel(int64_t dim, T* x, T* y, T bandwidth) {
     T sq_nrm = 0.0;
     T scale = std::sqrt(2.0)*bandwidth;
     for (int64_t i = 0; i < dim; ++i) {
         T diff = (x[i] - y[i])/scale;
         sq_nrm += diff*diff;
     }
-    return std::exp(sq_nrm);
+    return std::exp(-sq_nrm);
 }
 
 }
