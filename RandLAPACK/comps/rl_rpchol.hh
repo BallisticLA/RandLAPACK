@@ -13,12 +13,10 @@ namespace _rpchol_impl {
 
 using std::vector;
 using blas::Layout;
-template <typename T>
-using Kernel = std::function<T(int64_t, int64_t)>;
 
-template <typename T>
+template <typename T, typename FUNC_T>
 void compute_columns(
-    Layout layout, int64_t N, Kernel<T> &K_stateless, vector<int64_t> &col_indices, T* buff
+    Layout layout, int64_t N, FUNC_T &K_stateless, vector<int64_t> &col_indices, T* buff
 ) {
     randblas_require(layout == Layout::ColMajor);
     int64_t num_cols = col_indices.size();
@@ -45,16 +43,20 @@ void pack_selected_rows(
 }
 
 template <typename T>
-void downdate_d_and_cdf(Layout layout, int64_t N, int64_t cols_F_panel, T* F_panel, vector<T> &d, vector<T> &cdf) {
+void downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F_panel, vector<T> &d, vector<T> &cdf) {
     randblas_require(layout == Layout::ColMajor);
+    int64_t cols_F_panel = indices.size();
     for (int64_t j = 0; j < cols_F_panel; ++j) {
         for (int64_t i = 0; i < N; ++i) {
             T val = F_panel[i + j*N];
             d[i] -= val*val;
         }
     }
+    // Then, to accound for the possibility of rounding errors, manually zero-out everything in "indices."
+    for (auto i : indices)
+        d[i] = 0.0;
     cdf = d;
-    weights_to_cdf(cdf.data(), N);
+    RandBLAS::util::weights_to_cdf(cdf.data(), N);
     return;
 }
 
@@ -91,8 +93,8 @@ void downdate_d_and_cdf(Layout layout, int64_t N, int64_t cols_F_panel, T* F_pan
  *      auto state_out = rp_cholesky(cols_x, A, k, selection.data(), F.data(), 64, state_in);
  * 
  */
-template <typename T, typename STATE>
-STATE rp_cholesky(int64_t N, std::function<T(int64_t, int64_t)> &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t B, STATE state) {
+template <typename T, typename FUNC_T, typename STATE>
+STATE rp_cholesky(int64_t N, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t B, STATE state) {
     // TODO: make this function robust to rank-deficient matrices. 
     using RandBLAS::util::sample_indices_iid;
     using RandBLAS::util::weights_to_cdf;
@@ -123,8 +125,7 @@ STATE rp_cholesky(int64_t N, std::function<T(int64_t, int64_t)> &A_stateless, in
         std::sort( Sprime.begin(), Sprime.end() );
         Sprime.erase( unique( Sprime.begin(), Sprime.end() ), Sprime.end() );
         int64_t ell_incr = Sprime.size();
-        int64_t ell_next = ell + ell_incr;
-        std::fill(S + ell, S + ell_next, Sprime.begin());
+        std::copy(Sprime.begin(), Sprime.end(), S + ell);
 
         //
         //  2. Compute F_panel: the next block of ell_incr columns in F.
@@ -150,18 +151,21 @@ STATE rp_cholesky(int64_t N, std::function<T(int64_t, int64_t)> &A_stateless, in
         //
         _rpchol_impl::pack_selected_rows(layout, N, ell_incr, F_panel, Sprime, work_mat.data());
         int status = lapack::potrf(uplo, ell_incr, work_mat.data(), ell_incr);
-        randblas_require(status == 0);
+        if (status) {
+            std::cout << "Cholesky failed with exit code " << status << ". Returning early!";
+            k = ell;
+            return state;
+        }
         blas::trsm(
             layout, blas::Side::Right, uplo, Op::NoTrans, blas::Diag::NonUnit,
             N, ell_incr, 1.0, work_mat.data(), ell_incr, F_panel, N
         );
 
         //
-        // 3. Update d and ell. The update formula references F. We define an alias pointer
-        //    to the relevant submatrix even though we could use G's pointer. 
+        // 3. Update work_d, work_cdf, and ell.
         //
-        _rpchol_impl::downdate_d_and_cdf(layout, N, ell_incr, F_panel, work_d, work_cdf);
-        ell = ell_next;
+        _rpchol_impl::downdate_d_and_cdf(layout, N, Sprime, F_panel, work_d, work_cdf);
+        ell = ell + ell_incr;
     }
     return state;
 }
