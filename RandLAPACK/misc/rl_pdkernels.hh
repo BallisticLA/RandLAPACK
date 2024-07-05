@@ -3,6 +3,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_linops.hh"
+#include <RandBLAS.hh>
 
 #include <iostream>
 #include <vector>
@@ -40,7 +41,7 @@ void standardize_dataset(
     // ^ Computes the mean
     blas::ger(blas::Layout::ColMajor, rows_x, cols_x, -1, mu, 1, ones_cols_x, 1, X, rows_x);
     // ^ Performs a rank-1 update to subtract off the mean.
-    delete ones_cols_x;
+    delete [] ones_cols_x;
     // Up next: compute the sample standard deviations and rescale each row to have sample stddev = 1.
     T stddev_scale = std::sqrt((T) (cols_x - 1));
     for (int64_t i = 0; i < rows_x; ++i) {
@@ -71,11 +72,13 @@ void euclidean_distance_submatrix(
     int64_t rows_x, int64_t cols_x, T* X, T* sq_colnorms_x,
     int64_t rows_eds, int64_t cols_eds, T* Eds, int64_t ro_eds, int64_t co_eds
 ) {
+    randblas_require((0 <= co_eds) && ((co_eds + cols_eds) < cols_x));
+    randblas_require((0 <= ro_eds) && ((ro_eds + rows_eds) < cols_x));
     for (int64_t i = 0; i < rows_eds; ++i) {
         T a = sq_colnorms_x[i + ro_eds];
         for (int64_t j = 0; j < cols_eds; ++j) {
             T b = sq_colnorms_x[j + co_eds];
-            Edsub[i + rows_eds * j] = a + b;
+            Eds[i + rows_eds * j] = a + b;
         }
     }
     T* X_subros = X + rows_x * ro_eds;
