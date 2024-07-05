@@ -345,18 +345,16 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
 // ============================================================================
 template <typename T>
 int64_t NoFLA_QRP_compute_norms(
-    int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
-    T * buff_d, T * buff_e ) {
+    int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A, T * buff_d, T * buff_e
+) {
     //
     // It computes the column norms of matrix A. The norms are stored int64_to 
     // vectors d and e.
     //
 
-    int64_t     j, i_one = 1;
     // Main loop.
-    //#pragma omp parallel for
-    for( j = 0; j < n_A; j++ ) {
-        * buff_d = blas::nrm2(m_A, buff_A, i_one);
+    for(int64_t j = 0; j < n_A; j++ ) {
+        * buff_d = blas::nrm2(m_A, buff_A, 1);
         * buff_e = * buff_d;
         buff_A += ldim_A;
         buff_d++;
@@ -560,8 +558,8 @@ static int64_t CHOLQR_mod_WY(
     // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
     for(i = 0; i < n_A; ++i)
         buff_t[i] = buff_T[(ldim_T + 1) * i];
-    #endif
     return 0;
+    #endif
 }
 
 // ============================================================================
