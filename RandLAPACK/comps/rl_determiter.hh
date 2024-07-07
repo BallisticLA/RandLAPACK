@@ -365,9 +365,9 @@ void lockorblock_pcg(
     alpha = RNR;
 
     int64_t k = 0;
-    int64_t stalls = 0;
+    // int64_t stalls = 0;
     int64_t subspace_dim = 0;
-    while (subspace_dim < n) {
+    while (subspace_dim < n && k < max_iters) {
         // 
         // Update X and R
         //
