@@ -364,7 +364,7 @@ struct SpectralPrecond {
 
     public:
     using scalar_t = T; 
-    const int64_t n;
+    const int64_t m;
     int64_t k;
     int64_t s;
     vector<T> V;
@@ -392,9 +392,9 @@ struct SpectralPrecond {
      */
 
     SpectralPrecond(
-        int64_t n
-    ) : n(n), k(1), s(1),
-        V(this->k*n      ),  V_ptr{},
+        int64_t m
+    ) : m(m), k(1), s(1),
+        V(this->k*m      ),  V_ptr{},
         D(this->k        ),  D_ptr{},
         work(this->k*s ),  work_ptr{} {};
 
@@ -414,7 +414,7 @@ struct SpectralPrecond {
         D_ptr = D.data();
         for (int64_t r = 0; r < num_regs; ++r) {
             T  mu_r = mus[r];
-            T* D_r  = &D_ptr[r*n];
+            T* D_r  = &D_ptr[r*m];
             T  numerator = eigvals[k-1] + mu_r;
             for (int i = 0; i < k; ++i)
                 D_r[i] = (numerator / (eigvals[i] + mu_r)) - 1.0;
@@ -423,18 +423,29 @@ struct SpectralPrecond {
     }
 
     void evaluate(int64_t s, const T *x, T *dest) {
-        // apply P = (V diag(D) V' + I) to x on host, store the result in dest.
-        //      Step 1: w = V'x
-        //      Step 2: w = D w
-        //      Step 3: dest = x
-        //      Step 4: dest = V w + dest
-        blas::Layout layout = blas::Layout::ColMajor;
-        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, k, s, n, (T) 1.0, V_ptr, n, x, n, (T) 0.0, work_ptr, k);
+        operator()(blas::Layout::ColMajor, s, (T) 1.0, x, m, (T) 0.0, dest, m);
+        return;
+    }
+
+    void operator()(
+        blas::Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
+    ) {
+        randblas_require(layout == blas::Layout::ColMajor);
+        randblas_require(ldb >= this->m);
+        randblas_require(ldc >= this->m);
+        if (this->num_regs != 1)
+            randblas_require(n == num_regs);
+        // update C = alpha*(V diag(D) V' + I)B + beta*C
+        //      Step 1: w = V'B                    with blas::gemm
+        //      Step 2: w = D w                    with our own kernel
+        //      Step 3: C = beta * C + alpha * B   with blas::copy or blas::scal + blas::axpy
+        //      Step 4: C = alpha * V w + C        with blas::gemm
+        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, k, n, m, (T) 1.0, V_ptr, m, B, ldb, (T) 0.0, work_ptr, k);
  
         // -----> start step 2
-        #define mat_D(_i, _j)    ((num_regs == 1) ? D_ptr[(_i)] : D_ptr[(_i) + n*(_j)])
+        #define mat_D(_i, _j)    ((num_regs == 1) ? D_ptr[(_i)] : D_ptr[(_i) + m*(_j)])
         #define mat_work(_i, _j) work_ptr[(_i) + k*(_j)]
-        for (int64_t j = 0; j < s; j++) {
+        for (int64_t j = 0; j < n; j++) {
             for (int64_t i = 0; i < k; i++) {
                 mat_work(i, j) = mat_D(i, j) * mat_work(i, j);
             }
@@ -443,8 +454,25 @@ struct SpectralPrecond {
         #undef mat_work
         // <----- end step 2
 
-        blas::copy(n * s, x, 1, dest, 1);
-        blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, n, s, k, 1.0, V_ptr, n, work_ptr, k, 1.0, dest, n);
+        // -----> start step 3
+        int64_t i;
+        #define colB(_i) &B[(_i)*ldb]
+        #define colC(_i) &C[(_i)*ldb]
+        if (beta == (T) 0.0 && alpha == (T) 1.0) {
+            for (i = 0; i < n; ++i)
+                blas::copy(m, colB(i), 1, colC(i), 1);
+        } else {
+            for (i = 0; i < n; ++i) {
+                T* Ci = colC(i);
+                blas::scal(m, beta, Ci, 1);
+                blas::axpy(m, alpha, colB(i), 1, Ci, 1);
+            }
+        }
+        #undef colB
+        #undef colC
+        // <----- end step 3
+    
+        blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, m, n, k, (T) 1.0, V_ptr, m, work_ptr, k, 1.0, C, ldc);
         return;
     }
 };
