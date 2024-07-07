@@ -433,8 +433,11 @@ struct SpectralPrecond {
         randblas_require(layout == blas::Layout::ColMajor);
         randblas_require(ldb >= this->m);
         randblas_require(ldc >= this->m);
-        if (this->num_regs != 1)
+        if (this->num_regs != 1) {
             randblas_require(n == num_regs);
+        } else {
+            randblas_require(this->s >= n);
+        }
         // update C = alpha*(V diag(D) V' + I)B + beta*C
         //      Step 1: w = V'B                    with blas::gemm
         //      Step 2: w = D w                    with our own kernel
