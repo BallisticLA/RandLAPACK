@@ -138,7 +138,6 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         auto layout = blas::Layout::ColMajor;
         vector<T> G_buff(m*m, 0.0);
         vector<T> H(m*s, 0.0);
-        randblas_require((int64_t) H.size() == m*s);
         vector<T> X_star(m*s, 0.0);
         vector<T> X_init(m*s, 0.0);
         RandBLAS::RNGState state0(seed);
