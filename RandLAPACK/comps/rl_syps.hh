@@ -32,7 +32,7 @@ class SymmetricPowerSketch {
         ) = 0;
 
         virtual int call(
-            SymmetricLinearOperator<T> &A,
+            linops::SymmetricLinearOperator<T> &A,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
             T* &skop_buff = nullptr,
@@ -109,7 +109,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         );
 
         int call(
-            SymmetricLinearOperator<T> &A,
+            linops::SymmetricLinearOperator<T> &A,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
             T* &skop_buff,
@@ -126,7 +126,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYPS<T, RNG>::call(
-    SymmetricLinearOperator<T> &A,
+    linops::SymmetricLinearOperator<T> &A,
     int64_t k,
     RandBLAS::RNGState<RNG> &state,
     T* &skop_buff,
@@ -187,7 +187,7 @@ int SYPS<T, RNG>::call(
     T* &skop_buff,
     T* work_buff
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);
     return call(A_linop, k, state, skop_buff, work_buff);
 }
 

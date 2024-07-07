@@ -33,9 +33,9 @@ using std::vector;
 //   maybe overloading saves us?
 
 template <typename T, typename FUNC, typename SEMINORM, typename STATE>
-STATE krill_regularization_sweep(
+STATE krill_regularization_sweep_rpchol(
     int64_t n, const FUNC &G, vector<T> &mus, vector<T> &h, vector<T> &X, T tol,
-    STATE state, int64_t rpchol_block_size = -1, int64_t max_iters = 20
+    STATE state, int64_t rpchol_block_size = -1, int64_t max_iters = 20, int64_t k = -1
 ) {
     if (rpchol_block_size < 0)
         rpchol_block_size = std::min(64, n/3);
@@ -46,12 +46,14 @@ STATE krill_regularization_sweep(
         H.insert(H.end(), h.begin(), h.end());
     // H can now be interpreted as a column-major matrix of size n-by-ell,
     // where each column is a copy of h.
-    int64_t k = (int64_t) std::sqrt(n);
+    if (k < 0) {
+        k = (int64_t) std::sqrt(n);
+    }
     vector<T> V(n*k, 0.0);
     vector<T> eigvals(k, 0.0);
     state = rpchol_pc_data(n, G, k, rpchol_block_size, V.data(), eigvals.data(), state);
     // Define the preconditioner as an abstract function handle
-    OOPreconditioners::SpectralPrecond<T> invP(n);
+    linops::SpectralPrecond<T> invP(n);
     invP.prep(V, eigvals, mus, ell);
     //
     SEMINORM seminorm{};

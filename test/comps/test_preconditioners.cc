@@ -260,7 +260,7 @@ class TestSpectralPrecondLinearOperator: public ::testing::Test {
                 G_mu_pre_expect[i + i*n] = alleigs[i] + mu;
             }
         }
-        RandLAPACK::OOPreconditioners::SpectralPrecond<T> invP_operator(n);
+        RandLAPACK::linops::SpectralPrecond<T> invP_operator(n);
         vector<T> mus(1, mu);
         invP_operator.prep(pcV, pceigs, mus, n);
         vector<T> G_mu_pre_actual(n*n, 0.0);
@@ -340,7 +340,7 @@ class TestNystromPrecond : public ::testing::Test {
         /* Verify algorithm output */
         EXPECT_TRUE(k > 5);
         EXPECT_TRUE(k < m);
-        RandLAPACK::OOPreconditioners::SpectralPrecond<T> invP(m);
+        RandLAPACK::linops::SpectralPrecond<T> invP(m);
         vector<T> G_mu_pre(m * m, 0.0);
         vector<T> G_mu(m * m);
         vector<T> mus(1);
