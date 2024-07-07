@@ -46,22 +46,8 @@ class TestKrillIsh: public ::testing::Test {
 
     virtual void TearDown() {};
 
-    template <typename T = double>
-    void run(int key_index, vector<T> &G) {
-        /* Run the algorithm under test */
-        RNGState alg_state(keys[key_index]);
-        alg_state.key.incr();
-        vector<T> V(0);
-        vector<T> lambda(0);
-        int64_t k = 64;
-        T mu_min = 1e-5;
-        RandLAPACK::nystrom_pc_data(
-            Uplo::Lower, G.data(), m, V, lambda, k, mu_min, alg_state
-        ); // k has been updated.
-
-        /* Verify algorithm output */
-        EXPECT_TRUE(k > 5);
-        EXPECT_TRUE(k < m);
+    template <typename T>
+    void run_common(T mu_min, vector<T> &V, vector<T> &lambda, vector<T> &G) {
         RandLAPACK::OOPreconditioners::SpectralPrecond<T> invP(m);
         vector<T> mus {mu_min, mu_min/10, mu_min/100};
         invP.prep(V, lambda, mus, mus.size());
@@ -89,11 +75,51 @@ class TestKrillIsh: public ::testing::Test {
         test::comparison::buffs_approx_equal(X_init.data(), X_star.data(), m * s,
             __PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol
         );
+        return;
+    }
+
+    template <typename T = double>
+    void run_nystrom(int key_index, vector<T> &G) {
+        /* Run the algorithm under test */
+        RNGState alg_state(keys[key_index]);
+        alg_state.key.incr();
+        vector<T> V(0);
+        vector<T> lambda(0);
+        int64_t k = 64;
+        T mu_min = 1e-5;
+        RandLAPACK::nystrom_pc_data(
+            Uplo::Lower, G.data(), m, V, lambda, k, mu_min, alg_state
+        ); // k has been updated.
+        EXPECT_TRUE(k > 5);
+        EXPECT_TRUE(k < m);
+        run_common(mu_min, V, lambda, G);
+    }
+
+    template <typename T = double>
+    void run_rpchol(int key_index, vector<T> &G) {
+        RNGState alg_state(keys[key_index]);
+        alg_state.key.incr();
+        int64_t k = 128;
+        vector<T> V(m*k);
+        vector<T> lambda(k);
+        T mu_min = 1e-5;
+        T* Gd = G.data();
+        auto G_ij_callable = [Gd](int64_t i, int64_t j) {return Gd[i + m*j]; };
+        int64_t rp_chol_block_size = 4;
+        RandLAPACK::rpchol_pc_data(m, G_ij_callable, k, rp_chol_block_size, V.data(), lambda.data(), alg_state);
+        EXPECT_TRUE(k == 128);
+        run_common(mu_min, V, lambda, G);
     }
 };
 
-TEST_F(TestKrillIsh, test_separable_lockstep) {
+TEST_F(TestKrillIsh, test_separable_lockstep_nystrom) {
     auto G = polynomial_decay_psd<double>(m, 1e12, 2.0, 99);
-    run(0, G);
-    run(1, G);
+    run_nystrom(0, G);
+    run_nystrom(1, G);
+}
+
+TEST_F(TestKrillIsh, test_separable_lockstep_rpchol) {
+    auto G = polynomial_decay_psd<double>(m, 1e12, 2.0, 99);
+    run_rpchol(0, G);
+    run_rpchol(1, G);
 }
