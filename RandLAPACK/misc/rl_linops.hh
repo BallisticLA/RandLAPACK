@@ -43,6 +43,8 @@ struct SymmetricLinearOperator {
         int64_t ldc
     ) = 0;
 
+    virtual T operator()(int64_t i, int64_t j) = 0;
+ 
     virtual ~SymmetricLinearOperator() {}
 };
 
@@ -60,7 +62,7 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
         const T* A_buff,
         int64_t lda,
         blas::Layout buff_layout
-    ) : SymmetricLinearOperator<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {};
+    ) : SymmetricLinearOperator<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
 
     // Note: the "layout" parameter here is interpreted for (B and C).
     // If layout conflicts with this->buff_layout then we manipulate
@@ -87,7 +89,16 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
             layout, Side::Left, blas_call_uplo, this->m, n, alpha,
             this->A_buff, this->lda, B, ldb, beta, C, ldc
         );
-    };
+    }
+
+    inline T operator()(int64_t i, int64_t j) {
+        randblas_require(this->uplo == blas::Uplo::Upper && this->buff_layout == blas::Layout::ColMajor);
+        if (i > j) {
+            return A_buff[j + i*lda];
+        } else {
+            return A_buff[i + j*lda];
+        }
+    }
 };
 
 template <typename T>
@@ -96,14 +107,15 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
     const T* A_buff;
     const int64_t lda;
     vector<T> regs;
+    int64_t num_regs;
     static const blas::Uplo uplo = blas::Uplo::Upper;
     static const blas::Layout buff_layout = blas::Layout::ColMajor;
 
     RegExplicitSymLinOp(
         int64_t m, const T* A_buff, int64_t lda, vector<T> &regs
-    ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda), regs(regs) {
+    ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda), regs(regs), num_regs(regs.size()) {
         randblas_require(lda >= m);
-    };
+    }
 
     void operator()(blas::Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
         randblas_require(layout == this->buff_layout);
@@ -119,13 +131,21 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
             blas::axpy(this->m, coeff, B + i*ldb, 1, C +  i*ldc, 1);
         }
         return;
-    };
+    }
+
+    inline T operator()(int64_t i, int64_t j) {
+        randblas_require(num_regs == 1);
+        if (i > j) {
+            return A_buff[j + i*lda] + regs[0];
+        } else {
+            return A_buff[i + j*lda] + regs[0];
+        }
+    }
 
 };
 
 template<typename T>
 struct SpectralPrecond {
-
 
     public:
     using scalar_t = T; 
