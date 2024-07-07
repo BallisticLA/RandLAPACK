@@ -19,6 +19,7 @@ if (GTest_FOUND)
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
         drivers/test_rbki.cc
+        drivers/test_krillx.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
     )
