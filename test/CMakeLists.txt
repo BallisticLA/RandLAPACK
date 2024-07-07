@@ -22,6 +22,7 @@ if (GTest_FOUND)
         drivers/test_krillx.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
+        misc/test_linops.cc
     )
 
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
