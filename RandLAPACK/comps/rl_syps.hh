@@ -145,7 +145,7 @@ int SYPS<T, RNG>::call(
      bool callers_work_buff = work_buff != nullptr;
      if (!callers_work_buff)
          work_buff = new T[m * k];
-    RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
+    RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
 
     T *symm_out = work_buff;
     T *symm_in  = skop_buff;
