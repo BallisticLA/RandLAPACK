@@ -413,7 +413,7 @@ struct SpectralPrecond {
         D_ptr = D.data();
         for (int64_t r = 0; r < num_regs; ++r) {
             T  mu_r = mus[r];
-            T* D_r  = &D_ptr[r*m];
+            T* D_r  = &D_ptr[r*k];
             T  numerator = eigvals[k-1] + mu_r;
             for (int i = 0; i < k; ++i)
                 D_r[i] = (numerator / (eigvals[i] + mu_r)) - 1.0;
@@ -442,7 +442,7 @@ struct SpectralPrecond {
         blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, k, n, m, (T) 1.0, V_ptr, m, B, ldb, (T) 0.0, work_ptr, k);
  
         // -----> start step 2
-        #define mat_D(_i, _j)    ((num_regs == 1) ? D_ptr[(_i)] : D_ptr[(_i) + m*(_j)])
+        #define mat_D(_i, _j)    ((num_regs == 1) ? D_ptr[(_i)] : D_ptr[(_i) + k*(_j)])
         #define mat_work(_i, _j) work_ptr[(_i) + k*(_j)]
         for (int64_t j = 0; j < n; j++) {
             for (int64_t i = 0; i < k; i++) {
