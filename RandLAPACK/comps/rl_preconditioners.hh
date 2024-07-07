@@ -3,11 +3,14 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
+#include "rl_pdkernels.hh"
+
 #include "rl_orth.hh"
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
 #include "rl_revd2.hh"
-#include "rl_linops.hh"
+#include "rl_rpchol.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -196,19 +199,23 @@ int64_t make_right_orthogonalizer(
     int64_t n,
     T* V,
     T* sigma,
-    T mu
+    T mu,
+    int64_t cols_V = -1
 ) {
+    if (cols_V < 0) {
+        cols_V = n;
+    }
     double sqrtmu = std::sqrt((double) mu);
     auto regularized = [sqrtmu](T s) {
         return (sqrtmu == 0) ? s : (T) std::hypot((double) s, sqrtmu);
     };
     T curr_s = regularized(sigma[0]);
-    T abstol = curr_s * n * std::numeric_limits<T>::epsilon();
+    T abstol = curr_s * cols_V * std::numeric_limits<T>::epsilon();
     
     int64_t rank = 0;
     int64_t inter_col_stride = (layout == Layout::ColMajor) ? n : 1;
-    int64_t intra_col_stride = (layout == Layout::ColMajor) ? 1 : n;
-    while (rank < n) {
+    int64_t intra_col_stride = (layout == Layout::ColMajor) ? 1 : cols_V;
+    while (rank < cols_V) {
         curr_s = regularized(sigma[rank]);
         if (curr_s < abstol)
             break;
@@ -314,8 +321,8 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
  * This wraps a function of the same name that accepts a SymmetricLinearOperator object.
  * The purpose of this wrapper is just to define such an object from data (uplo, A, m).
  */
-template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> nystrom_pc_data(
+template <typename T, typename STATE>
+STATE nystrom_pc_data(
     Uplo uplo,
     const T* A,
     int64_t m,
@@ -323,7 +330,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     std::vector<T> &eigvals,
     int64_t &k,
     T mu_min,
-    RandBLAS::RNGState<RNG> state,
+    STATE state,
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
@@ -331,5 +338,116 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
 }
 
+template <typename T, typename STATE, typename FUNC>
+STATE rpchol_pc_data(
+    int64_t n, FUNC &A_stateless, int64_t &k, int64_t b, T* V, T* eigvals, STATE state
+) {
+    std::vector<int64_t> selection(k, -1);
+    state = RandLAPACK::rp_cholesky(n, A_stateless, k, selection.data(), V, b, state);
+    selection.resize(k);
+    // ^ A_stateless \approx VV'; need to convert VV' into its eigendecomposition.
+    std::vector<T> work(k*k, 0.0);
+    lapack::gesdd(lapack::Job::OverwriteVec, n, k, V, n, eigvals, nullptr, 1, work.data(), k);
+    // V has been overwritten with its (nontrivial) left singular vectors
+    for (int64_t i = 0; i < k; ++i) 
+        eigvals[i] = std::pow(eigvals[i], 2);
+    return state;
+}
+
+namespace OOPreconditioners {
+
+using std::vector;
+
+template<typename T>
+struct SpectralPrecond {
+
+    public:
+    using scalar_t = T; 
+    const int64_t n;
+    int64_t k;
+    int64_t s;
+    vector<T> V;
+    T* V_ptr;
+    vector<T> D;
+    T* D_ptr;
+    vector<T> work;
+    T* work_ptr;
+    int64_t num_regs = 1;
+
+    /* Suppose we want to precondition a positive semidefinite matrix G_mu = G + mu*I.
+     *
+     * Once properly preparred, this preconditioner represents a linear operator of the form
+     *      P = V diag(D) V' + I.
+     * The columns of V approximate the top k eigenvectors of G, while the 
+     * entries of D are *functions of* the corresponding approximate eigenvalues.
+     * 
+     * The specific form of the entries of D are as follows. Suppose we start with
+     * (V, lambda) as approximations of the top k eigenpairs of G, and define the vector
+     *      D0 = (min(lambda) + mu) / (lambda + mu).
+     * From a mathematical perspective, this preconditioner represents the linear operator
+     *      P = V diag(D0) V' + (I - VV').
+     * The action of this linear operator can be computed with two calls to GEMM
+     * instead of three if we store D = D0 - 1 instead of D0 itself.
+     */
+
+    SpectralPrecond(
+        int64_t n
+    ) : n(n), k(1), s(1),
+        V(this->k*n      ),  V_ptr{},
+        D(this->k        ),  D_ptr{},
+        work(this->k*s ),  work_ptr{} {};
+
+    void prep(vector<T> &eigvecs, vector<T> &eigvals, vector<T> &mus, int64_t arg_s) {
+        // assume eigvals are positive numbers sorted in decreasing order.
+        num_regs = mus.size();
+        randblas_require(num_regs == 1 || num_regs == arg_s);
+        k = eigvals.size();
+        D.resize(k * num_regs);
+
+        s = arg_s;
+        V = eigvecs;
+        V_ptr = V.data();
+        work.resize(k * s);
+        work_ptr = work.data();
+
+        D_ptr = D.data();
+        for (int64_t r = 0; r < num_regs; ++r) {
+            T  mu_r = mus[r];
+            T* D_r  = &D_ptr[r*n];
+            T  numerator = eigvals[k-1] + mu_r;
+            for (int i = 0; i < k; ++i)
+                D_r[i] = (numerator / (eigvals[i] + mu_r)) - 1.0;
+        }
+        return;
+    }
+
+    void evaluate(int64_t s, const T *x, T *dest) {
+        // apply P = (V diag(D) V' + I) to x on host, store the result in dest.
+        //      Step 1: w = V'x
+        //      Step 2: w = D w
+        //      Step 3: dest = x
+        //      Step 4: dest = V w + dest
+        blas::Layout layout = blas::Layout::ColMajor;
+        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, k, s, n, (T) 1.0, V_ptr, n, x, n, (T) 0.0, work_ptr, k);
+ 
+        // -----> start step 2
+        #define mat_D(_i, _j)    ((num_regs == 1) ? D_ptr[(_i)] : D_ptr[(_i) + n*(_j)])
+        #define mat_work(_i, _j) work_ptr[(_i) + k*(_j)]
+        for (int64_t j = 0; j < s; j++) {
+            for (int64_t i = 0; i < k; i++) {
+                mat_work(i, j) = mat_D(i, j) * mat_work(i, j);
+            }
+        }
+        #undef mat_D
+        #undef mat_work
+        // <----- end step 2
+
+        blas::copy(n * s, x, 1, dest, 1);
+        blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, n, s, k, 1.0, V_ptr, n, work_ptr, k, 1.0, dest, n);
+        return;
+    }
+};
+
+} // end namespace OOPreconditioners
 
 }  // end namespace RandLAPACK
