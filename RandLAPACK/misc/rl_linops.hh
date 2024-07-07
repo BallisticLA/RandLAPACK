@@ -11,7 +11,9 @@
 #include <vector>
 #include <cstdint>
 
-namespace RandLAPACK {
+namespace RandLAPACK::linops {
+
+using std::vector;
 
 template <typename T>
 struct SymmetricLinearOperator {
@@ -88,30 +90,17 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
     };
 };
 
-
-// template <typename T>
-// struct RegularizedSymLinOp  {
-//
-//     const int64_t m;
-//     std::vector<T> regs;
-//
-//     RegularizedSymLinOp(int64_t m, std::vector<T> &regs) : m(m), regs(regs) {};
-//
-//     virtual void operator()(T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) = 0;
-//
-// };
-
 template <typename T>
 struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
 
     const T* A_buff;
     const int64_t lda;
-    std::vector<T> regs;
+    vector<T> regs;
     static const blas::Uplo uplo = blas::Uplo::Upper;
     static const blas::Layout buff_layout = blas::Layout::ColMajor;
 
     RegExplicitSymLinOp(
-        int64_t m, const T* A_buff, int64_t lda, std::vector<T> &regs
+        int64_t m, const T* A_buff, int64_t lda, vector<T> &regs
     ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda), regs(regs) {
         randblas_require(lda >= m);
     };
@@ -134,4 +123,127 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
 
 };
 
-} // end namespace RandLAPACK
+template<typename T>
+struct SpectralPrecond {
+
+
+    public:
+    using scalar_t = T; 
+    const int64_t m;
+    int64_t k;
+    int64_t s;
+    vector<T> V;
+    T* V_ptr;
+    vector<T> D;
+    T* D_ptr;
+    vector<T> work;
+    T* work_ptr;
+    int64_t num_regs = 1;
+
+    /* Suppose we want to precondition a positive semidefinite matrix G_mu = G + mu*I.
+     *
+     * Once properly preparred, this preconditioner represents a linear operator of the form
+     *      P = V diag(D) V' + I.
+     * The columns of V approximate the top k eigenvectors of G, while the 
+     * entries of D are *functions of* the corresponding approximate eigenvalues.
+     * 
+     * The specific form of the entries of D are as follows. Suppose we start with
+     * (V, lambda) as approximations of the top k eigenpairs of G, and define the vector
+     *      D0 = (min(lambda) + mu) / (lambda + mu).
+     * From a mathematical perspective, this preconditioner represents the linear operator
+     *      P = V diag(D0) V' + (I - VV').
+     * The action of this linear operator can be computed with two calls to GEMM
+     * instead of three if we store D = D0 - 1 instead of D0 itself.
+     */
+
+    SpectralPrecond(
+        int64_t m
+    ) : m(m), k(1), s(1),
+        V(this->k*m      ),  V_ptr{},
+        D(this->k        ),  D_ptr{},
+        work(this->k*s ),  work_ptr{} {};
+
+    void prep(vector<T> &eigvecs, vector<T> &eigvals, vector<T> &mus, int64_t arg_s) {
+        // assume eigvals are positive numbers sorted in decreasing order.
+        num_regs = mus.size();
+        randblas_require(num_regs == 1 || num_regs == arg_s);
+        k = eigvals.size();
+        D.resize(k * num_regs);
+
+        s = arg_s;
+        V = eigvecs;
+        V_ptr = V.data();
+        work.resize(k * s);
+        work_ptr = work.data();
+
+        D_ptr = D.data();
+        for (int64_t r = 0; r < num_regs; ++r) {
+            T  mu_r = mus[r];
+            T* D_r  = &D_ptr[r*k];
+            T  numerator = eigvals[k-1] + mu_r;
+            for (int i = 0; i < k; ++i)
+                D_r[i] = (numerator / (eigvals[i] + mu_r)) - 1.0;
+        }
+        return;
+    }
+
+    void evaluate(int64_t s, const T *x, T *dest) {
+        operator()(blas::Layout::ColMajor, s, (T) 1.0, x, m, (T) 0.0, dest, m);
+        return;
+    }
+
+    void operator()(
+        blas::Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
+    ) {
+        randblas_require(layout == blas::Layout::ColMajor);
+        randblas_require(ldb >= this->m);
+        randblas_require(ldc >= this->m);
+        if (this->num_regs != 1) {
+            randblas_require(n == num_regs);
+        } else {
+            randblas_require(this->s >= n);
+        }
+        // update C = alpha*(V diag(D) V' + I)B + beta*C
+        //      Step 1: w = V'B                    with blas::gemm
+        //      Step 2: w = D w                    with our own kernel
+        //      Step 3: C = beta * C + alpha * B   with blas::copy or blas::scal + blas::axpy
+        //      Step 4: C = alpha * V w + C        with blas::gemm
+        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, k, n, m, (T) 1.0, V_ptr, m, B, ldb, (T) 0.0, work_ptr, k);
+ 
+        // -----> start step 2
+        #define mat_D(_i, _j)    ((num_regs == 1) ? D_ptr[(_i)] : D_ptr[(_i) + k*(_j)])
+        #define mat_work(_i, _j) work_ptr[(_i) + k*(_j)]
+        for (int64_t j = 0; j < n; j++) {
+            for (int64_t i = 0; i < k; i++) {
+                mat_work(i, j) = mat_D(i, j) * mat_work(i, j);
+            }
+        }
+        #undef mat_D
+        #undef mat_work
+        // <----- end step 2
+
+        // -----> start step 3
+        int64_t i;
+        #define colB(_i) &B[(_i)*ldb]
+        #define colC(_i) &C[(_i)*ldb]
+        if (beta == (T) 0.0 && alpha == (T) 1.0) {
+            for (i = 0; i < n; ++i)
+                blas::copy(m, colB(i), 1, colC(i), 1);
+        } else {
+            for (i = 0; i < n; ++i) {
+                T* Ci = colC(i);
+                blas::scal(m, beta, Ci, 1);
+                blas::axpy(m, alpha, colB(i), 1, Ci, 1);
+            }
+        }
+        #undef colB
+        #undef colC
+        // <----- end step 3
+    
+        blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, m, n, k, (T) 1.0, V_ptr, m, work_ptr, k, 1.0, C, ldc);
+        return;
+    }
+};
+
+} // end namespace RandLAPACK::linops
+#endif

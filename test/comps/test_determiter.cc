@@ -98,7 +98,7 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         blas::syrk(layout, blas::Uplo::Upper, blas::Op::Trans, m, 2*m, 1.0, temp.data(), 2*m, 0.0, G_buff.data(), m);
 
         vector<T> regs(1, coeff);
-        RandLAPACK::RegExplicitSymLinOp G(m, G_buff.data(), m, regs);
+        RandLAPACK::linops::RegExplicitSymLinOp G(m, G_buff.data(), m, regs);
         RandBLAS::DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
         auto Xsd = X_star.data();
         auto out2 = RandBLAS::fill_dense(DX_star, Xsd, state1);
@@ -109,7 +109,7 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
 
         auto I_buff = eye<T>(m);
         vector<T> zeros(1, 0.0);
-        RandLAPACK::RegExplicitSymLinOp I(m, I_buff.data(), m, zeros);
+        RandLAPACK::linops::RegExplicitSymLinOp I(m, I_buff.data(), m, zeros);
 
         T tol = 100*std::numeric_limits<T>::epsilon();
         RandLAPACK::lockorblock_pcg(G, H, tol, m, I, seminorm, X_init, true);
@@ -149,7 +149,7 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         blas::syrk(layout, blas::Uplo::Upper, blas::Op::Trans, m, 2*m, 1.0, temp.data(), 2*m, 0.0, G_buff.data(), m);
 
         vector<T> regs(reg_coeffs);
-        RandLAPACK::RegExplicitSymLinOp G(m, G_buff.data(), m, regs);
+        RandLAPACK::linops::RegExplicitSymLinOp G(m, G_buff.data(), m, regs);
         RandBLAS::DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
         auto Xsd = X_star.data();
         auto out2 = RandBLAS::fill_dense(DX_star, Xsd, state1);
@@ -160,7 +160,7 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
 
         auto I_buff = eye<T>(m);
         vector<T> zeros(s, 0.0);
-        RandLAPACK::RegExplicitSymLinOp I(m, I_buff.data(), m, zeros);
+        RandLAPACK::linops::RegExplicitSymLinOp I(m, I_buff.data(), m, zeros);
 
         T tol = 100*std::numeric_limits<T>::epsilon();
         RandLAPACK::lockorblock_pcg(G, H, tol, m, I, seminorm, X_init, true);

@@ -33,9 +33,6 @@ vector<T> polynomial_decay_psd(int64_t m, T cond_num, T exponent, uint32_t seed)
 }
 
 
-/***
- * This actually assesses quality of the Nystrom preconditioner.
- */
 class TestKrillIsh: public ::testing::Test {
 
     protected:
@@ -48,7 +45,7 @@ class TestKrillIsh: public ::testing::Test {
 
     template <typename T>
     void run_common(T mu_min, vector<T> &V, vector<T> &lambda, vector<T> &G) {
-        RandLAPACK::OOPreconditioners::SpectralPrecond<T> invP(m);
+        RandLAPACK::linops::SpectralPrecond<T> invP(m);
         vector<T> mus {mu_min, mu_min/10, mu_min/100};
         invP.prep(V, lambda, mus, mus.size());
         int64_t s = mus.size();
@@ -57,7 +54,7 @@ class TestKrillIsh: public ::testing::Test {
         vector<T> X_init(m*s, 0.0);
         vector<T> H(m*s, 0.0);
         RNGState state0(101);
-        RandLAPACK::RegExplicitSymLinOp G_linop(m, G.data(), m, mus);
+        RandLAPACK::linops::RegExplicitSymLinOp G_linop(m, G.data(), m, mus);
         DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
         auto Xsd = X_star.data();
         auto out1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
