@@ -31,7 +31,7 @@ if (GTest_FOUND)
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
 
     target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main)
-    set_property(TARGET RandLAPACK_tests_gpu PROPERTY CUDA_ARCHITECTURES OFF)
+    set_property(TARGET RandLAPACK_tests_gpu PROPERTY CUDA_ARCHITECTURES native)
 
     target_link_libraries(RandLAPACK_tests RandLAPACK GTest::GTest GTest::Main)
 
