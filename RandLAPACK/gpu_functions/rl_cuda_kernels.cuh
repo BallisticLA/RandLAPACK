@@ -211,7 +211,6 @@ void col_swap_gpu(
     constexpr int threadsPerBlock{128};
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     col_swap_gpu<<<num_blocks, threadsPerBlock, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
-    cudaStreamSynchronize(stream);
 #endif
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)

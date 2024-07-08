@@ -17,6 +17,8 @@
 #include <chrono>
 #include <numeric>
 
+#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
+
 using namespace std::chrono;
 
 namespace RandLAPACK {
@@ -355,13 +357,14 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         std::fill(&J_buffer[0], &J_buffer[n], 0);
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
         std::fill(&Work2[0], &Work2[n], (T) 0.0);
-/*
+
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
 
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
-        RandLAPACK::cuda_kernels::transposition_gpu(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0, strm);
+        RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
+/*
         // Perform a row-pivoted LU on a transpose of A_sk
         //lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
         // Probing workspace size - performed only once.
