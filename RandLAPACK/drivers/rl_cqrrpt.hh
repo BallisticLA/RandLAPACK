@@ -284,7 +284,7 @@ int CQRRPT<T, RNG>::call(
     new_rank = k;
     running_max = R_sp[0];
     running_min = R_sp[0];
-    
+
     for(i = 0; i < k; ++i) {
         curr_entry = std::abs(R_sp[i * k + i]);
         running_max = std::max(running_max, curr_entry);

@@ -103,6 +103,7 @@ add_benchmark(NAME CQRRP_pivot_quality           CXX_SOURCES bench_CQRRP/CQRRP_p
 add_benchmark(NAME HQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/HQRRP_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_linear_solver           CXX_SOURCES bench_CQRRP/CQRRP_linear_solver.cc     LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME QR_speed_comp                 CXX_SOURCES bench_CQRRP/QR_speed_comp.cc           LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME ICQRRP_subroutines_speed      CXX_SOURCES bench_CQRRP/ICQRRP_subroutines_speed.cc LINK_LIBS ${Benchmark_libs})
 
 # RBKI benchmarks
 add_benchmark(NAME RBKI_speed_comparisons      CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc      LINK_LIBS ${Benchmark_libs})

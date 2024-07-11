@@ -80,7 +80,7 @@ static void R_norm_ratio(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
     CQRRP_blocked.nnz = 4;
     CQRRP_blocked.num_threads = 8;
-    CQRRP_blocked.use_qp3 = 1;
+    //CQRRP_blocked.use_qp3 = 1;
     CQRRP_blocked.use_gaussian = 1;
 
     // Running HQRRP
@@ -138,7 +138,7 @@ static void sv_ratio(
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
     CQRRP_blocked.nnz = 4;
     CQRRP_blocked.num_threads = 8;
-    CQRRP_blocked.use_qp3 = 1;
+    //CQRRP_blocked.use_qp3 = 1;
     CQRRP_blocked.use_gaussian = 1;
 
     std::fstream file2("QR_sv_ratios_rows_"            + std::to_string(m)

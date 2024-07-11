@@ -89,6 +89,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
+        printf("\nITERATION %d\n", i);
         
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
@@ -171,7 +172,6 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 0);
 
         if ((i <= 2) && (b_sz == 256)) {
-            printf("\nITERATION %d\n", i);
             // Testing GEQP3
             auto start_geqp3 = high_resolution_clock::now();
             lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
