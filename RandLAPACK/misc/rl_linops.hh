@@ -43,8 +43,6 @@ struct SymmetricLinearOperator {
         T* C,
         int64_t ldc
     ) = 0;
-
-    virtual T operator()(int64_t i, int64_t j) = 0;
  
     virtual ~SymmetricLinearOperator() {}
 };
@@ -111,6 +109,7 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
     int64_t num_regs;
     static const blas::Uplo uplo = blas::Uplo::Upper;
     static const blas::Layout buff_layout = blas::Layout::ColMajor;
+    using scalar_t = T;
 
     RegExplicitSymLinOp(
         int64_t m, const T* A_buff, int64_t lda, vector<T> &regs
@@ -134,13 +133,18 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
         return;
     }
 
-    inline T operator()(int64_t i, int64_t j) {
-        randblas_require(num_regs == 1);
+    inline T operator()(int64_t i, int64_t j, bool include_reg = false) {
+        T val;
         if (i > j) {
-            return A_buff[j + i*lda] + regs[0];
+            val = A_buff[j + i*lda];
         } else {
-            return A_buff[i + j*lda] + regs[0];
+            val = A_buff[i + j*lda];
         }
+        if (include_reg) {
+            randblas_require(num_regs == 1);
+            val += regs[0];
+        }
+        return val;
     }
 
 };
