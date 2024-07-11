@@ -3,7 +3,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include "/Users/rjmurr/Documents/randnla/RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../RandLAPACK/RandBLAS/test/comparison.hh"
 
 #include <math.h>
 #include <gtest/gtest.h>

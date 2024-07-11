@@ -6,7 +6,7 @@
 #include <gtest/gtest.h>
 #include <math.h>
 #include <lapack.hh>
-#include "/Users/rjmurr/Documents/randnla/RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../RandLAPACK/RandBLAS/test/comparison.hh"
 
 
 namespace RandLAPACK_Testing {

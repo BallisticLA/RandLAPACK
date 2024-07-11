@@ -2,7 +2,7 @@
 #include "rl_rpchol.hh"
 #include "rl_blaspp.hh"
 #include "rl_gen.hh"
-#include "/Users/rjmurr/Documents/randnla/RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../RandLAPACK/RandBLAS/test/comparison.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
