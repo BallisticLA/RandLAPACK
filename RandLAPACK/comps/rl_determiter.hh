@@ -365,9 +365,10 @@ void lockorblock_pcg(
     alpha = RNR;
 
     int64_t k = 0;
-    // int64_t stalls = 0;
     T stop_abstol = tol*(1.0 + normNR0);
     int64_t subspace_dim = 0;
+    if (verbose)
+        std::cout << "normNR: " << normNR0 << "\tk: 0\tdim : 0\n";
     while (subspace_dim < n && k < max_iters) {
         // 
         // Update X and R
@@ -408,7 +409,7 @@ void lockorblock_pcg(
         prevnormNR = normNR;
         normNR = seminorm.evaluate(n, s, NR_or_scratch.data());
         if (verbose)
-            std::cout << "normNR: " << normNR << " k: " << k << " dim : " << subspace_dim << '\n';
+            std::cout << "normNR: " << normNR << "\tk: " << k << "\tdim : " << subspace_dim << '\n';
         if (normNR < stop_abstol)
             break;
         // 
