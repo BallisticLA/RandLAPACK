@@ -33,30 +33,23 @@ using std::vector;
 //   maybe overloading saves us?
 
 template <typename T, typename FUNC, typename SEMINORM, typename STATE>
-STATE krill_regularization_sweep_rpchol(
-    int64_t n, const FUNC &G, vector<T> &mus, vector<T> &h, vector<T> &X, T tol,
-    STATE state, int64_t rpchol_block_size = -1, int64_t max_iters = 20, int64_t k = -1
+STATE krill_separable_rpchol(
+    int64_t n, FUNC &G, vector<T> &mus, vector<T> &H, vector<T> &X, T tol,
+    STATE state, SEMINORM seminorm, int64_t rpchol_block_size = -1, int64_t max_iters = 20, int64_t k = -1
 ) {
-    if (rpchol_block_size < 0)
-        rpchol_block_size = std::min(64, n/3);
     int64_t ell = mus.size();
-    vector<T> H{};
-    H.reserve(n * ell);
-    for (int64_t i = 0; i < ell, ++i)
-        H.insert(H.end(), h.begin(), h.end());
-    // H can now be interpreted as a column-major matrix of size n-by-ell,
-    // where each column is a copy of h.
-    if (k < 0) {
+    randblas_require(ell == 1 || ell == (((int64_t) H.size()) / n));
+
+    if (rpchol_block_size < 0)
+        rpchol_block_size = std::min((int64_t) 64, n/4);
+    if (k < 0)
         k = (int64_t) std::sqrt(n);
-    }
+    
     vector<T> V(n*k, 0.0);
     vector<T> eigvals(k, 0.0);
     state = rpchol_pc_data(n, G, k, rpchol_block_size, V.data(), eigvals.data(), state);
-    // Define the preconditioner as an abstract function handle
     linops::SpectralPrecond<T> invP(n);
     invP.prep(V, eigvals, mus, ell);
-    //
-    SEMINORM seminorm{};
     lockorblock_pcg(G, H, tol, max_iters, invP, seminorm, X, true);
     return state;
 }
