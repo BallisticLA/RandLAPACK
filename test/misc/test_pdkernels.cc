@@ -4,6 +4,7 @@
 
 #include <RandBLAS.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../moremats.hh"
 
 #include <math.h>
 #include <gtest/gtest.h>
@@ -12,27 +13,6 @@ using RandBLAS::RNGState;
 using RandBLAS::DenseDist;
 using blas::Layout;
 using std::vector;
-
-template <typename T>
-vector<T> random_gaussian_mat(int64_t m, int64_t n, uint32_t seed) {
-    RandBLAS::DenseDist D(m, n);
-    RNGState state(seed);
-    vector<T> mat(m*n);
-    RandBLAS::fill_dense(D, mat.data(), state);
-    return mat;
-}
-
-template <typename T, typename RNG>
-RNGState<RNG> left_multiply_by_orthmat(int64_t m, int64_t n, std::vector<T> &A, RNGState<RNG> state) {
-    using std::vector;
-    vector<T> U(m * m, 0.0);
-    RandBLAS::DenseDist DU(m, m);
-    auto out_state = RandBLAS::fill_dense(DU, U.data(), state).second;
-    vector<T> tau(m, 0.0);
-    lapack::geqrf(m, m, U.data(), m, tau.data());
-    lapack::ormqr(blas::Side::Left, blas::Op::NoTrans, m, n, m, U.data(), m, tau.data(), A.data(), m);
-    return out_state;
-}
 
 class TestPDK_SquaredExponential : public ::testing::Test {
     protected:
@@ -49,7 +29,7 @@ class TestPDK_SquaredExponential : public ::testing::Test {
     void run_same_blockimpl_vs_entrywise(int64_t d, int64_t n, T bandwidth, uint32_t seed) {
         vector<T> K_blockimpl(n*n, 0.0);
         vector<T> K_entrywise(n*n, 0.0);
-        vector<T> X = random_gaussian_mat<T>(d, n, seed);
+        vector<T> X = RandLAPACK_Testing::random_gaussian_mat<T>(d, n, seed);
         vector<T> squared_norms(n, 0.0);
         T* X_ = X.data();
         for (int64_t i = 0; i < n; ++i) {
@@ -79,7 +59,7 @@ class TestPDK_SquaredExponential : public ::testing::Test {
      */
     template <typename T>
     void run_all_same_column(int64_t d, int64_t n, uint32_t seed) {
-        vector<T> c = random_gaussian_mat<T>(d, 1, seed);
+        vector<T> c = RandLAPACK_Testing::random_gaussian_mat<T>(d, 1, seed);
         vector<T> X(d*n, 0.0);
         T* _X = X.data();
         T* _c = c.data();
@@ -112,7 +92,7 @@ class TestPDK_SquaredExponential : public ::testing::Test {
         for (int64_t i = 0; i < n; ++i)
             X[i+i*n] = 1.0;
         RNGState state(seed);
-        left_multiply_by_orthmat(n, n, X, state);
+        RandLAPACK_Testing::left_multiply_by_orthmat(n, n, X, state);
         vector<T> squarednorms(n, 1.0);
         vector<T> K(n*n, 0.0);
         RandLAPACK::squared_exp_kernel_submatrix(
