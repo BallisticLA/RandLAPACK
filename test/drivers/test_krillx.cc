@@ -4,6 +4,8 @@
 #include <gtest/gtest.h>
 #include <math.h>
 #include <lapack.hh>
+
+#include "../moremats.hh"
 #include "/Users/rjmurr/Documents/randnla/RandLAPACK/RandBLAS/test/comparison.hh"
 
 
@@ -13,24 +15,8 @@ using blas::Op;
 using RandBLAS::DenseDist;
 using RandBLAS::SparseDist;
 using RandBLAS::RNGState;
-
-
-template <typename T>
-vector<T> polynomial_decay_psd(int64_t m, T cond_num, T exponent, uint32_t seed) {
-    RandLAPACK::gen::mat_gen_info<T> mat_info(m, m, RandLAPACK::gen::polynomial);
-    mat_info.cond_num = std::sqrt(cond_num);
-    mat_info.rank = m;
-    mat_info.exponent = exponent;
-    vector<T> A(m * m, 0.0);
-    RNGState data_state(seed);
-    RandLAPACK::gen::mat_gen(mat_info, A.data(), data_state);
-    vector<T> G(m * m, 0.0);
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, m, m, 1.0,
-        A.data(), m, 0.0, G.data(), m
-    ); // Note: G is PSD with squared spectrum of A.
-    RandBLAS::util::symmetrize(Layout::ColMajor, Uplo::Upper, G.data(), m, m);
-    return G;
-}
+using RandLAPACK::linops::RegExplicitSymLinOp;
+using RandLAPACK_Testing::polynomial_decay_psd;
 
 
 class TestKrillIsh: public ::testing::Test {
@@ -109,14 +95,75 @@ class TestKrillIsh: public ::testing::Test {
     }
 };
 
-TEST_F(TestKrillIsh, test_separable_lockstep_nystrom) {
-    auto G = polynomial_decay_psd<double>(m, 1e12, 2.0, 99);
-    run_nystrom(0, G);
-    run_nystrom(1, G);
+TEST_F(TestKrillIsh, test_manual_lockstep_nystrom) {
+    for (int64_t decay = 2; decay < 4; ++decay) {
+        auto G = polynomial_decay_psd(m, 1e12, (double) decay, 99);
+        run_nystrom(0, G);
+        run_nystrom(1, G);
+    }
 }
 
-TEST_F(TestKrillIsh, test_separable_lockstep_rpchol) {
-    auto G = polynomial_decay_psd<double>(m, 1e12, 2.0, 99);
+TEST_F(TestKrillIsh, test_manual_lockstep_rpchol) {
+    auto G = polynomial_decay_psd(m, 1e12, 2.0, 99);
     run_rpchol(0, G);
     run_rpchol(1, G);
+}
+
+
+class TestKrillx: public ::testing::Test {
+
+    protected:
+        static inline int64_t m = 1000;
+        static inline vector<uint32_t> keys = {42, 1};
+    
+    virtual void SetUp() {};
+
+    virtual void TearDown() {};
+
+    template <typename RELO>
+    void run_krill_separable(int key_index, RELO &G_linop, int64_t k) {
+        using T = typename RELO::scalar_t;
+        std::vector<T> mus(G_linop.regs);
+        int64_t s = mus.size();
+
+        vector<T> X_star(m*s, 0.0);
+        vector<T> X_init(m*s, 0.0);
+        vector<T> H(m*s, 0.0);
+        RNGState state0(101);
+        DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
+        auto Xsd = X_star.data();
+        auto out1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
+        auto state1 = std::get<1>(out1);
+        G_linop(blas::Layout::ColMajor, s, 1.0, X_star.data(), m, 0.0, H.data(), m);
+
+        RandLAPACK::StatefulFrobeniusNorm<T> seminorm{};
+        T tol = 100*std::numeric_limits<T>::epsilon();
+        int64_t max_iters = 30;
+        int64_t rpc_blocksize = 16;
+        RNGState state2(keys[key_index]);
+        RandLAPACK::krill_separable_rpchol(
+            m, G_linop, mus, H, X_init, tol, state2, seminorm, rpc_blocksize, max_iters, k
+        );
+
+        T tol_scale = std::sqrt((T)m);
+        T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);
+        T rtol = tol_scale * atol;
+        test::comparison::buffs_approx_equal(X_init.data(), X_star.data(), m * s,
+            __PRETTY_FUNCTION__, __FILE__, __LINE__, atol, rtol
+        );
+        return;
+    }
+};
+
+TEST_F(TestKrillx, test_krill_separable_rpchol) {
+    using T = double;
+    T mu_min = 1e-5;
+    vector<T> mus {mu_min, mu_min/10, mu_min/100};
+    for (int64_t decay = 2; decay < 4; ++decay) {
+        auto G = polynomial_decay_psd(m, 1e12, (T) decay, 99);
+        RegExplicitSymLinOp G_linop(m, G.data(), m, mus);
+        int64_t k = 128;
+        run_krill_separable(0, G_linop, k);
+        run_krill_separable(1, G_linop, k);
+    }
 }

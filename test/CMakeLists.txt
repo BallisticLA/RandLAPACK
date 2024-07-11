@@ -6,6 +6,7 @@ if (GTest_FOUND)
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
+        moremats.hh
         comps/test_determiter.cc
         comps/test_orth.cc
         comps/test_qb.cc
