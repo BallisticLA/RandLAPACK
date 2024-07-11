@@ -43,6 +43,8 @@ struct SymmetricLinearOperator {
         T* C,
         int64_t ldc
     ) = 0;
+
+    virtual T operator()(int64_t i, int64_t j) = 0;
  
     virtual ~SymmetricLinearOperator() {}
 };
@@ -106,15 +108,21 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
     const T* A_buff;
     const int64_t lda;
     vector<T> regs;
-    int64_t num_regs;
+    bool      _eval_includes_reg;
+
     static const blas::Uplo uplo = blas::Uplo::Upper;
     static const blas::Layout buff_layout = blas::Layout::ColMajor;
     using scalar_t = T;
 
     RegExplicitSymLinOp(
         int64_t m, const T* A_buff, int64_t lda, vector<T> &regs
-    ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda), regs(regs), num_regs(regs.size()) {
+    ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda), regs(regs) {
         randblas_require(lda >= m);
+        _eval_includes_reg = false;
+    }
+
+    void set_eval_includes_reg(bool eir) {
+        _eval_includes_reg = eir;
     }
 
     void operator()(blas::Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
@@ -122,26 +130,29 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
         randblas_require(ldb >= this->m);
         randblas_require(ldc >= this->m);
         blas::symm(layout, blas::Side::Left, this->uplo, this->m, n, alpha, this->A_buff, this->lda, B, ldb, beta, C, ldc);
-        int64_t num_regs = this->regs.size();
-        if (num_regs != 1)
-            randblas_require(n == num_regs);
-        T* regsp = regs.data();
-        for (int64_t i = 0; i < n; ++i) {
-            T coeff =  alpha * regsp[std::min(i, num_regs - 1)];
-            blas::axpy(this->m, coeff, B + i*ldb, 1, C +  i*ldc, 1);
+
+        if (_eval_includes_reg) {
+            int64_t num_regs = this->regs.size();
+            if (num_regs != 1)
+                randblas_require(n == num_regs);
+            T* regsp = regs.data();
+            for (int64_t i = 0; i < n; ++i) {
+                T coeff =  alpha * regsp[std::min(i, num_regs - 1)];
+                blas::axpy(this->m, coeff, B + i*ldb, 1, C +  i*ldc, 1);
+            }
         }
         return;
     }
 
-    inline T operator()(int64_t i, int64_t j, bool include_reg = false) {
+    inline T operator()(int64_t i, int64_t j) {
         T val;
         if (i > j) {
             val = A_buff[j + i*lda];
         } else {
             val = A_buff[i + j*lda];
         }
-        if (include_reg) {
-            randblas_require(num_regs == 1);
+        if (_eval_includes_reg) {
+            randblas_require(regs.size() == 1);
             val += regs[0];
         }
         return val;

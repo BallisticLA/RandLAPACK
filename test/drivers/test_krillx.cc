@@ -30,9 +30,11 @@ class TestKrillIsh: public ::testing::Test {
     virtual void TearDown() {};
 
     template <typename T>
-    void run_common(T mu_min, vector<T> &V, vector<T> &lambda, vector<T> &G) {
+    void run_common(T mu_min, vector<T> &V, vector<T> &lambda, RegExplicitSymLinOp<T> &G_linop) {
         RandLAPACK::linops::SpectralPrecond<T> invP(m);
         vector<T> mus {mu_min, mu_min/10, mu_min/100};
+        G_linop.regs = mus;
+        G_linop.set_eval_includes_reg(true);
         invP.prep(V, lambda, mus, mus.size());
         int64_t s = mus.size();
 
@@ -40,13 +42,14 @@ class TestKrillIsh: public ::testing::Test {
         vector<T> X_init(m*s, 0.0);
         vector<T> H(m*s, 0.0);
         RNGState state0(101);
-        RandLAPACK::linops::RegExplicitSymLinOp G_linop(m, G.data(), m, mus);
         DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
         auto Xsd = X_star.data();
         auto out1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
         auto state1 = std::get<1>(out1);
         G_linop(blas::Layout::ColMajor, s, 1.0, X_star.data(), m, 0.0, H.data(), m);
 
+        std::cout << "\nFrobenius norm of optimal solution : " << blas::nrm2(m*s, X_star.data(), 1);
+        std::cout << "\nFrobenius norm of right-hand-side  : " << blas::nrm2(m*s, H.data(), 1) << std::endl;
         RandLAPACK::StatefulFrobeniusNorm<T> seminorm{};
         T tol = 100*std::numeric_limits<T>::epsilon();
         int64_t max_iters = 30;
@@ -70,12 +73,14 @@ class TestKrillIsh: public ::testing::Test {
         vector<T> lambda(0);
         int64_t k = 64;
         T mu_min = 1e-5;
+        vector<T> regs{};
+        RegExplicitSymLinOp G_linop(m, G.data(), m, regs);
         RandLAPACK::nystrom_pc_data(
-            Uplo::Lower, G.data(), m, V, lambda, k, mu_min, alg_state
+            G_linop, V, lambda, k, mu_min/10, alg_state
         ); // k has been updated.
         EXPECT_TRUE(k > 5);
         EXPECT_TRUE(k < m);
-        run_common(mu_min, V, lambda, G);
+        run_common(mu_min, V, lambda, G_linop);
     }
 
     template <typename T = double>
@@ -86,12 +91,12 @@ class TestKrillIsh: public ::testing::Test {
         vector<T> V(m*k);
         vector<T> lambda(k);
         T mu_min = 1e-5;
-        T* Gd = G.data();
-        auto G_ij_callable = [Gd](int64_t i, int64_t j) {return Gd[i + m*j]; };
         int64_t rp_chol_block_size = 4;
-        RandLAPACK::rpchol_pc_data(m, G_ij_callable, k, rp_chol_block_size, V.data(), lambda.data(), alg_state);
+        vector<T> regs{};
+        RegExplicitSymLinOp G_linop(m, G.data(), m, regs);
+        RandLAPACK::rpchol_pc_data(m, G_linop, k, rp_chol_block_size, V.data(), lambda.data(), alg_state);
         EXPECT_TRUE(k == 128);
-        run_common(mu_min, V, lambda, G);
+        run_common(mu_min, V, lambda, G_linop);
     }
 };
 
@@ -123,8 +128,7 @@ class TestKrillx: public ::testing::Test {
     template <typename RELO>
     void run_krill_separable(int key_index, RELO &G_linop, int64_t k) {
         using T = typename RELO::scalar_t;
-        std::vector<T> mus(G_linop.regs);
-        int64_t s = mus.size();
+        int64_t s = G_linop.regs.size();
 
         vector<T> X_star(m*s, 0.0);
         vector<T> X_init(m*s, 0.0);
@@ -134,7 +138,10 @@ class TestKrillx: public ::testing::Test {
         auto Xsd = X_star.data();
         auto out1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
         auto state1 = std::get<1>(out1);
+        G_linop.set_eval_includes_reg(true);
         G_linop(blas::Layout::ColMajor, s, 1.0, X_star.data(), m, 0.0, H.data(), m);
+        std::cout << "\nFrobenius norm of optimal solution : " << blas::nrm2(m*s, X_star.data(), 1);
+        std::cout << "\nFrobenius norm of right-hand-side  : " << blas::nrm2(m*s, H.data(), 1) << std::endl;
 
         RandLAPACK::StatefulFrobeniusNorm<T> seminorm{};
         T tol = 100*std::numeric_limits<T>::epsilon();
@@ -142,9 +149,8 @@ class TestKrillx: public ::testing::Test {
         int64_t rpc_blocksize = 16;
         RNGState state2(keys[key_index]);
         RandLAPACK::krill_separable_rpchol(
-            m, G_linop, mus, H, X_init, tol, state2, seminorm, rpc_blocksize, max_iters, k
+            m, G_linop, H, X_init, tol, state2, seminorm, rpc_blocksize, max_iters, k
         );
-
         T tol_scale = std::sqrt((T)m);
         T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);
         T rtol = tol_scale * atol;
