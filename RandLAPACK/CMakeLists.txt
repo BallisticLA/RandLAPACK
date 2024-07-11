@@ -6,6 +6,7 @@ set(RandLAPACK_cxx_sources
     rl_cqrrp.hh
     rl_rsvd.hh
     rl_revd2.hh
+    rl_krillx.hh
     rl_qb.hh
     rl_orth.hh
     rl_util.hh
