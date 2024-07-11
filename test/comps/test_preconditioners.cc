@@ -6,7 +6,7 @@
 #include <lapack.hh>
 
 #include "../moremats.hh"
-#include "/Users/rjmurr/Documents/randnla/RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../RandLAPACK/RandBLAS/test/comparison.hh"
 
 
 using std::vector;
