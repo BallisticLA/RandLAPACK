@@ -338,6 +338,11 @@ STATE nystrom_pc_data(
     return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
 }
 
+/**
+ * TODO: make an overload of rpchol_pc_data that omits "n" and assumes A implements
+ * some linear operator interface.
+ */
+
 template <typename T, typename STATE, typename FUNC>
 STATE rpchol_pc_data(
     int64_t n, FUNC &A_stateless, int64_t &k, int64_t b, T* V, T* eigvals, STATE state
