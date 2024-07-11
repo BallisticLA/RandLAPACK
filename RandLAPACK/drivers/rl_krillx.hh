@@ -24,14 +24,6 @@ namespace RandLAPACK {
 
 using std::vector;
 
-// TODO: make an interface for objects that be called as G(i,j)
-// or G.block_eval( ... arguments for computing submatrices of kernel matrices ... )
-//
-// ^ Maybe that'll just be an extension of the LinearOperator interface?
-//
-//   Uhh ... probably not, since that interface already has an operator() definition.
-//   maybe overloading saves us?
-
 template <typename T, typename FUNC, typename SEMINORM, typename STATE>
 STATE krill_separable_rpchol(
     int64_t n, FUNC &G, vector<T> &mus, vector<T> &H, vector<T> &X, T tol,

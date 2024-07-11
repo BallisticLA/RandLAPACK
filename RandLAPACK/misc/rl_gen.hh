@@ -526,4 +526,12 @@ void mat_gen(
             break;
     }
 }
+
+template <typename T, typename RNG>
+std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
+    std::vector<T> A(info.rows * info.cols, 0.0);
+    mat_gen(info, A.data(), state);
+    return A;
+}
+
 }
