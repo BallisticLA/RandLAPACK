@@ -29,5 +29,6 @@
 #include "RandLAPACK/drivers/rl_cqrrp.hh"
 #include "RandLAPACK/drivers/rl_revd2.hh"
 #include "RandLAPACK/drivers/rl_rbki.hh"
+#include "RandLAPACK/drivers/rl_krillx.hh"
 
 #endif
