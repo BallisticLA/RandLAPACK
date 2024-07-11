@@ -101,8 +101,8 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
+    int64_t m          = std::pow(2, 16);
+    int64_t n          = std::pow(2, 16);
     double  d_factor   = 1.25;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
