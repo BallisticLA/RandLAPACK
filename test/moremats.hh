@@ -35,4 +35,26 @@ vector<T> polynomial_decay_psd(int64_t m, T cond_num, T exponent, uint32_t seed)
     return G;
 }
 
+template <typename T>
+vector<T> random_gaussian_mat(int64_t m, int64_t n, uint32_t seed) {
+    RandBLAS::DenseDist D(m, n);
+    RNGState state(seed);
+    vector<T> mat(m*n);
+    RandBLAS::fill_dense(D, mat.data(), state);
+    return mat;
+}
+
+template <typename T, typename RNG>
+RNGState<RNG> left_multiply_by_orthmat(int64_t m, int64_t n, std::vector<T> &A, RNGState<RNG> state) {
+    using std::vector;
+    vector<T> U(m * m, 0.0);
+    RandBLAS::DenseDist DU(m, m);
+    auto out_state = RandBLAS::fill_dense(DU, U.data(), state).second;
+    vector<T> tau(m, 0.0);
+    lapack::geqrf(m, m, U.data(), m, tau.data());
+    lapack::ormqr(blas::Side::Left, blas::Op::NoTrans, m, n, m, U.data(), m, tau.data(), A.data(), m);
+    return out_state;
+}
+
+
 }
