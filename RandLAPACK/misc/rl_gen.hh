@@ -45,6 +45,7 @@ struct mat_gen_info {
     T perturb;
     char* filename;
     int workspace_query_mod;
+    T frac_spectrum_one;
 
     mat_gen_info(int64_t& m, int64_t& n, mat_type t) {
         rows = m;
@@ -59,6 +60,7 @@ struct mat_gen_info {
         theta = 1.0;
         perturb = 1.0;
         check_true_rank = false;
+        frac_spectrum_one = 0.1;
     }
 };
 
@@ -98,8 +100,8 @@ void gen_singvec(
 
 /// Generates a matrix with polynomially-decaying spectrum of the following form:
 /// s_i = a(i + b)^p, where p is the user-defined exponent constant, a and b are computed
-/// using p and the user-defined condition number parameter and the first 10 percent of the 
-/// singular values are equal to one.
+/// using p and the user-defined condition number parameter and the first 
+/// (100 * frac_spectrum_one) percent of the  singular values are equal to one.
 /// User can optionally choose for the matrix to be diagonal.
 /// The output matrix has k singular values. 
 template <typename T, typename RNG>
@@ -108,6 +110,7 @@ void gen_poly_mat(
     int64_t &n,
     T* A,
     int64_t k,
+    T frac_spectrum_one,
     T cond,
     T p,
     bool diagon,
@@ -119,11 +122,12 @@ void gen_poly_mat(
     T* S = ( T * ) calloc( k * k, sizeof( T ) );
 
     // The first 10% of the singular values will be equal to one
-    int offset = (int) floor(k * 0.1);
+    int offset = (int) floor(k * frac_spectrum_one);
     T first_entry = 1.0;
     T last_entry = first_entry / cond;
-    T a = std::pow((std::pow(last_entry, -1 / p) - std::pow(first_entry, -1 / p)) / (k - offset), p);
-    T b = std::pow(a * first_entry, -1 / p) - offset;
+    T neg_invp = -((T)1.0)/p;
+    T a = std::pow((std::pow(last_entry, neg_invp) - std::pow(first_entry, neg_invp)) / (k - offset), p);
+    T b = std::pow(a * first_entry, neg_invp) - offset;
     // apply lambda function to every entry of s
     std::fill(s, s + offset, 1.0);
     for (int i = offset; i < k; ++i) {
@@ -470,7 +474,7 @@ void mat_gen(
     switch(info.m_type) {
         case polynomial:
                 // Generating matrix with polynomially decaying singular values
-                RandLAPACK::gen::gen_poly_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.exponent, info.diag, state);
+                RandLAPACK::gen::gen_poly_mat(info.rows, info.cols, A, info.rank, info.frac_spectrum_one, info.cond_num, info.exponent, info.diag, state);
                 break;
         case exponential:
                 // Generating matrix with exponentially decaying singular values
