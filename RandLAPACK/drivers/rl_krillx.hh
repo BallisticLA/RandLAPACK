@@ -26,9 +26,10 @@ using std::vector;
 
 template <typename T, typename FUNC, typename SEMINORM, typename STATE>
 STATE krill_separable_rpchol(
-    int64_t n, FUNC &G, vector<T> &mus, vector<T> &H, vector<T> &X, T tol,
+    int64_t n, FUNC &G, vector<T> &H, vector<T> &X, T tol,
     STATE state, SEMINORM seminorm, int64_t rpchol_block_size = -1, int64_t max_iters = 20, int64_t k = -1
 ) {
+    auto mus = G.regs;
     int64_t ell = mus.size();
     randblas_require(ell == 1 || ell == (((int64_t) H.size()) / n));
 
@@ -39,9 +40,11 @@ STATE krill_separable_rpchol(
     
     vector<T> V(n*k, 0.0);
     vector<T> eigvals(k, 0.0);
+    G.set_eval_includes_reg(false);
     state = rpchol_pc_data(n, G, k, rpchol_block_size, V.data(), eigvals.data(), state);
     linops::SpectralPrecond<T> invP(n);
     invP.prep(V, eigvals, mus, ell);
+    G.set_eval_includes_reg(true);
     lockorblock_pcg(G, H, tol, max_iters, invP, seminorm, X, true);
     return state;
 }
