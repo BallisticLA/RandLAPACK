@@ -367,6 +367,7 @@ void lockorblock_pcg(
 
     int64_t k = 0;
     // int64_t stalls = 0;
+    T stop_abstol = tol*(1.0 + normNR0);
     int64_t subspace_dim = 0;
     while (subspace_dim < n && k < max_iters) {
         // 
@@ -374,7 +375,7 @@ void lockorblock_pcg(
         //
         k++;
 
-        G(layout, s, 1.0, P.data(), n, 0.0, GP.data(), n);
+        G(layout, s, (T) 1.0, P.data(), n, (T) 0.0, GP.data(), n);
         // ^ GP <- G P
         blas::gemm(
             layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, P.data(), n, GP.data(), n, 0.0, alpha_beta_left_buffer.data(), s
@@ -409,8 +410,7 @@ void lockorblock_pcg(
         normNR = seminorm.evaluate(n, s, NR_or_scratch.data());
         if (verbose)
             std::cout << "normNR: " << normNR << " k: " << k << " dim : " << subspace_dim << '\n';
-        bool stop = normNR < 1e-12 + 1e-9 * normNR0;
-        if (stop)
+        if (normNR < stop_abstol)
             break;
         // 
         //  Update P, beta, and alpha
