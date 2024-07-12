@@ -18,7 +18,8 @@ namespace RandLAPACK {
  * X is a rows_x by cols_x matrix stored in column major format with
  * leading dimension equal to rows_x. Each column of X is interpreted
  * as a datapoint in "rows_x" dimensional space. mu and sigma are
- * buffers of length cols_x that this function overwrites as follows:
+ * buffers of length rows_x. If use_input_mu_sigma is false then this
+ * function overwrites them as follows:
  * 
  *     mu(i) = [the sample mean of X(i,1), ..., X(i, end) ].
  * 
@@ -31,13 +32,15 @@ namespace RandLAPACK {
  */
 template <typename T>
 void standardize_dataset(
-    int64_t rows_x, int64_t cols_x, T* X, T* mu, T* sigma
+    int64_t rows_x, int64_t cols_x, T* X, T* mu, T* sigma, bool use_input_mu_sigma = false
 ) {
     randblas_require(cols_x >= 2);
-    std::fill(mu, mu + rows_x, 0.0);
-    std::fill(sigma, sigma + rows_x, 0.0);
+    if (! use_input_mu_sigma) {
+        std::fill(mu, mu + rows_x, (T) 0.0);
+        std::fill(sigma, sigma + rows_x, (T) 0.0);
+    }
     T* ones_cols_x = new T[cols_x]{1.0};
-    blas::gemv(blas::Layout::ColMajor, blas::Op::NoTrans, rows_x, cols_x, 1.0/ (T)rows_x, X, rows_x, ones_cols_x, 1, 0.0, mu, 1);
+    blas::gemv(blas::Layout::ColMajor, blas::Op::NoTrans, rows_x, cols_x, 1.0/ (T)rows_x, X, rows_x, ones_cols_x, 1, (T) 0.0, mu, 1);
     // ^ Computes the mean
     blas::ger(blas::Layout::ColMajor, rows_x, cols_x, -1, mu, 1, ones_cols_x, 1, X, rows_x);
     // ^ Performs a rank-1 update to subtract off the mean.
@@ -47,7 +50,7 @@ void standardize_dataset(
     for (int64_t i = 0; i < rows_x; ++i) {
         sigma[i] = blas::nrm2(cols_x, X + i, rows_x);
         sigma[i] /= stddev_scale;
-        blas::scal(cols_x, 1.0 / sigma[i], X + i, rows_x);
+        blas::scal(cols_x, (T) 1.0 / sigma[i], X + i, rows_x);
     }
     return;
 }
@@ -74,12 +77,12 @@ void euclidean_distance_submatrix(
 ) {
     randblas_require((0 <= co_eds) && ((co_eds + cols_eds) <= cols_x));
     randblas_require((0 <= ro_eds) && ((ro_eds + rows_eds) <= cols_x));
-    for (int64_t i = 0; i < rows_eds; ++i) {
-        T a = sq_colnorms_x[i + ro_eds];
-        for (int64_t j = 0; j < cols_eds; ++j) {
-            T b = sq_colnorms_x[j + co_eds];
-            Eds[i + rows_eds * j] = a + b;
-        }
+    std::vector<T> ones(rows_eds, 1.0);
+    T* ones_d = ones.data();
+    for (int64_t j = 0; j < cols_eds; ++j) {
+        T* Eds_col = Eds + rows_eds*j;
+        blas::copy(rows_eds, sq_colnorms_for_rows, 1, Eds_col, 1);
+        blas::axpy(rows_eds, sq_colnorms_for_cols[j], ones_d, 1, Eds_col, 1);
     }
     const T* X_subros = X + rows_x * ro_eds;
     const T* X_subcos = X + rows_x * co_eds;
