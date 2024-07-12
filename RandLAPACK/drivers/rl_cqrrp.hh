@@ -60,6 +60,8 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             timing     = time_subroutines;
             eps        = ep;
             block_size = b_sz;
+            use_qp3 = false;
+            use_gaussian = false;
         }
 
         /// Computes a QR factorization with column pivots of the form:
