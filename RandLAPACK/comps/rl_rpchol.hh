@@ -156,7 +156,8 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
         _rpchol_impl::pack_selected_rows(layout, n, ell_incr, F_panel, Sprime, work_mat.data());
         int status = lapack::potrf(uplo, ell_incr, work_mat.data(), ell_incr);
         if (status) {
-            std::cout << "Cholesky failed with exit code " << status << ". Returning early!";
+            std::cout << "Cholesky failed with exit code " << status << ".\n";
+            std::cout << "Returning early, with approximation rank = " << ell << "\n";
             k = ell;
             return state;
         }
