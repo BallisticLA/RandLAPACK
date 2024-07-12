@@ -48,7 +48,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    std::fill(all_data.J.begin(), all_data.J.end(), 0);
+    std::iota(all_data.J.begin(), all_data.J.end(), 1);
 }
 
 template <typename T, typename RNG>
@@ -96,8 +96,8 @@ static void call_all_algs(
 int main() {
 
     // Declare parameters
-    int64_t m          = std::pow(2, 16);
-    int64_t n          = std::pow(2, 16);
+    int64_t m          = std::pow(2, 14);
+    int64_t n          = std::pow(2, 14);
     double  d_factor   = 1.25;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
@@ -107,7 +107,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs.
-    int64_t numruns = 4;
+    int64_t numruns = 10;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
