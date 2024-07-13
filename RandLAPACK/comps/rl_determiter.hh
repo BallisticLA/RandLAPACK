@@ -353,6 +353,7 @@ void lockorblock_pcg(
     G(layout, s, 1.0, X.data(), n, 0.0, GP.data(), n);
     // ^ GP <- G X
     blas::axpy(ns, -1.0, GP.data(), 1, R.data(), 1);
+    T normR0 = seminorm.evaluate(n, s, R.data());
     // ^ R <- R - G X 
     N(layout, s, 1.0, R.data(), n, 0.0, P.data(), n);
     // ^ P <- N R
@@ -368,7 +369,7 @@ void lockorblock_pcg(
     T stop_abstol = tol*(1.0 + normNR0);
     int64_t subspace_dim = 0;
     if (verbose)
-        std::cout << "normNR: " << normNR0 << "\tk: 0\tdim : 0\n";
+        std::cout << "normNR : " << normNR0 << "\tnormR : " << normR0 << "\tk: 0\tdim : 0\n";
     while (subspace_dim < n && k < max_iters) {
         // 
         // Update X and R
@@ -405,11 +406,13 @@ void lockorblock_pcg(
         //
         //      TODO: change how we check termination criteria in the event that we're working
         //            with treat_as_separable = true.
+        T normR = seminorm.evaluate(n, s, R.data());
+
         N(layout, s, 1.0, R.data(), n, 0.0, NR_or_scratch.data(), n); // NR <- N R
         prevnormNR = normNR;
         normNR = seminorm.evaluate(n, s, NR_or_scratch.data());
         if (verbose)
-            std::cout << "normNR: " << normNR << "\tk: " << k << "\tdim : " << subspace_dim << '\n';
+            std::cout << "normNR : " << normNR << "\tnormR : " << normR << "\tk: " << k << "\tdim : " << subspace_dim << '\n';
         if (normNR < stop_abstol)
             break;
         // 
