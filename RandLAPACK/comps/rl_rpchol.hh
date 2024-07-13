@@ -20,11 +20,11 @@ void compute_columns(
 ) {
     randblas_require(layout == Layout::ColMajor);
     int64_t num_cols = col_indices.size();
+    #pragma omp parallel for collapse(2)
     for (int64_t ell = 0; ell < num_cols; ++ell) {
-        T* buffj = buff + ell*N;
-        int64_t j = col_indices[ell];
         for (int64_t i = 0; i < N; ++i) {
-            buffj[i] = K_stateless(i, j);
+            int64_t j = col_indices[ell];
+            buff[i + ell*N] = K_stateless(i, j);
         }
     }
     return;
@@ -157,7 +157,7 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
         int status = lapack::potrf(uplo, ell_incr, work_mat.data(), ell_incr);
         if (status) {
             std::cout << "Cholesky failed with exit code " << status << ".\n";
-            std::cout << "Returning early, with approximation rank = " << ell << "\n";
+            std::cout << "Returning early, with approximation rank = " << ell << "\n\n";
             k = ell;
             return state;
         }
