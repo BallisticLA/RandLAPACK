@@ -77,6 +77,9 @@ void euclidean_distance_submatrix(
 ) {
     randblas_require((0 <= co_eds) && ((co_eds + cols_eds) <= cols_x));
     randblas_require((0 <= ro_eds) && ((ro_eds + rows_eds) <= cols_x));
+    const T* sq_colnorms_for_rows = sq_colnorms_x + ro_eds;
+    const T* sq_colnorms_for_cols = sq_colnorms_x + co_eds;
+
     std::vector<T> ones(rows_eds, 1.0);
     T* ones_d = ones.data();
     for (int64_t j = 0; j < cols_eds; ++j) {
@@ -84,6 +87,7 @@ void euclidean_distance_submatrix(
         blas::copy(rows_eds, sq_colnorms_for_rows, 1, Eds_col, 1);
         blas::axpy(rows_eds, sq_colnorms_for_cols[j], ones_d, 1, Eds_col, 1);
     }
+
     const T* X_subros = X + rows_x * ro_eds;
     const T* X_subcos = X + rows_x * co_eds;
     blas::gemm(
@@ -92,6 +96,17 @@ void euclidean_distance_submatrix(
         -2.0, X_subros, rows_x, X_subcos, rows_x, 1.0, Eds, rows_eds
     );
     return;
+}
+
+template <typename T>
+T squared_exp_kernel(int64_t dim, const T* x, const T* y, T bandwidth) {
+    T sq_nrm = 0.0;
+    T scale = std::sqrt(2.0)*bandwidth;
+    for (int64_t i = 0; i < dim; ++i) {
+        T diff = (x[i] - y[i])/scale;
+        sq_nrm += diff*diff;
+    }
+    return std::exp(-sq_nrm);
 }
 
 /***
@@ -120,31 +135,53 @@ void squared_exp_kernel_submatrix(
     int64_t rows_ksub, int64_t cols_ksub,  T* Ksub, int64_t ro_ksub, int64_t co_ksub,
     T bandwidth
 ) {
-    randblas_require(bandwidth > 0);
-    // First, compute the relevant submatrix of the Euclidean distance matrix
-    euclidean_distance_submatrix(rows_x, cols_x, X, sq_colnorms_x, rows_ksub, cols_ksub, Ksub, ro_ksub, co_ksub);
-    // Next, scale by -1/(2*bandwidth^2).
-    T scale = -1.0 / (2.0 * bandwidth * bandwidth);
     int64_t size_Ksub = rows_ksub * cols_ksub;
-    blas::scal(size_Ksub, scale, Ksub, 1);
-    // Finally, apply an elementwise exponential function
-    auto inplace_exp = [](T &val) { val = std::exp(val); };
-    // TODO: look at using std::execution for parallelism.
-    for (int64_t i = 0; i < size_Ksub; ++i) 
+    randblas_require(bandwidth > 0);
+    euclidean_distance_submatrix(rows_x, cols_x, X, sq_colnorms_x, rows_ksub, cols_ksub, Ksub, ro_ksub, co_ksub);
+    T scale = -1.0 / (2.0 * bandwidth * bandwidth);
+    auto inplace_exp = [scale](T &val) { val = std::exp(scale*val); };
+    #pragma omp parallel for
+    for (int64_t i = 0; i < size_Ksub; ++i) {
         inplace_exp(Ksub[i]);
+    }
     return;
 }
 
+
+/**
+ *  D = [A ][ B ] C
+ *      [B'][ 0 ]
+ * 
+ * where A is k-by-k, B is k-by-ell, and C has n columns.
+ * 
+ * All matrices are column-major; A and B have leading dimension k. d
+ * 
+ */
 template <typename T>
-T squared_exp_kernel(int64_t dim, const T* x, const T* y, T bandwidth) {
-    T sq_nrm = 0.0;
-    T scale = std::sqrt(2.0)*bandwidth;
-    for (int64_t i = 0; i < dim; ++i) {
-        T diff = (x[i] - y[i])/scale;
-        sq_nrm += diff*diff;
+void block_arrowhead_multiply(int64_t k, int64_t ell, int64_t n, const T* A, const T* B, const T* C, int64_t ldc, T* D, int64_t ldd ) {
+    auto layout = blas::Layout::ColMajor;
+    using blas::Op;
+    const T* C_top = C;
+    const T* C_bot = C + k;
+    T* D_top = D;
+    T* D_bot = D + k;
+    //
+    //  Step 1. D_top += alpha * A * C_top
+    //
+    blas::gemm(layout, Op::NoTrans, Op::NoTrans, k, n, k, (T) 1.0, A, k, C_top, ldc, (T) 0.0, D_top, ldd);
+    if (ell > 0) {
+        //
+        //  Step 2. D_top += alpha * B * C_bot
+        //
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, k, n, ell, (T) 1.0, B, k, C_bot, ldc, (T) 1.0, D_top, ldd);
+        //
+        // Step 3. D_bot += alpha * B' * C_top
+        //
+        blas::gemm(layout, Op::Trans,   Op::NoTrans, ell, n, k, (T) 1.0, B, k, C_top, ldc, (T) 0.0, D_bot, ldd);
     }
-    return std::exp(-sq_nrm);
+    return;
 }
+
 
 namespace linops {
 
@@ -160,7 +197,8 @@ struct SEKLO : public SymmetricLinearOperator<T> {
     vector<T> regs;
 
     vector<T> _sq_colnorms_x;
-    vector<T> _eval_work;
+    vector<T> _eval_work1;
+    vector<T> _eval_work2;
     bool      _eval_includes_reg;
     int64_t   _eval_block_size;
 
@@ -168,23 +206,21 @@ struct SEKLO : public SymmetricLinearOperator<T> {
 
     SEKLO(
         int64_t m, const T* X, int64_t rows_x, T bandwidth, vector<T> &regs
-    ) : SymmetricLinearOperator<T>(m), X(X), rows_x(rows_x), bandwidth(bandwidth),  regs(regs), _sq_colnorms_x(m), _eval_work{} {
+    ) : SymmetricLinearOperator<T>(m), X(X), rows_x(rows_x), bandwidth(bandwidth),  regs(regs), _sq_colnorms_x(m), _eval_work1{}, _eval_work2{} {
         for (int64_t i = 0; i < m; ++i) {
             _sq_colnorms_x[i] = std::pow(blas::nrm2(rows_x, X + i*rows_x, 1), 2);
         }
         _eval_block_size = std::min(m / ((int64_t) 4), (int64_t) 512);
-        _eval_work.resize(_eval_block_size * m);
+        _eval_work1.resize(_eval_block_size * m);
         _eval_includes_reg = false;
         return;
     }
 
-    void _prep_eval_work(
-        int64_t rows_ksub, int64_t cols_ksub, int64_t ro_ksub, int64_t co_ksub
-    ) {
-        randblas_require(rows_ksub * cols_ksub <= (int64_t) _eval_work.size());
+    void _prep_eval_work1(int64_t rows_ksub, int64_t cols_ksub, int64_t ro_ksub, int64_t co_ksub) {
+        randblas_require(rows_ksub * cols_ksub <= (int64_t) _eval_work1.size());
         squared_exp_kernel_submatrix(
             rows_x, this->m, X, _sq_colnorms_x.data(),
-            rows_ksub, cols_ksub, _eval_work.data(), ro_ksub, co_ksub, bandwidth
+            rows_ksub, cols_ksub, _eval_work1.data(), ro_ksub, co_ksub, bandwidth
         );
     }
 
@@ -196,22 +232,31 @@ struct SEKLO : public SymmetricLinearOperator<T> {
         randblas_require(layout == blas::Layout::ColMajor);
         randblas_require(ldb >= this->m);
         randblas_require(ldc >= this->m);
-        int64_t row_start = 0;
-        while (true) {
-            int64_t row_end  = std::min(this->m, row_start + _eval_block_size);
-            int64_t num_rows = row_end - row_start;
-            if (num_rows <= 0)
-                break;
-            _prep_eval_work(num_rows, this->m, row_start, 0);
-            T* A = _eval_work.data();
-            T* C_submat = C + row_start;
-            blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, num_rows, n, this->m, alpha, A, num_rows, B, ldb, beta, C_submat, ldc);
-            row_start += num_rows;
+
+        _eval_work2.resize(this->m * n);
+        for (int64_t i = 0; i < n; ++i) {
+            blas::scal(this->m, beta, C + i*ldc, 1);
+        }
+        int64_t done = 0;
+        int64_t todo = this->m;
+        while (todo > 0) {
+            int64_t k = std::min(_eval_block_size, todo);
+            _prep_eval_work1(k, todo, done, done);
+            const T* arrowhead_A = _eval_work1.data();
+            const T* arrowhead_B = arrowhead_A + k * k;
+            const T* arrowhead_C = B + done;
+            T* arrowhead_D = _eval_work2.data();
+            int64_t ell = (todo > k) ? (todo - k) : 0;
+            block_arrowhead_multiply(k, ell, n, arrowhead_A, arrowhead_B, arrowhead_C, ldb, arrowhead_D, todo);
+            for (int i = 0; i < n; ++i) {
+                blas::axpy(todo, alpha, arrowhead_D + i*todo, 1, C + done + i*ldc, 1);
+            }
+            done += k;
+            todo -= k;
         }
         if (_eval_includes_reg) {
             int64_t num_regs = this->regs.size();
-            if (num_regs != 1)
-                randblas_require(n == num_regs);
+            randblas_require(num_regs == 1 || n == num_regs);
             T* regsp = regs.data();
             for (int64_t i = 0; i < n; ++i) {
                 T coeff =  alpha * regsp[std::min(i, num_regs - 1)];
