@@ -41,6 +41,7 @@ function(add_benchmark)
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
 endfunction()
 
+
 set(
     Benchmark_libs
     RandLAPACK
@@ -65,3 +66,16 @@ add_benchmark(NAME CQRRP_pivot_quality           CXX_SOURCES bench_CQRRP/CQRRP_p
 
 add_benchmark(NAME RBKI_speed_comparisons CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME RBKI_runtime_breakdown CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
+
+
+# KRILL benchmarks
+include(FetchContent)
+FetchContent_Declare(
+    fast_matrix_market
+    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
+    GIT_TAG main
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(fast_matrix_market)
+add_benchmark(NAME KRILL_simple CXX_SOURCES bench_krill/krill_simple.cc LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)
+
