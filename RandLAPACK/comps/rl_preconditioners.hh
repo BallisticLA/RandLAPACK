@@ -360,5 +360,29 @@ STATE rpchol_pc_data(
     return state;
 }
 
+
+/** 
+ * We implicitly have our hands on a matrix A = V diag(eigvals) V'
+ * where V is an n-by-k column-major column-orthonormal matrix
+ * and eigvals is a buffer of length k whose values are sorted in
+ * decreasing order. We are given a buffer for an upper-triangular 
+ * n-by-n matrix in column-major format in the form of "ut". 
+ * 
+ * We overwrite (V, eigvals) so that 
+ *      inv(ut)' A inv(ut) = V diag(eigvals) V'
+ * where (V, eigvals) retain the structural properties stated above.
+ **/
+template <typename T>
+void ut_conjugate_spectral_pc_data(
+    int64_t n, int64_t k, T* V, T* eigvals, T* ut, std::vector<T> &work
+) {
+    // Step 1: Get our hands on F so that A = FF'.
+    // Step 2: Overwrite F = inv(ut)'F.
+    // Step 3: Call GESDD: overwrite F with its left
+    //         singular vectors and overwrite eigvals
+    //         with its squared singular values.
+    return;
+}
+
 }  // end namespace RandLAPACK
 #endif
