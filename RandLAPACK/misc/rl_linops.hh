@@ -191,12 +191,30 @@ struct SpectralPrecond {
      * instead of three if we store D = D0 - 1 instead of D0 itself.
      */
 
-    SpectralPrecond(
-        int64_t m
-    ) : m(m), k(1), s(1),
-        V(this->k*m      ),  V_ptr{},
-        D(this->k        ),  D_ptr{},
-        work(this->k*s ),  work_ptr{} {};
+    SpectralPrecond(int64_t m)
+        : m(m), k(1), s(1),
+          V(k * m), V_ptr(V.data()),
+          D(k), D_ptr(D.data()),
+          work(k * s), work_ptr(work.data()) {}
+
+    // Move constructor
+    // Call as SpectralPrecond<T> spc(std::move(other)) when we want to transfer the
+    // contents of "other" to "this". 
+    SpectralPrecond(SpectralPrecond &&other) noexcept
+        : m(other.m), k(other.k), s(other.s),
+          V(std::move(other.V)), V_ptr(V.data()),
+          D(std::move(other.D)), D_ptr(D.data()),
+          work(std::move(other.work)), work_ptr(work.data()),
+          num_regs(other.num_regs) {}
+
+    // Copy constructor
+    // Call as SpectralPrecond<T> spc(other) when we want to copy "other".
+    SpectralPrecond(const SpectralPrecond &other)
+        : m(other.m), k(other.k), s(other.s),
+          V(other.V), V_ptr(V.data()),
+          D(other.D), D_ptr(D.data()),
+          work(other.work), work_ptr(work.data()),
+          num_regs(other.num_regs) {} 
 
     void prep(vector<T> &eigvecs, vector<T> &eigvals, vector<T> &mus, int64_t arg_s) {
         // assume eigvals are positive numbers sorted in decreasing order.
@@ -279,6 +297,27 @@ struct SpectralPrecond {
         return;
     }
 };
+
+// template <typename T>
+// struct ConjSpectralPrecond {
+//     public:
+//     using scalar_t = T;
+//     SpectralPrecond<T> spectral_precond;
+//     vector<T> ut_conjugator;
+
+//     ConjSpectralPrecond(SpectralPrecond<T> &sp, std::vector<T> &utc) 
+//         : spectral_precond(sp), ut_conjugator(utc) {}
+    
+//     ConjSpectralPrecond(SpectralPrecond<T> &&sp, std::vector<T> &&utc) 
+//         : spectral_precond(std::move(sp)), ut_conjugator(std::move(utc)) {}
+
+//     void operator()(
+//         blas::Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
+//     ) {
+//         randblas_require(layout == blas::Layout::ColMajor);
+        
+//     }
+// };
 
 } // end namespace RandLAPACK::linops
 #endif
