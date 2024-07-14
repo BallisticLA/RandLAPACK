@@ -25,13 +25,15 @@ namespace RandLAPACK {
 using std::vector;
 
 template <typename T, typename FUNC, typename SEMINORM, typename STATE>
-STATE krill_separable_rpchol(
+STATE krill_full_rpchol(
     int64_t n, FUNC &G, vector<T> &H, vector<T> &X, T tol,
     STATE state, SEMINORM seminorm, int64_t rpchol_block_size = -1, int64_t max_iters = 20, int64_t k = -1
 ) {
     auto mus = G.regs;
-    int64_t ell = mus.size();
-    randblas_require(ell == 1 || ell == (((int64_t) H.size()) / n));
+    int64_t ell = ((int64_t) H.size()) / n;
+    randblas_require(ell * n == (int64_t) H.size());
+    int64_t mu_size = mus.size();
+    randblas_require(mu_size == 1 || mu_size == ell);
 
     if (rpchol_block_size < 0)
         rpchol_block_size = std::min((int64_t) 64, n/4);
@@ -46,8 +48,10 @@ STATE krill_separable_rpchol(
     invP.prep(V, eigvals, mus, ell);
     G.set_eval_includes_reg(true);
     lockorblock_pcg(G, H, tol, max_iters, invP, seminorm, X, true);
+
     return state;
 }
+
 
 // template <typename T, typename FUNC, typename STATE>
 // STATE krill_block(
