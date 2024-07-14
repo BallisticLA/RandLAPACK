@@ -108,3 +108,17 @@ add_benchmark(NAME ICQRRP_subroutines_speed      CXX_SOURCES bench_CQRRP/ICQRRP_
 add_benchmark(NAME RBKI_speed_comparisons      CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc      LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME RBKI_runtime_breakdown      CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc      LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME RBKI_speed_comparisons_SVDS CXX_SOURCES bench_RBKI/RBKI_speed_comparisons_SVDS.cc LINK_LIBS ${Benchmark_libs_external})
+
+
+
+# KRILL benchmarks
+include(FetchContent)
+FetchContent_Declare(
+    fast_matrix_market
+    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
+    GIT_TAG main
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(fast_matrix_market)
+add_benchmark(NAME KRILL_simple CXX_SOURCES bench_krill/krill_simple.cc LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)
+
