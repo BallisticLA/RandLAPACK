@@ -136,14 +136,14 @@ void pcg_saddle(
 template <typename T>
 struct StatefulSeminorm {
     ~StatefulSeminorm() {};
-    virtual T evaluate(int64_t n, int64_t s, const T* NR) = 0;
+    virtual T operator()(int64_t n, int64_t s, const T* NR) = 0;
 };
 
 template <typename T>
 struct StatefulFrobeniusNorm {
     std::vector<T> history;
     StatefulFrobeniusNorm() : history() {};
-    inline T evaluate(int64_t n, int64_t s, const T* NR) { 
+    inline T operator()(int64_t n, int64_t s, const T* NR) { 
         T nrm = blas::nrm2(n * s, NR, 1);
         this->history.push_back(nrm);
         return nrm;
@@ -354,11 +354,11 @@ void lockorblock_pcg(
     G(layout, s, 1.0, X.data(), n, 0.0, GP.data(), n);
     // ^ GP <- G X
     blas::axpy(ns, -1.0, GP.data(), 1, R.data(), 1);
-    T normR0 = seminorm.evaluate(n, s, R.data());
+    T normR0 = seminorm(n, s, R.data());
     // ^ R <- R - G X 
     N(layout, s, 1.0, R.data(), n, 0.0, P.data(), n);
     // ^ P <- N R
-    T normNR0 = seminorm.evaluate(n, s, P.data());
+    T normNR0 = seminorm(n, s, P.data());
     blas::gemm(
         layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R.data(), n, P.data(), n, 0.0, RNR.data(), s
     ); // RNR <- R^T P = R^T N R
@@ -407,11 +407,11 @@ void lockorblock_pcg(
         //
         //      TODO: change how we check termination criteria in the event that we're working
         //            with treat_as_separable = true.
-        T normR = seminorm.evaluate(n, s, R.data());
+        T normR = seminorm(n, s, R.data());
 
         N(layout, s, 1.0, R.data(), n, 0.0, NR_or_scratch.data(), n); // NR <- N R
         prevnormNR = normNR;
-        normNR = seminorm.evaluate(n, s, NR_or_scratch.data());
+        normNR = seminorm(n, s, NR_or_scratch.data());
         if (verbose)
             std::cout << "normNR : " << normNR << "\tnormR : " << normR << "\tk: " << k << "\tdim : " << subspace_dim << '\n';
         if (normNR < stop_abstol)
