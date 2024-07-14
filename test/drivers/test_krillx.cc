@@ -149,7 +149,7 @@ class TestKrillx: public ::testing::Test {
         int64_t max_iters = 30;
         int64_t rpc_blocksize = 16;
         RNGState state2(keys[key_index]);
-        RandLAPACK::krill_separable_rpchol(
+        RandLAPACK::krill_full_rpchol(
             m, G_linop, H, X_init, tol, state2, seminorm, rpc_blocksize, max_iters, k
         );
         T tol_scale = std::sqrt((T)m);
@@ -162,7 +162,7 @@ class TestKrillx: public ::testing::Test {
     }
 };
 
-TEST_F(TestKrillx, test_krill_separable_rpchol) {
+TEST_F(TestKrillx, test_krill_full_rpchol) {
     using T = double;
     T mu_min = 1e-5;
     vector<T> mus {mu_min, mu_min/10, mu_min/100};
