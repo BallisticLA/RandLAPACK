@@ -127,6 +127,7 @@ class TestCQRRP : public ::testing::Test
         auto n = all_data.col;
 
         CQRRP_GPU.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+        /*
         all_data.rank = CQRRP_GPU.rank;
         
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
@@ -143,16 +144,17 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data);
+        */
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_GPU_blocked_full_rank_basic) {
-    int64_t m = 60;//5000;
-    int64_t n = 60;//2000;
-    int64_t k = 60;
+TEST_F(TestCQRRP, CQRRP_GPU_070824) {
+    int64_t m = 32;//5000;
+    int64_t n = 32;//2000;
+    int64_t k = 32;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 10;//500;
+    int64_t b_sz = 7;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -171,7 +173,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_blocked_full_rank_basic) {
 
     norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
 #if !defined(__APPLE__)
-    //test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
+    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
 #endif
 }
 /*

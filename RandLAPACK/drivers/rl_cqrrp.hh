@@ -287,6 +287,7 @@ int CQRRP_blocked<T, RNG>::call(
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
     }
 
+    char name [] = "A";
     for(iter = 0; iter < maxiter; ++iter) {
 
         // Make sure we fit into the available space
@@ -305,9 +306,10 @@ int CQRRP_blocked<T, RNG>::call(
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
         util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
-        
+
         // Perform a row-pivoted LU on a transpose of A_sk
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
+
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
         std::iota(&J_buffer[0], &J_buffer[cols], 1);
         for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
@@ -315,11 +317,13 @@ int CQRRP_blocked<T, RNG>::call(
             J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
             J_buffer[i] = tmp;
         }
+    
         // Apply pivots to A_sk
         util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
+        
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
-        
+
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
@@ -347,9 +351,9 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
-
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
+  
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda);
 
         if(this -> timing) {
@@ -367,6 +371,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Compute Q_econ from Cholesky QR
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
 
+
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
             cholqr_t_dur  += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
@@ -381,7 +386,14 @@ int CQRRP_blocked<T, RNG>::call(
 #if !defined(__APPLE__)
         // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to envoke the newest Accelerate library.
         lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
-#endif
+#endif  
+
+        if(iter == 1) {
+            printf("%d\n", iter);
+            RandBLAS::util::print_colmaj(m, n, A, name);
+            break;
+        }
+
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
@@ -409,6 +421,8 @@ int CQRRP_blocked<T, RNG>::call(
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
         //lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
+        
+        
         lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
 
         if(this -> timing) {
@@ -522,11 +536,12 @@ int CQRRP_blocked<T, RNG>::call(
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
         RandLAPACK::util::get_U(b_sz, b_sz, R_sk, d);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d);
+
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk, d, R12, lda, (T) 1.0, &R_sk[d * b_sz], d);
-        
+
         // Changing the sampling dimension parameter
         sampling_dimension = std::min(sampling_dimension, cols);
 
@@ -534,6 +549,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Make sure R_sk_22 exists.
         if (sampling_dimension - b_sz > 0)
             RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
+
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
         // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
