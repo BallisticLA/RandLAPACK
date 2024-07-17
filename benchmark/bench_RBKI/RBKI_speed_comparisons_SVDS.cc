@@ -237,7 +237,7 @@ static void call_all_algs(
         printf("Iteration %d start.\n", i);
 
         // There is no reason to run SVD many times, as it always outputs the same result.
-        if ((num_matmuls == 2) && (i == 0)) {
+        if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVD
             auto start_svd = high_resolution_clock::now();
             lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
@@ -276,28 +276,30 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-/*        
-        // Running RSVD
-        auto start_rsvd = high_resolution_clock::now();
-        all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
-        auto stop_rsvd = high_resolution_clock::now();
-        dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
-        printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
-        RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
+        if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
+            // Running RSVD
+            auto start_rsvd = high_resolution_clock::now();
+            all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
+            auto stop_rsvd = high_resolution_clock::now();
+            dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
+            printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
-        residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
-        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
+            RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
-        if (all_data.A_lowrank_svd != nullptr)
-            lowrank_err_RSVD = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
-        
-        state_alg = state;
-        state_gen = state;
-        data_regen(m_info, all_data, state_gen, 1);
+            residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
+            printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
+
+            if (all_data.A_lowrank_svd != nullptr)
+                lowrank_err_RSVD = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+            
+            state_alg = state;
+            state_gen = state;
+            data_regen(m_info, all_data, state_gen, 1);
+        }
 
         // There is no reason to run SVDS many times, as it always outputs the same result.
-        if (num_matmuls == 2) {
+        if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
             auto start_svds = high_resolution_clock::now();
             Spectra::PartialSVDSolver<Eigen::MatrixXd> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
@@ -327,7 +329,7 @@ static void call_all_algs(
             state_gen = state;
             data_regen(m_info, all_data, state_gen, 1);
         }
-*/
+
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 
         << residual_err_custom_RBKI << ",  " << lowrank_err_RBKI <<  ",  " << dur_rbki    << ",  " 
