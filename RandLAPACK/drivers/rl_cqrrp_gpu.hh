@@ -9,6 +9,7 @@
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
+//#include <nvtx3/nvtx.hpp>
 #include "lapack/device.hh"
 
 #include <RandBLAS.hh>
@@ -117,7 +118,6 @@ class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
 
     public:
         bool timing;
-        bool timing_advanced;
         bool cond_check;
         RandBLAS::RNGState<RNG> state;
         T eps;
@@ -186,10 +186,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     long updating3_t_dur       = 0;
     long total_t_dur           = 0;
 
-    if(this -> timing) {
-        total_t_start = high_resolution_clock::now();
-        preallocation_t_start = high_resolution_clock::now();
-    }
     int iter, i, j;
     int64_t tmp;
     int64_t rows       = m;
@@ -206,10 +202,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
-
-    // Advanced timing feature
-    if (this->timing_advanced)
-        RandLAPACK::util::upsize(maxiter, this->block_per_time);
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -281,12 +273,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T norm_R_i   = 0.0;
     T approx_err = 0.0;
 
-    if(this -> timing) {
-        preallocation_t_stop  = high_resolution_clock::now();
-        preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
-        saso_t_start = high_resolution_clock::now();
-    }
-
     // Skethcing in an embedding regime
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -297,18 +283,16 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_sk, d
     );
 
-    if(this -> timing) {
-        saso_t_stop  = high_resolution_clock::now();
-        saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
-    }
-
-
     /******************************GPU REGION BEGIN*********************************/
     // The reasons for using GPUs for this part only ar the following: 
     // 1. We do not have GPU-based skething support in RandBLAS at the moment.
     //
     // We do not want to perform initial allocations/ copies inside the loop
     // Allocating device data & performing copies:
+    T* HOST_BUFFER = ( T * ) calloc( m * n, sizeof( T ) );
+    T* HOST_BUFFER_2 = ( T * ) calloc( m * n, sizeof( T ) );
+    T* HOST_BUFFER_3 = ( T * ) calloc( m * n, sizeof( T ) );
+    T* HOST_BUFFER_4 = ( T * ) calloc( m * n, sizeof( T ) );
     T* A_device;
     T* A_work_device;
     T* Work1_device;
@@ -317,39 +301,49 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* Work2_device;
     T* R_sk_device;
     T* R_cholqr_device;
+    T* R11_device;
+    T* R12_device;
+    T* tau_device;
     int64_t* J_buffer_device;
-    int64_t* temp_buffer_device;
     int64_t* J_buffer_lu_device;
+    int64_t* J_device;
 
-    char * d_work_getrf, d_work_geqrf;
-    char* h_work_getrf, h_work_geqrf;
+    char* d_work_getrf, * d_work_geqrf;
+    char* h_work_getrf, * h_work_geqrf;
+    int lwork_ormqr = 0;
+    T *d_work_ormqr = nullptr;
+
     size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
 
-    cudaStream_t strm = cudaStreamPerThread;
-    using lapack::device_info_int;
-    blas::Queue blas_queue(0);
     lapack::Queue lapack_queue(0);
+    cudaStream_t strm = lapack_queue.stream();
+    using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    // Create cusolver handle
+    cusolverDnHandle_t cusolverH = nullptr;
+    cusolverDnCreate(&cusolverH);
     
     cudaMalloc(&A_device, m * n * sizeof(T));
     cudaMalloc(&A_sk_device, d * n * sizeof(T));
     cudaMalloc(&A_sk_trans_device, n * d * sizeof(T));
-    cudaMalloc(&J_buffer_device, n * sizeof(T));
-    cudaMalloc(&temp_buffer_device, n * sizeof(T));
-    cudaMalloc(&J_buffer_lu_device, std::min(d, n) * sizeof(T));
+    cudaMalloc(&J_buffer_device, n * sizeof(int64_t));
+    cudaMalloc(&J_buffer_lu_device, std::min(d, n) * sizeof(int64_t));
     cudaMalloc(&Work2_device, n * sizeof(T));
     cudaMalloc(&R_cholqr_device, b_sz_const * b_sz_const * sizeof(T));
+    cudaMalloc(&tau_device, n * sizeof(T));
+    cudaMalloc(&J_device, n * sizeof(T));
 
-    cudaMemcpy(A, A_device, m * n * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(A_device, A, m * n * sizeof(T), cudaMemcpyHostToDevice);
     cudaMemcpy(A_sk_device, A_sk, d * n * sizeof(T), cudaMemcpyHostToDevice);
 
+
     A_work_device = A_device;
+    char name [] = "IGNORE";
+    char name1 [] = "BUFFER2";
+    char name2 [] = "BUFFER3";
 
     for(iter = 0; iter < maxiter; ++iter) {
-
-        if (this->timing_advanced)
-            iter_t_start  = high_resolution_clock::now();
-
+        //nvtx3::scoped_range iteration{"iter"};
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
@@ -358,66 +352,49 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
         std::fill(&Work2[0], &Work2[n], (T) 0.0);
 
-        if(this -> timing)
-            qrcp_t_start = high_resolution_clock::now();
-
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
-        RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
-/*
+
+        RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_device, d, A_sk_trans_device, n, 0);
+        //cudaStreamSynchronize(strm);
+
         // Perform a row-pivoted LU on a transpose of A_sk
         //lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
         // Probing workspace size - performed only once.
         if(iter == 0) {
             lapack::getrf_work_size_bytes(cols, sampling_dimension, A_sk_trans_device, n, &d_size_getrf, &h_size_getrf, lapack_queue);
-            d_work_getrf = blas::device_malloc< char >( d_size_getrf, blas_queue );
+
+            d_work_getrf = blas::device_malloc< char >( d_size_getrf, lapack_queue );
             std::vector<char> h_work_getrf_vector( h_size_getrf );
             h_work_getrf = h_work_getrf_vector.data();
         }
-        lapack::getrf(cols,sampling_dimension, A_sk_trans_device, n, J_buffer_lu_device, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
-
-        
+        lapack::getrf(cols, sampling_dimension, A_sk_trans_device, n, J_buffer_lu_device, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
+        //lapack_queue.sync();
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
-        std::iota(&J_buffer_device[0], &J_buffer_device[cols], 1);
-        for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
-            tmp = J_buffer_device[J_buffer_lu_device[i] - 1];
-            J_buffer_device[J_buffer_lu_device[i] - 1] = J_buffer_device[i];
-            J_buffer_device[i] = tmp;
-        }
-
+        RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer_device, J_buffer_lu_device);
         // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::col_swap_gpu(sampling_dimension, cols, cols, A_sk_device, lda, J_buffer_device, temp_buffer_device, strm);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_device, d, J_buffer_device);
+        //cudaStreamSynchronize(strm);
 
         // Perform an unpivoted QR on A_sk
         //lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         if(iter == 0) {
             lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_device, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
-            d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, blas_queue );
+            d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
             std::vector<char> h_work_geqrf_vector( h_size_geqrf );
             h_work_geqrf = h_work_geqrf_vector.data();
         }
         lapack::geqrf(sampling_dimension, cols, A_sk_device, d, Work2_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
-
-        if(this -> timing) {
-            qrcp_t_stop = high_resolution_clock::now();
-            qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-            r_piv_t_start = high_resolution_clock::now();
-        }
+        //lapack_queue.sync();
         
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         if(iter != 0)
-            util::col_swap_gpu(curr_sz, cols, cols, &A_device[lda * curr_sz], m, J_buf_device, strm);
-        
-        if(this -> timing) {
-            r_piv_t_stop  = high_resolution_clock::now();
-            r_piv_t_dur  += duration_cast<microseconds>(r_piv_t_stop - r_piv_t_start).count();
-            preconditioning_t_start = high_resolution_clock::now();
-        }
+            RandLAPACK::cuda_kernels::col_swap_gpu(strm, curr_sz, cols, cols, &A_device[lda * curr_sz], m, J_buffer_device);
         
         // Pivoting the current matrix A.
-        util::col_swap_gpu(rows, cols, cols, A_work_device, lda, J_buf_device, strm);
-        
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, rows, cols, cols, A_work_device, lda, J_buffer_device);
+        //cudaStreamSynchronize(strm);
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
@@ -429,62 +406,50 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
         //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rowd, b_sz, (T) 1.0, R_sk_device, d, A_work_device, lda, blas_queue);
 
-        if(this -> timing) {
-            preconditioning_t_stop  = high_resolution_clock::now();
-            preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
-        }
-
-        if(this -> timing)
-            cholqr_t_start = high_resolution_clock::now();
-
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk_device, d, A_work_device, lda, lapack_queue);
         // Performing Cholesky QR
         //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work_device, lda, (T) 0.0, R_cholqr_device, b_sz_const, blas_queue);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work_device, lda, (T) 0.0, R_cholqr_device, b_sz_const, lapack_queue);
         //lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
         lapack::potrf(Uplo::Upper,  b_sz, R_cholqr_device, b_sz_const, d_info, lapack_queue);
 
         // Compute Q_econ from Cholesky QR
         //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rowd, b_sz, (T) 1.0, R_cholqr_device, b_sz_const, A_work_device, lda, blas_queue);
-
-        if(this -> timing) {
-            cholqr_t_stop  = high_resolution_clock::now();
-            cholqr_t_dur  += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
-            reconstruction_t_start = high_resolution_clock::now();
-        }
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr_device, b_sz_const, A_work_device, lda, lapack_queue);
+        //lapack_queue.sync();
 
         // Find Q (stored in A) using Householder reconstruction. 
         // This will represent the full (rows by rows) Q factor form Cholesky QR
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-#if !defined(__APPLE__)
-        // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to envoke the newest Accelerate library.
-        
-        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
-       
-#endif
+        // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
+        //lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
+
+         if(iter == 1) {
+             printf("%d\n", iter);
+             lapack_queue.sync();
+             cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+             RandBLAS::util::print_colmaj(m, n, HOST_BUFFER, name1);
+         }
+
+        RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work2_device);  
+
+         if(iter == 1) {
+             printf("%d\n", iter);
+             lapack_queue.sync();
+             cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+             RandBLAS::util::print_colmaj(m, n, HOST_BUFFER, name1);
+
+            break;
+         }
+
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
-
-        for(i = 0; i < b_sz; ++i)
-            for(j = 0; j < (i + 1); ++j)
-               R_cholqr_device[(b_sz_const * i) + j] *= Work2_device[j];
-
-        // Define a pointer to the current subportion of tau vector.
-        tau_sub = &tau[curr_sz];
-        // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
-        for(i = 0; i < b_sz; ++i)
-            tau_sub[i] = T_dat[(b_sz_const + 1) * i];
-
-        if(this -> timing) {
-            reconstruction_t_stop  = high_resolution_clock::now();
-            reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
-            updating1_t_start = high_resolution_clock::now();
-        }
+        RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr_device, Work2_device);
+        //cudaStreamSynchronize(strm);
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
@@ -492,99 +457,52 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
-        //lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
-        lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
-
-        if(this -> timing) {
-            updating1_t_stop  = high_resolution_clock::now();
-            updating1_t_dur  += duration_cast<microseconds>(updating1_t_stop - updating1_t_start).count();
-            updating3_t_start = high_resolution_clock::now();
+        //lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
+        if (iter == 0) {
+            // Compute optimal workspace size
+            cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work1_device, lda, &lwork_ormqr);
+            // Allocate workspace
+            cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
         }
+        cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work1_device, lda, d_work_ormqr, lwork_ormqr, d_info);
 
         // Updating pivots
         if(iter == 0) {
-            blas::copy(cols, J_buffer, 1, J, 1);
+            RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer_device, 1, J_device, 1);
         } else {
-            RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf, strm);
+            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, &J_device[curr_sz], J_buffer_device);
         }
+        //cudaStreamSynchronize(strm);
 
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk_device, d, R_cholqr_device, b_sz_const, lapack_queue);
+        //lapack_queue.sync();
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
         // R11 =  &A[(m + 1) * curr_sz];
-        R11 = A_work;
-        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda);
-
+        R11_device = A_work_device;
+        //lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr_device, b_sz_const, A_work_device, lda, lapack_queue);
+        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, R_cholqr_device, b_sz_const, A_work_device, lda, true);
+        //cudaStreamSynchronize(strm);
+        
         // Updating the pointer to R12
         // In a global sense, this is identical to:
         // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
-        R12 = &R11[lda * b_sz];
-
-        if(this -> timing) {
-            updating3_t_stop  = high_resolution_clock::now();
-            updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
-        }
-
-        // Estimate R norm, use Fro norm trick to compute the approximation error
-        // Keep in mind that R11 is Upper triangular and R12 is rectangular.
-        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11, lda);
-        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12, lda);
-        norm_R_i = std::hypot(norm_R11, norm_R12);
-        norm_R   = std::hypot(norm_R, norm_R_i);
-        // Updating approximation error
-        approx_err = ((norm_A - norm_R) * (norm_A + norm_R)) / norm_A_sq;
+        R12_device = &R11_device[lda * b_sz];
 
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if((approx_err < this->eps) || (curr_sz >= n)) {
-
+        if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
 
-            if(this->timing_advanced) {
-                iter_t_stop  = high_resolution_clock::now();
-                this->block_per_time[iter] = ((T) rows * b_sz) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
-            }
-
-            if(this -> timing) {
-                total_t_stop = high_resolution_clock::now();
-                total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
-                this -> times.resize(12);
-                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
-
-                printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
-                printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-                printf("SASO time: %34ld μs,\n",                           saso_t_dur);
-                printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
-                printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
-                printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
-                printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
-                printf("Computing A_new, R12 time: %23ld μs,\n",           updating1_t_dur);
-                printf("Factors updating time: %23ld μs,\n",               updating3_t_dur);
-                printf("Sketch updating time: %24ld μs,\n",                updating2_t_dur);
-                printf("Trailing cols(R) pivoting time: %10ld μs,\n",      r_piv_t_dur);
-                printf("Other routines time: %24ld μs,\n",                 t_rest);
-                printf("Total time: %35ld μs.\n",                          total_t_dur);
-
-                printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-                printf("SASO generation and application takes %2.2f%% of runtime.\n",   100 * ((T) saso_t_dur            / (T) total_t_dur));
-                printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
-                printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
-                printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
-                printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
-                printf("Computing A_new, R12 takes %14.2f%% of runtime.\n",             100 * ((T) updating1_t_dur       / (T) total_t_dur));
-                printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating3_t_dur       / (T) total_t_dur));
-                printf("Sketch updating time takes %15.2f%% of runtime.\n",             100 * ((T) updating2_t_dur       / (T) total_t_dur));
-                printf("Trailing cols(R) pivoting takes %10.2f%% of runtime.\n",        100 * ((T) r_piv_t_dur           / (T) total_t_dur));
-                printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
-                printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
-            }
+            cudaMemcpyAsync(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
+            cudaMemcpyAsync(J, J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+            lapack_queue.sync();
 
             free(J_buffer_lu);
             free(A_sk_const);
@@ -592,57 +510,65 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             free(R_cholqr);
             free(T_dat);
             free(Work2);
+            cudaFree(d_work_ormqr);
+            cudaFree(A_device);
+            cudaFree(A_sk_device);
+            cudaFree(A_sk_trans_device);
+            cudaFree(J_device);
+            cudaFree(J_buffer_device);
+            cudaFree(J_buffer_lu_device);
+            cudaFree(Work2_device);
+            cudaFree(R_cholqr_device);
+            cudaFree(tau_device);
 
             return 0;
         }
-
-        if(this -> timing)
-            updating2_t_start = high_resolution_clock::now();
 
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz + b_sz];
         // Also, Below is identical to:
         // A_work = &A_work[(lda + 1) * b_sz];
-        A_work = &Work1[b_sz];
+        A_work_device = &Work1_device[b_sz];
         
         // Updating the skethcing buffer
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
-        RandLAPACK::util::get_U(b_sz, b_sz, R_sk, d);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d);
+        RandLAPACK::cuda_kernels::get_U_gpu(strm, b_sz, b_sz, R_sk_device, d);
+        //cudaStreamSynchronize(strm);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11_device, lda, R_sk_device, d, lapack_queue);
+
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk, d, R12, lda, (T) 1.0, &R_sk[d * b_sz], d);
-        
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk_device, d, R12_device, lda, (T) 1.0, &R_sk_device[d * b_sz], d, lapack_queue);
+        //lapack_queue.sync();
+
         // Changing the sampling dimension parameter
         sampling_dimension = std::min(sampling_dimension, cols);
 
         // Need to zero out the lower triangular portion of R_sk_22
         // Make sure R_sk_22 exists.
-        if (sampling_dimension - b_sz > 0)
-            RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
+        if (sampling_dimension - b_sz > 0) {
+            RandLAPACK::cuda_kernels::get_U_gpu(strm, sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk_device[(d + 1) * b_sz], d);
+            //cudaStreamSynchronize(strm);
+        }
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
         // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
         // if any rows beyond that would be accessed, we would have issues. 
-        A_sk = &A_sk[d * b_sz];
-
-        if(this -> timing) {
-            updating2_t_stop  = high_resolution_clock::now();
-            updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
-        }
-
-        if(this->timing_advanced) {
-            iter_t_stop  = high_resolution_clock::now();
-            this->block_per_time[iter] = ((T) rows * b_sz) / duration_cast<microseconds>(iter_t_stop - iter_t_start).count();
-        }
+        
+        ////cudaStreamSynchronize(strm);
+        //cudaMemcpy(HOST_BUFFER, A_sk_device, d * n * sizeof(T), cudaMemcpyDeviceToHost);
+        //char name [] = "BUFFER";
+        //RandBLAS::util::print_colmaj(d, n, HOST_BUFFER, name);
+        //break;
+        
+        A_sk_device = &A_sk_device[d * b_sz];
 
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;
-    */
     }
     return 0;
 }
