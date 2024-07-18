@@ -293,6 +293,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* HOST_BUFFER_2 = ( T * ) calloc( m * n, sizeof( T ) );
     T* HOST_BUFFER_3 = ( T * ) calloc( m * n, sizeof( T ) );
     T* HOST_BUFFER_4 = ( T * ) calloc( m * n, sizeof( T ) );
+    int64_t* HOST_BUFFER_J = ( int64_t * ) calloc( n, sizeof( int64_t ) );
     T* A_device;
     T* A_work_device;
     T* Work1_device;
@@ -426,24 +427,27 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
         // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
         //lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
+/*
+         if(iter <= 4) {
+            printf("%ld\n", curr_sz);
+            lapack_queue.sync();
+            cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+            RandLAPACK::util::print_colmaj(m, n, HOST_BUFFER, lda, name1);
 
-         if(iter == 1) {
-             printf("%d\n", iter);
-             lapack_queue.sync();
-             cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
-             RandBLAS::util::print_colmaj(m, n, HOST_BUFFER, name1);
+            cudaMemcpy(HOST_BUFFER_2, A_work_device, (lda * b_sz - curr_sz) * sizeof(T), cudaMemcpyDeviceToHost);
+            RandLAPACK::util::print_colmaj(rows, b_sz, HOST_BUFFER_2, lda, name);
          }
+*/
 
         RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work2_device);  
 
-         if(iter == 1) {
-             printf("%d\n", iter);
-             lapack_queue.sync();
-             cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
-             RandBLAS::util::print_colmaj(m, n, HOST_BUFFER, name1);
-
+        if (iter == 5) {
+            lapack_queue.sync();
+            cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+            RandLAPACK::util::print_colmaj(m, n, HOST_BUFFER, lda, name1);
             break;
-         }
+        }
+
 
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
@@ -466,6 +470,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
         cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work1_device, lda, d_work_ormqr, lwork_ormqr, d_info);
 
+        cudaMemcpy(HOST_BUFFER_J, J_buffer_device, b_sz * sizeof(int64_t), cudaMemcpyDeviceToHost);
+        for(int i = 0; i < b_sz; ++i)
+            printf("%ld\n", HOST_BUFFER_J[i]);
+        printf("\n");
         // Updating pivots
         if(iter == 0) {
             RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer_device, 1, J_device, 1);
@@ -503,6 +511,11 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             cudaMemcpyAsync(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
             cudaMemcpyAsync(J, J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
             lapack_queue.sync();
+
+            //RandLAPACK::util::print_colmaj(m, n, A, lda, name1);
+            for(int i = 0; i < n; ++i)
+                printf("%ld\n", J[i]);
+            
 
             free(J_buffer_lu);
             free(A_sk_const);
