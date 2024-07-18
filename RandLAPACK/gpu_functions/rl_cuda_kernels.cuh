@@ -294,12 +294,13 @@ __global__ void __launch_bounds__(128) col_swap_gpu(
     int64_t* curr = local_idx;
     int64_t* end = local_idx + k;
     for (i = 0; i < k; ++i, ++curr) {
-        j = *curr - 1;
-        std::swap(J[i], J[j]);
-        if (threadIdx.x == 0) {
-            std::iter_swap(curr, std::find(curr, end, i));
+        if (int64_t const j = *curr; i != j) {
+            std::swap(J[i], J[j]);
+            if (threadIdx.x == 0) {
+                std::iter_swap(curr, std::find(curr, end, i));
+            }
+            __syncthreads();
         }
-        __syncthreads();
     }
 }
 
@@ -528,14 +529,14 @@ void orhr_col_gpu(
     
     int i;
     for(i = 0; i < n; ++i) {
-        int64_t num_blocks{(m - (i + 1) + threadsPerBlock - 1) / threadsPerBlock};
+        int64_t num_blocks{std::max((m - (i + 1) + threadsPerBlock - 1) / threadsPerBlock, (int64_t) 1)};
         // S(i, i) = − sgn(Q(i, i)); = 1 if Q(i, i) == 0
         diagonal_update<<<1,1,0,stream>>>(i, A, lda, D, n);
         // Scale ith column if L by diagonal element
         scal_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m - (i + 1), &A[i * (lda + 1)], 1, &A[(lda + 1) * i + 1], 1);
         // Perform Schur compliment update
         // A(i+1:m, i+1:n) = A(i+1:m, i+1:n) - (A(i+1:m, i) * A(i, i+1:n))
-        ger_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], m, &A[(lda + 1) * (i + 1)], lda);
+        ger_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], lda, &A[(lda + 1) * (i + 1)], lda);
     }
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     elementwise_product<<<num_blocks, threadsPerBlock, 0, stream>>>(n, T{-1}, A, lda + 1, D, 1, tau, 1);
@@ -604,7 +605,7 @@ void get_U_gpu(
     ) {
 #ifdef USE_CUDA
     constexpr int threadsPerBlock{128};
-    int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
+    int64_t num_blocks{std::max((n + threadsPerBlock - 1) / threadsPerBlock, (int64_t) 1)};
     get_U_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, A, lda);
 #endif
     cudaError_t ierr = cudaGetLastError();

@@ -13,6 +13,39 @@
 
 namespace RandLAPACK::util {
 
+template <typename T>
+void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[])
+{
+	int64_t i, j;
+    T val;
+	std::cout << "\n" << label << std::endl;
+    for (i = 0; i < n_rows; ++i) {
+        std::cout << "\t";
+        for (j = 0; j < n_cols - 1; ++j) {
+            val = a[i + lda * j];
+            if (val < 0) {
+				//std::cout << string_format("  %2.4f,", val);
+                printf("  %2.20f,", val);
+            } else {
+				//std::cout << string_format("   %2.4f", val);
+				printf("   %2.20f,", val);
+            }
+        }
+        // j = n_cols - 1
+        val = a[i + lda * j];
+        if (val < 0) {
+   			//std::cout << string_format("  %2.4f,", val); 
+			printf("  %2.20f,", val);
+		} else {
+            //std::cout << string_format("   %2.4f,", val);
+			printf("   %2.20f,", val);
+		}
+        printf("\n");
+    }
+    printf("\n");
+    return;
+}
+
 /// Generates an identity matrix. Assuming col-maj
 template <typename T>
 void eye(
@@ -426,12 +459,14 @@ void rl_orhr_col(
     T* A,
     int64_t lda,
     T* T_dat,
+    int64_t b_sz_const,
     T* D,
     bool output_tau
 ) {
     // We assume that the space for S, D has ben pre-allocated
     T buf = 0;
 
+    char name [] = "A";
     int i;
     for(i = 0; i < n; ++i) {
         // S(i, i) = − sgn(Q(i, i)); = 1 if Q(i, i) == 0
@@ -442,7 +477,7 @@ void rl_orhr_col(
         blas::scal(m - (i + 1), 1 / A[i * (lda + 1)], &A[(lda + 1) * i + 1], 1);
         // Perform Schur compliment update
         // A(i+1:m, i+1:n) = A(i+1:m, i+1:n) - (A(i+1:m, i) * A(i, i+1:n))
-        blas::ger(Layout::ColMajor, m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], m, &A[(lda + 1) * (i + 1)], lda);	
+        blas::ger(Layout::ColMajor, m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], lda, &A[(lda + 1) * (i + 1)], lda);	
     }
 
     if(output_tau) {
@@ -454,12 +489,13 @@ void rl_orhr_col(
     } else {
         // In this case, we are assuming that T_dat stores matrix T of size n by n.
         // Fing T = -R * diag(D) * Q_11^{-T}
-        lapack::lacpy(MatrixType::Upper, n, n, A, lda, T_dat, n);
+        lapack::lacpy(MatrixType::Upper, n, n, A, lda, T_dat, b_sz_const);
         for(i = 0; i < n; ++i) {
-            blas::scal(i + 1, -D[i], &T_dat[n * i], 1);
+            blas::scal(i + 1, -D[i], &T_dat[b_sz_const * i], 1);
         }
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::Unit, n, n, 1.0, A, lda, T_dat, n);	
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::Unit, n, n, 1.0, A, lda, T_dat, b_sz_const);	
     }
 }
+
 } // end namespace util
 #endif

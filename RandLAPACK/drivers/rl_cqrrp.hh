@@ -60,6 +60,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             block_size = b_sz;
+            orhr_col_custom = false;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -118,6 +119,8 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         T eps;
         int64_t rank;
         int64_t block_size;
+
+        bool orhr_col_custom;
 
         // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
@@ -383,21 +386,26 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
+
 #if !defined(__APPLE__)
         // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to envoke the newest Accelerate library.
-        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
+        if(!orhr_col_custom) {
+            lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
+        } else {
+            RandLAPACK::util::rl_orhr_col(rows, b_sz, A_work, lda, T_dat, b_sz_const, Work2, 0);
+        }
 #endif  
 
-        if(iter == 1) {
-            printf("%d\n", iter);
-            RandBLAS::util::print_colmaj(m, n, A, name);
+        if(iter == 5) {
+            //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
+            //RandLAPACK::util::print_colmaj(rows, b_sz, A_work, lda, name);
             break;
         }
+
 
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
-
         for(i = 0; i < b_sz; ++i)
             for(j = 0; j < (i + 1); ++j)
                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
@@ -421,8 +429,6 @@ int CQRRP_blocked<T, RNG>::call(
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
         //lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
-        
-        
         lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
 
         if(this -> timing) {
@@ -431,6 +437,9 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_start = high_resolution_clock::now();
         }
 
+        for(int i = 0; i < b_sz; ++i)
+            printf("%ld\n", J_buffer[i]);
+        printf("\n");
         // Updating pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer, 1, J, 1);
@@ -472,9 +481,12 @@ int CQRRP_blocked<T, RNG>::call(
         curr_sz += b_sz;
 
         if((approx_err < this->eps) || (curr_sz >= n)) {
-
             // Termination criteria reached
             this -> rank = curr_sz;
+
+            //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
+            for(int i = 0; i < n; ++i)
+                printf("%ld\n", J[i]);
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
