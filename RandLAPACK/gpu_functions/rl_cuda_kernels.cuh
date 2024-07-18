@@ -285,17 +285,17 @@ __global__ void __launch_bounds__(128) col_swap_gpu(
     int64_t const* idx
 ) {
     extern __shared__ int64_t local_idx[];
-
-    int64_t i, j;
-    for (i = threadIdx.x; i < k; i += blockDim.x) {
+    J -= 1;
+    for (int64_t i = threadIdx.x; i < k; i += blockDim.x) {
         local_idx[i] = idx[i];
     }
     __syncthreads();
     int64_t* curr = local_idx;
     int64_t* end = local_idx + k;
-    for (i = 0; i < k; ++i, ++curr) {
+    for (int64_t i = 1; i <= k; ++i, ++curr) {
+        // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            std::swap(J[i], J[j]);
+                std::iter_swap(J + i, J + j);
             if (threadIdx.x == 0) {
                 std::iter_swap(curr, std::find(curr, end, i));
             }

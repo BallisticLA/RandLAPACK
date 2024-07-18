@@ -437,9 +437,9 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_start = high_resolution_clock::now();
         }
 
-        for(int i = 0; i < b_sz; ++i)
-            printf("%ld\n", J_buffer[i]);
-        printf("\n");
+        //for(int i = 0; i < b_sz; ++i)
+        //    printf("%ld\n", J_buffer[i]);
+        //printf("\n");
         // Updating pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer, 1, J, 1);
@@ -486,7 +486,7 @@ int CQRRP_blocked<T, RNG>::call(
 
             //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
             for(int i = 0; i < n; ++i)
-                printf("%ld\n", J[i]);
+                printf("%f\n", tau[i]);
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
