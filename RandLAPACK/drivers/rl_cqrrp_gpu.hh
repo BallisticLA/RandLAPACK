@@ -439,12 +439,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
          }
 */
 
-        RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work2_device);  
+        RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work_device, lda, &tau_device[curr_sz], Work2_device);  
 
         if (iter == 5) {
             lapack_queue.sync();
             cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
-            RandLAPACK::util::print_colmaj(m, n, HOST_BUFFER, lda, name1);
+            //RandLAPACK::util::print_colmaj(m, n, HOST_BUFFER, lda, name1);
             break;
         }
 
@@ -471,9 +471,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work1_device, lda, d_work_ormqr, lwork_ormqr, d_info);
 
         cudaMemcpy(HOST_BUFFER_J, J_buffer_device, b_sz * sizeof(int64_t), cudaMemcpyDeviceToHost);
-        for(int i = 0; i < b_sz; ++i)
-            printf("%ld\n", HOST_BUFFER_J[i]);
-        printf("\n");
+        //for(int i = 0; i < b_sz; ++i)
+        //    printf("%ld\n", HOST_BUFFER_J[i]);
+        //printf("\n");
         // Updating pivots
         if(iter == 0) {
             RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer_device, 1, J_device, 1);
@@ -510,11 +510,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
             cudaMemcpyAsync(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
             cudaMemcpyAsync(J, J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+            cudaMemcpyAsync(tau, tau_device, n * sizeof(T), cudaMemcpyDeviceToHost, strm);
             lapack_queue.sync();
 
             //RandLAPACK::util::print_colmaj(m, n, A, lda, name1);
-            for(int i = 0; i < n; ++i)
-                printf("%ld\n", J[i]);
+            //for(int i = 0; i < n; ++i)
+                //printf("%f\n", tau[i]);
             
 
             free(J_buffer_lu);
