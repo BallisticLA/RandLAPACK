@@ -299,4 +299,21 @@ TEST_F(TestUtil_GPU, test_ger_gpu) {
     
     ger_gpu(alpha, all_data);
 }
+/*
+TEST_F(TestUtil_GPU, test_copy_mat_gpu) {
+    int64_t m = 2048;
+    int64_t n = 1024;
+    double alpha = 2.0;
+    auto state = RandBLAS::RNGState();
+    CopyTestData<double> all_data(m, n);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state); 
+    
+    copy_mat_gpu(alpha, all_data);
+}
+*/
 #endif

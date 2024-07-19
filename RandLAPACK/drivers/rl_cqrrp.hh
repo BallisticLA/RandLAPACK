@@ -338,6 +338,14 @@ int CQRRP_blocked<T, RNG>::call(
         if(iter != 0)
             util::col_swap(curr_sz, cols, cols, &A[lda * curr_sz], m, J_buf);
 
+        if(iter == 2) {
+            RandLAPACK::util::print_colmaj(m, n, A, lda, name);
+        }
+
+        //if(iter == 1) {
+        //    RandLAPACK::util::print_colmaj(m, n, A, lda, name);
+        //}
+
         if(this -> timing) {
             r_piv_t_stop  = high_resolution_clock::now();
             r_piv_t_dur  += duration_cast<microseconds>(r_piv_t_stop - r_piv_t_start).count();
@@ -392,15 +400,16 @@ int CQRRP_blocked<T, RNG>::call(
         if(!orhr_col_custom) {
             lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
         } else {
-            RandLAPACK::util::rl_orhr_col(rows, b_sz, A_work, lda, T_dat, b_sz_const, Work2, 0);
+            tau_sub = &tau[curr_sz];
+            RandLAPACK::util::rl_orhr_col(rows, b_sz, A_work, lda, tau_sub, b_sz_const, Work2, 1);
         }
 #endif  
 
-        if(iter == 5) {
+        //if(iter == 5) {
             //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
             //RandLAPACK::util::print_colmaj(rows, b_sz, A_work, lda, name);
-            break;
-        }
+            //break;
+        //}
 
 
         // Need to change signs in the R-factor from Cholesky QR.
@@ -410,11 +419,13 @@ int CQRRP_blocked<T, RNG>::call(
             for(j = 0; j < (i + 1); ++j)
                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
 
-        // Define a pointer to the current subportion of tau vector.
-        tau_sub = &tau[curr_sz];
-        // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
-        for(i = 0; i < b_sz; ++i)
-            tau_sub[i] = T_dat[(b_sz_const + 1) * i];
+        if(!orhr_col_custom) {
+            // Define a pointer to the current subportion of tau vector.
+            tau_sub = &tau[curr_sz];
+            // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
+            for(i = 0; i < b_sz; ++i)
+                tau_sub[i] = T_dat[(b_sz_const + 1) * i];
+        }
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -468,25 +479,16 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
         }
 
-        // Estimate R norm, use Fro norm trick to compute the approximation error
-        // Keep in mind that R11 is Upper triangular and R12 is rectangular.
-        norm_R11 = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, b_sz, b_sz, R11, lda);
-        norm_R12 = lapack::lange(Norm::Fro, b_sz, n - curr_sz - b_sz, R12, lda);
-        norm_R_i = std::hypot(norm_R11, norm_R12);
-        norm_R   = std::hypot(norm_R, norm_R_i);
-        // Updating approximation error
-        approx_err = ((norm_A - norm_R) * (norm_A + norm_R)) / norm_A_sq;
-
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if((approx_err < this->eps) || (curr_sz >= n)) {
+        if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
 
             //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
-            for(int i = 0; i < n; ++i)
-                printf("%f\n", tau[i]);
+            //for(int i = 0; i < n; ++i)
+                //printf("%d\n", J[i]);
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
@@ -542,7 +544,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Also, Below is identical to:
         // A_work = &A_work[(lda + 1) * b_sz];
         A_work = &Work1[b_sz];
-        
+
         // Updating the skethcing buffer
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
@@ -566,6 +568,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
         // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
         // if any rows beyond that would be accessed, we would have issues. 
+
         A_sk = &A_sk[d * b_sz];
 
         if(this -> timing) {

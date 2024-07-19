@@ -298,6 +298,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* A_work_device;
     T* Work1_device;
     T* A_sk_device;
+    T* A_sk_work_device;
     T* A_sk_trans_device;
     T* Work2_device;
     T* R_sk_device;
@@ -318,6 +319,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
     lapack::Queue lapack_queue(0);
     cudaStream_t strm = lapack_queue.stream();
+    cudaStream_t stream_cusolver;
     using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
     // Create cusolver handle
@@ -339,6 +341,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
 
     A_work_device = A_device;
+    A_sk_work_device = A_sk_device;
     char name [] = "IGNORE";
     char name1 [] = "BUFFER2";
     char name2 [] = "BUFFER3";
@@ -356,7 +359,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
 
-        RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_device, d, A_sk_trans_device, n, 0);
+        RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work_device, d, A_sk_trans_device, n, 0);
         //cudaStreamSynchronize(strm);
 
         // Perform a row-pivoted LU on a transpose of A_sk
@@ -374,18 +377,18 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
         RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer_device, J_buffer_lu_device);
         // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_device, d, J_buffer_device);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work_device, d, J_buffer_device);
         //cudaStreamSynchronize(strm);
 
         // Perform an unpivoted QR on A_sk
         //lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         if(iter == 0) {
-            lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_device, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
+            lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work_device, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
             d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
             std::vector<char> h_work_geqrf_vector( h_size_geqrf );
             h_work_geqrf = h_work_geqrf_vector.data();
         }
-        lapack::geqrf(sampling_dimension, cols, A_sk_device, d, Work2_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
+        lapack::geqrf(sampling_dimension, cols, A_sk_work_device, d, Work2_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
         //lapack_queue.sync();
         
         // Need to premute trailing columns of the full R-factor.
@@ -393,6 +396,17 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         if(iter != 0)
             RandLAPACK::cuda_kernels::col_swap_gpu(strm, curr_sz, cols, cols, &A_device[lda * curr_sz], m, J_buffer_device);
         
+        //if(iter == 2){
+        //    lapack_queue.sync();
+        //    cudaMemcpy(HOST_BUFFER, A_device, n * m * sizeof(T), cudaMemcpyDeviceToHost);
+        //    RandLAPACK::util::print_colmaj(m, n, HOST_BUFFER, lda, name1);
+        //}
+
+        //if(iter == 1){
+        //    cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+        //    RandLAPACK::util::print_colmaj(m, n, HOST_BUFFER, lda, name1);
+        //}
+
         // Pivoting the current matrix A.
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, rows, cols, cols, A_work_device, lda, J_buffer_device);
         //cudaStreamSynchronize(strm);
@@ -402,7 +416,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         Work1_device = &A_work_device[lda * b_sz];
 
         // Define the space representing R_sk (stored in A_sk)
-        R_sk_device = A_sk_device;
+        R_sk_device = A_sk_work_device;
 
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
@@ -441,12 +455,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
         RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work_device, lda, &tau_device[curr_sz], Work2_device);  
 
-        if (iter == 5) {
-            lapack_queue.sync();
-            cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+        //if (iter == 5) {
+            //lapack_queue.sync();
+            //cudaMemcpy(HOST_BUFFER, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
             //RandLAPACK::util::print_colmaj(m, n, HOST_BUFFER, lda, name1);
-            break;
-        }
+            //break;
+        //}
 
 
         // Need to change signs in the R-factor from Cholesky QR.
@@ -462,6 +476,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
         //lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
+        lapack_queue.sync();
         if (iter == 0) {
             // Compute optimal workspace size
             cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work1_device, lda, &lwork_ormqr);
@@ -469,8 +484,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
         }
         cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work_device, lda, &tau_device[iter * b_sz], Work1_device, lda, d_work_ormqr, lwork_ormqr, d_info);
+        cusolverDnGetStream(cusolverH, &stream_cusolver);
+        cudaStreamSynchronize(stream_cusolver);
 
-        cudaMemcpy(HOST_BUFFER_J, J_buffer_device, b_sz * sizeof(int64_t), cudaMemcpyDeviceToHost);
+        //cudaMemcpy(HOST_BUFFER_J, J_buffer_device, b_sz * sizeof(int64_t), cudaMemcpyDeviceToHost);
         //for(int i = 0; i < b_sz; ++i)
         //    printf("%ld\n", HOST_BUFFER_J[i]);
         //printf("\n");
@@ -503,19 +520,25 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
         // Size of the factors is updated;
         curr_sz += b_sz;
+        //if(iter == 2)
+            //break;
 
         if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
 
-            cudaMemcpyAsync(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
-            cudaMemcpyAsync(J, J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
-            cudaMemcpyAsync(tau, tau_device, n * sizeof(T), cudaMemcpyDeviceToHost, strm);
+            //cudaMemcpyAsync(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
+            //cudaMemcpyAsync(J, J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+            //cudaMemcpyAsync(tau, tau_device, n * sizeof(T), cudaMemcpyDeviceToHost, strm);
             lapack_queue.sync();
+
+            cudaMemcpy(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+            cudaMemcpy(J, J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+            cudaMemcpy(tau, tau_device, n * sizeof(T), cudaMemcpyDeviceToHost);
 
             //RandLAPACK::util::print_colmaj(m, n, A, lda, name1);
             //for(int i = 0; i < n; ++i)
-                //printf("%f\n", tau[i]);
+                //printf("%d\n", J[i]);
             
 
             free(J_buffer_lu);
@@ -524,16 +547,23 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             free(R_cholqr);
             free(T_dat);
             free(Work2);
-            cudaFree(d_work_ormqr);
             cudaFree(A_device);
             cudaFree(A_sk_device);
             cudaFree(A_sk_trans_device);
-            cudaFree(J_device);
             cudaFree(J_buffer_device);
             cudaFree(J_buffer_lu_device);
             cudaFree(Work2_device);
             cudaFree(R_cholqr_device);
             cudaFree(tau_device);
+            cudaFree(J_device);
+            cudaFree(d_work_ormqr);
+
+            cudaError_t ierr = cudaGetLastError();
+            if (ierr != cudaSuccess)
+            {
+                BPCG_ERROR("Failed to free. " << cudaGetErrorString(ierr))
+                abort();
+            }
 
             return 0;
         }
@@ -544,7 +574,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Also, Below is identical to:
         // A_work = &A_work[(lda + 1) * b_sz];
         A_work_device = &Work1_device[b_sz];
-        
         // Updating the skethcing buffer
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
@@ -578,12 +607,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         //RandBLAS::util::print_colmaj(d, n, HOST_BUFFER, name);
         //break;
         
-        A_sk_device = &A_sk_device[d * b_sz];
+        A_sk_work_device = &A_sk_work_device[d * b_sz];
 
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;
     }
+    printf("RETURNING AT THE END\n");
     return 0;
 }
 
