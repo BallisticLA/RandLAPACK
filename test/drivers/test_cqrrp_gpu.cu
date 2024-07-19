@@ -127,15 +127,13 @@ class TestCQRRP : public ::testing::Test
         auto n = all_data.col;
 
         CQRRP_GPU.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
-        
         all_data.rank = CQRRP_GPU.rank;
         
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
-        
         lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
-        
+
         lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
         printf("RANK AS RETURNED BY CQRRP %4ld\n", all_data.rank);
@@ -144,17 +142,16 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data);
-        
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_GPU_070824) {
-    int64_t m = 36;//5000;
-    int64_t n = 36;//2000;
-    int64_t k = 36;
+    int64_t m = 170;//5000;
+    int64_t n = 170;//2000;
+    int64_t k = 170;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 7;//500;
+    int64_t b_sz = 50;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();

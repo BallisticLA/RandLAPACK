@@ -345,7 +345,7 @@ __global__ void copy_mat_gpu(
     int j = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (copy_upper_triangle) {
-        // Only transposing the upper-triangular portion of the original
+        // Only copying the upper-triangular portion of the original
         #pragma unroll
         if (i < n && j <= i) {
             A_cpy[(ldac * i) + j] = A[(lda * i) + j];
