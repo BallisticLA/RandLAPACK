@@ -353,7 +353,7 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t num_matmuls_start      = 2;
     int64_t num_matmuls_curr       = num_matmuls_start;
-    int64_t num_matmuls_stop       = 50;
+    int64_t num_matmuls_stop       = 30;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
