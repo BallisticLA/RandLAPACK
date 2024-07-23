@@ -235,7 +235,7 @@ static void call_all_algs(
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-
+        /*
         // There is no reason to run SVD many times, as it always outputs the same result.
         if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVD
@@ -259,7 +259,7 @@ static void call_all_algs(
             state_gen = state;
             data_regen(m_info, all_data, state_gen, 1);
         }
-
+        
         // Running RBKI
         auto start_rbki = high_resolution_clock::now();
         all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
@@ -276,27 +276,26 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
+        */
+        // Running RSVD
+        auto start_rsvd = high_resolution_clock::now();
+        int64_t threshold_RSVD = (int64_t ) (b_sz * num_matmuls / 2);
+        all_algs.RSVD.call(m, n, all_data.A, threshold_RSVD, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
+        auto stop_rsvd = high_resolution_clock::now();
+        dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
+        printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
-        if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
-            // Running RSVD
-            auto start_rsvd = high_resolution_clock::now();
-            all_algs.RSVD.call(m, n, all_data.A, n, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
-            auto stop_rsvd = high_resolution_clock::now();
-            dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
-            printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
+        RandLAPACK::util::transposition(n, threshold_RSVD, all_data.V, n, all_data.VT, n, 0);
 
-            RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
+        residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
+        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
 
-            residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
-            printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
-
-            if (all_data.A_lowrank_svd != nullptr)
-                lowrank_err_RSVD = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
-            
-            state_alg = state;
-            state_gen = state;
-            data_regen(m_info, all_data, state_gen, 1);
-        }
+        if (all_data.A_lowrank_svd != nullptr)
+            lowrank_err_RSVD = approx_error_comp(all_data, custom_rank, norm_A_lowrank);
+        
+        state_alg = state;
+        state_gen = state;
+        data_regen(m_info, all_data, state_gen, 1);
 
         // There is no reason to run SVDS many times, as it always outputs the same result.
         if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
@@ -404,9 +403,10 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Finished data preparation\n");
-
+    std::string argv1 = argv[1];
+    std::string trimmed_part = argv1.substr(argv1.length() - 14);
     // Declare a data file
-    std::string output_filename = "RBKI_speed_comp_SVDS_m_"        + std::to_string(m)
+    std::string output_filename = trimmed_part + "RBKI_speed_comp_SVDS_m_"        + std::to_string(m)
                                       + "_n_"                      + std::to_string(n)
                                       + "_b_sz_start_"             + std::to_string(b_sz_start)
                                       + "_b_sz_stop_"              + std::to_string(b_sz_stop)
@@ -415,7 +415,7 @@ int main(int argc, char *argv[]) {
                                       + ".dat"; 
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
-        for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
+        for (;num_matmuls_curr <= num_matmuls_stop; num_matmuls_curr*=2) {
             call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, norm_A_lowrank);
         }
         num_matmuls_curr = num_matmuls_start;
