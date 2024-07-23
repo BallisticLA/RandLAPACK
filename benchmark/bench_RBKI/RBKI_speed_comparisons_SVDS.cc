@@ -131,7 +131,7 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
 
     lapack::lacpy(MatrixType::General, m, n, all_data.U, m, all_data.U_cpy, m);
     lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, all_data.VT_cpy, n);
-
+    
     // AV - US
     // Scale columns of U by S
     for (int i = 0; i < custom_rank; ++i)
@@ -285,8 +285,8 @@ static void call_all_algs(
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
-        RandLAPACK::util::transposition(n, threshold_RSVD, all_data.V, n, all_data.VT, n, 0);
-
+        RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
+        
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
         printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
 
