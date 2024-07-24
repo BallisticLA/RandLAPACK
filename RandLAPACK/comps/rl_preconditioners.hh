@@ -361,25 +361,47 @@ STATE rpchol_pc_data(
 
 
 /** 
- * We implicitly have our hands on a matrix A = V diag(eigvals) V'
- * where V is an n-by-k column-major column-orthonormal matrix
- * and eigvals is a buffer of length k whose values are sorted in
- * decreasing order. We are given a buffer for an upper-triangular 
- * n-by-n matrix in column-major format in the form of "ut". 
+ * V is a buffer for an n-by-k matrix in column-major format. 
  * 
- * We overwrite (V, eigvals) so that 
- *      inv(ut)' A inv(ut) = V diag(eigvals) V'
- * where (V, eigvals) retain the structural properties stated above.
+ * We implicitly have our hands on an n-by-n matrix A = F F' where
+ * F is n-by-k and defined in terms of (V, eigvals, use_eigvals).
+ * If use_eigvals = true, then
+ *      F = V * diag(sqrt(eigvals)), V is column-orthonormal, and
+ *      eigvals contains positive numbers sorted in decreasing order.
+ * Otherwise, 
+ *      F = V and we ignore the values of "eigvals" passed as input.
+ * 
+ * upper_tri is a buffer for an n-by-n upper-triangular matrix in 
+ * column-major format. It implicitly defines a matrix
+ * 
+ *   A_conj = inv(upper_tri)' A inv(upper_tri)
+ * 
+ * This function overwrites (V, eigvals) with the eigenvectors and
+ * eigenvalues of A_conj, where eigenvalues are sorted in decreasing
+ * order.
  **/
 template <typename T>
 void ut_conjugate_spectral_pc_data(
-    int64_t n, int64_t k, T* V, T* eigvals, T* ut, std::vector<T> &work
+    int64_t n, int64_t k, T* V, T* eigvals, const T* upper_tri, std::vector<T> &work, bool use_eigvals
 ) {
     // Step 1: Get our hands on F so that A = FF'.
-    // Step 2: Overwrite F = inv(ut)'F.
+    if (use_eigvals) {
+        for (int i = 0; i < k; ++i) {
+            blas::scal(n, (T) std::pow(eigvals[i], (T) 0.5), V + i*n, 1);
+        }
+    }
+    // Step 2: Overwrite F = inv(upper_tri)'F.
+    //         In BLAS terms, we solve trans(upper_tri) X = F, and store X by overwriting F.
+    blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper, blas::Op::Trans, blas::Diag::NonUnit, n, k, 1.0, upper_tri, n, V, n);
     // Step 3: Call GESDD: overwrite F with its left
     //         singular vectors and overwrite eigvals
     //         with its squared singular values.
+    if (work.size() < k*k)
+        work.resize(k*k);
+    lapack::gesdd(lapack::Job::OverwriteVec, n, k, V, n, eigvals, nullptr, 1, work.size(), k);
+    for (int i = 0; i < k; ++i) {
+        eigvals[i] = std::pow(eigvals[i], 2.0);
+    }
     return;
 }
 
