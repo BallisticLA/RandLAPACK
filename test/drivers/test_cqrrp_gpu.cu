@@ -147,11 +147,11 @@ class TestCQRRP : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_GPU_070824) {
-    int64_t m = 170;//5000;
-    int64_t n = 170;//2000;
-    int64_t k = 170;
+    int64_t m = 5000;//5000;
+    int64_t n = 2800;//2000;
+    int64_t k = 2800;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 50;//500;
+    int64_t b_sz = 700;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();

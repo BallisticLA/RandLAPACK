@@ -326,25 +326,31 @@ int CQRRP_blocked<T, RNG>::call(
         
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
-
+/*
+        if(iter == 2) {
+            RandLAPACK::util::print_colmaj(d, n, A_sk_const, d, name);
+        }
+*/
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
             r_piv_t_start = high_resolution_clock::now();
         }
-
+/*
+        if(iter == 5) {
+            RandLAPACK::util::print_colmaj(m, n, A, lda, name);
+        }
+*/
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         if(iter != 0)
             util::col_swap(curr_sz, cols, cols, &A[lda * curr_sz], m, J_buf);
-
-        if(iter == 2) {
+/*
+        if(iter == 5) {
             RandLAPACK::util::print_colmaj(m, n, A, lda, name);
         }
+*/
 
-        //if(iter == 1) {
-        //    RandLAPACK::util::print_colmaj(m, n, A, lda, name);
-        //}
 
         if(this -> timing) {
             r_piv_t_stop  = high_resolution_clock::now();
@@ -487,8 +493,8 @@ int CQRRP_blocked<T, RNG>::call(
             this -> rank = curr_sz;
 
             //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
-            //for(int i = 0; i < n; ++i)
-                //printf("%d\n", J[i]);
+            for(int i = 0; i < n; ++i)
+                printf("%d\n", J[i]);
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
@@ -569,12 +575,16 @@ int CQRRP_blocked<T, RNG>::call(
         // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
         // if any rows beyond that would be accessed, we would have issues. 
 
+        //if(iter == 1) {
+        //    RandLAPACK::util::print_colmaj(d, n, A_sk_const, d, name);
+        //}
+
         A_sk = &A_sk[d * b_sz];
 
-        if(this -> timing) {
-            updating2_t_stop  = high_resolution_clock::now();
-            updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
-        }
+        //if(this -> timing) {
+        //    updating2_t_stop  = high_resolution_clock::now();
+        //    updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
+        //}
 
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
