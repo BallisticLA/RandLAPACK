@@ -244,7 +244,7 @@ __global__  void __launch_bounds__(128) get_U_gpu(
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
 template <typename T>
-__global__ void __launch_bounds__(128) col_swap_gpu(
+__global__ void __launch_bounds__(512) col_swap_gpu(
     int64_t m, 
     int64_t n, 
     int64_t k,
@@ -266,19 +266,20 @@ __global__ void __launch_bounds__(128) col_swap_gpu(
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            for (int64_t l = blockIdx.x * blockDim.x + threadIdx.x; l < m; l += blockDim.x * gridDim.x) {
+            for (int64_t l = threadIdx.x; l < m; l += blockDim.x) {
                 std::iter_swap(A + i * lda + l, A + j * lda + l);
             }
             if (threadIdx.x == 0) {
                 std::iter_swap(curr, std::find(curr, end, i));
             }
-            __syncthreads();
         }
+        __syncthreads();
     }
 }
 
+
 template <typename T>
-__global__ void __launch_bounds__(128) col_swap_gpu(
+__global__ void __launch_bounds__(512) col_swap_gpu(
     int64_t m, 
     int64_t k,
     int64_t* J, 
@@ -295,7 +296,7 @@ __global__ void __launch_bounds__(128) col_swap_gpu(
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-                std::iter_swap(J + i, J + j);
+            std::iter_swap(J + i, J + j);
             if (threadIdx.x == 0) {
                 std::iter_swap(curr, std::find(curr, end, i));
             }
@@ -400,9 +401,10 @@ void col_swap_gpu(
     int64_t const* idx
 ) {
 #ifdef USE_CUDA
-    constexpr int threadsPerBlock{128};
-    int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
-    col_swap_gpu<<<num_blocks, threadsPerBlock, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
+    //constexpr int threadsPerBlock{128};
+    //int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
+    //col_swap_gpu<<<num_blocks, threadsPerBlock, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
+    col_swap_gpu<<<1, 512, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
 #endif
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
@@ -423,9 +425,9 @@ void col_swap_gpu(
     int64_t const* idx
 ) {
 #ifdef USE_CUDA
-    constexpr int threadsPerBlock{128};
-    int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
-    col_swap_gpu<T><<<num_blocks, threadsPerBlock, sizeof(int64_t) * k, stream>>>(m, k, J, idx);
+    //constexpr int threadsPerBlock{128};
+    //int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
+    col_swap_gpu<T><<<1, 512, sizeof(int64_t) * k, stream>>>(m, k, J, idx);
 #endif
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)

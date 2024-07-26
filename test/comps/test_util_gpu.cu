@@ -9,6 +9,8 @@
 
 #include <math.h>
 #include <chrono>
+#include <numeric>
+#include <random>
 #include <gtest/gtest.h>
 
 // Use cuda kernels.
@@ -60,9 +62,50 @@ class TestUtil_GPU : public ::testing::Test
             row = m;
             col = n;
             cudaMalloc(&A_device,   m * n * sizeof(T));
+            {
+            cudaError_t ierr = cudaGetLastError();
+            if (ierr != cudaSuccess)
+            {
+                BPCG_ERROR("Failed to allocate 1. " << cudaGetErrorString(ierr))
+                abort();
+            }
+            }
             cudaMalloc(&B_device,   m * n * sizeof(T));
+             {
+            cudaError_t ierr = cudaGetLastError();
+            if (ierr != cudaSuccess)
+            {
+                BPCG_ERROR("Failed to allocate 2. " << cudaGetErrorString(ierr))
+                abort();
+            }
+            }
             cudaMalloc(&J_device,   n * sizeof(int64_t));
+             {
+            cudaError_t ierr = cudaGetLastError();
+            if (ierr != cudaSuccess)
+            {
+                BPCG_ERROR("Failed to allocate 3. " << cudaGetErrorString(ierr))
+                abort();
+            }
+            }
             cudaMalloc(&buf_device, n * sizeof(int64_t));
+             {
+            cudaError_t ierr = cudaGetLastError();
+            if (ierr != cudaSuccess)
+            {
+                BPCG_ERROR("Failed to allocate 4. " << cudaGetErrorString(ierr))
+                abort();
+            }
+            }
+            cudaDeviceSynchronize();
+        }
+        
+
+        ~ColSwpTestData() {
+            cudaFree(A_device);
+            cudaFree(B_device);
+            cudaFree(J_device);
+            cudaFree(buf_device);
         }
     };
 
@@ -85,6 +128,11 @@ class TestUtil_GPU : public ::testing::Test
             col = n;
             cudaMalloc(&A_device,   m * n * sizeof(T));
             cudaMalloc(&A_device_T, n * m * sizeof(T));
+        }
+
+        ~TranspTestData() {
+            cudaFree(A_device);
+            cudaFree(A_device_T);
         }
     };
 
@@ -144,6 +192,58 @@ class TestUtil_GPU : public ::testing::Test
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
         ASSERT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
+
+    template <typename T>
+    static void 
+    col_swp_submatrix_gpu(
+        int64_t offset,
+        int64_t col_offset,
+        int64_t m_submat,
+        int64_t n_submat,
+        int64_t k_submat,
+        ColSwpTestData<T> &all_data) {
+
+        auto m   = all_data.row;
+        auto n   = all_data.col;
+        auto lda = m;
+
+        cudaStream_t strm = cudaStreamPerThread;
+        cudaMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(T), cudaMemcpyHostToDevice, strm);
+        cudaMemcpyAsync(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
+        T* A_device = all_data.A_device;
+        T* A_device_submat = all_data.A_device + (col_offset * m + offset);
+        cudaStreamSynchronize(strm);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m_submat, n_submat, k_submat, A_device_submat, lda, all_data.J_device);
+        cudaMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
+        cudaMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+
+        T* A = all_data.A.data();
+        T* A_submat = all_data.A.data() + (col_offset * m + offset);
+        RandLAPACK::util::col_swap(m_submat, n_submat, k_submat, A_submat, lda, all_data.J);
+
+        cudaStreamSynchronize(strm);
+/*   
+        T col_nrm_cpu;
+        T col_nrm_gpu;
+        T norm_diff;
+        for(int i = 0; i < n; ++i){
+            col_nrm_cpu = blas::nrm2(lda, &all_data.A[lda * i],             1);
+            col_nrm_gpu = blas::nrm2(lda, &all_data.A_host_buffer[lda * i], 1);
+            norm_diff = std::abs(col_nrm_cpu - col_nrm_gpu);
+            if(norm_diff > std::pow(std::numeric_limits<T>::epsilon(), 0.85)) {
+                printf("Inconsistency at column %d, %e\n", i, norm_diff);
+            }
+        }
+*/
+        for(int i = 0; i < m*n; ++i)
+            all_data.A[i] -= all_data.A_host_buffer[i];
+
+        T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
+        printf("\nNorm diff GPU CPU: %e\n", norm_test);
+        ASSERT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+
+    }
+
 
     template <typename T>
     static void 
@@ -229,6 +329,7 @@ class TestUtil_GPU : public ::testing::Test
     }
 };
 
+
 TEST_F(TestUtil_GPU, test_col_swp_gpu) {
     
     int64_t m = 1000;
@@ -246,6 +347,33 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu) {
     std::random_shuffle(all_data.J.begin(), all_data.J.begin() + n);
 
     col_swp_gpu<double>(all_data);
+}
+
+TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
+    
+    int64_t m = 300;
+    int64_t n = 300;
+
+    int64_t offset     = 0;
+    int64_t col_offset = 250;
+    
+    int64_t m_submat = 250;
+    int64_t n_submat = 50;
+    int64_t k_submat = 50;
+
+    auto state = RandBLAS::RNGState();
+    ColSwpTestData<double> all_data(m, n);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state); 
+    // Fill and randomly shuffle a vector
+    std::iota(all_data.J.begin(), all_data.J.begin() + n_submat, 1);
+    std::shuffle(all_data.J.begin(), all_data.J.begin() + n_submat, std::minstd_rand{std::random_device{}()});
+
+    col_swp_submatrix_gpu<double>(offset, col_offset, m_submat, n_submat, k_submat, all_data);
 }
 
 TEST_F(TestUtil_GPU, test_qp3_swp_gpu) {

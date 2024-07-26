@@ -142,9 +142,9 @@ class TestCQRRP : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic_070824_cpu) {
-    int64_t m = 170;//5000;
-    int64_t n = 170;//2000;
-    int64_t k = 170;
+    int64_t m = 300;//5000;
+    int64_t n = 300;//2000;
+    int64_t k = 300;
     double d_factor = 1;//1.0;
     int64_t b_sz = 50;//500;
     double norm_A = 0;
