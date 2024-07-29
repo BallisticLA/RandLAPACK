@@ -30,12 +30,17 @@ class TestCQRRP : public ::testing::Test
         int64_t rank;
         
         std::vector<T> A;
+        std::vector<T> A_cpu;
         std::vector<T> A_sk;
         std::vector<T> Q;
+        std::vector<T> Q_cpu;
         std::vector<T> R;
+        std::vector<T> R_cpu;
         std::vector<T> R_full;
         std::vector<T> tau;
+        std::vector<T> tau_cpu;
         std::vector<int64_t> J;
+        std::vector<int64_t> J_cpu;
         std::vector<T> A_cpy1;
         std::vector<T> A_cpy2;
         std::vector<T> I_ref;
@@ -48,11 +53,15 @@ class TestCQRRP : public ::testing::Test
 
         CQRRPTestData(int64_t m, int64_t n, int64_t k, int64_t d) :
         A(m * n, 0.0),
+        A_cpu(m * n, 0.0),
         A_sk(d * n, 0.0),
         Q(m * n, 0.0),
+        Q_cpu(m * n, 0.0),
         R_full(m * n, 0.0),
         tau(n, 0.0),
+        tau_cpu(n, 0.0),
         J(n, 0),
+        J_cpu(n, 0),
         A_cpy1(m * n, 0.0),
         A_cpy2(m * n, 0.0),
         I_ref(k * k, 0.0) 
@@ -76,18 +85,21 @@ class TestCQRRP : public ::testing::Test
 
     template <typename T, typename RNG>
     static void norm_and_copy_computational_helper(T &norm_A, int64_t d, CQRRPTestData<T> &all_data, RandBLAS::RNGState<RNG> &state) {
+
         auto m = all_data.row;
         auto n = all_data.col;
+        auto state_const = state;
 
         // Skethcing in an sampling regime
         T* S  = ( T * ) calloc( d * m, sizeof( T ) );
         RandBLAS::DenseDist D(d, m);
-        state = RandBLAS::fill_dense(D, S, state).second;
+        RandBLAS::fill_dense(D, S, state_const).second;
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk.data(), d);
         free(S);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk.data(), d * n * sizeof(double), cudaMemcpyHostToDevice);
 
         cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpu.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
@@ -175,6 +187,41 @@ class TestCQRRP : public ::testing::Test
 
         error_check(norm_A, all_data);
     }
+
+    template <typename T, typename RNG, typename alg_gpu, typename alg_cpu>
+    static void test_CQRRP_compare_with_CPU(
+        int64_t d, 
+        T norm_A,
+        CQRRPTestData<T> &all_data,
+        alg_gpu &CQRRP_GPU,
+        alg_cpu &CQRRP_CPU,
+        RandBLAS::RNGState<RNG> &state) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+
+        CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+        CQRRP_CPU.call(m, n, all_data.A_cpu.data(), m, (T) (d / CQRRP_CPU.block_size) , all_data.tau_cpu.data(), all_data.J_cpu.data(), state);
+        
+        //cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+        //cudaMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+        cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
+        cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+
+        for(int i = 0; i < n; ++i) {
+            printf("%d, %d\n", all_data.J[i], all_data.J_cpu[i]);
+            all_data.tau[i] -= all_data.tau_cpu[i];
+            all_data.J[i] -= all_data.J_cpu[i];
+        }
+
+        T col_nrm_J   = blas::nrm2(n, all_data.J.data(), 1);
+        T col_nrm_tau = blas::nrm2(n, all_data.tau.data(), 1);
+
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+        ASSERT_NEAR(col_nrm_J,   0.0, atol);
+        ASSERT_NEAR(col_nrm_tau, 0.0, atol);
+    }
+
 };
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -204,64 +251,33 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
 #endif
 }
-/*
+
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_GPU_full_rank_block_change) {
-    int64_t m = 32;//5000;
-    int64_t n = 32;//2000;
-    int64_t k = 32;
+TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
+    int64_t m = 5000;//5000;
+    int64_t n = 2800;//2000;
+    int64_t k = 2800;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 7;//500;
+    int64_t b_sz = 900;//500;
+    int64_t d = d_factor * b_sz;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(true, tol, b_sz);
-    CQRRP_blocked_GPU.nnz = 2;
-    CQRRP_blocked_GPU.num_threads = 4;
+    CQRRPTestData<double> all_data(m, n, k, d);
+    RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(false, tol, b_sz);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked_CPU(false, tol, b_sz);
+    CQRRP_blocked_CPU.nnz = 2;
+    CQRRP_blocked_CPU.num_threads = 4;
+    CQRRP_blocked_CPU.use_gaussian = true;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    //m_info.cond_num = 2;
-    //m_info.rank = k;
-    //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
 #if !defined(__APPLE__)
-    //test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
+    test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
 #endif
 }
 
-
-// Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_GPU_low_rank) {
-    int64_t m = 5000;
-    int64_t n = 2000;
-    int64_t k = 1500;
-    double d_factor = 2.0;
-    int64_t b_sz = 256;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(true, tol, b_sz);
-    CQRRP_blocked_GPU.nnz = 2;
-    CQRRP_blocked_GPU.num_threads = 4;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    //m_info.cond_num = 2;
-    //m_info.rank = k;
-    //m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
-#if !defined(__APPLE__)
-    //test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
-#endif
-}
-*/
 #endif
