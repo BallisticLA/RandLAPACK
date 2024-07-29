@@ -209,8 +209,12 @@ class TestCQRRP : public ::testing::Test
         cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
         for(int i = 0; i < n; ++i) {
-            printf("%d, %d\n", all_data.J[i], all_data.J_cpu[i]);
-            all_data.tau[i] -= all_data.tau_cpu[i];
+            int64_t Ji_host = all_data.J_cpu[i];
+	    int64_t Ji_device = all_data.J[i]; 
+	    if (Ji_host != Ji_device) {
+	    	std::cout << i << " : " << Ji_host << ", " << Ji_device << std::endl;
+	    }
+	    all_data.tau[i] -= all_data.tau_cpu[i];
             all_data.J[i] -= all_data.J_cpu[i];
         }
 
