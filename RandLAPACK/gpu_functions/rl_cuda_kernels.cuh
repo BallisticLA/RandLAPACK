@@ -66,6 +66,32 @@ __global__ void __launch_bounds__(128) copy_gpu(
 }
 
 template <typename T>
+__global__ void __launch_bounds__(128) fill_gpu(
+    int64_t n, 
+    T* x, 
+    int64_t incx, 
+    T alpha
+) {
+    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
+    if (id < n) {
+        x[id * incx] = alpha;
+    }
+}
+
+template <typename T>
+__global__ void __launch_bounds__(128) fill_gpu(
+    int64_t n, 
+    int64_t* x, 
+    int64_t incx, 
+    T alpha
+) {
+    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
+    if (id < n) {
+        x[id * incx] = alpha;
+    }
+}
+
+template <typename T>
 __device__ void copy_gpu_device(
     int64_t n,
     T const* src,
@@ -593,6 +619,48 @@ void copy_gpu(
     if (ierr != cudaSuccess)
     {
         BPCG_ERROR("Failed to launch copy_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
+}
+
+template <typename T>
+void fill_gpu(
+    cudaStream_t stream,
+    int64_t n,  
+    T* x,
+    int64_t incx,  
+    T alpha
+    ) {
+#ifdef USE_CUDA
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
+    fill_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, x, incx, alpha);
+#endif
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
+}
+
+template <typename T>
+void fill_gpu(
+    cudaStream_t stream,
+    int64_t n,  
+    int64_t* x,
+    int64_t incx,  
+    T alpha
+    ) {
+#ifdef USE_CUDA
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
+    fill_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, x, incx, alpha);
+#endif
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }

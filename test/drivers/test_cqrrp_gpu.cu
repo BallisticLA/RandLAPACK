@@ -27,19 +27,30 @@ class TestCQRRP : public ::testing::Test
     struct CQRRPTestData {
         int64_t row;
         int64_t col;
-        int64_t rank; // has to be modifiable
+        int64_t rank;
+        
         std::vector<T> A;
+        std::vector<T> A_sk;
         std::vector<T> Q;
         std::vector<T> R;
+        std::vector<T> R_full;
         std::vector<T> tau;
         std::vector<int64_t> J;
         std::vector<T> A_cpy1;
         std::vector<T> A_cpy2;
         std::vector<T> I_ref;
+        
+        // Buffers for the GPU data
+        T* A_device;
+        T* A_sk_device;
+        T* tau_device;
+        int64_t* J_device;
 
-        CQRRPTestData(int64_t m, int64_t n, int64_t k) :
+        CQRRPTestData(int64_t m, int64_t n, int64_t k, int64_t d) :
         A(m * n, 0.0),
+        A_sk(d * n, 0.0),
         Q(m * n, 0.0),
+        R_full(m * n, 0.0),
         tau(n, 0.0),
         J(n, 0),
         A_cpy1(m * n, 0.0),
@@ -49,14 +60,34 @@ class TestCQRRP : public ::testing::Test
             row = m;
             col = n;
             rank = k;
+            cudaMalloc(&A_device,    m * n * sizeof(T));
+            cudaMalloc(&A_sk_device, d * n * sizeof(T));
+            cudaMalloc(&tau_device,  n *     sizeof(T));
+            cudaMalloc(&J_device,    n *     sizeof(int64_t));
+        }
+
+        ~CQRRPTestData() {
+            cudaFree(A_device);
+            cudaFree(A_sk_device);
+            cudaFree(tau_device);
+            cudaFree(J_device);
         }
     };
 
     template <typename T, typename RNG>
-    static void norm_and_copy_computational_helper(T &norm_A, CQRRPTestData<T> &all_data) {
+    static void norm_and_copy_computational_helper(T &norm_A, int64_t d, CQRRPTestData<T> &all_data, RandBLAS::RNGState<RNG> &state) {
         auto m = all_data.row;
         auto n = all_data.col;
 
+        // Skethcing in an sampling regime
+        T* S  = ( T * ) calloc( d * m, sizeof( T ) );
+        RandBLAS::DenseDist D(d, m);
+        state = RandBLAS::fill_dense(D, S, state).second;
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk.data(), d);
+        free(S);
+        cudaMemcpy(all_data.A_sk_device, all_data.A_sk.data(), d * n * sizeof(double), cudaMemcpyHostToDevice);
+
+        cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
@@ -117,26 +148,27 @@ class TestCQRRP : public ::testing::Test
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T, typename RNG, typename alg_type>
     static void test_CQRRP_general(
-        T d_factor, 
+        int64_t d, 
         T norm_A,
         CQRRPTestData<T> &all_data,
-        alg_type &CQRRP_GPU,
-        RandBLAS::RNGState<RNG> &state) {
+        alg_type &CQRRP_GPU) {
 
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRP_GPU.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+        CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+
         all_data.rank = CQRRP_GPU.rank;
+        printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", all_data.rank);
         
+        cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+        cudaMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+        cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
+        cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+
+        lapack::ungqr(m, n, n, all_data.Q.data(), m, all_data.tau.data());
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
-        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
-
-        lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
-
-        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
-
-        printf("RANK AS RETURNED BY CQRRP %4ld\n", all_data.rank);
+        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
@@ -152,14 +184,13 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     int64_t k = 2800;
     double d_factor = 1;//1.0;
     int64_t b_sz = 900;//500;
+    int64_t d = d_factor * b_sz;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
+    CQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(true, tol, b_sz);
-    CQRRP_blocked_GPU.nnz = 2;
-    CQRRP_blocked_GPU.num_threads = 4;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
@@ -168,9 +199,9 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
 #if !defined(__APPLE__)
-    test_CQRRP_general<double, r123::Philox4x32, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRP_blocked_GPU, state);
+    test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
 #endif
 }
 /*
