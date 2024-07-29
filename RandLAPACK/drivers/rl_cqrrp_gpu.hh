@@ -129,7 +129,6 @@ class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
         int64_t block_size;
 };
 
-// We are assuming that tau and J have been pre-allocated
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int CQRRP_blocked_GPU<T, RNG>::call(
@@ -233,9 +232,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
         // Zero-out data - may not be necessary
-        //std::fill(&J_buffer_lu[0], &J_buffer_lu[std::min(d, n)], 0);
-        //std::fill(&J_buffer[0], &J_buffer[n], 0);
-        //std::fill(&Work2[0], &Work2[n], (T) 0.0);
         RandLAPACK::cuda_kernels::fill_gpu(strm, std::min(d, n),  J_buffer_lu, 1, (T) 0.0);
         RandLAPACK::cuda_kernels::fill_gpu(strm, n,               J_buffer,    1, (T) 0.0);
         RandLAPACK::cuda_kernels::fill_gpu(strm, n,               Work2,       1, (T) 0.0);
@@ -370,13 +366,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
-            /*
-            cudaMemcpyAsync(A, A, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
-            cudaMemcpyAsync(J, J, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
-            cudaMemcpyAsync(tau, tau, n * sizeof(T), cudaMemcpyDeviceToHost, strm);
-            cusolverDnGetStream(cusolverH, &stream_cusolver);
-            cudaStreamSynchronize(stream_cusolver);
-            */
             lapack_queue.sync();
 
             cudaFree(A_sk_trans);

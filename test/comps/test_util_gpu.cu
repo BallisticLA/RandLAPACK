@@ -351,15 +351,15 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu) {
 
 TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
     
-    int64_t m = 300;
-    int64_t n = 300;
+    int64_t m = 5000;
+    int64_t n = 2800;
 
     int64_t offset     = 0;
-    int64_t col_offset = 250;
+    int64_t col_offset = 2700;
     
-    int64_t m_submat = 250;
-    int64_t n_submat = 50;
-    int64_t k_submat = 50;
+    int64_t m_submat = 2700;
+    int64_t n_submat = 100;
+    int64_t k_submat = 100;
 
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
