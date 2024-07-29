@@ -57,10 +57,11 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             T ep,
             int64_t b_sz
         ) {
-            timing = time_subroutines;
-            eps = ep;
+            timing     = time_subroutines;
+            eps        = ep;
             block_size = b_sz;
-            orhr_col_custom = false;
+            use_qp3 = false;
+            use_gaussian = false;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -120,10 +121,14 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int64_t rank;
         int64_t block_size;
 
-        bool orhr_col_custom;
-
         // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
+
+        // Skething operator option
+        bool use_gaussian;
+
+        // QRCP option
+        bool use_qp3;
 
         // tuning SASOS
         int num_threads;
@@ -198,6 +203,10 @@ int CQRRP_blocked<T, RNG>::call(
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
+    // Variables fro the termination criteria
+    T curr_entry = 0;
+    T running_max = 0;
+    T running_min = 0;
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -261,38 +270,36 @@ int CQRRP_blocked<T, RNG>::call(
     T* Work2    = ( T * ) calloc( n, sizeof( T ) );
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
-    T norm_A     = lapack::lange(Norm::Fro, m, n, A, lda);
-    T norm_A_sq  = std::pow(norm_A, 2);
-    T norm_R     = 0.0;
-    T norm_R11   = 0.0;
-    T norm_R12   = 0.0;
-    T norm_R_i   = 0.0;
-    T approx_err = 0.0;
-
     if(this -> timing) {
         preallocation_t_stop  = high_resolution_clock::now();
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
         saso_t_start = high_resolution_clock::now();
     }
 
-    // Skethcing in an embedding regime
-    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
-    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    state = RandBLAS::fill_sparse(S);
+    if (this -> use_gaussian) {
+        T* S  = ( T * ) calloc( d * m, sizeof( T ) );
+        RandBLAS::DenseDist D(d, m);
+        state = RandBLAS::fill_dense(D, S, state).second;
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
+        free(S);
+    } else {
+        // Skethcing in an embedding regime
+        RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
+        RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+        state = RandBLAS::fill_sparse(S);
 
-    RandBLAS::sketch_general(
-        Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_sk, d
-    );
+        RandBLAS::sketch_general(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_sk, d
+        );
+    }
 
     if(this -> timing) {
         saso_t_stop  = high_resolution_clock::now();
         saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
     }
 
-    char name [] = "A";
     for(iter = 0; iter < maxiter; ++iter) {
-
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
@@ -304,53 +311,38 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
         
-        //lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
-        
-        // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
-        // Get a transpose of A_sk 
-        util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
-
-        // Perform a row-pivoted LU on a transpose of A_sk
-        lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
-
-        // Fill the pivot vector, apply swaps found via lu on A_sk'.
-        std::iota(&J_buffer[0], &J_buffer[cols], 1);
-        for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
-            tmp = J_buffer[J_buffer_lu[i] - 1];
-            J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
-            J_buffer[i] = tmp;
+        if (this -> use_qp3) {
+            lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
+        } else {
+            // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
+            // Get a transpose of A_sk 
+            util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
+            
+            // Perform a row-pivoted LU on a transpose of A_sk
+            lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
+            // Fill the pivot vector, apply swaps found via lu on A_sk'.
+            std::iota(&J_buffer[0], &J_buffer[cols], 1);
+            for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
+                tmp = J_buffer[J_buffer_lu[i] - 1];
+                J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
+                J_buffer[i] = tmp;
+            }
+            // Apply pivots to A_sk
+            util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
+            // Perform an unpivoted QR on A_sk
+            lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         }
-    
-        // Apply pivots to A_sk
-        util::col_swap(sampling_dimension, cols, cols, A_sk, d, J_buf);
-        
-        // Perform an unpivoted QR on A_sk
-        lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
-/*
-        if(iter == 2) {
-            RandLAPACK::util::print_colmaj(d, n, A_sk_const, d, name);
-        }
-*/
+
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
             r_piv_t_start = high_resolution_clock::now();
         }
-/*
-        if(iter == 5) {
-            RandLAPACK::util::print_colmaj(m, n, A, lda, name);
-        }
-*/
+
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         if(iter != 0)
             util::col_swap(curr_sz, cols, cols, &A[lda * curr_sz], m, J_buf);
-/*
-        if(iter == 5) {
-            RandLAPACK::util::print_colmaj(m, n, A, lda, name);
-        }
-*/
-
 
         if(this -> timing) {
             r_piv_t_stop  = high_resolution_clock::now();
@@ -368,9 +360,9 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
+
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
-  
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda);
 
         if(this -> timing) {
@@ -388,7 +380,6 @@ int CQRRP_blocked<T, RNG>::call(
         // Compute Q_econ from Cholesky QR
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
 
-
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
             cholqr_t_dur  += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
@@ -400,38 +391,23 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-
 #if !defined(__APPLE__)
         // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to envoke the newest Accelerate library.
-        if(!orhr_col_custom) {
-            lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
-        } else {
-            tau_sub = &tau[curr_sz];
-            RandLAPACK::util::rl_orhr_col(rows, b_sz, A_work, lda, tau_sub, b_sz_const, Work2, 1);
-        }
-#endif  
-
-        //if(iter == 5) {
-            //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
-            //RandLAPACK::util::print_colmaj(rows, b_sz, A_work, lda, name);
-            //break;
-        //}
-
-
+        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
+#endif
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
+
         for(i = 0; i < b_sz; ++i)
             for(j = 0; j < (i + 1); ++j)
                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
 
-        if(!orhr_col_custom) {
-            // Define a pointer to the current subportion of tau vector.
-            tau_sub = &tau[curr_sz];
-            // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
-            for(i = 0; i < b_sz; ++i)
-                tau_sub[i] = T_dat[(b_sz_const + 1) * i];
-        }
+        // Define a pointer to the current subportion of tau vector.
+        tau_sub = &tau[curr_sz];
+        // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
+        for(i = 0; i < b_sz; ++i)
+            tau_sub[i] = T_dat[(b_sz_const + 1) * i];
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -454,9 +430,6 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_start = high_resolution_clock::now();
         }
 
-        //for(int i = 0; i < b_sz; ++i)
-        //    printf("%ld\n", J_buffer[i]);
-        //printf("\n");
         // Updating pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer, 1, J, 1);
@@ -484,6 +457,27 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_stop  = high_resolution_clock::now();
             updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
         }
+        /*
+        Termination criteria based on the estimate for the comdition number of a sketch at a given iteration.
+        Does not detect low rank.
+        Is only useful for "bad inputs."
+        */
+       /*
+        if (iter != 0) {
+            //running_max = A_sk[0];
+            running_min = A_sk[0];
+            for(i = 0; i < std::min(sampling_dimension, cols); ++i) {
+                curr_entry = std::abs(A_sk[i * d + i]);
+                running_max = std::max(running_max, curr_entry);
+                running_min = std::min(running_min, curr_entry);
+                if(std::abs(running_min / running_max) <= this->eps) {
+                    printf("%e\n", std::abs(running_min / running_max));
+                    termination_criteria = 1;
+                    break;
+                }
+            }
+        }
+        */
 
         // Size of the factors is updated;
         curr_sz += b_sz;
@@ -491,10 +485,6 @@ int CQRRP_blocked<T, RNG>::call(
         if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
-
-            //RandLAPACK::util::print_colmaj(m, n, A, lda, name);
-            for(int i = 0; i < n; ++i)
-                printf("%d\n", J[i]);
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
@@ -550,18 +540,17 @@ int CQRRP_blocked<T, RNG>::call(
         // Also, Below is identical to:
         // A_work = &A_work[(lda + 1) * b_sz];
         A_work = &Work1[b_sz];
-
+        
         // Updating the skethcing buffer
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
         RandLAPACK::util::get_U(b_sz, b_sz, R_sk, d);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d);
-
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk, d, R12, lda, (T) 1.0, &R_sk[d * b_sz], d);
-
+        
         // Changing the sampling dimension parameter
         sampling_dimension = std::min(sampling_dimension, cols);
 
@@ -570,21 +559,15 @@ int CQRRP_blocked<T, RNG>::call(
         if (sampling_dimension - b_sz > 0)
             RandLAPACK::util::get_U(sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
 
-
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
         // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
         // if any rows beyond that would be accessed, we would have issues. 
-
-        //if(iter == 1) {
-        //    RandLAPACK::util::print_colmaj(d, n, A_sk_const, d, name);
-        //}
-
         A_sk = &A_sk[d * b_sz];
 
-        //if(this -> timing) {
-        //    updating2_t_stop  = high_resolution_clock::now();
-        //    updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
-        //}
+        if(this -> timing) {
+            updating2_t_stop  = high_resolution_clock::now();
+            updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
+        }
 
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
