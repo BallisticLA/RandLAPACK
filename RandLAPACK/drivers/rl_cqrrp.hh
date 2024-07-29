@@ -430,6 +430,13 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_start = high_resolution_clock::now();
         }
 
+        if(iter == 3) {
+            printf("CPU PIVOTS\n");
+            for(int s = 0; s < b_sz; ++s) {
+                printf("%ld\n", J_buf[s]);
+            }
+        }  
+
         // Updating pivots
         if(iter == 0) {
             blas::copy(cols, J_buffer, 1, J, 1);
