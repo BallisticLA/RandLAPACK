@@ -151,7 +151,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     int64_t n = 2800;//2000;
     int64_t k = 2800;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 700;//500;
+    int64_t b_sz = 900;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
