@@ -185,7 +185,7 @@ class TestUtil_GPU : public ::testing::Test
 
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
-        ASSERT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+        EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
     template <typename T>
@@ -235,7 +235,7 @@ class TestUtil_GPU : public ::testing::Test
 
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
-        ASSERT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+        EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
     template <typename T>
@@ -260,12 +260,15 @@ class TestUtil_GPU : public ::testing::Test
         RandLAPACK::util::col_swap<T>(m, k, J_subvec, all_data.idx);
         cudaStreamSynchronize(strm);
 
-        for(int i = 0; i < m; ++i)
-            all_data.J[i] -= all_data.J_host_buffer[i];
+        for(int i = 0; i < m; ++i){
+	    auto ji_expect = all_data.J_host_buffer[i];
+	    auto ji_actual = all_data.J[i];
+            EXPECT_EQ(ji_expect, ji_actual) << "at index " << i << std::endl;
+	}
 
-        T norm_test = blas::nrm2(m, all_data.J.data(), 1);
-        printf("\nNorm diff GPU CPU: %e\n", norm_test);
-        ASSERT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+        //T norm_test = blas::nrm2(m, all_data.J.data(), 1);
+        //printf("\nNorm diff GPU CPU: %e\n", norm_test);
+        //EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
 
@@ -297,7 +300,7 @@ class TestUtil_GPU : public ::testing::Test
 
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A_host_buffer.data(), m);
         printf("||A_piv - QR||_F:  %e\n", norm);
-        ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+        EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 
     template <typename T>
@@ -321,7 +324,7 @@ class TestUtil_GPU : public ::testing::Test
 
         T norm = lapack::lange(Norm::Fro, n, m, all_data.A_T.data(), n);
         printf("||A_T_host - A_T_device||_F:  %e\n", norm);
-        ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+        EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 
     template <typename T>
@@ -349,7 +352,7 @@ class TestUtil_GPU : public ::testing::Test
 
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A.data(), n);
         printf("||A_host - A_device||_F:  %e\n", norm);
-        ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+        EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 };
 
