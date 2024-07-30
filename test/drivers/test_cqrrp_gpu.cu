@@ -83,8 +83,39 @@ class TestCQRRP : public ::testing::Test
         }
     };
 
+    template <typename T>
+    struct CQRRPBenchData {
+        int64_t row;
+        int64_t col;
+        int64_t rank;
+        
+        std::vector<T> A;
+        T* A_sk;
+        // Buffers for the GPU data
+        T* A_device;
+        T* A_sk_device;
+        T* tau_device;
+        int64_t* J_device;
+
+        CQRRPBenchData(int64_t m, int64_t n) :
+        A(m * n, 0.0)
+        {
+            row = m;
+            col = n;
+            cudaMalloc(&A_device,    m * n * sizeof(T));
+            cudaMalloc(&tau_device,  n *     sizeof(T));
+            cudaMalloc(&J_device,    n *     sizeof(int64_t));
+        }
+
+        ~CQRRPBenchData() {
+            cudaFree(A_device);
+            cudaFree(tau_device);
+            cudaFree(J_device);
+        }
+    };
+
     template <typename T, typename RNG>
-    static void norm_and_copy_computational_helper(T &norm_A, int64_t d, CQRRPTestData<T> &all_data, RandBLAS::RNGState<RNG> &state) {
+    static void norm__sektch_and_copy_computational_helper(T &norm_A, int64_t d, CQRRPTestData<T> &all_data, RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -104,7 +135,6 @@ class TestCQRRP : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
     }
-
 
     /// This routine also appears in benchmarks, but idk if it should be put into utils
     template <typename T>
@@ -228,6 +258,36 @@ class TestCQRRP : public ::testing::Test
         ASSERT_NEAR(norm_R_diff, 0.0, atol2);
     }
 
+    template <typename T, typename RNG>
+    static void bench_CQRRP(
+        int64_t d_factor, 
+        T tol,
+        int64_t block_size,
+        CQRRPBenchData<T> &all_data,
+        RandBLAS::RNGState<RNG> state) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        auto state_const = state;
+        auto d = d_factor * block_size;
+
+        // Skethcing in an sampling regime
+        cudaMalloc(&all_data.A_sk_device, d * n * sizeof(T));
+        all_data.A_sk  = ( T * ) calloc( d * n, sizeof( T ) );
+        T* S           = ( T * ) calloc( d * m, sizeof( T ) );
+        RandBLAS::DenseDist D(d, m);
+        RandBLAS::fill_dense(D, S, state_const).second;
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
+        free(S);
+        cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
+
+        RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(true, tol, block_size);
+        CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+
+        cudaFree(all_data.A_sk_device);
+        free(all_data.A_sk);
+    }
+
 };
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -252,7 +312,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
 #if !defined(__APPLE__)
     test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
 #endif
@@ -280,9 +340,54 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
 #if !defined(__APPLE__)
     test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
+#endif
+}
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, CQRRP_GPU_benchmark_32k) {
+    int64_t m = std::pow(2, 15);
+    int64_t n = std::pow(2, 15);
+    double d_factor = 1.25;
+    int64_t b_sz_start = 256;
+    int64_t b_sz_end   = 2048;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPBenchData<double> all_data(m, n);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+
+#if !defined(__APPLE__)
+    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
+        bench_CQRRP(d_factor, tol, b_sz_start, all_data, state);
+    }
+#endif
+}
+
+TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
+    int64_t m = std::pow(2, 14);
+    int64_t n = std::pow(2, 14);
+    double d_factor = 1.25;
+    int64_t b_sz_start = 256;
+    int64_t b_sz_end   = 2048;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPBenchData<double> all_data(m, n);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+
+#if !defined(__APPLE__)
+    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
+        bench_CQRRP(d_factor, tol, b_sz_start, all_data, state);
+    }
 #endif
 }
 

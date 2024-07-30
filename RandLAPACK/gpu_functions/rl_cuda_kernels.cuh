@@ -292,8 +292,10 @@ __global__ void __launch_bounds__(512) col_swap_gpu(
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            if (threadIdx.x == 0) {
+            for (int64_t l = threadIdx.x; l < m; l += blockDim.x) {
                 std::iter_swap(A + i * lda + l, A + j * lda + l);
+            }
+            if (threadIdx.x == 0) {
                 std::iter_swap(curr, std::find(curr, end, i));
             }
         }
@@ -320,10 +322,8 @@ __global__ void __launch_bounds__(512) col_swap_gpu(
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            for (int64_t l = threadIdx.x; l < 1; l += blockDim.x) {
-                std::iter_swap(J + i, J + j);
-            }
             if (threadIdx.x == 0) {
+                std::iter_swap(J + i, J + j);
                 std::iter_swap(curr, std::find(curr, end, i));
             }
             __syncthreads();
