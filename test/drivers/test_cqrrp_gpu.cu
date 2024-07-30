@@ -203,27 +203,34 @@ class TestCQRRP : public ::testing::Test
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
         CQRRP_CPU.call(m, n, all_data.A_cpu.data(), m, (T) (d / CQRRP_CPU.block_size) , all_data.tau_cpu.data(), all_data.J_cpu.data(), state);
         
-        //cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
-        //cudaMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+        cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
         cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
         cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
         for(int i = 0; i < n; ++i) {
             int64_t Ji_host = all_data.J_cpu[i];
-	    int64_t Ji_device = all_data.J[i]; 
-	    if (Ji_host != Ji_device) {
-	    	std::cout << i << " : " << Ji_host << ", " << Ji_device << std::endl;
-	    }
-	    all_data.tau[i] -= all_data.tau_cpu[i];
-            all_data.J[i] -= all_data.J_cpu[i];
+            int64_t Ji_device = all_data.J[i]; 
+            if (Ji_host != Ji_device) {
+                //std::cout << i << " : " << Ji_host << ", " << Ji_device << std::endl;
+            }
+            all_data.tau[i] -= all_data.tau_cpu[i];
+                all_data.J[i] -= all_data.J_cpu[i];
+
+            for(int j = 0; j <= i; ++j) {
+                all_data.A_cpu[i * m + j] -= all_data.R_full[i * m + j];
+            }
         }
+        RandLAPACK::util::get_U(n, n, all_data.A_cpu.data(), m);
 
         T col_nrm_J   = blas::nrm2(n, all_data.J.data(), 1);
         T col_nrm_tau = blas::nrm2(n, all_data.tau.data(), 1);
+        T norm_R_diff = lapack::lange(Norm::Fro, n, n, all_data.A_cpu.data(), m);
 
-        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        ASSERT_NEAR(col_nrm_J,   0.0, atol);
-        ASSERT_NEAR(col_nrm_tau, 0.0, atol);
+        T atol1 = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+        T atol2 = std::pow(std::numeric_limits<T>::epsilon(), 0.60);
+        ASSERT_NEAR(col_nrm_J,   0.0, atol1);
+        ASSERT_NEAR(col_nrm_tau, 0.0, atol1);
+        ASSERT_NEAR(norm_R_diff, 0.0, atol2);
     }
 
 };
