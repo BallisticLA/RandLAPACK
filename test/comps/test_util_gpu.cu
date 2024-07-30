@@ -62,50 +62,45 @@ class TestUtil_GPU : public ::testing::Test
             row = m;
             col = n;
             cudaMalloc(&A_device,   m * n * sizeof(T));
-            {
-            cudaError_t ierr = cudaGetLastError();
-            if (ierr != cudaSuccess)
-            {
-                BPCG_ERROR("Failed to allocate 1. " << cudaGetErrorString(ierr))
-                abort();
-            }
-            }
             cudaMalloc(&B_device,   m * n * sizeof(T));
-             {
-            cudaError_t ierr = cudaGetLastError();
-            if (ierr != cudaSuccess)
-            {
-                BPCG_ERROR("Failed to allocate 2. " << cudaGetErrorString(ierr))
-                abort();
-            }
-            }
             cudaMalloc(&J_device,   n * sizeof(int64_t));
-             {
-            cudaError_t ierr = cudaGetLastError();
-            if (ierr != cudaSuccess)
-            {
-                BPCG_ERROR("Failed to allocate 3. " << cudaGetErrorString(ierr))
-                abort();
-            }
-            }
             cudaMalloc(&buf_device, n * sizeof(int64_t));
-             {
-            cudaError_t ierr = cudaGetLastError();
-            if (ierr != cudaSuccess)
-            {
-                BPCG_ERROR("Failed to allocate 4. " << cudaGetErrorString(ierr))
-                abort();
-            }
-            }
             cudaDeviceSynchronize();
         }
         
-
         ~ColSwpTestData() {
             cudaFree(A_device);
             cudaFree(B_device);
             cudaFree(J_device);
             cudaFree(buf_device);
+        }
+    };
+
+    template <typename T>
+    struct ColSwpVecTestData {
+        int64_t length_J;
+        int64_t length_idx;
+        std::vector<int64_t> J;
+        std::vector<int64_t> idx;
+        std::vector<int64_t> J_host_buffer;
+        int64_t* J_device;
+        int64_t* idx_device;
+
+        ColSwpVecTestData(int64_t m, int64_t k) :
+        J_host_buffer(m, 0.0),
+        J(m, 0.0),
+        idx(k, 0.0)
+        {
+            length_J   = m;
+            length_idx = k;
+            cudaMalloc(&J_device,   m * sizeof(int64_t));
+            cudaMalloc(&idx_device, k * sizeof(int64_t));
+            cudaDeviceSynchronize();
+        }
+
+        ~ColSwpVecTestData() {
+            cudaFree(J_device);
+            cudaFree(idx_device);
         }
     };
 
@@ -241,7 +236,36 @@ class TestUtil_GPU : public ::testing::Test
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
         ASSERT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+    }
 
+    template <typename T>
+    static void 
+    col_swp_subvector_gpu(
+        int64_t offset,
+        ColSwpVecTestData<T> &all_data) {
+
+        auto m   = all_data.length_J;
+        auto k   = all_data.length_idx;
+
+        cudaStream_t strm = cudaStreamPerThread;
+        cudaMemcpyAsync(all_data.J_device, all_data.J.data(),     m * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
+        cudaMemcpyAsync(all_data.idx_device, all_data.idx.data(), k * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
+        int64_t* J_device_subvec = all_data.J_device + offset;
+        cudaStreamSynchronize(strm);
+        RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, m, k, J_device_subvec, all_data.idx_device);
+        cudaMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, m * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+
+        int64_t* J_subvec = all_data.J.data() + offset;
+        std::vector<int64_t> buf;
+        RandLAPACK::util::col_swap<T>(m, k, J_subvec, all_data.idx);
+        cudaStreamSynchronize(strm);
+
+        for(int i = 0; i < m; ++i)
+            all_data.J[i] -= all_data.J_host_buffer[i];
+
+        T norm_test = blas::nrm2(m, all_data.J.data(), 1);
+        printf("\nNorm diff GPU CPU: %e\n", norm_test);
+        ASSERT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
 
@@ -374,6 +398,22 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
     std::shuffle(all_data.J.begin(), all_data.J.begin() + n_submat, std::minstd_rand{std::random_device{}()});
 
     col_swp_submatrix_gpu<double>(offset, col_offset, m_submat, n_submat, k_submat, all_data);
+}
+
+TEST_F(TestUtil_GPU, test_col_swp_gpu_subvector) {
+    
+    int64_t m          = 2800;
+    int64_t col_offset = 2700;
+    int64_t k_submat   = 100;
+
+    ColSwpVecTestData<double> all_data(m, k_submat);
+    // Fill and randomly shuffle a vector
+    std::iota(all_data.J.begin(), all_data.J.begin() + m, 1);
+    std::iota(all_data.idx.begin(), all_data.idx.begin() + k_submat, 1);
+    std::shuffle(all_data.J.begin(), all_data.J.begin() + m, std::minstd_rand{std::random_device{}()});
+    std::shuffle(all_data.idx.begin(), all_data.idx.begin() + k_submat, std::minstd_rand{std::random_device{}()});
+
+    col_swp_subvector_gpu<double>(col_offset, all_data);
 }
 
 TEST_F(TestUtil_GPU, test_qp3_swp_gpu) {
