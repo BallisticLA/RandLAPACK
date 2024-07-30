@@ -334,17 +334,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         cusolverDnGetStream(cusolverH, &stream_cusolver);
         cudaStreamSynchronize(stream_cusolver);
 
-        if(iter == 3) {
-            lapack_queue.sync();
-            int64_t* J_HOST = ( int64_t * ) calloc( n, sizeof( int64_t ) );
-            cudaMemcpy(J_HOST, J_buffer, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
-            printf("GPU PIVOTS\n");
-            for(int s = 0; s < b_sz; ++s) {
-                printf("%ld\n", J_HOST[s]);
-            }
-            lapack_queue.sync();
-        }
-
         // Updating pivots
         if(iter == 0) {
             RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer, 1, J, 1);
