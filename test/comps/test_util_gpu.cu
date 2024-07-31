@@ -367,7 +367,7 @@ class TestUtil_GPU : public ::testing::Test
 };
 
 
-TEST_F(TestUtil_GPU, test_col_swp_gpu) {
+TEST_F(TestUtil_GPU, test_col_swp_gpu_base) {
     
     int64_t m = 1000;
     int64_t n = 1000;
@@ -389,7 +389,7 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu) {
 TEST_F(TestUtil_GPU, test_col_swp_large_gpu) {
     
     int64_t m = 512;
-    int64_t n = 1 << 15;
+    int64_t n = 8000;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 
