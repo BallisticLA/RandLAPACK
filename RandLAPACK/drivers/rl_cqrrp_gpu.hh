@@ -256,8 +256,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
         // Apply pivots to A_sk
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, J_buffer);
-        //cudaStreamSynchronize(strm);
-        lapack_queue.sync();
+
+        return 0;
 
         // Perform an unpivoted QR on A_sk
         if(iter == 0) {
