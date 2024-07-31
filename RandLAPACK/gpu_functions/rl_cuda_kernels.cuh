@@ -323,8 +323,8 @@ __global__ void __launch_bounds__(512) vec_ell_swap_gpu(
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            std::iter_swap(J + i, J + j);
             if (threadIdx.x == 0) {
+                std::iter_swap(J + i, J + j);
                 std::iter_swap(curr, std::find(curr, end, i));
             }
             __syncthreads();
