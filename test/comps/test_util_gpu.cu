@@ -376,6 +376,22 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu) {
     col_swp_gpu<double>(all_data);
 }
 
+TEST_F(TestUtil_GPU, test_col_swp_large_gpu) {
+    
+    int64_t m = 100;
+    int64_t n = 6400;
+    auto state = RandBLAS::RNGState();
+    ColSwpTestData<double> all_data(m, n);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state); 
+    // Fill and randomly shuffle a vector
+    std::iota(all_data.J.begin(), all_data.J.end(), 1);
+    std::random_shuffle(all_data.J.begin(), all_data.J.begin() + n);
+
+    col_swp_gpu<double>(all_data);
+}
+
 TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
     
     int64_t m = 5000;
