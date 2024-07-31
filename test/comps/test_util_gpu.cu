@@ -174,6 +174,15 @@ class TestUtil_GPU : public ::testing::Test
         cudaMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice, strm);
         cudaMemcpyAsync(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
         cudaStreamSynchronize(strm);
+
+
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("GPU ERROR. " << cudaGetErrorString(ierr))
+        abort();
+    }
+
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
         cudaMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
         cudaMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
