@@ -284,6 +284,9 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(true, tol, block_size);
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 
+        auto rank = CQRRP_GPU.rank;
+        printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
+
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
     }
@@ -351,8 +354,8 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_32k) {
     int64_t m = std::pow(2, 15);
     int64_t n = std::pow(2, 15);
     double d_factor = 1.25;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 2048;
+    int64_t b_sz_start = 32;
+    int64_t b_sz_end   = 4096;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
@@ -372,8 +375,8 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m = std::pow(2, 14);
     int64_t n = std::pow(2, 14);
     double d_factor = 1.25;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 256;
+    int64_t b_sz_start = 512;
+    int64_t b_sz_end   = 512;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
