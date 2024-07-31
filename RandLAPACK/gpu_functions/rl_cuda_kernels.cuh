@@ -305,14 +305,13 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
     }
 }
 
-
 template <typename T>
-__global__ void __launch_bounds__(512) vec_elem_swap_gpu(
+__global__ void __launch_bounds__(512) vec_ell_swap_gpu(
     int64_t m, 
     int64_t k,
     int64_t* J, 
     int64_t const* idx,
-    int64_t * idx_mut
+    int64_t* idx_mut
 ) {
     J -= 1;
     for (int64_t i = threadIdx.x; i < k; i += blockDim.x) {
@@ -324,8 +323,8 @@ __global__ void __launch_bounds__(512) vec_elem_swap_gpu(
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
+            std::iter_swap(J + i, J + j);
             if (threadIdx.x == 0) {
-                std::iter_swap(J + i, J + j);
                 std::iter_swap(curr, std::find(curr, end, i));
             }
             __syncthreads();
@@ -416,8 +415,6 @@ void ger_gpu(
     }
 }
 
-/// Positions columns of A in accordance with idx vector of length k.
-/// idx array modified ONLY within the scope of this function.
 template <typename T>
 void col_swap_gpu(
     cudaStream_t stream, 
@@ -429,6 +426,7 @@ void col_swap_gpu(
     int64_t const* idx
 ) {
 #ifdef USE_CUDA
+
     //constexpr int threadsPerBlock{128};
     //int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
     //col_swap_gpu<<<num_blocks, threadsPerBlock, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
@@ -481,16 +479,15 @@ void col_swap_gpu(
     int64_t const* idx
 ) {
 #ifdef USE_CUDA
-    //constexpr int threadsPerBlock{128};
-    //int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
     int64_t* idx_copy;
     cudaMallocAsync(&idx_copy, sizeof(int64_t) * k, stream);
-    vec_elem_swap_gpu<T><<<1, 512, sizeof(int64_t) * k, stream>>>(m, k, J, idx, idx_copy);
+    vec_ell_swap_gpu<T><<<1, 512, 0, stream>>>(m, k, J, idx, idx_copy);
 #endif
+    cudaFreeAsync(idx_copy, stream);
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch vector col_swap_gpu. " << cudaGetErrorString(ierr))
+        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
