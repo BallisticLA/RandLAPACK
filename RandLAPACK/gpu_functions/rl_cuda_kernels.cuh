@@ -3,6 +3,7 @@
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cooperative_groups.h>
 
 namespace RandLAPACK::cuda_kernels {
 
@@ -270,55 +271,56 @@ __global__  void __launch_bounds__(128) get_U_gpu(
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
 template <typename T>
-__global__ void __launch_bounds__(512) col_swap_gpu(
+__global__ void __launch_bounds__(128) col_swap_gpu_kernel(
     int64_t m, 
     int64_t n, 
     int64_t k,
     T* A, 
     int64_t lda,
-    int64_t const* idx
+    int64_t const* idx,
+    int64_t* idx_mut
 ) {
-    extern __shared__ int64_t local_idx[];
     if (k > n) {
         return;
     }
+    cooperative_groups::grid_group g = cooperative_groups::this_grid();
     A -= lda;
-    for (int64_t i = threadIdx.x; i < k; i += blockDim.x) {
-        local_idx[i] = idx[i];
+    for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < k; i += blockDim.x * gridDim.x) {
+        idx_mut[i] = idx[i];
     }
-    __syncthreads();
-    int64_t* curr = local_idx;
-    int64_t* end = local_idx + k;
+    g.sync();
+    int64_t* curr = idx_mut;
+    int64_t* end = idx_mut + k;
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
-            for (int64_t l = threadIdx.x; l < m; l += blockDim.x) {
+            for (int64_t l = threadIdx.x + blockDim.x * blockIdx.x; l < m; l += blockDim.x * gridDim.x) {
                 std::iter_swap(A + i * lda + l, A + j * lda + l);
             }
-            if (threadIdx.x == 0) {
+            if (threadIdx.x == 0 && blockIdx.x == 0) {
                 std::iter_swap(curr, std::find(curr, end, i));
             }
+            g.sync();
         }
-        __syncthreads();
     }
 }
 
 
 template <typename T>
-__global__ void __launch_bounds__(512) col_swap_gpu(
+__global__ void __launch_bounds__(512) vec_elem_swap_gpu(
     int64_t m, 
     int64_t k,
     int64_t* J, 
-    int64_t const* idx
+    int64_t const* idx,
+    int64_t * idx_mut
 ) {
-    extern __shared__ int64_t local_idx[];
     J -= 1;
     for (int64_t i = threadIdx.x; i < k; i += blockDim.x) {
-        local_idx[i] = idx[i];
+        idx_mut[i] = idx[i];
     }
     __syncthreads();
-    int64_t* curr = local_idx;
-    int64_t* end = local_idx + k;
+    int64_t* curr = idx_mut;
+    int64_t* end = idx_mut + k;
     for (int64_t i = 1; i <= k; ++i, ++curr) {
         // swap rows IFF mismatched
         if (int64_t const j = *curr; i != j) {
@@ -430,14 +432,42 @@ void col_swap_gpu(
     //constexpr int threadsPerBlock{128};
     //int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
     //col_swap_gpu<<<num_blocks, threadsPerBlock, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
-    col_swap_gpu<<<1, 512, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
-#endif
+    int64_t* idx_copy;
+    cudaMallocAsync(&idx_copy, sizeof(int64_t) * n, stream);
+    
     cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to allocate for col_swap_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
+    int numBlocksPerSm = 0;
+    int numThreads = 128;
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, /*device_id=*/0);
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
+    void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
+    dim3 dimBlock(numThreads, 1, 1);
+    int upper_bound = deviceProp.multiProcessorCount * numBlocksPerSm;
+    int lower_bound = std::max(m, k);
+    lower_bound = (lower_bound + numThreads - 1) / numThreads;
+    dim3 dimGrid(std::min(upper_bound, lower_bound), 1, 1);
+    cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
+    
+    ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
         BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
+    cudaFreeAsync(idx_copy, stream);
+    ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to deallocate for col_swap_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
+#endif
 }
 
 /// Positions columns of A in accordance with idx vector of length k.
@@ -453,12 +483,14 @@ void col_swap_gpu(
 #ifdef USE_CUDA
     //constexpr int threadsPerBlock{128};
     //int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
-    col_swap_gpu<T><<<1, 512, sizeof(int64_t) * k, stream>>>(m, k, J, idx);
+    int64_t* idx_copy;
+    cudaMallocAsync(&idx_copy, sizeof(int64_t) * k, stream);
+    vec_elem_swap_gpu<T><<<1, 512, sizeof(int64_t) * k, stream>>>(m, k, J, idx, idx_copy);
 #endif
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        BPCG_ERROR("Failed to launch vector col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }

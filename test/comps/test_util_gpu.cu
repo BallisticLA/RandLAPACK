@@ -176,12 +176,13 @@ class TestUtil_GPU : public ::testing::Test
         cudaStreamSynchronize(strm);
 
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        BPCG_ERROR("GPU ERROR. " << cudaGetErrorString(ierr))
-        abort();
-    }
+        cudaError_t ierr = cudaGetLastError();
+        if (ierr != cudaSuccess)
+        {
+            BPCG_ERROR("GPU ERROR. " << cudaGetErrorString(ierr))
+            abort();
+        }
+        printf("Passed the general error check\n");
 
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
         cudaMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
@@ -387,8 +388,8 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu) {
 
 TEST_F(TestUtil_GPU, test_col_swp_large_gpu) {
     
-    int64_t m = 100;
-    int64_t n = 6400;
+    int64_t m = 512;
+    int64_t n = 1 << 15;
     auto state = RandBLAS::RNGState();
     ColSwpTestData<double> all_data(m, n);
 
@@ -397,7 +398,6 @@ TEST_F(TestUtil_GPU, test_col_swp_large_gpu) {
     // Fill and randomly shuffle a vector
     std::iota(all_data.J.begin(), all_data.J.end(), 1);
     std::random_shuffle(all_data.J.begin(), all_data.J.begin() + n);
-
     col_swp_gpu<double>(all_data);
 }
 
