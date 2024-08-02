@@ -117,6 +117,22 @@ class TestCQRRP : public ::testing::Test
     };
 
     template <typename T, typename RNG>
+    static void data_regen(
+                            cudaStream_t stream,
+                            RandLAPACK::gen::mat_gen_info<T> m_info, 
+                            CQRRPBenchData<T> &all_data, 
+                            RandBLAS::RNGState<RNG> &state) {
+
+        auto state_const = state;
+        auto m = m_info.rows;
+        auto n = m_info.cols;
+
+        RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state_const);
+        RandLAPACK::cuda_kernels::fill_gpu(stream, n, all_data.J_device, 1, 0.0);
+        RandLAPACK::cuda_kernels::fill_gpu(stream, n, all_data.tau_device, 1, 0.0);
+    }
+
+    template <typename T, typename RNG>
     static void norm__sektch_and_copy_computational_helper(T &norm_A, int64_t d, CQRRPTestData<T> &all_data, RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
@@ -262,6 +278,8 @@ class TestCQRRP : public ::testing::Test
 
     template <typename T, typename RNG>
     static void bench_CQRRP(
+        cudaStream_t stream,
+        RandLAPACK::gen::mat_gen_info<T> m_info,
         int64_t d_factor, 
         T tol,
         int64_t block_size,
@@ -284,14 +302,15 @@ class TestCQRRP : public ::testing::Test
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
 	
         RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(true, tol, block_size);
-	auto start = std::chrono::steady_clock::now();
+	    auto start = std::chrono::steady_clock::now();
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-	auto stop = std::chrono::steady_clock::now();
-	auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+	    auto stop = std::chrono::steady_clock::now();
+	    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
         auto rank = CQRRP_GPU.rank;
-        printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
-	printf("  BLOCK SIZE = %ld\n", block_size);
-	printf("  TIME (MS) = %ld\n", diff);
+        //printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
+	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
+
+        data_regen(stream, m_info, all_data, state);
 
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
@@ -361,31 +380,11 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_32k) {
     int64_t n = std::pow(2, 15);
     double d_factor = 1.25;
     int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 4096;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPBenchData<double> all_data(m, n);
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
-
-#if !defined(__APPLE__)
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        bench_CQRRP(d_factor, tol, b_sz_start, all_data, state);
-    }
-#endif
-}
-
-TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
-    int64_t m = std::pow(2, 14);
-    int64_t n = std::pow(2, 14);
-    double d_factor = 1.25;
-    int64_t b_sz_start = 32;
     int64_t b_sz_end   = 192;
     int64_t b_sz_incr  = 8;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
+    cudaStream_t stream = cudaStreamPerThread;
 
     CQRRPBenchData<double> all_data(m, n);
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -394,7 +393,30 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
 
 #if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start += b_sz_incr) {
-        bench_CQRRP(d_factor, tol, b_sz_start, all_data, state);
+        bench_CQRRP(stream, m_info, d_factor, tol, b_sz_start, all_data, state);
+    }
+#endif
+}
+
+TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
+    int64_t m = std::pow(2, 16);
+    int64_t n = std::pow(2, 16);
+    double d_factor = 1.25;
+    int64_t b_sz_start = 32;
+    int64_t b_sz_end   = 192;
+    int64_t b_sz_incr  = 8;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+    cudaStream_t stream = cudaStreamPerThread;
+
+    CQRRPBenchData<double> all_data(m, n);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+
+#if !defined(__APPLE__)
+    for (;b_sz_start <= b_sz_end; b_sz_start += b_sz_incr) {
+        bench_CQRRP(stream, m_info, d_factor, tol, b_sz_start, all_data, state);
     }
 #endif
 }
