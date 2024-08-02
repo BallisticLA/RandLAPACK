@@ -232,9 +232,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
         // Zero-out data - may not be necessary
-        RandLAPACK::cuda_kernels::fill_gpu(strm, std::min(d, n),  J_buffer_lu, 1, (T) 0.0);
-        RandLAPACK::cuda_kernels::fill_gpu(strm, n,               J_buffer,    1, (T) 0.0);
-        RandLAPACK::cuda_kernels::fill_gpu(strm, n,               Work2,       1, (T) 0.0);
+        cudaMemset(J_buffer_lu, (T) 0.0, std::min(d, n));
+        cudaMemset(J_buffer,    (T) 0.0, n);
+        cudaMemset(Work2,       (T) 0.0, n);
 
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
