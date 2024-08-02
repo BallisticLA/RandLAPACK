@@ -130,7 +130,9 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state_const);
         RandLAPACK::cuda_kernels::fill_gpu(stream, n, all_data.J_device, 1, 0.0);
         RandLAPACK::cuda_kernels::fill_gpu(stream, n, all_data.tau_device, 1, 0.0);
+        cudaStreamSynchronize(stream);
     }
+
 
     template <typename T, typename RNG>
     static void norm__sektch_and_copy_computational_helper(T &norm_A, int64_t d, CQRRPTestData<T> &all_data, RandBLAS::RNGState<RNG> &state) {

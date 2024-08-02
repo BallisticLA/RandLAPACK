@@ -226,8 +226,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T *d_work_ormqr = nullptr;
     size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
 
-
-    lapack_queue.sync();
     for(iter = 0; iter < maxiter; ++iter) {
         //nvtx3::scoped_range iteration{"iter"};
         // Make sure we fit into the available space
@@ -241,7 +239,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
         RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_trans, n, 0);
-        lapack_queue.sync();
 
         // Perform a row-pivoted LU on a transpose of A_sk
         // Probing workspace size - performed only once.
@@ -253,12 +250,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             h_work_getrf = h_work_getrf_vector.data();
         }
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
-        lapack_queue.sync();
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
         RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
         // Apply pivots to A_sk
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, J_buffer);
-        lapack_queue.sync();
 
         // Perform an unpivoted QR on A_sk
         if(iter == 0) {
@@ -268,19 +263,15 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             h_work_geqrf = h_work_geqrf_vector.data();
         }
         lapack::geqrf(sampling_dimension, cols, A_sk_work, d, Work2, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
-        lapack_queue.sync();
 
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         if(iter != 0) {
             RandLAPACK::cuda_kernels::col_swap_gpu(strm, curr_sz, cols, cols, &A[lda * curr_sz], m, J_buffer);
-            lapack_queue.sync();
         }
 
         // Pivoting the current matrix A.
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, rows, cols, cols, A_work, lda, J_buffer);
-        lapack_queue.sync();
-        //cudaStreamSynchronize(strm);
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
@@ -292,17 +283,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
-        lapack_queue.sync();
         // Performing Cholesky QR
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
-        lapack_queue.sync();
         //lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
         lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
-        lapack_queue.sync();
 
         // Compute Q_econ from Cholesky QR
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
-        lapack_queue.sync();
 
         // Find Q (stored in A) using Householder reconstruction. 
         // This will represent the full (rows by rows) Q factor form Cholesky QR
@@ -311,8 +298,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
         // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
         RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work, lda, &tau[curr_sz], Work2);  
-        lapack_queue.sync();
-
+        
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
@@ -346,15 +332,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
-        lapack_queue.sync();
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
         // R11 =  &A[(m + 1) * curr_sz];
         R11 = A_work;
-        lapack_queue.sync();
         RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda, true);
-        lapack_queue.sync();
         
         // Updating the pointer to R12
         // In a global sense, this is identical to:
@@ -390,16 +373,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
         RandLAPACK::cuda_kernels::get_U_gpu(strm, b_sz, b_sz, R_sk, d);
-        lapack_queue.sync();
         //cudaStreamSynchronize(strm);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d, lapack_queue);
-        lapack_queue.sync();
 
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
         // Side note: might need to be careful when d = b_sz.
         // Cannot perform trmm here as an alternative, since matrix difference is involved.
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk, d, R12, lda, (T) 1.0, &R_sk[d * b_sz], d, lapack_queue);
-        lapack_queue.sync();
 
         // Changing the sampling dimension parameter
         sampling_dimension = std::min(sampling_dimension, cols);
@@ -408,7 +388,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Make sure R_sk_22 exists.
         if (sampling_dimension - b_sz > 0) {
             RandLAPACK::cuda_kernels::get_U_gpu(strm, sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
-            lapack_queue.sync();
         }
 
         // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
