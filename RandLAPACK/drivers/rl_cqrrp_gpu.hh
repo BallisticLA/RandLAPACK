@@ -213,7 +213,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     cudaStream_t stream_cusolver;
     using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
-    int *d_info_cusolver = cudaMalloc(reinterpret_cast<void **>(&d_info_cusolver), sizeof(int));
+    int *d_info_cusolver = nullptr;
+    cudaMalloc(reinterpret_cast<void **>(&d_info_cusolver), sizeof(int));
     // Create cusolver handle - used for the ORMQR call
     cusolverDnHandle_t cusolverH = nullptr;
     cusolverDnCreate(&cusolverH);
