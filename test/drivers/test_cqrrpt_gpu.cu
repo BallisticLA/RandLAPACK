@@ -9,6 +9,7 @@
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <cusolverDn.h>
 
 #ifndef USE_CUDA
 #define USE_CUDA
