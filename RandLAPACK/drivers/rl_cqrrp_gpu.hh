@@ -213,6 +213,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     cudaStream_t stream_cusolver;
     using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    int *d_info_cusolver = cudaMalloc(reinterpret_cast<void **>(&d_info_cusolver), sizeof(int));
     // Create cusolver handle - used for the ORMQR call
     cusolverDnHandle_t cusolverH = nullptr;
     cusolverDnCreate(&cusolverH);
@@ -329,7 +330,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // Allocate workspace
             cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
         }
-        cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info);
+        cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
         cusolverDnGetStream(cusolverH, &stream_cusolver);
         cudaStreamSynchronize(stream_cusolver);
 
