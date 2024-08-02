@@ -10,6 +10,7 @@
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <chrono>
 
 // Use cuda kernels.
 #ifndef USE_CUDA
@@ -281,12 +282,16 @@ class TestCQRRP : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
         free(S);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
-
+	
         RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(true, tol, block_size);
+	auto start = std::chrono::steady_clock::now();
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-
+	auto stop = std::chrono::steady_clock::now();
+	auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
         auto rank = CQRRP_GPU.rank;
         printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
+	printf("  BLOCK SIZE = %ld\n", block_size);
+	printf("  TIME (MS) = %ld\n", diff);
 
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
@@ -377,7 +382,8 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t n = std::pow(2, 14);
     double d_factor = 1.25;
     int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 4096;
+    int64_t b_sz_end   = 192;
+    int64_t b_sz_incr  = 8;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
@@ -387,7 +393,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
 #if !defined(__APPLE__)
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
+    for (;b_sz_start <= b_sz_end; b_sz_start += b_sz_incr) {
         bench_CQRRP(d_factor, tol, b_sz_start, all_data, state);
     }
 #endif

@@ -25,21 +25,23 @@ set(RandLAPACK_cxx_sources
     rl_cqrrp_gpu.hh
 )
 
-set(RandLAPACK_libs
+add_library(RandLAPACK INTERFACE)
+
+target_link_libraries(RandLAPACK INTERFACE 
     RandBLAS
     lapackpp
     blaspp
     Random123
 )
+
 if (RandLAPACK_HAS_OpenMP)
-    list(APPEND RandLAPACK_libs OpenMP::OpenMP_CXX)
+    target_link_libraries(RandLAPACK INTERFACE OpenMP::OpenMP_CXX)
 endif()
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/rl_config.hh.in rl_config.hh)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/rl_config.hh
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK)
 
-add_library(RandLAPACK INTERFACE)
 
 set(RandLAPACK_cxx_opts -Wall -Wextra)
 if (SANITIZE_ADDRESS)
@@ -68,8 +70,6 @@ target_include_directories(
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/misc>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/gpu_functions>
 )
-
-target_link_libraries(RandLAPACK INTERFACE ${RandLAPACK_libs})
 
 install(
     FILES "${CMAKE_CURRENT_SOURCE_DIR}/../RandLAPACK.hh"
