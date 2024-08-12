@@ -17,7 +17,7 @@
 #define USE_CUDA
 #include "RandLAPACK/drivers/rl_cqrrp_gpu.hh"
 
-class TestCQRRP : public ::testing::Test
+class TestCQRRP : public ::testing::TestWithParam<int64_t>
 {
     protected:
 
@@ -375,11 +375,11 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_GPU_benchmark_32k) {
-    int64_t m = std::pow(2, 15);
-    int64_t n = std::pow(2, 15);
+    int64_t m = std::pow(2, 10);
+    int64_t n = std::pow(2, 10);
     double d_factor    = 1.25;
     int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 192;
+    int64_t b_sz_end   = 32;
     int64_t b_sz_incr  = 8;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -396,13 +396,11 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_32k) {
 #endif
 }
 
-TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
+TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m = std::pow(2, 14);
     int64_t n = std::pow(2, 14);
-    double d_factor    = 1.25;
-    int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 192;
-    int64_t b_sz_incr  = 8;
+    double d_factor = 1.25;
+    int64_t b_sz    = GetParam();
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
@@ -411,10 +409,14 @@ TEST_F(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
-#if !defined(__APPLE__)
-    for (;b_sz_start <= b_sz_end; b_sz_start += b_sz_incr) {
-        bench_CQRRP(m_info, d_factor, tol, b_sz_start, all_data, state);
-    }
-#endif
+    bench_CQRRP(m_info, d_factor, tol, b_sz, all_data, state);
 }
+
+
+INSTANTIATE_TEST_SUITE_P(
+    CQRRP_GPU_16k_benchmarks,
+    TestCQRRP,
+    ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
+);
+
 #endif
