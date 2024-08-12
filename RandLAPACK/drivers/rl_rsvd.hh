@@ -132,9 +132,9 @@ int RSVD<T, RNG>::call(
 
     T* UT_buf  = ( T * ) calloc(k * k, sizeof( T ) );
     // Making sure all vectors are large enough
-    //U  = ( T * ) calloc(m * k, sizeof( T ) );
-    //S  = ( T * ) calloc(k,     sizeof( T ) );
-    //V  = ( T * ) calloc(n * k, sizeof( T ) );
+    U  = ( T * ) calloc(m * k, sizeof( T ) );
+    S  = ( T * ) calloc(k,     sizeof( T ) );
+    V  = ( T * ) calloc(n * k, sizeof( T ) );
 
     // SVD of B
     lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);

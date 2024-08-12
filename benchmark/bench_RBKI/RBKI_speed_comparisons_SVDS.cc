@@ -31,6 +31,9 @@ struct RBKI_benchmark_data {
     T* VT; // RBKI returns V'
     T* V;  // RSVD returns V
     T* Sigma;
+    T* U_RSVD;
+    T* V_RSVD;
+    T* Sigma_RSVD;
     T* A_lowrank_svd;
     T* A_lowrank_svd_const;
     T* Buffer;
@@ -47,7 +50,10 @@ struct RBKI_benchmark_data {
         VT                  = ( T * ) calloc(n * n, sizeof( T ) );
         V                   = ( T * ) calloc(n * n, sizeof( T ) );
         Sigma               = ( T * ) calloc(m,     sizeof( T ) );
-        Buffer              = ( T * ) calloc(m * n, sizeof( T ) );
+        U_RSVD              = ( T * ) calloc(m * n, sizeof( T ) );
+	V_RSVD              = ( T * ) calloc(n * n, sizeof( T ) );
+	Sigma_RSVD          = ( T * ) calloc(n,     sizeof( T ) );
+	Buffer              = ( T * ) calloc(m * n, sizeof( T ) );
         Sigma_cpy           = ( T * ) calloc(n * n, sizeof( T ) );
         U_cpy               = ( T * ) calloc(m * n, sizeof( T ) );
         VT_cpy              = ( T * ) calloc(n * n, sizeof( T ) );
@@ -280,10 +286,14 @@ static void call_all_algs(
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
         int64_t threshold_RSVD = (int64_t ) (b_sz * num_matmuls / 2);
-        all_algs.RSVD.call(m, n, all_data.A, threshold_RSVD, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
+        all_algs.RSVD.call(m, n, all_data.A, threshold_RSVD, tol, all_data.U_RSVD, all_data.Sigma_RSVD, all_data.V_RSVD, state_alg);
         auto stop_rsvd = high_resolution_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
+
+	lapack::lacpy(MatrixType::General, m, threshold_RSVD, all_data.U_RSVD, m, all_data.U, m);
+	lapack::lacpy(MatrixType::General, n, threshold_RSVD, all_data.V_RSVD, n, all_data.V, n);
+	blas::copy(threshold_RSVD, all_data.Sigma_RSVD, 1, all_data.Sigma, 1);
 
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
         
