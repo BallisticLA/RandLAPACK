@@ -146,8 +146,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     high_resolution_clock::time_point preallocation_t_start;
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
+    high_resolution_clock::time_point qrcp_piv_t_start;
+    high_resolution_clock::time_point qrcp_piv_t_stop;
     high_resolution_clock::time_point r_piv_t_start;
     high_resolution_clock::time_point r_piv_t_stop;
+    high_resolution_clock::time_point piv_A_t_start;
+    high_resolution_clock::time_point piv_A_t_stop;
     high_resolution_clock::time_point preconditioning_t_start;
     high_resolution_clock::time_point preconditioning_t_stop;
     high_resolution_clock::time_point cholqr_t_start;
@@ -166,7 +170,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     high_resolution_clock::time_point total_t_stop;
     long preallocation_t_dur   = 0;
     long qrcp_t_dur            = 0;
+    long qrcp_piv_t_dur        = 0;
     long r_piv_t_dur           = 0;
+    long piv_A_t_dur           = 0;
     long preconditioning_t_dur = 0;
     long cholqr_t_dur          = 0;
     long orhr_col_t_dur        = 0;
@@ -301,8 +307,17 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
         RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
+
+        if(this -> timing) {
+            qrcp_piv_t_start = high_resolution_clock::now();
+        }
         // Apply pivots to A_sk
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, J_buffer);
+        if(this -> timing) {
+            cudaStreamSynchronize(strm);
+            qrcp_piv_t_stop = high_resolution_clock::now();
+            qrcp_piv_t_dur += duration_cast<microseconds>(qrcp_piv_t_stop - qrcp_piv_t_start).count();
+        }
 
         // Perform an unpivoted QR on A_sk
         if(iter == 0) {
@@ -336,7 +351,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         if(this -> timing) {
-            preconditioning_t_start = high_resolution_clock::now();
+            piv_A_t_start = high_resolution_clock::now();
         }
         // Pivoting the current matrix A.
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, rows, cols, cols, A_work, lda, J_buffer);
@@ -348,11 +363,17 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk_work;
 
+        if(this -> timing) {
+            cudaStreamSynchronize(strm);
+            piv_A_t_stop  = high_resolution_clock::now();
+            piv_A_t_dur  += duration_cast<microseconds>(piv_A_t_stop - piv_A_t_start).count();
+            preconditioning_t_start = high_resolution_clock::now();
+        }
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
         if(this -> timing) {
-            cudaStreamSynchronize(strm);
+            lapack_queue.sync();
             preconditioning_t_stop  = high_resolution_clock::now();
             preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
             cholqr_t_start = high_resolution_clock::now();
@@ -457,14 +478,17 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_t_dur + r_piv_t_dur + preconditioning_t_dur + cholqr_t_dur + orhr_col_t_dur + updating_A_t_dur + updating_J_t_dur + updating_R_t_dur + updating_Sk_t_dur);
-                this -> times.resize(12);
-                this -> times = {preallocation_t_dur, qrcp_t_dur, r_piv_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
+                long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_t_dur + r_piv_t_dur + piv_A_t_dur + preconditioning_t_dur + cholqr_t_dur + orhr_col_t_dur + updating_A_t_dur + updating_J_t_dur + updating_R_t_dur + updating_Sk_t_dur);
+                this -> times.resize(14);
+                auto qrcp_main_t_dur = qrcp_t_dur - qrcp_piv_t_dur;
+                this -> times = {preallocation_t_dur, qrcp_main_t_dur, qrcp_piv_t_dur, r_piv_t_dur, piv_A_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------ICQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-                printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
+                printf("QRCP main time: %36ld μs,\n",                      qrcp_main_t_dur);
+                printf("QRCP piv time: %36ld μs,\n",                       qrcp_piv_t_dur);
                 printf("Trailing cols(R) pivoting time: %10ld μs,\n",      r_piv_t_dur);
+                printf("Piv(A) time: %24ld μs,\n",                         piv_A_t_dur);
                 printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
                 printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
                 printf("ORHR_col time: %7ld μs,\n",                        orhr_col_t_dur);
@@ -476,14 +500,16 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 printf("Total time: %35ld μs.\n",                          total_t_dur);
 
                 printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-                printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
+                printf("QRCP main takes %32.2f%% of runtime.\n",                        100 * ((T) qrcp_main_t_dur       / (T) total_t_dur));
+                printf("QRCP piv takes %32.2f%% of runtime.\n",                         100 * ((T) qrcp_piv_t_dur        / (T) total_t_dur));
                 printf("Trailing cols(R) pivoting takes %10.2f%% of runtime.\n",        100 * ((T) r_piv_t_dur           / (T) total_t_dur));
+                printf("Piv(A) takes %20.2f%% of runtime.\n",                           100 * ((T) piv_A_t_dur           / (T) total_t_dur));
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
-                printf("HOrhr_col takes %12.2f%% of runtime.\n",                        100 * ((T) orhr_col_t_dur        / (T) total_t_dur));
+                printf("Orhr_col takes %22.2f%% of runtime.\n",                         100 * ((T) orhr_col_t_dur        / (T) total_t_dur));
                 printf("Computing A_new, R12 takes %14.2f%% of runtime.\n",             100 * ((T) updating_A_t_dur      / (T) total_t_dur));
-                printf("J updating time takes %14.2f%% of runtime.\n",                  100 * ((T) updating_J_t_dur      / (T) total_t_dur));
-                printf("R updating time takes %14.2f%% of runtime.\n",                  100 * ((T) updating_R_t_dur      / (T) total_t_dur));
+                printf("J updating time takes %20.2f%% of runtime.\n",                  100 * ((T) updating_J_t_dur      / (T) total_t_dur));
+                printf("R updating time takes %20.2f%% of runtime.\n",                  100 * ((T) updating_R_t_dur      / (T) total_t_dur));
                 printf("Sketch updating time takes %15.2f%% of runtime.\n",             100 * ((T) updating_Sk_t_dur     / (T) total_t_dur));
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
                 printf("/-------------ICQRRP TIMING RESULTS END-------------/\n\n");

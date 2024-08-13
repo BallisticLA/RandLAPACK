@@ -393,7 +393,7 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
     auto res = bench_CQRRP(m_info, d_factor, tol, b_sz, all_data, state);
-    file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",  " << res[8] << ",  " << res[9] << ",  " << res[10] << ",  " << res[11] << ",\n";
+    file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",  " << res[8] << ",  " << res[9] << ",  " << res[10] << ",  " << res[11] << res[12] << ",  " << res[13] << ",\n";
 }
 
 
