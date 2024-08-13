@@ -288,6 +288,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk
         if(this -> timing) {
+            nvtxRangePushA("qrcp");
             qrcp_t_start = high_resolution_clock::now();
         }
         RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_trans, n, 0);
@@ -327,8 +328,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         
         if(this -> timing) {
             lapack_queue.sync();
+            nvtxRangePop();
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
+            nvtxRangePushA("piv_A");
             piv_A_t_start = high_resolution_clock::now();
         }
         
@@ -347,8 +350,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
         if(this -> timing) {
             cudaStreamSynchronize(strm);
+            nvtxRangePop();
             piv_A_t_stop  = high_resolution_clock::now();
             piv_A_t_dur  += duration_cast<microseconds>(piv_A_t_stop - piv_A_t_start).count();
+            nvtxRangePushA("precond_A");
             preconditioning_t_start = high_resolution_clock::now();
         }
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
@@ -356,8 +361,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
         if(this -> timing) {
             lapack_queue.sync();
+            nvtxRangePop();
             preconditioning_t_stop  = high_resolution_clock::now();
             preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
+            nvtxRangePushA("cholqr");
             cholqr_t_start = high_resolution_clock::now();
         }
         
@@ -370,8 +377,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
         if(this -> timing) {
             lapack_queue.sync();
+            nvtxRangePop();
             cholqr_t_stop    = high_resolution_clock::now();
             cholqr_t_dur     += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
+            nvtxRangePushA("orhr_col");
             orhr_col_t_start = high_resolution_clock::now();
         }
 
@@ -389,6 +398,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
         if(this -> timing) {
             cudaStreamSynchronize(strm);
+            nvtxRangePop();
             orhr_col_t_stop  = high_resolution_clock::now();
             orhr_col_t_dur  += duration_cast<microseconds>(orhr_col_t_stop - orhr_col_t_start).count();
         }
@@ -400,6 +410,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
         if(this -> timing) {
+            nvtxRangePushA("update_A");
             updating_A_t_start = high_resolution_clock::now();
         }
         if (iter == 0) {
@@ -412,8 +423,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         cusolverDnGetStream(cusolverH, &stream_cusolver);
         cudaStreamSynchronize(stream_cusolver);
         if(this -> timing) {
+            nvtxRangePop();
             updating_A_t_stop  = high_resolution_clock::now();
             updating_A_t_dur  += duration_cast<microseconds>(updating_A_t_stop - updating_A_t_start).count();
+            nvtxRangePushA("update_J");
             updating_J_t_start = high_resolution_clock::now();
         }
         // Updating pivots
@@ -424,8 +437,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
         if(this -> timing) {
             cudaStreamSynchronize(strm);
+            nvtxRangePop();
             updating_J_t_stop  = high_resolution_clock::now();
             updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
+            nvtxRangePushA("update_R");
             updating_R_t_start = high_resolution_clock::now();
         }
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
@@ -445,6 +460,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         R12 = &R11[lda * b_sz];
         if(this -> timing) {
             cudaStreamSynchronize(strm);
+            nvtxRangePop();
             updating_R_t_stop  = high_resolution_clock::now();
             updating_R_t_dur  += duration_cast<microseconds>(updating_R_t_stop - updating_R_t_start).count();
         }
@@ -469,7 +485,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
                 printf("QRCP main time: %36ld μs,\n",                      qrcp_main_t_dur);
                 printf("QRCP piv time: %36ld μs,\n",                       qrcp_piv_t_dur);
-                printf("Trailing cols(R) pivoting time: %10ld μs,\n",      r_piv_t_dur);
                 printf("Piv(A) time: %24ld μs,\n",                         piv_A_t_dur);
                 printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
                 printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
@@ -484,7 +499,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
                 printf("QRCP main takes %32.2f%% of runtime.\n",                        100 * ((T) qrcp_main_t_dur       / (T) total_t_dur));
                 printf("QRCP piv takes %32.2f%% of runtime.\n",                         100 * ((T) qrcp_piv_t_dur        / (T) total_t_dur));
-                printf("Trailing cols(R) pivoting takes %10.2f%% of runtime.\n",        100 * ((T) r_piv_t_dur           / (T) total_t_dur));
                 printf("Piv(A) takes %20.2f%% of runtime.\n",                           100 * ((T) piv_A_t_dur           / (T) total_t_dur));
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
@@ -507,6 +521,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             return 0;
         }
         if(this -> timing) {
+            nvtxRangePushA("update_Sk");
             updating_Sk_t_start = high_resolution_clock::now();
         }
         // Updating the pointer to "Current A."
@@ -548,6 +563,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         cols -= b_sz;
         if(this -> timing) {
             cudaStreamSynchronize(strm);
+            nvtxRangePop();
             updating_Sk_t_stop  = high_resolution_clock::now();
             updating_Sk_t_dur  += duration_cast<microseconds>(updating_Sk_t_stop - updating_Sk_t_start).count();
         }
