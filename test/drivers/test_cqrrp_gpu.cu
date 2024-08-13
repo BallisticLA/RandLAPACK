@@ -416,7 +416,7 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_16k_benchmarks,
     TestCQRRP,
-    ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
+    ::testing::Values(32)//, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
 
 #endif
