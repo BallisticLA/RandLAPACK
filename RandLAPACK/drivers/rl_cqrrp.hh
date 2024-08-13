@@ -489,7 +489,7 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
+                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + cholqr_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
                 this -> times.resize(12);
                 this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
 

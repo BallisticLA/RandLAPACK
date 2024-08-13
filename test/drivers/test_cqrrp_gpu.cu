@@ -277,7 +277,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
     }
 
     template <typename T, typename RNG>
-    static void bench_CQRRP(
+    static std::vector<long> bench_CQRRP(
         RandLAPACK::gen::mat_gen_info<T> m_info,
         int64_t d_factor, 
         T tol,
@@ -313,6 +313,8 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
+
+        return CQRRP_GPU.times;
     }
 
 };
@@ -373,29 +375,6 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
 #endif
 }
 
-// Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_GPU_benchmark_32k) {
-    int64_t m = std::pow(2, 10);
-    int64_t n = std::pow(2, 10);
-    double d_factor    = 1.25;
-    int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 32;
-    int64_t b_sz_incr  = 8;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPBenchData<double> all_data(m, n);
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
-
-#if !defined(__APPLE__)
-    for (;b_sz_start <= b_sz_end; b_sz_start += b_sz_incr) {
-        bench_CQRRP(m_info, d_factor, tol, b_sz_start, all_data, state);
-    }
-#endif
-}
-
 TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m = std::pow(2, 14);
     int64_t n = std::pow(2, 14);
@@ -409,7 +388,12 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
-    bench_CQRRP(m_info, d_factor, tol, b_sz, all_data, state);
+
+    std::fstream file("ICQRRP_gpu_runtime_breakdown_"  + std::to_string(m)
+                                    + "_d_factor_"     + std::to_string(d_factor)
+                                    + ".dat", std::fstream::app);
+    auto res = bench_CQRRP(m_info, d_factor, tol, b_sz, all_data, state);
+    file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",  " << res[8] << ",  " << res[9] << ",  " << res[10] << ",  " << res[11] << ",\n";
 }
 
 
