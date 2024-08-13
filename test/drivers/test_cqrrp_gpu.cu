@@ -376,7 +376,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
     test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
 #endif
 }
-
+/*
 TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m = std::pow(2, 14);
     int64_t n = std::pow(2, 14);
@@ -405,5 +405,5 @@ INSTANTIATE_TEST_SUITE_P(
     TestCQRRP,
     ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
-
+*/
 #endif

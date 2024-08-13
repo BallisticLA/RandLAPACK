@@ -338,23 +338,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
            
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
-        if(iter != 0) {
-            if(this -> timing) {
-                r_piv_t_start = high_resolution_clock::now();
-            }
-            RandLAPACK::cuda_kernels::col_swap_gpu(strm, curr_sz, cols, cols, &A[lda * curr_sz], m, J_buffer);
-            if(this -> timing) {
-                cudaStreamSynchronize(strm);
-                r_piv_t_stop  = high_resolution_clock::now();
-                r_piv_t_dur  += duration_cast<microseconds>(r_piv_t_stop - r_piv_t_start).count();
-            }
-        }
-
-        if(this -> timing) {
-            piv_A_t_start = high_resolution_clock::now();
-        }
-        // Pivoting the current matrix A.
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, rows, cols, cols, A_work, lda, J_buffer);
+        // Pivoting the trailing R and the ``current'' A.
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, J_buffer);
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
