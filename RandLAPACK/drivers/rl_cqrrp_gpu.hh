@@ -148,8 +148,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     high_resolution_clock::time_point qrcp_t_stop;
     high_resolution_clock::time_point qrcp_piv_t_start;
     high_resolution_clock::time_point qrcp_piv_t_stop;
-    high_resolution_clock::time_point r_piv_t_start;
-    high_resolution_clock::time_point r_piv_t_stop;
     high_resolution_clock::time_point piv_A_t_start;
     high_resolution_clock::time_point piv_A_t_stop;
     high_resolution_clock::time_point preconditioning_t_start;
@@ -171,7 +169,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     long preallocation_t_dur   = 0;
     long qrcp_t_dur            = 0;
     long qrcp_piv_t_dur        = 0;
-    long r_piv_t_dur           = 0;
     long piv_A_t_dur           = 0;
     long preconditioning_t_dur = 0;
     long cholqr_t_dur          = 0;
@@ -332,7 +329,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             lapack_queue.sync();
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-            r_piv_t_start = high_resolution_clock::now();
+            piv_A_t_start = high_resolution_clock::now();
         }
         
            
@@ -463,10 +460,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_t_dur + r_piv_t_dur + piv_A_t_dur + preconditioning_t_dur + cholqr_t_dur + orhr_col_t_dur + updating_A_t_dur + updating_J_t_dur + updating_R_t_dur + updating_Sk_t_dur);
-                this -> times.resize(16);
+                long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_t_dur + piv_A_t_dur + preconditioning_t_dur + cholqr_t_dur + orhr_col_t_dur + updating_A_t_dur + updating_J_t_dur + updating_R_t_dur + updating_Sk_t_dur);
+                this -> times.resize(15);
                 auto qrcp_main_t_dur = qrcp_t_dur - qrcp_piv_t_dur;
-                this -> times = {n, b_sz_const, preallocation_t_dur, qrcp_main_t_dur, qrcp_piv_t_dur, r_piv_t_dur, piv_A_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
+                this -> times = {n, b_sz_const, preallocation_t_dur, qrcp_main_t_dur, qrcp_piv_t_dur, piv_A_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------ICQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
