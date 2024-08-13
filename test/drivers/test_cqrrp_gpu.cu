@@ -328,11 +328,15 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
             char* h_work_geqrf;
             size_t d_size_geqrf, h_size_geqrf;
             
+            auto start_qrf = std::chrono::steady_clock::now();
             lapack::geqrf_work_size_bytes(m, n, all_data.A_device, m, &d_size_geqrf, &h_size_geqrf, lapack_queue);
             d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
             std::vector<char> h_work_geqrf_vector( h_size_geqrf );
             h_work_geqrf = h_work_geqrf_vector.data();
             lapack::geqrf(m, n, all_data.A_device, m, all_data.tau_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
+            auto stop_qrf  = std::chrono::steady_clock::now();
+	        auto diff_qrf  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_qrf  - start_qrf).count();
+            printf(" QRF TIME (MS) = %ld\n", block_size, diff_qrf);
         }
     }
 
@@ -402,7 +406,10 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     double tol           = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state           = RandBLAS::RNGState();
     bool profile_runtime = true;
-    bool run_qrf         = true;
+    bool run_qrf         = false;
+    if(b_sz == 120) {
+        run_qrf == true;
+    }
 
     CQRRPBenchData<double> all_data(m, n);
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -422,6 +429,6 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_16k_benchmarks,
     TestCQRRP,
-    ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
+    ::testing::Values(120) //32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
 #endif
