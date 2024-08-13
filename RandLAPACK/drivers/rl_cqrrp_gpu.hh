@@ -9,7 +9,7 @@
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
-//#include <nvtx3/nvtx.hpp>
+#include <nvtx3/nvToolsExt.h>
 #include "lapack/device.hh"
 
 #include <RandBLAS.hh>
@@ -227,122 +227,149 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
 
     for(iter = 0; iter < maxiter; ++iter) {
-        //nvtx3::scoped_range iteration{"iter"};
+        nvtxRangePushA("iter");
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
         // Zero-out data - may not be necessary
-        cudaMemset(J_buffer_lu, (T) 0.0, std::min(d, n));
-        cudaMemset(J_buffer,    (T) 0.0, n);
-        cudaMemset(Work2,       (T) 0.0, n);
+        cudaMemsetAsync(J_buffer_lu, (T) 0.0, std::min(d, n), strm);
+        cudaMemsetAsync(J_buffer,    (T) 0.0, n, strm);
+        cudaMemsetAsync(Work2,       (T) 0.0, n, strm);
 
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
-        // Get a transpose of A_sk 
-        RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_trans, n, 0);
+        // Get a transpose of A_sk
+        {
+            nvtxRangePushA("qrcp");
+            RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_trans, n, 0);
+        
+            // Perform a row-pivoted LU on a transpose of A_sk
+            // Probing workspace size - performed only once.
+            if(iter == 0) {
+                lapack::getrf_work_size_bytes(cols, sampling_dimension, A_sk_trans, n, &d_size_getrf, &h_size_getrf, lapack_queue);
 
-        // Perform a row-pivoted LU on a transpose of A_sk
-        // Probing workspace size - performed only once.
-        if(iter == 0) {
-            lapack::getrf_work_size_bytes(cols, sampling_dimension, A_sk_trans, n, &d_size_getrf, &h_size_getrf, lapack_queue);
+                d_work_getrf = blas::device_malloc< char >( d_size_getrf, lapack_queue );
+                std::vector<char> h_work_getrf_vector( h_size_getrf );
+                h_work_getrf = h_work_getrf_vector.data();
+            }
+            lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
+            // Fill the pivot vector, apply swaps found via lu on A_sk'.
+            RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
+            // Apply pivots to A_sk
+            RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, J_buffer);
 
-            d_work_getrf = blas::device_malloc< char >( d_size_getrf, lapack_queue );
-            std::vector<char> h_work_getrf_vector( h_size_getrf );
-            h_work_getrf = h_work_getrf_vector.data();
+            // Perform an unpivoted QR on A_sk
+            if(iter == 0) {
+                lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
+                d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
+                std::vector<char> h_work_geqrf_vector( h_size_geqrf );
+                h_work_geqrf = h_work_geqrf_vector.data();
+            }
+            lapack::geqrf(sampling_dimension, cols, A_sk_work, d, Work2, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
+            lapack_queue.sync();
+            nvtxRangePop();
         }
-        lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
-        // Fill the pivot vector, apply swaps found via lu on A_sk'.
-        RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
-        // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, J_buffer);
-
-        // Perform an unpivoted QR on A_sk
-        if(iter == 0) {
-            lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
-            d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
-            std::vector<char> h_work_geqrf_vector( h_size_geqrf );
-            h_work_geqrf = h_work_geqrf_vector.data();
-        }
-        lapack::geqrf(sampling_dimension, cols, A_sk_work, d, Work2, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
-
+           
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         if(iter != 0) {
+            nvtxRangePushA("piv_R");
             RandLAPACK::cuda_kernels::col_swap_gpu(strm, curr_sz, cols, cols, &A[lda * curr_sz], m, J_buffer);
+            cudaStreamSynchronize(strm);
+            nvtxRangePop();
         }
+        {
+            nvtxRangePushA("piv(A) + precond(A)");
+            // Pivoting the current matrix A.
+            RandLAPACK::cuda_kernels::col_swap_gpu(strm, rows, cols, cols, A_work, lda, J_buffer);
+            // Defining the new "working subportion" of matrix A.
+            // In a global sense, below is identical to:
+            // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
+            Work1 = &A_work[lda * b_sz];
 
-        // Pivoting the current matrix A.
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, rows, cols, cols, A_work, lda, J_buffer);
-        // Defining the new "working subportion" of matrix A.
-        // In a global sense, below is identical to:
-        // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
-        Work1 = &A_work[lda * b_sz];
+            // Define the space representing R_sk (stored in A_sk)
+            R_sk = A_sk_work;
 
-        // Define the space representing R_sk (stored in A_sk)
-        R_sk = A_sk_work;
+            // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
+            // Performing preconditioning of the current matrix A.
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
+            cudaStreamSynchronize(strm);
+            nvtxRangePop();
+        }
+        {
+            nvtxRangePushA("CholQR");
+            // Performing Cholesky QR
+            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
+            //lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
+            lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
 
-        // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
-        // Performing preconditioning of the current matrix A.
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
-        // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
-        //lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
-        lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
+            // Compute Q_econ from Cholesky QR
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
 
-        // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
-
-        // Find Q (stored in A) using Householder reconstruction. 
-        // This will represent the full (rows by rows) Q factor form Cholesky QR
-        // It would have been really nice to store T right above Q, but without using extra space,
-        // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
-        // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
-        RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work, lda, &tau[curr_sz], Work2);  
-        
-        // Need to change signs in the R-factor from Cholesky QR.
-        // Signs correspond to matrix D from orhr_col().
-        // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
-        RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
-        lapack_queue.sync();
-
+            // Find Q (stored in A) using Householder reconstruction. 
+            // This will represent the full (rows by rows) Q factor form Cholesky QR
+            // It would have been really nice to store T right above Q, but without using extra space,
+            // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
+            // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
+            // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
+            RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work, lda, &tau[curr_sz], Work2);  
+            
+            // Need to change signs in the R-factor from Cholesky QR.
+            // Signs correspond to matrix D from orhr_col().
+            // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
+            RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
+            lapack_queue.sync();
+            nvtxRangePop();
+        }
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
-        if (iter == 0) {
-            // Compute optimal workspace size
-            cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
-            // Allocate workspace
-            cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+        {
+            nvtxRangePushA("update_A");
+            if (iter == 0) {
+                // Compute optimal workspace size
+                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+                // Allocate workspace
+                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+            }
+            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+            cusolverDnGetStream(cusolverH, &stream_cusolver);
+            cudaStreamSynchronize(stream_cusolver);
+            nvtxRangePop();
         }
-        cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
-        cusolverDnGetStream(cusolverH, &stream_cusolver);
-        cudaStreamSynchronize(stream_cusolver);
-
-        // Updating pivots
-        if(iter == 0) {
-            RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer, 1, J, 1);
-        } else {
-            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, &J[curr_sz], J_buffer);
+        {
+            nvtxRangePushA("update_J");
+            // Updating pivots
+            if(iter == 0) {
+                RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer, 1, J, 1);
+            } else {
+                RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, &J[curr_sz], J_buffer);
+            }
+            cudaStreamSynchronize(strm);
+            nvtxRangePop();
         }
-
-        // Alternatively, instead of trmm + copy, we could perform a single gemm.
-        // Compute R11 = R11_full(1:b_sz, :) * R_sk
-        // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
-        // Need to copy R11 over form R_cholqr into the appropriate space in A.
-        // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
-        // In a global sense, this is identical to:
-        // R11 =  &A[(m + 1) * curr_sz];
-        R11 = A_work;
-        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda, true);
-        
-        // Updating the pointer to R12
-        // In a global sense, this is identical to:
-        // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
-        R12 = &R11[lda * b_sz];
+        {
+            nvtxRangePushA("update_R");
+            // Alternatively, instead of trmm + copy, we could perform a single gemm.
+            // Compute R11 = R11_full(1:b_sz, :) * R_sk
+            // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
+            // Need to copy R11 over form R_cholqr into the appropriate space in A.
+            // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
+            // In a global sense, this is identical to:
+            // R11 =  &A[(m + 1) * curr_sz];
+            R11 = A_work;
+            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda, true);
+            
+            // Updating the pointer to R12
+            // In a global sense, this is identical to:
+            // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
+            R12 = &R11[lda * b_sz];
+            cudaStreamSynchronize(strm);
+            nvtxRangePop();
+        }
 
         // Size of the factors is updated;
         curr_sz += b_sz;
@@ -361,44 +388,48 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
             return 0;
         }
+        {
+            nvtxRangePushA("update_sketch");
+            // Updating the pointer to "Current A."
+            // In a global sense, below is identical to:
+            // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz + b_sz];
+            // Also, Below is identical to:
+            // A_work = &A_work[(lda + 1) * b_sz];
+            A_work = &Work1[b_sz];
 
-        // Updating the pointer to "Current A."
-        // In a global sense, below is identical to:
-        // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz + b_sz];
-        // Also, Below is identical to:
-        // A_work = &A_work[(lda + 1) * b_sz];
-        A_work = &Work1[b_sz];
+            // Updating the skethcing buffer
+            // trsm (R_sk, R11) -> R_sk
+            // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
+            RandLAPACK::cuda_kernels::get_U_gpu(strm, b_sz, b_sz, R_sk, d);
+            //cudaStreamSynchronize(strm);
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d, lapack_queue);
 
-        // Updating the skethcing buffer
-        // trsm (R_sk, R11) -> R_sk
-        // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
-        RandLAPACK::cuda_kernels::get_U_gpu(strm, b_sz, b_sz, R_sk, d);
-        //cudaStreamSynchronize(strm);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d, lapack_queue);
+            // R_sk_12 - R_sk_11 * inv(R_11) * R_12
+            // Side note: might need to be careful when d = b_sz.
+            // Cannot perform trmm here as an alternative, since matrix difference is involved.
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk, d, R12, lda, (T) 1.0, &R_sk[d * b_sz], d, lapack_queue);
 
-        // R_sk_12 - R_sk_11 * inv(R_11) * R_12
-        // Side note: might need to be careful when d = b_sz.
-        // Cannot perform trmm here as an alternative, since matrix difference is involved.
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, b_sz, cols - b_sz, b_sz, (T) -1.0, R_sk, d, R12, lda, (T) 1.0, &R_sk[d * b_sz], d, lapack_queue);
+            // Changing the sampling dimension parameter
+            sampling_dimension = std::min(sampling_dimension, cols);
 
-        // Changing the sampling dimension parameter
-        sampling_dimension = std::min(sampling_dimension, cols);
+            // Need to zero out the lower triangular portion of R_sk_22
+            // Make sure R_sk_22 exists.
+            if (sampling_dimension - b_sz > 0) {
+                RandLAPACK::cuda_kernels::get_U_gpu(strm, sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
+            }
 
-        // Need to zero out the lower triangular portion of R_sk_22
-        // Make sure R_sk_22 exists.
-        if (sampling_dimension - b_sz > 0) {
-            RandLAPACK::cuda_kernels::get_U_gpu(strm, sampling_dimension - b_sz, sampling_dimension - b_sz, &R_sk[(d + 1) * b_sz], d);
+            // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
+            // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
+            // if any rows beyond that would be accessed, we would have issues. 
+
+            A_sk_work = &A_sk_work[d * b_sz];
+
+            // Data size decreases by block_size per iteration.
+            rows -= b_sz;
+            cols -= b_sz;
+            nvtxRangePop();
         }
-
-        // Changing the pointer to relevant data in A_sk - this is equaivalent to copying data over to the beginning of A_sk.
-        // Remember that the only "active" portion of A_sk remaining would be of size sampling_dimension by cols;
-        // if any rows beyond that would be accessed, we would have issues. 
-
-        A_sk_work = &A_sk_work[d * b_sz];
-
-        // Data size decreases by block_size per iteration.
-        rows -= b_sz;
-        cols -= b_sz;
+        nvtxRangePop();
     }
     return 0;
 }

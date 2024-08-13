@@ -439,17 +439,19 @@ void col_swap_gpu(
         BPCG_ERROR("Failed to allocate for col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
-    int numBlocksPerSm = 0;
-    int numThreads = 128;
-    cudaDeviceProp deviceProp;
-    cudaGetDeviceProperties(&deviceProp, /*device_id=*/0);
-    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
-    void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
+    constexpr int numThreads = 128;
     dim3 dimBlock(numThreads, 1, 1);
-    int upper_bound = deviceProp.multiProcessorCount * numBlocksPerSm;
+    static int upper_bound = [&] {
+        int numBlocksPerSm = 0;
+        cudaDeviceProp deviceProp;
+        cudaGetDeviceProperties(&deviceProp, /*device_id=*/0);
+        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
+        return deviceProp.multiProcessorCount * numBlocksPerSm;
+    }();
     int lower_bound = std::max(m, k);
     lower_bound = (lower_bound + numThreads - 1) / numThreads;
     dim3 dimGrid(std::min(upper_bound, lower_bound), 1, 1);
+    void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
     cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
     
     ierr = cudaGetLastError();
@@ -478,6 +480,19 @@ void col_swap_gpu(
     int64_t* J, 
     int64_t const* idx
 ) {
+#if 1
+    std::vector<int64_t> idx_copy(k);
+    auto j = std::make_unique<int64_t[]>(m);
+    cudaMemcpyAsync(idx_copy.data(), idx, sizeof(int64_t) * k, cudaMemcpyDeviceToHost, stream);
+    cudaMemcpyAsync(j.get(), J, sizeof(int64_t) * m, cudaMemcpyDeviceToHost, stream);
+    cudaStreamSynchronize(stream);
+
+    RandLAPACK::util::col_swap<T>(m, k, j.get(), std::move(idx_copy));
+
+    cudaMemcpyAsync(J, j.get(), sizeof(int64_t) * m, cudaMemcpyHostToDevice, stream);
+    // must add this to avoid dangling reference during async copy
+    cudaStreamSynchronize(stream);
+#else
 #ifdef USE_CUDA
     int64_t* idx_copy;
     cudaMallocAsync(&idx_copy, sizeof(int64_t) * k, stream);
@@ -490,6 +505,7 @@ void col_swap_gpu(
         BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
+#endif
 }
 
 
