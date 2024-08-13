@@ -141,6 +141,32 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* tau,
     int64_t* J
 ){
+    high_resolution_clock::time_point preallocation_t_stop;
+    high_resolution_clock::time_point preallocation_t_start;
+    high_resolution_clock::time_point qrcp_t_start;
+    high_resolution_clock::time_point qrcp_t_stop;
+    high_resolution_clock::time_point cholqr_t_start;
+    high_resolution_clock::time_point cholqr_t_stop;
+    high_resolution_clock::time_point reconstruction_t_start;
+    high_resolution_clock::time_point reconstruction_t_stop;
+    high_resolution_clock::time_point preconditioning_t_start;
+    high_resolution_clock::time_point preconditioning_t_stop;
+    high_resolution_clock::time_point r_piv_t_start;
+    high_resolution_clock::time_point r_piv_t_stop;
+    high_resolution_clock::time_point updating1_t_start;
+    high_resolution_clock::time_point updating1_t_stop;
+    high_resolution_clock::time_point updating2_t_start;
+    high_resolution_clock::time_point updating2_t_stop;
+    high_resolution_clock::time_point updating3_t_start;
+    high_resolution_clock::time_point updating3_t_stop;
+    high_resolution_clock::time_point total_t_start;
+    high_resolution_clock::time_point total_t_stop;
+
+    if(this -> timing) {
+        total_t_start = high_resolution_clock::now();
+        preallocation_t_start = high_resolution_clock::now();
+    }
+
     int iter, i, j;
     int64_t tmp;
     int64_t rows       = m;
@@ -225,6 +251,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     int lwork_ormqr = 0;
     T *d_work_ormqr = nullptr;
     size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
+
+    if(this -> timing) {
+        cudaStreamSynchronize(strm);
+        lapack_queue.sync();
+        preallocation_t_stop  = high_resolution_clock::now();
+        preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
+    }
 
     for(iter = 0; iter < maxiter; ++iter) {
         nvtxRangePushA("iter");
