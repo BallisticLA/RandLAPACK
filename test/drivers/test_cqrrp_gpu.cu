@@ -277,13 +277,14 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
     }
 
     template <typename T, typename RNG>
-    static std::vector<long> bench_CQRRP(
+    static void bench_CQRRP(
         RandLAPACK::gen::mat_gen_info<T> m_info,
         int64_t d_factor, 
         T tol,
         int64_t block_size,
         CQRRPBenchData<T> &all_data,
-        RandBLAS::RNGState<RNG> state) {
+        RandBLAS::RNGState<RNG> state,
+        std::string output_filename) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -308,13 +309,14 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         auto rank = CQRRP_GPU.rank;
         //printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
 	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
+        std::ofstream file(output_filename, std::ios::app);
+        std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 14, std::ostream_iterator<T>(file, ", "));
+        file << "\n";
 
         data_regen(m_info, all_data, state);
 
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
-
-        return CQRRP_GPU.times;
     }
 
 };
@@ -389,18 +391,19 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
 
-    std::fstream file("ICQRRP_gpu_runtime_breakdown_"  + std::to_string(m)
-                                    + "_d_factor_"     + std::to_string(d_factor)
-                                    + ".dat", std::fstream::app);
-    auto res = bench_CQRRP(m_info, d_factor, tol, b_sz, all_data, state);
-    file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",  " << res[8] << ",  " << res[9] << ",  " << res[10] << ",  " << res[11] << res[12] << ",  " << res[13] << ",\n";
+    std::string file = "ICQRRP_runtime_breakdown_"    + std::to_string(m)
+                                    + "_cols_"       + std::to_string(n)
+                                    + "_d_factor_"   + std::to_string(d_factor)
+                                    + ".dat";
+
+    bench_CQRRP(m_info, d_factor, tol, b_sz, all_data, state, file);
 }
 
 
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_16k_benchmarks,
     TestCQRRP,
-    ::testing::Values(32)//, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
+    ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
 
 #endif
