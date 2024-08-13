@@ -479,9 +479,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_t_dur + r_piv_t_dur + piv_A_t_dur + preconditioning_t_dur + cholqr_t_dur + orhr_col_t_dur + updating_A_t_dur + updating_J_t_dur + updating_R_t_dur + updating_Sk_t_dur);
-                this -> times.resize(14);
+                this -> times.resize(16);
                 auto qrcp_main_t_dur = qrcp_t_dur - qrcp_piv_t_dur;
-                this -> times = {preallocation_t_dur, qrcp_main_t_dur, qrcp_piv_t_dur, r_piv_t_dur, piv_A_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
+                this -> times = {n, b_sz, preallocation_t_dur, qrcp_main_t_dur, qrcp_piv_t_dur, r_piv_t_dur, piv_A_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------ICQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
