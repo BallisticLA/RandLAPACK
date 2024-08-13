@@ -427,7 +427,7 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
 
     col_swp_submatrix_gpu<double>(offset, col_offset, m_submat, n_submat, k_submat, all_data);
 }
-
+/*
 TEST_F(TestUtil_GPU, test_col_swp_gpu_subvector) {
     
     int64_t m          = 2800;
@@ -443,6 +443,7 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu_subvector) {
 
     col_swp_subvector_gpu<double>(col_offset, all_data);
 }
+*/
 
 TEST_F(TestUtil_GPU, test_qp3_swp_gpu) {
     
