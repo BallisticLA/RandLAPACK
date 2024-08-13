@@ -310,7 +310,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         //printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
 	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
         std::ofstream file(output_filename, std::ios::app);
-        std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 14, std::ostream_iterator<T>(file, ", "));
+        std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 16, std::ostream_iterator<T>(file, ", "));
         file << "\n";
 
         data_regen(m_info, all_data, state);
