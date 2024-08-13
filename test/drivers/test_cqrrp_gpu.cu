@@ -278,6 +278,8 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 
     template <typename T, typename RNG>
     static void bench_CQRRP(
+        bool profile_runtime,
+        bool run_qrf,
         RandLAPACK::gen::mat_gen_info<T> m_info,
         int64_t d_factor, 
         T tol,
@@ -301,22 +303,37 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         free(S);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
 	
-        RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(true, tol, block_size);
+        RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(profile_runtime, tol, block_size);
 	    auto start = std::chrono::steady_clock::now();
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 	    auto stop = std::chrono::steady_clock::now();
 	    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
         auto rank = CQRRP_GPU.rank;
         //printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
-	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
-        std::ofstream file(output_filename, std::ios::app);
-        std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 15, std::ostream_iterator<T>(file, ", "));
-        file << "\n";
-
         data_regen(m_info, all_data, state);
-
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
+
+	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
+        if(profile_runtime) {
+            std::ofstream file(output_filename, std::ios::app);
+            std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 15, std::ostream_iterator<T>(file, ", "));
+            file << "\n";
+        } 
+        if (run_qrf) {
+            lapack::Queue lapack_queue(0);
+            using lapack::device_info_int;
+            device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+            char* d_work_geqrf;
+            char* h_work_geqrf;
+            size_t d_size_geqrf, h_size_geqrf;
+            
+            lapack::geqrf_work_size_bytes(m, n, all_data.A_device, m, &d_size_geqrf, &h_size_geqrf, lapack_queue);
+            d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
+            std::vector<char> h_work_geqrf_vector( h_size_geqrf );
+            h_work_geqrf = h_work_geqrf_vector.data();
+            lapack::geqrf(m, n, all_data.A_device, m, all_data.tau_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
+        }
     }
 
 };
@@ -376,14 +393,16 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
     test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
 #endif
 }
-/*
+
 TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
-    int64_t m = std::pow(2, 14);
-    int64_t n = std::pow(2, 14);
-    double d_factor = 1.25;
-    int64_t b_sz    = GetParam();
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
+    int64_t m            = std::pow(2, 14);
+    int64_t n            = std::pow(2, 14);
+    double d_factor      = 1.25;
+    int64_t b_sz         = GetParam();
+    double tol           = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state           = RandBLAS::RNGState();
+    bool profile_runtime = true;
+    bool run_qrf         = true;
 
     CQRRPBenchData<double> all_data(m, n);
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -396,7 +415,7 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
                                     + "_d_factor_"   + std::to_string(d_factor)
                                     + ".dat";
 
-    bench_CQRRP(m_info, d_factor, tol, b_sz, all_data, state, file);
+    bench_CQRRP(profile_runtime, run_qrf, m_info, d_factor, tol, b_sz, all_data, state, file);
 }
 
 
@@ -405,5 +424,4 @@ INSTANTIATE_TEST_SUITE_P(
     TestCQRRP,
     ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
-*/
 #endif
