@@ -425,6 +425,7 @@ void col_swap_gpu(
     int64_t lda,
     int64_t const* idx
 ) {
+/*
 #if 1
     std::vector<int64_t> idx_copy(k);
     auto a = std::make_unique<T[]>(m * k);
@@ -437,7 +438,8 @@ void col_swap_gpu(
     cudaMemcpyAsync(A, a.get(), sizeof(T) * m * k, cudaMemcpyHostToDevice, stream);
     // must add this to avoid dangling reference during async copy
     cudaStreamSynchronize(stream);
-#else    
+#else
+*/    
 #ifdef USE_CUDA
     //constexpr int threadsPerBlock{128};
     //int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
@@ -465,7 +467,7 @@ void col_swap_gpu(
     dim3 dimGrid(std::min(upper_bound, lower_bound), 1, 1);
     void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
     cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
-#endif
+//#endif
     ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
