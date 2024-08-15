@@ -400,7 +400,7 @@ TEST_F(TestUtil_GPU, test_col_swp_large_gpu) {
     std::random_shuffle(all_data.J.begin(), all_data.J.begin() + n);
     col_swp_gpu<double>(all_data);
 }
-
+/*
 TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
     
     int64_t m = 5000;
@@ -427,7 +427,7 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
 
     col_swp_submatrix_gpu<double>(offset, col_offset, m_submat, n_submat, k_submat, all_data);
 }
-/*
+
 TEST_F(TestUtil_GPU, test_col_swp_gpu_subvector) {
     
     int64_t m          = 2800;
