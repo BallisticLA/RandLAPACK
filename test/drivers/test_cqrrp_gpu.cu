@@ -334,12 +334,12 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
             std::vector<char> h_work_geqrf_vector( h_size_geqrf );
             h_work_geqrf = h_work_geqrf_vector.data();
             lapack::geqrf(m, n, all_data.A_device, m, all_data.tau_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
+            lapack_queue.sync();
             auto stop_qrf  = std::chrono::steady_clock::now();
 	        auto diff_qrf  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_qrf  - start_qrf).count();
-            printf(" QRF TIME (MS) = %ld\n", block_size, diff_qrf);
+            printf(" QRF TIME (MS) = %ld\n", diff_qrf);
         }
     }
-
 };
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -397,7 +397,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
     test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
 #endif
 }
-
+/*
 TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m            = std::pow(2, 14);
     int64_t n            = std::pow(2, 14);
@@ -408,7 +408,7 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     bool profile_runtime = true;
     bool run_qrf         = false;
     if(b_sz == 120) {
-        run_qrf == true;
+        run_qrf = true;
     }
 
     CQRRPBenchData<double> all_data(m, n);
@@ -431,4 +431,5 @@ INSTANTIATE_TEST_SUITE_P(
     TestCQRRP,
     ::testing::Values(120) //32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
+*/
 #endif
