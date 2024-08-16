@@ -117,7 +117,6 @@ void get_U(
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
-/*
 template <typename T>
 void col_swap(
     int64_t m,
@@ -141,8 +140,8 @@ void col_swap(
         idx[it - (idx.begin())] = j + 1;
     }
 }
-*/
 
+/*
 template <typename T>
 void col_swap(
     int64_t m,
@@ -163,6 +162,7 @@ void col_swap(
 
     free(A_cpy);
 }
+*/
 
 /// A version of the above function to be used on a vector of integers
 template <typename T>

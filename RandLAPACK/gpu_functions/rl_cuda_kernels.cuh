@@ -320,6 +320,15 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
     int64_t const* idx
 ) {
 
+    int colIdx = blockIdx.x * blockDim.x + threadIdx.x; 
+    int rowIdx = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (colIdx < k && rowIdx < m) {
+        int64_t j = idx[colIdx] - 1; 
+        A[colIdx * lda + rowIdx] = A_cpy[j * lda + rowIdx];
+    }
+
+/*
     int i = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (i < k) {
@@ -328,6 +337,7 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
             A[i * lda + row] = A_cpy[j * lda + row];
         }
     }
+*/
 }
 
 template <typename T>
@@ -545,9 +555,13 @@ void col_swap_gpu(
     }
 
 
-    constexpr int threadsPerBlock{128};
-    int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
-    col_swap_gpu_kernel<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, k, A, A_cpy, lda, idx);
+    dim3 threadsPerBlock(11, 11);
+    dim3 blocksPerGrid((k + threadsPerBlock.x - 1) / threadsPerBlock.x,
+                         (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
+    col_swap_gpu_kernel<<<blocksPerGrid, threadsPerBlock, 0, stream>>>(m, n, k, A, A_cpy, lda, idx);
+    //constexpr int threadsPerBlock{128};
+    //int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
+    //col_swap_gpu_kernel<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, k, A, A_cpy, lda, idx);
 #endif
     {
     cudaError_t ierr = cudaGetLastError();
