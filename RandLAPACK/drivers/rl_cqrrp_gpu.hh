@@ -199,6 +199,25 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // before "cols" is updated.
     int64_t sampling_dimension = d;
 
+    /******************************STREAM/QUEUE/HANDLE*********************************/
+    lapack::Queue lapack_queue(0);
+    cudaStream_t strm = lapack_queue.stream();
+    cudaStream_t stream_cusolver;
+    using lapack::device_info_int;
+    device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    int *d_info_cusolver = nullptr;
+    cudaMalloc(reinterpret_cast<void **>(&d_info_cusolver), sizeof(int));
+    // Create cusolver handle - used for the ORMQR call
+    cusolverDnHandle_t cusolverH = nullptr;
+    cusolverDnCreate(&cusolverH);
+
+    /******************************WORKSPACE PARAMETERS*********************************/
+    char* d_work_getrf, * d_work_geqrf;
+    char* h_work_getrf, * h_work_geqrf;
+    int lwork_ormqr = 0;
+    T *d_work_ormqr = nullptr;
+    size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
+
     //*********************************POINTERS TO INPUT DATA BEGIN*********************************
     // will shift at every iteration of an algorithm by (lda * b_sz) + b_sz.
     T* A_work = A;    
@@ -222,12 +241,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // J_buffer serves as a buffer for the pivots found at every iteration, of size n.
     // At every iteration, it would only hold "cols" entries.
     int64_t* J_buffer;
-    cudaMalloc(&J_buffer, n * sizeof(int64_t));
+    cudaMallocAsync(&J_buffer, n * sizeof(int64_t), strm);
 
     // Special pivoting buffer for LU factorization, capturing the swaps on A_sk'.
     // Needs to be converted in a proper format of length rows(A_sk')
     int64_t* J_buffer_lu;
-    cudaMalloc(&J_buffer_lu, std::min(d, n) * sizeof(int64_t));
+    cudaMallocAsync(&J_buffer_lu, std::min(d, n) * sizeof(int64_t), strm);
 
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
     T* R_sk = NULL;
@@ -235,7 +254,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // View to the transpose of A_sk.
     // Is of size n * d, with an lda n.   
     T* A_sk_trans;
-    cudaMalloc(&A_sk_trans, n * d * sizeof(T));
+    cudaMallocAsync(&A_sk_trans, n * d * sizeof(T), strm);
 
     // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
     // Also used to store the proper R11_full-factor after the 
@@ -243,31 +262,21 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // That is done by applying the sign vector D from orhr_col().
     // Eventually, will be used to store R11 (computed via trmm)
     T* R_cholqr;
-    cudaMalloc(&R_cholqr, b_sz_const * b_sz_const * sizeof(T));
+    cudaMallocAsync(&R_cholqr, b_sz_const * b_sz_const * sizeof(T), strm);
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work2;
-    cudaMalloc(&Work2, n * sizeof(T));
+    cudaMallocAsync(&Work2, n * sizeof(T), strm);
+
+    // A space required to perform parallel column swapping that would store either the working 
+    // subportion of the matrix A or the matrix A_sk
+    T* A_copy_col_swap;
+    cudaMallocAsync(&A_copy_col_swap, sizeof(T) * m * n, strm);
+    T* A_sk_copy_col_swap;
+    cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
+    int64_t* J_copy_col_swap;
+    cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
-
-    /******************************STREAM/QUEUE/HANDLE*********************************/
-    lapack::Queue lapack_queue(0);
-    cudaStream_t strm = lapack_queue.stream();
-    cudaStream_t stream_cusolver;
-    using lapack::device_info_int;
-    device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
-    int *d_info_cusolver = nullptr;
-    cudaMalloc(reinterpret_cast<void **>(&d_info_cusolver), sizeof(int));
-    // Create cusolver handle - used for the ORMQR call
-    cusolverDnHandle_t cusolverH = nullptr;
-    cusolverDnCreate(&cusolverH);
-
-    /******************************WORKSPACE PARAMETERS*********************************/
-    char* d_work_getrf, * d_work_geqrf;
-    char* h_work_getrf, * h_work_geqrf;
-    int lwork_ormqr = 0;
-    T *d_work_ormqr = nullptr;
-    size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
 
     if(this -> timing) {
         cudaStreamSynchronize(strm);
@@ -310,7 +319,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             qrcp_piv_t_start = high_resolution_clock::now();
         }
         // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, J_buffer);
+        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_copy_col_swap, lda, false);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_copy_col_swap, lda, J_buffer);
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             qrcp_piv_t_stop = high_resolution_clock::now();
@@ -339,7 +349,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, J_buffer);
+        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, false);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, J_buffer);
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
@@ -433,7 +444,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         if(iter == 0) {
             RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer, 1, J, 1);
         } else {
-            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, &J[curr_sz], J_buffer);
+            RandLAPACK::cuda_kernels::copy_gpu(strm, cols, &J[curr_sz], 1, J_copy_col_swap, 1);
+            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, &J[curr_sz], J_copy_col_swap, J_buffer);
         }
         if(this -> timing) {
             cudaStreamSynchronize(strm);

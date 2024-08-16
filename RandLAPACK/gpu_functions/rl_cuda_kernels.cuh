@@ -268,11 +268,10 @@ __global__  void __launch_bounds__(128) get_U_gpu(
     }
 }
 
-/*
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
 template <typename T>
-__global__ void __launch_bounds__(128) col_swap_gpu_kernel(
+__global__ void __launch_bounds__(128) col_swap_gpu_kernel_sequential(
     int64_t m, 
     int64_t n, 
     int64_t k,
@@ -305,7 +304,6 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
         }
     }
 }
-*/
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
@@ -315,8 +313,9 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
     int64_t n, 
     int64_t k,
     T* A, 
-    T* A_cpy, 
     int64_t lda,
+    T* A_cpy, 
+    int64_t ldac,
     int64_t const* idx
 ) {
 
@@ -325,19 +324,8 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
 
     if (colIdx < k && rowIdx < m) {
         int64_t j = idx[colIdx] - 1; 
-        A[colIdx * lda + rowIdx] = A_cpy[j * lda + rowIdx];
+        A[colIdx * lda + rowIdx] = A_cpy[j * ldac + rowIdx];
     }
-
-/*
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (i < k) {
-        int64_t j = idx[i] - 1; // Convert to 0-based index
-        for (int row = 0; row < m; ++row) {
-            A[i * lda + row] = A_cpy[j * lda + row];
-        }
-    }
-*/
 }
 
 template <typename T>
@@ -364,6 +352,23 @@ __global__ void __launch_bounds__(512) vec_ell_swap_gpu(
             }
             __syncthreads();
         }
+    }
+}
+
+template <typename T>
+__global__ void __launch_bounds__(512) vec_ell_swap_gpu(
+    int64_t m, 
+    int64_t k,
+    int64_t* J, 
+    int64_t* J_cpy, 
+    int64_t const* idx
+) {
+
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i < k) {
+        int64_t j = idx[i] - 1;
+        J[i] = J_cpy[j];
     }
 }
 
@@ -475,7 +480,6 @@ void copy_mat_gpu(
     }
 }
 
-/*
 template <typename T>
 void col_swap_gpu(
     cudaStream_t stream, 
@@ -487,9 +491,6 @@ void col_swap_gpu(
     int64_t const* idx
 ) {
 #ifdef USE_CUDA
-    //constexpr int threadsPerBlock{128};
-    //int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
-    //col_swap_gpu<<<num_blocks, threadsPerBlock, sizeof(int64_t) * n, stream>>>(m, n, k, A, lda, idx);
     int64_t* idx_copy;
     cudaMallocAsync(&idx_copy, sizeof(int64_t) * n, stream);
     
@@ -512,7 +513,7 @@ void col_swap_gpu(
     lower_bound = (lower_bound + numThreads - 1) / numThreads;
     dim3 dimGrid(std::min(upper_bound, lower_bound), 1, 1);
     void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
-    cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
+    cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel_sequential<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
     ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
@@ -528,7 +529,6 @@ void col_swap_gpu(
     }
 #endif
 }
-*/
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
@@ -540,36 +540,26 @@ void col_swap_gpu(
     int64_t k,
     T* A, 
     int64_t lda,
+    T* A_cpy,
+    int64_t ldac,
     int64_t const* idx
 ) {
 #ifdef USE_CUDA
-    T* A_cpy;
-    cudaMallocAsync(&A_cpy, sizeof(T) * m * k, stream);
-    copy_mat_gpu(stream, m, k, A, lda, A_cpy, lda, false);
-    cudaStreamSynchronize(stream);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        BPCG_ERROR("Failed to Copy. " << cudaGetErrorString(ierr))
-        abort();
-    }
-
+    //T* A_cpy;
+    //cudaMallocAsync(&A_cpy, sizeof(T) * m * k, stream);
+    //copy_mat_gpu(stream, m, k, A, lda, A_cpy, lda, false);
+    //cudaStreamSynchronize(stream);
 
     dim3 threadsPerBlock(11, 11);
     dim3 blocksPerGrid((k + threadsPerBlock.x - 1) / threadsPerBlock.x,
                          (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
-    col_swap_gpu_kernel<<<blocksPerGrid, threadsPerBlock, 0, stream>>>(m, n, k, A, A_cpy, lda, idx);
-    //constexpr int threadsPerBlock{128};
-    //int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
-    //col_swap_gpu_kernel<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, k, A, A_cpy, lda, idx);
+    col_swap_gpu_kernel<<<blocksPerGrid, threadsPerBlock, 0, stream>>>(m, n, k, A, lda, A_cpy, ldac, idx);
 #endif
-    {
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
         BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
-    }
     }
 }
 
@@ -609,6 +599,28 @@ void col_swap_gpu(
         abort();
     }
 #endif
+}
+
+template <typename T>
+void col_swap_gpu(
+    cudaStream_t stream, 
+    int64_t m,  
+    int64_t k,
+    int64_t* J, 
+    int64_t* J_cpy, 
+    int64_t const* idx
+) {
+#ifdef USE_CUDA
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
+    vec_ell_swap_gpu<T><<<num_blocks, threadsPerBlock, 0, stream>>>(m, k, J, J_cpy, idx);
+#endif
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
 }
 
 
