@@ -471,6 +471,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePop();
                 updating_J_t_stop  = high_resolution_clock::now();
                 updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
+                nvtxRangePushA("update_R");
+                updating_R_t_start = high_resolution_clock::now();
             }
         } else {
             if(this -> timing) {
