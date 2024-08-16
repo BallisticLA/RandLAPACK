@@ -317,7 +317,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
         if(profile_runtime) {
             std::ofstream file(output_filename, std::ios::app);
-            std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 15, std::ostream_iterator<T>(file, ", "));
+            std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 18, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
         if (run_qrf) {
@@ -397,7 +397,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
     test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
 #endif
 }
-/*
+
 TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m            = std::pow(2, 14);
     int64_t n            = std::pow(2, 14);
@@ -431,5 +431,4 @@ INSTANTIATE_TEST_SUITE_P(
     TestCQRRP,
     ::testing::Values(120) //32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
-*/
 #endif
