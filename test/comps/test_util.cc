@@ -274,7 +274,7 @@ TEST_F(Test_Inplace_Square_Transpose, random_matrix_rowmajor) {
     apply(blas::Layout::RowMajor);
 }
 
-TEST_F(TestUtil, test_col_swp) {
+TEST_F(TestUtil, test_col_swp_basic) {
     
     int64_t m = 1000;
     int64_t n = 1000;

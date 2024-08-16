@@ -268,6 +268,7 @@ __global__  void __launch_bounds__(128) get_U_gpu(
     }
 }
 
+/*
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
 template <typename T>
@@ -301,6 +302,30 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
                 std::iter_swap(curr, std::find(curr, end, i));
             }
             g.sync();
+        }
+    }
+}
+*/
+
+/// Positions columns of A in accordance with idx vector of length k.
+/// idx array is to modified modified ONLY within the scope of this function.
+template <typename T>
+__global__ void __launch_bounds__(128) col_swap_gpu_kernel(
+    int64_t m, 
+    int64_t n, 
+    int64_t k,
+    T* A, 
+    T* A_cpy, 
+    int64_t lda,
+    int64_t const* idx
+) {
+
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i < k) {
+        int64_t j = idx[i] - 1; // Convert to 0-based index
+        for (int row = 0; row < m; ++row) {
+            A[i * lda + row] = A_cpy[j * lda + row];
         }
     }
 }
@@ -416,6 +441,32 @@ void ger_gpu(
 }
 
 template <typename T>
+void copy_mat_gpu(
+    cudaStream_t stream, 
+    int64_t m,
+    int64_t n,
+    const T* A,
+    int64_t lda,
+    T* A_cpy,
+    int64_t ldat,
+    bool copy_upper_triangle
+) {
+#ifdef USE_CUDA
+    dim3 threadsPerBlock(11, 11);
+    dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
+                   (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
+    copy_mat_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, A_cpy, ldat, copy_upper_triangle);
+#endif
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch copy_mat_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
+}
+
+/*
+template <typename T>
 void col_swap_gpu(
     cudaStream_t stream, 
     int64_t m, 
@@ -425,21 +476,6 @@ void col_swap_gpu(
     int64_t lda,
     int64_t const* idx
 ) {
-/*
-#if 1
-    std::vector<int64_t> idx_copy(k);
-    auto a = std::make_unique<T[]>(m * k);
-    cudaMemcpyAsync(idx_copy.data(), idx, sizeof(int64_t) * k, cudaMemcpyDeviceToHost, stream);
-    cudaMemcpyAsync(a.get(), A, sizeof(T) * m * k, cudaMemcpyDeviceToHost, stream);
-    cudaStreamSynchronize(stream);
-
-    RandLAPACK::util::col_swap<T>(m, n, k, a.get(), m, std::move(idx_copy));
-
-    cudaMemcpyAsync(A, a.get(), sizeof(T) * m * k, cudaMemcpyHostToDevice, stream);
-    // must add this to avoid dangling reference during async copy
-    cudaStreamSynchronize(stream);
-#else
-*/    
 #ifdef USE_CUDA
     //constexpr int threadsPerBlock{128};
     //int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
@@ -458,7 +494,7 @@ void col_swap_gpu(
     static int upper_bound = [&] {
         int numBlocksPerSm = 0;
         cudaDeviceProp deviceProp;
-        cudaGetDeviceProperties(&deviceProp, /*device_id=*/0);
+        cudaGetDeviceProperties(&deviceProp, 0);
         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
         return deviceProp.multiProcessorCount * numBlocksPerSm;
     }();
@@ -467,7 +503,6 @@ void col_swap_gpu(
     dim3 dimGrid(std::min(upper_bound, lower_bound), 1, 1);
     void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
     cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
-//#endif
     ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
@@ -482,6 +517,46 @@ void col_swap_gpu(
         abort();
     }
 #endif
+}
+*/
+
+/// Positions columns of A in accordance with idx vector of length k.
+/// idx array modified ONLY within the scope of this function.
+template <typename T>
+void col_swap_gpu(
+    cudaStream_t stream, 
+    int64_t m, 
+    int64_t n, 
+    int64_t k,
+    T* A, 
+    int64_t lda,
+    int64_t const* idx
+) {
+#ifdef USE_CUDA
+    T* A_cpy;
+    cudaMallocAsync(&A_cpy, sizeof(T) * m * k, stream);
+    copy_mat_gpu(stream, m, k, A, lda, A_cpy, lda, false);
+    cudaStreamSynchronize(stream);
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to Copy. " << cudaGetErrorString(ierr))
+        abort();
+    }
+
+
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
+    col_swap_gpu_kernel<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, k, A, A_cpy, lda, idx);
+#endif
+    {
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        abort();
+    }
+    }
 }
 
 /// Positions columns of A in accordance with idx vector of length k.
@@ -543,31 +618,6 @@ void transposition_gpu(
     if (ierr != cudaSuccess)
     {
         BPCG_ERROR("Failed to launch transposition_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
-}
-
-template <typename T>
-void copy_mat_gpu(
-    cudaStream_t stream, 
-    int64_t m,
-    int64_t n,
-    const T* A,
-    int64_t lda,
-    T* A_cpy,
-    int64_t ldat,
-    bool copy_upper_triangle
-) {
-#ifdef USE_CUDA
-    dim3 threadsPerBlock(11, 11);
-    dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
-                   (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
-    copy_mat_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, A_cpy, ldat, copy_upper_triangle);
-#endif
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        BPCG_ERROR("Failed to launch copy_mat_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
