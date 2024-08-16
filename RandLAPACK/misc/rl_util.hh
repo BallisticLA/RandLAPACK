@@ -117,32 +117,6 @@ void get_U(
 
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
-
-template <typename T>
-void col_swap(
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    T* A,
-    int64_t lda,
-    std::vector<int64_t> idx
-) {
-    if(k > n) 
-        throw std::runtime_error("Invalid rank parameter.");
-    
-    A -= lda;
-    auto curr = idx.begin();
-    auto end = curr + k;
-    for (int64_t i = 1; i <= k; ++i, ++curr) {
-        if (int64_t const j = *curr; i != j) {
-            //blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
-            for(int l = 0; l < m; ++l) {
-                std::swap(A[i * lda + l], A[j * lda + l]);
-            }
-            std::iter_swap(curr, std::find(curr, end, i));
-        }
-    }
-}
 /*
 template <typename T>
 void col_swap(
@@ -168,6 +142,27 @@ void col_swap(
     }
 }
 */
+
+template <typename T>
+void col_swap(
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    T* A,
+    int64_t lda,
+    std::vector<int64_t> idx
+) {
+    T* A_cpy = ( T * ) calloc( m * k, sizeof( T ) );
+    lapack::lacpy(MatrixType::General, m, k, A, lda, A_cpy, lda);
+
+    int64_t i, j; 
+    for (i = 0, j = 0; i < k; ++i) {
+        j = idx[i] - 1;
+        std::copy(&A_cpy[lda * j], &A_cpy[lda * j + m], &A[lda * i]);
+    }
+
+    free(A_cpy);
+}
 
 /// A version of the above function to be used on a vector of integers
 template <typename T>
