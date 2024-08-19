@@ -122,7 +122,7 @@ class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
 
     public:
         bool timing;
-        bool cond_check;
+        bool use_qrf;
         RandBLAS::RNGState<RNG> state;
         T eps;
         int64_t rank;
@@ -226,6 +226,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     int lwork_ormqr = 0;
     T *d_work_ormqr = nullptr;
     size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
+
+    char* d_work_geqrf_opt;
+    char* h_work_geqrf_opt;
+    size_t d_size_geqrf_opt, h_size_geqrf_opt;
 
     //*********************************POINTERS TO INPUT DATA BEGIN*********************************
     // will shift at every iteration of an algorithm by (lda * b_sz) + b_sz.
@@ -400,45 +404,68 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePop();
             preconditioning_t_stop  = high_resolution_clock::now();
             preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
-            nvtxRangePushA("cholqr");
-            cholqr_t_start = high_resolution_clock::now();
-        }
-        
-        // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
-        //lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
-        lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
-
-        // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
-        if(this -> timing) {
-            lapack_queue.sync();
-            nvtxRangePop();
-            cholqr_t_stop    = high_resolution_clock::now();
-            cholqr_t_dur     += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
-            nvtxRangePushA("orhr_col");
-            orhr_col_t_start = high_resolution_clock::now();
         }
 
-        // Find Q (stored in A) using Householder reconstruction. 
-        // This will represent the full (rows by rows) Q factor form Cholesky QR
-        // It would have been really nice to store T right above Q, but without using extra space,
-        // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
-        // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
-        RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work, lda, &tau[curr_sz], Work2);  
-        
-        // Need to change signs in the R-factor from Cholesky QR.
-        // Signs correspond to matrix D from orhr_col().
-        // This allows us to not explicitly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
-        RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
-        if(this -> timing) {
-            cudaStreamSynchronize(strm);
-            nvtxRangePop();
-            orhr_col_t_stop  = high_resolution_clock::now();
-            orhr_col_t_dur  += duration_cast<microseconds>(orhr_col_t_stop - orhr_col_t_start).count();
+        if(this -> use_qrf) {
+            if(this -> timing) {
+                nvtxRangePushA("cholqr");
+                cholqr_t_start = high_resolution_clock::now();
+            }
+            // Perform an unpivoted QR on A_sk
+            if(iter == 0) {
+                lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work, d, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
+                d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
+                std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
+                h_work_geqrf_opt = h_work_geqrf_vector_opt.data();
+            }
+            lapack::geqrf(rows, b_sz, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
+            //R_cholqr = A_work;
+            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, A_work, lda, R_cholqr, b_sz_const, true);
+            if(this -> timing) {
+                cudaStreamSynchronize(strm);
+                nvtxRangePop();
+                cholqr_t_stop    = high_resolution_clock::now();
+                cholqr_t_dur     += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
+            }
+        } else {
+            if(this -> timing) {
+                nvtxRangePushA("cholqr");
+                cholqr_t_start = high_resolution_clock::now();
+            }
+            // Performing Cholesky QR
+            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
+            lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
+            // Compute Q_econ from Cholesky QR
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
+            if(this -> timing) {
+                lapack_queue.sync();
+                nvtxRangePop();
+                cholqr_t_stop    = high_resolution_clock::now();
+                cholqr_t_dur     += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
+                nvtxRangePushA("orhr_col");
+                orhr_col_t_start = high_resolution_clock::now();
+            }
+
+            // Find Q (stored in A) using Householder reconstruction. 
+            // This will represent the full (rows by rows) Q factor form Cholesky QR
+            // It would have been really nice to store T right above Q, but without using extra space,
+            // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
+            // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
+            // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
+            RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work, lda, &tau[curr_sz], Work2);  
+            
+            if(this -> timing) {
+                cudaStreamSynchronize(strm);
+                nvtxRangePop();
+                orhr_col_t_stop  = high_resolution_clock::now();
+                orhr_col_t_dur  += duration_cast<microseconds>(orhr_col_t_stop - orhr_col_t_start).count();
+            }
+
+            // Need to change signs in the R-factor from Cholesky QR.
+            // Signs correspond to matrix D from orhr_col().
+            // This allows us to not explicitly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
+            RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
         }
-        
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
         // The first b_sz rows will represent R12.
@@ -512,7 +539,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // R11 =  &A[(m + 1) * curr_sz];
         R11 = A_work;
         RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda, true);
-        
+
         // Updating the pointer to R12
         // In a global sense, this is identical to:
         // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
