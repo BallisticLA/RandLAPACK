@@ -146,8 +146,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     high_resolution_clock::time_point preallocation_t_start;
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
-    high_resolution_clock::time_point copy_A_sk_t_start;
-    high_resolution_clock::time_point copy_A_sk_t_stop;
     high_resolution_clock::time_point qrcp_piv_t_start;
     high_resolution_clock::time_point qrcp_piv_t_stop;
     high_resolution_clock::time_point copy_A_t_start;
@@ -174,7 +172,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     high_resolution_clock::time_point total_t_stop;
     long preallocation_t_dur   = 0;
     long qrcp_t_dur            = 0;
-    long copy_A_sk_t_dur       = 0;
     long qrcp_piv_t_dur        = 0;
     long copy_A_t_dur          = 0;
     long piv_A_t_dur           = 0;
@@ -299,6 +296,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
     }
 
+    T* buf_cpu   = ( T * ) calloc( d * n, sizeof( T ) );
+    T* buf_cpu_1 = ( T * ) calloc( m * n, sizeof( T ) );
     for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
@@ -330,20 +329,14 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
 
         if(this -> timing) {
-            copy_A_sk_t_start = high_resolution_clock::now();
-        }
-        // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_copy_col_swap, lda, false);
-        if(this -> timing) {
-            cudaStreamSynchronize(strm);
-            copy_A_sk_t_stop = high_resolution_clock::now();
-            copy_A_sk_t_dur += duration_cast<microseconds>(copy_A_sk_t_stop - copy_A_sk_t_start).count();
             qrcp_piv_t_start = high_resolution_clock::now();
         }
-        //A_sk_buf = A_sk_copy_col_swap;
-        //A_sk_copy_col_swap = A_sk_work;
-        //A_sk_work = A_sk_copy_col_swap;
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_copy_col_swap, m, J_buffer);
+
+        A_sk_buf = A_sk_copy_col_swap;
+        A_sk_copy_col_swap = A_sk_work;
+        A_sk_work = A_sk_buf;
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_sk_copy_col_swap, d, J_buffer);
+        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             qrcp_piv_t_stop = high_resolution_clock::now();
@@ -358,7 +351,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             h_work_geqrf = h_work_geqrf_vector.data();
         }
         lapack::geqrf(sampling_dimension, cols, A_sk_work, d, Work2, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
-        
+
         if(this -> timing) {
             lapack_queue.sync();
             nvtxRangePop();
@@ -369,8 +362,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
-        // Pivoting the trailing R and the ``current'' A.
-        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, false);
+        // Pivoting the trailing R and the ``current'' A.      
+        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, false);    
+        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
@@ -379,12 +373,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("piv_A");
             piv_A_t_start = high_resolution_clock::now();
         }
+
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, J_buffer);
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
         Work1 = &A_work[lda * b_sz];
-
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk_work;
 
@@ -396,6 +390,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("precond_A");
             preconditioning_t_start = high_resolution_clock::now();
         }
+        
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
@@ -563,14 +558,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_t_dur + copy_A_t_dur + piv_A_t_dur + preconditioning_t_dur + cholqr_t_dur + orhr_col_t_dur + updating_A_t_dur + copy_J_t_dur + updating_J_t_dur + updating_R_t_dur + updating_Sk_t_dur);
-                this -> times.resize(18);
-                auto qrcp_main_t_dur = qrcp_t_dur - qrcp_piv_t_dur - copy_A_sk_t_dur;
-                this -> times = {n, b_sz_const, preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, copy_J_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
+                this -> times.resize(17);
+                auto qrcp_main_t_dur = qrcp_t_dur - qrcp_piv_t_dur;
+                this -> times = {n, b_sz_const, preallocation_t_dur, qrcp_main_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, preconditioning_t_dur, cholqr_t_dur, orhr_col_t_dur, updating_A_t_dur, copy_J_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------ICQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
                 printf("QRCP main time: %36ld μs,\n",                      qrcp_main_t_dur);
-                printf("Copy(A_sk) time: %24ld μs,\n",                     copy_A_sk_t_dur);
                 printf("QRCP piv time: %36ld μs,\n",                       qrcp_piv_t_dur);
                 printf("Copy(A) time: %24ld μs,\n",                        copy_A_t_dur);
                 printf("Piv(A) time: %24ld μs,\n",                         piv_A_t_dur);
@@ -587,7 +581,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
                 printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
                 printf("QRCP main takes %32.2f%% of runtime.\n",                        100 * ((T) qrcp_main_t_dur       / (T) total_t_dur));
-                printf("Cpy(A_sk) takes %20.2f%% of runtime.\n",                        100 * ((T) copy_A_sk_t_dur       / (T) total_t_dur));
                 printf("QRCP piv takes %32.2f%% of runtime.\n",                         100 * ((T) qrcp_piv_t_dur        / (T) total_t_dur));
                 printf("Cpy(A) takes %20.2f%% of runtime.\n",                           100 * ((T) copy_A_t_dur          / (T) total_t_dur));
                 printf("Piv(A) takes %20.2f%% of runtime.\n",                           100 * ((T) piv_A_t_dur           / (T) total_t_dur));
@@ -630,7 +623,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // trsm (R_sk, R11) -> R_sk
         // Clearing the lower-triangular portion here is necessary, if there is a more elegant way, need to use that.
         RandLAPACK::cuda_kernels::get_U_gpu(strm, b_sz, b_sz, R_sk, d);
-        //cudaStreamSynchronize(strm);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R11, lda, R_sk, d, lapack_queue);
 
         // R_sk_12 - R_sk_11 * inv(R_11) * R_12
@@ -656,6 +648,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Data size decreases by block_size per iteration.
         rows -= b_sz;
         cols -= b_sz;
+
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
