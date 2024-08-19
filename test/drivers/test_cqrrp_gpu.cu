@@ -304,7 +304,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
 	
         RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(profile_runtime, tol, block_size);
-        CQRRP_blocked_GPU.use_qrf = true;
+        CQRRP_GPU.use_qrf = true;
 	    auto start = std::chrono::steady_clock::now();
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 	    auto stop = std::chrono::steady_clock::now();
