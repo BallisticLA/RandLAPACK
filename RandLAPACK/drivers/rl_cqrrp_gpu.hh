@@ -285,6 +285,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
     int64_t* J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
+    T* A_sk_buf;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
     if(this -> timing) {
@@ -335,7 +336,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             copy_A_sk_t_dur += duration_cast<microseconds>(copy_A_sk_t_stop - copy_A_sk_t_start).count();
             qrcp_piv_t_start = high_resolution_clock::now();
         }
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_copy_col_swap, lda, J_buffer);
+        //A_sk_buf = A_sk_copy_col_swap;
+        //A_sk_copy_col_swap = A_sk_work;
+        //A_sk_work = A_sk_copy_col_swap;
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_copy_col_swap, m, J_buffer);
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             qrcp_piv_t_stop = high_resolution_clock::now();
@@ -426,7 +430,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
-        // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
+        // This allows us to not explicitly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
         RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
         if(this -> timing) {
             cudaStreamSynchronize(strm);
@@ -578,6 +582,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             cudaFree(Work2);
             cudaFree(R_cholqr);
             cudaFree(d_work_ormqr);
+            cudaFree(A_copy_col_swap);
+            cudaFree(A_sk_copy_col_swap);
+            cudaFree(J_copy_col_swap);
 
             return 0;
         }
