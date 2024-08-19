@@ -318,7 +318,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk
         if(this -> timing) {
-            nvtxRangePushA("qrcp");
+            //nvtxRangePushA("qrcp");
             qrcp_t_start = high_resolution_clock::now();
         }
         RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_trans, n, 0);
@@ -337,6 +337,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
         
         if(this -> timing) {
+            cudaStreamSynchronize(strm);
+            nvtxRangePushA("copy_A_sk");
             copy_A_sk_t_start = high_resolution_clock::now();
         }
         // Apply pivots to A_sk
@@ -346,8 +348,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         A_sk_work = A_sk_buf;        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
+            nvtxRangePop();
             copy_A_sk_t_stop = high_resolution_clock::now();
             copy_A_sk_t_dur += duration_cast<microseconds>(copy_A_sk_t_stop - copy_A_sk_t_start).count();
+            nvtxRangePushA("piv_A_sk");
             qrcp_piv_t_start = high_resolution_clock::now();
         }
 
@@ -355,6 +359,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         
         if(this -> timing) {
             cudaStreamSynchronize(strm);
+            nvtxRangePop();
             qrcp_piv_t_stop = high_resolution_clock::now();
             qrcp_piv_t_dur += duration_cast<microseconds>(qrcp_piv_t_stop - qrcp_piv_t_start).count();
         }
@@ -370,7 +375,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
         if(this -> timing) {
             lapack_queue.sync();
-            nvtxRangePop();
+            //nvtxRangePop();
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
             nvtxRangePushA("piv_A");
