@@ -420,7 +420,7 @@ __global__ void copy_mat_gpu(
         }
     } else {
         #pragma unroll
-        if (i < n && j <= m) {
+        if (i < n && j < m) {
             A_cpy[(ldac * i) + j] = A[(lda * i) + j];
         }
     }

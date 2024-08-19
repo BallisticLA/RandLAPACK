@@ -217,7 +217,6 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         auto n = all_data.col;
 
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-
         all_data.rank = CQRRP_GPU.rank;
         printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", all_data.rank);
         
@@ -304,7 +303,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
 	
         RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(profile_runtime, tol, block_size);
-        CQRRP_GPU.use_qrf = true;
+        //CQRRP_GPU.use_qrf = true;
 	    auto start = std::chrono::steady_clock::now();
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 	    auto stop = std::chrono::steady_clock::now();
@@ -318,7 +317,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
         if(profile_runtime) {
             std::ofstream file(output_filename, std::ios::app);
-            std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 18, std::ostream_iterator<T>(file, ", "));
+            std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 17, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
         if (run_qrf) {
@@ -357,7 +356,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
 
     CQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(true, tol, b_sz);
-    CQRRP_blocked_GPU.use_qrf = true;
+    //CQRRP_blocked_GPU.use_qrf = true;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
