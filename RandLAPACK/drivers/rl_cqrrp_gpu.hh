@@ -281,6 +281,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* Work2;
     cudaMallocAsync(&Work2, n * sizeof(T), strm);
 
+    // Pointer to the working subportion of the vetcor J
+    int64_t* J_work = J;
+
     // A space required to perform parallel column swapping that would store either the working 
     // subportion of the matrix A or the matrix A_sk
     T* A_copy_col_swap;
@@ -288,8 +291,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* A_sk_copy_col_swap;
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
     int64_t* J_copy_col_swap;
+    int64_t* J_copy_col_swap_work = J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
     T* A_sk_buf;
+    int64_t* J_cpy_buf;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
     if(this -> timing) {
@@ -335,8 +340,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             copy_A_sk_t_start = high_resolution_clock::now();
         }
         // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_copy_col_swap, d, false);
-        
+        //RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_copy_col_swap, d, false);
+        A_sk_buf = A_sk_copy_col_swap;
+        A_sk_copy_col_swap = A_sk_work;
+        A_sk_work = A_sk_buf;        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             copy_A_sk_t_stop = high_resolution_clock::now();
@@ -344,9 +351,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             qrcp_piv_t_start = high_resolution_clock::now();
         }
 
-        //A_sk_buf = A_sk_copy_col_swap;
-        //A_sk_copy_col_swap = A_sk_work;
-        //A_sk_work = A_sk_buf;
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_sk_copy_col_swap, d, J_buffer);
         
         if(this -> timing) {
@@ -517,7 +521,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("copy_J");
                 copy_J_t_start = high_resolution_clock::now();
             }
-            RandLAPACK::cuda_kernels::copy_gpu(strm, cols, &J[curr_sz], 1, J_copy_col_swap, 1);
+            RandLAPACK::cuda_kernels::copy_gpu(strm, cols, J_work, 1, J_copy_col_swap, 1);
+            //J_cpy_buf = J_copy_col_swap_work;
+            //J_copy_col_swap_work = J_work;
+            //J_work = J_cpy_buf;
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -526,7 +533,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("update_J");
                 updating_J_t_start = high_resolution_clock::now();
             }
-            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, &J[curr_sz], J_copy_col_swap, J_buffer);
+            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, J_work, J_copy_col_swap, J_buffer);
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -536,6 +543,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 updating_R_t_start = high_resolution_clock::now();
             }
         }
+        // Advance the work pointer of the global pivot vector;
+        J_work = &J_work[b_sz];
+        //J_copy_col_swap_work = &J_copy_col_swap_work[b_sz];
+
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
@@ -564,6 +575,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
+
+            //RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_work, 1, J_copy_col_swap, 1);
             lapack_queue.sync();
 
             if(this -> timing) {
