@@ -307,6 +307,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* buf_cpu   = ( T * ) calloc( d * n, sizeof( T ) );
     T* buf_cpu_1 = ( T * ) calloc( m * n, sizeof( T ) );
     for(iter = 0; iter < maxiter; ++iter) {
+        nvtxRangePushA("Iteration");
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
@@ -318,7 +319,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk
         if(this -> timing) {
-            //nvtxRangePushA("qrcp");
+            nvtxRangePushA("qrcp");
             qrcp_t_start = high_resolution_clock::now();
         }
         RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_trans, n, 0);
@@ -375,10 +376,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
         if(this -> timing) {
             lapack_queue.sync();
-            //nvtxRangePop();
+            nvtxRangePop();
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-            nvtxRangePushA("piv_A");
+            nvtxRangePushA("copy_A");
             copy_A_t_start = high_resolution_clock::now();
         }
         // Need to premute trailing columns of the full R-factor.
@@ -687,6 +688,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             updating_Sk_t_stop  = high_resolution_clock::now();
             updating_Sk_t_dur  += duration_cast<microseconds>(updating_Sk_t_stop - updating_Sk_t_start).count();
         }
+        nvtxRangePop();
     }
     return 0;
 }
