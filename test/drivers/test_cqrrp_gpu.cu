@@ -304,6 +304,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
 	
         RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(profile_runtime, tol, block_size);
+        CQRRP_blocked_GPU.use_qrf = true;
 	    auto start = std::chrono::steady_clock::now();
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 	    auto stop = std::chrono::steady_clock::now();
@@ -356,6 +357,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
 
     CQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(true, tol, b_sz);
+    CQRRP_blocked_GPU.use_qrf = true;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
