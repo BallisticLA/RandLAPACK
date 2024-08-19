@@ -69,6 +69,7 @@ class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             block_size = b_sz;
+            use_qrf = false;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -424,6 +425,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         if(this -> use_qrf) {
+            printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
             if(this -> timing) {
                 nvtxRangePushA("cholqr");
                 cholqr_t_start = high_resolution_clock::now();
