@@ -344,10 +344,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             copy_A_sk_t_start = high_resolution_clock::now();
         }
         // Apply pivots to A_sk
-        //RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_copy_col_swap, d, false);
-        A_sk_buf = A_sk_copy_col_swap;
-        A_sk_copy_col_swap = A_sk_work;
-        A_sk_work = A_sk_buf;        
+        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_copy_col_swap, d, false);
+        //A_sk_buf = A_sk_copy_col_swap;
+        //A_sk_copy_col_swap = A_sk_work;
+        //A_sk_work = A_sk_buf;        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
