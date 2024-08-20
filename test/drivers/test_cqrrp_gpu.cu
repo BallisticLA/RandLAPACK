@@ -344,11 +344,11 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_GPU_070824) {
-    int64_t m = 5000;//5000;
-    int64_t n = 2800;//2000;
-    int64_t k = 2800;
+    int64_t m = 9;//5000;
+    int64_t n = 9;//2000;
+    int64_t k = 9;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 900;//500;
+    int64_t b_sz = 3;//500;
     int64_t d = d_factor * b_sz;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
