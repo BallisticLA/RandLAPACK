@@ -292,8 +292,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* A_sk_copy_col_swap;
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
     int64_t* J_copy_col_swap;
-    int64_t* J_copy_col_swap_work = J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
+    int64_t* J_copy_col_swap_work = J_copy_col_swap;
     T* A_sk_buf;
     int64_t* J_cpy_buf;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
@@ -307,6 +307,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
     T* buf_cpu   = ( T * ) calloc( d * n, sizeof( T ) );
     T* buf_cpu_1 = ( T * ) calloc( m * n, sizeof( T ) );
+
+    int64_t* buf_vec_cpu   = ( int64_t * ) calloc( n, sizeof( int64_t ) );
+    int64_t* buf_vec_cpu_1 = ( int64_t * ) calloc( n, sizeof( int64_t ) );
     for(iter = 0; iter < maxiter; ++iter) {
         nvtxRangePushA("Iteration");
         // Make sure we fit into the available space
@@ -344,10 +347,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             copy_A_sk_t_start = high_resolution_clock::now();
         }
         // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_copy_col_swap, d, false);
-        //A_sk_buf = A_sk_copy_col_swap;
-        //A_sk_copy_col_swap = A_sk_work;
-        //A_sk_work = A_sk_buf;        
+        //RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_copy_col_swap, d, false);
+        A_sk_buf = A_sk_copy_col_swap;
+        A_sk_copy_col_swap = A_sk_work;
+        A_sk_work = A_sk_buf;        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
@@ -425,7 +428,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         if(this -> use_qrf) {
-            printf("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
             if(this -> timing) {
                 nvtxRangePushA("cholqr");
                 cholqr_t_start = high_resolution_clock::now();
@@ -529,10 +531,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("copy_J");
                 copy_J_t_start = high_resolution_clock::now();
             }
-            RandLAPACK::cuda_kernels::copy_gpu(strm, cols, J_work, 1, J_copy_col_swap, 1);
-            //J_cpy_buf = J_copy_col_swap_work;
-            //J_copy_col_swap_work = J_work;
-            //J_work = J_cpy_buf;
+            //RandLAPACK::cuda_kernels::copy_gpu(strm, cols, J_work, 1, J_copy_col_swap_work, 1);
+            J_cpy_buf = J_copy_col_swap_work;
+            J_copy_col_swap_work = J_work;
+            J_work = J_cpy_buf;
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -541,7 +543,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("update_J");
                 updating_J_t_start = high_resolution_clock::now();
             }
-            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, J_work, J_copy_col_swap, J_buffer);
+            RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, J_work, J_copy_col_swap_work, J_buffer);
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -553,7 +555,22 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
         // Advance the work pointer of the global pivot vector;
         J_work = &J_work[b_sz];
-        //J_copy_col_swap_work = &J_copy_col_swap_work[b_sz];
+        J_copy_col_swap_work = &J_copy_col_swap_work[b_sz];
+
+        cudaStreamSynchronize(strm);
+        cudaMemcpy(buf_vec_cpu, J, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+        cudaMemcpy(buf_vec_cpu_1, J_copy_col_swap, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+
+        printf("\nPrinting J_work\n");
+        for(int idx = 0; idx < n; ++idx) {
+            printf("%ld\n", buf_vec_cpu[idx]);
+        }
+
+        printf("\nPrinting J_cpy\n");
+        for(int idx = 0; idx < n; ++idx) {
+            printf("%ld\n", buf_vec_cpu_1[idx]);
+        }
+        
 
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
@@ -584,8 +601,17 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // Termination criteria reached
             this -> rank = curr_sz;
 
-            //RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_work, 1, J_copy_col_swap, 1);
+            RandLAPACK::cuda_kernels::copy_gpu(strm, n - b_sz, &J_copy_col_swap[b_sz], 1, &J[b_sz], 1);
             lapack_queue.sync();
+            
+            
+            printf("\nPrinting Final J\n");
+            cudaMemcpy(buf_vec_cpu_1, J, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+            for(int idx = 0; idx < n; ++idx) {
+                printf("%ld\n", buf_vec_cpu_1[idx]);
+            }
+            
+
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
