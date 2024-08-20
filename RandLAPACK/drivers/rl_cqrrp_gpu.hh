@@ -285,8 +285,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // Pointer to the working subportion of the vetcor J
     int64_t* J_work = J;
 
-    // A space required to perform parallel column swapping that would store either the working 
-    // subportion of the matrix A or the matrix A_sk
+    // Additional buffers required to perform parallel column swapping.
+    // Parallel column swapping is done by moving the columns from
+    // a copy of the input matrix into the input matrix in accordance with
+    // the entries in the input index vector.
+    // As you will see below, we use a special strategy to avoid performing explicit copies of 
+    // A_sk and J.
+    // This strategy would still require using buffers of size of the original data.
     T* A_copy_col_swap;
     cudaMallocAsync(&A_copy_col_swap, sizeof(T) * m * n, strm);
     T* A_sk_copy_col_swap;
@@ -294,6 +299,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     int64_t* J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
     int64_t* J_copy_col_swap_work = J_copy_col_swap;
+    // Pointer buffers required for our special data movement-avoiding strategy.
     T* A_sk_buf;
     int64_t* J_cpy_buf;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
@@ -305,11 +311,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
     }
 
-    T* buf_cpu   = ( T * ) calloc( d * n, sizeof( T ) );
-    T* buf_cpu_1 = ( T * ) calloc( m * n, sizeof( T ) );
-
-    int64_t* buf_vec_cpu   = ( int64_t * ) calloc( n, sizeof( int64_t ) );
-    int64_t* buf_vec_cpu_1 = ( int64_t * ) calloc( n, sizeof( int64_t ) );
     for(iter = 0; iter < maxiter; ++iter) {
         nvtxRangePushA("Iteration");
         // Make sure we fit into the available space
@@ -346,8 +347,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("copy_A_sk");
             copy_A_sk_t_start = high_resolution_clock::now();
         }
-        // Apply pivots to A_sk
-        //RandLAPACK::cuda_kernels::copy_mat_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_copy_col_swap, d, false);
+        // Instead of copying A_sk_work into A_sk_copy_col_swap, we ``swap'' the pointers.
+        // This is safe, as A_sk is not needed outside of ICQRRP.
         A_sk_buf = A_sk_copy_col_swap;
         A_sk_copy_col_swap = A_sk_work;
         A_sk_work = A_sk_buf;        
@@ -359,7 +360,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("piv_A_sk");
             qrcp_piv_t_start = high_resolution_clock::now();
         }
-
+        // Apply pivots to A_sk
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_sk_copy_col_swap, d, J_buffer);
         
         if(this -> timing) {
@@ -531,10 +532,29 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("copy_J");
                 copy_J_t_start = high_resolution_clock::now();
             }
-            //RandLAPACK::cuda_kernels::copy_gpu(strm, cols, J_work, 1, J_copy_col_swap_work, 1);
-            J_cpy_buf = J_copy_col_swap_work;
-            J_copy_col_swap_work = J_work;
-            J_work = J_cpy_buf;
+            // Instead of copying J into J_copy_col_swap, we ``swap'' the pointers.
+            // We have to take some precautions when ICQRRP main loop terminates.
+            // Since we want J to be accessible and valid outside of ICQRRP, we need to make sure that 
+            // its entries were, in fact, computed correctly. 
+            //
+            // The original memory space that the vector J points to would only contain the correct pivot ranges, computed at EVEN
+            // iterations of ICQRRP's main loop.
+            // The correct entries from the odd iterations would be contained in the memory space that was originbally pointed to
+            // by J_copy_col_swap.
+            // Hence, when ICQRRP terminates, we would need to copy the results from the odd iterations form J_copy_col_swap to J.
+            //
+            // Remember that since the pointers J and J_copy_col_swap are swapped at every even iteration of the main ICQRRP loop,
+            // if the ICQRRP terminates with iter being even, we would need to swap these pointers back around.
+            //
+            // Additional thing to remember is that the final copy needs to be performed in terms of b_sz_const, not b_sz.
+            // No need to worry about the altered b_sz when performing a copy, because it is always placed where it should be in J.
+            J_cpy_buf = J_copy_col_swap;
+            J_copy_col_swap = J;
+            J = J_cpy_buf;
+
+            J_work = &J[curr_sz];
+            J_copy_col_swap_work = &J_copy_col_swap[curr_sz];
+
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -553,24 +573,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 updating_R_t_start = high_resolution_clock::now();
             }
         }
-        // Advance the work pointer of the global pivot vector;
-        J_work = &J_work[b_sz];
-        J_copy_col_swap_work = &J_copy_col_swap_work[b_sz];
-
-        cudaStreamSynchronize(strm);
-        cudaMemcpy(buf_vec_cpu, J, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
-        cudaMemcpy(buf_vec_cpu_1, J_copy_col_swap, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
-
-        printf("\nPrinting J_work\n");
-        for(int idx = 0; idx < n; ++idx) {
-            printf("%ld\n", buf_vec_cpu[idx]);
-        }
-
-        printf("\nPrinting J_cpy\n");
-        for(int idx = 0; idx < n; ++idx) {
-            printf("%ld\n", buf_vec_cpu_1[idx]);
-        }
-        
 
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
@@ -600,19 +602,18 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         if(curr_sz >= n) {
             // Termination criteria reached
             this -> rank = curr_sz;
-
-            RandLAPACK::cuda_kernels::copy_gpu(strm, n - b_sz, &J_copy_col_swap[b_sz], 1, &J[b_sz], 1);
+            // Measures taken to insure J holds correct data, explained above.
+            if(iter % 2) {
+                // Total number of iterations is even (iter starts at 0)
+                J_cpy_buf = J_copy_col_swap;
+                J_copy_col_swap = J;
+                J = J_cpy_buf;
+            }
+            for(int odd_idx = 1; odd_idx < iter; odd_idx += 2) {
+                RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
+            }
             lapack_queue.sync();
             
-            
-            printf("\nPrinting Final J\n");
-            cudaMemcpy(buf_vec_cpu_1, J, n * sizeof(int64_t), cudaMemcpyDeviceToHost);
-            for(int idx = 0; idx < n; ++idx) {
-                printf("%ld\n", buf_vec_cpu_1[idx]);
-            }
-            
-
-
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
