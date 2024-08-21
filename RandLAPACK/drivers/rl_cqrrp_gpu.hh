@@ -610,7 +610,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 J_copy_col_swap = J;
                 J = J_cpy_buf;
             }
-            for(int odd_idx = 1; odd_idx < iter; odd_idx += 2) {
+            for(int odd_idx = 1; odd_idx <= iter; odd_idx += 2) {
                 RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
             }
             lapack_queue.sync();
