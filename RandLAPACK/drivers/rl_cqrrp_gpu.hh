@@ -390,10 +390,11 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.      
-        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, false);    
-        
+        //RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, false);    
+        blas::device_copy_matrix( m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, lapack_queue);
+
         if(this -> timing) {
-            cudaStreamSynchronize(strm);
+            lapack_queue.sync();
             nvtxRangePop();
             copy_A_t_stop = high_resolution_clock::now();
             copy_A_t_dur += duration_cast<microseconds>(copy_A_t_stop - copy_A_t_start).count();
