@@ -217,7 +217,6 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         auto n = all_data.col;
 
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-        /*
         all_data.rank = CQRRP_GPU.rank;
         printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", all_data.rank);
         
@@ -234,7 +233,6 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data);
-        */
     }
 
     template <typename T, typename RNG, typename alg_gpu, typename alg_cpu>

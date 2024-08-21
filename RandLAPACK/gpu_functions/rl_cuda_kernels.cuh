@@ -318,20 +318,21 @@ __global__ void col_swap_gpu_kernel(
     int64_t ldac,
     int64_t const* idx
 ) {
-    
+    /*
     for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < k; i += blockDim.x * gridDim.x) {
         for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; i < m; i += blockDim.y * gridDim.y) {
             int64_t l = idx[i] - 1; 
             A[i * lda + j] = A_cpy[l * ldac + j];
         }
     }
+    */
 
-    // int colIdx = blockIdx.x * blockDim.x + threadIdx.x; 
-    // int rowIdx = blockIdx.y * blockDim.y + threadIdx.y;
-    // if (colIdx < k && rowIdx < m) {
-    //     int64_t j = idx[colIdx] - 1; 
-    //     A[colIdx * lda + rowIdx] = A_cpy[j * ldac + rowIdx];
-    // }
+    int colIdx = blockIdx.x * blockDim.x + threadIdx.x; 
+    int rowIdx = blockIdx.y * blockDim.y + threadIdx.y;
+    if (colIdx < k && rowIdx < m) {
+        int64_t j = idx[colIdx] - 1; 
+        A[colIdx * lda + rowIdx] = A_cpy[j * ldac + rowIdx];
+    }
 }
 
 template <typename T>
@@ -469,7 +470,8 @@ void copy_mat_gpu(
     bool copy_upper_triangle
 ) {
 #ifdef USE_CUDA
-    dim3 threadsPerBlock(32, 8);
+    //dim3 threadsPerBlock(32, 8);
+    dim3 threadsPerBlock(11, 11);
     dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
     copy_mat_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, A_cpy, ldat, copy_upper_triangle);
