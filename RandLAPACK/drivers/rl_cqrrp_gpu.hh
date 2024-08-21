@@ -305,9 +305,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     T* A_sk_buf;
     int64_t* J_cpy_buf;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
-
+    cudaStreamSynchronize(strm);
     if(this -> timing) {
-        cudaStreamSynchronize(strm);
         lapack_queue.sync();
         preallocation_t_stop  = high_resolution_clock::now();
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
@@ -357,7 +356,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Instead of copying A_sk_work into A_sk_copy_col_swap, we ``swap'' the pointers.
         // This is safe, as A_sk is not needed outside of ICQRRP.
         std::swap(A_sk_copy_col_swap, A_sk_work);
-
+        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
@@ -384,7 +383,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             h_work_geqrf = h_work_geqrf_vector.data();
         }
         lapack::geqrf(sampling_dimension, cols, A_sk_work, d, Work2, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
-
+        
         if(this -> timing) {
             lapack_queue.sync();
             nvtxRangePop();
@@ -414,7 +413,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         Work1 = &A_work[lda * b_sz];
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk_work;
-
+        
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
@@ -427,6 +426,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
+        
         if(this -> timing) {
             lapack_queue.sync();
             nvtxRangePop();
@@ -449,6 +449,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             lapack::geqrf(rows, b_sz, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
             //R_cholqr = A_work;
             RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, A_work, lda, R_cholqr, b_sz_const, true);
+            
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -465,6 +466,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
             // Compute Q_econ from Cholesky QR
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
+            
             if(this -> timing) {
                 lapack_queue.sync();
                 nvtxRangePop();
@@ -511,6 +513,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
         }
         cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+        // Synchronization required after using cusolver
+        cudaStreamSynchronize(strm);
+
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();

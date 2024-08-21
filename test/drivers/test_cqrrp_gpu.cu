@@ -353,9 +353,10 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
+    bool profile_runtime = false;
 
     CQRRPTestData<double> all_data(m, n, k, d);
-    RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(true, tol, b_sz);
+    RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(profile_runtime, tol, b_sz);
     //CQRRP_blocked_GPU.use_qrf = true;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
