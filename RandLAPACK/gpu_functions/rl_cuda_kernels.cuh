@@ -308,7 +308,7 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel_sequential(
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array is to modified modified ONLY within the scope of this function.
 template <typename T>
-__global__ void __launch_bounds__(128) col_swap_gpu_kernel(
+__global__ void col_swap_gpu_kernel(
     int64_t m, 
     int64_t n, 
     int64_t k,
@@ -318,14 +318,20 @@ __global__ void __launch_bounds__(128) col_swap_gpu_kernel(
     int64_t ldac,
     int64_t const* idx
 ) {
-
-    int colIdx = blockIdx.x * blockDim.x + threadIdx.x; 
-    int rowIdx = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (colIdx < k && rowIdx < m) {
-        int64_t j = idx[colIdx] - 1; 
-        A[colIdx * lda + rowIdx] = A_cpy[j * ldac + rowIdx];
+    
+    for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < k; i += blockDim.x * gridDim.x) {
+        for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; i < m; i += blockDim.y * gridDim.y) {
+            int64_t l = idx[i] - 1; 
+            A[i * lda + j] = A_cpy[l * ldac + j];
+        }
     }
+
+    // int colIdx = blockIdx.x * blockDim.x + threadIdx.x; 
+    // int rowIdx = blockIdx.y * blockDim.y + threadIdx.y;
+    // if (colIdx < k && rowIdx < m) {
+    //     int64_t j = idx[colIdx] - 1; 
+    //     A[colIdx * lda + rowIdx] = A_cpy[j * ldac + rowIdx];
+    // }
 }
 
 template <typename T>
@@ -356,17 +362,14 @@ __global__ void __launch_bounds__(512) vec_ell_swap_gpu(
 }
 
 template <typename T>
-__global__ void __launch_bounds__(512) vec_ell_swap_gpu(
+__global__ void vec_ell_swap_gpu(
     int64_t m, 
     int64_t k,
     int64_t* J, 
     int64_t* J_cpy, 
     int64_t const* idx
 ) {
-
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (i < k) {
+    for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < k; i += blockDim.x * gridDim.x) {
         int64_t j = idx[i] - 1;
         J[i] = J_cpy[j];
     }
@@ -467,7 +470,7 @@ void copy_mat_gpu(
     bool copy_upper_triangle
 ) {
 #ifdef USE_CUDA
-    dim3 threadsPerBlock(11, 11);
+    dim3 threadsPerBlock(32, 8);
     dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
     copy_mat_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, A_cpy, ldat, copy_upper_triangle);
@@ -550,7 +553,7 @@ void col_swap_gpu(
     //copy_mat_gpu(stream, m, k, A, lda, A_cpy, lda, false);
     //cudaStreamSynchronize(stream);
 
-    dim3 threadsPerBlock(11, 11);
+    dim3 threadsPerBlock(32, 8);
     dim3 blocksPerGrid((k + threadsPerBlock.x - 1) / threadsPerBlock.x,
                          (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
     col_swap_gpu_kernel<<<blocksPerGrid, threadsPerBlock, 0, stream>>>(m, n, k, A, lda, A_cpy, ldac, idx);
@@ -722,7 +725,7 @@ void R_cholqr_signs_gpu(
     T* D
 ) {
 #ifdef USE_CUDA
-    dim3 threadsPerBlock(11, 11);
+    dim3 threadsPerBlock(32, 8);
     dim3 numBlocks((b_sz + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (b_sz + threadsPerBlock.y - 1) / threadsPerBlock.y);
 

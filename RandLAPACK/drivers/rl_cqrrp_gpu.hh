@@ -349,9 +349,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
         // Instead of copying A_sk_work into A_sk_copy_col_swap, we ``swap'' the pointers.
         // This is safe, as A_sk is not needed outside of ICQRRP.
-        A_sk_buf = A_sk_copy_col_swap;
-        A_sk_copy_col_swap = A_sk_work;
-        A_sk_work = A_sk_buf;        
+        std::swap(A_sk_copy_col_swap, A_sk_work);
+
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
@@ -548,15 +547,11 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             //
             // Additional thing to remember is that the final copy needs to be performed in terms of b_sz_const, not b_sz.
             // No need to worry about the altered b_sz when performing a copy, because it is always placed where it should be in J.
-            J_cpy_buf = J_copy_col_swap;
-            J_copy_col_swap = J;
-            J = J_cpy_buf;
-
+            std::swap(J_copy_col_swap, J);
             J_work = &J[curr_sz];
             J_copy_col_swap_work = &J_copy_col_swap[curr_sz];
 
             if(this -> timing) {
-                cudaStreamSynchronize(strm);
                 nvtxRangePop();
                 copy_J_t_stop  = high_resolution_clock::now();
                 copy_J_t_dur  += duration_cast<microseconds>(copy_J_t_stop - copy_J_t_start).count();
