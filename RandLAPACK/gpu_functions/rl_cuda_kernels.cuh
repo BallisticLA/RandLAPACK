@@ -417,14 +417,16 @@ __global__ void copy_mat_gpu(
 
     if (copy_upper_triangle) {
         // Only copying the upper-triangular portion of the original
-        #pragma unroll
-        if (i < n && j <= i) {
-            A_cpy[(ldac * i) + j] = A[(lda * i) + j];
+        for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < n; i += blockDim.x * gridDim.x) {
+            for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; j <= i; j += blockDim.y * gridDim.y) {
+                A_cpy[(ldac * i) + j] = A[(lda * i) + j];
+            }
         }
     } else {
-        #pragma unroll
-        if (i < n && j < m) {
-            A_cpy[(ldac * i) + j] = A[(lda * i) + j];
+        for (int64_t i = threadIdx.x + blockDim.x * blockIdx.x; i < n; i += blockDim.x * gridDim.x) {
+            for (int64_t j = threadIdx.y + blockDim.y * blockIdx.y; j < m; j += blockDim.y * gridDim.y) {
+                A_cpy[(ldac * i) + j] = A[(lda * i) + j];
+            }
         }
     }
 }
@@ -548,10 +550,6 @@ void col_swap_gpu(
     int64_t const* idx
 ) {
 #ifdef USE_CUDA
-    //T* A_cpy;
-    //cudaMallocAsync(&A_cpy, sizeof(T) * m * k, stream);
-    //copy_mat_gpu(stream, m, k, A, lda, A_cpy, lda, false);
-    //cudaStreamSynchronize(stream);
 
     dim3 threadsPerBlock(32, 8);
     dim3 blocksPerGrid((k + threadsPerBlock.x - 1) / threadsPerBlock.x,
