@@ -212,6 +212,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     /******************************STREAM/QUEUE/HANDLE*********************************/
     lapack::Queue lapack_queue(0);
     cudaStream_t strm = lapack_queue.stream();
+    lapack::Queue copy_queue{0};
     cudaStream_t stream_cusolver;
     using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
@@ -312,8 +313,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
     }
 
+
     for(iter = 0; iter < maxiter; ++iter) {
         nvtxRangePushA("Iteration");
+
+        // start async copy -- look for copy_queue.sync() for completion
+        blas::device_copy_matrix( m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, copy_queue);
+
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
 
@@ -391,10 +397,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.      
         //RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, false);    
-        blas::device_copy_matrix( m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, lapack_queue);
-
+        
+        copy_queue.sync();
         if(this -> timing) {
-            lapack_queue.sync();
             nvtxRangePop();
             copy_A_t_stop = high_resolution_clock::now();
             copy_A_t_dur += duration_cast<microseconds>(copy_A_t_stop - copy_A_t_start).count();
