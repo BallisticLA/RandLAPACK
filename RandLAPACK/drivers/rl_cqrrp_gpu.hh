@@ -220,6 +220,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // Create cusolver handle - used for the ORMQR call
     cusolverDnHandle_t cusolverH = nullptr;
     cusolverDnCreate(&cusolverH);
+    cusolverDnSetStream(cusolverH, strm);
 
     /******************************WORKSPACE PARAMETERS*********************************/
     char* d_work_getrf, * d_work_geqrf;
@@ -504,9 +505,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
         }
         cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
-        cusolverDnGetStream(cusolverH, &stream_cusolver);
-        cudaStreamSynchronize(stream_cusolver);
         if(this -> timing) {
+            cudaStreamSynchronize(strm);
             nvtxRangePop();
             updating_A_t_stop  = high_resolution_clock::now();
             updating_A_t_dur  += duration_cast<microseconds>(updating_A_t_stop - updating_A_t_start).count();
