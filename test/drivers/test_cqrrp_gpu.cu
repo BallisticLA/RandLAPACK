@@ -201,7 +201,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
         ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
-        ASSERT_NEAR(norm_0, 0.0, atol);
+        ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
     }
 
     /// General test for CQRRP:
