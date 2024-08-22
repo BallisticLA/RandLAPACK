@@ -521,7 +521,7 @@ void col_swap_gpu(
     ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        BPCG_ERROR("Failed to launch col_swap_gpu sequential. " << cudaGetErrorString(ierr))
         abort();
     }
     cudaFreeAsync(idx_copy, stream);
@@ -558,7 +558,7 @@ void col_swap_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        BPCG_ERROR("Failed to launch col_swap_gpu with parallel pivots. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -618,7 +618,7 @@ void col_swap_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        BPCG_ERROR("Failed to launch col_swap_gpu vector. " << cudaGetErrorString(ierr))
         abort();
     }
 }

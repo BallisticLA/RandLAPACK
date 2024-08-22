@@ -312,7 +312,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
     }
 
-
+    T* A_cpu        = ( T * ) calloc( m * n,       sizeof( T ) );
+    T* A_work_cpu   = ( T * ) calloc( m * b_sz,    sizeof( T ) );
+    T* Work_2_cpu   = ( T * ) calloc( b_sz,        sizeof( T ) );
+    T* T_dat_cpu    = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
+    T* tau_cpu      = ( T * ) calloc( b_sz,        sizeof( T ) );
+    T* R_cholqr_cpu = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
     for(iter = 0; iter < maxiter; ++iter) {
         nvtxRangePushA("Iteration");
 
@@ -365,9 +370,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("piv_A_sk");
             qrcp_piv_t_start = high_resolution_clock::now();
         }
+
         // Apply pivots to A_sk
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_sk_copy_col_swap, d, J_buffer);
-        
+
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
@@ -461,12 +467,35 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("cholqr");
                 cholqr_t_start = high_resolution_clock::now();
             }
+            /*
             // Performing Cholesky QR
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
             lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
             // Compute Q_econ from Cholesky QR
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
+            */
             
+           blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
+
+            cudaMemcpyAsync(A_work_cpu,   &A[lda * curr_sz],   sizeof(T) * lda * b_sz, cudaMemcpyDeviceToHost, strm);
+            cudaMemcpyAsync(R_cholqr_cpu, R_cholqr, sizeof(T) * b_sz_const * b_sz_const, cudaMemcpyDeviceToHost, strm);     
+            cudaStreamSynchronize(strm);            
+            
+
+            //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, &A_work_cpu[curr_sz], lda, (T) 0.0, R_cholqr_cpu, b_sz_const);
+            lapack::potrf(Uplo::Upper,  b_sz, R_cholqr_cpu, b_sz_const);
+            // Compute Q_econ from Cholesky QR
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr_cpu, b_sz_const, &A_work_cpu[curr_sz], lda);
+
+            cudaMemcpyAsync(&A[lda * curr_sz],        A_work_cpu,   sizeof(T) * lda * b_sz, cudaMemcpyHostToDevice, strm);
+            cudaMemcpyAsync(R_cholqr,      R_cholqr_cpu, sizeof(T) * b_sz_const * b_sz_const, cudaMemcpyHostToDevice, strm);
+            // must add this to avoid dangling reference during async copy
+            cudaStreamSynchronize(strm);
+
+            //lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
+            // Compute Q_econ from Cholesky QR
+            //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
+
             if(this -> timing) {
                 lapack_queue.sync();
                 nvtxRangePop();
@@ -482,8 +511,54 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
             // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
             // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
+
+            cudaMemcpyAsync(A_work_cpu,   &A[lda * curr_sz],   sizeof(T) * lda * b_sz, cudaMemcpyDeviceToHost, strm);
+            cudaMemcpyAsync(R_cholqr_cpu, R_cholqr, sizeof(T) * b_sz_const * b_sz_const, cudaMemcpyDeviceToHost, strm);     
+            std::memset( Work_2_cpu, 0, sizeof( T ) * b_sz );
+            std::memset( T_dat_cpu, 0, sizeof( T ) * b_sz * b_sz );
+            cudaStreamSynchronize(strm);
+
+            lapack::orhr_col(rows, b_sz, b_sz, &A_work_cpu[curr_sz], lda, T_dat_cpu, b_sz_const, Work_2_cpu);
+
+            for(i = 0; i < b_sz; ++i)
+                for(j = 0; j < (i + 1); ++j)
+                    R_cholqr_cpu[(b_sz_const * i) + j] *= Work_2_cpu[j];
+
+            // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
+            for(i = 0; i < b_sz; ++i)
+                tau_cpu[i] = T_dat_cpu[(b_sz_const + 1) * i];
+
+            cudaMemcpyAsync(&A[lda * curr_sz],        A_work_cpu,   sizeof(T) * lda * b_sz, cudaMemcpyHostToDevice, strm);
+            cudaMemcpyAsync(R_cholqr,      R_cholqr_cpu, sizeof(T) * b_sz_const * b_sz_const, cudaMemcpyHostToDevice, strm);
+            cudaMemcpyAsync(&tau[curr_sz], tau_cpu,      sizeof(T) * b_sz,        cudaMemcpyHostToDevice, strm);
+            // must add this to avoid dangling reference during async copy
+            cudaStreamSynchronize(strm);
+
+/*
+            cudaMemcpyAsync(A_cpu,   A,   sizeof(T) * lda * n, cudaMemcpyDeviceToHost, strm);
+            cudaStreamSynchronize(strm);
+            char name1 [] = "A_pre";
+            RandLAPACK::util::print_colmaj(m, n, A_cpu, m, name1);
+
+            //cudaMemcpyAsync(R_cholqr_cpu,   R_cholqr,   sizeof(T) * b_sz_const * b_sz_const, cudaMemcpyDeviceToHost, strm);
+            //cudaStreamSynchronize(strm);
+            //char name1 [] = "R_pre";
+            //RandLAPACK::util::print_colmaj(b_sz_const, b_sz_const, R_cholqr_cpu, b_sz_const, name1);
+
             RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work, lda, &tau[curr_sz], Work2);  
-            
+
+            //cudaMemcpyAsync(Work_2_cpu,   Work2,   sizeof(T) * b_sz, cudaMemcpyDeviceToHost, strm);
+            //cudaStreamSynchronize(strm);
+            //for(int idx = 0; idx < b_sz; ++idx) 
+            //    printf("%f ", Work_2_cpu[idx]);
+
+            //printf("\n");
+
+            cudaMemcpyAsync(A_cpu,   A,   sizeof(T) * lda * n, cudaMemcpyDeviceToHost, strm);
+            cudaStreamSynchronize(strm);
+            char name [] = "A_post";
+            RandLAPACK::util::print_colmaj(m, n, A_cpu, m, name);
+
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -495,6 +570,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // Signs correspond to matrix D from orhr_col().
             // This allows us to not explicitly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
             RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
+
+
+            //cudaMemcpyAsync(R_cholqr_cpu,   R_cholqr,   sizeof(T) * b_sz_const * b_sz_const, cudaMemcpyDeviceToHost, strm);
+            //cudaStreamSynchronize(strm);
+            //char name [] = "R_post";
+            //RandLAPACK::util::print_colmaj(b_sz_const, b_sz_const, R_cholqr_cpu, b_sz_const, name);
+*/
         }
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
@@ -569,6 +651,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("update_J");
                 updating_J_t_start = high_resolution_clock::now();
             }
+
             RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, J_work, J_copy_col_swap_work, J_buffer);
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
@@ -617,6 +700,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             }
             for(int odd_idx = 1; odd_idx <= iter; odd_idx += 2) {
                 if(odd_idx == iter) {
+                    // Do not copy extra data if b_sz has changed.
                     RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
                 } else {
                     RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
