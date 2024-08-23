@@ -60,8 +60,10 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             timing     = time_subroutines;
             eps        = ep;
             block_size = b_sz;
-            use_qp3 = false;
+            use_qp3      = false;
             use_gaussian = false;
+            use_gemqrt   = false;
+            internal_nb  = 0;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -133,6 +135,12 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // tuning SASOS
         int num_threads;
         int64_t nnz;
+
+        // Option for updating A
+        bool use_gemqrt;
+
+        // NB for orhr_col and gemqrt
+        int64_t internal_nb;
 };
 
 // We are assuming that tau and J have been pre-allocated
@@ -208,6 +216,8 @@ int CQRRP_blocked<T, RNG>::call(
     T running_max = 0;
     T running_min = 0;
 
+    // Parameter to control number of blocks in orhr_col and gemqrt;
+    int64_t internal_nb = 0;
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
 
@@ -302,6 +312,12 @@ int CQRRP_blocked<T, RNG>::call(
     for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
+        // Set internal nb
+        if (this -> internal_nb) {
+            internal_nb = b_sz;
+        } else {
+            internal_nb = this -> internal_nb;
+        }
 
         // Zero-out data - may not be necessary
         std::fill(&J_buffer[0], &J_buffer[n], 0);
@@ -393,7 +409,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
 #if !defined(__APPLE__)
         // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to envoke the newest Accelerate library.
-        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
+        lapack::orhr_col(rows, b_sz, internal_nb, A_work, lda, T_dat, b_sz_const, Work2);
 #endif
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
@@ -421,8 +437,11 @@ int CQRRP_blocked<T, RNG>::call(
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
-        //lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
-        lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
+        if(use_gemqrt) {
+            lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
+        } else {
+            lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
+        }
 
         if(this -> timing) {
             updating1_t_stop  = high_resolution_clock::now();

@@ -41,6 +41,7 @@ struct benchmark_data {
     A(m * n, 0.0),
     A1(m * n, 0.0),
     A2(m * m, 0.0),
+    A_gemqrt(m * n, 0.0),
     B(m * n, 0.0),
     B1(m * n, 0.0),
     B2(m * n, 0.0),
@@ -50,6 +51,7 @@ struct benchmark_data {
     A_trans(m * n, 0.0),
     R_trans(n * n, 0.0),
     T_mat(n * n, 0.0),
+    T_gemqrt(n * n, 0.0),
     tau(n, 0.0),
     D(n, 0.0),
     J(m, 0.0),
@@ -232,12 +234,14 @@ static void call_apply_q(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t n,
+    int64_t gemqrt_nb,
     benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
 
     auto m   = all_data.row;
     auto tol = all_data.tolerance;
+    int64_t gemqrt_nb = n;
 
     int64_t tsize = 0;
 
@@ -253,8 +257,10 @@ static void call_apply_q(
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
         lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
+        
+        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_gemqrt.data(), m);
         lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
-
+        lapack::orhr_col(m, n, gemqrt_nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.D.data());
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A2.data(), m);
 
@@ -267,7 +273,7 @@ static void call_apply_q(
         dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
 
         auto start_gemqrt = high_resolution_clock::now();
-        lapack::gemqrt(Side::Left, Op::NoTrans, m, n, n, n, all_data.A1.data(), m, all_data.T_mat.data(), n, all_data.B1.data(), m);
+        lapack::gemqrt(Side::Left, Op::NoTrans, m, n, n, gemqrt_nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
         auto stop_gemqrt = high_resolution_clock::now();
         dur_gemqrt = duration_cast<microseconds>(stop_gemqrt - start_gemqrt).count();
 

@@ -116,7 +116,7 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string file= "HQRRP_inner_speed_"           + std::to_string(m)
+    std::string file = "HQRRP_inner_speed_"           + std::to_string(m)
                                     + "_cols_"       + std::to_string(n)
                                     + "_b_sz_start_" + std::to_string(b_sz_start)
                                     + "_b_sz_end_"   + std::to_string(b_sz_end)

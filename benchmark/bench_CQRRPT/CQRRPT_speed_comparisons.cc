@@ -167,12 +167,12 @@ static void call_all_algs(
              << dur_geqr   << ",  " << dur_geqp3 <<  ",  " << dur_scholqr << ",\n";
     }
 }
-/*
+
 int main() {
     // Declare parameters
-    int64_t m           = std::pow(2, 17);
-    int64_t n_start     = std::pow(2, 9);
-    int64_t n_stop      = std::pow(2, 13);
+    int64_t m           = 1000000;//std::pow(2, 17);
+    int64_t n_start     = std::pow(2, 5);
+    int64_t n_stop      = std::pow(2, 14);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState();
@@ -180,7 +180,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 75;
+    int64_t numruns = 3;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
@@ -199,7 +199,7 @@ int main() {
         call_all_algs(m_info, numruns, n_start, all_data, state_constant, output_filename);
     }
 }
-*/
+
 /*
 int main(int argc, char *argv[]) {
 
@@ -245,7 +245,6 @@ int main(int argc, char *argv[]) {
 
     call_all_algs(m_info, numruns, n, all_data, state_constant, output_filename);
 }
-*/
 
 int main(int argc, char *argv[]) {
 
@@ -291,3 +290,4 @@ int main(int argc, char *argv[]) {
 
     call_all_algs(m_info, numruns, n, all_data, state_constant, output_filename);
 }
+*/
