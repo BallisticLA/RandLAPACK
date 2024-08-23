@@ -68,11 +68,11 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::upsize(k * k, all_data.I_ref);
         RandLAPACK::util::eye(k, k, all_data.I_ref);
 
-        T* A_dat         = all_data.A_cpy1.data();
+        T* A_dat           = all_data.A_cpy1.data();
         T const* A_cpy_dat = all_data.A_cpy2.data();
-        T const* Q_dat   = all_data.Q.data();
-        T const* R_dat   = all_data.R.data();
-        T* I_ref_dat     = all_data.I_ref.data();
+        T const* Q_dat     = all_data.Q.data();
+        T const* R_dat     = all_data.R.data();
+        T* I_ref_dat       = all_data.I_ref.data();
 
         // Check orthogonality of Q
         // Q' * Q  - I = 0
