@@ -40,7 +40,7 @@ struct benchmark_data {
 
     benchmark_data(int64_t m, int64_t n) :
     A(m * n, 0.0),
-    A1(m * n, 0.0),
+    A1(m * m, 0.0),
     A_gemqrt(m * n, 0.0),
     B(m * n, 0.0),
     B1(m * n, 0.0),
@@ -62,6 +62,35 @@ struct benchmark_data {
         tolerance = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     }
 };
+
+
+// Ideally, we would wnat to use the function below to determine the suitable internal gemqrt block size.
+/*
+template <typename T>
+void _LAPACK_ilaenv(
+	int   ISPEC,
+    char* NAME,
+    char* OPTS,
+    int   N1,
+    int   N2,
+    int   N3,
+    int   N4 
+){
+    lapack_int ISPEC_ = (lapack_int) ISPEC;
+    lapack_int N1_ = (lapack_int) N1;
+    lapack_int N2_ = (lapack_int) N2;
+    lapack_int N3_ = (lapack_int) N3;
+    lapack_int N4_ = (lapack_int) N4;
+
+    LAPACK_ilaenv( & ISPEC_, & NAME, & OPTS, 
+        N1_, N2_, N3_, N4_
+        #ifdef LAPACK_FORTRAN_STRLEN_END
+        //, 1
+        #endif
+        );
+    return;
+}
+*/
 
 // Re-generate and clear data
 template <typename T, typename RNG>
@@ -253,7 +282,7 @@ static void call_apply_q(
     int i, j   = 0;
     int64_t nb = 0;
     for (i = 0; i < numruns; ++i) {
-        for(nb = gemqrt_nb_start; nb <= n; nb += 100) {
+        for(nb = gemqrt_nb_start; nb <= n; nb *=2) {
             printf("Apply Q iteration %d; n==%d start.\n", i, n);
             // Performing CholQR
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
@@ -287,7 +316,7 @@ static void call_apply_q(
                 auto stop_gemm = high_resolution_clock::now();
                 dur_gemm = duration_cast<microseconds>(stop_gemm - start_gemm).count();
             
-                file << m << ",  " << n << ",  " << gemqrt_nb_start << ",  " << dur_ormqr << ",  " << dur_gemm << ",  " << dur_gemqrt << ",  " ;
+                file << m << ",  " << n << ",  " << gemqrt_nb_start << ",  " << dur_ormqr << ",  " << dur_gemm << ",  " << dur_gemqrt << ",  " ;                
             } 
             file << dur_gemqrt << ",  ";
             data_regen(m_info, all_data, state, state_B, 3);
@@ -297,13 +326,16 @@ static void call_apply_q(
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+
+    auto size = argv[1];
+
     int64_t i = 0;
     // Declare parameters
-    int64_t m             = std::pow(2, 12);
-    int64_t n_start       = std::pow(2, 10);
-    int64_t n_stop        = std::pow(2, 12);
-    int64_t nb_start      = 120;
+    int64_t m             = std::stol(size);
+    int64_t n_start       = 256;
+    int64_t n_stop        = 1024;
+    int64_t nb_start      = 32;
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();
     auto state_constant   = state;
@@ -329,7 +361,7 @@ int main() {
 
     file << "\nWIDE QRCP: m n GEQP3  LUQR  CQRRPT\n";
     for (i = n_start; i <= n_stop; i *= 2)
-        call_wide_qrcp(m_info, numruns, i, all_data, state, state_B, output_filename);
+        call_wide_qrcp(m_info, numruns, i, all_data, state, output_filename);
 
     file << "\nTSQR: m n GEQRF  GEQR  CHOLQR  CHOLQR_ORHR\n";
     for (i = n_start; i <= n_stop; i *= 2)
