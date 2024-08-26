@@ -218,6 +218,13 @@ int CQRRP_blocked<T, RNG>::call(
 
     // Parameter to control number of blocks in orhr_col and gemqrt;
     int64_t internal_nb = 0;
+    // Set internal nb
+    if (!(this -> internal_nb)) {
+        internal_nb = b_sz;
+    } else {
+        internal_nb = this -> internal_nb;
+    }
+
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
 
@@ -311,13 +318,8 @@ int CQRRP_blocked<T, RNG>::call(
 
     for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
-        b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
-        // Set internal nb
-        if (this -> internal_nb) {
-            internal_nb = b_sz;
-        } else {
-            internal_nb = this -> internal_nb;
-        }
+        b_sz = std::min(b_sz, std::min(m, n) - curr_sz);
+        internal_nb = std::min(internal_nb, b_sz);
 
         // Zero-out data - may not be necessary
         std::fill(&J_buffer[0], &J_buffer[n], 0);
@@ -421,9 +423,9 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Define a pointer to the current subportion of tau vector.
         tau_sub = &tau[curr_sz];
-        // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
+        // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
         for(i = 0; i < b_sz; ++i)
-            tau_sub[i] = T_dat[(b_sz_const + 1) * i];
+            tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();

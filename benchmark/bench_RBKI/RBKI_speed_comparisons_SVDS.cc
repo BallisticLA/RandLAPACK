@@ -241,7 +241,7 @@ static void call_all_algs(
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        /*
+        
         // There is no reason to run SVD many times, as it always outputs the same result.
         if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVD
@@ -282,7 +282,7 @@ static void call_all_algs(
         state_alg = state;
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
-        */
+        
         // Running RSVD
         auto start_rsvd = high_resolution_clock::now();
         int64_t threshold_RSVD = (int64_t ) (b_sz * num_matmuls / 2);
@@ -291,9 +291,9 @@ static void call_all_algs(
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
-	lapack::lacpy(MatrixType::General, m, threshold_RSVD, all_data.U_RSVD, m, all_data.U, m);
-	lapack::lacpy(MatrixType::General, n, threshold_RSVD, all_data.V_RSVD, n, all_data.V, n);
-	blas::copy(threshold_RSVD, all_data.Sigma_RSVD, 1, all_data.Sigma, 1);
+        lapack::lacpy(MatrixType::General, m, threshold_RSVD, all_data.U_RSVD, m, all_data.U, m);
+        lapack::lacpy(MatrixType::General, n, threshold_RSVD, all_data.V_RSVD, n, all_data.V, n);
+        blas::copy(threshold_RSVD, all_data.Sigma_RSVD, 1, all_data.Sigma, 1);
 
         RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
         
