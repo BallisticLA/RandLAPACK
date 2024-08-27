@@ -156,6 +156,18 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t* J,
     RandBLAS::RNGState<RNG> &state
 ){
+    // Early termination - zero input
+    bool all_zero = true;
+    for (size_t i = 0; i < m * n; ++i) {
+        if (A[i] != 0.0) {
+            all_zero = false;
+            break;
+        }
+    }
+    if(all_zero) {
+        return 0;
+    }
+
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;

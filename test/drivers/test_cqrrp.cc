@@ -140,11 +140,11 @@ class TestCQRRP : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
-    int64_t m = 60;//5000;
-    int64_t n = 60;//2000;
-    int64_t k = 60;
+    int64_t m = 5000;//5000;
+    int64_t n = 2000;//2000;
+    int64_t k = 2000;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 10;//500;
+    int64_t b_sz = 500;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -169,11 +169,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
-    int64_t m = 32;//5000;
-    int64_t n = 32;//2000;
-    int64_t k = 32;
+    int64_t m = 5000;//5000;
+    int64_t n = 2000;//2000;
+    int64_t k = 2000;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 7;//500;
+    int64_t b_sz = 700;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -201,9 +201,9 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
 TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     int64_t m = 5000;
     int64_t n = 2000;
-    int64_t k = 1500;
+    int64_t k = 100;
     double d_factor = 2.0;
-    int64_t b_sz = 256;
+    int64_t b_sz = 200;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -213,11 +213,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     CQRRP_blocked.nnz = 2;
     CQRRP_blocked.num_threads = 4;
 
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    //m_info.cond_num = 2;
-    //m_info.rank = k;
-    //m_info.exponent = 2.0;
+    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
@@ -282,7 +282,6 @@ TEST_F(TestCQRRP, CQRRP_blocked_gemqrt) {
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
-
 
 /*
 // Note: If Subprocess killed exception -> reload vscode
