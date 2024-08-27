@@ -123,6 +123,7 @@ class TestCQRRP : public ::testing::Test
         all_data.rank = CQRRP.rank;
 
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
         lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
@@ -135,7 +136,30 @@ class TestCQRRP : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
         error_check(norm_A, all_data);
+
     }
+
+    /// General test for CQRRPT:
+    /// Computes QR factorzation, and computes A[:, J] - QR.
+    template <typename T, typename RNG, typename alg_type>
+    static void test_CQRRP_buf(
+        T d_factor, 
+        T norm_A,
+        CQRRPTestData<T> &all_data,
+        alg_type &CQRRP,
+        RandBLAS::RNGState<RNG> &state) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+
+        std::fill(&all_data.tau[0], &all_data.tau[n], 0.0);
+        std::fill(&all_data.J[0], &all_data.J[n], 0);        
+
+        CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+        all_data.rank = CQRRP.rank;
+
+    }
+
 };
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -282,6 +306,108 @@ TEST_F(TestCQRRP, CQRRP_blocked_gemqrt) {
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
+    int64_t m = 12;//5000;
+    int64_t n = 12;//2000;
+    int64_t k = 12;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 4;//500;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.nnz = 2;
+    CQRRP_blocked.num_threads = 4;
+    CQRRP_blocked.use_qp3 = true;
+
+    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+    all_data.A[12*5] = 1;
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+#if !defined(__APPLE__)
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+#endif
+}
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
+    int64_t m = 12;//5000;
+    int64_t n = 12;//2000;
+    int64_t k = 12;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 4;//500;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.nnz = 2;
+    CQRRP_blocked.num_threads = 4;
+
+    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+    all_data.A[12*5] = 1;
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+#if !defined(__APPLE__)
+    test_CQRRP_buf(d_factor, norm_A, all_data, CQRRP_blocked, state);
+#endif
+}
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, something) {
+    int64_t m = 12;//5000;
+    int64_t n = 12;//2000;
+    
+
+    std::vector<double> A(m * n);
+    std::vector<double> tau(n);
+    std::vector<int64_t> J(n);
+
+    std::fill(&A[0], &A[m * n], 0.0);
+    std::fill(&tau[0], &tau[n], 0.0);
+    std::fill(&J[0], &J[n], 0);
+/*
+    std::vector<double> T_dat(n * n);
+    std::vector<double> Work2(n);
+    A[0] = -1;
+    lapack::orhr_col(m, 1, 1, A.data(), m, T_dat.data(), n, Work2.data());
+
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, A.data(), name);
+
+    char name1 [] = "T";
+    RandBLAS::util::print_colmaj(n, n, T_dat.data(), name1);
+
+    tau[0] = T_dat[0];
+
+    lapack::ungqr(m, n, n, A.data(), m, tau.data());
+
+    RandBLAS::util::print_colmaj(m, n, A.data(), name);
+*/
+
+    A[12*5] = 1;
+
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, A.data(), name);
+
+    lapack::geqp3(m, n, A.data(), m, J.data(), tau.data());
+
+    RandBLAS::util::print_colmaj(m, n, A.data(), name);
+
+    for(int i = 0; i < n; ++i) {
+        printf("%ld, %f\n", J[i], tau[i]);
+    }    
+
+    lapack::ungqr(m, n, n, A.data(), m, tau.data());
+
+    RandBLAS::util::print_colmaj(m, n, A.data(), name);
+}
+
 
 /*
 // Note: If Subprocess killed exception -> reload vscode

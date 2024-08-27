@@ -63,7 +63,8 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             use_qp3      = false;
             use_gaussian = false;
             use_gemqrt   = false;
-            internal_nb  = 0;
+            internal_nb  = b_sz;
+            tol = std::numeric_limits<T>::epsilon();
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -141,6 +142,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
 
         // NB for orhr_col and gemqrt
         int64_t internal_nb;
+
+        // Naive rank estimation parameter;
+        T tol;
 };
 
 // We are assuming that tau and J have been pre-allocated
@@ -156,18 +160,6 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t* J,
     RandBLAS::RNGState<RNG> &state
 ){
-    // Early termination - zero input
-    bool all_zero = true;
-    for (size_t i = 0; i < m * n; ++i) {
-        if (A[i] != 0.0) {
-            all_zero = false;
-            break;
-        }
-    }
-    if(all_zero) {
-        return 0;
-    }
-
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
@@ -227,6 +219,8 @@ int CQRRP_blocked<T, RNG>::call(
     T curr_entry = 0;
     T running_max = 0;
     T running_min = 0;
+    // An indicator for whether all entries in a given block are zero.
+    bool block_zero = true;
 
     // Parameter to control number of blocks in orhr_col and gemqrt;
     int64_t internal_nb = 0;
@@ -340,6 +334,9 @@ int CQRRP_blocked<T, RNG>::call(
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
+
+        char name3 [] = "A_sk";
+        RandBLAS::util::print_colmaj(m, n, A_sk, name3);
         
         if (this -> use_qp3) {
             lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
@@ -363,6 +360,12 @@ int CQRRP_blocked<T, RNG>::call(
             lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         }
 
+        RandBLAS::util::print_colmaj(m, n, A_sk, name3);
+        for(int i = 0; i < n; ++i) {
+            printf("%ld ", J_buffer[i]);
+        }
+        printf("\n");
+
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
@@ -382,6 +385,23 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Pivoting the current matrix A.
         util::col_swap(rows, cols, cols, A_work, lda, J_buf);
+        // Checking for the zero matrix post-pivoting is the best idea, 
+        // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
+        char name [] = "A";
+        RandBLAS::util::print_colmaj(m, n, A, name);
+
+        block_zero = true;
+        for (size_t i = 0; i < rows * b_sz; ++i) {
+            if (A_work[i] != 0.0) {
+                block_zero = false;
+                break;
+            }
+        }
+        if(block_zero){
+            // Zero leftover matrix, early termination
+            printf("%ld\n", iter);
+            return 0;
+        }
 
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
@@ -391,7 +411,22 @@ int CQRRP_blocked<T, RNG>::call(
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
 
-        // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
+        // Naive rank estimation to perform preconditioning safely.
+        // Block size is altered if the rank is not full.
+        // If this happens, we will terminate at the end of the current iteration.
+        // If the internal_nb, used in gemqrt and orhr_col is larger than the updated block size, it would need to be updated as well.
+        char name1 [] = "R_sk";
+        RandBLAS::util::print_colmaj(b_sz_const, b_sz_const, R_sk, name1);
+        for(i = 0; i < b_sz; ++i) {
+            if(std::abs(R_sk[i * d + i]) / std::abs(R_sk[0]) < this -> tol) {
+                b_sz = i;
+                internal_nb = std::min(internal_nb, b_sz);
+                break;
+            }
+        }
+        printf("%ld\n", b_sz);
+
+        // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda);
 
@@ -405,6 +440,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         // Performing Cholesky QR
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
+
         lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
 
         // Compute Q_econ from Cholesky QR
@@ -428,7 +464,6 @@ int CQRRP_blocked<T, RNG>::call(
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
-
         for(i = 0; i < b_sz; ++i)
             for(j = 0; j < (i + 1); ++j)
                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
@@ -451,6 +486,7 @@ int CQRRP_blocked<T, RNG>::call(
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
+
         if(use_gemqrt) {
             lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
         } else {
@@ -473,7 +509,9 @@ int CQRRP_blocked<T, RNG>::call(
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
         // Compute R11 = R11_full(1:b_sz, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
+
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
+
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
@@ -515,7 +553,14 @@ int CQRRP_blocked<T, RNG>::call(
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if(curr_sz >= n) {
+        // Termination criteria is reached when:
+        // 1. All iterations are exhausted.
+        // 2. Block size has been altered, which is done either 
+        // when we are at last iteration and the input block size 
+        // goes beyond the data size or when the estimated rank of
+        // the R-factor from QRCP at this iteration is not full,
+        // meaning that the rest of the matrix is zero.
+        if((curr_sz >= n) || (b_sz != b_sz_const)) {
             // Termination criteria reached
             this -> rank = curr_sz;
 
