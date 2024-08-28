@@ -336,7 +336,7 @@ int CQRRP_blocked<T, RNG>::call(
             qrcp_t_start = high_resolution_clock::now();
 
         char name3 [] = "A_sk";
-        RandBLAS::util::print_colmaj(m, n, A_sk, name3);
+        //RandBLAS::util::print_colmaj(d, n, A_sk, name3);
         
         if (this -> use_qp3) {
             lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
@@ -349,6 +349,12 @@ int CQRRP_blocked<T, RNG>::call(
             lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
             // Fill the pivot vector, apply swaps found via lu on A_sk'.
             std::iota(&J_buffer[0], &J_buffer[cols], 1);
+
+            //for(int i = 0; i < d; ++i) {
+                //printf("%ld ", J_buffer_lu[i]);
+            //}
+            //printf("\n");
+
             for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
                 tmp = J_buffer[J_buffer_lu[i] - 1];
                 J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
@@ -360,11 +366,11 @@ int CQRRP_blocked<T, RNG>::call(
             lapack::geqrf(sampling_dimension, cols, A_sk, d, Work2);
         }
 
-        RandBLAS::util::print_colmaj(m, n, A_sk, name3);
-        for(int i = 0; i < n; ++i) {
-            printf("%ld ", J_buffer[i]);
-        }
-        printf("\n");
+        //RandBLAS::util::print_colmaj(m, n, A_sk, name3);
+        //for(int i = 0; i < n; ++i) {
+        //    printf("%ld ", J_buffer[i]);
+        //}
+        //printf("\n");
 
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
@@ -388,10 +394,10 @@ int CQRRP_blocked<T, RNG>::call(
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
         char name [] = "A";
-        RandBLAS::util::print_colmaj(m, n, A, name);
+        //RandBLAS::util::print_colmaj(m, n, A, name);
 
         block_zero = true;
-        for (size_t i = 0; i < rows * b_sz; ++i) {
+        for (size_t i = 0; i < rows; ++i) {
             if (A_work[i] != 0.0) {
                 block_zero = false;
                 break;
@@ -416,7 +422,7 @@ int CQRRP_blocked<T, RNG>::call(
         // If this happens, we will terminate at the end of the current iteration.
         // If the internal_nb, used in gemqrt and orhr_col is larger than the updated block size, it would need to be updated as well.
         char name1 [] = "R_sk";
-        RandBLAS::util::print_colmaj(b_sz_const, b_sz_const, R_sk, name1);
+        //RandBLAS::util::print_colmaj(b_sz_const, b_sz_const, R_sk, name1);
         for(i = 0; i < b_sz; ++i) {
             if(std::abs(R_sk[i * d + i]) / std::abs(R_sk[0]) < this -> tol) {
                 b_sz = i;

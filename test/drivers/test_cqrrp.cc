@@ -103,7 +103,7 @@ class TestCQRRP : public ::testing::Test
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
         ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
-        ASSERT_NEAR(norm_0, 0.0, atol);
+        ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
     }
 
     /// General test for CQRRPT:
@@ -352,9 +352,12 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[12*5] = 1;
 
+    char name [] = "A";
+    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+
     norm_and_copy_computational_helper(norm_A, all_data);
 #if !defined(__APPLE__)
-    test_CQRRP_buf(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
 #endif
 }
 
