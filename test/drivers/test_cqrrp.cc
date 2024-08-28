@@ -59,7 +59,7 @@ class TestCQRRP : public ::testing::Test
     /// This routine also appears in benchmarks, but idk if it should be put into utils
     template <typename T>
     static void
-    error_check(T &norm_A, CQRRPTestData<T> &all_data) {
+    error_check(T &norm_A, CQRRPTestData<T> &all_data, T atol) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -100,7 +100,6 @@ class TestCQRRP : public ::testing::Test
         printf("MAX COL NORM METRIC:    %14e\n", max_col_norm / col_norm_A);
         printf("FRO NORM OF (Q'Q - I):  %14e\n\n", norm_0 / std::sqrt((T) n));
 
-        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
         ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
         ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
@@ -118,46 +117,31 @@ class TestCQRRP : public ::testing::Test
 
         auto m = all_data.row;
         auto n = all_data.col;
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
         CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
-        all_data.rank = CQRRP.rank;
 
-        RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+        if(CQRRP.rank == 0) {
+            for(int i = 0; i < m * n; ++i) {
+                ASSERT_NEAR(all_data.A[i], 0.0, atol);
+            }
+        } else {
+            all_data.rank = CQRRP.rank;
+            printf("RANK AS RETURNED BY CQRRP %4ld\n", all_data.rank);
 
-        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
+            RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
 
-        lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
-        
-        lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
+            lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
-        printf("RANK AS RETURNED BY CQRRP %4ld\n", all_data.rank);
+            lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
+            
+            lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-        error_check(norm_A, all_data);
-
-    }
-
-    /// General test for CQRRPT:
-    /// Computes QR factorzation, and computes A[:, J] - QR.
-    template <typename T, typename RNG, typename alg_type>
-    static void test_CQRRP_buf(
-        T d_factor, 
-        T norm_A,
-        CQRRPTestData<T> &all_data,
-        alg_type &CQRRP,
-        RandBLAS::RNGState<RNG> &state) {
-
-        auto m = all_data.row;
-        auto n = all_data.col;
-
-        std::fill(&all_data.tau[0], &all_data.tau[n], 0.0);
-        std::fill(&all_data.J[0], &all_data.J[n], 0);        
-
-        CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
-        all_data.rank = CQRRP.rank;
-
+            error_check(norm_A, all_data, atol);
+        }
     }
 
 };
@@ -266,7 +250,6 @@ TEST_F(TestCQRRP, CQRRP_pivot_qual) {
     CQRRP_blocked.nnz          = 4;
     CQRRP_blocked.num_threads  = 8;
     CQRRP_blocked.use_qp3      = 1;
-    CQRRP_blocked.use_gaussian = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
     m_info.cond_num = std::pow(10, 10);
@@ -309,11 +292,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_gemqrt) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
-    int64_t m = 12;//5000;
-    int64_t n = 12;//2000;
-    int64_t k = 12;
+    int64_t m = 1000;//5000;
+    int64_t n = 1000;//2000;
+    int64_t k = 1000;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 4;//500;
+    int64_t b_sz = 100;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -325,7 +308,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
     CQRRP_blocked.use_qp3 = true;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
-    all_data.A[12*5] = 1;
+    all_data.A[1000*200 + 10] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
 #if !defined(__APPLE__)
@@ -335,11 +318,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
-    int64_t m = 12;//5000;
-    int64_t n = 12;//2000;
-    int64_t k = 12;
+    int64_t m = 1000;//5000;
+    int64_t n = 1000;//2000;
+    int64_t k = 1000;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 4;//500;
+    int64_t b_sz = 100;//500;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -350,10 +333,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
     CQRRP_blocked.num_threads = 4;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
-    all_data.A[12*5] = 1;
-
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, all_data.A.data(), name);
+    all_data.A[1000*200 + 10] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
 #if !defined(__APPLE__)
@@ -362,99 +342,51 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, something) {
-    int64_t m = 12;//5000;
-    int64_t n = 12;//2000;
-    
-
-    std::vector<double> A(m * n);
-    std::vector<double> tau(n);
-    std::vector<int64_t> J(n);
-
-    std::fill(&A[0], &A[m * n], 0.0);
-    std::fill(&tau[0], &tau[n], 0.0);
-    std::fill(&J[0], &J[n], 0);
-/*
-    std::vector<double> T_dat(n * n);
-    std::vector<double> Work2(n);
-    A[0] = -1;
-    lapack::orhr_col(m, 1, 1, A.data(), m, T_dat.data(), n, Work2.data());
-
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, A.data(), name);
-
-    char name1 [] = "T";
-    RandBLAS::util::print_colmaj(n, n, T_dat.data(), name1);
-
-    tau[0] = T_dat[0];
-
-    lapack::ungqr(m, n, n, A.data(), m, tau.data());
-
-    RandBLAS::util::print_colmaj(m, n, A.data(), name);
-*/
-
-    A[12*5] = 1;
-
-    char name [] = "A";
-    RandBLAS::util::print_colmaj(m, n, A.data(), name);
-
-    lapack::geqp3(m, n, A.data(), m, J.data(), tau.data());
-
-    RandBLAS::util::print_colmaj(m, n, A.data(), name);
-
-    for(int i = 0; i < n; ++i) {
-        printf("%ld, %f\n", J[i], tau[i]);
-    }    
-
-    lapack::ungqr(m, n, n, A.data(), m, tau.data());
-
-    RandBLAS::util::print_colmaj(m, n, A.data(), name);
-}
-
-
-/*
-// Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, something) {
-    int64_t m = 10;
-    int64_t n = 5;
+TEST_F(TestCQRRP, CQRRP_blocked_half_zero_luqr) {
+    int64_t m = 5000;//5000;
+    int64_t n = 2000;//2000;
+    int64_t k = 2000;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 500;//500;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    std::vector<double> A(m * n, 0.0);
-    std::vector<double> B(m * n, 0.0);
-    std::vector<double> C(m * 2 * n, 0.0);
-    std::vector<double> D(m * n, 0.0);
-    std::vector<double> D_cpy(m * n, 0.0);
-    std::vector<double> D_space(m * n, 0.0);
-
-    std::vector<double> tau(n * 2, 0.0);
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.nnz = 2;
+    CQRRP_blocked.num_threads = 4;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, A.data(), state);
-    RandLAPACK::gen::mat_gen(m_info, B.data(), state);
-    RandLAPACK::gen::mat_gen(m_info, D.data(), state);
-    lapack::lacpy(MatrixType::General, m, n, D.data(), m, D_cpy.data(), m);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    std::fill(&(all_data.A.data())[m * n / 2], &(all_data.A.data())[m * n], 0.0);
 
-    lapack::geqrf(m, n, A.data(), m, tau.data());
-    lapack::geqrf(m, n, B.data(), m, tau.data() + n);
-
-    // Method 1
-    lapack::lacpy(MatrixType::Lower, m, n, A.data(), m, C.data(), m);
-    lapack::lacpy(MatrixType::Lower, m, n, B.data(), m, C.data() + (m * n), m);
-    lapack::ormqr(Side::Left, Op::NoTrans, m, n, m, C.data(), m, tau.data(), D.data(), m);
-
-    char name [] = "D through ormqr";
-    RandBLAS::util::print_colmaj(m, n, D.data(), name);
-
-    // Method 2
-    lapack::ungqr(m, n, n, A.data(), m, tau.data());
-    lapack::ungqr(m, n, n, B.data(), m, tau.data() + n);
-
-    lapack::lacpy(MatrixType::General, m, n, A.data(), m, C.data(), m);
-    lapack::lacpy(MatrixType::General, m, n, B.data(), m, C.data() + (m * n), m);
-
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, n, m, 1.0, C.data(), m, D_cpy.data(), m, 0.0, D_space.data(), m);
-
-    char name1 [] = "D through gemm";
-    RandBLAS::util::print_colmaj(m, n, D_space.data(), name1);
+    norm_and_copy_computational_helper(norm_A, all_data);
+#if !defined(__APPLE__)
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+#endif
 }
-*/
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, CQRRP_blocked_zero_mat) {
+    int64_t m = 1000;//5000;
+    int64_t n = 1000;//2000;
+    int64_t k = 1000;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 100;//500;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.nnz = 2;
+    CQRRP_blocked.num_threads = 4;
+
+    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+#if !defined(__APPLE__)
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+#endif
+}
