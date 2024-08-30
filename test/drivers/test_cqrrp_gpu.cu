@@ -99,6 +99,9 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         T* tau_device;
         int64_t* J_device;
 
+        T* R_device;
+        T* D_device;
+
         CQRRPBenchData(int64_t m, int64_t n) :
         A(m * n, 0.0)
         {
@@ -107,12 +110,16 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
             cudaMalloc(&A_device,    m * n * sizeof(T));
             cudaMalloc(&tau_device,  n *     sizeof(T));
             cudaMalloc(&J_device,    n *     sizeof(int64_t));
+            cudaMalloc(&R_device,    n * n * sizeof(T));
+            cudaMalloc(&D_device,    n *     sizeof(T));
         }
 
         ~CQRRPBenchData() {
             cudaFree(A_device);
             cudaFree(tau_device);
             cudaFree(J_device);
+            cudaFree(R_device);
+            cudaFree(D_device);
         }
     };
 
@@ -157,7 +164,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
     /// This routine also appears in benchmarks, but idk if it should be put into utils
     template <typename T>
     static void
-    error_check(T &norm_A, CQRRPTestData<T> &all_data) {
+    error_check(T &norm_A, CQRRPTestData<T> &all_data, T atol) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -198,7 +205,6 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         printf("MAX COL NORM METRIC:    %14e\n", max_col_norm / col_norm_A);
         printf("FRO NORM OF (Q'Q - I):  %14e\n\n", norm_0 / std::sqrt((T) n));
 
-        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
         ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
         ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
@@ -215,24 +221,33 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 
         auto m = all_data.row;
         auto n = all_data.col;
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-        all_data.rank = CQRRP_GPU.rank;
-        printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", all_data.rank);
         
-        cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
-        cudaMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
-        cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
-        cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+        if(CQRRP_GPU.rank == 0) {
+            cudaMemcpy(all_data.A.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+            for(int i = 0; i < m * n; ++i) {
+                ASSERT_NEAR(all_data.A[i], 0.0, atol);
+            }
+        } else {
+            all_data.rank = CQRRP_GPU.rank;
+            printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", all_data.rank);
+            
+            cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+            cudaMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
+            cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
+            cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
-        lapack::ungqr(m, n, n, all_data.Q.data(), m, all_data.tau.data());
-        RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
-        lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
+            lapack::ungqr(m, n, n, all_data.Q.data(), m, all_data.tau.data());
+            RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+            lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
 
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-        error_check(norm_A, all_data);
+            error_check(norm_A, all_data, atol);
+        }
     }
 
     template <typename T, typename RNG, typename alg_gpu, typename alg_cpu>
@@ -340,6 +355,66 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
             printf(" QRF TIME (MS) = %ld\n", diff_qrf);
         }
     }
+
+    template <typename T, typename RNG>
+    static void bench_CholQR(
+        RandLAPACK::gen::mat_gen_info<T> m_info,
+        int64_t numcols,
+        CQRRPBenchData<T> &all_data,
+        RandBLAS::RNGState<RNG> state,
+        std::string output_filename) {
+
+        auto m = all_data.row;
+        auto n = numcols;
+        auto state_const = state;
+
+        // Initialize GPU stuff
+        lapack::Queue lapack_queue(0);
+        cudaStream_t strm = lapack_queue.stream();
+        using lapack::device_info_int;
+        device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+        char* d_work_geqrf;
+        char* h_work_geqrf;
+        size_t d_size_geqrf, h_size_geqrf;
+
+        // CholQR part
+        auto start_cholqr = std::chrono::steady_clock::now();
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A_device, m, (T) 0.0, all_data.R_device, n, lapack_queue);
+        lapack::potrf(Uplo::Upper,  n, all_data.R_device, n, d_info, lapack_queue);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R_device, n, all_data.A_device, m, lapack_queue);
+        lapack_queue.sync();
+        auto stop_cholqr  = std::chrono::steady_clock::now();
+        auto diff_cholqr  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_cholqr  - start_cholqr).count();
+        
+        auto start_orhr_col = std::chrono::steady_clock::now();
+        // ORHR_COL part
+        RandLAPACK::cuda_kernels::orhr_col_gpu(strm, m, n, all_data.A_device, m, all_data.tau_device, all_data.D_device);  
+        RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, n, n, all_data.R_device, all_data.D_device);
+        cudaStreamSynchronize(strm);
+        auto stop_orhr_col  = std::chrono::steady_clock::now();
+        auto diff_orhr_col  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_orhr_col  - start_orhr_col).count();
+
+        // Mandatory data re-generation
+        data_regen(m_info, all_data, state);
+
+        // QRF part
+        auto start_qrf = std::chrono::steady_clock::now();
+        lapack::geqrf_work_size_bytes(m, n, all_data.A_device, m, &d_size_geqrf, &h_size_geqrf, lapack_queue);
+        d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
+        std::vector<char> h_work_geqrf_vector( h_size_geqrf );
+        h_work_geqrf = h_work_geqrf_vector.data();
+        lapack::geqrf(m, n, all_data.A_device, m, all_data.tau_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
+        lapack_queue.sync();
+        auto stop_qrf  = std::chrono::steady_clock::now();
+        auto diff_qrf  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_qrf  - start_qrf).count();
+        printf(" CholQR TIME (MS)   = %ld\n", diff_cholqr);
+        printf(" ORHR_COL TIME (MS) = %ld\n", diff_orhr_col);
+        printf(" QRF TIME (MS)      = %ld\n", diff_qrf);
+
+        std::ofstream file(output_filename, std::ios::app);
+        file << m << "  " << n << "n" << diff_cholqr << "  " << diff_orhr_col << "  " << diff_qrf << "\n";
+    }
+
 };
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -400,6 +475,55 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
 #endif
 }
 
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRP, CQRRP_GPU_near_zero_input) {
+    int64_t m = 1000;//5000;
+    int64_t n = 1000;//2000;
+    int64_t k = 1000;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 100;//500;
+    int64_t d = d_factor * b_sz;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k, d);
+    RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(false, tol, b_sz);
+    CQRRP_blocked_GPU.use_qrf = false;
+
+    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+    all_data.A[1000*200 + 1] = 1;
+
+    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+#if !defined(__APPLE__)
+    test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
+#endif
+}
+
+TEST_F(TestCQRRP, CQRRP_GPU_zero_input) {
+    int64_t m = 1000;//5000;
+    int64_t n = 1000;//2000;
+    int64_t k = 1000;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 100;//500;
+    int64_t d = d_factor * b_sz;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k, d);
+    RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(false, tol, b_sz);
+    CQRRP_blocked_GPU.use_qrf = false;
+
+    std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
+
+    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+#if !defined(__APPLE__)
+    test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
+#endif
+}
+
+/*
 TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m            = std::pow(2, 14);
     int64_t n            = std::pow(2, 14);
@@ -419,18 +543,40 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
 
-    std::string file = "ICQRRP_runtime_breakdown_"    + std::to_string(m)
+    std::string file = "ICQRRP_GPU_runtime_breakdown_rows_"    + std::to_string(m)
                                     + "_cols_"       + std::to_string(n)
                                     + "_d_factor_"   + std::to_string(d_factor)
                                     + ".dat";
 
     bench_CQRRP(profile_runtime, run_qrf, m_info, d_factor, tol, b_sz, all_data, state, file);
 }
-
+*/
 
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_16k_benchmarks,
     TestCQRRP,
     ::testing::Values(120) //32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
 );
+
+TEST_F(TestCQRRP, Bench_CholQR) {
+    int64_t m       = std::pow(2, 14);
+    int64_t n_start = 120;
+    int64_t n_stop  = std::pow(2, 14);
+    auto state      = RandBLAS::RNGState();
+
+    CQRRPBenchData<double> all_data(m, n_stop);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n_stop * sizeof(double), cudaMemcpyHostToDevice);
+
+
+    std::string file = "CholQR_GPU_speed_rows_"      + std::to_string(m)
+                                    + "_cols_start_" + std::to_string(n_start)
+                                    + "_cols_stop_"  + std::to_string(n_stop)
+                                    + ".dat";
+
+    for(int i = n_start; i <= n_stop; i += n_start)
+        bench_CholQR(m_info, i, all_data, state, file);
+}
+
 #endif

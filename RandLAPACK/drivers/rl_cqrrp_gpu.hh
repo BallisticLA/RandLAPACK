@@ -70,6 +70,7 @@ class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
             eps = ep;
             block_size = b_sz;
             use_qrf = false;
+            tol = std::numeric_limits<T>::epsilon();
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -129,6 +130,9 @@ class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
         int64_t rank;
         int64_t block_size;
         std::vector<long> times;
+
+        // Naive rank estimation parameter;
+        T tol;
 };
 
 // -----------------------------------------------------------------------------
@@ -208,6 +212,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
+    // An indicator for whether all entries in a given block are zero.
+    bool block_zero = true;
+    // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration, 
+    // since the rest of the matrx must be zero.
+    // Is equal to block size by default, needs to be upated if the block size has changed.
+    int64_t block_rank = b_sz;
 
     /******************************STREAM/QUEUE/HANDLE*********************************/
     lapack::Queue lapack_queue(0);
@@ -320,6 +330,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
+        block_rank = b_sz;
 
         // Zero-out data - may not be necessary
         cudaMemsetAsync(J_buffer_lu, (T) 0.0, std::min(d, n), strm);
@@ -392,6 +403,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("copy_A");
             copy_A_t_start = high_resolution_clock::now();
         }
+        // THIS IS ALREADY DONE ABOVE
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.      
@@ -407,13 +419,56 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, J_buffer);
+        
+        // Checking for the zero matrix post-pivoting is the best idea, 
+        // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
+        block_zero = true;
+        RandLAPACK::cuda_kernels::all_of(strm, rows, 0.0, A_work, block_zero);
+        if(block_zero){
+            this -> rank = curr_sz;
+            // Measures taken to insure J holds correct data, explained above.
+            if(iter % 2) {
+                // Total number of iterations is even (iter starts at 0)
+                J_cpy_buf = J_copy_col_swap;
+                J_copy_col_swap = J;
+                J = J_cpy_buf;
+            }
+            for(int odd_idx = 1; odd_idx <= iter; odd_idx += 2) {
+                if(odd_idx == iter) {
+                    // Do not copy extra data if b_sz has changed.
+                    RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
+                } else {
+                    RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
+                }
+            }
+            lapack_queue.sync();
+
+            cudaFree(A_sk_trans);
+            cudaFree(J_buffer);
+            cudaFree(J_buffer_lu);
+            cudaFree(Work2);
+            cudaFree(R_cholqr);
+            cudaFree(d_work_ormqr);
+            cudaFree(A_copy_col_swap);
+            cudaFree(A_sk_copy_col_swap);
+            cudaFree(J_copy_col_swap);
+            return 0;
+        }
+        
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
         Work1 = &A_work[lda * b_sz];
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk_work;
-        
+
+        // Naive rank estimation to perform preconditioning safely.
+        // Variable block_rank is altered if the rank is not full.
+        // If this happens, we will terminate at the end of the current iteration.
+        // If the internal_nb, used in gemqrt and orhr_col is larger than the updated block_rank, it would need to be updated as well.
+        // Updating block_rank affects the way the preconditioning is done, which, in its turn, affects CholQR, ORHR_COL, updating A and updating R.
+        RandLAPACK::cuda_kernels::naive_rank_est(strm, b_sz, this -> tol, R_sk, d, block_rank);
+
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
@@ -423,10 +478,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             preconditioning_t_start = high_resolution_clock::now();
         }
         
-        // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
-        // Performing preconditioning of the current matrix A.
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
-        
         if(this -> timing) {
             lapack_queue.sync();
             nvtxRangePop();
@@ -434,12 +485,16 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
         }
 
+        // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
+        // Performing preconditioning of the current matrix A.
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
+
         if(this -> use_qrf) {
             if(this -> timing) {
                 nvtxRangePushA("cholqr");
                 cholqr_t_start = high_resolution_clock::now();
             }
-            // Perform an unpivoted QR on A_sk
+            // Perform an unpivoted QR instead of CholQR
             if(iter == 0) {
                 lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work, d, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
                 d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
@@ -461,11 +516,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePushA("cholqr");
                 cholqr_t_start = high_resolution_clock::now();
             }
+            
             // Performing Cholesky QR
-            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
-            lapack::potrf(Uplo::Upper,  b_sz, R_cholqr, b_sz_const, d_info, lapack_queue);
+            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
+            lapack::potrf(Uplo::Upper,  block_rank, R_cholqr, b_sz_const, d_info, lapack_queue);
             // Compute Q_econ from Cholesky QR
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
             
             if(this -> timing) {
                 lapack_queue.sync();
@@ -482,8 +538,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
             // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
             // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
-            RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, b_sz, A_work, lda, &tau[curr_sz], Work2);  
-            
+            // Q is defined with block_rank elementary reflectors.
+            RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, block_rank, A_work, lda, &tau[curr_sz], Work2);  
+
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -493,26 +550,27 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
             // Need to change signs in the R-factor from Cholesky QR.
             // Signs correspond to matrix D from orhr_col().
-            // This allows us to not explicitly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
-            RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, b_sz, b_sz_const, R_cholqr, Work2);
+            // This allows us to not explicitly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
+            RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, block_rank, b_sz_const, R_cholqr, Work2);
         }
-        // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
+        // Perform Q_full' * A_piv(:, block_rank:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
         // ORMQR proves to be much faster than GEMQRT with MKL.
+        // Q is defined with block_rank elementary reflectors. 
         if(this -> timing) {
             nvtxRangePushA("update_A");
             updating_A_t_start = high_resolution_clock::now();
         }
         if (iter == 0) {
             // Compute optimal workspace size
-            cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+            cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
             // Allocate workspace
             cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
         }
-        cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, b_sz, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+        cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
         // Synchronization required after using cusolver
         cudaStreamSynchronize(strm);
 
@@ -582,15 +640,15 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
-        // Compute R11 = R11_full(1:b_sz, :) * R_sk
+        // Compute R11 = R11_full(1:block_rank, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, block_rank, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
         // R11 =  &A[(m + 1) * curr_sz];
         R11 = A_work;
-        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda, true);
+        RandLAPACK::cuda_kernels::copy_mat_gpu(strm, block_rank, block_rank, R_cholqr, b_sz_const, A_work, lda, true);
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
@@ -606,8 +664,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if(curr_sz >= n) {
-            // Termination criteria reached
+        // Termination criteria is reached when:
+        // 1. All iterations are exhausted.
+        // 2. block_rank has been altered, which happens
+        // when the estimated rank of the R-factor 
+        // from QRCP at this iteration is not full,
+        // meaning that the rest of the matrix is zero.
+        if((curr_sz >= n) || (block_rank != b_sz_const)) {
             this -> rank = curr_sz;
             // Measures taken to insure J holds correct data, explained above.
             if(iter % 2) {
