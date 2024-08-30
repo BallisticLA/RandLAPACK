@@ -17,6 +17,59 @@ namespace RandLAPACK::cuda_kernels {
  */
 
 template <typename T>
+__global__ void __launch_bounds__(128) all_of(
+int64_t n,
+const T alpha,
+const T* A,
+bool* all_equal
+){
+    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
+    __shared__ bool indicator;
+    if (id == 0) {
+        *all_equal = true;
+        indicator = true;
+    }
+    __syncthreads();
+    // No need to continue checking the elements if we have already encountered one not equal to alpha
+    if ((id < n) && (A[id] != alpha) && (*all_equal == true)) {
+        indicator = false;
+    }
+    __syncthreads();
+    
+    if(id == 0 && !indicator) {
+        *all_equal = false;
+    }
+}
+
+template <typename T>
+__global__ void __launch_bounds__(128) naive_rank_est(
+int64_t n,
+const T alpha,
+const T* A,
+int64_t lda,
+int64_t* rank
+){
+    int64_t const id = (int64_t)blockDim.x * blockIdx.x + threadIdx.x;
+    __shared__ int64_t indicator;
+    if (id == 0) {
+        indicator = n;
+        *rank = n;
+    }
+    __syncthreads();
+
+    // As we are looking at the elements of the diagonal of A in parallel,
+    // it is important to remember that the actual rank might be smaller 
+    // than the currently-defined one, so this should not have an early termination.
+    if((id < indicator) && (std::abs(A[id * lda + id]) / std::abs(A[0]) <= alpha)) {
+        atomicMin((int*) &indicator, (int) id);
+    }
+    __syncthreads();
+    if(id == 0 && indicator != n) {
+        *rank = indicator;
+    }
+}
+
+template <typename T>
 __global__ void __launch_bounds__(128) elementwise_product(
 int64_t n,
 const T alpha,
@@ -432,6 +485,64 @@ __global__ void copy_mat_gpu(
 #endif
 
 template <typename T>
+void naive_rank_est(
+    cudaStream_t stream, 
+    int64_t n,
+    const T alpha,
+    const T* A,
+    int64_t lda,
+    int64_t& rank
+) {
+#ifdef USE_CUDA
+    int64_t* rank_device;
+    cudaMalloc(&rank_device, sizeof(int64_t));
+
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
+    naive_rank_est<<<num_blocks_ger, threadsPerBlock, sizeof(int64_t), stream>>>(n, alpha, A, lda, rank_device);
+#endif
+    // It seems that these synchs are required, after all
+    cudaStreamSynchronize(stream);
+    cudaMemcpy(&rank, rank_device, sizeof(int64_t), cudaMemcpyDeviceToHost);
+    cudaStreamSynchronize(stream);
+    cudaFree(rank_device);
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch naive_rank_est. " << cudaGetErrorString(ierr))
+        abort();
+    }
+}
+
+template <typename T>
+void all_of(
+    cudaStream_t stream, 
+    int64_t n,
+    const T alpha,
+    const T* A,
+    bool& all_equal
+) {
+#ifdef USE_CUDA
+    bool* all_equal_device;
+    cudaMalloc(&all_equal_device, sizeof(bool));
+
+    constexpr int threadsPerBlock{128};
+    int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
+    all_of<<<num_blocks_ger, threadsPerBlock, sizeof(bool), stream>>>(n, alpha, A, all_equal_device);
+    cudaStreamSynchronize(stream);
+    cudaMemcpy(&all_equal, all_equal_device, sizeof(bool), cudaMemcpyDeviceToHost);
+    cudaStreamSynchronize(stream);
+    cudaFree(all_equal_device);
+#endif
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        BPCG_ERROR("Failed to launch all_equal. " << cudaGetErrorString(ierr))
+        abort();
+    }
+}
+
+template <typename T>
 void ger_gpu(
     cudaStream_t stream, 
     int64_t m, 
@@ -450,7 +561,6 @@ void ger_gpu(
     int64_t num_blocks_ger{(m + threadsPerBlock - 1) / threadsPerBlock};
     ger_gpu<<<num_blocks_ger, threadsPerBlock, 0, stream>>>(m, n, alpha, x, incx, y, incy, A, lda);
 #endif
-  
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
