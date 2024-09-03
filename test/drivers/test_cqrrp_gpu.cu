@@ -300,7 +300,8 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         int64_t block_size,
         CQRRPBenchData<T> &all_data,
         RandBLAS::RNGState<RNG> state,
-        std::string output_filename) {
+        std::string output_filename_breakdown,
+        std::string output_filename_speed) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -330,8 +331,11 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         free(all_data.A_sk);
 
 	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
+        std::ofstream file(output_filename_speed, std::ios::app);
+        file << m << "  " << n << "  " << block_size << "  " << diff << "\n";
+
         if(profile_runtime) {
-            std::ofstream file(output_filename, std::ios::app);
+            std::ofstream file(output_filename_breakdown, std::ios::app);
             std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 17, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
@@ -412,7 +416,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         printf(" QRF TIME (MS)      = %ld\n", diff_qrf);
 
         std::ofstream file(output_filename, std::ios::app);
-        file << m << "  " << n << "n" << diff_cholqr << "  " << diff_orhr_col << "  " << diff_qrf << "\n";
+        file << m << "  " << n << "  " << diff_cholqr << "  " << diff_orhr_col << "  " << diff_qrf << "\n";
     }
 
 };
@@ -523,7 +527,6 @@ TEST_F(TestCQRRP, CQRRP_GPU_zero_input) {
 #endif
 }
 
-/*
 TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m            = std::pow(2, 14);
     int64_t n            = std::pow(2, 14);
@@ -543,19 +546,25 @@ TEST_P(TestCQRRP, CQRRP_GPU_benchmark_16k) {
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
 
-    std::string file = "ICQRRP_GPU_runtime_breakdown_rows_"    + std::to_string(m)
+    std::string file1 = "ICQRRP_GPU_runtime_breakdown_rows_"    + std::to_string(m)
                                     + "_cols_"       + std::to_string(n)
                                     + "_d_factor_"   + std::to_string(d_factor)
                                     + ".dat";
 
-    bench_CQRRP(profile_runtime, run_qrf, m_info, d_factor, tol, b_sz, all_data, state, file);
+    std::string file2 = "ICQRRP_GPU_speed_rows_"    + std::to_string(m)
+                                    + "_cols_"       + std::to_string(n)
+                                    + "_d_factor_"   + std::to_string(d_factor)
+                                    + ".dat";
+
+    bench_CQRRP(profile_runtime, run_qrf, m_info, d_factor, tol, b_sz, all_data, state, file1, file2);
 }
-*/
 
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_16k_benchmarks,
     TestCQRRP,
-    ::testing::Values(120) //32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192)
+    ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 
+    184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 
+    352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512)
 );
 
 TEST_F(TestCQRRP, Bench_CholQR) {
