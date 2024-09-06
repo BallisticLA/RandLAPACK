@@ -25,6 +25,7 @@ if (GTest_FOUND)
         comps/test_util_gpu.cu
         drivers/test_cqrrpt_gpu.cu
         drivers/test_cqrrp_gpu.cu
+        drivers/bench_cqrrp_gpu.cu
     )
     set_source_files_properties(${RandLAPACK_test_cu_srcs} PROPERTIES LANGUAGE CUDA)
     add_executable(RandLAPACK_tests_gpu ${RandLAPACK_test_cu_srcs})

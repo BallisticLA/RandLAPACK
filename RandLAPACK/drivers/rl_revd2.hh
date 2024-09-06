@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef randlapack_drivers_revd2_h
 #define randlapack_drivers_revd2_h
 

@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef randlapack_comps_syps_h
 #define randlapack_comps_syps_h
 

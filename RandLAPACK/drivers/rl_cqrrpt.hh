@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef randlapack_cqrrpt_h
 #define randlapack_cqrrpt_h
 
