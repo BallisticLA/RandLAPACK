@@ -377,13 +377,6 @@ TEST_F(TestCQRRP, Simplified_CQRRP_GPU_vectors) {
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch set up data. " << cudaGetErrorString(ierr))
-        abort();
-    }
-
     // Call the transposition_gpu function
     RandLAPACK::cuda_kernels::transposition_gpu(stream, m, n, A_device, lda, AT_device, ldat, copy_upper_triangle);
 
@@ -391,5 +384,13 @@ TEST_F(TestCQRRP, Simplified_CQRRP_GPU_vectors) {
     cudaFree(A_device);
     cudaFree(AT_device);
     cudaStreamDestroy(stream);
+
+    cudaError_t ierr = cudaGetLastError();
+    if (ierr != cudaSuccess)
+    {
+        RandLAPACK_CUDA_ERROR("Detected CUDA error before returning. " << cudaGetErrorString(ierr))
+        abort();
+    }
+
 }
 #endif
