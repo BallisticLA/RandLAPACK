@@ -509,7 +509,7 @@ void naive_rank_est(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch naive_rank_est. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch naive_rank_est. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -537,7 +537,7 @@ void all_of(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch all_equal. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch all_equal. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -564,7 +564,7 @@ void ger_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch ger_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch ger_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -589,7 +589,7 @@ void copy_mat_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch copy_mat_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch copy_mat_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -611,7 +611,7 @@ void col_swap_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to allocate for col_swap_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to allocate for col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
     constexpr int numThreads = 128;
@@ -631,14 +631,14 @@ void col_swap_gpu(
     ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu sequential. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu sequential. " << cudaGetErrorString(ierr))
         abort();
     }
     cudaFreeAsync(idx_copy, stream);
     ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to deallocate for col_swap_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to deallocate for col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 #endif
@@ -668,7 +668,7 @@ void col_swap_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu with parallel pivots. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu with parallel pivots. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -705,7 +705,7 @@ void col_swap_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 #endif
@@ -728,7 +728,7 @@ void col_swap_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch col_swap_gpu vector. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu vector. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -753,7 +753,7 @@ void transposition_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch transposition_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch transposition_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -779,7 +779,7 @@ inline void LUQRCP_piv_porcess_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch piv_process_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch piv_process_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -817,7 +817,7 @@ void orhr_col_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch orhr_col_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch orhr_col_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -841,7 +841,7 @@ void R_cholqr_signs_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch R_cholqr_signs_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch R_cholqr_signs_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -863,7 +863,7 @@ void copy_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch copy_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch copy_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -884,7 +884,7 @@ void fill_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -905,7 +905,7 @@ void fill_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }
@@ -926,7 +926,7 @@ void get_U_gpu(
     cudaError_t ierr = cudaGetLastError();
     if (ierr != cudaSuccess)
     {
-        BPCG_ERROR("Failed to launch get_U_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch get_U_gpu. " << cudaGetErrorString(ierr))
         abort();
     }
 }

@@ -179,7 +179,7 @@ class TestUtil_GPU : public ::testing::Test
         cudaError_t ierr = cudaGetLastError();
         if (ierr != cudaSuccess)
         {
-            BPCG_ERROR("GPU ERROR. " << cudaGetErrorString(ierr))
+            RandLAPACK_CUDA_ERROR("GPU ERROR. " << cudaGetErrorString(ierr))
             abort();
         }
         printf("Passed the general error check\n");

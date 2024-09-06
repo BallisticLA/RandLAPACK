@@ -1,6 +1,7 @@
+#pragma once
+
 #ifndef randlapack_cqrrpt_gpu_h
 #define randlapack_cqrrpt_gpu_h
-
 
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
