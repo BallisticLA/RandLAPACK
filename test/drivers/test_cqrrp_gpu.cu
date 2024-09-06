@@ -194,6 +194,12 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 
             error_check(norm_A, all_data, atol);
         }
+        cudaError_t ierr = cudaGetLastError();
+        if (ierr != cudaSuccess)
+        {
+                RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+                abort();
+        }
     }
 
     template <typename T, typename RNG, typename alg_gpu, typename alg_cpu>
@@ -234,6 +240,13 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         ASSERT_NEAR(col_nrm_J,   0.0, atol1);
         ASSERT_NEAR(col_nrm_tau, 0.0, atol1);
         ASSERT_NEAR(norm_R_diff, 0.0, atol2);
+    
+    	cudaError_t ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 };
 

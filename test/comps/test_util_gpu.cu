@@ -196,6 +196,12 @@ class TestUtil_GPU : public ::testing::Test
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+    	ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 
     template <typename T>
@@ -246,6 +252,13 @@ class TestUtil_GPU : public ::testing::Test
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+    
+    	cudaError_t ierr  = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 
     template <typename T>
@@ -279,6 +292,13 @@ class TestUtil_GPU : public ::testing::Test
         //T norm_test = blas::nrm2(m, all_data.J.data(), 1);
         //printf("\nNorm diff GPU CPU: %e\n", norm_test);
         //EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+   	 
+    	cudaError_t ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 
 
@@ -311,6 +331,13 @@ class TestUtil_GPU : public ::testing::Test
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A_host_buffer.data(), m);
         printf("||A_piv - QR||_F:  %e\n", norm);
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+    	
+    	cudaError_t ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 
     template <typename T>
@@ -335,6 +362,13 @@ class TestUtil_GPU : public ::testing::Test
         T norm = lapack::lange(Norm::Fro, n, m, all_data.A_T.data(), n);
         printf("||A_T_host - A_T_device||_F:  %e\n", norm);
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+    	
+    	cudaError_t ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 
     template <typename T>
@@ -363,6 +397,13 @@ class TestUtil_GPU : public ::testing::Test
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A.data(), n);
         printf("||A_host - A_device||_F:  %e\n", norm);
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+    	
+    	cudaError_t ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 };
 
