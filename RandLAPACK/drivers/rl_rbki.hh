@@ -58,7 +58,7 @@ class RBKI : public RBKIalg<T, RNG> {
             bool time_subroutines,
             T ep
         ) {
-            verbosity = verb;
+            verbose = verb;
             timing = time_subroutines;
             tol = ep;
             max_krylov_iters = INT_MAX;
@@ -120,7 +120,7 @@ class RBKI : public RBKIalg<T, RNG> {
             RandBLAS::RNGState<RNG> &state
         ) override;
     public:
-        bool verbosity;
+        bool verbose;
         bool timing;
         T tol;
         int num_krylov_iters;
@@ -569,7 +569,7 @@ int RBKI<T, RNG>::call(
             this -> times.resize(13);
             this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
 
-            if (this -> verbosity) {
+            if (this -> verbose) {
                 printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
                 printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
 

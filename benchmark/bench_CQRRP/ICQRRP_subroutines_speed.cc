@@ -138,7 +138,7 @@ static void call_wide_qrcp(
     auto m = all_data.row;  
     auto tol = all_data.tolerance;
 
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 4;
     CQRRPT.num_threads = 4;
 
@@ -268,9 +268,6 @@ static void call_apply_q(
     std::string output_filename) {
 
     auto m   = all_data.row;
-    auto tol = all_data.tolerance;
-
-    int64_t tsize = 0;
 
     // timing vars
     long dur_ormqr  = 0;

@@ -129,10 +129,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // QRCP option
         bool use_qp3;
 
-        // tuning SASOS
-        int num_threads;
-        int64_t nnz;
-
         // Option for updating A
         bool use_gemqrt;
 
@@ -211,10 +207,6 @@ int CQRRP_blocked<T, RNG>::call(
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
-    // Variables fro the termination criteria
-    T curr_entry = 0;
-    T running_max = 0;
-    T running_min = 0;
     // An indicator for whether all entries in a given block are zero.
     bool block_zero = true;
     // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration, 
@@ -222,13 +214,7 @@ int CQRRP_blocked<T, RNG>::call(
     // Is equal to block size by default, needs to be upated if the block size has changed.
     int64_t block_rank = b_sz;
     // Parameter to control number of blocks in orhr_col and gemqrt;
-    int64_t internal_nb = 0;
-    // Set internal nb
-    if (!(this -> internal_nb)) {
-        internal_nb = b_sz;
-    } else {
-        internal_nb = this -> internal_nb;
-    }
+    int64_t internal_nb = this -> internal_nb;
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -372,8 +358,8 @@ int CQRRP_blocked<T, RNG>::call(
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
         block_zero = true;
-        for (size_t i = 0; i < rows; ++i) {
-            if (A_work[i] != 0.0) {
+        for (i = 0; i < rows; ++i) {
+            if (A_work[i] > std::numeric_limits<T>::epsilon()) {
                 block_zero = false;
                 break;
             }
@@ -448,7 +434,7 @@ int CQRRP_blocked<T, RNG>::call(
 #endif
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
-        // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
+        // This allows us to not explicitoly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
         for(i = 0; i < block_rank; ++i)
             for(j = 0; j < (i + 1); ++j)
                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
@@ -512,27 +498,6 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_stop  = high_resolution_clock::now();
             updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
         }
-        /*
-        Termination criteria based on the estimate for the comdition number of a sketch at a given iteration.
-        Does not detect low rank.
-        Is only useful for "bad inputs."
-        */
-       /*
-        if (iter != 0) {
-            //running_max = A_sk[0];
-            running_min = A_sk[0];
-            for(i = 0; i < std::min(sampling_dimension, cols); ++i) {
-                curr_entry = std::abs(A_sk[i * d + i]);
-                running_max = std::max(running_max, curr_entry);
-                running_min = std::min(running_min, curr_entry);
-                if(std::abs(running_min / running_max) <= this->eps) {
-                    printf("%e\n", std::abs(running_min / running_max));
-                    termination_criteria = 1;
-                    break;
-                }
-            }
-        }
-        */
 
         // Size of the factors is updated;
         curr_sz += b_sz;
@@ -544,7 +509,6 @@ int CQRRP_blocked<T, RNG>::call(
         // from QRCP at this iteration is not full,
         // meaning that the rest of the matrix is zero.
         if((curr_sz >= n) || (block_rank != b_sz_const)) {
-            // Termination criteria reached
             this -> rank = curr_sz;
 
             if(this -> timing) {

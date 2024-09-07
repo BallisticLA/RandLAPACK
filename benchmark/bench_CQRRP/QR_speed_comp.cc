@@ -71,7 +71,6 @@ static void call_all_algs(
     std::string output_filename) {
 
     auto m        = all_data.row;
-    auto tol      = all_data.tolerance;
 
     int64_t tsize = 0;
 
@@ -103,7 +102,6 @@ static void call_all_algs(
         tsize = (int64_t) all_data.tau[0]; 
         all_data.tau.resize(tsize);
         lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
-#endif
         auto stop_geqr = high_resolution_clock::now();
         dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
 
@@ -112,7 +110,6 @@ static void call_all_algs(
 
         // Testing GEQR + UNGQR
         auto start_geqr_ungqr = high_resolution_clock::now();
-#if !defined(__APPLE__)
         lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
         tsize = (int64_t) all_data.tau[0]; 
         all_data.tau.resize(tsize);
@@ -135,8 +132,6 @@ static void call_all_algs(
         lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
         auto stop_cholqr_orhr = high_resolution_clock::now();
         dur_cholqr_orhr = duration_cast<microseconds>(stop_cholqr_orhr - start_cholqr).count();
-        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, all_data.A.data(), m, all_data.R.data(), n, -1.0, all_data.A_cpy.data(), m);
-        //printf("NORM CHOLQR A-QR: %e\n", lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m));
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);

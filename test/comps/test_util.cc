@@ -91,7 +91,6 @@ class TestUtil : public ::testing::Test
         std::vector<T> B1;
         std::vector<T> A1;
         std::vector<T> R;
-        std::vector<T> R1;
         std::vector<T> T_mat;
         std::vector<T> D;
         std::vector<T> D1;
@@ -104,7 +103,6 @@ class TestUtil : public ::testing::Test
         B1(m * n, 0.0),
         A1(m * n, 0.0),
         R(n * n, 0.0),
-        R1(n * n, 0.0),
         T_mat(n * n, 0.0),
         D(n, 0.0),
         D1(n, 0.0),
@@ -202,7 +200,6 @@ class TestUtil : public ::testing::Test
         T* B1     = all_data.B1.data();
         T* A1     = all_data.A1.data();
         T* R      = all_data.R.data();
-        T* R1     = all_data.R1.data();
         T* T_mat  = all_data.T_mat.data();
         T* D      = all_data.D.data();
         T* D1     = all_data.D1.data();
@@ -217,10 +214,17 @@ class TestUtil : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, n, A, m, A1, m);
         lapack::lacpy(MatrixType::General, m, n, B, m, B1, m);
 
+        char name1 [] = "In";
+        RandLAPACK::util::print_colmaj(m, n, all_data.A.data(), m, name1);
+
         // built-in orhr_col
         lapack::orhr_col(m, n, n, A, m, T_mat, n, D);
         // own orhr_col
         RandLAPACK::util::rl_orhr_col(m, n, A1, m, tau1, D1, 1);
+
+        char name [] = "A";
+        RandLAPACK::util::print_colmaj(m, n, all_data.A.data(), m, name);
+        RandLAPACK::util::print_colmaj(m, n, all_data.A1.data(), m, name);
 
         for(i = 0; i < n; ++i)
             tau[i] = T_mat[(n + 1) * i];
@@ -390,8 +394,8 @@ TEST_F(TestUtil, test_col_swp) {
 
 TEST_F(TestUtil, test_orhr_col) {
     
-    int64_t m = std::pow(2, 10);
-    int64_t n = std::pow(2, 9);
+    int64_t m = 4;//std::pow(2, 10);
+    int64_t n = 4;//std::pow(2, 9);
     auto state = RandBLAS::RNGState();
     OrhrColTestData<double> all_data(m, n);
 

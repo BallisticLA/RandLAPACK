@@ -101,7 +101,6 @@ add_benchmark(NAME CQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/CQRRP_r
 add_benchmark(NAME CQRRP_single_precision        CXX_SOURCES bench_CQRRP/CQRRP_single_precision.cc  LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRP_pivot_quality           CXX_SOURCES bench_CQRRP/CQRRP_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME HQRRP_runtime_breakdown       CXX_SOURCES bench_CQRRP/HQRRP_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_linear_solver           CXX_SOURCES bench_CQRRP/CQRRP_linear_solver.cc     LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME QR_speed_comp                 CXX_SOURCES bench_CQRRP/QR_speed_comp.cc           LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME ICQRRP_subroutines_speed      CXX_SOURCES bench_CQRRP/ICQRRP_subroutines_speed.cc LINK_LIBS ${Benchmark_libs})
 

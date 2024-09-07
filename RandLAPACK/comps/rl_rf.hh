@@ -41,7 +41,7 @@ class RF : public RangeFinder<T, RNG> {
             bool verb,
             bool cond
         ) : RS_Obj(rs_obj), Orth_Obj(orth_obj) {
-            verbosity = verb;
+            verbose = verb;
             cond_check = cond;
         }
 
@@ -96,7 +96,7 @@ class RF : public RangeFinder<T, RNG> {
        // Instantiated in the constructor
        RandLAPACK::RowSketcher<T, RNG> &RS_Obj;
        RandLAPACK::Stabilization<T> &Orth_Obj;
-       bool verbosity;
+       bool verbose;
        bool cond_check;
 
        // Implementation-specific vars
@@ -126,7 +126,7 @@ int RF<T, RNG>::call(
 
     if(this->cond_check)
         // Writes into this->cond_nums
-        this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->verbosity));
+        this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->verbose));
 
     if(this->Orth_Obj.call(m, k, Q))
         return 2; // Orthogonalization failed

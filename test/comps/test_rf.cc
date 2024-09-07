@@ -52,15 +52,15 @@ class TestRF : public ::testing::Test
         RandLAPACK::RF<T, RNG> RF;
 
         algorithm_objects(
-            bool verbosity, 
+            bool verbose, 
             bool cond_check, 
             int64_t p, 
             int64_t passes_per_iteration 
         ) :
-            Stab(cond_check, verbosity),
-            RS(Stab, p, passes_per_iteration, verbosity, cond_check),
-            Orth_RF(cond_check, verbosity),
-            RF(RS, Orth_RF, verbosity, cond_check)
+            Stab(cond_check, verbose),
+            RS(Stab, p, passes_per_iteration, verbose, cond_check),
+            Orth_RF(cond_check, verbose),
+            RF(RS, Orth_RF, verbose, cond_check)
             {}
     };
 
@@ -150,11 +150,11 @@ TEST_F(TestRF, Polynomial_Decay_general1)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
 
     auto all_data = new RFTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -180,11 +180,11 @@ TEST_F(TestRF, Polynomial_Decay_general2)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
 
     auto all_data = new RFTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;

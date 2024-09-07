@@ -139,7 +139,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 2;
     CQRRPT.num_threads = 4;
     CQRRPT.no_hqrrp = 1;
@@ -164,7 +164,7 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 2;
     CQRRPT.num_threads = 4;
     CQRRPT.no_hqrrp = 0;
@@ -191,7 +191,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, false, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 2;
     CQRRPT.num_threads = 4;
     CQRRPT.no_hqrrp = 1;

@@ -56,7 +56,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
 template <typename T>
 static T
-residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64_t custom_rank) {
+residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
@@ -143,8 +143,8 @@ static void call_all_algs(
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
-        T residual_err_custom = residual_error_comp<T>(all_data, target_rank, custom_rank);
-        T residual_err_target = residual_error_comp<T>(all_data, target_rank, target_rank);
+        T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
+        T residual_err_target = residual_error_comp<T>(all_data, target_rank);
 
         // Print accuracy info
         printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);

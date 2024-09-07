@@ -84,7 +84,7 @@ class TestOrth : public ::testing::Test
 
         // Orthonormalize sketch Y
         if(CholQRQ.call(m, k, all_data.Y.data()) != 0) {
-            EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
+            EXPECT_TRUE(false) << "\nPOTRF FAILED DUE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality

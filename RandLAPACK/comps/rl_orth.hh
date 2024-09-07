@@ -29,7 +29,7 @@ class CholQRQ : public Stabilization<T> {
 
         CholQRQ(bool c_check, bool verb) {
             cond_check = c_check;
-            verbosity = verb;
+            verbose = verb;
             chol_fail = false;
         };
 
@@ -62,7 +62,7 @@ class CholQRQ : public Stabilization<T> {
     public:
         bool chol_fail;
         bool cond_check;
-        bool verbosity;
+        bool verbose;
 };
 
 // -----------------------------------------------------------------------------
@@ -80,7 +80,7 @@ int CholQRQ<T>::call(
 
     // Positive definite cholesky factorization
     if (lapack::potrf(Uplo::Upper, k, A_gram, k)) {
-        if(this->verbosity) {
+        if(this->verbose) {
             printf("CHOLESKY QR FAILED\n");
         }
         this->chol_fail = true; // scheme failure
@@ -90,7 +90,7 @@ int CholQRQ<T>::call(
 
     // Scheme may succeed, but output garbage
     if(this->cond_check) {
-        if(util::cond_num_check(k, k, A_gram, this->verbosity) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
+        if(util::cond_num_check(k, k, A_gram, this->verbose) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
                 free(A_gram);
                 return 1;
         }
@@ -107,7 +107,7 @@ class HQRQ : public Stabilization<T> {
 
         HQRQ(bool c_check, bool verb) {
             cond_check = c_check;
-            verbosity = verb;
+            verbose = verb;
         };
 
         /// Performs a Householder QR factorization. Outputs the Q-factor only.
@@ -141,7 +141,7 @@ class HQRQ : public Stabilization<T> {
 
     public:
         bool cond_check;
-        bool verbosity;
+        bool verbose;
 };
 
 // -----------------------------------------------------------------------------
@@ -173,7 +173,7 @@ class PLUL : public Stabilization<T> {
 
         PLUL(bool c_check, bool verb) {
             this->cond_check = c_check;
-            this->verbosity = verb;
+            this->verbose = verb;
         };
 
         /// Performs an unpivoted LU factorization. Outputs the L-factor only.
@@ -207,7 +207,7 @@ class PLUL : public Stabilization<T> {
 
     public:
         bool cond_check;
-        bool verbosity;
+        bool verbose;
 };
 
 

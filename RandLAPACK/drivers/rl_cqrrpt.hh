@@ -48,7 +48,6 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         /// This decision is controlled through 'naive_rank_estimate' parameter, which defaults to 1.
         /// The choice of norm ||A||_x, either 2 or F, is controlled via 'use_fro_norm'.
         ///
-        /// The algorithm optionally times all of its subcomponents through a user-defined 'verbosity' parameter.
         ///
         /// The algorithm optionally computes a condition number of a preconditioned matrix A through a 'cond_check'
         /// parameter, which defaults to 0. This requires extra n * (m + 1) * sizeof(T) bytes of space, which will be 
@@ -56,11 +55,9 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         /// A computation is handled by a utility method that finds the l2 condition number by computing all singular
         /// values of the R-factor via an appropriate LAPACK function.
         CQRRPT(
-            bool verb,
             bool time_subroutines,
             T ep
         ) {
-            verbosity = verb;
             timing = time_subroutines;
             eps = ep;
             no_hqrrp = 1;
@@ -124,7 +121,6 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ) override;
 
     public:
-        bool verbosity;
         bool timing;
         T eps;
         int64_t rank;

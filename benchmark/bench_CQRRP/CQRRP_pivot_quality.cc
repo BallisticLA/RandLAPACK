@@ -1,3 +1,4 @@
+#if !defined(__APPLE__)
 /*
 Performs computations in order to assess the pivot quality of ICQRRP.
 The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
@@ -78,15 +79,9 @@ static void R_norm_ratio(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
-    CQRRP_blocked.nnz = 4;
-    CQRRP_blocked.num_threads = 8;
     //CQRRP_blocked.use_qp3 = 1;
-    CQRRP_blocked.use_gaussian = 1;
 
-    // Running HQRRP
-    //std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    //state_alg = state;
-    //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state_alg, (T*) nullptr);
+    // Running QP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
     std::vector<T> R_norms_HQRRP = get_norms(all_data);
     printf("\nDone with QP3\n");
@@ -136,10 +131,7 @@ static void sv_ratio(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
-    CQRRP_blocked.nnz = 4;
-    CQRRP_blocked.num_threads = 8;
     //CQRRP_blocked.use_qp3 = 1;
-    CQRRP_blocked.use_gaussian = 1;
 
     std::fstream file2("QR_sv_ratios_rows_"            + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
@@ -158,9 +150,6 @@ static void sv_ratio(
     data_regen(m_info, all_data, state_gen);
 
     // Running GEQP3
-    //std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    //state_alg = state;
-    //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
 
     // Write the 2nd metric info into a file.
@@ -177,7 +166,6 @@ static void sv_ratio(
     // Running CQRRP
     state_alg = state;
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-    //lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
@@ -212,10 +200,9 @@ int main() {
     m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-#if !defined(__APPLE__)
     R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("R done\n");
     sv_ratio(m_info, b_sz, all_data, state_constant2);
     printf("SV done\n\n");
-#endif
 }
+#endif

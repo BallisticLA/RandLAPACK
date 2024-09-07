@@ -42,7 +42,7 @@ class RS : public RowSketcher<T, RNG>
             bool verb,
             bool cond
         ) : Stab_Obj(stab_obj) {
-            verbosity = verb;
+            verbose = verb;
             cond_check = cond;
             passes_over_data = p;
             passes_per_stab = q;
@@ -108,7 +108,7 @@ class RS : public RowSketcher<T, RNG>
         RandLAPACK::Stabilization<T> &Stab_Obj;
         int64_t passes_over_data;
         int64_t passes_per_stab;
-        bool verbosity;
+        bool verbose;
         bool cond_check;
         std::vector<T> cond_nums;
 };
@@ -153,7 +153,7 @@ int RS<T, RNG>::call(
         ++ p_done;
 
         if(this->cond_check)
-            this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->verbosity));
+            this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->verbose));
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1)))
             return 1;
@@ -163,7 +163,7 @@ int RS<T, RNG>::call(
         ++ p_done;
 
         if (this->cond_check)
-            this->cond_nums.push_back(util::cond_num_check(n, k, Omega, this->verbosity));
+            this->cond_nums.push_back(util::cond_num_check(n, k, Omega, this->verbose));
 
         if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
             return 1;

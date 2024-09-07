@@ -13,6 +13,39 @@
 
 namespace RandLAPACK::util {
 
+template <typename T>
+void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[])
+{
+	int64_t i, j;
+    T val;
+	std::cout << "\n" << label << std::endl;
+    for (i = 0; i < n_rows; ++i) {
+        std::cout << "\t";
+        for (j = 0; j < n_cols - 1; ++j) {
+            val = a[i + lda * j];
+            if (val < 0) {
+				//std::cout << string_format("  %2.4f,", val);
+                printf("  %2.20f,", val);
+            } else {
+				//std::cout << string_format("   %2.4f", val);
+				printf("   %2.20f,", val);
+            }
+        }
+        // j = n_cols - 1
+        val = a[i + lda * j];
+        if (val < 0) {
+   			//std::cout << string_format("  %2.4f,", val); 
+			printf("  %2.20f,", val);
+		} else {
+            //std::cout << string_format("   %2.4f,", val);
+			printf("   %2.20f,", val);
+		}
+        printf("\n");
+    }
+    printf("\n");
+    return;
+}
+
 /// Generates an identity matrix. Assuming col-maj
 template <typename T>
 void eye(
@@ -199,7 +232,6 @@ int64_t rank_check(
 template <typename T>
 bool orthogonality_check(
     int64_t m,
-    int64_t n,
     int64_t k,
     T* A,
     bool verbose
@@ -404,6 +436,10 @@ void rl_orhr_col(
         blas::scal(m - (i + 1), 1 / A[i * (lda + 1)], &A[(lda + 1) * i + 1], 1);
         // Perform Schur compliment update
         // A(i+1:m, i+1:n) = A(i+1:m, i+1:n) - (A(i+1:m, i) * A(i, i+1:n))
+        
+        char name [] = "In";
+        RandLAPACK::util::print_colmaj(m, n, A, m, name);
+
         blas::ger(Layout::ColMajor, m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], m, &A[(lda + 1) * (i + 1)], lda);	
     }
 

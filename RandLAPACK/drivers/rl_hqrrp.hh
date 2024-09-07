@@ -598,7 +598,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
 //    The typical use-case for this function is to call with build_T=true.
 //    Calling with build_T=false is only done at HQRRP's last iteration.
 //
-    /*--------------------------------CUSOM APPROACHES TO QR WITH NO PANEL PIVOTING--------------------------------*/
+    /*--------------------------------CUSTOM APPROACHES TO QR WITH NO PANEL PIVOTING--------------------------------*/
     if (!pivoting && (qr_type == 1)) {
         return GEQRF_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T);
     } else if (!pivoting && (qr_type == 2)) {

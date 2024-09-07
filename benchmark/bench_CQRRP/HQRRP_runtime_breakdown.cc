@@ -1,3 +1,4 @@
+#if !defined(__APPLE__)
 /*
 HQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of HQRRP.
 There are 7 things that we time:
@@ -62,7 +63,6 @@ static void call_all_algs(
 
     auto m        = all_data.row;
     auto n        = all_data.col;
-    auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
     
     // Making sure the states are unchanged
@@ -95,6 +95,11 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+
     auto size = argv[1];
 
     // Declare parameters
@@ -125,9 +130,8 @@ int main(int argc, char *argv[]) {
                                     + "_d_factor_"   + std::to_string(d_factor)
                                     + ".dat";
 
-#if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, file);
     }
-#endif
 }
+#endif

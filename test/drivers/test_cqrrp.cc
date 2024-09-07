@@ -102,7 +102,7 @@ class TestCQRRP : public ::testing::Test
 
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
         ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
-        ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
+        ASSERT_LE(norm_0, atol * std::sqrt((T) n));
     }
 
     /// General test for CQRRPT:
@@ -146,6 +146,7 @@ class TestCQRRP : public ::testing::Test
 
 };
 
+#if !defined(__APPLE__)
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     int64_t m = 5000;//5000;
@@ -159,20 +160,12 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    //m_info.cond_num = 2;
-    //m_info.rank = k;
-    //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -188,22 +181,13 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    //m_info.cond_num = 2;
-    //m_info.rank = k;
-    //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
-
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
@@ -218,8 +202,6 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
 
     //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
@@ -229,9 +211,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -247,8 +227,6 @@ TEST_F(TestCQRRP, CQRRP_pivot_qual) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz          = 4;
-    CQRRP_blocked.num_threads  = 8;
     CQRRP_blocked.use_qp3      = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
@@ -258,9 +236,7 @@ TEST_F(TestCQRRP, CQRRP_pivot_qual) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -276,8 +252,6 @@ TEST_F(TestCQRRP, CQRRP_blocked_gemqrt) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
     CQRRP_blocked.use_gemqrt = true;
     CQRRP_blocked.internal_nb = 10;
 
@@ -285,9 +259,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_gemqrt) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -303,17 +275,13 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
     CQRRP_blocked.use_qp3 = true;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[1000*200 + 10] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -329,16 +297,12 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[1000*200 + 10] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -354,17 +318,13 @@ TEST_F(TestCQRRP, CQRRP_blocked_half_zero_luqr) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(&(all_data.A.data())[m * n / 2], &(all_data.A.data())[m * n], 0.0);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -380,13 +340,10 @@ TEST_F(TestCQRRP, CQRRP_blocked_zero_mat) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 4;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-#if !defined(__APPLE__)
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
-#endif
 }
+#endif

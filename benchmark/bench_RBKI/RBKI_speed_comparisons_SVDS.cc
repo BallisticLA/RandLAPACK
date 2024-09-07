@@ -95,7 +95,7 @@ struct RBKI_algorithm_objects {
         RF(RS, Orth_RF, verbosity, cond_check),
         Orth_QB(cond_check, verbosity),
         QB(RF, Orth_QB, verbosity, orth_check),
-        RSVD(QB, verbosity, block_sz),
+        RSVD(QB, block_sz),
         RBKI(verbosity, time_subroutines, tol)
         {}
 };
@@ -205,7 +205,6 @@ static void call_all_algs(
     auto m   = all_data.row;
     auto n   = all_data.col;
     auto tol = all_data.tolerance;
-    bool time_subroutines = false;
 
     // Additional params setup.
     all_algs.RSVD.block_sz = b_sz;
@@ -343,7 +342,8 @@ static void call_all_algs(
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 
         << residual_err_custom_RBKI << ",  " << lowrank_err_RBKI <<  ",  " << dur_rbki    << ",  " 
         << residual_err_custom_RSVD << ",  " << lowrank_err_RSVD <<  ",  " << dur_rsvd    << ",  "
-        << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",  " << dur_svd << ",\n";
+        << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",  " 
+                                    << ",  " << lowrank_err_SVD  <<  ",  " << dur_svd     << ",\n";
     }
 }
 

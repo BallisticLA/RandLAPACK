@@ -63,17 +63,17 @@ class TestQB : public ::testing::Test
         RandLAPACK::CholQRQ<T> Orth_QB;
         RandLAPACK::QB<T, RNG> QB;
 
-        algorithm_objects(bool verbosity, 
+        algorithm_objects(bool verbose, 
                             bool cond_check, 
                             bool orth_check, 
                             int64_t p, 
                             int64_t passes_per_iteration) :
-                            Stab(cond_check, verbosity),
-                            RS(Stab, p, passes_per_iteration, verbosity, cond_check),
-                            Orth_RF(cond_check, verbosity),
-                            RF(RS, Orth_RF, verbosity, cond_check),
-                            Orth_QB(cond_check, verbosity),
-                            QB(RF, Orth_QB, verbosity, orth_check)
+                            Stab(cond_check, verbose),
+                            RS(Stab, p, passes_per_iteration, verbose, cond_check),
+                            Orth_RF(cond_check, verbose),
+                            RF(RS, Orth_RF, verbose, cond_check),
+                            Orth_QB(cond_check, verbose),
+                            QB(RF, Orth_QB, verbose, orth_check)
                             {}
     };
 
@@ -143,16 +143,14 @@ class TestQB : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Q_dat, m, BT_dat, n, 0.0, A_hat_dat, m);
         // TEST 1: A = A - Q * B = 0
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, -1.0, Q_dat, m, BT_dat, n, 1.0, A_dat, m);
-        // TEST 2: B - Q'A = 0
-        //blas::gemm(Layout::ColMajor, Op::Trans, Op::Trans, k, n, m, -1.0, Q_dat, m, A_cpy_2_dat, m, 1.0, BT_cpy_dat, n);
-        // TEST 3: Q'Q = I
+        // TEST 2: Q'Q = I
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, Ident_dat, k);
 
         // zero out the trailing singular values
         std::fill(s_dat + k, s_dat + n, 0.0);
         RandLAPACK::util::diag(n, n, all_data.s.data(), n, all_data.S.data());
 
-        // TEST 4: Below is A_k - A_hat = A_k - QB
+        // TEST 3: Below is A_k - A_hat = A_k - QB
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U_dat, m, S_dat, n, 1.0, A_k_dat, m);
         // A_k * VT -  A_hat == 0
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_hat_dat, m);
@@ -163,14 +161,10 @@ class TestQB : public ::testing::Test
         printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
         ASSERT_NEAR(norm_test_1, 0, test_tol);
         // Test 2 Output
-        //T norm_test_2 = lapack::lange(Norm::Fro, n, k, BT_cpy_dat, n);
-        //printf("FRO NORM OF B - Q'A:   %e\n", norm_test_2);
-        //ASSERT_NEAR(norm_test_2, 0, test_tol);
-        // Test 3 Output
         T norm_test_3 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, Ident_dat, k);
         printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
         ASSERT_NEAR(norm_test_3, 0, test_tol);
-        // Test 4 Output
+        // Test 3 Output
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         ASSERT_NEAR(norm_test_4, 0, test_tol);
@@ -247,12 +241,12 @@ TEST_F(TestQB, Polynomial_Decay_general1)
     auto state = RandBLAS::RNGState();
     
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
     
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -280,12 +274,12 @@ TEST_F(TestQB, Polynomial_Decay_general2)
     auto state = RandBLAS::RNGState();
     
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 6.7;
@@ -312,12 +306,12 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol1)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
   
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;
@@ -344,12 +338,12 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
     bool orth_check = true;
 
     auto all_data = new QBTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2025;

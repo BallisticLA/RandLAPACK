@@ -1,3 +1,4 @@
+#if !defined(__APPLE__)
 /*
 ICQRRP speed comparison benchmark - runs:
     1. ICQRRP
@@ -70,8 +71,6 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 8;
     // We are nbot using panel pivoting in performance testing.
     int panel_pivoting = 0;
 
@@ -190,6 +189,11 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+
     auto size = argv[1];
 
     // Declare parameters
@@ -219,9 +223,8 @@ int main(int argc, char *argv[]) {
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat";
-#if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, output_filename);
     }
-#endif
 }
+#endif

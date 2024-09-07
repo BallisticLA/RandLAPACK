@@ -75,20 +75,20 @@ class TestRSVD : public ::testing::Test
         RandLAPACK::RSVD<T, RNG> RSVD;
 
         algorithm_objects(
-            bool verbosity, 
+            bool verbose, 
             bool cond_check, 
             bool orth_check, 
             int64_t p, 
             int64_t passes_per_iteration, 
             int64_t block_sz
         ) :
-            Stab(cond_check, verbosity),
-            RS(Stab, p, passes_per_iteration, verbosity, cond_check),
-            Orth_RF(cond_check, verbosity),
-            RF(RS, Orth_RF, verbosity, cond_check),
-            Orth_QB(cond_check, verbosity),
-            QB(RF, Orth_QB, verbosity, orth_check),
-            RSVD(QB, verbosity, block_sz)
+            Stab(cond_check, verbose),
+            RS(Stab, p, passes_per_iteration, verbose, cond_check),
+            Orth_RF(cond_check, verbose),
+            RF(RS, Orth_RF, verbose, cond_check),
+            Orth_QB(cond_check, verbose),
+            QB(RF, Orth_QB, verbose, orth_check),
+            RSVD(QB, block_sz)
             {}
     };
 
@@ -176,12 +176,12 @@ TEST_F(TestRSVD, SimpleTest)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
     bool orth_check = true;
 
     auto all_data = new RSVDTestData<double>(m, n, k);
-    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbosity, cond_check, orth_check, p, passes_per_iteration, block_sz);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;

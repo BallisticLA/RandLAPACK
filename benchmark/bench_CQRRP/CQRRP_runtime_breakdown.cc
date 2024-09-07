@@ -1,3 +1,4 @@
+#if !defined(__APPLE__)
 /*
 ICQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of ICQRRP.
 There are 9 things that we time:
@@ -69,8 +70,6 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 8;
     
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -128,9 +127,8 @@ int main() {
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat";
 
-#if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, file);
     }
-#endif
 }
+#endif

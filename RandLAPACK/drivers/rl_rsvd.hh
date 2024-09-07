@@ -39,10 +39,8 @@ class RSVD : public RSVDalg<T, RNG> {
         RSVD(
             // Requires a QB algorithm object.
             RandLAPACK::QBalg<T, RNG> &qb_obj,
-            bool verb,
             int64_t b_sz
         ) : QB_Obj(qb_obj) {
-            verbosity = verb;
             block_sz = b_sz;
         }
 
@@ -108,7 +106,6 @@ class RSVD : public RSVDalg<T, RNG> {
 
     public:
         RandLAPACK::QBalg<T, RNG> &QB_Obj;
-        bool verbosity;
         int64_t block_sz;
 };
 

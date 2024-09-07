@@ -47,7 +47,7 @@ class QB : public QBalg<T, RNG> {
             bool verb,
             bool orth
         ) : RF_Obj(rf_obj), Orth_Obj(orth_obj) {
-            verbosity = verb;
+            verbose = verb;
             orth_check = orth;
         }
 
@@ -126,7 +126,7 @@ class QB : public QBalg<T, RNG> {
     public:
         RandLAPACK::RangeFinder<T, RNG> &RF_Obj;
         RandLAPACK::Stabilization<T> &Orth_Obj;
-        bool verbosity;
+        bool verbose;
         bool orth_check;
 };
 
@@ -198,7 +198,7 @@ int QB<T, RNG>::call(
         }
 
         if(this->orth_check) {
-            if (util::orthogonality_check(m, b_sz, b_sz, Q_i, this->verbosity)) {
+            if (util::orthogonality_check(m, b_sz, Q_i, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
                 free(A_cpy);
@@ -235,7 +235,7 @@ int QB<T, RNG>::call(
         }
 
         if(this->orth_check) {
-            if (util::orthogonality_check(m, next_sz, next_sz, Q, this->verbosity)) {
+            if (util::orthogonality_check(m, next_sz, Q, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
                 free(A_cpy);
