@@ -310,6 +310,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     cudaMallocAsync(&A_copy_col_swap, sizeof(T) * m * n, strm);
     T* A_sk_copy_col_swap;
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
+    T* A_sk_copy_col_swap_work = A_sk_copy_col_swap;
     int64_t* J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
     int64_t* J_copy_col_swap_work = J_copy_col_swap;
@@ -367,7 +368,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
         // Instead of copying A_sk_work into A_sk_copy_col_swap, we ``swap'' the pointers.
         // This is safe, as A_sk is not needed outside of ICQRRP.
-        std::swap(A_sk_copy_col_swap, A_sk_work);
+        std::swap(A_sk_copy_col_swap_work, A_sk_work);
         
         if(this -> timing) {
             cudaStreamSynchronize(strm);
@@ -379,7 +380,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         // Apply pivots to A_sk
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_sk_copy_col_swap, d, J_buffer);
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, sampling_dimension, cols, cols, A_sk_work, d, A_sk_copy_col_swap_work, d, J_buffer);
 
         if(this -> timing) {
             cudaStreamSynchronize(strm);
@@ -735,14 +736,14 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 printf("/-------------ICQRRP TIMING RESULTS END-------------/\n\n");
             }
 
-            cudaFree(A_sk_trans);
-            cudaFree(J_buffer);
+            cudaFree(A_sk_trans);        
+            cudaFree(J_buffer); 
             cudaFree(J_buffer_lu);
             cudaFree(Work2);
             cudaFree(R_cholqr);
-            cudaFree(d_work_ormqr);
+            cudaFree(d_work_ormqr);        
             cudaFree(A_copy_col_swap);
-            cudaFree(A_sk_copy_col_swap);
+            cudaFree(A_sk_copy_col_swap); 
             cudaFree(J_copy_col_swap);
 
             return 0;

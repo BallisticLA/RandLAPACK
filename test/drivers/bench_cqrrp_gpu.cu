@@ -208,7 +208,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
     }
 
 };
-
+/*
 TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
     int64_t m            = std::pow(2, 14);
     int64_t n            = std::pow(2, 14);
@@ -269,5 +269,5 @@ TEST_F(BenchCQRRP, Bench_CholQR) {
     for(int i = n_start; i <= n_stop; i += n_start)
         bench_CholQR(m_info, i, all_data, state, file);
 }
-
+*/
 #endif
