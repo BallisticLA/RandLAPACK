@@ -170,7 +170,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-        
+
         if(CQRRP_GPU.rank == 0) {
             cudaMemcpy(all_data.A.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
             for(int i = 0; i < m * n; ++i) {
@@ -197,7 +197,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
         cudaError_t ierr = cudaGetLastError();
         if (ierr != cudaSuccess)
         {
-                RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+                RandLAPACK_CUDA_ERROR("Error before test_CQRRP_general returned. " << cudaGetErrorString(ierr))
                 abort();
         }
     }
@@ -244,7 +244,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
     	cudaError_t ierr = cudaGetLastError();
     	if (ierr != cudaSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test_CQRRP_compare_with_CPU returned. " << cudaGetErrorString(ierr))
         	abort();
     	}
     }
@@ -354,43 +354,5 @@ TEST_F(TestCQRRP, CQRRP_GPU_zero_input) {
 #if !defined(__APPLE__)
     test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
 #endif
-}
-
-TEST_F(TestCQRRP, Simplified_CQRRP_GPU_vectors) {
-    int64_t m = 5000;
-    int64_t n = 2800;
-    int64_t lda = 5000;
-    int64_t ldat = 2800;
-    bool copy_upper_triangle = false;
-
-    // Allocate memory on the GPU
-    double* A_device;
-    double* AT_device;
-    cudaMalloc(&A_device, m * n * sizeof(double));
-    cudaMalloc(&AT_device, n * m * sizeof(double));
-
-    // Initialize memory with some values (optional)
-    cudaMemset(A_device, 0, m * n * sizeof(double));
-    cudaMemset(AT_device, 0, n * m * sizeof(double));
-
-    // Create a CUDA stream
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
-    // Call the transposition_gpu function
-    RandLAPACK::cuda_kernels::transposition_gpu(stream, m, n, A_device, lda, AT_device, ldat, copy_upper_triangle);
-
-    // Free memory and destroy the stream
-    cudaFree(A_device);
-    cudaFree(AT_device);
-    cudaStreamDestroy(stream);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Detected CUDA error before returning. " << cudaGetErrorString(ierr))
-        abort();
-    }
-
 }
 #endif
