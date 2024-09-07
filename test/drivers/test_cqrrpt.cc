@@ -98,9 +98,9 @@ class TestCQRRPT : public ::testing::Test
         printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
-        ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
-        ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
+        ASSERT_LE(norm_AQR, atol * norm_A);
+        ASSERT_LE(max_col_norm, atol * col_norm_A);
+        ASSERT_LE(norm_0, atol * std::sqrt((T) n));
     }
 
     /// General test for CQRRPT:

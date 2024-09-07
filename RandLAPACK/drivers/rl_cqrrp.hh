@@ -359,7 +359,7 @@ int CQRRP_blocked<T, RNG>::call(
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
         block_zero = true;
         for (i = 0; i < rows; ++i) {
-            if (A_work[i] > std::numeric_limits<T>::epsilon()) {
+            if (std::abs(A_work[i]) > std::numeric_limits<T>::epsilon()) {
                 block_zero = false;
                 break;
             }
