@@ -1,3 +1,6 @@
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 QR speed comparison benchmark - runs:
     1. GEQRF
@@ -228,7 +231,6 @@ static void call_tsqr(
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
         data_regen(m_info, all_data, state, state, 2);
 
-#if !defined(__APPLE__)
         // Testing GEQR
         auto start_geqr = high_resolution_clock::now();
         lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
@@ -238,7 +240,7 @@ static void call_tsqr(
         auto stop_geqr = high_resolution_clock::now();
         dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
         data_regen(m_info, all_data, state, state, 2);
-#endif
+
         // Testing CholQR
         auto start_cholqr = high_resolution_clock::now();
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
@@ -368,3 +370,4 @@ int main(int argc, char *argv[]) {
     for (i = n_start; i <= n_stop; i *= 2)
         call_apply_q(m_info, numruns, i, nb_start, all_data, state, state_B, output_filename);
 }
+#endif

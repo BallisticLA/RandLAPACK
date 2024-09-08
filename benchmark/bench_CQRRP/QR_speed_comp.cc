@@ -129,10 +129,11 @@ static void call_all_algs(
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
         auto stop_cholqr = high_resolution_clock::now();
         dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
+#if !defined(__APPLE__)
         lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
         auto stop_cholqr_orhr = high_resolution_clock::now();
         dur_cholqr_orhr = duration_cast<microseconds>(stop_cholqr_orhr - start_cholqr).count();
-
+#endif
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 1);
     
