@@ -1,0 +1,138 @@
+
+
+CONLUSIONS
+
+1. Performance is best with -O1 (13 seconds vs 17 seconds from -O0, but same result as -O0).
+
+2. The nature of the preconditioner varies (specifically, where we encounter a Cholesky failure,
+   and hence the value of the preconditioner's rank) depending on if we use -O2 or -O3, 
+   *provided* we *don't* have the "-fsanitize=undefined" flag.
+
+NEXT STEPS
+
+* Easy: run the larger guy and see how much faster we are with -O1.
+
+* Medium: export the rp_cholesky preconditioner from MATLAB into a matrixmarket file.
+  Make a script to run lockorblock_pcg using the SpectralPrecond induced by that matrix.
+
+////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////
+
+
+////// Debug (evidently the same as BLANK) //////////
+
+(rb311) (base) s1104997ca:build rjmurr$ ./KRILL_simple 
+cols  : 59535
+rows  : 8
+k     : 1024
+s     : 1
+mu0   : 0.00059535
+rpc_b : 64
+
+Cholesky failed with exit code 40.
+Returning early, with approximation rank = 956
+
+normNR : 113.48 normR : 243.998 k: 0    dim : 0
+normNR : 0.000378058    normR : 0.000443416     k: 1    dim : 1
+normNR : 3.85744e-09    normR : 4.38204e-09     k: 2    dim : 2
+normNR : 3.71858e-14    normR : 4.1411e-14      k: 3    dim : 3
+
+Krill : 16.454101000000001
+
+
+////// Release //////////
+
+(rb311) (base) s1104997ca:build rjmurr$ ./KRILL_simple 
+cols  : 59535
+rows  : 8
+k     : 1024
+s     : 1
+mu0   : 0.00059535
+rpc_b : 64
+
+Cholesky failed with exit code 44.
+Returning early, with approximation rank = 319
+
+normNR : 113.51 normR : 243.998 k: 0    dim : 0
+normNR : 0.208441       normR : 0.281245        k: 1    dim : 1
+normNR : 0.00179702     normR : 0.00254381      k: 2    dim : 2
+normNR : 1.22709e-05    normR : 1.7396e-05      k: 3    dim : 3
+normNR : 1.25328e-07    normR : 1.79491e-07     k: 4    dim : 4
+normNR : 1.00295e-09    normR : 1.49707e-09     k: 5    dim : 5
+normNR : 1.06377e-11    normR : 1.4495e-11      k: 6    dim : 6
+
+Krill : 16.997389999999999
+
+
+////// RelWithDebInfo ///// DEFAULT, -O2 //////////
+
+(rb311) (base) s1104997ca:build rjmurr$ ./KRILL_simple 
+cols  : 59535
+rows  : 8
+k     : 1024
+s     : 1
+mu0   : 0.00059535
+rpc_b : 64
+
+Cholesky failed with exit code 44.
+Returning early, with approximation rank = 319
+
+normNR : 113.51 normR : 243.998 k: 0    dim : 0
+normNR : 0.208441       normR : 0.281245        k: 1    dim : 1
+normNR : 0.00179702     normR : 0.00254381      k: 2    dim : 2
+normNR : 1.22709e-05    normR : 1.7396e-05      k: 3    dim : 3
+normNR : 1.25328e-07    normR : 1.79491e-07     k: 4    dim : 4
+normNR : 1.00295e-09    normR : 1.49707e-09     k: 5    dim : 5
+normNR : 1.06377e-11    normR : 1.4495e-11      k: 6    dim : 6
+
+Krill : 17.326007000000001
+
+////// MinRelRelWithDebInfo //// changed to have -O1 ///////////
+
+(rb311) (base) s1104997ca:build rjmurr$ ./KRILL_simple 
+cols  : 59535
+rows  : 8
+k     : 1024
+s     : 1
+mu0   : 0.00059535
+rpc_b : 64
+
+Cholesky failed with exit code 40.
+Returning early, with approximation rank = 956
+
+normNR : 113.48 normR : 243.998 k: 0    dim : 0
+normNR : 0.000378058    normR : 0.000443417     k: 1    dim : 1
+normNR : 3.85744e-09    normR : 4.38216e-09     k: 2    dim : 2
+normNR : 3.71859e-14    normR : 4.14125e-14     k: 3    dim : 3
+
+Krill : 13.233637999999999
+
+
+
+
+////// Release //////////
+
+(rb311) (base) s1104997ca:build rjmurr$ ./KRILL_simple 
+cols  : 59535
+rows  : 8
+k     : 1024
+s     : 1
+mu0   : 0.00059535
+rpc_b : 64
+
+Cholesky failed with exit code 40.
+Returning early, with approximation rank = 956
+
+normNR : 113.48 normR : 243.998 k: 0    dim : 0
+normNR : 0.000378058    normR : 0.000443417     k: 1    dim : 1
+normNR : 3.85744e-09    normR : 4.38216e-09     k: 2    dim : 2
+normNR : 3.71859e-14    normR : 4.14125e-14     k: 3    dim : 3
+
+Krill : 37.660519000000001
+
+
+
+
+I've observed something unexpected. If I apply the compiler flags "-Wall -Wextra -pedantic -fsanitize=undefined" then the behavior of my program with -O3 matches the behavior of my program with -O1. If the program's behavior differs when I use these flags then I would expect the compiler to tell me 
