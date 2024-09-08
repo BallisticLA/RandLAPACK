@@ -247,12 +247,12 @@ int RBKI<T, RNG>::call(
 
     // Generate a dense Gaussian random matrx.
     // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
-#if !defined(__APPLE__)
+#if RandLAPACK_HAS_OpenMP
     omp_set_num_threads(this->num_threads_some);
 #endif
     RandBLAS::DenseDist D(n, k);
     state = RandBLAS::fill_dense(D, Y_i, state).second;
-#if !defined(__APPLE__)
+#if RandLAPACK_HAS_OpenMP
     omp_set_num_threads(this->num_threads_rest);
 #endif
 
@@ -352,11 +352,11 @@ int RBKI<T, RNG>::call(
             }
 
             // Copy R_ii over to R's (in transposed format).
-#if !defined(__APPLE__)
+#if RandLAPACK_HAS_OpenMP
             omp_set_num_threads(this->num_threads_some);
 #endif
             util::transposition(0, k, Y_i, n, R_ii, n, 1);
-#if !defined(__APPLE__)
+#if RandLAPACK_HAS_OpenMP
             omp_set_num_threads(this->num_threads_rest);
 #endif
 

@@ -141,6 +141,8 @@ class TestHQRRP : public ::testing::Test
     }
 };
 
+#if !defined(__APPLE__)
+// This test uses orhr_col
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     int64_t m = 500;
@@ -162,8 +164,6 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-// This test uses orhr_col
-#if !defined(__APPLE__)
     test_HQRRP_general(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
-#endif
 }
+#endif

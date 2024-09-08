@@ -152,6 +152,10 @@ int CQRRP_blocked<T, RNG>::call(
     int64_t* J,
     RandBLAS::RNGState<RNG> &state
 ){
+    #ifdef __APPLE__
+    UNUSED(m); UNUSED(n); UNUSED(A); UNUSED(lda); UNUSED(d_factor); UNUSED(tau); UNUSED(J); UNUSED(state);
+    throw std::runtime_error("CQRRP is not supported when BLAS is linked against Apple Accelerate.");
+    #else
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
@@ -435,10 +439,10 @@ int CQRRP_blocked<T, RNG>::call(
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
         // Q is defined with block_rank elementary reflectors. 
-#if !defined(__APPLE__)
-        // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to envoke the newest Accelerate library.
+        // NOTE:
+        ///     This routine is defined in LAPACK 3.9.0.
         lapack::orhr_col(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work2);
-#endif
+
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
@@ -605,8 +609,10 @@ int CQRRP_blocked<T, RNG>::call(
         rows -= b_sz;
         cols -= b_sz;
     }
+    #endif
     return 0;
 }
 
 } // end namespace RandLAPACK
+
 #endif

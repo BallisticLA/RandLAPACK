@@ -392,6 +392,7 @@ TEST_F(TestUtil, test_col_swp) {
     test_col_swp<double>(all_data);
 }
 
+#if !defined(__APPLE__)
 TEST_F(TestUtil, test_orhr_col) {
     
     int64_t m = 4;//std::pow(2, 10);
@@ -408,3 +409,4 @@ TEST_F(TestUtil, test_orhr_col) {
 
     test_orhr_col<double>(all_data);
 }
+#endif
