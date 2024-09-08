@@ -140,27 +140,26 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
 
         // Testing GEQR + GEQPT
+#if !defined(__APPLE__)
         auto start_geqpt = high_resolution_clock::now();
         auto start_geqr  = high_resolution_clock::now();
-#if !defined(__APPLE__)
         // GEQR(A) part
         lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
         int64_t tsize = (int64_t) all_data.tau[0]; 
         all_data.tau.resize(tsize);
         lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
-#endif
+
         auto stop_geqr = high_resolution_clock::now();
         dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
-#if !defined(__APPLE__)
+
         // GEQP3(R) part
         lapack::lacpy(MatrixType::Upper, n, n, all_data.A.data(), m, all_data.R.data(), n);
         lapack::geqp3(n, n, all_data.R.data(), n, all_data.J.data(), all_data.tau.data());
-#endif
         auto stop_geqpt = high_resolution_clock::now();
         dur_geqpt = duration_cast<microseconds>(stop_geqpt - start_geqpt).count();
-
         state_gen = state;
         data_regen(m_info, all_data, state_gen);
+#endif
 
         std::ofstream file(output_filename, std::ios::app);
         file << dur_cqrrpt << ",  " << dur_geqpt <<  ",  " << dur_geqrf   << ",  " 
@@ -189,7 +188,7 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = "CQRRPT_speed_comp_"              + std::to_string(m)
+    std::string output_filename = "CQRRPT_speed_comp_"   + std::to_string(m)
                                       + "_col_start_"    + std::to_string(n_start)
                                       + "_col_stop_"     + std::to_string(n_stop)
                                       + "_d_factor_"     + std::to_string(d_factor)

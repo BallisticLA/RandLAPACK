@@ -95,9 +95,9 @@ static void call_all_algs(
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 0);
 
+#if !defined(__APPLE__)
         // Testing GEQR
         auto start_geqr = high_resolution_clock::now();
-#if !defined(__APPLE__)
         lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
         tsize = (int64_t) all_data.tau[0]; 
         all_data.tau.resize(tsize);
@@ -115,10 +115,10 @@ static void call_all_algs(
         all_data.tau.resize(tsize);
         lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
         lapack::ungqr(m, n, n, all_data.A.data(), m, all_data.tau.data());
-#endif
+
         auto stop_geqr_ungqr = high_resolution_clock::now();
         dur_geqr_ungqr = duration_cast<microseconds>(stop_geqr_ungqr - start_geqr_ungqr).count();
-
+#endif
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 0);
 
