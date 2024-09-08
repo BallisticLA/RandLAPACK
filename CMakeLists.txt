@@ -1,36 +1,49 @@
 cmake_minimum_required(VERSION 3.27)
 
-project(RandLAPACK LANGUAGES CXX CUDA)
+# Set the project without CUDA language by default
+project(RandLAPACK LANGUAGES CXX)
 
-set(CUDA_VISIBILITY_PRESET hidden)
-set(CMAKE_CUDA_STANDARD 20)
-set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
-set(CMAKE_CUDA_VISIBILITY_PRESET hidden)
-set(CMAKE_CUDA_ARCHITECTURES native)
+# Try to find CUDA on the system
+find_package(CUDA QUIET)
 
+# Check if CUDA was found and configure accordingly
+if (CUDA_FOUND)
+    message(STATUS "CUDA found! Enabling CUDA support.")
+    enable_language(CUDA)
+
+    set(CUDA_VISIBILITY_PRESET hidden)
+    set(CMAKE_CUDA_STANDARD 20)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+    set(CMAKE_CUDA_VISIBILITY_PRESET hidden)
+    set(CMAKE_CUDA_ARCHITECTURES native)
+
+    # Include CUDA-specific files or flags
+    include(compiler_flags)
+    include(find_cuda)
+else()
+    message(STATUS "CUDA not found. Building without CUDA support.")
+endif()
+
+# Add general CMake module paths
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 
-# cuda stuff
-include(compiler_flags)
-include(find_cuda)
-
-# configure the build
+# Configure the build
 enable_testing()
 
 include(rl_build_options)
 include(rl_version)
 
-# find dependencies
+# Find dependencies
 find_package(lapackpp REQUIRED)
 
-# configure RandBLAS subproject
+# Configure RandBLAS subproject
 add_subdirectory(RandBLAS)
 
-# compile sources
+# Compile sources
 add_subdirectory(RandLAPACK)
 add_subdirectory(test)
 
-# export the configuration
+# Export the configuration
 include(rl_config)
