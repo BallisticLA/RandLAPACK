@@ -73,7 +73,7 @@ static void R_norm_ratio(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, true, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
     CQRRPT.num_threads = 48;
 
@@ -115,7 +115,7 @@ static void sv_ratio(
     auto state1 = state;
 
     // Additional params setup.
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, true, tol);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
     CQRRPT.num_threads = 48;
 

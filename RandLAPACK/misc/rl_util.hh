@@ -13,6 +13,39 @@
 
 namespace RandLAPACK::util {
 
+template <typename T>
+void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[])
+{
+	int64_t i, j;
+    T val;
+	std::cout << "\n" << label << std::endl;
+    for (i = 0; i < n_rows; ++i) {
+        std::cout << "\t";
+        for (j = 0; j < n_cols - 1; ++j) {
+            val = a[i + lda * j];
+            if (val < 0) {
+				//std::cout << string_format("  %2.4f,", val);
+                printf("  %2.20f,", val);
+            } else {
+				//std::cout << string_format("   %2.4f", val);
+				printf("   %2.20f,", val);
+            }
+        }
+        // j = n_cols - 1
+        val = a[i + lda * j];
+        if (val < 0) {
+   			//std::cout << string_format("  %2.4f,", val); 
+			printf("  %2.20f,", val);
+		} else {
+            //std::cout << string_format("   %2.4f,", val);
+			printf("   %2.20f,", val);
+		}
+        printf("\n");
+    }
+    printf("\n");
+    return;
+}
+
 /// Generates an identity matrix. Assuming col-maj
 template <typename T>
 void eye(
@@ -146,56 +179,16 @@ T* upsize(
     return A.data();
 }
 
-
-/// Changes the number of rows of a column-major matrix.
-template <typename T>
-T* row_resize(
-    int64_t m,
-    int64_t n,
-    std::vector<T> &A,
-    int64_t k
-) {
-
-    T* A_dat = A.data();
-
-    // SIZING DOWN - just moving data
-    if(m > k) {
-        uint64_t end = k;
-        for (int i = 1; i < n; ++i) {
-            // Place ith column (of k entries) after the (i - 1)st column
-            blas::copy(k, &A_dat[m * i], 1, &A_dat[end], 1);
-            end += k;
-        }
-    } else { //SIZING UP
-        // How many rows are being added: k - m
-        A_dat = upsize(k * n, A);
-
-        int64_t end = k * (n - 1);
-        for(int i = n - 1; i > 0; --i) {
-            // Copy in reverse order to avoid overwriting
-            blas::copy(m, &A_dat[m * i], -1, &A_dat[end], -1);
-            std::fill(&A_dat[m * i], &A_dat[end], 0.0);
-            end -= k;
-        }
-    }
-
-    return A_dat;
-}
-
 /// Find the condition number of a given matrix A.
 template <typename T>
 T cond_num_check(
     int64_t m,
     int64_t n,
     const T* A,
-    T* A_cpy,
-    T* s,
     bool verbose
 ) {
-
-    // TODO: GET RID OF THE INTERNAL ALLOCATIONS
-    A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
-    s     = ( T * ) calloc( n, sizeof( T ) );
+    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    T* s     = ( T * ) calloc( n, sizeof( T ) );
 
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
@@ -218,17 +211,18 @@ int64_t rank_check(
     int64_t n,
     const T* A
 ) {
-    T* A_pre_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
     T* s     = ( T * ) calloc( n, sizeof( T ) );
 
-    RandLAPACK::util::cond_num_check(m, n, A, A_pre_cpy, s, false);
+    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
     for(int i = 0; i < n; ++i) {
         if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
             return i - 1;
     }
 
-    free(A_pre_cpy);
+    free(A_cpy);
     free(s);
 
     return n;
@@ -238,30 +232,30 @@ int64_t rank_check(
 template <typename T>
 bool orthogonality_check(
     int64_t m,
-    int64_t n,
     int64_t k,
-    const std::vector<T> &A,
-    std::vector<T> &A_gram,
+    T* A,
     bool verbose
 ) {
 
-    const T* A_dat = A.data();
-    T* A_gram_dat = A_gram.data();
+    T* A_gram  = ( T * ) calloc( k * k, sizeof( T ) );
 
-    blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, n, m, 1.0, A_dat, m, 0.0, A_gram_dat, n);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
 
-    for (int oi = 0; oi < k; ++oi) {
-        A_gram_dat[oi * n + oi] -= 1.0;
+    for (int i = 0; i < k; ++i) {
+        A_gram[i * k + i] -= 1.0;
     }
-    T orth_err = lapack::lange(Norm::Fro, n, n, A_gram_dat, k);
+    T orth_err = lapack::lange(Norm::Fro, k, k, A_gram, k);
 
     if(verbose) {
         printf("Q ERROR:   %e\n\n", orth_err);
     }
 
-    if (orth_err > 1.0e-10)
+    if (orth_err > 1.0e-10) {
+        free(A_gram);
         return true;
+    }
 
+    free(A_gram);
     return false;
 }
 
@@ -414,6 +408,55 @@ void transposition(
         #pragma omp parallel for
         for(int i = 0; i < n; ++i)
             blas::copy(m, &A[i * lda], 1, &AT[i], ldat);
+    }
+}
+
+// Custom implementation of orhr_col.
+// Allows to choose whether to output T or tau.
+template <typename T>
+void rl_orhr_col(
+    int64_t m,
+    int64_t n,
+    T* A,
+    int64_t lda,
+    T* T_dat,
+    T* D,
+    bool output_tau
+) {
+    // We assume that the space for S, D has ben pre-allocated
+    T buf = 0;
+
+    int i;
+    for(i = 0; i < n; ++i) {
+        // S(i, i) = − sgn(Q(i, i)); = 1 if Q(i, i) == 0
+        buf = A[i * lda + i];
+        buf == 0 ? D[i] = 1 : D[i] = -((T(0) < buf) - (buf < T(0)));
+        A[i * lda + i] -= D[i];
+        // Scale ith column if L by diagonal element
+        blas::scal(m - (i + 1), 1 / A[i * (lda + 1)], &A[(lda + 1) * i + 1], 1);
+        // Perform Schur compliment update
+        // A(i+1:m, i+1:n) = A(i+1:m, i+1:n) - (A(i+1:m, i) * A(i, i+1:n))
+        
+        char name [] = "In";
+        RandLAPACK::util::print_colmaj(m, n, A, m, name);
+
+        blas::ger(Layout::ColMajor, m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], m, &A[(lda + 1) * (i + 1)], lda);	
+    }
+
+    if(output_tau) {
+        // In this case, we are assuming that T_dat stores a vector tau of length n.
+        blas::copy(n, A, lda + 1, T_dat, 1);
+        #pragma omp parallel for
+        for(i = 0; i < n; ++i)
+            T_dat[i] *= -D[i];
+    } else {
+        // In this case, we are assuming that T_dat stores matrix T of size n by n.
+        // Fing T = -R * diag(D) * Q_11^{-T}
+        lapack::lacpy(MatrixType::Upper, n, n, A, lda, T_dat, n);
+        for(i = 0; i < n; ++i) {
+            blas::scal(i + 1, -D[i], &T_dat[n * i], 1);
+        }
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::Unit, n, n, 1.0, A, lda, T_dat, n);	
     }
 }
 

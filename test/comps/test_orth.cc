@@ -83,12 +83,12 @@ class TestOrth : public ::testing::Test
         T* I_ref_dat = all_data.I_ref.data();
 
         // Orthonormalize sketch Y
-        if(CholQRQ.call(m, k, all_data.Y) != 0) {
-            EXPECT_TRUE(false) << "\nPOTRF FAILED DURE TO ILL-CONDITIONED DATA\n";
+        if(CholQRQ.call(m, k, all_data.Y.data()) != 0) {
+            EXPECT_TRUE(false) << "\nPOTRF FAILED DUE TO ILL-CONDITIONED DATA\n";
             return;
         }
         // Call the scheme twice for better orthogonality
-        CholQRQ.call(m, k, all_data.Y);
+        CholQRQ.call(m, k, all_data.Y.data());
         // Q' * Q  - I = 0
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Y_dat, m, -1.0, I_ref_dat, k);
         T norm_fro = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);

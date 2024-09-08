@@ -52,20 +52,11 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
 }
 
-template <typename T>
-static void update_best_time(int iter, long &t_best, long &t_curr, T* S1, T* S2, int64_t target_rank)
-{
-    if (iter == 0 || t_curr < t_best) {
-        t_best = t_curr;
-        blas::copy(target_rank, S1, 1, S2, 1);
-    }
-}
-
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
 // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
 template <typename T>
 static T
-residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t target_rank, int64_t custom_rank) {
+residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
@@ -141,18 +132,19 @@ static void call_all_algs(
 
     // Making sure the states are unchanged
     auto state_gen = state;
+    auto state_alg = state;
 
     for (i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
         
         // Testing RBKI
         auto start_rbki = high_resolution_clock::now();
-        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
+        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state_alg);
         auto stop_rbki = high_resolution_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
-        T residual_err_custom = residual_error_comp<T>(all_data, target_rank, custom_rank);
-        T residual_err_target = residual_error_comp<T>(all_data, target_rank, target_rank);
+        T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
+        T residual_err_target = residual_error_comp<T>(all_data, target_rank);
 
         // Print accuracy info
         printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom);
@@ -161,6 +153,7 @@ static void call_all_algs(
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
         state_gen = state;
+        state_alg = state;
         data_regen(m_info, all_data, state_gen, 0);
     }
 }
@@ -211,7 +204,7 @@ int main(int argc, char *argv[]) {
     printf("Finished data preparation\n");
 
     // Declare a data file
-    std::string output_filename = "COMBINED_1_2_3_4_5_RBKI_speed_comp_m_"             + std::to_string(m)
+    std::string output_filename = "RBKI_speed_comp_m_"             + std::to_string(m)
                                       + "_n_"                      + std::to_string(n)
                                       + "_b_sz_start_"             + std::to_string(b_sz_start)
                                       + "_b_sz_stop_"              + std::to_string(b_sz_stop)

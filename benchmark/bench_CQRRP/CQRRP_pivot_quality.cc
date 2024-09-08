@@ -1,3 +1,6 @@
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 Performs computations in order to assess the pivot quality of ICQRRP.
 The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.
@@ -73,28 +76,30 @@ static void R_norm_ratio(
     auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
 
+    auto state_alg = state;
+    auto state_gen = state;
+
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 8;
+    //CQRRP_blocked.use_qp3 = 1;
 
-    // Running HQRRP
-    std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
+    // Running QP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
     std::vector<T> R_norms_HQRRP = get_norms(all_data);
-    printf("\nDone with HQRRP\n");
+    printf("\nDone with QP3\n");
 
     // Clear and re-generate data
-    data_regen(m_info, all_data, state);
+    state_gen = state;
+    data_regen(m_info, all_data, state_gen);
 
     printf("\nStarting CQRRP\n");
     // Running CQRRP
-    CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+    state_alg = state;
+    CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
     std::vector<T> R_norms_CQRRP = get_norms(all_data);
 
     // Declare a data file
-    std::fstream file1("data_out/QR_R_norm_ratios_rows_"        + std::to_string(m)
+    std::fstream file1("QR_R_norm_ratios_rows_"        + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_"         + std::to_string(b_sz)
                                     + "_d_factor_"     + std::to_string(d_factor)
@@ -103,6 +108,10 @@ static void R_norm_ratio(
     // Write the 1st metric info into a file.
     for (int i = 0; i < n; ++i)
         file1 << R_norms_HQRRP[i] / R_norms_CQRRP[i] << ",  ";
+
+    // Clear and re-generate data
+    state_gen = state;
+    data_regen(m_info, all_data, state_gen);
 }
 
 template <typename T, typename RNG>
@@ -119,14 +128,14 @@ static void sv_ratio(
     std::vector<T> geqp3 (n, 0.0);
     std::vector<T> sv_ratios_cqrrp (n, 0.0);
 
-    auto state1 = state;
+    auto state_alg = state;
+    auto state_gen = state;
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 8;
+    //CQRRP_blocked.use_qp3 = 1;
 
-    std::fstream file2("data_out/QR_sv_ratios_rows_"            + std::to_string(m)
+    std::fstream file2("QR_sv_ratios_rows_"            + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_"   + std::to_string(b_sz)
                                     + "_d_factor_"     + std::to_string(d_factor)
@@ -139,35 +148,41 @@ static void sv_ratio(
     lapack::gesdd(Job::NoVec, m, n, all_data.A.data(), m, all_data.S.data(), (T*) nullptr, m, (T*) nullptr, n);
 
     // Clear and re-generate data
-    data_regen(m_info, all_data, state);
+    state_gen = state;
+    data_regen(m_info, all_data, state_gen);
 
     // Running GEQP3
-    std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    //RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, 0, 0, state, (T*) nullptr);
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
 
     // Write the 2nd metric info into a file.
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < n; ++i){
+        printf("%e\n", S_dat[i]);
         file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
-    
+    }
     file2  << ",\n";
 
     // Clear and re-generate data
-    data_regen(m_info, all_data, state1);
+    state_gen = state;
+    data_regen(m_info, all_data, state_gen);
 
     // Running CQRRP
-    CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+    state_alg = state;
+    CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)
         file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
+
+    // Clear and re-generate data
+    state_gen = state;
+    data_regen(m_info, all_data, state_gen);
 }
 
 int main() {
     // Declare parameters
-    int64_t m          = std::pow(2, 12);
-    int64_t n          = std::pow(2, 12);
-    double d_factor    = 1.125;
+    int64_t m          = std::pow(2, 10);
+    int64_t n          = std::pow(2, 10);
+    double d_factor    = 1.25;
     int64_t b_sz       = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
@@ -180,16 +195,16 @@ int main() {
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::kahan);
-    //m_info.cond_num = std::pow(10, 10);
-    //m_info.rank = n;
-    //m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::spiked);
+    m_info.cond_num = std::pow(10, 10);
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+    m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-#if !defined(__APPLE__)
     R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("R done\n");
     sv_ratio(m_info, b_sz, all_data, state_constant2);
     printf("SV done\n\n");
-#endif
 }
+#endif

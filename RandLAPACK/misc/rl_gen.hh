@@ -76,32 +76,27 @@ void gen_singvec(
     T* S,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* U        = ( T * ) calloc( m * k, sizeof( T ) );
-    T* V        = ( T * ) calloc( n * k, sizeof( T ) );
-    T* tau      = ( T * ) calloc( k    , sizeof( T ) );
-    T* Gemm_buf = ( T * ) calloc( m * k, sizeof( T ) );
+    std::fill(&A[0], &A[m * n], 0.0);
+    T* U   = ( T * ) calloc( m * k, sizeof( T ) );
+    T* V   = ( T * ) calloc( n * k, sizeof( T ) );
+    T* tau = ( T * ) calloc( k    , sizeof( T ) );
 
     RandBLAS::DenseDist DU(m, k);
     RandBLAS::DenseDist DV(n, k);
     state = RandBLAS::fill_dense(DU, U, state).second;
     state = RandBLAS::fill_dense(DV, V, state).second;
 
+    blas::copy(k, S, k + 1, A, m + 1);
+
     lapack::geqrf(m, k, U, m, tau);
-    lapack::ungqr(m, k, k, U, m, tau);
+    lapack::ormqr(Side::Left, Op::NoTrans, m, n, k, U, m, tau, A, m);
 
     lapack::geqrf(n, k, V, n, tau);
-    lapack::ungqr(n, k, k, V, n, tau);
-
-    blas::copy(m * k, U, 1, Gemm_buf, 1);
-    for(int i = 0; i < k; ++i)
-        blas::scal(m, S[i + k * i], &Gemm_buf[i * m], 1);
-
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, Gemm_buf, m, V, n, 0.0, A, m);
+    lapack::ormqr(Side::Right, Op::Trans, m, n, k, V, n, tau, A, m);
 
     free(U);
     free(V);
     free(tau);
-    free(Gemm_buf);
 }
 
 /// Generates a matrix with polynomially-decaying spectrum of the following form:
@@ -222,9 +217,9 @@ void gen_step_mat(
     int offset = (int) (k / 4);
 
     std::fill(s, s + offset, 1.0);
-    std::fill(s + offset + 1, s + 2 * offset, 8.0 / cond);
-    std::fill(s + 2 * offset + 1, s + 3 * offset, 4.0 / cond);
-    std::fill(s + 3 * offset + 1, s + k, 1.0 / cond);
+    std::fill(s + offset, s + 2 * offset, 8.0 / cond);
+    std::fill(s + 2 * offset, s + 3 * offset, 4.0 / cond);
+    std::fill(s + 3 * offset, s + k, 1.0 / cond);
 
     // form a diagonal S
     RandLAPACK::util::diag(k, k, s, k, S);
@@ -257,7 +252,7 @@ void gen_spiked_mat(
     RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
     RandBLAS::SparseSkOp<T> S(DS, state);
     state = RandBLAS::fill_sparse(S);
-
+    
     T* V   = ( T * ) calloc( n * n, sizeof( T ) );
     T* tau = ( T * ) calloc( n,     sizeof( T ) );
 
@@ -269,19 +264,19 @@ void gen_spiked_mat(
 
     // Fill A with stacked copies of V
     int start = 0;
+    int i, j;
     while(start + n <= m){
-        for(int j = 0; j < n; ++j) {
+        for( j = 0; j < n; ++j) {
             blas::copy(n, &V[m * j], 1, &A[start + (m * j)], 1);
         }
         start += n;
     }
-    // Scale randomly sampled rows
-    start = 0;
-    while (start + m <= m * n) {
-        for(int i = 0; i < num_rows_sampled; ++i) {
-            A[start + (S.cols)[i] - 1] *= spike_scale;
+
+    for (i = 0; i < n; ++ i) {
+        for (j = 0; j < num_rows_sampled; ++j) {
+            A[m * i + S.rows[j]] *= spike_scale;
         }
-        start += m;
+        j = 0;
     }
 
     free(V);

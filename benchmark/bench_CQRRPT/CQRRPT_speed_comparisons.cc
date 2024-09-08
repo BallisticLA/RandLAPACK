@@ -54,19 +54,20 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 }
 
 template <typename T, typename RNG>
-static std::vector<long> call_all_algs(
+static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t n,
     QR_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state) {
+    RandBLAS::RNGState<RNG> &state,
+    std::string output_filename) {
 
     auto m        = all_data.row;
     auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, true, tol);
+    RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
     CQRRPT.num_threads = 48;
 
@@ -77,12 +78,6 @@ static std::vector<long> call_all_algs(
     long dur_geqpt      = 0;
     long dur_geqrf      = 0;
     long dur_scholqr    = 0;
-    long t_cqrrpt_best  = 0;
-    long t_geqp3_best   = 0;
-    long t_geqr_best    = 0;
-    long t_geqpt_best   = 0;
-    long t_geqrf_best   = 0;
-    long t_scholqr_best = 0;
     
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -111,6 +106,7 @@ static std::vector<long> call_all_algs(
         // Testing CQRRPT
         auto start_cqrrp = high_resolution_clock::now();
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+        printf("CQRRPT RANK: %ld\n", CQRRPT.rank);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
 
@@ -122,7 +118,7 @@ static std::vector<long> call_all_algs(
         auto start_scholqr = high_resolution_clock::now();
         //--------------------------------------------------------------------------------------------------------------------------//
         T norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-        T shift = 11 * std::numeric_limits<double>::epsilon() * n * std::pow(norm_A, 2);
+        T shift = 11 * std::numeric_limits<T>::epsilon() * n * std::pow(norm_A, 2);
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, all_data.A.data(), m, 0.0, all_data.R.data(), n);
         for (int i = 0; i < n; ++i)
             all_data.R[i * (n + 1)] += shift;
@@ -144,46 +140,38 @@ static std::vector<long> call_all_algs(
         data_regen(m_info, all_data, state_gen);
 
         // Testing GEQR + GEQPT
+#if !defined(__APPLE__)
         auto start_geqpt = high_resolution_clock::now();
         auto start_geqr  = high_resolution_clock::now();
-#if !defined(__APPLE__)
         // GEQR(A) part
         lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
         int64_t tsize = (int64_t) all_data.tau[0]; 
         all_data.tau.resize(tsize);
         lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
-#endif
+
         auto stop_geqr = high_resolution_clock::now();
         dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
-#if !defined(__APPLE__)
+
         // GEQP3(R) part
         lapack::lacpy(MatrixType::Upper, n, n, all_data.A.data(), m, all_data.R.data(), n);
         lapack::geqp3(n, n, all_data.R.data(), n, all_data.J.data(), all_data.tau.data());
-#endif
         auto stop_geqpt = high_resolution_clock::now();
         dur_geqpt = duration_cast<microseconds>(stop_geqpt - start_geqpt).count();
-
         state_gen = state;
         data_regen(m_info, all_data, state_gen);
-    
-        i == 0 ? t_cqrrpt_best  = dur_cqrrpt  : (dur_cqrrpt < t_cqrrpt_best)   ? t_cqrrpt_best = dur_cqrrpt   : NULL;
-        i == 0 ? t_geqpt_best   = dur_geqpt   : (dur_geqpt < t_geqpt_best)     ? t_geqpt_best = dur_geqpt     : NULL;
-        i == 0 ? t_geqrf_best   = dur_geqrf   : (dur_geqrf < t_geqrf_best)     ? t_geqrf_best = dur_geqrf     : NULL;
-        i == 0 ? t_geqr_best    = dur_geqr    : (dur_geqr < t_geqr_best)       ? t_geqr_best = dur_geqr       : NULL;
-        i == 0 ? t_geqp3_best   = dur_geqp3   : (dur_geqp3 < t_geqp3_best)     ? t_geqp3_best = dur_geqp3     : NULL;
-        i == 0 ? t_scholqr_best = dur_scholqr : (dur_scholqr < t_scholqr_best) ? t_scholqr_best = dur_scholqr : NULL;
+#endif
+
+        std::ofstream file(output_filename, std::ios::app);
+        file << dur_cqrrpt << ",  " << dur_geqpt <<  ",  " << dur_geqrf   << ",  " 
+             << dur_geqr   << ",  " << dur_geqp3 <<  ",  " << dur_scholqr << ",\n";
     }
-
-    std::vector<long> res{t_cqrrpt_best, t_geqpt_best, t_geqrf_best, t_geqr_best, t_geqp3_best, t_scholqr_best};
-
-    return res;
 }
 
 int main() {
     // Declare parameters
-    int64_t m           = std::pow(2, 17);
-    int64_t n_start     = std::pow(2, 9);
-    int64_t n_stop      = std::pow(2, 13);
+    int64_t m           = 1000000;//std::pow(2, 17);
+    int64_t n_start     = std::pow(2, 5);
+    int64_t n_stop      = std::pow(2, 14);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState();
@@ -191,7 +179,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 75;
+    int64_t numruns = 3;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
@@ -200,36 +188,13 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::fstream file("CQRRPT_speed_comp_"              + std::to_string(m)
+    std::string output_filename = "CQRRPT_speed_comp_"   + std::to_string(m)
                                       + "_col_start_"    + std::to_string(n_start)
                                       + "_col_stop_"     + std::to_string(n_stop)
                                       + "_d_factor_"     + std::to_string(d_factor)
-                                      + ".dat", std::fstream::app);
+                                      + ".dat";
 
     for (;n_start <= n_stop; n_start *= 2) {
-        res = call_all_algs(m_info, numruns, n_start, all_data, state_constant);
-        file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",\n";
+        call_all_algs(m_info, numruns, n_start, all_data, state_constant, output_filename);
     }
 }
-
-/*
-int main() {
-    // Declare parameters
-    int64_t m  = 1000000;
-    int64_t n  = std::pow(2, 12);
-    auto state = RandBLAS::RNGState();
-
-    std::vector<double> A (m * n, 0.0);
-    std::vector<double> tau (n, 0.0);
-
-    omp_set_num_threads(4);
-    RandBLAS::DenseDist D(m, n);
-    state = RandBLAS::fill_dense(D, A.data(), state).second;
-    omp_set_num_threads(48);
-
-    lapack::geqr(m, n, A.data(), m,  tau.data(), -1);
-    int64_t tsize = (int64_t) tau[0]; 
-    tau.resize(tsize);
-    lapack::geqr(m, n, A.data(), m, tau.data(), tsize);
-}
-*/

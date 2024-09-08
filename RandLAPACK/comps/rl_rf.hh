@@ -22,9 +22,9 @@ class RangeFinder {
         virtual int call(
             int64_t m,
             int64_t n,
-            const std::vector<T> &A,
+            const T* A,
             int64_t k,
-            std::vector<T> &Q,
+            T* Q,
             RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
@@ -41,7 +41,7 @@ class RF : public RangeFinder<T, RNG> {
             bool verb,
             bool cond
         ) : RS_Obj(rs_obj), Orth_Obj(orth_obj) {
-            verbosity = verb;
+            verbose = verb;
             cond_check = cond;
         }
 
@@ -86,9 +86,9 @@ class RF : public RangeFinder<T, RNG> {
         int call(
             int64_t m,
             int64_t n,
-            const std::vector<T> &A,
+            const T* A,
             int64_t k,
-            std::vector<T> &Q,
+            T* Q,
             RandBLAS::RNGState<RNG> &state
         ) override;
 
@@ -96,12 +96,8 @@ class RF : public RangeFinder<T, RNG> {
        // Instantiated in the constructor
        RandLAPACK::RowSketcher<T, RNG> &RS_Obj;
        RandLAPACK::Stabilization<T> &Orth_Obj;
-       bool verbosity;
+       bool verbose;
        bool cond_check;
-       std::vector<T> Omega;
-
-       std::vector<T> Q_cpy;
-       std::vector<T> s;
 
        // Implementation-specific vars
        std::vector<T> cond_nums; // Condition nubers of sketches
@@ -112,29 +108,31 @@ template <typename T, typename RNG>
 int RF<T, RNG>::call(
     int64_t m,
     int64_t n,
-    const std::vector<T> &A,
+    const T* A,
     int64_t k,
-    std::vector<T> &Q,
+    T* Q,
     RandBLAS::RNGState<RNG> &state
 ){
 
-    T* Omega_dat = util::upsize(n * k, this->Omega);
-    T* Q_dat = Q.data();
+    T* Omega  = ( T * ) calloc( n * k, sizeof( T ) );
 
-    if(this->RS_Obj.call(m, n, A, k, this->Omega, state))
+    if(this->RS_Obj.call(m, n, A, k, Omega, state)) {
+        free(Omega);
         return 1;
+    }
 
     // Q = orth(A * Omega)
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.data(), m, Omega_dat, n, 0.0, Q_dat, m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Omega, n, 0.0, Q, m);
 
     if(this->cond_check)
         // Writes into this->cond_nums
-        this->cond_nums.push_back(util::cond_num_check(m, k, Q.data(), (this->Q_cpy).data(), (this->s).data(), this->verbosity));
+        this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->verbose));
 
     if(this->Orth_Obj.call(m, k, Q))
         return 2; // Orthogonalization failed
 
     // Normal termination
+    free(Omega);
     return 0;
 }
 

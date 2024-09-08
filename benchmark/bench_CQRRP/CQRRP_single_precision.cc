@@ -1,3 +1,6 @@
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 This benchmarks compares single-precision ICQRRP with double-precision GETRF and GEQRF.
 We anticipate that single-precision ICQRRP can be used as part of the linear system solving process.
@@ -64,8 +67,6 @@ static std::vector<long> call_all_algs(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<float, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
-    CQRRP_blocked.nnz = 2;
-    CQRRP_blocked.num_threads = 48;
     // We are nbot using panel pivoting in performance testing.
     // timing vars
     long dur_cqrrp    = 0;
@@ -161,10 +162,9 @@ int main() {
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat", std::fstream::app);
-#if !defined(__APPLE__)
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         res = call_all_algs(m_info_f, m_info_d, numruns, b_sz_start, all_data_f, all_data_d, state_constant);
         file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",\n";
     }
-#endif
 }
+#endif

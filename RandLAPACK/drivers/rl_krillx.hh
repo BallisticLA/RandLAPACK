@@ -141,13 +141,13 @@ STATE krill_restricted_rpchol(
 
 
     vector<T> M(k * k);
-    _rpchol_imp::pack_selected_rows(blas::Layout::ColMajor, n, k, V.data(), inds, M.data());
+    _rpchol_impl::pack_selected_rows(blas::Layout::ColMajor, n, k, V.data(), inds, M.data());
     //
     //
     //
 
-    linops::SpectralPrecond<T> invP(n);
-    invP.prep(V, eigvals, mus, ell);
+    // linops::SpectralPrecond<T> invP(n);
+    // invP.prep(V, eigvals, mus, ell);
 }
 
 // template <typename T, typename FUNC, typename STATE>
