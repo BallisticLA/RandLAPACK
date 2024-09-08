@@ -141,29 +141,6 @@ void col_swap(
     }
 }
 
-/*
-template <typename T>
-void col_swap(
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    T* A,
-    int64_t lda,
-    std::vector<int64_t> idx
-) {
-    T* A_cpy = ( T * ) calloc( m * k, sizeof( T ) );
-    lapack::lacpy(MatrixType::General, m, k, A, lda, A_cpy, lda);
-
-    int64_t i, j; 
-    for (i = 0, j = 0; i < k; ++i) {
-        j = idx[i] - 1;
-        std::copy(&A_cpy[lda * j], &A_cpy[lda * j + m], &A[lda * i]);
-    }
-
-    free(A_cpy);
-}
-*/
-
 /// A version of the above function to be used on a vector of integers
 template <typename T>
 void col_swap(

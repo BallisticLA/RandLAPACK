@@ -62,8 +62,10 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             timing     = time_subroutines;
             eps        = ep;
             block_size = b_sz;
-            use_qp3 = false;
-            use_gaussian = false;
+            use_qp3      = false;
+            use_gemqrt   = false;
+            internal_nb  = b_sz;
+            tol = std::numeric_limits<T>::epsilon();
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -126,15 +128,17 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // 12 entries - logs time for different portions of the algorithm
         std::vector<long> times;
 
-        // Skething operator option
-        bool use_gaussian;
-
         // QRCP option
         bool use_qp3;
 
-        // tuning SASOS
-        int num_threads;
-        int64_t nnz;
+        // Option for updating A
+        bool use_gemqrt;
+
+        // NB for orhr_col and gemqrt
+        int64_t internal_nb;
+
+        // Naive rank estimation parameter;
+        T tol;
 };
 
 // We are assuming that tau and J have been pre-allocated
@@ -153,8 +157,8 @@ int CQRRP_blocked<T, RNG>::call(
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point saso_t_stop;
-    high_resolution_clock::time_point saso_t_start;
+    high_resolution_clock::time_point skop_t_stop;
+    high_resolution_clock::time_point skop_t_start;
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
     high_resolution_clock::time_point cholqr_t_start;
@@ -174,7 +178,7 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
     long preallocation_t_dur   = 0;
-    long saso_t_dur            = 0;
+    long skop_t_dur            = 0;
     long qrcp_t_dur            = 0;
     long cholqr_t_dur          = 0;
     long reconstruction_t_dur  = 0;
@@ -205,10 +209,14 @@ int CQRRP_blocked<T, RNG>::call(
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
-    // Variables fro the termination criteria
-    T curr_entry = 0;
-    T running_max = 0;
-    T running_min = 0;
+    // An indicator for whether all entries in a given block are zero.
+    bool block_zero = true;
+    // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration, 
+    // since the rest of the matrx must be zero.
+    // Is equal to block size by default, needs to be upated if the block size has changed.
+    int64_t block_rank = b_sz;
+    // Parameter to control number of blocks in orhr_col and gemqrt;
+    int64_t internal_nb = this -> internal_nb;
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -275,35 +283,28 @@ int CQRRP_blocked<T, RNG>::call(
     if(this -> timing) {
         preallocation_t_stop  = high_resolution_clock::now();
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
-        saso_t_start = high_resolution_clock::now();
+        skop_t_start = high_resolution_clock::now();
     }
 
-    if (this -> use_gaussian) {
-        T* S  = ( T * ) calloc( d * m, sizeof( T ) );
-        RandBLAS::DenseDist D(d, m);
-        state = RandBLAS::fill_dense(D, S, state).second;
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
-        free(S);
-    } else {
-        // Skethcing in an embedding regime
-        RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
-        RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-        state = RandBLAS::fill_sparse(S);
-
-        RandBLAS::sketch_general(
-            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-            d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_sk, d
-        );
-    }
+    // Using Gaussian matrix as a sketching operator.
+    // Using a sparse sketching operator may be dangerous if LU-based QRCP is in use,
+    // as LU is not intended to be used with rank-deficient matrices.
+    T* S  = ( T * ) calloc( d * m, sizeof( T ) );
+    RandBLAS::DenseDist D(d, m);
+    state = RandBLAS::fill_dense(D, S, state).second;
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
+    free(S);
 
     if(this -> timing) {
-        saso_t_stop  = high_resolution_clock::now();
-        saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
+        skop_t_stop  = high_resolution_clock::now();
+        skop_t_dur   = duration_cast<microseconds>(skop_t_stop - skop_t_start).count();
     }
 
     for(iter = 0; iter < maxiter; ++iter) {
         // Make sure we fit into the available space
-        b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
+        b_sz = std::min(b_sz, std::min(m, n) - curr_sz);
+        internal_nb = std::min(internal_nb, b_sz);
+        block_rank = b_sz;
 
         // Zero-out data - may not be necessary
         std::fill(&J_buffer[0], &J_buffer[n], 0);
@@ -312,7 +313,7 @@ int CQRRP_blocked<T, RNG>::call(
 
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
-        
+            
         if (this -> use_qp3) {
             lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
         } else {
@@ -324,6 +325,7 @@ int CQRRP_blocked<T, RNG>::call(
             lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu);
             // Fill the pivot vector, apply swaps found via lu on A_sk'.
             std::iota(&J_buffer[0], &J_buffer[cols], 1);
+
             for (i = 0; i < std::min(sampling_dimension, cols); ++i) {
                 tmp = J_buffer[J_buffer_lu[i] - 1];
                 J_buffer[J_buffer_lu[i] - 1] = J_buffer[i];
@@ -355,6 +357,35 @@ int CQRRP_blocked<T, RNG>::call(
         // Pivoting the current matrix A.
         util::col_swap(rows, cols, cols, A_work, lda, J_buf);
 
+        // Checking for the zero matrix post-pivoting is the best idea, 
+        // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
+        block_zero = true;
+        for (i = 0; i < rows; ++i) {
+            if (std::abs(A_work[i]) > std::numeric_limits<T>::epsilon()) {
+                block_zero = false;
+                break;
+            }
+        }
+        if(block_zero){
+            // Zero leftover matrix, early termination
+            this -> rank = curr_sz;
+
+            // Updating pivots
+            if(iter == 0) {
+                blas::copy(cols, J_buffer, 1, J, 1);
+            } else {
+                RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
+            }
+
+            free(J_buffer_lu);
+            free(A_sk_const);
+            free(A_sk_trans);
+            free(R_cholqr);
+            free(T_dat);
+            free(Work2);
+            return 0;
+        }
+
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
@@ -363,9 +394,22 @@ int CQRRP_blocked<T, RNG>::call(
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
 
-        // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
+        // Naive rank estimation to perform preconditioning safely.
+        // Variable block_rank is altered if the rank is not full.
+        // If this happens, we will terminate at the end of the current iteration.
+        // If the internal_nb, used in gemqrt and orhr_col is larger than the updated block_rank, it would need to be updated as well.
+        // Updating block_rank affects the way the preconditioning is done, which, in its turn, affects CholQR, ORHR_COL, updating A and updating R.
+        for(i = 0; i < b_sz; ++i) {
+            if(std::abs(R_sk[i * d + i]) / std::abs(R_sk[0]) < this -> tol) {
+                block_rank = i;
+                internal_nb = std::min(internal_nb, block_rank);
+                break;
+            }
+        }
+        
+        // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
         // Performing preconditioning of the current matrix A.
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_sk, d, A_work, lda);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda);
 
         if(this -> timing) {
             preconditioning_t_stop  = high_resolution_clock::now();
@@ -376,11 +420,10 @@ int CQRRP_blocked<T, RNG>::call(
             cholqr_t_start = high_resolution_clock::now();
 
         // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, b_sz, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
-        lapack::potrf(Uplo::Upper, b_sz, R_cholqr, b_sz_const);
-
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
+        lapack::potrf(Uplo::Upper, block_rank, R_cholqr, b_sz_const);
         // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, b_sz, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
 
         if(this -> timing) {
             cholqr_t_stop  = high_resolution_clock::now();
@@ -393,23 +436,23 @@ int CQRRP_blocked<T, RNG>::call(
         // It would have been really nice to store T right above Q, but without using extra space,
         // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
         // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
+        // Q is defined with block_rank elementary reflectors. 
 #if !defined(__APPLE__)
         // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to envoke the newest Accelerate library.
-        lapack::orhr_col(rows, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work2);
+        lapack::orhr_col(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work2);
 #endif
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
-        // This allows us to not explicitoly compute R11_full = (Q[:, 1:b_sz])' * A_pre.
-
-        for(i = 0; i < b_sz; ++i)
+        // This allows us to not explicitoly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
+        for(i = 0; i < block_rank; ++i)
             for(j = 0; j < (i + 1); ++j)
                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
 
         // Define a pointer to the current subportion of tau vector.
         tau_sub = &tau[curr_sz];
-        // Entries of tau will be placed on the main diagonal of matrix T from orhr_col().
-        for(i = 0; i < b_sz; ++i)
-            tau_sub[i] = T_dat[(b_sz_const + 1) * i];
+        // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
+        for(i = 0; i < block_rank; ++i)
+            tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
 
         if(this -> timing) {
             reconstruction_t_stop  = high_resolution_clock::now();
@@ -422,9 +465,13 @@ int CQRRP_blocked<T, RNG>::call(
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
         // With that, everything is placed where it should be, no copies required.
-        // ORMQR proves to be much faster than GEMQRT with MKL.
-        //lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, b_sz, A_work, lda, T_dat, b_sz_const, Work1, lda);
-        lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, b_sz, A_work, lda, tau_sub, Work1, lda);
+        // Q is defined with block_rank elementary reflectors. 
+        // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
+        if(use_gemqrt) {
+            lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
+        } else {
+            lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
+        }
 
         if(this -> timing) {
             updating1_t_stop  = high_resolution_clock::now();
@@ -440,15 +487,16 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Alternatively, instead of trmm + copy, we could perform a single gemm.
-        // Compute R11 = R11_full(1:b_sz, :) * R_sk
+        // Compute R11 = R11_full(1:block_rank, :) * R_sk
         // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, b_sz, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, block_rank, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
+
         // Need to copy R11 over form R_cholqr into the appropriate space in A.
         // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
         // In a global sense, this is identical to:
         // R11 =  &A[(m + 1) * curr_sz];
         R11 = A_work;
-        lapack::lacpy(MatrixType::Upper, b_sz, b_sz, R_cholqr, b_sz_const, A_work, lda);
+        lapack::lacpy(MatrixType::Upper, block_rank, block_rank, R_cholqr, b_sz_const, A_work, lda);
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
@@ -459,45 +507,29 @@ int CQRRP_blocked<T, RNG>::call(
             updating3_t_stop  = high_resolution_clock::now();
             updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
         }
-        /*
-        Termination criteria based on the estimate for the comdition number of a sketch at a given iteration.
-        Does not detect low rank.
-        Is only useful for "bad inputs."
-        */
-       /*
-        if (iter != 0) {
-            //running_max = A_sk[0];
-            running_min = A_sk[0];
-            for(i = 0; i < std::min(sampling_dimension, cols); ++i) {
-                curr_entry = std::abs(A_sk[i * d + i]);
-                running_max = std::max(running_max, curr_entry);
-                running_min = std::min(running_min, curr_entry);
-                if(std::abs(running_min / running_max) <= this->eps) {
-                    printf("%e\n", std::abs(running_min / running_max));
-                    termination_criteria = 1;
-                    break;
-                }
-            }
-        }
-        */
 
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        if(curr_sz >= n) {
-            // Termination criteria reached
+        // Termination criteria is reached when:
+        // 1. All iterations are exhausted.
+        // 2. block_rank has been altered, which happens
+        // when the estimated rank of the R-factor 
+        // from QRCP at this iteration is not full,
+        // meaning that the rest of the matrix is zero.
+        if((curr_sz >= n) || (block_rank != b_sz_const)) {
             this -> rank = curr_sz;
 
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + cholqr_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
+                long t_rest  = total_t_dur - (preallocation_t_dur + skop_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
                 this -> times.resize(12);
-                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
+                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-                printf("SASO time: %34ld μs,\n",                           saso_t_dur);
+                printf("skop time: %34ld μs,\n",                           skop_t_dur);
                 printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
                 printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
                 printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
@@ -510,7 +542,7 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Total time: %35ld μs.\n",                          total_t_dur);
 
                 printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-                printf("SASO generation and application takes %2.2f%% of runtime.\n",   100 * ((T) saso_t_dur            / (T) total_t_dur));
+                printf("skop generation and application takes %2.2f%% of runtime.\n",   100 * ((T) skop_t_dur            / (T) total_t_dur));
                 printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));

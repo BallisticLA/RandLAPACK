@@ -249,7 +249,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
     	}
     }
 };
-
+#if !defined(__APPLE__)
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     int64_t m = 5000;//5000;
@@ -268,16 +268,10 @@ TEST_F(TestCQRRP, CQRRP_GPU_070824) {
     CQRRP_blocked_GPU.use_qrf = false;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    //m_info.cond_num = 2;
-    //m_info.rank = k;
-    //m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
-#if !defined(__APPLE__)
     test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -295,17 +289,12 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
     CQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_blocked_GPU(false, tol, b_sz);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked_CPU(false, tol, b_sz);
-    CQRRP_blocked_CPU.nnz = 2;
-    CQRRP_blocked_CPU.num_threads = 4;
-    CQRRP_blocked_CPU.use_gaussian = true;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
-#if !defined(__APPLE__)
     test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
-#endif
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -328,9 +317,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_near_zero_input) {
     all_data.A[1000*200 + 1] = 1;
 
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
-#if !defined(__APPLE__)
     test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
-#endif
 }
 
 TEST_F(TestCQRRP, CQRRP_GPU_zero_input) {
@@ -351,8 +338,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_zero_input) {
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
-#if !defined(__APPLE__)
     test_CQRRP_general<double, RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, CQRRP_blocked_GPU);
-#endif
 }
+#endif
 #endif

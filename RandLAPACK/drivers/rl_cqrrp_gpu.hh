@@ -359,7 +359,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
-        RandLAPACK::cuda_kernels::LUQRCP_piv_porcess_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
+        RandLAPACK::cuda_kernels::LUQRCP_piv_process_gpu(strm, sampling_dimension, cols, J_buffer, J_buffer_lu);
         
         if(this -> timing) {
             cudaStreamSynchronize(strm);
@@ -406,11 +406,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("copy_A");
             copy_A_t_start = high_resolution_clock::now();
         }
-        // THIS IS ALREADY DONE ABOVE
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
         // Pivoting the trailing R and the ``current'' A.      
-        //RandLAPACK::cuda_kernels::copy_mat_gpu(strm, m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, false);    
+        // The copy of A operation is done on a separete stream. If it was not, it would have been done here.  
         
         copy_queue.sync();
         if(this -> timing) {
@@ -426,7 +425,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
         block_zero = true;
-        RandLAPACK::cuda_kernels::all_of(strm, rows, 0.0, A_work, block_zero);
+        RandLAPACK::cuda_kernels::all_of(strm, rows, std::numeric_limits<T>::epsilon(), A_work, block_zero);
         if(block_zero){
             this -> rank = curr_sz;
             // Measures taken to insure J holds correct data, explained above.
