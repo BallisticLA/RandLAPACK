@@ -16,8 +16,9 @@ of the corresponding instructions in Section 1.
 RandLAPACK_GPU temporary requirements:
 GNU 13.1.0
 NVIDIA 12.4.131 (make sure to use driver v 550)
-CMAKE 3.29.2
+CMAKE 3.27
 All that is used to ensure we can compile with C++20 features with no issues.
+Note that in the CMake configuration lines, some systems will have directories labeled "lib" by default while on other systems those same directories end up being called "lib64."
 
 ## 1. Optional dependencies
 

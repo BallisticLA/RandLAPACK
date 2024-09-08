@@ -233,19 +233,7 @@ class TestUtil_GPU : public ::testing::Test
         RandLAPACK::util::col_swap(m_submat, n_submat, k_submat, A_submat, lda, all_data.J);
 
         cudaStreamSynchronize(strm);
-/*   
-        T col_nrm_cpu;
-        T col_nrm_gpu;
-        T norm_diff;
-        for(int i = 0; i < n; ++i){
-            col_nrm_cpu = blas::nrm2(lda, &all_data.A[lda * i],             1);
-            col_nrm_gpu = blas::nrm2(lda, &all_data.A_host_buffer[lda * i], 1);
-            norm_diff = std::abs(col_nrm_cpu - col_nrm_gpu);
-            if(norm_diff > std::pow(std::numeric_limits<T>::epsilon(), 0.85)) {
-                printf("Inconsistency at column %d, %e\n", i, norm_diff);
-            }
-        }
-*/
+
         for(int i = 0; i < m*n; ++i)
             all_data.A[i] -= all_data.A_host_buffer[i];
 
@@ -284,14 +272,12 @@ class TestUtil_GPU : public ::testing::Test
         cudaStreamSynchronize(strm);
 
         for(int i = 0; i < m; ++i){
-	    auto ji_expect = all_data.J_host_buffer[i];
-	    auto ji_actual = all_data.J[i];
-            EXPECT_EQ(ji_expect, ji_actual) << "at index " << i << std::endl;
-	}
+            all_data.J[i] -= all_data.J_host_buffer[i];
+        }
 
-        //T norm_test = blas::nrm2(m, all_data.J.data(), 1);
-        //printf("\nNorm diff GPU CPU: %e\n", norm_test);
-        //EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
+        T norm_test = blas::nrm2(m, all_data.J.data(), 1);
+        printf("\nNorm diff GPU CPU: %e\n", norm_test);
+        EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
    	 
     	cudaError_t ierr = cudaGetLastError();
     	if (ierr != cudaSuccess)
@@ -441,7 +427,7 @@ TEST_F(TestUtil_GPU, test_col_swp_large_gpu) {
     std::random_shuffle(all_data.J.begin(), all_data.J.begin() + n);
     col_swp_gpu<double>(all_data);
 }
-/*
+
 TEST_F(TestUtil_GPU, test_col_swp_gpu_submatrix) {
     
     int64_t m = 5000;
@@ -484,7 +470,7 @@ TEST_F(TestUtil_GPU, test_col_swp_gpu_subvector) {
 
     col_swp_subvector_gpu<double>(col_offset, all_data);
 }
-*/
+
 
 TEST_F(TestUtil_GPU, test_qp3_swp_gpu) {
     
@@ -537,21 +523,4 @@ TEST_F(TestUtil_GPU, test_ger_gpu) {
     
     ger_gpu(alpha, all_data);
 }
-/*
-TEST_F(TestUtil_GPU, test_copy_mat_gpu) {
-    int64_t m = 2048;
-    int64_t n = 1024;
-    double alpha = 2.0;
-    auto state = RandBLAS::RNGState();
-    CopyTestData<double> all_data(m, n);
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2025;
-    m_info.rank = n;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state); 
-    
-    copy_mat_gpu(alpha, all_data);
-}
-*/
 #endif

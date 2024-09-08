@@ -198,10 +198,6 @@ int CQRRPT_GPU<T, RNG>::call(
     // Buffer for column pivoting.
     std::vector<int64_t> J_buf(n, 0);
 
-    //T* A_hat_device;
-    //cudaMalloc(&A_hat_device, d * n);
-    //cudaMemcpy(A_hat, A_hat_device, d*n, cudaMemcpyHostToDevice);
-
     if(this -> timing)
         saso_t_start = high_resolution_clock::now();
     /***********************************************************************************/
