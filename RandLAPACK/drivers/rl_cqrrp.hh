@@ -368,6 +368,13 @@ int CQRRP_blocked<T, RNG>::call(
             // Zero leftover matrix, early termination
             this -> rank = curr_sz;
 
+            // Updating pivots
+            if(iter == 0) {
+                blas::copy(cols, J_buffer, 1, J, 1);
+            } else {
+                RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
+            }
+
             free(J_buffer_lu);
             free(A_sk_const);
             free(A_sk_trans);
