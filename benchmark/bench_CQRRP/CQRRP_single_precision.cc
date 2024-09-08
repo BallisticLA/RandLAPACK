@@ -1,4 +1,6 @@
-#if !defined(__APPLE__)
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 This benchmarks compares single-precision ICQRRP with double-precision GETRF and GEQRF.
 We anticipate that single-precision ICQRRP can be used as part of the linear system solving process.

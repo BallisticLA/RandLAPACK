@@ -1,4 +1,6 @@
-#if !defined(__APPLE__)
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 ICQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of ICQRRP.
 There are 9 things that we time:

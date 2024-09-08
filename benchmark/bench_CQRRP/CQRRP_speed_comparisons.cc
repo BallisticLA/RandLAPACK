@@ -1,4 +1,6 @@
-#if !defined(__APPLE__)
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 ICQRRP speed comparison benchmark - runs:
     1. ICQRRP

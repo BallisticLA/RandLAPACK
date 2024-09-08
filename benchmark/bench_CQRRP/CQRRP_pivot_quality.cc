@@ -1,4 +1,6 @@
-#if !defined(__APPLE__)
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 Performs computations in order to assess the pivot quality of ICQRRP.
 The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (https://arxiv.org/pdf/2311.08316.pdf) paper.

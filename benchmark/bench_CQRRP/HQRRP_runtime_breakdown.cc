@@ -1,4 +1,6 @@
-#if !defined(__APPLE__)
+#if defined(__APPLE__)
+int main() {return 0;}
+#else
 /*
 HQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of HQRRP.
 There are 7 things that we time:
