@@ -50,14 +50,14 @@ class TestSYRF : public ::testing::Test
         RandLAPACK::SYRF<T, RNG> SYRF;
 
         algorithm_objects(
-            bool verbosity, 
+            bool verbose, 
             bool cond_check, 
             int64_t p, 
             int64_t passes_per_iteration
         ) :
-            SYPS(p, passes_per_iteration, verbosity, cond_check),
-            Orth_RF(cond_check, verbosity),
-            SYRF(SYPS, Orth_RF, verbosity, cond_check)
+            SYPS(p, passes_per_iteration, verbose, cond_check),
+            Orth_RF(cond_check, verbose),
+            SYRF(SYPS, Orth_RF, verbose, cond_check)
             {}
     };
 
@@ -75,7 +75,7 @@ class TestSYRF : public ::testing::Test
             blas::copy(m - i, &A_cpy_dat[i + ((i-1) * m)], 1, &A_cpy_dat[(i - 1) + (i * m)], m);
 
         RandLAPACK::HQRQ<T> HQRQ(false, false);
-        HQRQ.call(m, m, all_data.A_cpy);
+        HQRQ.call(m, m, all_data.A_cpy.data());
 
         lapack::lacpy(MatrixType::General, m, m, all_data.A_cpy.data(), m, all_data.Q_hat_cpy.data(), m);
     }
@@ -150,7 +150,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
 
     SYRFTestData<double> all_data(m, k);
@@ -161,7 +161,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general1)
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbose, cond_check, p, passes_per_iteration);
     orth_and_copy_computational_helper(all_data);
     test_SYRF_general(state, all_data, all_algs);
 }
@@ -175,7 +175,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
 
     SYRFTestData<double> all_data(m, k);
@@ -186,7 +186,7 @@ TEST_F(TestSYRF, Polynomial_Decay_general2)
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, p, passes_per_iteration);
+    algorithm_objects<double, r123::Philox4x32> all_algs(verbose, cond_check, p, passes_per_iteration);
     orth_and_copy_computational_helper(all_data);
     test_SYRF_general(state, all_data, all_algs);
 }

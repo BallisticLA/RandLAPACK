@@ -53,19 +53,20 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 }
 
 template <typename T, typename RNG>
-static std::vector<long> call_all_algs(
+static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t n,
     QR_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state) {
+    RandBLAS::RNGState<RNG> &state,
+    std::string output_filename) {
 
     auto m        = all_data.row;
     auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, true, tol);
+    RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
     CQRRPT.num_threads = 8;
     
@@ -73,28 +74,23 @@ static std::vector<long> call_all_algs(
     auto state_alg = state;
     auto state_gen = state;
 
-    // Timing vars
-    long dur_cqrrpt    = 0;
-    long t_cqrrpt_best = 0;
-    std::vector<long> inner_timing_best;
-
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        auto start_cqrrpt = high_resolution_clock::now();
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
-        auto stop_cqrrpt = high_resolution_clock::now();
-        dur_cqrrpt = duration_cast<microseconds>(stop_cqrrpt - start_cqrrpt).count();
-        // Update best timing
-        if (!i || dur_cqrrpt < t_cqrrpt_best) {t_cqrrpt_best = dur_cqrrpt; inner_timing_best = CQRRPT.times;}
+        
+        std::ofstream file(output_filename, std::ios::app);
+        file << CQRRPT.times[0] << ",  " << CQRRPT.times[1] << ",  " << CQRRPT.times[2] << ",  " 
+             << CQRRPT.times[3] << ",  " << CQRRPT.times[4] << ",  " << CQRRPT.times[5] << ",  " 
+             << CQRRPT.times[6] << ",  " << CQRRPT.times[7] << ",\n";
+
         // Making sure the states are unchanged
         state_alg = state;
         state_gen = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen);
     }
-
-    return inner_timing_best;
 }
+
 
 int main() {
     // Declare parameters
@@ -117,14 +113,13 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::fstream file("CQRRPT_inner_speed_"              + std::to_string(m)
+    std::string output_filename = "CQRRPT_inner_speed_"              + std::to_string(m)
                                       + "_col_start_"    + std::to_string(n_start)
                                       + "_col_stop_"     + std::to_string(n_stop)
                                       + "_d_factor_"     + std::to_string(d_factor)
-                                      + ".dat", std::fstream::app);
+                                      + ".dat";
 
     for (;n_start <= n_stop; n_start *= 2) {
-        res = call_all_algs(m_info, numruns, n_start, all_data, state_constant);
-        file << res[0]  << ",  " << res[1]  << ",  " << res[2] << ",  " << res[3] << ",  " << res[4] << ",  " << res[5] << ",  " << res[6] << ",  " << res[7] << ",\n";
+        call_all_algs(m_info, numruns, n_start, all_data, state_constant, output_filename);
     }
 }

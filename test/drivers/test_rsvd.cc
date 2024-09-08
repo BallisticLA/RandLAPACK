@@ -31,7 +31,7 @@ class TestRSVD : public ::testing::Test
         std::vector<T> s1;
         std::vector<T> S1;
         std::vector<T> U1;
-        std::vector<T> VT1;
+        std::vector<T> V1;
         // For low-rank SVD
         std::vector<T> s;
         std::vector<T> S;
@@ -50,7 +50,7 @@ class TestRSVD : public ::testing::Test
         s1(n, 0.0),
         S1(n * n, 0.0),
         U1(m * n, 0.0),
-        VT1(n * n, 0.0),
+        V1(n * n, 0.0),
 
         // For low-rank SVD
         s(n, 0.0),
@@ -75,20 +75,20 @@ class TestRSVD : public ::testing::Test
         RandLAPACK::RSVD<T, RNG> RSVD;
 
         algorithm_objects(
-            bool verbosity, 
+            bool verbose, 
             bool cond_check, 
             bool orth_check, 
             int64_t p, 
             int64_t passes_per_iteration, 
             int64_t block_sz
         ) :
-            Stab(cond_check, verbosity),
-            RS(Stab, p, passes_per_iteration, verbosity, cond_check),
-            Orth_RF(cond_check, verbosity),
-            RF(RS, Orth_RF, verbosity, cond_check),
-            Orth_QB(cond_check, verbosity),
-            QB(RF, Orth_QB, verbosity, orth_check),
-            RSVD(QB, verbosity, block_sz)
+            Stab(cond_check, verbose),
+            RS(Stab, p, passes_per_iteration, verbose, cond_check),
+            Orth_RF(cond_check, verbose),
+            RF(RS, Orth_RF, verbose, cond_check),
+            Orth_QB(cond_check, verbose),
+            QB(RF, Orth_QB, verbose, orth_check),
+            RSVD(QB, block_sz)
             {}
     };
 
@@ -121,9 +121,10 @@ class TestRSVD : public ::testing::Test
         T* A_approx_determ_duf_dat = all_data.A_approx_determ_duf.data();
         T* A_k_dat = all_data.A_k.data();
 
-        T* U1_dat = all_data.U1.data();
-        T* S1_dat = all_data.S1.data();
-        T* VT1_dat = all_data.VT1.data();
+        T* U1_dat  = nullptr;
+        T* s1_dat  = nullptr;
+        T* V1_dat = nullptr;
+        T* S1_dat  = all_data.S1.data();
 
         T* U_dat = all_data.U.data();
         T* s_dat = all_data.s.data();
@@ -131,16 +132,15 @@ class TestRSVD : public ::testing::Test
         T* VT_dat = all_data.VT.data();
 
         // Regular QB2 call
-        all_algs.RSVD.call(m, n, all_data.A, k, tol, all_data.U1, all_data.s1, all_data.VT1, state);
-        
-        // Construnct A_approx_determ = U1 * S1 * VT1
+        all_algs.RSVD.call(m, n, all_data.A.data(), k, tol, U1_dat, s1_dat, V1_dat, state);
 
+        // Construnct A_approx_determ = U1 * S1 * V1^T
         // Turn vector into diagonal matrix
-        RandLAPACK::util::diag(k, k, all_data.s1.data(), k, all_data.S1.data());
+        RandLAPACK::util::diag(k, k, s1_dat, k, S1_dat);
         // U1 * S1 = A_approx_determ_duf
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, U1_dat, m, S1_dat, k, 1.0, A_approx_determ_duf_dat, m);
-        // A_approx_determ_duf * VT1 =  A_approx_determ
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, A_approx_determ_duf_dat, m, VT1_dat, k, 0.0, A_approx_determ_dat, m);
+        // A_approx_determ_duf * V1^T =  A_approx_determ
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, A_approx_determ_duf_dat, m, V1_dat, n, 0.0, A_approx_determ_dat, m);
 
         //T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_cpy_dat, m);
         //printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
@@ -157,13 +157,17 @@ class TestRSVD : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_approx_determ_dat, m);
         printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
+
+        free(U1_dat);
+        free(s1_dat);
+        free(V1_dat);
     }
 };
 
 TEST_F(TestRSVD, SimpleTest)
 { 
-    int64_t m = 100;
-    int64_t n = 100;
+    int64_t m = 10;
+    int64_t n = 10;
     int64_t k = 5;
     int64_t p = 10;
     int64_t passes_per_iteration = 1;
@@ -172,18 +176,21 @@ TEST_F(TestRSVD, SimpleTest)
     auto state = RandBLAS::RNGState();
 
     //Subroutine parameters
-    bool verbosity = false;
+    bool verbose = false;
     bool cond_check = true;
     bool orth_check = true;
 
-    RSVDTestData<double> all_data(m, n, k);
-    algorithm_objects<double, r123::Philox4x32> all_algs(verbosity, cond_check, orth_check, p, passes_per_iteration, block_sz);
+    auto all_data = new RSVDTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, (*all_data).A.data(), state);
 
-    computational_helper(all_data);
-    test_RSVD1_general(tol, all_data, all_algs, state);
+    computational_helper(*all_data);
+    test_RSVD1_general(tol, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
 }

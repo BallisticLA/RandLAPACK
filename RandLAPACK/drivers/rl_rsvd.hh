@@ -21,12 +21,12 @@ class RSVDalg {
         virtual int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t &k,
             T tol,
-            std::vector<T> &U,
-            std::vector<T> &S,
-            std::vector<T> &VT,
+            T* &U,
+            T* &S,
+            T* &V,
             RandBLAS::RNGState<RNG> &state
         ) = 0;
 };
@@ -39,10 +39,8 @@ class RSVD : public RSVDalg<T, RNG> {
         RSVD(
             // Requires a QB algorithm object.
             RandLAPACK::QBalg<T, RNG> &qb_obj,
-            bool verb,
             int64_t b_sz
         ) : QB_Obj(qb_obj) {
-            verbosity = verb;
             block_sz = b_sz;
         }
 
@@ -80,7 +78,7 @@ class RSVD : public RSVDalg<T, RNG> {
         ///     Initially, may not have any space allocated for it.
         ///
         /// @param[in] VT
-        ///     Buffer for the \transpose{V}-factor.
+        ///     Buffer for the V-factor.
         ///     Initially, may not have any space allocated for it.
         ///
         /// @param[out] U
@@ -89,31 +87,26 @@ class RSVD : public RSVDalg<T, RNG> {
         /// @param[out] S
         ///     Stores k-by-k factor \Sigma.
         ///
-        /// @param[out] VT
-        ///     Stores k-by-n factor \transpose{V}.
+        /// @param[out] V
+        ///     Stores k-by-n factor V.
         ///
         /// @returns 0 if successful
 
         int call(
             int64_t m,
             int64_t n,
-            std::vector<T> &A,
+            T* A,
             int64_t &k,
             T tol,
-            std::vector<T> &U,
-            std::vector<T> &S,
-            std::vector<T> &VT,
+            T* &U,
+            T* &S,
+            T* &V,
             RandBLAS::RNGState<RNG> &state
         ) override;
 
     public:
         RandLAPACK::QBalg<T, RNG> &QB_Obj;
-        bool verbosity;
         int64_t block_sz;
-
-        std::vector<T> Q;
-        std::vector<T> B;
-        std::vector<T> U_buf;
 };
 
 // -----------------------------------------------------------------------------
@@ -121,28 +114,33 @@ template <typename T, typename RNG>
 int RSVD<T, RNG>::call(
     int64_t m,
     int64_t n,
-    std::vector<T> &A,
+    T* A,
     int64_t &k,
     T tol,
-    std::vector<T> &U,
-    std::vector<T> &S,
-    std::vector<T> &VT,
+    T* &U,
+    T* &S,
+    T* &V,
     RandBLAS::RNGState<RNG> &state
 ){
+    T* Q = nullptr;
+    T* BT = nullptr; 
     // Q and B sizes will be adjusted automatically
-    this->QB_Obj.call(m, n, A, k, this->block_sz, tol, this->Q, this->B, state);
+    this->QB_Obj.call(m, n, A, k, this->block_sz, tol, Q, BT, state);
 
+    T* UT_buf  = ( T * ) calloc(k * k, sizeof( T ) );
     // Making sure all vectors are large enough
-    util::upsize(m * k, U);
-    util::upsize(k * k, this->U_buf);
-    util::upsize(k, S);
-    util::upsize(k * n, VT);
+    U  = ( T * ) calloc(m * k, sizeof( T ) );
+    S  = ( T * ) calloc(k,     sizeof( T ) );
+    V  = ( T * ) calloc(n * k, sizeof( T ) );
 
     // SVD of B
-    lapack::gesdd(Job::SomeVec, k, n, this->B.data(), k, S.data(), this->U_buf.data(), k, VT.data(), k);
+    lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
     // Adjusting U
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, this->Q.data(), m, this->U_buf.data(), k, 0.0, U.data(), m);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k, 1.0, Q, m, UT_buf, k, 0.0, U, m);
 
+    free(Q);
+    free(BT);
+    free(UT_buf);
     return 0;
 }
 

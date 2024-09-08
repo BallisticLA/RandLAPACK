@@ -102,9 +102,9 @@ class TestHQRRP : public ::testing::Test
         printf("FRO NORM OF (Q'Q - I):  %14e\n\n", norm_0 / std::sqrt((T) n));
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
-        ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
-        ASSERT_NEAR(norm_0, 0.0, atol);
+        ASSERT_LE(norm_AQR, atol * norm_A);
+        ASSERT_LE(max_col_norm, atol * col_norm_A);
+        ASSERT_LE(norm_0, atol * std::sqrt((T) n));
     }
 
     /// General test for HQRRP:
@@ -123,7 +123,7 @@ class TestHQRRP : public ::testing::Test
         auto n = all_data.col;
 
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state, (T*) nullptr);
-            
+
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 
@@ -141,6 +141,8 @@ class TestHQRRP : public ::testing::Test
     }
 };
 
+#if !defined(__APPLE__)
+// This test uses orhr_col
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     int64_t m = 500;
@@ -162,8 +164,6 @@ TEST_F(TestHQRRP, HQRRP_full_rank_cholqr) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-// This test uses orhr_col
-#if !defined(__APPLE__)
     test_HQRRP_general(d_factor, b_sz, use_cholqr, panel_pivoting, norm_A, all_data, state);
-#endif
 }
+#endif
