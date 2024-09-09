@@ -7,7 +7,7 @@ project(RandLAPACK LANGUAGES CXX)
 option(RequireCUDA "Require CUDA support" OFF)
 
 if (RequireCUDA)
-    find_package(CUDA QUIET)
+    find_package(CUDA)
     if (CUDA_FOUND)
         message(STATUS "CUDA found! Enabling CUDA support.")
         enable_language(CUDA)
