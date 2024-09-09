@@ -203,5 +203,3 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
-
-
