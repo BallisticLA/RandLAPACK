@@ -424,6 +424,16 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         block_zero = true;
         RandLAPACK::cuda_kernels::all_of(strm, rows, std::numeric_limits<T>::epsilon(), A_work, block_zero);
         if(block_zero){
+            // Need to update the pivot vector, same as below.
+            if(iter == 0) {
+                RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer, 1, J, 1);
+            } else {
+                std::swap(J_copy_col_swap, J);
+                J_work = &J[curr_sz];
+                J_copy_col_swap_work = &J_copy_col_swap[curr_sz];
+                RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, J_work, J_copy_col_swap_work, J_buffer);
+            }
+
             this -> rank = curr_sz;
             // Measures taken to insure J holds correct data, explained above.
             if(iter % 2) {
