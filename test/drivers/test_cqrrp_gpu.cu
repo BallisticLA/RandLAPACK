@@ -205,7 +205,6 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
     template <typename T, typename RNG, typename alg_gpu, typename alg_cpu>
     static void test_CQRRP_compare_with_CPU(
         int64_t d, 
-        T norm_A,
         CQRRPTestData<T> &all_data,
         alg_gpu &CQRRP_GPU,
         alg_cpu &CQRRP_CPU,
@@ -294,7 +293,7 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
-    test_CQRRP_compare_with_CPU(d, norm_A, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
+    test_CQRRP_compare_with_CPU(d, all_data, CQRRP_blocked_GPU, CQRRP_blocked_CPU, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode

@@ -200,8 +200,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         preallocation_t_start = high_resolution_clock::now();
     }
 
-    int iter, i, j;
-    int64_t tmp;
+    int iter;
     int64_t rows       = m;
     int64_t cols       = n;
     // Describes sizes of full Q and R factors at a given iteration.
@@ -225,7 +224,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     lapack::Queue lapack_queue(0);
     cudaStream_t strm = lapack_queue.stream();
     lapack::Queue copy_queue{0};
-    cudaStream_t stream_cusolver;
     using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
     int *d_info_cusolver = nullptr;
@@ -314,8 +312,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     int64_t* J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
     int64_t* J_copy_col_swap_work = J_copy_col_swap;
-    // Pointer buffers required for our special data movement-avoiding strategy.
-    T* A_sk_buf;
+    // Pointer buffer required for our special data movement-avoiding strategy.
     int64_t* J_cpy_buf;
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
     cudaStreamSynchronize(strm);
