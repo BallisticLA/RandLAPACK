@@ -27,7 +27,7 @@ if (GTest_FOUND)
     gtest_discover_tests(RandLAPACK_tests)
 
     # Check if CUDA is required and setup CUDA-specific tests
-    if (RequireCUDA AND CUDA_FOUND)
+    if (RequireCUDA AND CUDAToolkit_FOUND)
         set(RandLAPACK_test_cu_srcs
             comps/test_util_gpu.cu
             drivers/test_cqrrpt_gpu.cu

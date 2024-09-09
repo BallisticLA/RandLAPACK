@@ -7,8 +7,8 @@ project(RandLAPACK LANGUAGES CXX)
 option(RequireCUDA "Require CUDA support" OFF)
 
 if (RequireCUDA)
-    find_package(CUDA)
-    if (CUDA_FOUND)
+    find_package(CUDAToolkit)
+    if (CUDAToolkit_FOUND)
         message(STATUS "CUDA found! Enabling CUDA support.")
         enable_language(CUDA)
         
@@ -19,6 +19,10 @@ if (RequireCUDA)
         set(CMAKE_CUDA_VISIBILITY_PRESET hidden)
         set(CMAKE_CUDA_ARCHITECTURES native)
 
+        # Add general CMake module paths
+        list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
+        list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
+
         # Include CUDA-specific files or flags
         include(compiler_flags)
         include(find_cuda)
@@ -27,11 +31,10 @@ if (RequireCUDA)
     endif()
 else()
     message(STATUS "CUDA support not required.")
+    # Add general CMake module paths
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
+    list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 endif()
-
-# Add general CMake module paths
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 
 # Configure the build
 enable_testing()
