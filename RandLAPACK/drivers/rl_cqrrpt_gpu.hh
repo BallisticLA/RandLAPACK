@@ -1,12 +1,17 @@
 #pragma once
 
-#ifndef randlapack_cqrrpt_h
-#define randlapack_cqrrpt_h
+#ifndef randlapack_cqrrpt_gpu_h
+#define randlapack_cqrrpt_gpu_h
 
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_hqrrp.hh"
+
+#include "rl_cuda_macros.hh"
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include "lapack/device.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -19,10 +24,10 @@ using namespace std::chrono;
 namespace RandLAPACK {
 
 template <typename T, typename RNG>
-class CQRRPTalg {
+class CQRRPT_GPU_alg {
     public:
 
-        virtual ~CQRRPTalg() {}
+        virtual ~CQRRPT_GPU_alg() {}
 
         virtual int call(
             int64_t m,
@@ -38,7 +43,7 @@ class CQRRPTalg {
 };
 
 template <typename T, typename RNG>
-class CQRRPT : public CQRRPTalg<T, RNG> {
+class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
     public:
 
         /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
@@ -50,16 +55,19 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         /// This decision is controlled through 'naive_rank_estimate' parameter, which defaults to 1.
         /// The choice of norm ||A||_x, either 2 or F, is controlled via 'use_fro_norm'.
         ///
+        /// The algorithm optionally times all of its subcomponents through a user-defined 'verbosity' parameter.
         ///
         /// The algorithm optionally computes a condition number of a preconditioned matrix A through a 'cond_check'
         /// parameter, which defaults to 0. This requires extra n * (m + 1) * sizeof(T) bytes of space, which will be 
         /// internally allocated by a utility routine. 
         /// A computation is handled by a utility method that finds the l2 condition number by computing all singular
         /// values of the R-factor via an appropriate LAPACK function.
-        CQRRPT(
+        CQRRPT_GPU(
+            bool verb,
             bool time_subroutines,
             T ep
         ) {
+            verbosity = verb;
             timing = time_subroutines;
             eps = ep;
             no_hqrrp = 1;
@@ -91,9 +99,6 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///     Represents the upper-triangular R factor of QR factorization.
         ///     On entry, is empty and may not have any space allocated for it.
         ///
-        /// @param[in] state
-        ///     RNG state parameter, required for sketching operator generation.
-        ///
         /// @param[out] A
         ///     Overwritten by an m-by-k orthogonal Q factor.
         ///     Matrix is stored explicitly.
@@ -123,6 +128,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ) override;
 
     public:
+        bool verbosity;
         bool timing;
         T eps;
         int64_t rank;
@@ -144,7 +150,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-int CQRRPT<T, RNG>::call(
+int CQRRPT_GPU<T, RNG>::call(
     int64_t m,
     int64_t n,
     T* A,
@@ -186,9 +192,6 @@ int CQRRPT<T, RNG>::call(
     int64_t d = d_factor * n;
     // A constant for initial rank estimation.
     T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
-    // Variables for a posteriori rank estimation.
-    int64_t new_rank;
-    T running_max, running_min, curr_entry;
 
     T* A_hat = ( T * ) calloc( d * n, sizeof( T ) );
     T* tau   = ( T * ) calloc( n, sizeof( T ) );
@@ -197,7 +200,9 @@ int CQRRPT<T, RNG>::call(
 
     if(this -> timing)
         saso_t_start = high_resolution_clock::now();
-    
+    /***********************************************************************************/
+    // I will avoid performing skething on a GPU for now
+
     /// Generating a SASO
     RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -206,7 +211,7 @@ int CQRRPT<T, RNG>::call(
     /// Applying a SASO
     RandBLAS::sketch_general(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-        d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
+        d, n, m, 1.0, S, 0, 0, A, lda, 0.0, A_hat, d
     );
 
     if(this -> timing) {
@@ -262,8 +267,43 @@ int CQRRPT<T, RNG>::call(
         a_mod_trsm_t_start = high_resolution_clock::now();
     }
 
+    /******************************GPU REGION BEGIN*********************************/
+    // The reasons for using GPUs for this part only ar the following: 
+    // 1. There is no geqp3 available in any GPU linalg libraries. 
+    //    We could port HQRRP to GPUs, but that takes additional time.
+    // 2. There are no lacpy functions on any GPU linalg libraries. Those, however, 
+    //    can be substituted with blas::copy.
+    // 3. We do not have GPU-based skething support in RandBLAS at the moment.
+    //
+    // If the above points would be resolved, we may perform the entirety of CQRRPT on the device.
+    //
+    // Allocating device data & performing copies:
+    T* A_device;
+    T* R_device;
+    T* R_sp_device;
+
+    // Variables for a posteriori rank estimation.
+    int64_t new_rank;
+    T running_max, running_min, curr_entry;
+
+    using lapack::device_info_int;
+    blas::Queue blas_queue(0);
+    lapack::Queue lapack_queue(0);
+    device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    
+    cudaMalloc(&A_device, m * n * sizeof(T));
+    cudaMalloc(&R_device, ldr * n * sizeof(T));
+    cudaMalloc(&R_sp_device, k * k * sizeof(T));
+
+    cudaMemcpy(A_device, A, m * n * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(R_device, R, ldr * n * sizeof(T), cudaMemcpyHostToDevice);
+    cudaMemcpy(R_sp_device, R_sp, k * k * sizeof(T), cudaMemcpyHostToDevice);
+
+    //char name [] = "A";
+    //RandBLAS::util::print_colmaj(m, n, A, name);
+
     // A_pre * R_sp = AP
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, k, A, lda);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing) {
         a_mod_trsm_t_stop = high_resolution_clock::now();
@@ -271,20 +311,34 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, k);
-    lapack::potrf(Uplo::Upper, k, R_sp, k);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_device, lda, 0.0, R_sp_device, k, blas_queue);
+    lapack::potrf(Uplo::Upper, k, R_sp_device, k, d_info, lapack_queue);
+    blas_queue.sync();
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
     // This also automatically takes care of any potentical failures in Cholesky factorization.
     // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
+    //
+    // The approach is slightly complicated due the fact that R_sp is currently allocated on device.
+    // In order to avoid creating a specialized kerken function, we would copy the diagonal of R_sp 
+    // back to the host using a strided cuda Memcopy (beware of performance issues).
+
+    // spitch  (2nd argument) - width of the row vectors in the source array - sizeof(T), since we have a column vector.
+    // dpitch  (4nd argument) - width of the row vectors in the source array - (k + 1) * sizeof(T), since we have a k by k matrix and 
+    //                                                                         want the "vector" to start with a diagonal element.
+    // width   (5th argument) - number of columns in data transfer           - sizeof(T), since we transfer one element per column.
+    // heighth (6th argument) - numer of rows in data transfer               - k, since we will be transferring k elements total.
+    T* R_sp_diag = ( T * ) calloc( k, sizeof( T ) );
+    cudaMemcpy2D(R_sp_diag, sizeof(T), R_sp_device, (k + 1) * sizeof(T), sizeof(T), k, cudaMemcpyDeviceToHost);
+
     new_rank = k;
-    running_max = R_sp[0];
-    running_min = R_sp[0];
+    running_max = R_sp_diag[0];
+    running_min = R_sp_diag[0];
 
     for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp[i * k + i]);
+        curr_entry = std::abs(R_sp_diag[i]);
         running_max = std::max(running_max, curr_entry);
         running_min = std::min(running_min, curr_entry);
         if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
@@ -293,13 +347,13 @@ int CQRRPT<T, RNG>::call(
         }
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, k, A, lda);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing)
         cholqr_t_stop = high_resolution_clock::now();
 
     // Get the final R-factor.
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp, k, R, ldr);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp_device, k, R_device, ldr, blas_queue);
 
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = k;
@@ -320,9 +374,16 @@ int CQRRPT<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
+    cudaMemcpy(A, A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaMemcpy(R, R_device, ldr * n * sizeof(T), cudaMemcpyDeviceToHost);
+    
+    cudaFree(A_device);
+    cudaFree(R_device);
+    cudaFree(R_sp_device);
     free(A_hat);
     free(R_sp);
     free(tau);
+    free(R_sp_diag);
 
     return 0;
 }

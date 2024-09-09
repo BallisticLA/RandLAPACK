@@ -159,7 +159,7 @@ int main() {
     int64_t n           = std::pow(2, 11);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state          = RandBLAS::RNGState();
+    auto state          = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant1 = state;
     auto state_constant2 = state;
     // results

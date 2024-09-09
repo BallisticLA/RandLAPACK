@@ -1,3 +1,5 @@
+#pragma once
+
 /*
 ===============================================================================
 Authors
@@ -934,6 +936,12 @@ int64_t hqrrp(
         sketching_t_start    = high_resolution_clock::now();
     }
 
+    if(timing != nullptr) {
+        preallocation_t_stop = high_resolution_clock::now();
+        preallocation_t_dur  = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
+        sketching_t_start    = high_resolution_clock::now();
+    }
+
     // Initialize matrices G and Y.
     RandBLAS::DenseDist D(nb_alg + pp, m_A, RandBLAS::DenseDistName::Uniform);
     state = RandBLAS::fill_dense(D, buff_G, state).second;
@@ -942,6 +950,10 @@ int64_t hqrrp(
                 Op::NoTrans, Op::NoTrans, m_Y, n_Y, m_A, 
                 d_one, buff_G,  ldim_G, buff_A, ldim_A, 
                 d_zero, buff_Y, ldim_Y );
+    
+    if(timing != nullptr) {
+        sketching_t_stop  = high_resolution_clock::now();
+        sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
     
     if(timing != nullptr) {
         sketching_t_stop  = high_resolution_clock::now();
@@ -992,6 +1004,11 @@ int64_t hqrrp(
         buff_Y2 = & buff_Y[ 0 + std::min( n_Y - 1, j + b ) * ldim_Y ];
         buff_G1 = & buff_G[ 0 + j * ldim_G ];
         buff_G2 = & buff_G[ 0 + std::min( n_G - 1, j + b ) * ldim_G ];
+
+
+        if(timing != nullptr)
+            downdating_t_start = high_resolution_clock::now();
+
 
 
         if(timing != nullptr)
@@ -1048,10 +1065,15 @@ int64_t hqrrp(
             //    sync with one another, while GEQP3 only operates on one matrix.
             //
 
+
             lapack::lacpy( MatrixType::General,
                             m_V, n_VR,
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);
+
+            if(timing != nullptr)
+                qrcp_t_start    = high_resolution_clock::now();
+
 
             if(timing != nullptr)
                 qrcp_t_start    = high_resolution_clock::now();
@@ -1065,6 +1087,14 @@ int64_t hqrrp(
                 0, (T*) nullptr, 0, (T*) nullptr, 0, (T*) nullptr,
                 timing_QRCP 
             );
+
+            if(timing != nullptr) {
+                qrcp_t_stop = high_resolution_clock::now();
+                qrcp_t_dur  += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
+            }
+
+        }
+
 
             if(timing != nullptr) {
                 qrcp_t_stop = high_resolution_clock::now();
@@ -1105,6 +1135,11 @@ int64_t hqrrp(
             qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
             updating_A_t_start = high_resolution_clock::now();
         }
+        if(timing != nullptr) {
+            qr_t_stop = high_resolution_clock::now();
+            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+            updating_A_t_start = high_resolution_clock::now();
+        }
 
         //
         // Update the rest of the matrix.
@@ -1119,6 +1154,12 @@ int64_t hqrrp(
             n_A11, buff_A11, ldim_A,
             buff_T1_T, ldim_W, m_A12 + m_A22, 
             n_A12, buff_A12, ldim_A );
+        }
+
+        if(timing != nullptr) {
+            updating_A_t_stop = high_resolution_clock::now();
+            updating_A_t_dur  += duration_cast<microseconds>(updating_A_t_stop - updating_A_t_start).count();
+            updating_Sketch_t_start = high_resolution_clock::now();
         }
 
         if(timing != nullptr) {

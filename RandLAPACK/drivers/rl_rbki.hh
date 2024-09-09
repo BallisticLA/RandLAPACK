@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef randlapack_rbki_h
 #define randlapack_rbki_h
 

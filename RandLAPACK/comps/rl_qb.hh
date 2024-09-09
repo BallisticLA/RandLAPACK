@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef randlapack_comps_qb_h
 #define randlapack_comps_qb_h
 
