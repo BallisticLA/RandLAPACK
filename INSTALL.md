@@ -15,10 +15,13 @@ of the corresponding instructions in Section 1.
 ## 0. Software requirements
 RandLAPACK_GPU temporary requirements:
 GNU 13.1.0
-NVIDIA 12.4.131 (make sure to use driver v 550)
 CMAKE 3.27
+If one required CUDA support, NVIDIA 12.4.1 is needed (make sure to use driver v 550) (Older versions will result in issues with the project).
 All that is used to ensure we can compile with C++20 features with no issues.
 Note that in the CMake configuration lines, some systems will have directories labeled "lib" by default while on other systems those same directories end up being called "lib64."
+
+We recomment installing software (including googletest, if desired) using Spack:
+https://github.com/spack/spack.git
 
 ## 1. Optional dependencies
 
@@ -29,6 +32,9 @@ can be installed with your favorite package manager.
 OpemMP is an open standard that enables code to be parallelized as it is
 compiled. RandLAPACK (and its dependencies) detects the presence of OpenMP
 automatically and makes use of it if it's found.
+
+CUDA support can be enabled using -DRequireCUDA=ON flag.
+It is disabled by default.
 
 ## 2. Required Dependencies: BLAS++, LAPACK++, RandBLAS, and Random123.
 
