@@ -172,6 +172,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
         file << m << "  " << n << "  " << block_size << "  " << diff_icqrrp_qrf << "  " << diff_icqrrp_cholqr << "  " << diff_qrf << "\n";
     }
 
+    // Not using this right now. But there's no harm in keeping it around.
     template <typename T, typename RNG>
     static void bench_CholQR(
         RandLAPACK::gen::mat_gen_info<T> m_info,
@@ -232,9 +233,10 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
     }
 
 };
-TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
-    int64_t m            = std::pow(2, 14);
-    int64_t n            = std::pow(2, 14);
+
+TEST_P(BenchCQRRP, GPU_fixed_blocksize) {
+    int64_t m            = std::pow(2, 15);
+    int64_t n            = std::pow(2, 15);
     int64_t b_sz         = GetParam();
     double tol           = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state           = RandBLAS::RNGState();
@@ -269,29 +271,9 @@ TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    CQRRP_GPU_16k_benchmarks,
+    CQRRP_GPU_benchmarks,
     BenchCQRRP,
     ::testing::Values(32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048)
 );
 
-TEST_F(BenchCQRRP, Bench_CholQR) {
-    int64_t m_start = std::pow(2, 14);
-    int64_t n       = 288;
-    int64_t m_stop  = 288;
-    auto state      = RandBLAS::RNGState();
-
-    CQRRPBenchData<double> all_data(m_start, n);
-    RandLAPACK::gen::mat_gen_info<double> m_info(m_start, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-    cudaMemcpy(all_data.A_device, all_data.A.data(), m_start * n * sizeof(double), cudaMemcpyHostToDevice);
-
-
-    std::string file = "CholQR_GPU_speed_cols_"      + std::to_string(n)
-                                    + "_rows_start_" + std::to_string(m_start)
-                                    + "_rows_stop_"  + std::to_string(m_stop)
-                                    + ".dat";
-
-    for(int i = m_start; i <= m_stop; i -= m_stop)
-        bench_CholQR(m_info, i, all_data, state, file);
-}
 #endif
