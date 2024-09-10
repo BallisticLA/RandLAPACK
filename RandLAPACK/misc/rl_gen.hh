@@ -1,5 +1,4 @@
-#ifndef randlapack_gen_h
-#define randlapack_gen_h
+#pragma once
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -524,4 +523,3 @@ void mat_gen(
     }
 }
 }
-#endif

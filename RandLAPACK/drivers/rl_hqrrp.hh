@@ -42,9 +42,6 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <algorithm>
 #include <typeinfo>
 
-#ifndef randlapack_hqrrp_h
-#define randlapack_hqrrp_h
-
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
@@ -1209,4 +1206,3 @@ int64_t hqrrp(
 }
 
 } // end namespace RandLAPACK
-#endif

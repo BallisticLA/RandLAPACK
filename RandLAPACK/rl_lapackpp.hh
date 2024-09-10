@@ -1,5 +1,4 @@
-#ifndef randlapack_lapackpp_h
-#define randlapack_lapackpp_h
+#pragma once
 
 #define LAPACK_COMPLEX_CPP 1
 
@@ -8,5 +7,3 @@
 using Job = lapack::Job;
 using MatrixType = lapack::MatrixType;
 using Norm = lapack::Norm;
-
-#endif

@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_drivers_revd2_h
-#define randlapack_drivers_revd2_h
-
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
 #include "rl_blaspp.hh"
@@ -287,4 +284,3 @@ int REVD2<T, RNG>::call(
 }
 
 } // end namespace RandLAPACK
-#endif

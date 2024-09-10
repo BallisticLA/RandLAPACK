@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_comps_qb_h
-#define randlapack_comps_qb_h
-
 #include "rl_orth.hh"
 #include "rl_rf.hh"
 #include "rl_blaspp.hh"
@@ -271,4 +268,3 @@ int QB<T, RNG>::call(
 }
 
 } // end namespace RandLAPACK
-#endif

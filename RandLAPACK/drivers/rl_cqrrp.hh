@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_cqrrp_h
-#define randlapack_cqrrp_h
-
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -622,5 +619,3 @@ int CQRRP_blocked<T, RNG>::call(
 }
 
 } // end namespace RandLAPACK
-
-#endif

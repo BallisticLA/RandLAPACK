@@ -1,5 +1,4 @@
-#ifndef MACROS_HH
-#define MACROS_HH
+#pragma once
 #include <cstdint>
 #include <iostream>
 
@@ -25,4 +24,3 @@
         abort();                                                        \
     }                                                                   \
 }
-#endif

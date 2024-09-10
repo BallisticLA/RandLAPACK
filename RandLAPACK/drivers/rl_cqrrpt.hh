@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_cqrrpt_h
-#define randlapack_cqrrpt_h
-
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -327,4 +324,3 @@ int CQRRPT<T, RNG>::call(
     return 0;
 }
 } // end namespace RandLAPACK
-#endif

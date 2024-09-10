@@ -1,3 +1,4 @@
+#pragma once
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>

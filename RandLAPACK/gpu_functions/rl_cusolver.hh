@@ -1,5 +1,4 @@
-#ifndef bpcg_cublas_h
-#define bpcg_cublas_h
+#pragma once
 
 #if defined(ENABLE_CUDA)
 #include <cuda_runtime.h>
@@ -56,6 +55,4 @@ int cublasDestroy(cublasHandle_t x) {
 //
 #define CUSOLVER_STATUS_SUCCESS 0
 #define CUBLAS_STATUS_SUCCESS 0
-#endif
-
 #endif

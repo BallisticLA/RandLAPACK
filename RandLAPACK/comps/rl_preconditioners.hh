@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_comps_preconditioners_h
-#define randlapack_comps_preconditioners_h
-
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
@@ -336,4 +333,3 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
 
 
 }  // end namespace RandLAPACK
-#endif

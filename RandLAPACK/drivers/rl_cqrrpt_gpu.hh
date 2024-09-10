@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_cqrrpt_gpu_h
-#define randlapack_cqrrpt_gpu_h
-
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -388,4 +385,3 @@ int CQRRPT_GPU<T, RNG>::call(
     return 0;
 }
 } // end namespace RandLAPACK
-#endif

@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_comps_orth_h
-#define randlapack_comps_orth_h
-
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
@@ -235,4 +232,3 @@ int PLUL<T>::call(
 }
 
 } // end namespace RandLAPACK
-#endif

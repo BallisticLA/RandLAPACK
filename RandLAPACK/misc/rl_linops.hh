@@ -1,5 +1,4 @@
-#ifndef randlapack_linops_h
-#define randlapack_linops_h
+#pragma once
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -91,4 +90,3 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
 
 
 } // end namespace RandLAPACK
-#endif

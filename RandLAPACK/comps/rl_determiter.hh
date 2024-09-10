@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef randlapack_comps_determiter_h
-#define randlapack_comps_determiter_h
-
 #include "rl_blaspp.hh"
 
 #include <iostream>
@@ -130,4 +127,3 @@ void pcg(
 }
 
 } // end namespace RandLAPACK
-#endif
