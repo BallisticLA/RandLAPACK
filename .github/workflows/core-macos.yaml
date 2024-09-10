@@ -3,6 +3,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+on:
+  # Add branches that you wish for CI to ignore
+  push:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+
 jobs:
   build:
     runs-on: macos-latest
