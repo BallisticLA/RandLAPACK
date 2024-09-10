@@ -112,22 +112,18 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 	    auto start = std::chrono::steady_clock::now();
         CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 	    auto stop = std::chrono::steady_clock::now();
-	    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+	    auto diff_icqrrp = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
         auto rank = CQRRP_GPU.rank;
-        //printf("RANK AS RETURNED BY CQRRP GPU %4ld\n", rank);
         data_regen(m_info, all_data, state);
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
-
-	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff);
-        std::ofstream file(output_filename_speed, std::ios::app);
-        file << m << "  " << n << "  " << block_size << "  " << diff << "\n";
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown, std::ios::app);
             std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 17, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
+        long diff_qrf = 0;
         if (run_qrf) {
             lapack::Queue lapack_queue(0);
             using lapack::device_info_int;
@@ -144,9 +140,13 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
             lapack::geqrf(m, n, all_data.A_device, m, all_data.tau_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
             lapack_queue.sync();
             auto stop_qrf  = std::chrono::steady_clock::now();
-	        auto diff_qrf  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_qrf  - start_qrf).count();
+	        diff_qrf  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_qrf  - start_qrf).count();
             printf(" QRF TIME (MS) = %ld\n", diff_qrf);
         }
+
+	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff_icqrrp);
+        std::ofstream file(output_filename_speed, std::ios::app);
+        file << m << "  " << n << "  " << block_size << "  " << diff_icqrrp << "  " << diff_qrf << "\n";
     }
 
     template <typename T, typename RNG>
@@ -246,15 +246,13 @@ TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_16k_benchmarks,
     BenchCQRRP,
-    ::testing::Values(32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 
-    184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 264, 272, 280, 288, 296, 304, 312, 320, 328, 336, 344, 
-    352, 360, 368, 376, 384, 392, 400, 408, 416, 424, 432, 440, 448, 456, 464, 472, 480, 488, 496, 504, 512)
+    ::testing::Values(32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512)
 );
 
 TEST_F(BenchCQRRP, Bench_CholQR) {
     int64_t m       = std::pow(2, 14);
-    int64_t n_start = 120;
-    int64_t n_stop  = std::pow(2, 9);
+    int64_t n_start = 288;
+    int64_t n_stop  = std::pow(2, 14);
     auto state      = RandBLAS::RNGState();
 
     CQRRPBenchData<double> all_data(m, n_stop);
