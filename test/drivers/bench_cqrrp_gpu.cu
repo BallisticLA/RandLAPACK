@@ -217,8 +217,8 @@ TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
     auto state           = RandBLAS::RNGState();
     bool profile_runtime = true;
     bool run_qrf         = false;
-    bool cqrrp_uses_qrf  = false;
-    if(b_sz == 120) {
+    bool cqrrp_uses_qrf  = true;
+    if(b_sz == 120 || b_sz == 128) {
         run_qrf = true;
     }
 
