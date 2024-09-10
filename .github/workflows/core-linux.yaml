@@ -4,8 +4,11 @@ on:
   workflow_dispatch:
 
 on:
-  # Add branches that you wish for CI to ignore
+  # Trigger on pull request and manual dispatch
+  pull_request:
+  workflow_dispatch:
   push:
+    # Add branches that you wish for CI to ignore
     branches-ignore:
       - cqrrp-gpu-benchmarking
   pull_request:

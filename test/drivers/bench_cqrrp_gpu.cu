@@ -82,47 +82,70 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
     static void bench_CQRRP(
         bool profile_runtime,
         bool run_qrf,
-	bool cqrrp_use_qrf,
         RandLAPACK::gen::mat_gen_info<T> m_info,
         T tol,
         int64_t block_size,
         CQRRPBenchData<T> &all_data,
         RandBLAS::RNGState<RNG> state,
-        std::string output_filename_breakdown,
+        std::string output_filename_breakdown_QRF,
+        std::string output_filename_breakdown_CholQR,
         std::string output_filename_speed) {
 
-	T d_factor = 1.0;
+	    T d_factor = 1.0;
         auto m = all_data.row;
         auto n = all_data.col;
         auto state_const = state;
         int64_t d = d_factor * block_size;
 
+        // ICQRRP with QRF
         // Skethcing in an sampling regime
         cudaMalloc(&all_data.A_sk_device, d * n * sizeof(T));
-        all_data.A_sk  = ( T * ) calloc( d * n, sizeof( T ) );
-        T* S           = ( T * ) calloc( d * m, sizeof( T ) );
+        all_data.A_sk = ( T * ) calloc( d * n, sizeof( T ) );
+        T* S          = ( T * ) calloc( d * m, sizeof( T ) );
         RandBLAS::DenseDist D(d, m);
         RandBLAS::fill_dense(D, S, state_const).second;
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
-        free(S);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
-	
-        RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU(profile_runtime, tol, block_size);
-        CQRRP_GPU.use_qrf = cqrrp_use_qrf;
-	    auto start = std::chrono::steady_clock::now();
-        CQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-	    auto stop = std::chrono::steady_clock::now();
-	    auto diff_icqrrp = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
-        auto rank = CQRRP_GPU.rank;
+        RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU_QRF(profile_runtime, tol, block_size);
+        CQRRP_GPU_QRF.use_qrf = true;
+	    auto start_icqrrp_qrf = std::chrono::steady_clock::now();
+        CQRRP_GPU_QRF.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+	    auto stop_icqrrp_qrf = std::chrono::steady_clock::now();
+	    auto diff_icqrrp_qrf = std::chrono::duration_cast<std::chrono::milliseconds>(stop_icqrrp_qrf - start_icqrrp_qrf).count();
         data_regen(m_info, all_data, state);
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
 
         if(profile_runtime) {
-            std::ofstream file(output_filename_breakdown, std::ios::app);
-            std::copy(CQRRP_GPU.times.data(), CQRRP_GPU.times.data() + 17, std::ostream_iterator<T>(file, ", "));
+            std::ofstream file(output_filename_breakdown_QRF, std::ios::app);
+            std::copy(CQRRP_GPU_QRF.times.data(), CQRRP_GPU_QRF.times.data() + 17, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
+
+        // ICQRRP with CholQR
+        // Skethcing in an sampling regime
+        cudaMalloc(&all_data.A_sk_device, d * n * sizeof(T));
+        all_data.A_sk = ( T * ) calloc( d * n, sizeof( T ) );
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
+        free(S);
+        cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
+        RandLAPACK::CQRRP_blocked_GPU<double, r123::Philox4x32> CQRRP_GPU_CholQR(profile_runtime, tol, block_size);
+        CQRRP_GPU_CholQR.use_qrf = false;
+	    auto start_icqrrp_cholqr = std::chrono::steady_clock::now();
+        CQRRP_GPU_CholQR.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
+	    auto stop_icqrrp_cholqr = std::chrono::steady_clock::now();
+	    auto diff_icqrrp_cholqr = std::chrono::duration_cast<std::chrono::milliseconds>(stop_icqrrp_cholqr - start_icqrrp_cholqr).count();
+        data_regen(m_info, all_data, state);
+        cudaFree(all_data.A_sk_device);
+        free(all_data.A_sk);
+
+        if(profile_runtime) {
+            std::ofstream file(output_filename_breakdown_QRF, std::ios::app);
+            std::copy(CQRRP_GPU_CholQR.times.data(), CQRRP_GPU_CholQR.times.data() + 17, std::ostream_iterator<T>(file, ", "));
+            file << "\n";
+        } 
+
+        // Optional QRF
         long diff_qrf = 0;
         if (run_qrf) {
             lapack::Queue lapack_queue(0);
@@ -144,21 +167,21 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
             printf(" QRF TIME (MS) = %ld\n", diff_qrf);
         }
 
-	    printf("  BLOCK SIZE = %ld TIME (MS) = %ld\n", block_size, diff_icqrrp);
+	    printf("  BLOCK SIZE = %ld ICQRRP+QRF TIME (MS) = %ld ICQRRP+CholQR TIME (MS) = %ld\n", block_size, diff_icqrrp_qrf, diff_icqrrp_cholqr);
         std::ofstream file(output_filename_speed, std::ios::app);
-        file << m << "  " << n << "  " << block_size << "  " << diff_icqrrp << "  " << diff_qrf << "\n";
+        file << m << "  " << n << "  " << block_size << "  " << diff_icqrrp_qrf << "  " << diff_icqrrp_cholqr << "  " << diff_qrf << "\n";
     }
 
     template <typename T, typename RNG>
     static void bench_CholQR(
         RandLAPACK::gen::mat_gen_info<T> m_info,
-        int64_t numcols,
+        int64_t numrows,
         CQRRPBenchData<T> &all_data,
         RandBLAS::RNGState<RNG> state,
         std::string output_filename) {
 
-        auto m = all_data.row;
-        auto n = numcols;
+        auto m = numrows;
+        auto n = all_data.col;
         auto state_const = state;
 
         // Initialize GPU stuff
@@ -217,8 +240,7 @@ TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
     auto state           = RandBLAS::RNGState();
     bool profile_runtime = true;
     bool run_qrf         = false;
-    bool cqrrp_uses_qrf  = true;
-    if(b_sz == 120 || b_sz == 128) {
+    if(b_sz == 128) {
         run_qrf = true;
     }
 
@@ -228,45 +250,48 @@ TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
     cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
 
-    std::string file1 = "ICQRRP_GPU_runtime_breakdown_innerQRF_"              
-	                                              + std::to_string(cqrrp_uses_qrf) 
-	                            +  "_rows_"       + std::to_string(m)
+    std::string file1 = "ICQRRP_GPU_runtime_breakdown_innerQRF_1_rows_"       
+                                                      + std::to_string(m)
                                     +  "_cols_"       + std::to_string(n)
                                     +  "_d_factor_1.0.dat";
 
-    std::string file2 = "ICQRRP_GPU_speed_innerQRF_"
-                                                      + std::to_string(cqrrp_uses_qrf)
-	                            + "_rows_"        + std::to_string(m)
+    std::string file2 = "ICQRRP_GPU_runtime_breakdown_innerQRF_1_rows_"       
+                                                    + std::to_string(m)
+                                +  "_cols_"       + std::to_string(n)
+                                +  "_d_factor_1.0.dat";
+
+    std::string file3 = "ICQRRP_GPU_speed_rows_"      
+                                                      + std::to_string(m)
                                     + "_cols_"        + std::to_string(n)
                                     + "_d_factor_1.0.dat";
 
-    bench_CQRRP(profile_runtime, run_qrf, cqrrp_uses_qrf,  m_info, tol, b_sz, all_data, state, file1, file2);
+    bench_CQRRP(profile_runtime, run_qrf, m_info, tol, b_sz, all_data, state, file1, file2, file3);
 }
 
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_16k_benchmarks,
     BenchCQRRP,
-    ::testing::Values(32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512)
+    ::testing::Values(32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048)
 );
 
 TEST_F(BenchCQRRP, Bench_CholQR) {
-    int64_t m       = std::pow(2, 14);
-    int64_t n_start = 288;
-    int64_t n_stop  = std::pow(2, 14);
+    int64_t m_start = std::pow(2, 14);
+    int64_t n       = 288;
+    int64_t m_stop  = 288;
     auto state      = RandBLAS::RNGState();
 
-    CQRRPBenchData<double> all_data(m, n_stop);
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
+    CQRRPBenchData<double> all_data(m_start, n);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m_start, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n_stop * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(all_data.A_device, all_data.A.data(), m_start * n * sizeof(double), cudaMemcpyHostToDevice);
 
 
-    std::string file = "CholQR_GPU_speed_rows_"      + std::to_string(m)
-                                    + "_cols_start_" + std::to_string(n_start)
-                                    + "_cols_stop_"  + std::to_string(n_stop)
+    std::string file = "CholQR_GPU_speed_cols_"      + std::to_string(n)
+                                    + "_rows_start_" + std::to_string(m_start)
+                                    + "_rows_stop_"  + std::to_string(m_stop)
                                     + ".dat";
 
-    for(int i = n_start; i <= n_stop; i += n_start)
+    for(int i = m_start; i <= m_stop; i -= m_stop)
         bench_CholQR(m_info, i, all_data, state, file);
 }
 #endif
