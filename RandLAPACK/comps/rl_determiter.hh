@@ -1,5 +1,4 @@
-#ifndef randlapack_comps_determiter_h
-#define randlapack_comps_determiter_h
+#pragma once
 
 #include "rl_blaspp.hh"
 
@@ -128,4 +127,3 @@ void pcg(
 }
 
 } // end namespace RandLAPACK
-#endif

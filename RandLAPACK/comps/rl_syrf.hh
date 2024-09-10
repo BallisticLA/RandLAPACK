@@ -1,5 +1,4 @@
-#ifndef randlapack_comps_syrf_h
-#define randlapack_comps_syrf_h
+#pragma once
 
 #include "rl_syps.hh"
 #include "rl_blaspp.hh"
@@ -167,4 +166,3 @@ int SYRF<T, RNG>::call(
 }
 
 } // end namespace RandLAPACK
-#endif

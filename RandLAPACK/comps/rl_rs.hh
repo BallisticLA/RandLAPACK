@@ -1,5 +1,4 @@
-#ifndef randlapack_comps_rs_h
-#define randlapack_comps_rs_h
+#pragma once
 
 #include "rl_orth.hh"
 #include "rl_blaspp.hh"
@@ -175,4 +174,3 @@ int RS<T, RNG>::call(
 }
 
 } // end namespace RandLAPACK
-#endif

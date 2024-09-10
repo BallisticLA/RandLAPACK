@@ -1,5 +1,4 @@
-#ifndef randlapack_comps_util_h
-#define randlapack_comps_util_h
+#pragma once
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -461,4 +460,3 @@ void rl_orhr_col(
 }
 
 } // end namespace util
-#endif

@@ -1,5 +1,4 @@
-#ifndef randlapack_cqrrp_h
-#define randlapack_cqrrp_h
+#pragma once
 
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
@@ -59,7 +58,13 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         ) {
             timing     = time_subroutines;
             eps        = ep;
+            timing     = time_subroutines;
+            eps        = ep;
             block_size = b_sz;
+            use_qp3      = false;
+            use_gemqrt   = false;
+            internal_nb  = b_sz;
+            tol = std::numeric_limits<T>::epsilon();
             use_qp3      = false;
             use_gemqrt   = false;
             internal_nb  = b_sz;
@@ -159,8 +164,8 @@ int CQRRP_blocked<T, RNG>::call(
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point saso_t_stop;
-    high_resolution_clock::time_point saso_t_start;
+    high_resolution_clock::time_point skop_t_stop;
+    high_resolution_clock::time_point skop_t_start;
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
     high_resolution_clock::time_point cholqr_t_start;
@@ -180,7 +185,7 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
     long preallocation_t_dur   = 0;
-    long saso_t_dur            = 0;
+    long skop_t_dur            = 0;
     long qrcp_t_dur            = 0;
     long cholqr_t_dur          = 0;
     long reconstruction_t_dur  = 0;
@@ -285,7 +290,7 @@ int CQRRP_blocked<T, RNG>::call(
     if(this -> timing) {
         preallocation_t_stop  = high_resolution_clock::now();
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
-        saso_t_start = high_resolution_clock::now();
+        skop_t_start = high_resolution_clock::now();
     }
 
     // Using Gaussian matrix as a sketching operator.
@@ -298,8 +303,8 @@ int CQRRP_blocked<T, RNG>::call(
     free(S);
 
     if(this -> timing) {
-        saso_t_stop  = high_resolution_clock::now();
-        saso_t_dur   = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();
+        skop_t_stop  = high_resolution_clock::now();
+        skop_t_dur   = duration_cast<microseconds>(skop_t_stop - skop_t_start).count();
     }
 
     for(iter = 0; iter < maxiter; ++iter) {
@@ -525,13 +530,13 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + saso_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
+                long t_rest  = total_t_dur - (preallocation_t_dur + skop_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
                 this -> times.resize(12);
-                this -> times = {saso_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
+                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-                printf("SASO time: %34ld μs,\n",                           saso_t_dur);
+                printf("skop time: %34ld μs,\n",                           skop_t_dur);
                 printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
                 printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
                 printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
@@ -544,7 +549,7 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("Total time: %35ld μs.\n",                          total_t_dur);
 
                 printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-                printf("SASO generation and application takes %2.2f%% of runtime.\n",   100 * ((T) saso_t_dur            / (T) total_t_dur));
+                printf("skop generation and application takes %2.2f%% of runtime.\n",   100 * ((T) skop_t_dur            / (T) total_t_dur));
                 printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
@@ -614,5 +619,3 @@ int CQRRP_blocked<T, RNG>::call(
 }
 
 } // end namespace RandLAPACK
-
-#endif

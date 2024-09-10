@@ -1,5 +1,4 @@
-#ifndef randlapack_comps_syps_h
-#define randlapack_comps_syps_h
+#pragma once
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -193,4 +192,3 @@ int SYPS<T, RNG>::call(
 
 
 } // end namespace RandLAPACK
-#endif

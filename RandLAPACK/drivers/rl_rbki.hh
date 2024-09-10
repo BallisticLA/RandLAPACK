@@ -1,5 +1,4 @@
-#ifndef randlapack_rbki_h
-#define randlapack_rbki_h
+#pragma once
 
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
@@ -603,4 +602,3 @@ int RBKI<T, RNG>::call(
     return 0;
 }
 } // end namespace RandLAPACK
-#endif

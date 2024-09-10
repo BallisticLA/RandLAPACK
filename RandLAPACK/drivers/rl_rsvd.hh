@@ -1,5 +1,4 @@
-#ifndef randlapack_drivers_rsvd_h
-#define randlapack_drivers_rsvd_h
+#pragma once
 
 #include "rl_qb.hh"
 #include "rl_blaspp.hh"
@@ -145,4 +144,3 @@ int RSVD<T, RNG>::call(
 }
 
 } // end namespace RandLAPACK
-#endif

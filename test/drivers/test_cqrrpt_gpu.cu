@@ -3,10 +3,17 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <cusolverDn.h>
 
+#ifndef USE_CUDA
+#define USE_CUDA
+#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
 
 class TestCQRRPT : public ::testing::Test
 {
@@ -42,7 +49,7 @@ class TestCQRRPT : public ::testing::Test
         }
     };
 
-    template <typename T>
+    template <typename T, typename RNG>
     static void norm_and_copy_computational_helper(T &norm_A, CQRRPTTestData<T> &all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
@@ -98,9 +105,9 @@ class TestCQRRPT : public ::testing::Test
         printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        ASSERT_LE(norm_AQR, atol * norm_A);
-        ASSERT_LE(max_col_norm, atol * col_norm_A);
-        ASSERT_LE(norm_0, atol * std::sqrt((T) n));
+        ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
+        ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
+        ASSERT_NEAR(norm_0 / std::sqrt((T) n), 0.0, atol);
     }
 
     /// General test for CQRRPT:
@@ -110,15 +117,15 @@ class TestCQRRPT : public ::testing::Test
         T d_factor, 
         T norm_A,
         CQRRPTTestData<T> &all_data,
-        alg_type &CQRRPT,
+        alg_type &CQRRPT_GPU,
         RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
 
-        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
+        CQRRPT_GPU.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
 
-        all_data.rank = CQRRPT.rank;
+        all_data.rank = CQRRPT_GPU.rank;
         printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
@@ -129,77 +136,28 @@ class TestCQRRPT : public ::testing::Test
 };
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
-    int64_t m = 10000;
+TEST_F(TestCQRRPT, CQRRPT_GPU_full_rank_no_hqrrp) {
+    int64_t m = 1000;
     int64_t n = 200;
     int64_t k = 200;
-    double d_factor = 2;
+    double d_factor = 2.0;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.num_threads = 4;
-    CQRRPT.no_hqrrp = 1;
+    RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32> CQRRPT_GPU(false, false, tol);
+    CQRRPT_GPU.nnz = 2;
+    CQRRPT_GPU.num_threads = 4;
+    CQRRPT_GPU.no_hqrrp = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
     m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
 
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+    norm_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, all_data);
+    test_CQRRPT_general<double, r123::Philox4x32, RandLAPACK::CQRRPT_GPU<double, r123::Philox4x32>>(d_factor, norm_A, all_data, CQRRPT_GPU, state);
 }
-
-TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
-    int64_t m = 10000;
-    int64_t n = 200;
-    int64_t k = 100;
-    double d_factor = 2;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.num_threads = 4;
-    CQRRPT.no_hqrrp = 0;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
-}
-
-// Using L2 norm rank estimation here is similar to using raive estimation. 
-// Fro norm underestimates rank even worse. 
-TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
-    int64_t m = 10e4;
-    int64_t n = 300;
-    int64_t k = 0;
-    double d_factor = 1;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.num_threads = 4;
-    CQRRPT.no_hqrrp = 1;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::adverserial);
-    m_info.scaling = 1e7;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
-}
+#endif
