@@ -140,7 +140,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
         free(all_data.A_sk);
 
         if(profile_runtime) {
-            std::ofstream file(output_filename_breakdown_QRF, std::ios::app);
+            std::ofstream file(output_filename_breakdown_CholQR, std::ios::app);
             std::copy(CQRRP_GPU_CholQR.times.data(), CQRRP_GPU_CholQR.times.data() + 17, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
@@ -255,7 +255,7 @@ TEST_P(BenchCQRRP, CQRRP_GPU_benchmark_16k) {
                                     +  "_cols_"       + std::to_string(n)
                                     +  "_d_factor_1.0.dat";
 
-    std::string file2 = "ICQRRP_GPU_runtime_breakdown_innerQRF_1_rows_"       
+    std::string file2 = "ICQRRP_GPU_runtime_breakdown_innerQRF_0_rows_"       
                                                     + std::to_string(m)
                                 +  "_cols_"       + std::to_string(n)
                                 +  "_d_factor_1.0.dat";
