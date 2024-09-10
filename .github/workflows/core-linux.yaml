@@ -1,9 +1,5 @@
 name: core-linux
 on:
-  pull_request:
-  workflow_dispatch:
-
-on:
   # Trigger on pull request and manual dispatch
   pull_request:
   workflow_dispatch:
