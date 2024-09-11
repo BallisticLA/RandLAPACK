@@ -320,4 +320,3 @@ struct SpectralPrecond {
 // };
 
 } // end namespace RandLAPACK::linops
-#endif
