@@ -89,7 +89,7 @@ class Test_rpc_svd : public ::testing::Test
         // construct "A" with cond(A) >= sqrt_cond^2.
         vector<T> A(m*n, 0.0);
         T *a = A.data();
-        DenseDist D(m, n, RandBLAS::DenseDistName::Uniform);
+        DenseDist D(m, n, RandBLAS::ScalarDist::Uniform);
         auto state = RNGState(99);
         RandBLAS::fill_dense(D, a, state);
     
@@ -112,7 +112,7 @@ class Test_rpc_svd : public ::testing::Test
         vector<T> M_wk(d*n, 0.0);
         vector<T> sigma_sk(n, 0.0);
         int64_t lda = (layout == Layout::ColMajor) ? m : n;
-        SparseDist SDist{.n_rows=d, .n_cols=m, .vec_nnz=8};
+        SparseDist SDist(d, m, 8, RandBLAS::Axis::Short);
         RandBLAS::SparseSkOp<T> S(SDist, alg_state);
         RandBLAS::fill_sparse(S);
         
@@ -146,7 +146,7 @@ class Test_rpc_svd : public ::testing::Test
         // After regularization the augmented matrix will still be full-rank.
         vector<double> A(m*n, 0.0);
         double *a = A.data();
-        DenseDist D(m, n, RandBLAS::DenseDistName::Uniform);
+        DenseDist D(m, n, RandBLAS::ScalarDist::Uniform);
         auto state = RNGState(99);
         RandBLAS::fill_dense(D, a, state);
                       

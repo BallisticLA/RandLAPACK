@@ -197,9 +197,10 @@ int CQRRPT<T, RNG>::call(
         saso_t_start = high_resolution_clock::now();
     
     /// Generating a SASO
-    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
+    RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    state = RandBLAS::fill_sparse(S);
+    RandBLAS::fill_sparse(S);
+    state = S.next_state;
 
     /// Applying a SASO
     RandBLAS::sketch_general(

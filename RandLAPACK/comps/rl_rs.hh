@@ -133,11 +133,11 @@ int RS<T, RNG>::call(
     if (p % 2 == 0) {
         // Fill n by k Omega
         RandBLAS::DenseDist D(n, k);
-        state = RandBLAS::fill_dense(D, Omega, state).second;
+        state = RandBLAS::fill_dense(D, Omega, state);
     } else {
         // Fill m by k Omega_1
         RandBLAS::DenseDist D(m, k);
-        state = RandBLAS::fill_dense(D, Omega_1, state).second;
+        state = RandBLAS::fill_dense(D, Omega_1, state);
 
         // multiply A' by Omega results in n by k omega
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, Omega_1, m, 0.0, Omega, n);

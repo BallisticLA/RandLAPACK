@@ -935,8 +935,8 @@ int64_t hqrrp(
     }
 
     // Initialize matrices G and Y.
-    RandBLAS::DenseDist D(nb_alg + pp, m_A, RandBLAS::DenseDistName::Uniform);
-    state = RandBLAS::fill_dense(D, buff_G, state).second;
+    RandBLAS::DenseDist D(nb_alg + pp, m_A, RandBLAS::ScalarDist::Uniform);
+    state = RandBLAS::fill_dense(D, buff_G, state);
     
     blas::gemm(Layout::ColMajor,
                 Op::NoTrans, Op::NoTrans, m_Y, n_Y, m_A, 

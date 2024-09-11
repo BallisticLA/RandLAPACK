@@ -253,8 +253,8 @@ int REVD2<T, RNG>::call(
         // Using the first column of Omega as a buffer for a random vector
         // To perform the following safely, need to make sure Omega has at least 4 columns
         Omega_dat = util::upsize(m * 4, this->Omega);
-        RandBLAS::DenseDist  g(m, 1);
-        error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state).second;
+        RandBLAS::DenseDist g(m, 1);
+        error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state);
 
         err = power_error_est(A, k, this->error_est_p, Omega_dat, V_dat, Y_dat, eigvals.data()); 
 

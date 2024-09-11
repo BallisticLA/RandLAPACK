@@ -293,7 +293,7 @@ int CQRRP_blocked<T, RNG>::call(
     // as LU is not intended to be used with rank-deficient matrices.
     T* S  = ( T * ) calloc( d * m, sizeof( T ) );
     RandBLAS::DenseDist D(d, m);
-    state = RandBLAS::fill_dense(D, S, state).second;
+    state = RandBLAS::fill_dense(D, S, state);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
     free(S);
 
