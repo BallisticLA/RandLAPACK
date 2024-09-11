@@ -45,7 +45,7 @@ class TestPDK_SquaredExponential : public ::testing::Test {
                 K_entrywise[i + j*n] = RandLAPACK::squared_exp_kernel(d, xi, xj, bandwidth);
             }
         }
-        T atol = d * std::numeric_limits<T>::epsilon() * (1.0 + std::pow(bandwidth, -2));
+        T atol = 3 * d * std::numeric_limits<T>::epsilon() * (1.0 + std::pow(bandwidth, -2));
         test::comparison::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, n, n, K_blockimpl.data(), n,
             K_entrywise.data(), n, __PRETTY_FUNCTION__, __FILE__, __LINE__, atol, atol

@@ -26,11 +26,13 @@ class TestDetermiterOLS : public ::testing::Test {
     virtual void TearDown() {};
 
     virtual void run(uint64_t key_index) {   
+       
         std::vector<double> A(m * n);
-        RandBLAS::util::genmat(m, n, A.data(), keys[key_index]);
+        RandBLAS::RNGState state0(keys[key_index]);
+        auto state1 = RandBLAS::fill_dense({m, n}, A.data(), state0);
         
         std::vector<double> b(m);
-        RandBLAS::util::genmat(m, 1, b.data(), keys[key_index] + (uint64_t) 1);
+        RandBLAS::fill_dense({m, 1}, b.data(), state1);
         
         std::vector<double> c(n, 0.0);
         std::vector<double> x0(n, 0.0);
@@ -92,17 +94,15 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         vector<T> X_init(m*s, 0.0);
         RandBLAS::RNGState state0(seed);
         vector<T> temp(2*m*m);
-        auto D = RandBLAS::DenseDist {2*m, m, RandBLAS::DenseDistName::Gaussian};
-        auto out1 = RandBLAS::fill_dense(D, temp.data(), state0);
-        auto state1 = std::get<1>(out1);
+        auto D = RandBLAS::DenseDist {2*m, m, RandBLAS::ScalarDist::Gaussian};
+        auto state1 = RandBLAS::fill_dense(D, temp.data(), state0);
         blas::syrk(layout, blas::Uplo::Upper, blas::Op::Trans, m, 2*m, 1.0, temp.data(), 2*m, 0.0, G_buff.data(), m);
 
         vector<T> regs(1, coeff);
         RandLAPACK::linops::RegExplicitSymLinOp G(m, G_buff.data(), m, regs);
-        RandBLAS::DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
+        RandBLAS::DenseDist DX_star {m, s, RandBLAS::ScalarDist::Gaussian};
         auto Xsd = X_star.data();
-        auto out2 = RandBLAS::fill_dense(DX_star, Xsd, state1);
-        auto state2 = std::get<1>(out2);
+        auto state2 = RandBLAS::fill_dense(DX_star, Xsd, state1);
         G(layout, s, 1.0, X_star.data(), m, 0.0, H.data(), m);
 
         RandLAPACK::StatefulFrobeniusNorm<T> seminorm{};
@@ -143,17 +143,15 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         RandBLAS::RNGState state0(seed);
         vector<T> temp(2*m*m);
         
-        auto D = RandBLAS::DenseDist {2*m, m, RandBLAS::DenseDistName::Gaussian};
-        auto out1 = RandBLAS::fill_dense(D, temp.data(), state0);
-        auto state1 = std::get<1>(out1);
+        auto D = RandBLAS::DenseDist {2*m, m, RandBLAS::ScalarDist::Gaussian};
+        auto state1 = RandBLAS::fill_dense(D, temp.data(), state0);
         blas::syrk(layout, blas::Uplo::Upper, blas::Op::Trans, m, 2*m, 1.0, temp.data(), 2*m, 0.0, G_buff.data(), m);
 
         vector<T> regs(reg_coeffs);
         RandLAPACK::linops::RegExplicitSymLinOp G(m, G_buff.data(), m, regs);
-        RandBLAS::DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
+        RandBLAS::DenseDist DX_star {m, s, RandBLAS::ScalarDist::Gaussian};
         auto Xsd = X_star.data();
-        auto out2 = RandBLAS::fill_dense(DX_star, Xsd, state1);
-        auto state2 = std::get<1>(out2);
+        auto state2 = RandBLAS::fill_dense(DX_star, Xsd, state1);
         G(layout, s, 1.0, X_star.data(), m, 0.0, H.data(), m);
 
         RandLAPACK::StatefulFrobeniusNorm<T> seminorm{};

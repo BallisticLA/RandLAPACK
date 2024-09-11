@@ -82,8 +82,8 @@ void gen_singvec(
 
     RandBLAS::DenseDist DU(m, k);
     RandBLAS::DenseDist DV(n, k);
-    state = RandBLAS::fill_dense(DU, U, state).second;
-    state = RandBLAS::fill_dense(DV, V, state).second;
+    state = RandBLAS::fill_dense(DU, U, state);
+    state = RandBLAS::fill_dense(DV, V, state);
 
     blas::copy(k, S, k + 1, A, m + 1);
 
@@ -247,16 +247,15 @@ void gen_spiked_mat(
 ) {
     int64_t num_rows_sampled = n / 2;
 
-    /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
-    RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
-    RandBLAS::SparseSkOp<T> S(DS, state);
-    state = RandBLAS::fill_sparse(S);
+    /// sample from [m] without replacement
+    int64_t* rows = new int64_t[num_rows_sampled]{};
+    state = RandBLAS::repeated_fisher_yates(num_rows_sampled, m, 1, rows, state);
     
     T* V   = ( T * ) calloc( n * n, sizeof( T ) );
     T* tau = ( T * ) calloc( n,     sizeof( T ) );
 
     RandBLAS::DenseDist DV(n, n);
-    state = RandBLAS::fill_dense(DV, V, state).second;
+    state = RandBLAS::fill_dense(DV, V, state);
 
     lapack::geqrf(n, n, V, n, tau);
     lapack::ungqr(n, n, n, V, n, tau);
@@ -273,11 +272,12 @@ void gen_spiked_mat(
 
     for (i = 0; i < n; ++ i) {
         for (j = 0; j < num_rows_sampled; ++j) {
-            A[m * i + S.rows[j]] *= spike_scale;
+            A[m * i + rows[j]] *= spike_scale;
         }
         j = 0;
     }
 
+    delete [] rows;
     free(V);
     free(tau);
 }
@@ -308,10 +308,10 @@ void gen_oleg_adversarial_mat(
     T* tau2 = ( T * ) calloc( n,     sizeof( T ) );
 
     RandBLAS::DenseDist DU(m, n);
-    state = RandBLAS::fill_dense(DU, U, state).second;
+    state = RandBLAS::fill_dense(DU, U, state);
 
     RandBLAS::DenseDist DV(n, n);
-    state = RandBLAS::fill_dense(DV, V, state).second;
+    state = RandBLAS::fill_dense(DV, V, state);
 
     for(int i = 0; i < n; ++i) {
         //U_dat[m * i + 1] *= scaling_factor_U;
@@ -484,7 +484,7 @@ void mat_gen(
         case gaussian: {
                 // Gaussian random matrix
                 RandBLAS::DenseDist D(info.rows, info.cols);
-                state = RandBLAS::fill_dense(D, A, state).second;
+                state = RandBLAS::fill_dense(D, A, state);
             }
             break;
         case step: {

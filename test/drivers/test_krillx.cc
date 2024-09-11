@@ -43,10 +43,9 @@ class TestKrillIsh: public ::testing::Test {
         vector<T> X_init(m*s, 0.0);
         vector<T> H(m*s, 0.0);
         RNGState state0(101);
-        DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
+        DenseDist DX_star {m, s, RandBLAS::ScalarDist::Gaussian};
         auto Xsd = X_star.data();
-        auto out1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
-        auto state1 = std::get<1>(out1);
+        auto state1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
         G_linop(blas::Layout::ColMajor, s, 1.0, X_star.data(), m, 0.0, H.data(), m);
 
         std::cout << "\nFrobenius norm of optimal solution : " << blas::nrm2(m*s, X_star.data(), 1);
@@ -135,10 +134,9 @@ class TestKrillx: public ::testing::Test {
         vector<T> X_init(m*s, 0.0);
         vector<T> H(m*s, 0.0);
         RNGState state0(101);
-        DenseDist DX_star {m, s, RandBLAS::DenseDistName::Gaussian};
+        DenseDist DX_star {m, s, RandBLAS::ScalarDist::Gaussian};
         auto Xsd = X_star.data();
-        auto out1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
-        auto state1 = std::get<1>(out1);
+        auto state1 = RandBLAS::fill_dense(DX_star, Xsd, state0);
         G_linop.set_eval_includes_reg(true);
         G_linop(blas::Layout::ColMajor, s, 1.0, X_star.data(), m, 0.0, H.data(), m);
         std::cout << "\nFrobenius norm of optimal solution : " << blas::nrm2(m*s, X_star.data(), 1);

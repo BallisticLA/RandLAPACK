@@ -23,7 +23,7 @@ RNGState<RNG> left_multiply_by_orthmat(int64_t m, int64_t n, std::vector<T> &A, 
     using std::vector;
     vector<T> U(m * m, 0.0);
     RandBLAS::DenseDist DU(m, m);
-    auto out_state = RandBLAS::fill_dense(DU, U.data(), state).second;
+    auto out_state = RandBLAS::fill_dense(DU, U.data(), state);
     vector<T> tau(m, 0.0);
     lapack::geqrf(m, m, U.data(), m, tau.data());
     lapack::ormqr(blas::Side::Left, blas::Op::NoTrans, m, n, m, U.data(), m, tau.data(), A.data(), m);
@@ -41,7 +41,7 @@ void full_gram(int64_t n, std::vector<T> &A, blas::Op op, int64_t k = -1) {
         randblas_require(op == blas::Op::NoTrans);
     }
     blas::syrk(layout, uplo, op, n, k, 1.0, work.data(), n, 0.0, A.data(), n); 
-    RandBLAS::util::symmetrize(layout, uplo, A.data(), n, n);
+    RandBLAS::symmetrize(layout, uplo, n, A.data(), n);
 }
 
 class TestRPCholesky : public ::testing::Test {

@@ -132,7 +132,7 @@ int main() {
         blas::copy(m, hd, 1, Hd, 1);
         if (s > 1) {
             RandBLAS::RNGState state_H(1);
-            RandBLAS::DenseDist D(m, s - 1, RandBLAS::DenseDistName::Gaussian);
+            RandBLAS::DenseDist D(m, s - 1, RandBLAS::ScalarDist::Gaussian);
             RandBLAS::fill_dense(D, Hd + m, state_H);
             T nrm_h = blas::nrm2(m, hd, 1);
             for (int i = 1; i < s; ++i) {

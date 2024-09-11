@@ -59,7 +59,7 @@ class TestOrth : public ::testing::Test
 
         // Fill the gaussian random matrix
         RandBLAS::DenseDist D(n, k);
-        state = RandBLAS::fill_dense(D, all_data.Omega.data(), state).second;
+        state = RandBLAS::fill_dense(D, all_data.Omega.data(), state);
         
         // Generate a reference identity
         RandLAPACK::util::eye(k, k, all_data.I_ref);

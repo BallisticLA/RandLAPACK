@@ -43,7 +43,7 @@ void pack_selected_rows(
 }
 
 template <typename T>
-void downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F_panel, vector<T> &d, vector<T> &cdf) {
+int downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F_panel, vector<T> &d, vector<T> &cdf) {
     randblas_require(layout == Layout::ColMajor);
     int64_t cols_F_panel = indices.size();
     for (int64_t j = 0; j < cols_F_panel; ++j) {
@@ -56,8 +56,17 @@ void downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F
     for (auto i : indices)
         d[i] = 0.0;
     cdf = d;
-    RandBLAS::util::weights_to_cdf(cdf.data(), N);
-    return;
+    try {
+        RandBLAS::weights_to_cdf(N, cdf.data());
+    } catch(RandBLAS::exceptions::Error &e) {
+        std::string message{e.what()};
+        if (message.find("sum >=") != std::string::npos) {
+            return 1;
+        } else if (message.find("val >= error_if_below") != std::string::npos) {
+            return 2;
+        }
+    }
+    return 0;
 }
 
 } // end namespace RandLAPACK::_rpchol_impl
@@ -101,8 +110,8 @@ void downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F
 template <typename T, typename FUNC_T, typename STATE>
 STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t b, STATE state) {
     // TODO: make this function robust to rank-deficient matrices. 
-    using RandBLAS::util::sample_indices_iid;
-    using RandBLAS::util::weights_to_cdf;
+    using RandBLAS::sample_indices_iid;
+    using RandBLAS::weights_to_cdf;
     using blas::Op;
     using blas::Uplo;
     auto layout = blas::Layout::ColMajor;
@@ -117,16 +126,22 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
     for (int64_t i = 0; i < n; ++i)
         d[i] = A_stateless(i,i);
     cdf = d;
-    weights_to_cdf(cdf.data(), n);
-
-    int64_t ell = 0;
+    weights_to_cdf(n, cdf.data());
+    int w_status = 0;
+    int64_t ell  = 0;
     while (ell < k) {
+        if (w_status) {
+            std::cout << "weights_to_cdf failed with exit code " << w_status << ".\n";
+            std::cout << "Returning early, with approximation rank = " << ell << "\n\n";
+            k = ell;
+            return state;
+        }
         //
         //  1. Compute the next block of column indices
         //
         int64_t curr_B = std::min(b, k - ell);
         Sprime.resize(curr_B);
-        state = sample_indices_iid(cdf.data(), n, Sprime.data(), curr_B, state);
+        state = sample_indices_iid(n, cdf.data(), curr_B, Sprime.data(), state);
         std::sort( Sprime.begin(), Sprime.end() );
         Sprime.erase( unique( Sprime.begin(), Sprime.end() ), Sprime.end() );
         int64_t ell_incr = Sprime.size();
@@ -154,9 +169,9 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
         //      2.2. Execute Lines 6 and 7 of [arXiv:2304.12465, Algorithm 4].     
         //
         _rpchol_impl::pack_selected_rows(layout, n, ell_incr, F_panel, Sprime, work_mat.data());
-        int status = lapack::potrf(uplo, ell_incr, work_mat.data(), ell_incr);
-        if (status) {
-            std::cout << "Cholesky failed with exit code " << status << ".\n";
+        int c_status = lapack::potrf(uplo, ell_incr, work_mat.data(), ell_incr);
+        if (c_status) {
+            std::cout << "Cholesky failed with exit code " << c_status << ".\n";
             std::cout << "Returning early, with approximation rank = " << ell << "\n\n";
             k = ell;
             return state;
@@ -170,7 +185,7 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
         // 3. Update S, d, cdf and ell.
         //
         std::copy(Sprime.begin(), Sprime.end(), S + ell);
-        _rpchol_impl::downdate_d_and_cdf(layout, n, Sprime, F_panel, d, cdf);
+        w_status = _rpchol_impl::downdate_d_and_cdf(layout, n, Sprime, F_panel, d, cdf);
         ell = ell + ell_incr;
     }
     return state;

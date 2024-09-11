@@ -144,15 +144,11 @@ RandBLAS::RNGState<RNG> rpc_data_svd_saso(
     T *sigma_sk, //buffer of size at least n.
     RandBLAS::RNGState<RNG> state
 ) {
-    RandBLAS::SparseDist D{
-        .n_rows = d,
-        .n_cols = m,
-        .vec_nnz = k
-    };
+    RandBLAS::SparseDist D(d, m, k, RandBLAS::Axis::Short);
     RandBLAS::SparseSkOp<T> S(D, state);
-    auto next_state = RandBLAS::fill_sparse(S);
+    RandBLAS::fill_sparse(S);
     rpc_data_svd(layout, m, n, A, lda, S, V_sk, sigma_sk);
-    return next_state;
+    return S.next_state;
 }
 
 /**

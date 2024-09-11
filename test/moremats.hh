@@ -31,7 +31,7 @@ vector<T> polynomial_decay_psd(int64_t m, T cond_num, T exponent, uint32_t seed)
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, m, m, 1.0,
         A.data(), m, 0.0, G.data(), m
     ); // Note: G is PSD with squared spectrum of A.
-    RandBLAS::util::symmetrize(Layout::ColMajor, Uplo::Upper, G.data(), m, m);
+    RandBLAS::symmetrize(Layout::ColMajor, Uplo::Upper, m, G.data(), m);
     return G;
 }
 
@@ -49,7 +49,7 @@ RNGState<RNG> left_multiply_by_orthmat(int64_t m, int64_t n, std::vector<T> &A, 
     using std::vector;
     vector<T> U(m * m, 0.0);
     RandBLAS::DenseDist DU(m, m);
-    auto out_state = RandBLAS::fill_dense(DU, U.data(), state).second;
+    auto out_state = RandBLAS::fill_dense(DU, U.data(), state);
     vector<T> tau(m, 0.0);
     lapack::geqrf(m, m, U.data(), m, tau.data());
     lapack::ormqr(blas::Side::Left, blas::Op::NoTrans, m, n, m, U.data(), m, tau.data(), A.data(), m);
