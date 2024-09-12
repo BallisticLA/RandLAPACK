@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.10)
 
+# cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../../random123-install/include/  -Dblaspp_DIR=`pwd`/../../../blaspp-install/lib/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapackpp-install/lib/cmake/lapackpp/  -DCMAKE_BINARY_DIR=`pwd`   ..
+# ^ Example CMake configuration line with "install," "build" and "randlibs" folders.
+
 # cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../install/random123-install/include/  -Dblaspp_DIR=`pwd`/../../install/blaspp_GPU-install/lib64/blaspp/  -DRandLAPACK_DIR=`pwd`/../../install/RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../install/lapackpp-install/lib64/lapackpp/  -DCMAKE_BINARY_DIR=`pwd`     ../../randlibs/RandLAPACK/benchmark/
 # ^ Example CMake configuration line with "install," "build" and "randlibs" folders.
 
@@ -39,7 +42,7 @@ function(add_benchmark)
     set(MVO CXX_SOURCES LINK_LIBS)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
-    target_compile_options(${TGT_NAME} PRIVATE "-g")
+    target_compile_options(${TGT_NAME} PUBLIC -O1)
     target_include_directories(${TGT_NAME} PUBLIC ${Benchmark_include_dirs})
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
@@ -120,5 +123,4 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(fast_matrix_market)
-add_benchmark(NAME KRILL_simple CXX_SOURCES bench_krill/krill_simple.cc LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)
-
+add_benchmark(NAME KRILL_simple CXX_SOURCES bench_kernelalgs/krill_simple.cc LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)
