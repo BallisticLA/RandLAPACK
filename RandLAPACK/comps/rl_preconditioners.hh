@@ -345,7 +345,6 @@ STATE rpchol_pc_data(
 ) {
     std::vector<int64_t> selection(k, -1);
     state = RandLAPACK::rp_cholesky(n, A_stateless, k, selection.data(), V, b, state);
-    selection.resize(k);
     // ^ A_stateless \approx VV'; need to convert VV' into its eigendecomposition.
     std::vector<T> work(k*k, 0.0);
     lapack::gesdd(lapack::Job::OverwriteVec, n, k, V, n, eigvals, nullptr, 1, work.data(), k);

@@ -189,7 +189,7 @@ namespace linops {
  * It might be practical to have one class that handles several different kinds of kernels.
  */
 template <typename T>
-struct SEKLO : public SymmetricLinearOperator<T> {
+struct RBFKernelMatrix : public SymmetricLinearOperator<T> {
     // squared exp kernel linear operator
     const T* X;
     const int64_t rows_x;
@@ -204,7 +204,7 @@ struct SEKLO : public SymmetricLinearOperator<T> {
 
     using scalar_t = T;
 
-    SEKLO(
+    RBFKernelMatrix(
         int64_t m, const T* X, int64_t rows_x, T bandwidth, vector<T> &regs
     ) : SymmetricLinearOperator<T>(m), X(X), rows_x(rows_x), bandwidth(bandwidth),  regs(regs), _sq_colnorms_x(m), _eval_work1{}, _eval_work2{} {
         for (int64_t i = 0; i < m; ++i) {

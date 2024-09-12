@@ -16,7 +16,7 @@ using RandBLAS::DenseDist;
 using RandBLAS::SparseDist;
 using RandBLAS::RNGState;
 using RandLAPACK::linops::RegExplicitSymLinOp;
-using RandLAPACK::linops::SEKLO;
+using RandLAPACK::linops::RBFKernelMatrix;
 using RandLAPACK_Testing::polynomial_decay_psd;
 
 
@@ -181,7 +181,7 @@ TEST_F(TestKrillx, test_krill_separable_squared_exp_kernel) {
         //auto G = polynomial_decay_psd(m, 1e12, (T) decay, key);
         //RegExplicitSymLinOp G_linop(m, G.data(), m, mus);
         vector<T> X0 = RandLAPACK_Testing::random_gaussian_mat<T>(5, m, key);
-        SEKLO G_linop(m, X0.data(), 5, 3.0, mus);
+        RBFKernelMatrix G_linop(m, X0.data(), 5, 3.0, mus);
         int64_t k = 128;
         run_krill_separable(0, G_linop, k);
         run_krill_separable(1, G_linop, k);

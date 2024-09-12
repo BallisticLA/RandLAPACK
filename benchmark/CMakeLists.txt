@@ -123,4 +123,5 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(fast_matrix_market)
-add_benchmark(NAME KRILL_simple CXX_SOURCES bench_kernelalgs/krill_simple.cc LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)
+add_benchmark(NAME KRR_simple  CXX_SOURCES bench_kernelalgs/kernelbench_common.hh bench_kernelalgs/krr.cc  LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)
+add_benchmark(NAME KPCA_simple CXX_SOURCES bench_kernelalgs/kernelbench_common.hh bench_kernelalgs/kpca.cc LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)

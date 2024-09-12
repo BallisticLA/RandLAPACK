@@ -152,7 +152,7 @@ TEST_F(TestPDK_SquaredExponential, test_orthogonal_columns) {
 }
 
 
-class TestPDK_SEKLO : public ::testing::Test {
+class TestPDK_RBFKernelMatrix : public ::testing::Test {
     protected:
 
     virtual void SetUp() {};
@@ -167,7 +167,7 @@ class TestPDK_SEKLO : public ::testing::Test {
         T* X = X_vec.data();
         RandBLAS::fill_dense(D, X, state_x);
         vector<T> regs(1,reg); 
-        RandLAPACK::linops::SEKLO K(m, X, d, bandwidth, regs);
+        RandLAPACK::linops::RBFKernelMatrix K(m, X, d, bandwidth, regs);
         K.set_eval_includes_reg(use_reg);
 
         vector<T> eye(m * m, 0.0);
@@ -213,7 +213,7 @@ class TestPDK_SEKLO : public ::testing::Test {
 
 };
 
-TEST_F(TestPDK_SEKLO, apply_to_eye_m100_d3) {
+TEST_F(TestPDK_RBFKernelMatrix, apply_to_eye_m100_d3) {
     double mu = 0.123;
     for (uint32_t i = 77; i < 80; ++i) {
         run(1.0,      mu, 100, 3, i, false);
@@ -222,7 +222,7 @@ TEST_F(TestPDK_SEKLO, apply_to_eye_m100_d3) {
     }
 }
 
-TEST_F(TestPDK_SEKLO, apply_to_eye_m256_d4) {
+TEST_F(TestPDK_RBFKernelMatrix, apply_to_eye_m256_d4) {
     double mu = 0.123;
     for (uint32_t i = 77; i < 80; ++i) {
         run(1.0,      mu, 256, 4, i, false);
@@ -231,7 +231,7 @@ TEST_F(TestPDK_SEKLO, apply_to_eye_m256_d4) {
     }
 }
 
-TEST_F(TestPDK_SEKLO, apply_to_eye_m999_d7) {
+TEST_F(TestPDK_RBFKernelMatrix, apply_to_eye_m999_d7) {
     double mu = 0.123;
     for (uint32_t i = 77; i < 80; ++i) {
         run(1.0,      mu, 999, 7, i, false);
@@ -240,7 +240,7 @@ TEST_F(TestPDK_SEKLO, apply_to_eye_m999_d7) {
     }
 }
 
-TEST_F(TestPDK_SEKLO, reg_apply_to_eye_m100_d3) {
+TEST_F(TestPDK_RBFKernelMatrix, reg_apply_to_eye_m100_d3) {
     double bandwidth = 1.1;
     for (uint32_t i = 77; i < 80; ++i) {
         run(bandwidth, 0.1,      100, 3, i);
@@ -249,7 +249,7 @@ TEST_F(TestPDK_SEKLO, reg_apply_to_eye_m100_d3) {
     }
 }
 
-TEST_F(TestPDK_SEKLO, reg_apply_to_eye_m256_d4) {
+TEST_F(TestPDK_RBFKernelMatrix, reg_apply_to_eye_m256_d4) {
     double bandwidth = 1.1;
     for (uint32_t i = 77; i < 80; ++i) {
         run(bandwidth, 0.1,      256, 4, i);
@@ -258,7 +258,7 @@ TEST_F(TestPDK_SEKLO, reg_apply_to_eye_m256_d4) {
     }
 }
 
-TEST_F(TestPDK_SEKLO, reg_apply_to_eye_m257_d5) {
+TEST_F(TestPDK_RBFKernelMatrix, reg_apply_to_eye_m257_d5) {
     double bandwidth = 1.1;
     for (uint32_t i = 77; i < 80; ++i) {
         run(bandwidth, 0.1,      257, 5, i);
