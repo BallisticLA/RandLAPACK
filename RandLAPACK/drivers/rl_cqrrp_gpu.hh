@@ -220,7 +220,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     /******************************STREAM/QUEUE/HANDLE*********************************/
     lapack::Queue lapack_queue(0);
     cudaStream_t strm = lapack_queue.stream();
-    lapack::Queue copy_queue{0};
     using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
     int *d_info_cusolver = nullptr;
@@ -303,14 +302,16 @@ int CQRRP_blocked_GPU<T, RNG>::call(
     // This strategy would still require using buffers of size of the original data.
     T* A_copy_col_swap;
     cudaMallocAsync(&A_copy_col_swap, sizeof(T) * m * n, strm);
+    T* A_copy_col_swap_work = A_copy_col_swap;
+
     T* A_sk_copy_col_swap;
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
     T* A_sk_copy_col_swap_work = A_sk_copy_col_swap;
+    
     int64_t* J_copy_col_swap;
     cudaMallocAsync(&J_copy_col_swap, sizeof(int64_t) * n, strm);
     int64_t* J_copy_col_swap_work = J_copy_col_swap;
-    // Pointer buffer required for our special data movement-avoiding strategy.
-    int64_t* J_cpy_buf;
+    
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
     cudaStreamSynchronize(strm);
     if(this -> timing) {
@@ -321,9 +322,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
 
     for(iter = 0; iter < maxiter; ++iter) {
         nvtxRangePushA("Iteration");
-
-        // start async copy -- look for copy_queue.sync() for completion
-        blas::device_copy_matrix( m, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, copy_queue);
 
         // Make sure we fit into the available space
         b_sz = std::min(this->block_size, std::min(m, n) - curr_sz);
@@ -405,7 +403,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         // Pivoting the trailing R and the ``current'' A.      
         // The copy of A operation is done on a separete stream. If it was not, it would have been done here.  
         
-        copy_queue.sync();
         if(this -> timing) {
             nvtxRangePop();
             copy_A_t_stop = high_resolution_clock::now();
@@ -414,7 +411,27 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             piv_A_t_start = high_resolution_clock::now();
         }
 
-        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, A_copy_col_swap, lda, J_buffer);
+        // Instead of copying A into A_copy_col_swap, we ``swap'' the pointers.
+        // We have to take some precautions when ICQRRP main loop terminates.
+        // Since we want A to be accessible and valid outside of ICQRRP, we need to make sure that 
+        // its entries were, in fact, computed correctly. 
+        //
+        // The original memory space that the matrix A points to would only contain the correct entry ranges, computed at ODD
+        // iterations of ICQRRP's main loop.
+        // The correct entries from the even iterations would be contained in the memory space that was originbally pointed to
+        // by A_copy_col_swap.
+        // Hence, when ICQRRP terminates, we would need to copy the results from the even iterations form A_copy_col_swap to A.
+        //
+        // Remember that since the pointers A and A_copy_col_swap are swapped at every even iteration of the main ICQRRP loop,
+        // if the ICQRRP terminates with iter being odd, we would need to swap these pointers back around.
+        // Recall also that if A and A_cpy needed to be swapped at termination and iter != maxiters, A_cpy would contain the "correct"
+        // entries in column range ((iter + 1) * b_sz : end), so we need to not forget to copy those over into A.
+        //
+        // Additional thing to remember is that the final copy needs to be performed in terms of b_sz_const, not b_sz.
+        std::swap(A_copy_col_swap, A);
+        A_work = &A[lda * curr_sz + curr_sz];
+        A_copy_col_swap_work = &A_copy_col_swap[lda * curr_sz + curr_sz];
+        RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, &A_copy_col_swap[lda * curr_sz], lda, J_buffer);
         
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
@@ -435,16 +452,30 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // Measures taken to insure J holds correct data, explained above.
             if(iter % 2) {
                 // Total number of iterations is even (iter starts at 0)
-                J_cpy_buf = J_copy_col_swap;
-                J_copy_col_swap = J;
-                J = J_cpy_buf;
+                std::swap(J_copy_col_swap, J);
+            } else {
+                // Total number of iterations is odd
+                std::swap(A_copy_col_swap, A);
+                if(iter != maxiter){
+                    // Copy trailing portion of A_cpy into A
+                    blas::device_copy_matrix(m, n - (iter + 1) * b_sz_const, &A_copy_col_swap[lda * (iter + 1) * b_sz_const], lda, &A[lda * (iter + 1) * b_sz_const], lda, lapack_queue);
+                }
             }
-            for(int odd_idx = 1; odd_idx <= iter; odd_idx += 2) {
-                if(odd_idx == iter) {
-                    // Do not copy extra data if b_sz has changed.
-                    RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
-                } else {
-                    RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
+            for (int idx = 0; idx <= iter; ++idx) {
+                if (idx % 2) {  // Odd index - copy portions of J
+                    if (idx == iter) {
+                        // Avoid copying extra entries if b_sz has changed
+                        RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz, &J_copy_col_swap[idx * b_sz_const], 1, &J[idx * b_sz_const], 1);
+                    } else {
+                        RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[idx * b_sz_const], 1, &J[idx * b_sz_const], 1);
+                    }
+                } else {  // Even index - copy portions of A
+                    if (idx == iter) {
+                        // Avoid copying extra entries if b_sz has changed
+                        blas::device_copy_matrix(m, b_sz, &A_copy_col_swap[lda * idx * b_sz_const], lda, &A[lda * idx * b_sz_const], lda, lapack_queue);
+                    } else {
+                        blas::device_copy_matrix(m, b_sz_const, &A_copy_col_swap[lda * idx * b_sz_const], lda, &A[lda * idx * b_sz_const], lda, lapack_queue);
+                    }
                 }
             }
             lapack_queue.sync();
@@ -612,7 +643,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // its entries were, in fact, computed correctly. 
             //
             // The original memory space that the vector J points to would only contain the correct pivot ranges, computed at EVEN
-            // iterations of ICQRRP's main loop.
+            // iterations of ICQRRP's main loop (by contrast to the situation with matrix A, since the pointers J and J_cpy do not get swapped at iteration 0).
             // The correct entries from the odd iterations would be contained in the memory space that was originbally pointed to
             // by J_copy_col_swap.
             // Hence, when ICQRRP terminates, we would need to copy the results from the odd iterations form J_copy_col_swap to J.
@@ -621,7 +652,6 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // if the ICQRRP terminates with iter being even, we would need to swap these pointers back around.
             //
             // Additional thing to remember is that the final copy needs to be performed in terms of b_sz_const, not b_sz.
-            // No need to worry about the altered b_sz when performing a copy, because it is always placed where it should be in J.
             std::swap(J_copy_col_swap, J);
             J_work = &J[curr_sz];
             J_copy_col_swap_work = &J_copy_col_swap[curr_sz];
@@ -681,20 +711,37 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // Measures taken to insure J holds correct data, explained above.
             if(iter % 2) {
                 // Total number of iterations is even (iter starts at 0)
-                J_cpy_buf = J_copy_col_swap;
-                J_copy_col_swap = J;
-                J = J_cpy_buf;
+                std::swap(J_copy_col_swap, J);
+            } else {
+                // Total number of iterations is odd
+                std::swap(A_copy_col_swap, A);
+                // In addition to the copy from A_cpy to A space below, we also need to account for the cases when early termination has occured (iter != maxiters), and pointers A and A_cpy need to switch places,
+                // Aka when A_cpy has the "correct" trailing entries.
+                // This means that the all entries from (iter + 1) * b_sz to end need to be copied over from A_cpy to A.
+                // It is most likely the case that these trailing entries are all 0, but in order to be extra safe, we shall perform a full copy.
+                if(iter != maxiter){
+                    blas::device_copy_matrix(m, n - (iter + 1) * b_sz_const, &A_copy_col_swap[lda * (iter + 1) * b_sz_const], lda, &A[lda * (iter + 1) * b_sz_const], lda, lapack_queue);
+                }
             }
-            for(int odd_idx = 1; odd_idx <= iter; odd_idx += 2) {
-                if(odd_idx == iter) {
-                    // Do not copy extra data if b_sz has changed.
-                    RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
-                } else {
-                    RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[odd_idx * b_sz_const], 1, &J[odd_idx * b_sz_const], 1);
+            for (int idx = 0; idx <= iter; ++idx) {
+                if (idx % 2) {  // Odd index - copy portions of J
+                    if (idx == iter) {
+                        // Avoid copying extra entries if b_sz has changed
+                        RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz, &J_copy_col_swap[idx * b_sz_const], 1, &J[idx * b_sz_const], 1);
+                    } else {
+                        RandLAPACK::cuda_kernels::copy_gpu(strm, b_sz_const, &J_copy_col_swap[idx * b_sz_const], 1, &J[idx * b_sz_const], 1);
+                    }
+                } else {  // Even index - copy portions of A
+                    if (idx == iter) {
+                        // Avoid copying extra entries if b_sz has changed
+                        blas::device_copy_matrix(m, b_sz, &A_copy_col_swap[lda * idx * b_sz_const], lda, &A[lda * idx * b_sz_const], lda, lapack_queue);
+                    } else {
+                        blas::device_copy_matrix(m, b_sz_const, &A_copy_col_swap[lda * idx * b_sz_const], lda, &A[lda * idx * b_sz_const], lda, lapack_queue);
+                    }
                 }
             }
             lapack_queue.sync();
-            
+
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();

@@ -143,7 +143,6 @@ class TestCQRRP : public ::testing::Test
             error_check(norm_A, all_data, atol);
         }
     }
-
 };
 
 #if !defined(__APPLE__)
@@ -286,11 +285,11 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
-    int64_t m = 1000;//5000;
-    int64_t n = 1000;//2000;
+    int64_t m = 1000;
+    int64_t n = 1000;
     int64_t k = 1000;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 100;//500;
+    int64_t b_sz = 100;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
@@ -299,7 +298,8 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
-    all_data.A[1000*200 + 10] = 1;
+    //all_data.A[1000*200 + 10] = 1;
+    all_data.A[10*5 + 1] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
