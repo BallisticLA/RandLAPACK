@@ -347,22 +347,14 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-            r_piv_t_start = high_resolution_clock::now();
+            preconditioning_t_start = high_resolution_clock::now();
         }
 
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
-        if(iter != 0)
-            util::col_swap(curr_sz, cols, cols, &A[lda * curr_sz], m, J_buf);
-
-        if(this -> timing) {
-            r_piv_t_stop  = high_resolution_clock::now();
-            r_piv_t_dur  += duration_cast<microseconds>(r_piv_t_stop - r_piv_t_start).count();
-            preconditioning_t_start = high_resolution_clock::now();
-        }
-
-        // Pivoting the current matrix A.
-        util::col_swap(rows, cols, cols, A_work, lda, J_buf);
+        // Pivoting the trailing R and the ``current'' A.      
+        // The copy of A operation is done on a separete stream. If it was not, it would have been done here.  
+        util::col_swap(m, cols, cols, &A[lda * curr_sz], lda, J_buf);
 
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
