@@ -1,7 +1,7 @@
 #pragma once
 
 #include "rl_lapackpp.hh"
-
+#include <blas.hh>
 #include <RandBLAS.hh>
 #include <algorithm>
 #include <vector>
@@ -58,7 +58,7 @@ int downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F_
     cdf = d;
     try {
         RandBLAS::weights_to_cdf(N, cdf.data());
-    } catch(RandBLAS::exceptions::Error &e) {
+    } catch(RandBLAS::Error &e) {
         std::string message{e.what()};
         if (message.find("sum >=") != std::string::npos) {
             return 1;
