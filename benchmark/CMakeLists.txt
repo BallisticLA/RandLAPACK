@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.27)
 
 # cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../../random123-install/include/  -Dblaspp_DIR=`pwd`/../../../blaspp-install/lib/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapackpp-install/lib/cmake/lapackpp/  -DCMAKE_BINARY_DIR=`pwd`   ..
 # ^ Example CMake configuration line with "install," "build" and "randlibs" folders.

@@ -52,7 +52,6 @@ int main() {
         vector<T> X(m*s, 0.0);
         // solve A_linop X == H
         RNGState state(0);
-        //RandLAPACK::StatefulFrobeniusNorm<T> seminorm{};
         auto seminorm = [](int64_t n, int64_t s, const T* NR){return blas::nrm2(n, NR, 1);};
         int64_t k = 2*1024;
         int64_t rpc_b = 64;
