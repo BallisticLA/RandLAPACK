@@ -52,17 +52,19 @@ enum TSSVD : char {
     RandPrecondCholSVD = 'R'
 };
 
-template <typename T>
-std::pair<timepoint_t,timepoint_t> convert_svd(int64_t m, int64_t rank, vector<T> &U, vector<T> &kevals, TSSVD cs = TSSVD::GESDD) {
+template <typename T, typename CALLBACK>
+std::pair<timepoint_t,timepoint_t> convert_svd(int64_t m, int64_t rank, vector<T> &U, vector<T> &kevals, TSSVD cs, CALLBACK &cb) {
     auto _tp0 = std_clock::now();
     if (cs == TSSVD::GESDD) {
         vector<T> work(rank*rank, 0.0);
         gesdd(Job::OverwriteVec, m, rank, U.data(), m, kevals.data(), nullptr, 1, work.data(), rank);
         for (int64_t i = 0; i < rank; ++i)
             kevals[i] = std::pow(kevals[i], 2);
+        cb(0);
     } else if (cs == TSSVD::CholSVD) {
         vector<T> work((rank + m)*rank, 0.0);
         cholsvd_square(m, rank, U.data(), m, kevals.data(), work.data());
+        cb(0);
     }
     auto _tp1 = std_clock::now();
     return {_tp0, _tp1};
@@ -90,27 +92,34 @@ int main() {
     RNGState state(0);
     vector<int64_t> selection(rank, -1);
 
+    std::stringstream strm{};
+    auto callback = [&strm](int64_t i) { memprof::log_memory_gb(strm); return i;};
+
     std::cout << "RPCholesky (RPC)\n";
     std::cout << " block size   : " << rpchol_block_size << std::endl;
     std::cout << " rank limit   : " << rank << std::endl;
     auto _tp0 = std_clock::now();
-    state = rp_cholesky(m, K_reg, rank, selection.data(), U.data(), rpchol_block_size, state);
+    state = rp_cholesky(m, K_reg, rank, selection.data(), U.data(), rpchol_block_size, state, callback);
     auto _tp1 = std_clock::now();
     std::cout << " exit rank    : " << rank << std::endl;
     std::cout << " RPC time (s) : " << DOUT(sec_elapsed(_tp0, _tp1)) << std::endl;
+    std::cout << strm.str();
+
+    strm.str("");
+    strm.clear();
 
     // Variables for SVD conversion
     //      We don't allocate these earlier, since "rank" might have decreased
     //      in the call to rp_cholesky.
     vector<T> kevals(rank, 0.0);
-
 {
-    auto [tp0, tp1] = convert_svd(m, rank, U, kevals, TSSVD::CholSVD);
-    std::cout << " SVD time (s) : " << DOUT(sec_elapsed(tp0, tp1)) << "\n\n";
+    auto [tp0, tp1] = convert_svd(m, rank, U, kevals, TSSVD::CholSVD, callback);
+    std::cout << " SVD time (s) : " << DOUT(sec_elapsed(tp0, tp1)) << "\n";
+    std::cout << strm.str() << "\n";
 }
     // Now check || K_reg @ U[:, 0:num_pc] - U[:,0:num_pc] @ diag(eivals[0:num_pc]) ||,
     //        or || K_reg @ U[:, 0:num_pc] @ inv(diag(eigvals[0:num_pc])) - U[:,0:num_pc]||
-    int64_t num_pc = 2;
+    int64_t num_pc = 5;
     vector<T> V(m*num_pc, 0.0);
     T onef = 1.0;
     K_reg(blas::Layout::ColMajor, num_pc, onef, U.data(), m, (T)0.0, V.data(), m);

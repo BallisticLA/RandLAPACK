@@ -1,5 +1,40 @@
 
+KPCA
+====
+Our implementation
+    Dataset
+     /Users/rjmurr/Documents/open-data/kernel-ridge-regression/cod-rna
+     cols : 59535
+     rows : 8
 
+    RPCholesky (RPC)
+     block size   : 64
+     rank limit   : 243
+     exit rank    : 243
+     RPC time (s) : 0.058426
+     SVD time (s) : 0.056271
+
+    Error in KPCA components 
+     component 0 : 3.165351e-10
+     component 1 : 2.4040413e-08
+
+Python implementations
+
+    Dataset dimensions (RandLAPACK's convention)
+    n_rows : 8
+    n_cols : 59535
+    44.33819890022278 seconds for sklearn's KPCA.
+
+
+    Dataset dimensions (RandLAPACK's convention)
+    n_rows : 8
+    n_cols : 59535
+    0.3426549434661865 seconds for Ethan's RPCholesky, with block size 64.
+
+
+
+KRR
+===
 CONLUSIONS
 
 1. Performance is best with -O1 (13 seconds vs 17 seconds from -O0, but same result as -O0).

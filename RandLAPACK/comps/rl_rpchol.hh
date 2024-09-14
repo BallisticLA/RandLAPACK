@@ -107,8 +107,8 @@ int downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F_
  * https://github.com/eepperly/Robust-randomized-preconditioning-for-kernel-ridge-regression/blob/main/code/choleskybase.m
  * 
  */
-template <typename T, typename FUNC_T, typename STATE>
-STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t b, STATE state) {
+template <typename T, typename FUNC_T, typename STATE, typename CALLBACK>
+STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t b, STATE state, CALLBACK &cb) {
     // TODO: make this function robust to rank-deficient matrices. 
     using RandBLAS::sample_indices_iid;
     using RandBLAS::weights_to_cdf;
@@ -134,6 +134,7 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
             std::cout << "weights_to_cdf failed with exit code " << w_status << ".\n";
             std::cout << "Returning early, with approximation rank = " << ell << "\n\n";
             k = ell;
+            cb(k);
             return state;
         }
         //
@@ -174,6 +175,7 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
             std::cout << "Cholesky failed with exit code " << c_status << ".\n";
             std::cout << "Returning early, with approximation rank = " << ell << "\n\n";
             k = ell;
+            cb(k);
             return state;
         }
         blas::trsm(
@@ -188,6 +190,14 @@ STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F,
         w_status = _rpchol_impl::downdate_d_and_cdf(layout, n, Sprime, F_panel, d, cdf);
         ell = ell + ell_incr;
     }
+    cb(k);
+    return state;
+}
+
+template <typename T, typename FUNC_T, typename STATE>
+STATE rp_cholesky(int64_t n, FUNC_T &A_stateless, int64_t &k, int64_t* S,  T* F, int64_t b, STATE state) {
+    auto cb = [](int64_t i) { return i ;};
+    rp_cholesky(n, A_stateless, k, S, F, b, state, cb);
     return state;
 }
 
