@@ -110,7 +110,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
         CQRRP_GPU_QRF.use_qrf = true;
 	    auto start_icqrrp_qrf = std::chrono::steady_clock::now();
         CQRRP_GPU_QRF.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
-	    auto stop_icqrrp_qrf = std::chrono::steady_clock::now();
+        auto stop_icqrrp_qrf = std::chrono::steady_clock::now();
 	    auto diff_icqrrp_qrf = std::chrono::duration_cast<std::chrono::milliseconds>(stop_icqrrp_qrf - start_icqrrp_qrf).count();
         data_regen(m_info, all_data, state);
         cudaFree(all_data.A_sk_device);
@@ -170,6 +170,12 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 	    printf("  BLOCK SIZE = %ld ICQRRP+QRF TIME (MS) = %ld ICQRRP+CholQR TIME (MS) = %ld\n", block_size, diff_icqrrp_qrf, diff_icqrrp_cholqr);
         std::ofstream file(output_filename_speed, std::ios::app);
         file << m << "  " << n << "  " << block_size << "  " << diff_icqrrp_qrf << "  " << diff_icqrrp_cholqr << "  " << diff_qrf << "\n";
+        cudaError_t ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before bench_CQRRP returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}
     }
 
     // Not using this right now. But there's no harm in keeping it around.
@@ -230,13 +236,19 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 
         std::ofstream file(output_filename, std::ios::app);
         file << m << "  " << n << "  " << diff_cholqr << "  " << diff_orhr_col << "  " << diff_qrf << "\n";
-    }
 
+        cudaError_t ierr = cudaGetLastError();
+    	if (ierr != cudaSuccess)
+    	{
+        	RandLAPACK_CUDA_ERROR("Error before bench_CholQR returned. " << cudaGetErrorString(ierr))
+        	abort();
+    	}    
+    }
 };
 
 TEST_P(BenchCQRRP, GPU_fixed_blocksize) {
-    int64_t m            = std::pow(2, 15);
-    int64_t n            = std::pow(2, 15);
+    int64_t m            = std::pow(2, 14);
+    int64_t n            = std::pow(2, 14);
     int64_t b_sz         = GetParam();
     double tol           = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state           = RandBLAS::RNGState();

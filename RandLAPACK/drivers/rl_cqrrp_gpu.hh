@@ -456,7 +456,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             } else {
                 // Total number of iterations is odd
                 std::swap(A_copy_col_swap, A);
-                if(iter != maxiter){
+                if(iter != (maxiter - 1)){
                     // Copy trailing portion of A_cpy into A
                     blas::device_copy_matrix(m, n - (iter + 1) * b_sz_const, &A_copy_col_swap[lda * (iter + 1) * b_sz_const], lda, &A[lda * (iter + 1) * b_sz_const], lda, lapack_queue);
                 }
@@ -715,11 +715,11 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             } else {
                 // Total number of iterations is odd
                 std::swap(A_copy_col_swap, A);
-                // In addition to the copy from A_cpy to A space below, we also need to account for the cases when early termination has occured (iter != maxiters), and pointers A and A_cpy need to switch places,
+                // In addition to the copy from A_cpy to A space below, we also need to account for the cases when early termination has occured (iter != maxiters - 1), and pointers A and A_cpy need to switch places,
                 // Aka when A_cpy has the "correct" trailing entries.
                 // This means that the all entries from (iter + 1) * b_sz to end need to be copied over from A_cpy to A.
                 // It is most likely the case that these trailing entries are all 0, but in order to be extra safe, we shall perform a full copy.
-                if(iter != maxiter){
+                if(iter != (maxiter - 1)){
                     blas::device_copy_matrix(m, n - (iter + 1) * b_sz_const, &A_copy_col_swap[lda * (iter + 1) * b_sz_const], lda, &A[lda * (iter + 1) * b_sz_const], lda, lapack_queue);
                 }
             }
