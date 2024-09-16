@@ -100,11 +100,18 @@ static void call_all_algs(
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+    auto size = argv[1];
+
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
-    double  d_factor   = 1.25;
+    int64_t m          = std::stol(size);
+    int64_t n          = std::stol(size);
+    double  d_factor   = 1.0;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);

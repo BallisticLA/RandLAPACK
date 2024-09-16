@@ -65,10 +65,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             use_gemqrt   = false;
             internal_nb  = b_sz;
             tol = std::numeric_limits<T>::epsilon();
-            use_qp3      = false;
-            use_gemqrt   = false;
-            internal_nb  = b_sz;
-            tol = std::numeric_limits<T>::epsilon();
         }
 
         /// Computes a QR factorization with column pivots of the form:

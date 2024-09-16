@@ -178,11 +178,18 @@ static void sv_ratio(
     data_regen(m_info, all_data, state_gen);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+    auto size = argv[1];
+
     // Declare parameters
-    int64_t m          = std::pow(2, 10);
-    int64_t n          = std::pow(2, 10);
-    double d_factor    = 1.25;
+    int64_t m          = std::stol(size);
+    int64_t n          = std::stol(size);
+    double d_factor    = 1.0;
     int64_t b_sz       = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();

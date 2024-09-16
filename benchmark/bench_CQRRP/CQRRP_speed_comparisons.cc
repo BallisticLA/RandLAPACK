@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
     // Declare parameters
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
-    double d_factor    = 1.25;
+    double d_factor    = 1.0;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -210,7 +210,7 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 10;
+    int64_t numruns = 5;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);

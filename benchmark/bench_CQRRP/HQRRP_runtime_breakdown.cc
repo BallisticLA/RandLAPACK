@@ -101,7 +101,6 @@ int main(int argc, char *argv[]) {
         printf("No input provided\n");
         return 0;
     }
-
     auto size = argv[1];
 
     // Declare parameters
