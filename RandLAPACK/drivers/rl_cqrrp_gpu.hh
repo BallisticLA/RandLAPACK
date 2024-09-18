@@ -418,12 +418,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         //
         // The original memory space that the matrix A points to would only contain the correct entry ranges, computed at ODD
         // iterations of ICQRRP's main loop.
-        // The correct entries from the even iterations would be contained in the memory space that was originbally pointed to
+        // The correct entries from the even iterations would be contained in the memory space that was originally pointed to
         // by A_copy_col_swap.
         // Hence, when ICQRRP terminates, we would need to copy the results from the even iterations form A_copy_col_swap to A.
         //
         // Remember that since the pointers A and A_copy_col_swap are swapped at every even iteration of the main ICQRRP loop,
-        // if the ICQRRP terminates with iter being odd, we would need to swap these pointers back around.
+        // if the ICQRRP terminates with iter being even, we would need to swap these pointers back around.
         // Recall also that if A and A_cpy needed to be swapped at termination and iter != maxiters, A_cpy would contain the "correct"
         // entries in column range ((iter + 1) * b_sz : end), so we need to not forget to copy those over into A.
         //
@@ -449,12 +449,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             }
 
             this -> rank = curr_sz;
-            // Measures taken to insure J holds correct data, explained above.
+            // Measures taken to ensure J holds correct data, explained above.
             if(iter % 2) {
-                // Total number of iterations is even (iter starts at 0)
+                // Total number of iterations is odd (iter starts at 0)
                 std::swap(J_copy_col_swap, J);
             } else {
-                // Total number of iterations is odd
+                // Total number of iterations is even
                 std::swap(A_copy_col_swap, A);
                 if(iter != (maxiter - 1)){
                     // Copy trailing portion of A_cpy into A
@@ -648,8 +648,8 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // by J_copy_col_swap.
             // Hence, when ICQRRP terminates, we would need to copy the results from the odd iterations form J_copy_col_swap to J.
             //
-            // Remember that since the pointers J and J_copy_col_swap are swapped at every even iteration of the main ICQRRP loop,
-            // if the ICQRRP terminates with iter being even, we would need to swap these pointers back around.
+            // Remember that since the pointers J and J_copy_col_swap are swapped at every odd iteration of the main ICQRRP loop,
+            // if the ICQRRP terminates with iter being odd, we would need to swap these pointers back around.
             //
             // Additional thing to remember is that the final copy needs to be performed in terms of b_sz_const, not b_sz.
             std::swap(J_copy_col_swap, J);
@@ -710,10 +710,10 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             this -> rank = curr_sz;
             // Measures taken to insure J holds correct data, explained above.
             if(iter % 2) {
-                // Total number of iterations is even (iter starts at 0)
+                // Total number of iterations is odd (iter starts at 0)
                 std::swap(J_copy_col_swap, J);
             } else {
-                // Total number of iterations is odd
+                // Total number of iterations is even
                 std::swap(A_copy_col_swap, A);
                 // In addition to the copy from A_cpy to A space below, we also need to account for the cases when early termination has occured (iter != maxiters - 1), and pointers A and A_cpy need to switch places,
                 // Aka when A_cpy has the "correct" trailing entries.

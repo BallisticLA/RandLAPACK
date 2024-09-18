@@ -118,7 +118,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_QRF, std::ios::app);
-            std::copy(CQRRP_GPU_QRF.times.data(), CQRRP_GPU_QRF.times.data() + 17, std::ostream_iterator<T>(file, ", "));
+            std::copy(CQRRP_GPU_QRF.times.data(), CQRRP_GPU_QRF.times.data() + 18, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
 
@@ -141,7 +141,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_CholQR, std::ios::app);
-            std::copy(CQRRP_GPU_CholQR.times.data(), CQRRP_GPU_CholQR.times.data() + 17, std::ostream_iterator<T>(file, ", "));
+            std::copy(CQRRP_GPU_CholQR.times.data(), CQRRP_GPU_CholQR.times.data() + 18, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
 
@@ -247,8 +247,8 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 };
 
 TEST_P(BenchCQRRP, GPU_fixed_blocksize) {
-    int64_t m            = std::pow(2, 14);
-    int64_t n            = std::pow(2, 14);
+    int64_t m            = std::pow(2, 10);
+    int64_t n            = std::pow(2, 10);
     int64_t b_sz         = GetParam();
     double tol           = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state           = RandBLAS::RNGState();
@@ -285,6 +285,6 @@ TEST_P(BenchCQRRP, GPU_fixed_blocksize) {
 INSTANTIATE_TEST_SUITE_P(
     CQRRP_GPU_benchmarks,
     BenchCQRRP,
-    ::testing::Values(32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048)
+    ::testing::Values(32)//, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048)
 );
 #endif
