@@ -13,9 +13,11 @@ of the corresponding instructions in Section 1.
 *We recommend that you not bother with Section 5 the first time you build RandLAPACK.*
 
 ## 0. Software requirements
+
 RandLAPACK_GPU temporary requirements:
-GNU 13.1.0
-CMAKE 3.27
+ * GNU 13.1.0
+ * CMAKE 3.27
+
 If one required CUDA support, NVIDIA 12.4.1 is needed (make sure to use driver v 550) (Older versions will result in issues with the project).
 All that is used to ensure we can compile with C++20 features with no issues.
 Note that in the CMake configuration lines, some systems will have directories labeled "lib" by default while on other systems those same directories end up being called "lib64."
@@ -36,21 +38,15 @@ automatically and makes use of it if it's found.
 CUDA support can be enabled using -DRequireCUDA=ON flag.
 It is disabled by default.
 
-## 2. Required Dependencies: BLAS++, LAPACK++, RandBLAS, and Random123.
+## 2. Required Dependencies: BLAS++, LAPACK++, and Random123.
 
 BLAS++ and LAPACK++ are C++ wrappers for BLAS and LAPACK libraries.
 They provide a portability layer and numeric type templating.
 While these libraries can be built by GNU make, they also have a CMake
 build system, *and RandLAPACK requires that they be installed via CMake.*
 
-RandBLAS is a C++ library for sketching, which is the most basic operation
-in randomized numerical linear algebra.
-It requires BLAS++ and Random123.
-Right now we list RandBLAS and Random123 as separate dependencies, but in time
-we'll hide the Random123 dependency entirely within RandBLAS.
-RandBLAS can be installed separately, if desired.
-In the context of RandLAPACK, RandBLAS is used as a submodule and should be 
-initialized accordingly.
+RandLAPACK's git repository includes a C++ project called *RandBLAS* as a git submodule.
+RandBLAS has BLAS++ and Random123 as dependencies.
 
 We give recipes for installing BLAS++, LAPACK++, and Random123 below.
 Later on, we'll assume these recipes were executed from a directory
@@ -93,40 +89,17 @@ cd random123/
 make prefix=`pwd`/../random123-install install-include
 ```
 
-If desired, one can compile and install RandBLAS from [source](https://github.com/BallisticLA/RandBLAS)
-by running
-```shell
-git clone https://github.com/BallisticLA/RandBLAS.git
-mkdir RandBLAS-build
-cd RandBLAS-build
-cmake -DCMAKE_BUILD_TYPE=Release \
-    -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp/ \
-    -DRandom123_DIR=`pwd`/../random123-install/include/ \
-    -DCMAKE_BINARY_DIR=`pwd` \
-    -DCMAKE_INSTALL_PREFIX=`pwd`/../RandBLAS-install \
-    ../RandBLAS/
-make -j install
-ctest  # run unit tests (only if GTest was found by CMake)
-```
-To use RandBLAS in the conetxt of RandLAPACK, one stall first download RandLAPACK from [source](https://github.com/BallisticLA/RandLAPACK.git)
-and then initialize it as such:
-```shell
-git clone https://github.com/BallisticLA/RandLAPACK.git
-cd RandLAPACK
-git submodule init
-git submodule update
-```
-
 ## 3. Building and installing RandLAPACK
 
 RandLAPACK is configured with CMake and built with GNU make.
 The configuration and build processes are simple once its dependencies are in place. 
 
 Assuming you used the recipes from Section 2 to get RandLAPACK's dependencies,
-you can build download, build, and install RandLAPACK as follows:
+you can build download, build, and install RandLAPACK as follows
+(add -DRequireCUDA=ON if you need CUDA support):
 
 ```shell
-git clone https://github.com/BallisticLA/RandLAPACK.git
+git clone --recursive https://github.com/BallisticLA/RandLAPACK.git
 mkdir RandLAPACK-build
 cd RandLAPACK-build
 cmake -DCMAKE_BUILD_TYPE=Release \
@@ -137,7 +110,15 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../RandLAPACK-install \
     ../RandLAPACK/
 make -j install
-ctest  # run unit tests (only if GTest was found by CMake)
+```
+You can run all tests with
+```shell
+ctest
+```
+Some of RandLAPACK's "tests" are really benchmarks, and can run for a long time.
+Exclude those tests by running the following command instead of plain "ctest":
+```shell
+ctest -E Bench
 ```
 
 Here are the conceptual meanings in the recipe's build flags:
@@ -145,16 +126,18 @@ Here are the conceptual meanings in the recipe's build flags:
 * `-Dlapackpp_DIR=X` means `X` is the directory containing `lapackppConfig.cmake`.
     If you follow BLAS++ installation instructions from Section 5 instead of
     Section 1, then you'd set `-Dlapackpp_DIR=/opt/mklpp/lib/lapackpp`.
+  
+* `-Dblaspp_DIR=X` means `X` is the directory containing the file `blasppConfig.cmake`.
 
-* `-DRandBLAS_DIR=Y` means `Y` is the directory containing `RandBLASConfig.cmake`.
+* `-DRandom123_DIR=X` means `X` is the directory that contains a folder called ``Random123``
+  that includes the Random123 header files. For example, ``X/Random123/philox.h`` needs
+  to be a file on your system.
 
-* `-DCMAKE_INSTALL_PREFIX=Z` means subdirectories within `Z` will contain
+* `-DCMAKE_INSTALL_PREFIX=X` means subdirectories within `X` will contain
    the RandLAPACK binaries, header files, and CMake configuration files needed
    for using RandLAPACK in other projects. You should make note of the directory
    that ends up containing the file ``RandLAPACKConfig.cmake``.
 
-Note that you do not need to specify locations for BLAS++ or Random123.
-The locations of those libraries are inferred automatically from RandBLAS.
 
 ## 4. Using RandLAPACK in other projects
 
