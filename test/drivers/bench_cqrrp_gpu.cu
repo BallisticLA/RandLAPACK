@@ -111,7 +111,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 	    auto start_icqrrp_qrf = std::chrono::steady_clock::now();
         CQRRP_GPU_QRF.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
         auto stop_icqrrp_qrf = std::chrono::steady_clock::now();
-	    auto diff_icqrrp_qrf = std::chrono::duration_cast<std::chrono::milliseconds>(stop_icqrrp_qrf - start_icqrrp_qrf).count();
+	    auto diff_icqrrp_qrf = std::chrono::duration_cast<std::chrono::microseconds>(stop_icqrrp_qrf - start_icqrrp_qrf).count();
         data_regen(m_info, all_data, state);
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
@@ -134,7 +134,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
 	    auto start_icqrrp_cholqr = std::chrono::steady_clock::now();
         CQRRP_GPU_CholQR.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 	    auto stop_icqrrp_cholqr = std::chrono::steady_clock::now();
-	    auto diff_icqrrp_cholqr = std::chrono::duration_cast<std::chrono::milliseconds>(stop_icqrrp_cholqr - start_icqrrp_cholqr).count();
+	    auto diff_icqrrp_cholqr = std::chrono::duration_cast<std::chrono::microseconds>(stop_icqrrp_cholqr - start_icqrrp_cholqr).count();
         data_regen(m_info, all_data, state);
         cudaFree(all_data.A_sk_device);
         free(all_data.A_sk);
@@ -163,7 +163,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
             lapack::geqrf(m, n, all_data.A_device, m, all_data.tau_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
             lapack_queue.sync();
             auto stop_qrf  = std::chrono::steady_clock::now();
-	        diff_qrf  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_qrf  - start_qrf).count();
+	        diff_qrf  = std::chrono::duration_cast<std::chrono::microseconds>(stop_qrf  - start_qrf).count();
             printf(" QRF TIME (MS) = %ld\n", diff_qrf);
         }
 
@@ -207,7 +207,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R_device, n, all_data.A_device, m, lapack_queue);
         lapack_queue.sync();
         auto stop_cholqr  = std::chrono::steady_clock::now();
-        auto diff_cholqr  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_cholqr  - start_cholqr).count();
+        auto diff_cholqr  = std::chrono::duration_cast<std::chrono::microseconds>(stop_cholqr  - start_cholqr).count();
         
         auto start_orhr_col = std::chrono::steady_clock::now();
         // ORHR_COL part
@@ -215,7 +215,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
         RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, n, n, all_data.R_device, all_data.D_device);
         cudaStreamSynchronize(strm);
         auto stop_orhr_col  = std::chrono::steady_clock::now();
-        auto diff_orhr_col  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_orhr_col  - start_orhr_col).count();
+        auto diff_orhr_col  = std::chrono::duration_cast<std::chrono::microseconds>(stop_orhr_col  - start_orhr_col).count();
 
         // Mandatory data re-generation
         data_regen(m_info, all_data, state);
@@ -229,7 +229,7 @@ class BenchCQRRP : public ::testing::TestWithParam<int64_t>
         lapack::geqrf(m, n, all_data.A_device, m, all_data.tau_device, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
         lapack_queue.sync();
         auto stop_qrf  = std::chrono::steady_clock::now();
-        auto diff_qrf  = std::chrono::duration_cast<std::chrono::milliseconds>(stop_qrf  - start_qrf).count();
+        auto diff_qrf  = std::chrono::duration_cast<std::chrono::microseconds>(stop_qrf  - start_qrf).count();
         printf(" CholQR TIME (MS)   = %ld\n", diff_cholqr);
         printf(" ORHR_COL TIME (MS) = %ld\n", diff_orhr_col);
         printf(" QRF TIME (MS)      = %ld\n", diff_qrf);
