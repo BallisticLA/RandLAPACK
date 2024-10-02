@@ -332,8 +332,8 @@ int main(int argc, char *argv[]) {
     int64_t i = 0;
     // Declare parameters
     int64_t m             = std::stol(size);
-    int64_t n_start       = 256;
-    int64_t n_stop        = 1024;
+    int64_t n_start       = 32;
+    int64_t n_stop        = 2048;
     int64_t nb_start      = 32;
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();

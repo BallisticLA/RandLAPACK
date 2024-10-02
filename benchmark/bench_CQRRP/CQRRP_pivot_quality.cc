@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
     double d_factor    = 1.0;
-    int64_t b_sz       = 1024;
+    int64_t b_sz       = 256;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant1 = state;
@@ -202,12 +202,24 @@ int main(int argc, char *argv[]) {
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = std::pow(10, 10);
     m_info.rank = n;
     m_info.exponent = 2.0;
     m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    std::fstream file("A_generated_rows_"             + std::to_string(m)
+                                    + "_cols_"         + std::to_string(n)
+                                    + "_b_sz_"         + std::to_string(b_sz)
+                                    + "_d_factor_"     + std::to_string(d_factor)
+                                    + ".dat", std::fstream::app);
+    for (int i = 0; i < n ; ++i){
+        for (int j = 0; j < m ; ++j){
+            file << all_data.A[m * i + j] << ",  ";
+        }
+        file << "\n";
+    }
 
     R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("R done\n");
