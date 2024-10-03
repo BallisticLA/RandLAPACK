@@ -63,10 +63,8 @@ class RBKI : public RBKIalg<T, RNG> {
             max_krylov_iters = INT_MAX;
         }
 
-        /// Computes a QR factorization with column pivots of the form:
-        ///     A[:, J] = QR,
-        /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
-        /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
+        /// Computes an SVD of the form:
+        ///     A = U diag(Sigma) VT.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
