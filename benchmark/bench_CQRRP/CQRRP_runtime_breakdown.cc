@@ -81,7 +81,7 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION\n");
+        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
 
         // Testing CQRRP - best setuo
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string file= "CQRRP_inner_speed_"              + std::to_string(m)
+    std::string file= "CQRRP_runtime_breakdown_"              + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_start_"   + std::to_string(b_sz_start)
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)

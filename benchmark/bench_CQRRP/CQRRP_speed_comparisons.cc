@@ -90,7 +90,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("\nITERATION %d\n", i);
+        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
         
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
