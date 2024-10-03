@@ -1,4 +1,7 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.27)
+
+# cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../../random123-install/include/  -Dblaspp_DIR=`pwd`/../../../blaspp-install/lib/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapackpp-install/lib/cmake/lapackpp/  -DCMAKE_BINARY_DIR=`pwd`   ..
+# ^ Example CMake configuration line with "install," "build" and "randlibs" folders.
 
 # cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../install/random123-install/include/  -Dblaspp_DIR=`pwd`/../../install/blaspp_GPU-install/lib64/blaspp/  -DRandLAPACK_DIR=`pwd`/../../install/RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../install/lapackpp-install/lib64/lapackpp/  -DCMAKE_BINARY_DIR=`pwd`     ../../randlibs/RandLAPACK/benchmark/
 # ^ Example CMake configuration line with "install," "build" and "randlibs" folders.
@@ -39,7 +42,7 @@ function(add_benchmark)
     set(MVO CXX_SOURCES LINK_LIBS)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
-    target_compile_options(${TGT_NAME} PRIVATE "-g")
+    target_compile_options(${TGT_NAME} PUBLIC -O1)
     target_include_directories(${TGT_NAME} PUBLIC ${Benchmark_include_dirs})
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
@@ -108,3 +111,17 @@ add_benchmark(NAME ICQRRP_subroutines_speed      CXX_SOURCES bench_CQRRP/ICQRRP_
 add_benchmark(NAME RBKI_speed_comparisons      CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc      LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME RBKI_runtime_breakdown      CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc      LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME RBKI_speed_comparisons_SVDS CXX_SOURCES bench_RBKI/RBKI_speed_comparisons_SVDS.cc LINK_LIBS ${Benchmark_libs_external})
+
+
+
+# KRILL benchmarks
+include(FetchContent)
+FetchContent_Declare(
+    fast_matrix_market
+    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
+    GIT_TAG main
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(fast_matrix_market)
+add_benchmark(NAME KRR_simple  CXX_SOURCES bench_kernelalgs/kernelbench_common.hh bench_kernelalgs/krr.cc  LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)
+add_benchmark(NAME KPCA_simple CXX_SOURCES bench_kernelalgs/kernelbench_common.hh bench_kernelalgs/kpca.cc LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market)

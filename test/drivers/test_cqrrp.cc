@@ -1,3 +1,4 @@
+#if !defined(__APPLE__)
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -146,7 +147,6 @@ class TestCQRRP : public ::testing::Test
 
 };
 
-#if !defined(__APPLE__)
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
     int64_t m = 5000;//5000;

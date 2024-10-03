@@ -3,11 +3,14 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
+#include "rl_pdkernels.hh"
+
 #include "rl_orth.hh"
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
 #include "rl_revd2.hh"
-#include "rl_linops.hh"
+#include "rl_rpchol.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -141,15 +144,11 @@ RandBLAS::RNGState<RNG> rpc_data_svd_saso(
     T *sigma_sk, //buffer of size at least n.
     RandBLAS::RNGState<RNG> state
 ) {
-    RandBLAS::SparseDist D{
-        .n_rows = d,
-        .n_cols = m,
-        .vec_nnz = k
-    };
+    RandBLAS::SparseDist D(d, m, k, RandBLAS::Axis::Short);
     RandBLAS::SparseSkOp<T> S(D, state);
-    auto next_state = RandBLAS::fill_sparse(S);
+    RandBLAS::fill_sparse(S);
     rpc_data_svd(layout, m, n, A, lda, S, V_sk, sigma_sk);
-    return next_state;
+    return S.next_state;
 }
 
 /**
@@ -196,19 +195,23 @@ int64_t make_right_orthogonalizer(
     int64_t n,
     T* V,
     T* sigma,
-    T mu
+    T mu,
+    int64_t cols_V = -1
 ) {
+    if (cols_V < 0) {
+        cols_V = n;
+    }
     double sqrtmu = std::sqrt((double) mu);
     auto regularized = [sqrtmu](T s) {
         return (sqrtmu == 0) ? s : (T) std::hypot((double) s, sqrtmu);
     };
     T curr_s = regularized(sigma[0]);
-    T abstol = curr_s * n * std::numeric_limits<T>::epsilon();
+    T abstol = curr_s * cols_V * std::numeric_limits<T>::epsilon();
     
     int64_t rank = 0;
     int64_t inter_col_stride = (layout == Layout::ColMajor) ? n : 1;
-    int64_t intra_col_stride = (layout == Layout::ColMajor) ? 1 : n;
-    while (rank < n) {
+    int64_t intra_col_stride = (layout == Layout::ColMajor) ? 1 : cols_V;
+    while (rank < cols_V) {
         curr_s = regularized(sigma[rank]);
         if (curr_s < abstol)
             break;
@@ -277,7 +280,7 @@ int64_t make_right_orthogonalizer(
  */
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
-    SymmetricLinearOperator<T> &A,
+    linops::SymmetricLinearOperator<T> &A,
     std::vector<T> &V,
     std::vector<T> &eigvals,
     int64_t &k,
@@ -314,8 +317,8 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
  * This wraps a function of the same name that accepts a SymmetricLinearOperator object.
  * The purpose of this wrapper is just to define such an object from data (uplo, A, m).
  */
-template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> nystrom_pc_data(
+template <typename T, typename STATE>
+STATE nystrom_pc_data(
     Uplo uplo,
     const T* A,
     int64_t m,
@@ -323,13 +326,78 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     std::vector<T> &eigvals,
     int64_t &k,
     T mu_min,
-    RandBLAS::RNGState<RNG> state,
+    STATE state,
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
     return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
 }
 
+/**
+ * TODO: make an overload of rpchol_pc_data that omits "n" and assumes A implements
+ * some linear operator interface.
+ */
+
+template <typename T, typename STATE, typename FUNC>
+STATE rpchol_pc_data(
+    int64_t n, FUNC &A_stateless, int64_t &k, int64_t b, T* V, T* eigvals, STATE state
+) {
+    std::vector<int64_t> selection(k, -1);
+    state = RandLAPACK::rp_cholesky(n, A_stateless, k, selection.data(), V, b, state);
+    // ^ A_stateless \approx VV'; need to convert VV' into its eigendecomposition.
+    std::vector<T> work(k*k, 0.0);
+    lapack::gesdd(lapack::Job::OverwriteVec, n, k, V, n, eigvals, nullptr, 1, work.data(), k);
+    // V has been overwritten with its (nontrivial) left singular vectors
+    for (int64_t i = 0; i < k; ++i) 
+        eigvals[i] = std::pow(eigvals[i], 2);
+    return state;
+}
+
+
+/** 
+ * V is a buffer for an n-by-k matrix in column-major format. 
+ * 
+ * We implicitly have our hands on an n-by-n matrix A = F F' where
+ * F is n-by-k and defined in terms of (V, eigvals, use_eigvals).
+ * If use_eigvals = true, then
+ *      F = V * diag(sqrt(eigvals)), V is column-orthonormal, and
+ *      eigvals contains positive numbers sorted in decreasing order.
+ * Otherwise, 
+ *      F = V and we ignore the values of "eigvals" passed as input.
+ * 
+ * upper_tri is a buffer for an n-by-n upper-triangular matrix in 
+ * column-major format. It implicitly defines a matrix
+ * 
+ *   A_conj = inv(upper_tri)' A inv(upper_tri)
+ * 
+ * This function overwrites (V, eigvals) with the eigenvectors and
+ * eigenvalues of A_conj, where eigenvalues are sorted in decreasing
+ * order.
+ **/
+template <typename T>
+void ut_conjugate_spectral_pc_data(
+    int64_t n, int64_t k, T* V, T* eigvals, const T* upper_tri, std::vector<T> &work, bool use_eigvals
+) {
+    // Step 1: Get our hands on F so that A = FF'.
+    if (use_eigvals) {
+        for (int i = 0; i < k; ++i) {
+            blas::scal(n, (T) std::pow(eigvals[i], (T) 0.5), V + i*n, 1);
+        }
+    }
+    // Step 2: Overwrite F = inv(upper_tri)'F.
+    //         In BLAS terms, we solve trans(upper_tri) X = F, and store X by overwriting F.
+    blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper, blas::Op::Trans, blas::Diag::NonUnit, n, k, 1.0, upper_tri, n, V, n);
+    // Step 3: Call GESDD: overwrite F with its left
+    //         singular vectors and overwrite eigvals
+    //         with its squared singular values.
+    if (work.size() < k*k)
+        work.resize(k*k);
+    lapack::gesdd(lapack::Job::OverwriteVec, n, k, V, n, eigvals, nullptr, 1, work.size(), k);
+    for (int i = 0; i < k; ++i) {
+        eigvals[i] = std::pow(eigvals[i], 2.0);
+    }
+    return;
+}
 
 }  // end namespace RandLAPACK

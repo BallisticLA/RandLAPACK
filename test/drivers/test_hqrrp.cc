@@ -7,7 +7,6 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
-
 class TestHQRRP : public ::testing::Test
 {
     protected:

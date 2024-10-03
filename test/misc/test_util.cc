@@ -349,10 +349,10 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
 
     virtual void apply(blas::Layout layout) {
         int64_t n = 37;
-        RandBLAS::DenseDist D{n, n};
+        RandBLAS::DenseDist D(n, n);
         RandBLAS::RNGState state(1);
         double *A1 = new double[n*n];
-        state = RandBLAS::fill_dense(D, A1, state).second;
+        state = RandBLAS::fill_dense(D, A1, state);
         double *A2 = new double[n*n];
         blas::copy(n*n, A1, 1, A2, 1);
         RandLAPACK::util::transpose_square(A2, n);
