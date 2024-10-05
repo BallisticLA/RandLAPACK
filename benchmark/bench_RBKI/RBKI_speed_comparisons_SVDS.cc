@@ -343,7 +343,7 @@ static void call_all_algs(
         << residual_err_custom_RBKI << ",  " << lowrank_err_RBKI <<  ",  " << dur_rbki    << ",  " 
         << residual_err_custom_RSVD << ",  " << lowrank_err_RSVD <<  ",  " << dur_rsvd    << ",  "
         << residual_err_custom_SVDS << ",  " << lowrank_err_SVDS <<  ",  " << dur_svds    << ",  " 
-                                    << ",  " << lowrank_err_SVD  <<  ",  " << dur_svd     << ",\n";
+        << residual_err_custom_SVD  << ",  " << lowrank_err_SVD  <<  ",  " << dur_svd     << ",\n";
     }
 }
 
