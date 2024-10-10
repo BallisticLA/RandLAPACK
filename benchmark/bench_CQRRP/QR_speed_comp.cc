@@ -85,7 +85,7 @@ static void call_all_algs(
     auto state_gen = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("Iteration %d start.\n", i);
+        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());

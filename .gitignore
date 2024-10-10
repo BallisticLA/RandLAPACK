@@ -1,4 +1,5 @@
 benchmark/build/**
+**/private_config.sh
 
 # vim
 *.sw*

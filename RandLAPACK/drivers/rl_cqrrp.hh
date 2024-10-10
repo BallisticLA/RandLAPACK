@@ -65,10 +65,6 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             use_gemqrt   = false;
             internal_nb  = b_sz;
             tol = std::numeric_limits<T>::epsilon();
-            use_qp3      = false;
-            use_gemqrt   = false;
-            internal_nb  = b_sz;
-            tol = std::numeric_limits<T>::epsilon();
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -347,22 +343,14 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-            r_piv_t_start = high_resolution_clock::now();
+            preconditioning_t_start = high_resolution_clock::now();
         }
 
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
-        if(iter != 0)
-            util::col_swap(curr_sz, cols, cols, &A[lda * curr_sz], m, J_buf);
-
-        if(this -> timing) {
-            r_piv_t_stop  = high_resolution_clock::now();
-            r_piv_t_dur  += duration_cast<microseconds>(r_piv_t_stop - r_piv_t_start).count();
-            preconditioning_t_start = high_resolution_clock::now();
-        }
-
-        // Pivoting the current matrix A.
-        util::col_swap(rows, cols, cols, A_work, lda, J_buf);
+        // Pivoting the trailing R and the ``current'' A.      
+        // The copy of A operation is done on a separete stream. If it was not, it would have been done here.  
+        util::col_swap(m, cols, cols, &A[lda * curr_sz], lda, J_buf);
 
         // Checking for the zero matrix post-pivoting is the best idea, 
         // as we would only need to check one column (pivoting moves the column with the largest norm upfront)
@@ -448,6 +436,12 @@ int CQRRP_blocked<T, RNG>::call(
         ///     This routine is defined in LAPACK 3.9.0.
         lapack::orhr_col(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work2);
 
+        if(this -> timing) {
+            reconstruction_t_stop  = high_resolution_clock::now();
+            reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
+            updating1_t_start = high_resolution_clock::now();
+        }
+
         // Need to change signs in the R-factor from Cholesky QR.
         // Signs correspond to matrix D from orhr_col().
         // This allows us to not explicitoly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
@@ -460,12 +454,6 @@ int CQRRP_blocked<T, RNG>::call(
         // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
         for(i = 0; i < block_rank; ++i)
             tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
-
-        if(this -> timing) {
-            reconstruction_t_stop  = high_resolution_clock::now();
-            reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
-            updating1_t_start = high_resolution_clock::now();
-        }
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.

@@ -81,7 +81,7 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION\n");
+        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
 
         // Testing CQRRP - best setuo
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
@@ -100,11 +100,18 @@ static void call_all_algs(
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+
+    if(argc <= 1) {
+        printf("No input provided\n");
+        return 0;
+    }
+    auto size = argv[1];
+
     // Declare parameters
-    int64_t m          = std::pow(2, 14);
-    int64_t n          = std::pow(2, 14);
-    double  d_factor   = 1.25;
+    int64_t m          = std::stol(size);
+    int64_t n          = std::stol(size);
+    double  d_factor   = 1.0;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -113,7 +120,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 10;
+    int64_t numruns = 3;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
@@ -122,7 +129,7 @@ int main() {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string file= "CQRRP_inner_speed_"              + std::to_string(m)
+    std::string file= "CQRRP_runtime_breakdown_"              + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_start_"   + std::to_string(b_sz_start)
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)
