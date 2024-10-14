@@ -145,7 +145,7 @@ static void call_all_algs(
 int main() {
     // Declare parameters
     int64_t m           = std::pow(2, 17);
-    int64_t n_start     = std::pow(2, 9);
+    int64_t n_start     = std::pow(2, 8);
     int64_t n_stop      = std::pow(2, 13);
     auto state          = RandBLAS::RNGState();
     auto state_constant = state;
