@@ -1,20 +1,6 @@
 #if defined(__APPLE__)
 int main() {return 0;}
 #else
-/*
-ICQRRP runtime breakdown benchmark - assesses the time taken by each subcomponent of ICQRRP.
-There are 9 things that we time:
-                1. SASO generation and application time
-                2. QRCP time.
-                3. Preconditioning time.
-                4. Time to perform Cholesky QR.
-                5. Time to restore Householder vectors.
-                6. Time to compute A_new, R12.
-                7. Time to update factors Q, R.
-                8. Time to update the sketch.
-                9. Time to pivot trailing columns of R-factor.
-*/
-
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -28,7 +14,7 @@ struct QR_speed_benchmark_data {
     int64_t row;
     int64_t col;
     T       tolerance;
-    T       sampling_factor;
+    T sampling_factor;
     std::vector<T> A;
     std::vector<T> tau;
     std::vector<int64_t> J;
@@ -71,32 +57,53 @@ static void call_all_algs(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
+    // We are nbot using panel pivoting in performance testing.
+    int panel_pivoting = 0;
+
+    // timing vars
+    long dur_cqrrp_cholqr = 0;
+    long dur_cqrrp_qrf    = 0;
     
     // Making sure the states are unchanged
     auto state_gen = state;
     auto state_alg = state;
 
-    // Timing vars
-    std::vector<long> inner_timing;
-
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, NUMCOLS %ld\n", i, n);
-
-        // Testing CQRRP - best setuo
+        
+        // Testing CQRRP - best setup
+        CQRRP_blocked.use_qrf = true;
+        CQRRP_blocked.use_gemqrt = false;
+        auto start_cqrrp_qrf = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        auto stop_cqrrp_qrf = high_resolution_clock::now();
+        dur_cqrrp_qrf = duration_cast<microseconds>(stop_cqrrp_qrf - start_cqrrp_qrf).count();
+        printf("TOTAL TIME FOR CQRRP_QRF %ld\n", dur_cqrrp_qrf);
 
-
-        // Update timing vector
-        inner_timing = CQRRP_blocked.times;
-        std::ofstream file(output_filename, std::ios::app);
-        std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
-        file << "\n";
-
-        // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen);
+        // Making sure the states are unchanged
         state_gen = state;
         state_alg = state;
+        // Clear and re-generate data
+        data_regen(m_info, all_data, state_gen);
+
+        // Testing CQRRP - using QP3
+        CQRRP_blocked.use_qrf = false;
+        CQRRP_blocked.use_gemqrt = true;
+        auto start_cqrrp_cholqr = high_resolution_clock::now();
+        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        auto stop_cqrrp_cholqr = high_resolution_clock::now();
+        dur_cqrrp_cholqr = duration_cast<microseconds>(stop_cqrrp_cholqr - start_cqrrp_cholqr).count();
+        printf("TOTAL TIME FOR CQRRP_CHOLQR %ld\n", dur_cqrrp_cholqr);
+
+        // Making sure the states are unchanged
+        state_gen = state;
+        state_alg = state;
+        // Clear and re-generate data
+        data_regen(m_info, all_data, state_gen);
+        
+        std::ofstream file(output_filename, std::ios::app);
+        file << ",  " << dur_cqrrp_cholqr << ",  " << dur_cqrrp_qrf << ",\n";
     }
 }
 
@@ -106,12 +113,13 @@ int main(int argc, char *argv[]) {
         printf("No input provided\n");
         return 0;
     }
+
     auto size = argv[1];
 
     // Declare parameters
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
-    double  d_factor   = 1.0;
+    double d_factor    = 1.0;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -120,7 +128,7 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 3;
+    int64_t numruns = 5;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
@@ -129,15 +137,14 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string file= "CQRRP_runtime_breakdown_"              + std::to_string(m)
+    std::string output_filename = "ICQRRP_time_raw_rows_"              + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_start_"   + std::to_string(b_sz_start)
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)
                                     + "_d_factor_"     + std::to_string(d_factor)
                                     + ".dat";
-
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, file);
+        call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, output_filename);
     }
 }
 #endif

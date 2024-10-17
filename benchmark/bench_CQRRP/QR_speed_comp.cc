@@ -85,7 +85,7 @@ static void call_all_algs(
     auto state_gen = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("Iteration %d start.\n", i);
+        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
@@ -145,7 +145,7 @@ static void call_all_algs(
 int main() {
     // Declare parameters
     int64_t m           = std::pow(2, 17);
-    int64_t n_start     = std::pow(2, 9);
+    int64_t n_start     = std::pow(2, 8);
     int64_t n_stop      = std::pow(2, 13);
     auto state          = RandBLAS::RNGState();
     auto state_constant = state;

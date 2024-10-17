@@ -194,6 +194,7 @@ class TestCQRRP : public ::testing::TestWithParam<int64_t>
 
             error_check(norm_A, all_data, atol);
         }
+
         cudaError_t ierr = cudaGetLastError();
         if (ierr != cudaSuccess)
         {
@@ -298,11 +299,11 @@ TEST_F(TestCQRRP, CQRRP_GPU_vectors) {
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRP, CQRRP_GPU_near_zero_input) {
-    int64_t m = 1000;//5000;
-    int64_t n = 1000;//2000;
+    int64_t m = 1000;
+    int64_t n = 1000;
     int64_t k = 1000;
-    double d_factor = 1;//1.0;
-    int64_t b_sz = 100;//500;
+    double d_factor = 1;
+    int64_t b_sz = 100;
     int64_t d = d_factor * b_sz;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
