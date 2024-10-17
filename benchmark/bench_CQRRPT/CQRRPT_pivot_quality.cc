@@ -74,7 +74,7 @@ static void R_norm_ratio(
 
     // Additional params setup.
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
-    CQRRPT.nnz = 4;
+    CQRRPT.nnz = 1;
     CQRRPT.num_threads = 48;
 
     // Running HQRRP
@@ -116,7 +116,7 @@ static void sv_ratio(
 
     // Additional params setup.
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
-    CQRRPT.nnz = 4;
+    CQRRPT.nnz = 1;
     CQRRPT.num_threads = 48;
 
     std::fstream file2("data_out/QR_sv_ratios_rows_"            + std::to_string(m)
@@ -157,7 +157,7 @@ int main() {
     // Declare parameters
     int64_t m           = std::pow(2, 17);
     int64_t n           = 2000;
-    double  d_factor    = 1.25;
+    double  d_factor    = 1.0;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant1 = state;
@@ -171,7 +171,7 @@ int main() {
     // Generate the input matrix: 
     // polynomial & step for low coherence; 
     // spiked for high coherence.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::spiked);
     m_info.cond_num = std::pow(10, 10);
     m_info.rank = n;
     m_info.exponent = 2.0;
