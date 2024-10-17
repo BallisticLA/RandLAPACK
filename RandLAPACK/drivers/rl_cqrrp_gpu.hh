@@ -538,9 +538,9 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
                 h_work_geqrf_opt = h_work_geqrf_vector_opt.data();
             }
-            lapack::geqrf(rows, b_sz, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
+            lapack::geqrf(rows, block_rank, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
             //R_cholqr = A_work;
-            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, b_sz, b_sz, A_work, lda, R_cholqr, b_sz_const, true);
+            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, block_rank, block_rank, A_work, lda, R_cholqr, b_sz_const, true);
             
             if(this -> timing) {
                 cudaStreamSynchronize(strm);

@@ -56,12 +56,13 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             T ep,
             int64_t b_sz
         ) {
-            timing     = time_subroutines;
-            eps        = ep;
-            timing     = time_subroutines;
-            eps        = ep;
-            block_size = b_sz;
+            timing       = time_subroutines;
+            eps          = ep;
+            timing       = time_subroutines;
+            eps          = ep;
+            block_size   = b_sz;
             use_qp3      = false;
+            use_qrf      = false;
             use_gemqrt   = false;
             internal_nb  = b_sz;
             tol = std::numeric_limits<T>::epsilon();
@@ -130,6 +131,9 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // QRCP option
         bool use_qp3;
 
+        // Option to use GEQRF on a panel
+        bool use_qrf;
+
         // Option for updating A
         bool use_gemqrt;
 
@@ -164,8 +168,8 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point skop_t_start;
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
-    high_resolution_clock::time_point cholqr_t_start;
-    high_resolution_clock::time_point cholqr_t_stop;
+    high_resolution_clock::time_point panelqr_t_start;
+    high_resolution_clock::time_point panelqr_t_stop;
     high_resolution_clock::time_point reconstruction_t_start;
     high_resolution_clock::time_point reconstruction_t_stop;
     high_resolution_clock::time_point preconditioning_t_start;
@@ -183,7 +187,7 @@ int CQRRP_blocked<T, RNG>::call(
     long preallocation_t_dur   = 0;
     long skop_t_dur            = 0;
     long qrcp_t_dur            = 0;
-    long cholqr_t_dur          = 0;
+    long panelqr_t_dur          = 0;
     long reconstruction_t_dur  = 0;
     long preconditioning_t_dur = 0;
     long r_piv_t_dur           = 0;
@@ -412,48 +416,56 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         if(this -> timing)
-            cholqr_t_start = high_resolution_clock::now();
+            panelqr_t_start = high_resolution_clock::now();
 
-        // Performing Cholesky QR
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
-        lapack::potrf(Uplo::Upper, block_rank, R_cholqr, b_sz_const);
-        // Compute Q_econ from Cholesky QR
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
+        if (use_qrf) {
+            // Performing QRF on a panel - this skips ORHR_COL and tau extraction
+            tau_sub = &tau[curr_sz];
+            lapack::geqrf(rows, block_rank, A_work, lda, tau_sub);
+            // Need to copy R into a separate buffer because there is no trtrmm in LAPACK.
+            lapack::lacpy(MatrixType::Upper, block_rank, block_rank, A_work, lda, R_cholqr, b_sz_const);
+        } else {
+            // Performing Cholesky QR on a panel
+            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
+            lapack::potrf(Uplo::Upper, block_rank, R_cholqr, b_sz_const);
+            // Compute Q_econ from Cholesky QR
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
 
-        if(this -> timing) {
-            cholqr_t_stop  = high_resolution_clock::now();
-            cholqr_t_dur  += duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
-            reconstruction_t_start = high_resolution_clock::now();
+            if(this -> timing) {
+                panelqr_t_stop  = high_resolution_clock::now();
+                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
+                reconstruction_t_start = high_resolution_clock::now();
+            }
+
+            // Find Q (stored in A) using Householder reconstruction. 
+            // This will represent the full (rows by rows) Q factor form Cholesky QR
+            // It would have been really nice to store T right above Q, but without using extra space,
+            // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
+            // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
+            // Q is defined with block_rank elementary reflectors. 
+            // NOTE:
+            ///     This routine is defined in LAPACK 3.9.0.
+            lapack::orhr_col(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work2);
+
+            if(this -> timing) {
+                reconstruction_t_stop  = high_resolution_clock::now();
+                reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
+                updating1_t_start = high_resolution_clock::now();
+            }
+
+            // Need to change signs in the R-factor from Cholesky QR.
+            // Signs correspond to matrix D from orhr_col().
+            // This allows us to not explicitoly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
+            for(i = 0; i < block_rank; ++i)
+                for(j = 0; j < (i + 1); ++j)
+                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
+
+            // Define a pointer to the current subportion of tau vector.
+            tau_sub = &tau[curr_sz];
+            // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
+            for(i = 0; i < block_rank; ++i)
+                tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
         }
-
-        // Find Q (stored in A) using Householder reconstruction. 
-        // This will represent the full (rows by rows) Q factor form Cholesky QR
-        // It would have been really nice to store T right above Q, but without using extra space,
-        // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
-        // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-        // Q is defined with block_rank elementary reflectors. 
-        // NOTE:
-        ///     This routine is defined in LAPACK 3.9.0.
-        lapack::orhr_col(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work2);
-
-        if(this -> timing) {
-            reconstruction_t_stop  = high_resolution_clock::now();
-            reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
-            updating1_t_start = high_resolution_clock::now();
-        }
-
-        // Need to change signs in the R-factor from Cholesky QR.
-        // Signs correspond to matrix D from orhr_col().
-        // This allows us to not explicitoly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
-        for(i = 0; i < block_rank; ++i)
-            for(j = 0; j < (i + 1); ++j)
-               R_cholqr[(b_sz_const * i) + j] *= Work2[j];
-
-        // Define a pointer to the current subportion of tau vector.
-        tau_sub = &tau[curr_sz];
-        // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
-        for(i = 0; i < block_rank; ++i)
-            tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
@@ -462,7 +474,8 @@ int CQRRP_blocked<T, RNG>::call(
         // With that, everything is placed where it should be, no copies required.
         // Q is defined with block_rank elementary reflectors. 
         // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
-        if(use_gemqrt) {
+        // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
+        if(use_gemqrt && !use_qrf) {
             lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
         } else {
             lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
@@ -520,14 +533,14 @@ int CQRRP_blocked<T, RNG>::call(
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 long t_rest  = total_t_dur - (preallocation_t_dur + skop_t_dur + qrcp_t_dur + reconstruction_t_dur + preconditioning_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
                 this -> times.resize(12);
-                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, cholqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
+                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, preconditioning_t_dur, panelqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
                 printf("skop time: %34ld μs,\n",                           skop_t_dur);
                 printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
                 printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
-                printf("CholQR time: %32ld μs,\n",                         cholqr_t_dur);
+                printf("CholQR time: %32ld μs,\n",                         panelqr_t_dur);
                 printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
                 printf("Computing A_new, R12 time: %23ld μs,\n",           updating1_t_dur);
                 printf("Factors updating time: %23ld μs,\n",               updating3_t_dur);
@@ -540,7 +553,7 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("skop generation and application takes %2.2f%% of runtime.\n",   100 * ((T) skop_t_dur            / (T) total_t_dur));
                 printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
                 printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
-                printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) cholqr_t_dur          / (T) total_t_dur));
+                printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) panelqr_t_dur          / (T) total_t_dur));
                 printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
                 printf("Computing A_new, R12 takes %14.2f%% of runtime.\n",             100 * ((T) updating1_t_dur       / (T) total_t_dur));
                 printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating3_t_dur       / (T) total_t_dur));

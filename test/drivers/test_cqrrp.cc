@@ -346,4 +346,26 @@ TEST_F(TestCQRRP, CQRRP_blocked_zero_mat) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
 }
+
+TEST_F(TestCQRRP, CQRRP_blocked_qrf) {
+    int64_t m = 5000;//5000;
+    int64_t n = 2800;//2000;
+    int64_t k = 2800;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 900;//500;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.use_qrf = true;
+    CQRRP_blocked.internal_nb = 10;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+}
 #endif
