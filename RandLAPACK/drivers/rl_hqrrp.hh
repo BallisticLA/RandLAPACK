@@ -1191,7 +1191,7 @@ int64_t hqrrp(
         printf("Updating A takes %14.2f%% of runtime.\n",                       100 * ((T) updating_A_t_dur      / (T) total_t_dur));
         printf("Updating Sketch takes %14.2f%% of runtime.\n",                  100 * ((T) updating_Sketch_t_dur / (T) total_t_dur));
         printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) other_t_dur           / (T) total_t_dur));
-        printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
+        printf("/-------------HQRRP TIMING RESULTS END-------------/\n\n");
     }
 
     // Remove auxiliary objects.

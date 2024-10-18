@@ -205,7 +205,13 @@ int CQRRPT<T, RNG>::call(
         Layout::ColMajor, Op::NoTrans, Op::NoTrans,
         d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
-
+/*
+    T* S  = ( T * ) calloc( d * m, sizeof( T ) );
+    RandBLAS::DenseDist D(d, m);
+    state = RandBLAS::fill_dense(D, S, state).second;
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_hat, d);
+    free(S);
+*/
     if(this -> timing) {
         saso_t_stop = high_resolution_clock::now();
         qrcp_t_start = high_resolution_clock::now();
