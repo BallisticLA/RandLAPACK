@@ -47,6 +47,16 @@ void sparse_matrix_t_from_SparseCSR(const SparseCSR &A, sparse_matrix_t &mat) {
     mkl_sparse_d_create_csr(&mat, SPARSE_INDEX_BASE_ZERO, N, N, pointerB, pointerE, update_intend_rpt, update_intend_datapt);
 }
 
+/***
+
+NOTE: these linear operators overloads of ()
+have totally fucked signatures w.r.t. const.
+
+I have no clue how this was able to compile.
+
+Is it really T* const x vs const T* x?
+
+ */
 
 struct CallableSpMat {
     sparse_matrix_t A;
