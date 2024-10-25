@@ -217,10 +217,23 @@ static void call_tsqr(
     int64_t tsize = 0;
 
     // timing vars
-    long dur_geqrf       = 0;
-    long dur_geqr        = 0;
-    long dur_cholqr      = 0;
-    long dur_cholqr_orhr = 0;
+    long dur_geqrf             = 0;
+    long dur_geqr              = 0;
+    long dur_cholqr            = 0;
+    long dur_cholqr_precond    = 0;
+    long dur_cholqr_house_rest = 0;
+    long dur_cholqr_r_restore  = 0;
+
+    // Imitating the QRCP on a sketch stage of CQRRP - needed to get a preconditioner
+    T* S       = ( T * )       calloc( n * m, sizeof( T ) );
+    T* A_sk    = ( T * )       calloc( n * n, sizeof( T ) );
+    int64_t* J = ( int64_t * ) calloc( n,     sizeof( int64_t ) );
+    T* tau     = ( T * )       calloc( n,     sizeof( T ) );
+    RandBLAS::DenseDist D(n, m);
+    auto state_const = state;
+    RandBLAS::fill_dense(D, S, state_const).second;
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, S, n, all_data.A.data(), m, 0.0, A_sk, n);
+    lapack::geqp3(n, n, A_sk, n, J, tau);
 
     for (int i = 0; i < numruns; ++i) {
         printf("TSQR iteration %d; n==%d start.\n", i, n);
@@ -242,20 +255,41 @@ static void call_tsqr(
         data_regen(m_info, all_data, state, state, 2);
 
         // Testing CholQR
+        auto start_precond = high_resolution_clock::now();
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, A_sk, n, all_data.A.data(), m);
+        auto stop_precond = high_resolution_clock::now();
+        dur_cholqr_precond = duration_cast<microseconds>(stop_precond - start_precond).count();
         auto start_cholqr = high_resolution_clock::now();
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
         lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
         auto stop_cholqr = high_resolution_clock::now();
         dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
+        auto start_orhr_col = high_resolution_clock::now();
         lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
         auto stop_cholqr_orhr = high_resolution_clock::now();
-        dur_cholqr_orhr = duration_cast<microseconds>(stop_cholqr_orhr - start_cholqr).count();
+        dur_cholqr_house_rest = duration_cast<microseconds>(stop_cholqr_orhr - start_orhr_col).count();
+        auto start_r_restore = high_resolution_clock::now();
+        // Construct the proper R-factor
+        for(int i = 0; i < n; ++i) {
+            for(int j = 0; j < (i + 1); ++j) {
+                all_data.R[(n * i) + j] *=  all_data.D[j];
+            }
+        }
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T) 1.0, A_sk, n, all_data.R.data(), n);
+        lapack::lacpy(MatrixType::Upper, n, n, all_data.R.data(), n, all_data.A.data(), m);
+        auto stop_r_restore = high_resolution_clock::now();
+        dur_cholqr_r_restore = duration_cast<microseconds>(stop_r_restore - start_r_restore).count();
         data_regen(m_info, all_data, state, state, 2);
     
         std::ofstream file(output_filename, std::ios::app);
-        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_orhr << ",\n";
+        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
     }
+
+    free(A_sk);
+    free(S);
+    free(J);
+    free(tau);
 }
 
 template <typename T, typename RNG>
@@ -332,9 +366,9 @@ int main(int argc, char *argv[]) {
     int64_t i = 0;
     // Declare parameters
     int64_t m             = std::stol(size);
-    int64_t n_start       = 32;
+    int64_t n_start       = 256;
     int64_t n_stop        = 2048;
-    int64_t nb_start      = 32;
+    int64_t nb_start      = 256;
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();
     auto state_constant   = state;
