@@ -283,7 +283,7 @@ TEST_P(BenchCQRRP, GPU_fixed_blocksize) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    CQRRP_GPU_benchmarks,
+    GPU_benchmarks,
     BenchCQRRP,
     ::testing::Values(32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048)
 );
