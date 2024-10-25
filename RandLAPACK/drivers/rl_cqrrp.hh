@@ -172,8 +172,8 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point panelqr_t_stop;
     high_resolution_clock::time_point reconstruction_t_start;
     high_resolution_clock::time_point reconstruction_t_stop;
-    high_resolution_clock::time_point panel_preprocessing_t__start;
-    high_resolution_clock::time_point panel_preprocessing_t__stop;
+    high_resolution_clock::time_point panel_preprocessing_t_start;
+    high_resolution_clock::time_point panel_preprocessing_t_stop;
     high_resolution_clock::time_point r_piv_t_start;
     high_resolution_clock::time_point r_piv_t_stop;
     high_resolution_clock::time_point updating1_t_start;
@@ -189,7 +189,7 @@ int CQRRP_blocked<T, RNG>::call(
     long qrcp_t_dur            = 0;
     long panelqr_t_dur          = 0;
     long reconstruction_t_dur  = 0;
-    long panel_preprocessing_t__dur = 0;
+    long panel_preprocessing_t_dur = 0;
     long r_piv_t_dur           = 0;
     long updating1_t_dur       = 0;
     long updating2_t_dur       = 0;
@@ -347,7 +347,7 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             qrcp_t_stop = high_resolution_clock::now();
             qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
-            panel_preprocessing_t__start = high_resolution_clock::now();
+            panel_preprocessing_t_start = high_resolution_clock::now();
         }
 
         // Need to premute trailing columns of the full R-factor.
@@ -406,11 +406,11 @@ int CQRRP_blocked<T, RNG>::call(
             }
         }
 
-        if (use_qrf) {
+        if (this -> use_qrf) {
             // No preconditioning required in this case
             if(this -> timing) {
-                panel_preprocessing_t__stop  = high_resolution_clock::now();
-                panel_preprocessing_t__dur  += duration_cast<microseconds>(panel_preprocessing_t__stop - panel_preprocessing_t__start).count();
+                panel_preprocessing_t_stop  = high_resolution_clock::now();
+                panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
             }
 
             if(this -> timing)
@@ -426,8 +426,8 @@ int CQRRP_blocked<T, RNG>::call(
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda);
 
             if(this -> timing) {
-                panel_preprocessing_t__stop  = high_resolution_clock::now();
-                panel_preprocessing_t__dur  += duration_cast<microseconds>(panel_preprocessing_t__stop - panel_preprocessing_t__start).count();
+                panel_preprocessing_t_stop  = high_resolution_clock::now();
+                panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
                 panelqr_t_start = high_resolution_clock::now();
             }
 
@@ -481,7 +481,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Q is defined with block_rank elementary reflectors. 
         // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
         // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
-        if(use_gemqrt && !use_qrf) {
+        if(this -> use_gemqrt && !(this -> use_qrf)) {
             lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
         } else {
             lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
@@ -500,7 +500,7 @@ int CQRRP_blocked<T, RNG>::call(
             RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
         }
 
-        if (!use_qrf) {
+        if (!(this -> use_qrf)) {
             // Undoing the preconditioning below
 
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
@@ -541,15 +541,15 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + skop_t_dur + qrcp_t_dur + reconstruction_t_dur + panel_preprocessing_t__dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
+                long t_rest  = total_t_dur - (preallocation_t_dur + skop_t_dur + qrcp_t_dur + reconstruction_t_dur + panel_preprocessing_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
                 this -> times.resize(12);
-                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, panel_preprocessing_t__dur, panelqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
+                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, panel_preprocessing_t_dur, panelqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
                 printf("skop time: %34ld μs,\n",                           skop_t_dur);
                 printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
-                printf("Preconditioning time: %24ld μs,\n",                panel_preprocessing_t__dur);
+                printf("Preconditioning time: %24ld μs,\n",                panel_preprocessing_t_dur);
                 printf("CholQR time: %32ld μs,\n",                         panelqr_t_dur);
                 printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
                 printf("Computing A_new, R12 time: %23ld μs,\n",           updating1_t_dur);
@@ -562,7 +562,7 @@ int CQRRP_blocked<T, RNG>::call(
                 printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
                 printf("skop generation and application takes %2.2f%% of runtime.\n",   100 * ((T) skop_t_dur            / (T) total_t_dur));
                 printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
-                printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) panel_preprocessing_t__dur / (T) total_t_dur));
+                printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) panel_preprocessing_t_dur / (T) total_t_dur));
                 printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) panelqr_t_dur          / (T) total_t_dur));
                 printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
                 printf("Computing A_new, R12 takes %14.2f%% of runtime.\n",             100 * ((T) updating1_t_dur       / (T) total_t_dur));
