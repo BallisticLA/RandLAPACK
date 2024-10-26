@@ -3,6 +3,8 @@
 #include <string>
 #include <cstring>
 #include <vector>
+#include <fast_matrix_market/fast_matrix_market.hpp>
+#include <fstream>
 #include <omp.h>
 
 #include "sparse.hpp"
@@ -25,6 +27,25 @@ using RandBLAS::COOMatrix;
 
 using RandBLAS::sparse_data::right_spmm;
 using RandBLAS::sparse_data::left_spmm;
+
+using std_clock = std::chrono::high_resolution_clock;
+using timepoint_t = std::chrono::time_point<std_clock>;
+using std::chrono::duration_cast;
+using std::chrono::microseconds;
+
+#define DOUT(_d) std::setprecision(8) << _d
+#define FINE_GRAINED
+#ifdef FINE_GRAINED
+#define TIMED_LINE(_op, _name) { \
+        auto _tp0 = std_clock::now(); \
+        _op; \
+        auto _tp1 = std_clock::now(); \
+        double dtime = (double) duration_cast<microseconds>(_tp1 - _tp0).count(); \
+        std::cout << _name << DOUT(dtime / 1e6) << std::endl; \
+        }
+#else
+#define TIMED_LINE(_op, _name) _op;
+#endif
 
 
 void sparse_matrix_t_from_SparseCSR(const SparseCSR &A, sparse_matrix_t &mat) {
@@ -55,29 +76,9 @@ void sparse_matrix_t_from_SparseCSR(const SparseCSR &A, sparse_matrix_t &mat) {
         }
         pointerE[i] = last;    
     }
-    mkl_sparse_d_create_csr(&mat, SPARSE_INDEX_BASE_ZERO, N, N, pointerB, pointerE, update_intend_rpt, update_intend_datapt);
+    auto status = mkl_sparse_d_create_csr(&mat, SPARSE_INDEX_BASE_ZERO, N, N, pointerB, pointerE, update_intend_rpt, update_intend_datapt);
+    return;
 }
-
-using std_clock = std::chrono::high_resolution_clock;
-using timepoint_t = std::chrono::time_point<std_clock>;
-using std::chrono::duration_cast;
-using std::chrono::microseconds;
-
-#define FINE_GRAINED
-
-#define DOUT(_d) std::setprecision(8) << _d
-
-#ifdef FINE_GRAINED
-#define TIMED_LINE(_op, _name) { \
-        auto _tp0 = std_clock::now(); \
-        _op; \
-        auto _tp1 = std_clock::now(); \
-        double dtime = (double) duration_cast<microseconds>(_tp1 - _tp0).count(); \
-        std::cout << _name << DOUT(dtime / 1e6) << std::endl; \
-        }
-#else
-#define TIMED_LINE(_op, _name) _op;
-#endif
 
 
 template <typename RBSpMat>
@@ -85,7 +86,7 @@ struct CallableSpMat {
     sparse_matrix_t A;
     int64_t m;
     RBSpMat *A_rb;
-    bool use_mkl = true;
+    bool use_mkl = false;
     matrix_descr des{SPARSE_MATRIX_TYPE_GENERAL};
     std::vector<double> regs{0.0};
 
@@ -136,10 +137,10 @@ struct CallableChoSolve {
         int t = omp_get_max_threads();
         omp_set_num_threads(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
-        TIMED_LINE(
-        mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, B, n, ldb, work, m), "TRSM G   : ");
-        TIMED_LINE(
-        mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc), "TRSM G^T : ");
+        //TIMED_LINE(
+        auto status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, B, n, ldb, work, m); //, "TRSM G   : ");
+        //TIMED_LINE(
+        status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
         omp_set_num_threads(t);
     }
 
@@ -152,6 +153,7 @@ struct CallableChoSolve {
 // NOTE: below probably needs to conform to the SymmetricLinearOperator API.
 template <typename RBSpMat>
 struct LaplacianPinv : public SymmetricLinearOperator<double> {
+    public:
     // inherited --> const int64_t m;
     CallableSpMat<RBSpMat>    L_callable;
     CallableChoSolve          N_callable;
@@ -194,20 +196,81 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
 };
 
 
-int main(int argc, char *argv[]) {
-    int dof = 50; // DoF in every dimension
-    int threads = 1;
-    for (int i=0; i<argc; i++) {
-    if (!strcmp(argv[i], "-n"))
-        dof = atoi(argv[i+1]);
-    if (!strcmp(argv[i], "-t"))
-        threads = atoi(argv[i+1]);
-    }
-    std::cout<<std::setprecision(3);
+void laplacian_from_matrix_market(std::string fn, SparseCSR &A) {
 
-    // SDDM matrix from 3D constant Poisson equation
+    int64_t n, n_ = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<double> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n, n_, rows,  cols, vals
+    );
+    randblas_require(n == n_); // we must be square.
+
+    // Convert adjacency matrix to COO format Laplacian
+    int64_t m = vals.size();
+    int64_t nnz = m + n;
+    COOMatrix<double> coo(n, n);
+    RandBLAS::sparse_data::reserve_coo(nnz, coo);
+    double* diag = new double[n]{0.0};
+    for (int64_t i = 0; i < m; ++i) {
+        coo.rows[i] = rows[i];
+        coo.cols[i] = cols[i];
+        double v = vals[i];
+        randblas_require(v >= 0);
+        coo.vals[i] = -v;
+        diag[cols[i]] += v;
+    }
+    for (int64_t i = m; i < nnz; ++i) {
+        coo.rows[i] = i - m;
+        coo.cols[i] = i - m;
+        coo.vals[i] = diag[i - m];
+    }
+    delete [] diag;
+    // convert COO format Laplacian to CSR format, using RandBLAS.
+    CSRMatrix<double> csr(n, n);
+    RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
+
+    // Convert RandBLAS::CSRMatrix to SparseCSR
+    std::vector<size_t> rowPtrA(csr.n_rows+1);
+    std::vector<size_t> colIdxA(csr.nnz);
+    for (int64_t i = 0; i < csr.n_rows + 1; ++i)
+        rowPtrA[i] = (size_t) csr.rowptr[i];
+    vals.resize(csr.nnz);
+    for (int64_t i = 0; i < csr.nnz; ++i) {
+        colIdxA[i] = (size_t) csr.colidxs[i];
+        vals[i] = csr.vals[i];
+    }
+
+    A.init(rowPtrA, colIdxA, vals, true);
+
+    return;
+}
+
+
+auto parse_args(int argc, char** argv) {
+    std::string mat{"../sparse-data-matrices/fl2010/fl2010.mtx"};
+    int approx_rank = 4;
+    int threads = 1;
+    if (argc > 1)
+        approx_rank = atoi(argv[1]);
+    if (argc > 2)
+        threads = atoi(argv[2]);
+    if (argc > 3)
+        mat = argv[3];
+    return std::make_tuple(mat, approx_rank, threads);
+}
+
+
+
+int main(int argc, char *argv[]) {
+    std::cout << std::setprecision(3);
+
+    auto [fn, k, threads] = parse_args(argc, argv);
     SparseCSR A, G, Aperm;
-    A = laplace_3d(dof);
+    laplacian_from_matrix_market(fn, A);
     std::vector<size_t> P;
     rchol(A, G, P, threads);
     reorder(A, P, Aperm);
@@ -215,10 +278,12 @@ int main(int argc, char *argv[]) {
     int64_t nnz = Aperm.nnz();
     std::vector<int64_t> ApermRowPtr(nnz);
     std::vector<int64_t> ApermColIdx(nnz);
-    for (int64_t i = 0; i < nnz; ++i) {
+
+    for (int64_t i = 0; i < n+1; ++i)
         ApermRowPtr[i] = (int64_t) Aperm.rowPtr[i];
+    for (int64_t i = 0; i < nnz; ++i) 
         ApermColIdx[i] = (int64_t) Aperm.colIdx[i];
-    }
+
     CSRMatrix A_perm_rb_csr(n, n, nnz, Aperm.val, ApermRowPtr.data(), ApermColIdx.data());
     CSCMatrix A_perm_rb_csc(n, n, nnz, Aperm.val, ApermColIdx.data(), ApermRowPtr.data());
     // ^ since the matrix is symmetric, CSC and CSR are interchangable.
@@ -230,7 +295,7 @@ int main(int argc, char *argv[]) {
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR(Aperm, Aperm_mkl);
     sparse_matrix_t_from_SparseCSR(G, G_mkl);
-    CallableSpMat<CSCMatrix<double>>   Aperm_callable{Aperm_mkl, n, &A_perm_rb_csc};
+    CallableSpMat<CSCMatrix<double>> Aperm_callable{Aperm_mkl, n, &A_perm_rb_csc};
     CallableChoSolve N_callable{G_mkl, n};
     LaplacianPinv<CSCMatrix<double>> Lpinv(Aperm_callable, N_callable);
     
@@ -240,12 +305,12 @@ int main(int argc, char *argv[]) {
     RandLAPACK::HQRQ<double>              Orth(false, false); 
     RandLAPACK::SYRF<double, DefaultRNG>  SYRF(SYPS, Orth, false, false);
     RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 3, false);
-    int64_t k = 128;
     double silly_tol = 1e4;
     // ^ ensures we break after one iteration
     std::vector<double> V(n*k, 0.0);
     std::vector<double> eigvals(k, 0.0);
     RandBLAS::RNGState state{};
-    NystromAlg.call(Lpinv, k, silly_tol, V, eigvals, state);
+    int64_t k_ = k;
+    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state);
     return 0;
 }

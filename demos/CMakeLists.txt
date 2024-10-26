@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../../random123/include/  -Dblaspp_DIR=`pwd`/../../../lapp-install/lib64/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapp-install/lib64/cmake/lapackpp/ -DRChol_DIR=`pwd`/../../../rchol-install/lib/cmake/RChol  -DCMAKE_BINARY_DIR=`pwd`  ..
+# cmake -DCMAKE_BUILD_TYPE=Debug -DRandom123_DIR=`pwd`/../../../random123/include/  -Dblaspp_DIR=`pwd`/../../../lapp-install/lib64/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapp-install/lib64/cmake/lapackpp/ -DRChol_DIR=`pwd`/../../../rchol-install/lib/cmake/RChol  -DCMAKE_BINARY_DIR=`pwd`  ..
 
 project(demos)
 
@@ -51,10 +52,20 @@ function(add_demo)
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
 endfunction()
 
+include(FetchContent)
+FetchContent_Declare(
+    fast_matrix_market
+    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
+    GIT_TAG main
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(fast_matrix_market)
+
 set(
     Benchmark_libs
     RandLAPACK
     RChol::RChol
+    fast_matrix_market::fast_matrix_market
 )
 
 add_demo(NAME rchol_laplace CXX_SOURCES rchol_laplace.cc LINK_LIBS ${Benchmark_libs})
