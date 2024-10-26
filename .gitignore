@@ -2,6 +2,8 @@ benchmark/build/**
 benchmark/bench_kernelalgs/**.py
 benchmark/bench_kernelalgs/rpcpy
 
+demos/sparse-data-matrices/*
+
 # vim
 *.sw*
 
