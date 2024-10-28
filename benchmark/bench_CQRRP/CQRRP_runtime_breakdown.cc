@@ -61,6 +61,7 @@ static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t b_sz,
+    bool use_qrf,
     QR_speed_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
@@ -72,7 +73,14 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    
+    if(use_qrf) {
+        CQRRP_blocked.use_qrf = true;
+        CQRRP_blocked.use_gemqrt = false;
+    } else {
+        CQRRP_blocked.use_qrf = false;
+        CQRRP_blocked.use_gemqrt = true;
+    }
+
     // Making sure the states are unchanged
     auto state_gen = state;
     auto state_alg = state;
@@ -82,10 +90,7 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, b_sz %ld\n", i, b_sz);
-
-        // Testing CQRRP - best setuo
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-
 
         // Update timing vector
         inner_timing = CQRRP_blocked.times;
@@ -121,6 +126,7 @@ int main(int argc, char *argv[]) {
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
     int64_t numruns = 3;
+    bool use_qrf = false;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
@@ -129,15 +135,16 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string file= "CQRRP_runtime_breakdown_"              + std::to_string(m)
+    std::string file = "CQRRP_runtime_breakdown_"              + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)
                                     + "_b_sz_start_"   + std::to_string(b_sz_start)
                                     + "_b_sz_end_"     + std::to_string(b_sz_end)
                                     + "_d_factor_"     + std::to_string(d_factor)
+                                    + "_use_qrf_"      + std::to_string(use_qrf)
                                     + ".dat";
 
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, file);
+        call_all_algs(m_info, numruns, b_sz_start, use_qrf, all_data, state_constant, file);
     }
 }
 #endif
