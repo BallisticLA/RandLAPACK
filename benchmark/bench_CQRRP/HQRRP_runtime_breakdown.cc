@@ -76,7 +76,7 @@ static void call_all_algs(
     T* times = ( T * ) calloc(29, sizeof( T ) );
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
+        printf("ITERATION %d, b_sz %ld\n", i, b_sz);
 
         // Testing HQRRP
         // No CholQR

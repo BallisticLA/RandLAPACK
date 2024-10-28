@@ -70,7 +70,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
+        printf("ITERATION %d, B_SZ %ld\n", i, b_sz);
         
         // Testing CQRRP - best setup
         CQRRP_blocked.use_qrf = true;

@@ -90,7 +90,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
+        printf("ITERATION %d, B_SZ %ld\n", i, b_sz);
         
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
@@ -107,7 +107,7 @@ static void call_all_algs(
         // Testing CQRRP - best setup
         CQRRP_blocked.use_qp3 = false;
         auto start_cqrrp = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
         printf("TOTAL TIME FOR CQRRP %ld\n", dur_cqrrp);
@@ -121,7 +121,7 @@ static void call_all_algs(
         // Testing CQRRP - using QP3
         CQRRP_blocked.use_qp3 = true;
         auto start_cqrrp_qp3 = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp_qp3 = high_resolution_clock::now();
         CQRRP_blocked.use_qp3 = false;
         dur_cqrrp_qp3 = duration_cast<microseconds>(stop_cqrrp_qp3 - start_cqrrp_qp3).count();
