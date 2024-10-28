@@ -218,6 +218,7 @@ static void call_tsqr(
 
     // timing vars
     long dur_geqrf             = 0;
+    long dur_larft             = 0;
     long dur_geqr              = 0;
     long dur_cholqr            = 0;
     long dur_cholqr_precond    = 0;
@@ -229,6 +230,7 @@ static void call_tsqr(
     T* A_sk    = ( T * )       calloc( n * n, sizeof( T ) );
     int64_t* J = ( int64_t * ) calloc( n,     sizeof( int64_t ) );
     T* tau     = ( T * )       calloc( n,     sizeof( T ) );
+    T* T_mat   = ( T * )       calloc( n * n, sizeof( T ) );
     RandBLAS::DenseDist D(n, m);
     auto state_const = state;
     RandBLAS::fill_dense(D, S, state_const).second;
@@ -242,6 +244,10 @@ static void call_tsqr(
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqrf = high_resolution_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
+        auto start_larft = high_resolution_clock::now();
+        lapack::larft(lapack::Direction::Forward, lapack::StoreV::Columnwise, n, n, all_data.A.data(), m, all_data.tau.data(), T_mat, n);
+        auto stop_larft = high_resolution_clock::now();
+        dur_larft = duration_cast<microseconds>(stop_larft - start_larft).count();
         data_regen(m_info, all_data, state, state, 2);
 
         // Testing GEQR
@@ -283,7 +289,7 @@ static void call_tsqr(
         data_regen(m_info, all_data, state, state, 2);
     
         std::ofstream file(output_filename, std::ios::app);
-        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
+        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_larft << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
     }
 
     free(A_sk);
