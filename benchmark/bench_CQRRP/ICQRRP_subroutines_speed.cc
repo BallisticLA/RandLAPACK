@@ -219,6 +219,7 @@ static void call_tsqr(
     // timing vars
     long dur_geqrf             = 0;
     long dur_geqr              = 0;
+    long dur_geqrt             = 0;
     long dur_cholqr            = 0;
     long dur_cholqr_precond    = 0;
     long dur_cholqr_house_rest = 0;
@@ -254,6 +255,13 @@ static void call_tsqr(
         dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
         data_regen(m_info, all_data, state, state, 2);
 
+
+        auto start_geqrt = high_resolution_clock::now();
+        lapack::geqrt( m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n );
+        auto stop_geqrt = high_resolution_clock::now();
+        dur_geqrt = duration_cast<microseconds>(stop_geqrt - start_geqrt).count();
+        data_regen(m_info, all_data, state, state, 2);
+
         // Testing CholQR
         auto start_precond = high_resolution_clock::now();
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, A_sk, n, all_data.A.data(), m);
@@ -283,7 +291,7 @@ static void call_tsqr(
         data_regen(m_info, all_data, state, state, 2);
     
         std::ofstream file(output_filename, std::ios::app);
-        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
+        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_geqrt << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
     }
 
     free(A_sk);
