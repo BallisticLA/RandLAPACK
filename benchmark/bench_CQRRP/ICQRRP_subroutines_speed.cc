@@ -376,7 +376,7 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 5;
+    int64_t numruns = 3;
 
     // Allocate basic workspace
     benchmark_data<double> all_data(m, n_stop);
