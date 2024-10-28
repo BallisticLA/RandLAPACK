@@ -229,7 +229,6 @@ static void call_tsqr(
     T* A_sk    = ( T * )       calloc( n * n, sizeof( T ) );
     int64_t* J = ( int64_t * ) calloc( n,     sizeof( int64_t ) );
     T* tau     = ( T * )       calloc( n,     sizeof( T ) );
-    T* T_mat   = ( T * )       calloc( n * n, sizeof( T ) );
     RandBLAS::DenseDist D(n, m);
     auto state_const = state;
     RandBLAS::fill_dense(D, S, state_const).second;
@@ -310,7 +309,6 @@ static void call_apply_q(
     long dur_ormqr  = 0;
     long dur_gemqrt = 0;
     long dur_gemm   = 0;
-    long dur_larft  = 0;
 
     std::ofstream file(output_filename, std::ios::app);
 
@@ -326,17 +324,7 @@ static void call_apply_q(
             
             lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_gemqrt.data(), m);
             lapack::orhr_col(m, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.D.data());
-
-            if(nb == n) {
-                for(j = 0; j < n; ++j)
-                    all_data.tau[j] = all_data.T_mat[(n + 1) * j];
-
-                auto start_larft = high_resolution_clock::now();
-                lapack::larft(lapack::Direction::Forward, lapack::StoreV::Columnwise, n, n, all_data.A.data(), m, all_data.tau.data(), all_data.T_gemqrt.data(), n);
-                auto stop_larft = high_resolution_clock::now();
-                dur_larft = duration_cast<microseconds>(stop_larft - start_larft).count();
-            }
-
+            
             auto start_gemqrt = high_resolution_clock::now();
             lapack::gemqrt(Side::Left, Op::NoTrans, m, n, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
             auto stop_gemqrt = high_resolution_clock::now();
@@ -363,13 +351,8 @@ static void call_apply_q(
             
                 file << m << ",  " << n << ",  " << gemqrt_nb_start << ",  " << dur_ormqr << ",  " << dur_gemm << ",  " << dur_gemqrt << ",  " ;                
             } 
-            if(nb == n) {
-                file << dur_gemqrt << ",  " << dur_larft << ",  ";
-                data_regen(m_info, all_data, state, state_B, 3);
-            } else {
-                file << dur_gemqrt << ",  ";
-                data_regen(m_info, all_data, state, state_B, 3);
-            }
+            file << dur_gemqrt << ",  ";
+            data_regen(m_info, all_data, state, state_B, 3);
         }
         nb = gemqrt_nb_start;
         file << "\n";
