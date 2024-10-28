@@ -218,7 +218,6 @@ static void call_tsqr(
 
     // timing vars
     long dur_geqrf             = 0;
-    long dur_larft             = 0;
     long dur_geqr              = 0;
     long dur_cholqr            = 0;
     long dur_cholqr_precond    = 0;
@@ -244,10 +243,6 @@ static void call_tsqr(
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqrf = high_resolution_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
-        auto start_larft = high_resolution_clock::now();
-        lapack::larft(lapack::Direction::Forward, lapack::StoreV::Columnwise, n, n, all_data.A.data(), m, all_data.tau.data(), T_mat, n);
-        auto stop_larft = high_resolution_clock::now();
-        dur_larft = duration_cast<microseconds>(stop_larft - start_larft).count();
         data_regen(m_info, all_data, state, state, 2);
 
         // Testing GEQR
@@ -289,7 +284,7 @@ static void call_tsqr(
         data_regen(m_info, all_data, state, state, 2);
     
         std::ofstream file(output_filename, std::ios::app);
-        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_larft << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
+        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
     }
 
     free(A_sk);
@@ -315,6 +310,7 @@ static void call_apply_q(
     long dur_ormqr  = 0;
     long dur_gemqrt = 0;
     long dur_gemm   = 0;
+    long dur_larft  = 0;
 
     std::ofstream file(output_filename, std::ios::app);
 
@@ -330,7 +326,17 @@ static void call_apply_q(
             
             lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_gemqrt.data(), m);
             lapack::orhr_col(m, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.D.data());
-            
+
+            if(nb == n) {
+                for(j = 0; j < n; ++j)
+                    all_data.tau[j] = all_data.T_mat[(n + 1) * j];
+
+                auto start_larft = high_resolution_clock::now();
+                lapack::larft(lapack::Direction::Forward, lapack::StoreV::Columnwise, n, n, all_data.A.data(), m, all_data.tau.data(), all_data.T_gemqrt.data(), n);
+                auto stop_larft = high_resolution_clock::now();
+                dur_larft = duration_cast<microseconds>(stop_larft - start_larft).count();
+            }
+
             auto start_gemqrt = high_resolution_clock::now();
             lapack::gemqrt(Side::Left, Op::NoTrans, m, n, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
             auto stop_gemqrt = high_resolution_clock::now();
@@ -357,8 +363,13 @@ static void call_apply_q(
             
                 file << m << ",  " << n << ",  " << gemqrt_nb_start << ",  " << dur_ormqr << ",  " << dur_gemm << ",  " << dur_gemqrt << ",  " ;                
             } 
-            file << dur_gemqrt << ",  ";
-            data_regen(m_info, all_data, state, state_B, 3);
+            if(nb == n) {
+                file << dur_gemqrt << ",  " << dur_larft << ",  ";
+                data_regen(m_info, all_data, state, state_B, 3);
+            } else {
+                file << dur_gemqrt << ",  ";
+                data_regen(m_info, all_data, state, state_B, 3);
+            }
         }
         nb = gemqrt_nb_start;
         file << "\n";
