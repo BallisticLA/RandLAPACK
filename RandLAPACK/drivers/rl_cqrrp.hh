@@ -420,6 +420,14 @@ int CQRRP_blocked<T, RNG>::call(
             lapack::geqrf(rows, block_rank, A_work, lda, tau_sub);
             // R11 is computed and placed in the appropriate space
             R11 = A_work;
+
+            // Need to explicitly compute the matrix T
+            if(this -> use_gemqrt) {
+                // It looks like larft does not construct T in the same exact format (blocked format) as GEMQRT takes on input.
+                // As such, we need to make sure that there is no mismatch in expectation, aka modify the internal nb parameter.
+                internal_nb = block_rank;
+                lapack::larft(lapack::Direction::Forward, lapack::StoreV::Columnwise, block_rank, block_rank, A_work, lda, tau_sub, T_dat, b_sz_const);
+            }
         } else {
             // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
             // Performing preconditioning of the current matrix A.
