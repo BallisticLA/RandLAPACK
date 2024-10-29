@@ -296,7 +296,7 @@ static void call_tsqr(
                 dur_cholqr_r_restore = duration_cast<microseconds>(stop_r_restore - start_r_restore).count();
                 data_regen(m_info, all_data, state, state, 2);
             
-                file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
+                file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",  ";
             }
             file << dur_geqrt << ",  ";
             data_regen(m_info, all_data, state, state, 2);
