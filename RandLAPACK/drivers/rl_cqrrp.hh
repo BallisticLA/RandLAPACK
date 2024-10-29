@@ -427,7 +427,7 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 panelqr_t_stop  = high_resolution_clock::now();
                 panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
-                reconstruction_t_start = high_resolution_clock::now();
+                updating1_t_start = high_resolution_clock::now();
             }
         } else if (this -> panel_qr == "cholqr") {
             // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
@@ -496,7 +496,7 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 panelqr_t_stop  = high_resolution_clock::now();
                 panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
-                reconstruction_t_start = high_resolution_clock::now();
+                updating1_t_start = high_resolution_clock::now();
             }
         }
 
