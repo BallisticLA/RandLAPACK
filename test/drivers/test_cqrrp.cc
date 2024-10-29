@@ -159,6 +159,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -180,6 +181,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -201,8 +203,8 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
 
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
@@ -226,7 +228,8 @@ TEST_F(TestCQRRP, CQRRP_pivot_qual) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.use_qp3      = 1;
+    CQRRP_blocked.panel_qr = "cholqr";
+    CQRRP_blocked.use_qp3  = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
     m_info.cond_num = std::pow(10, 10);
@@ -251,6 +254,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_gemqrt) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
     CQRRP_blocked.use_gemqrt = true;
     CQRRP_blocked.internal_nb = 10;
 
@@ -274,6 +278,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
     CQRRP_blocked.use_qp3 = true;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
@@ -296,6 +301,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     //all_data.A[1000*200 + 10] = 1;
@@ -318,6 +324,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_half_zero_luqr) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -340,6 +347,7 @@ TEST_F(TestCQRRP, CQRRP_blocked_zero_mat) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 
@@ -359,7 +367,29 @@ TEST_F(TestCQRRP, CQRRP_blocked_qrf) {
 
     CQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.use_qrf = true;
+    CQRRP_blocked.panel_qr = "geqrf";
+    CQRRP_blocked.internal_nb = 10;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+}
+
+TEST_F(TestCQRRP, CQRRP_blocked_qrt) {
+    int64_t m = 5000;//5000;
+    int64_t n = 2800;//2000;
+    int64_t k = 2800;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 900;//500;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    CQRRP_blocked.panel_qr = "geqrt";
     CQRRP_blocked.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);

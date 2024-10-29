@@ -62,7 +62,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
             eps          = ep;
             block_size   = b_sz;
             use_qp3      = false;
-            use_qrf      = false;
+            panel_qr     = "geqrf";
             use_gemqrt   = false;
             internal_nb  = b_sz;
             tol = std::numeric_limits<T>::epsilon();
@@ -131,8 +131,8 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         // QRCP option
         bool use_qp3;
 
-        // Option to use GEQRF on a panel
-        bool use_qrf;
+        // Panel qr option
+        std::string panel_qr;
 
         // Option for updating A
         bool use_gemqrt;
@@ -406,21 +406,30 @@ int CQRRP_blocked<T, RNG>::call(
             }
         }
 
-        if (this -> use_qrf) {
+        
+        if (this -> panel_qr == "geqrt") {
             // No preconditioning required in this case
             if(this -> timing) {
                 panel_preprocessing_t_stop  = high_resolution_clock::now();
                 panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
-            }
-
-            if(this -> timing)
                 panelqr_t_start = high_resolution_clock::now();
-            // Performing QRF on a panel - this skips ORHR_COL and tau extraction
+            }
+            // Performing GEQRT on a panel - this skips ORHR_COL
+            lapack::geqrt(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const);
+            // Define a pointer to the current subportion of tau vector.
             tau_sub = &tau[curr_sz];
-            lapack::geqrf(rows, block_rank, A_work, lda, tau_sub);
+            // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
+            for(i = 0; i < block_rank; ++i)
+                tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
             // R11 is computed and placed in the appropriate space
             R11 = A_work;
-        } else {
+
+            if(this -> timing) {
+                panelqr_t_stop  = high_resolution_clock::now();
+                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
+                reconstruction_t_start = high_resolution_clock::now();
+            }
+        } else if (this -> panel_qr == "cholqr") {
             // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
             // Performing preconditioning of the current matrix A.
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda);
@@ -471,6 +480,24 @@ int CQRRP_blocked<T, RNG>::call(
             // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
             for(i = 0; i < block_rank; ++i)
                 tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
+        } else {
+            // Perform QRF by default
+            // No preconditioning required in this case
+            if(this -> timing) {
+                panel_preprocessing_t_stop  = high_resolution_clock::now();
+                panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
+                panelqr_t_start = high_resolution_clock::now();
+            }
+            // Performing QRF on a panel - this skips ORHR_COL and tau extraction
+            tau_sub = &tau[curr_sz];
+            lapack::geqrf(rows, block_rank, A_work, lda, tau_sub);
+            // R11 is computed and placed in the appropriate space
+            R11 = A_work;
+            if(this -> timing) {
+                panelqr_t_stop  = high_resolution_clock::now();
+                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
+                reconstruction_t_start = high_resolution_clock::now();
+            }
         }
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
@@ -481,7 +508,7 @@ int CQRRP_blocked<T, RNG>::call(
         // Q is defined with block_rank elementary reflectors. 
         // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
         // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
-        if(this -> use_gemqrt && !(this -> use_qrf)) {
+        if(this -> use_gemqrt && (this -> panel_qr == "geqrt" || this -> panel_qr == "cholqr")) {
             lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
         } else {
             lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
@@ -500,7 +527,7 @@ int CQRRP_blocked<T, RNG>::call(
             RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
         }
 
-        if (!(this -> use_qrf)) {
+        if (this -> panel_qr == "cholqr") {
             // Undoing the preconditioning below
 
             // Alternatively, instead of trmm + copy, we could perform a single gemm.

@@ -72,7 +72,7 @@ static void call_all_algs(
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, B_SZ %ld\n", i, b_sz);
         
-        // Testing CQRRP - best setup
+        // Testing CQRRP - QRF
         CQRRP_blocked.use_qrf = true;
         CQRRP_blocked.use_gemqrt = false;
         auto start_cqrrp_qrf = high_resolution_clock::now();
@@ -87,7 +87,7 @@ static void call_all_algs(
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen);
 
-        // Testing CQRRP - using QP3
+        // Testing CQRRP - CholQR
         CQRRP_blocked.use_qrf = false;
         CQRRP_blocked.use_gemqrt = true;
         auto start_cqrrp_cholqr = high_resolution_clock::now();
