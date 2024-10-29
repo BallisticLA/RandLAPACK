@@ -106,6 +106,7 @@ static void call_all_algs(
         
         // Testing CQRRP - best setup
         CQRRP_blocked.use_qp3 = false;
+        CQRRP_blocked.panel_qr = "cholqr";
         auto start_cqrrp = high_resolution_clock::now();
         //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp = high_resolution_clock::now();
@@ -120,6 +121,7 @@ static void call_all_algs(
 
         // Testing CQRRP - using QP3
         CQRRP_blocked.use_qp3 = true;
+        CQRRP_blocked.panel_qr = "cholqr";
         auto start_cqrrp_qp3 = high_resolution_clock::now();
         //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp_qp3 = high_resolution_clock::now();

@@ -61,7 +61,7 @@ static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t b_sz,
-    bool use_qrf,
+    std::string panel_qr,
     QR_speed_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
@@ -73,12 +73,15 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    if(use_qrf) {
-        CQRRP_blocked.use_qrf = true;
-        CQRRP_blocked.use_gemqrt = false;
-    } else {
-        CQRRP_blocked.use_qrf = false;
+    if(panel_qr == "geqrt") {
+        CQRRP_blocked.panel_qr = "geqrt";
         CQRRP_blocked.use_gemqrt = true;
+    } else if (panel_qr == "cholqr") {
+        CQRRP_blocked.panel_qr = "cholqr";
+        CQRRP_blocked.use_gemqrt = true;
+    } else {
+        CQRRP_blocked.panel_qr = "geqrf";
+        CQRRP_blocked.use_gemqrt = false;
     }
 
     // Making sure the states are unchanged
@@ -126,7 +129,7 @@ int main(int argc, char *argv[]) {
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
     int64_t numruns = 3;
-    bool use_qrf = false;
+    std::string panel_qr = "geqrf";
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
@@ -136,15 +139,15 @@ int main(int argc, char *argv[]) {
 
     // Declare a data file
     std::string file = "CQRRP_runtime_breakdown_"              + std::to_string(m)
-                                    + "_cols_"         + std::to_string(n)
-                                    + "_b_sz_start_"   + std::to_string(b_sz_start)
-                                    + "_b_sz_end_"     + std::to_string(b_sz_end)
-                                    + "_d_factor_"     + std::to_string(d_factor)
-                                    + "_use_qrf_"      + std::to_string(use_qrf)
+                                    + "_cols_"          + std::to_string(n)
+                                    + "_b_sz_start_"    + std::to_string(b_sz_start)
+                                    + "_b_sz_end_"      + std::to_string(b_sz_end)
+                                    + "_d_factor_"      + std::to_string(d_factor)
+                                    + "_panel_qr_"      + panel_qr
                                     + ".dat";
 
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        call_all_algs(m_info, numruns, b_sz_start, use_qrf, all_data, state_constant, file);
+        call_all_algs(m_info, numruns, b_sz_start, panel_qr, all_data, state_constant, file);
     }
 }
 #endif

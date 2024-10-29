@@ -81,6 +81,7 @@ static void R_norm_ratio(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
     //CQRRP_blocked.use_qp3 = 1;
 
     // Running QP3
@@ -133,6 +134,7 @@ static void sv_ratio(
 
     // Additional params setup.
     RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
+    CQRRP_blocked.panel_qr = "cholqr";
     //CQRRP_blocked.use_qp3 = 1;
 
     std::fstream file2("QR_sv_ratios_rows_"            + std::to_string(m)

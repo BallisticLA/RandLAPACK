@@ -64,6 +64,7 @@ static void call_all_algs(
     // timing vars
     long dur_cqrrp_cholqr = 0;
     long dur_cqrrp_qrf    = 0;
+    long dur_cqrrp_geqrt  = 0;
     
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -73,7 +74,7 @@ static void call_all_algs(
         printf("ITERATION %d, B_SZ %ld\n", i, b_sz);
         
         // Testing CQRRP - QRF
-        CQRRP_blocked.use_qrf = true;
+        CQRRP_blocked.panel_qr = "geqrf";
         CQRRP_blocked.use_gemqrt = false;
         auto start_cqrrp_qrf = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
@@ -88,7 +89,7 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
 
         // Testing CQRRP - CholQR
-        CQRRP_blocked.use_qrf = false;
+        CQRRP_blocked.panel_qr = "cholqr";
         CQRRP_blocked.use_gemqrt = true;
         auto start_cqrrp_cholqr = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
@@ -101,9 +102,24 @@ static void call_all_algs(
         state_alg = state;
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen);
+
+        // Testing CQRRP - GEQRT
+        CQRRP_blocked.panel_qr = "geqrt";
+        CQRRP_blocked.use_gemqrt = true;
+        auto start_cqrrp_geqrt = high_resolution_clock::now();
+        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        auto stop_cqrrp_geqrt = high_resolution_clock::now();
+        dur_cqrrp_geqrt = duration_cast<microseconds>(stop_cqrrp_geqrt - start_cqrrp_geqrt).count();
+        printf("TOTAL TIME FOR CQRRP_GEQRT %ld\n", dur_cqrrp_geqrt);
+
+        // Making sure the states are unchanged
+        state_gen = state;
+        state_alg = state;
+        // Clear and re-generate data
+        data_regen(m_info, all_data, state_gen);
         
         std::ofstream file(output_filename, std::ios::app);
-        file << ",  " << dur_cqrrp_cholqr << ",  " << dur_cqrrp_qrf << ",\n";
+        file << ",  " << dur_cqrrp_cholqr << ",  " << dur_cqrrp_qrf << ",  " << dur_cqrrp_geqrt << ",\n";
     }
 }
 
