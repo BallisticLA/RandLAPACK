@@ -208,6 +208,7 @@ static void call_tsqr(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
     int64_t n,
+    int64_t geqrt_nb_start,
     benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
@@ -236,62 +237,72 @@ static void call_tsqr(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, S, n, all_data.A.data(), m, 0.0, A_sk, n);
     lapack::geqp3(n, n, A_sk, n, J, tau);
 
-    for (int i = 0; i < numruns; ++i) {
-        printf("TSQR iteration %d; n==%d start.\n", i, n);
-        // Testing GEQRF
-        auto start_geqrf = high_resolution_clock::now();
-        lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
-        auto stop_geqrf = high_resolution_clock::now();
-        dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
-        data_regen(m_info, all_data, state, state, 2);
+    std::ofstream file(output_filename, std::ios::app);
 
-        // Testing GEQR
-        auto start_geqr = high_resolution_clock::now();
-        lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
-        tsize = (int64_t) all_data.tau[0]; 
-        all_data.tau.resize(tsize);
-        lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
-        auto stop_geqr = high_resolution_clock::now();
-        dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
-        data_regen(m_info, all_data, state, state, 2);
+    int64_t nb = 0;
+    int i = 0;
+    for (i = 0; i < numruns; ++i) {
+        for(nb = geqrt_nb_start; nb <= n; nb *=2) {
+            printf("TSQR iteration %d; n==%d start.\n", i, n);
 
+            auto start_geqrt = high_resolution_clock::now();
+            lapack::geqrt( m, n, nb, all_data.A.data(), m, all_data.T_mat.data(), n );
+            auto stop_geqrt = high_resolution_clock::now();
+            dur_geqrt = duration_cast<microseconds>(stop_geqrt - start_geqrt).count();
 
-        auto start_geqrt = high_resolution_clock::now();
-        lapack::geqrt( m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n );
-        auto stop_geqrt = high_resolution_clock::now();
-        dur_geqrt = duration_cast<microseconds>(stop_geqrt - start_geqrt).count();
-        data_regen(m_info, all_data, state, state, 2);
+            if(nb == geqrt_nb_start) {
+                // Testing GEQRF
+                auto start_geqrf = high_resolution_clock::now();
+                lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
+                auto stop_geqrf = high_resolution_clock::now();
+                dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
+                data_regen(m_info, all_data, state, state, 2);
 
-        // Testing CholQR
-        auto start_precond = high_resolution_clock::now();
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, A_sk, n, all_data.A.data(), m);
-        auto stop_precond = high_resolution_clock::now();
-        dur_cholqr_precond = duration_cast<microseconds>(stop_precond - start_precond).count();
-        auto start_cholqr = high_resolution_clock::now();
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
-        lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
-        auto stop_cholqr = high_resolution_clock::now();
-        dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
-        auto start_orhr_col = high_resolution_clock::now();
-        lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
-        auto stop_cholqr_orhr = high_resolution_clock::now();
-        dur_cholqr_house_rest = duration_cast<microseconds>(stop_cholqr_orhr - start_orhr_col).count();
-        auto start_r_restore = high_resolution_clock::now();
-        // Construct the proper R-factor
-        for(int i = 0; i < n; ++i) {
-            for(int j = 0; j < (i + 1); ++j) {
-                all_data.R[(n * i) + j] *=  all_data.D[j];
+                // Testing GEQR
+                auto start_geqr = high_resolution_clock::now();
+                lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
+                tsize = (int64_t) all_data.tau[0]; 
+                all_data.tau.resize(tsize);
+                lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
+                auto stop_geqr = high_resolution_clock::now();
+                dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
+                data_regen(m_info, all_data, state, state, 2);
+
+                // Testing CholQR
+                auto start_precond = high_resolution_clock::now();
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, A_sk, n, all_data.A.data(), m);
+                auto stop_precond = high_resolution_clock::now();
+                dur_cholqr_precond = duration_cast<microseconds>(stop_precond - start_precond).count();
+                auto start_cholqr = high_resolution_clock::now();
+                blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
+                lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
+                auto stop_cholqr = high_resolution_clock::now();
+                dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
+                auto start_orhr_col = high_resolution_clock::now();
+                lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
+                auto stop_cholqr_orhr = high_resolution_clock::now();
+                dur_cholqr_house_rest = duration_cast<microseconds>(stop_cholqr_orhr - start_orhr_col).count();
+                auto start_r_restore = high_resolution_clock::now();
+                // Construct the proper R-factor
+                for(int i = 0; i < n; ++i) {
+                    for(int j = 0; j < (i + 1); ++j) {
+                        all_data.R[(n * i) + j] *=  all_data.D[j];
+                    }
+                }
+                blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T) 1.0, A_sk, n, all_data.R.data(), n);
+                lapack::lacpy(MatrixType::Upper, n, n, all_data.R.data(), n, all_data.A.data(), m);
+                auto stop_r_restore = high_resolution_clock::now();
+                dur_cholqr_r_restore = duration_cast<microseconds>(stop_r_restore - start_r_restore).count();
+                data_regen(m_info, all_data, state, state, 2);
+            
+                file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
             }
+            file << dur_geqrt << ",  ";
+            data_regen(m_info, all_data, state, state, 2);
         }
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T) 1.0, A_sk, n, all_data.R.data(), n);
-        lapack::lacpy(MatrixType::Upper, n, n, all_data.R.data(), n, all_data.A.data(), m);
-        auto stop_r_restore = high_resolution_clock::now();
-        dur_cholqr_r_restore = duration_cast<microseconds>(stop_r_restore - start_r_restore).count();
-        data_regen(m_info, all_data, state, state, 2);
-    
-        std::ofstream file(output_filename, std::ios::app);
-        file << m << ",  " << n << ",  " << dur_geqrf << ",  " << dur_geqr << ",  " << dur_geqrt << ",  " << dur_cholqr <<  ",  " << dur_cholqr_precond << ",  " << dur_cholqr_house_rest << ",  " << dur_cholqr_r_restore << ",\n";
+        nb = geqrt_nb_start;
+        file << "\n";
     }
 
     free(A_sk);
@@ -406,7 +417,7 @@ int main(int argc, char *argv[]) {
 
     file << "\nTSQR: m n GEQRF  GEQR  CHOLQR  CHOLQR_ORHR\n";
     for (i = n_start; i <= n_stop; i *= 2)
-        call_tsqr(m_info, numruns, i, all_data, state, output_filename);
+        call_tsqr(m_info, numruns, i, nb_start, all_data, state, output_filename);
 
     file <<"\nAPPLY Q: m n nb_strart ORMQR  GEMM  GEMQRT(varying NB)\n";
     for (i = n_start; i <= n_stop; i *= 2)

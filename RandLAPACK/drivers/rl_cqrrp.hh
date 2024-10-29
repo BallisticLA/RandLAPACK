@@ -405,7 +405,6 @@ int CQRRP_blocked<T, RNG>::call(
                 break;
             }
         }
-
         
         if (this -> panel_qr == "geqrt") {
             // No preconditioning required in this case
