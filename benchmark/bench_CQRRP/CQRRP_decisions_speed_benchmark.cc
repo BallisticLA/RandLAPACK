@@ -90,7 +90,7 @@ static void call_all_algs(
 
         // Testing CQRRP - CholQR
         CQRRP_blocked.panel_qr = "cholqr";
-        CQRRP_blocked.use_gemqrt = true;
+        CQRRP_blocked.use_gemqrt = false;
         auto start_cqrrp_cholqr = high_resolution_clock::now();
         CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp_cholqr = high_resolution_clock::now();
@@ -107,7 +107,7 @@ static void call_all_algs(
         CQRRP_blocked.panel_qr = "geqrt";
         CQRRP_blocked.use_gemqrt = true;
         auto start_cqrrp_geqrt = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        //CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_cqrrp_geqrt = high_resolution_clock::now();
         dur_cqrrp_geqrt = duration_cast<microseconds>(stop_cqrrp_geqrt - start_cqrrp_geqrt).count();
         printf("TOTAL TIME FOR CQRRP_GEQRT %ld\n", dur_cqrrp_geqrt);

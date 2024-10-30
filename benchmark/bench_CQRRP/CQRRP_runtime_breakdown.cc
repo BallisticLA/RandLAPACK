@@ -78,7 +78,7 @@ static void call_all_algs(
         CQRRP_blocked.use_gemqrt = true;
     } else if (panel_qr == "cholqr") {
         CQRRP_blocked.panel_qr = "cholqr";
-        CQRRP_blocked.use_gemqrt = true;
+        CQRRP_blocked.use_gemqrt = false;
     } else {
         CQRRP_blocked.panel_qr = "geqrf";
         CQRRP_blocked.use_gemqrt = false;
