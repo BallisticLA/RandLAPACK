@@ -362,13 +362,13 @@ static void call_apply_q(
                 auto stop_ormqr = high_resolution_clock::now();
                 dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
 
-                auto start_gemm = high_resolution_clock::now();
                 lapack::ungqr(m, m, n, all_data.A1.data(), m, all_data.tau.data());
+                auto start_gemm = high_resolution_clock::now();
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, all_data.A1.data(), m, all_data.B2.data(), m, 0.0, all_data.C.data(), m);
                 auto stop_gemm = high_resolution_clock::now();
                 dur_gemm = duration_cast<microseconds>(stop_gemm - start_gemm).count();
             
-                file << m << ",  " << n << ",  " << gemqrt_nb_start << ",  " << dur_ormqr << ",  " << dur_gemm << ",  " << dur_gemqrt << ",  " ;                
+                file << m << ",  " << n << ",  " << gemqrt_nb_start << ",  " << dur_ormqr << ",  " << dur_gemm << ",  ";                
             } 
             file << dur_gemqrt << ",  ";
             data_regen(m_info, all_data, state, state_B, 3);
