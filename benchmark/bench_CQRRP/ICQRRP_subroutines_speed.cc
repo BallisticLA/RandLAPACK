@@ -243,7 +243,7 @@ static void call_tsqr(
     int i = 0;
     for (i = 0; i < numruns; ++i) {
         for(nb = geqrt_nb_start; nb <= n; nb *=2) {
-            printf("TSQR iteration %d; n==%d start.\n", i, n);
+            printf("TSQR iteration %d; n==%ld start.\n", i, n);
 
             auto start_geqrt = high_resolution_clock::now();
             lapack::geqrt( m, n, nb, all_data.A.data(), m, all_data.T_mat.data(), n );
