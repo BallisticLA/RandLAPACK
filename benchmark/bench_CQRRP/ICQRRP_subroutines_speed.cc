@@ -45,10 +45,10 @@ struct benchmark_data {
     A(m * n, 0.0),
     A1(m * m, 0.0),
     A_gemqrt(m * n, 0.0),
-    B(m * n, 0.0),
-    B1(m * n, 0.0),
-    B2(m * n, 0.0),
-    C(m * n, 0.0),
+    B(m * m, 0.0),
+    B1(m * m, 0.0),
+    B2(m * m, 0.0),
+    C(m * m, 0.0),
     R(n * n, 0.0),
     Q(m * n, 0.0),
     A_trans(m * n, 0.0),
@@ -345,7 +345,7 @@ static void call_apply_q(
             lapack::orhr_col(m, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.D.data());
             
             auto start_gemqrt = high_resolution_clock::now();
-            lapack::gemqrt(Side::Left, Op::NoTrans, m, n, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
+            lapack::gemqrt(Side::Left, Op::Trans, m, m - n, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
             auto stop_gemqrt = high_resolution_clock::now();
             dur_gemqrt = duration_cast<microseconds>(stop_gemqrt - start_gemqrt).count();
 
@@ -358,13 +358,13 @@ static void call_apply_q(
                     all_data.tau[j] = all_data.T_mat[(n + 1) * j];
 
                 auto start_ormqr = high_resolution_clock::now();
-                lapack::ormqr(Side::Left, Op::NoTrans, m, n, n, all_data.A.data(), m, all_data.tau.data(), all_data.B.data(), m);
+                lapack::ormqr(Side::Left, Op::Trans, m, m - n, n, all_data.A.data(), m, all_data.tau.data(), all_data.B.data(), m);
                 auto stop_ormqr = high_resolution_clock::now();
                 dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
 
                 lapack::ungqr(m, m, n, all_data.A1.data(), m, all_data.tau.data());
                 auto start_gemm = high_resolution_clock::now();
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, 1.0, all_data.A1.data(), m, all_data.B2.data(), m, 0.0, all_data.C.data(), m);
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, m - n, m, 1.0, all_data.A1.data(), m, all_data.B2.data(), m, 0.0, all_data.C.data(), m);
                 auto stop_gemm = high_resolution_clock::now();
                 dur_gemm = duration_cast<microseconds>(stop_gemm - start_gemm).count();
             
