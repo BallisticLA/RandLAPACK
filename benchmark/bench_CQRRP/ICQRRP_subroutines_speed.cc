@@ -166,10 +166,9 @@ static void call_wide_qrcp(
 
         // Testing CQRRPT
         auto start_cqrrpt = high_resolution_clock::now();
-        RandLAPACK::util::transposition(n, m, all_data.A.data(), n, all_data.A_trans.data(), m, 0);
-
-        CQRRPT.call(m, n, all_data.A_trans.data(), m, all_data.R_trans.data(), n, all_data.J.data(), 1.25, state_alg);
-        RandLAPACK::util::transposition(n, n, all_data.R_trans.data(), n, all_data.R.data(), n, 0);
+        //RandLAPACK::util::transposition(n, m, all_data.A.data(), n, all_data.A_trans.data(), m, 0);
+        //CQRRPT.call(m, n, all_data.A_trans.data(), m, all_data.R_trans.data(), n, all_data.J.data(), 1.25, state_alg);
+        //RandLAPACK::util::transposition(n, n, all_data.R_trans.data(), n, all_data.R.data(), n, 0);
         auto stop_cqrrpt = high_resolution_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrpt - start_cqrrpt).count();
         state_alg = state;
@@ -362,9 +361,9 @@ static void call_apply_q(
                 auto stop_ormqr = high_resolution_clock::now();
                 dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
 
-                lapack::ungqr(m, m, n, all_data.A1.data(), m, all_data.tau.data());
+                //lapack::ungqr(m, m, n, all_data.A1.data(), m, all_data.tau.data());
                 auto start_gemm = high_resolution_clock::now();
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, m - n, m, 1.0, all_data.A1.data(), m, all_data.B2.data(), m, 0.0, all_data.C.data(), m);
+                //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, m - n, m, 1.0, all_data.A1.data(), m, all_data.B2.data(), m, 0.0, all_data.C.data(), m);
                 auto stop_gemm = high_resolution_clock::now();
                 dur_gemm = duration_cast<microseconds>(stop_gemm - start_gemm).count();
             
