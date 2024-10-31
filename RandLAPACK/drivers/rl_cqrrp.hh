@@ -406,13 +406,15 @@ int CQRRP_blocked<T, RNG>::call(
             }
         }
         
+
+        if(this -> timing) {
+            panel_preprocessing_t_stop  = high_resolution_clock::now();
+            panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
+            panelqr_t_start = high_resolution_clock::now();
+        }
+
         if (this -> panel_qr == "geqrt") {
             // No preconditioning required in this case
-            if(this -> timing) {
-                panel_preprocessing_t_stop  = high_resolution_clock::now();
-                panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
-                panelqr_t_start = high_resolution_clock::now();
-            }
             // Performing GEQRT on a panel - this skips ORHR_COL
             lapack::geqrt(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const);
             // Define a pointer to the current subportion of tau vector.
@@ -429,15 +431,10 @@ int CQRRP_blocked<T, RNG>::call(
                 updating1_t_start = high_resolution_clock::now();
             }
         } else if (this -> panel_qr == "cholqr") {
+
             // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
             // Performing preconditioning of the current matrix A.
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda);
-
-            if(this -> timing) {
-                panel_preprocessing_t_stop  = high_resolution_clock::now();
-                panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
-                panelqr_t_start = high_resolution_clock::now();
-            }
 
             // Performing Cholesky QR on a panel
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
@@ -482,11 +479,6 @@ int CQRRP_blocked<T, RNG>::call(
         } else {
             // Perform QRF by default
             // No preconditioning required in this case
-            if(this -> timing) {
-                panel_preprocessing_t_stop  = high_resolution_clock::now();
-                panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
-                panelqr_t_start = high_resolution_clock::now();
-            }
             // Performing QRF on a panel - this skips ORHR_COL and tau extraction
             tau_sub = &tau[curr_sz];
             lapack::geqrf(rows, block_rank, A_work, lda, tau_sub);
