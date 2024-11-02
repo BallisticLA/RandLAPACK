@@ -235,8 +235,8 @@ COOMatrix<double> laplacian_from_matrix_market(std::string fn, SparseCSR &A, std
     }
     // Debugging: Print diagonal values for verification
     for (int64_t i = 0; i < n; ++i) {
-        std::cout << "Diagonal A_dense[" << i << "] = " << A_dense[i * n + i] 
-                << ", diag[" << i << "] = " << diag[i] << std::endl;
+        // std::cout << "Diagonal A_dense[" << i << "] = " << A_dense[i * n + i] 
+        //         << ", diag[" << i << "] = " << diag[i] << std::endl;
         coo.vals[m+i] = diag[i];
         coo.rows[m+i] = i;
         coo.cols[m+i] = i;
@@ -321,13 +321,12 @@ int main(int argc, char *argv[]) {
     auto [fn, k, threads] = parse_args(argc, argv);
     SparseCSR G, Aperm;
     std::vector<double> Adensevec{};
-    SparseCSR A;
-    auto A_rb_coo = laplacian_from_matrix_market(fn, A, Adensevec);
+    SparseCSR A; auto A_rb_coo = laplacian_from_matrix_market(fn, A, Adensevec);
+    // auto A = laplace_3d(3); // n x n x n grid
     int64_t n = A.size();
-    RandBLAS::print_buff_to_stream(
-        std::cout, Layout::ColMajor, n, n, Adensevec.data(), n, "A_dense_pre", 2
-    );
-    // auto A = laplace_3d(10); // n x n x n grid
+    // RandBLAS::print_buff_to_stream(
+    //     std::cout, Layout::ColMajor, n, n, Adensevec.data(), n, "A_dense_pre", 2
+    // );
     std::vector<size_t> P;
     //rchol(A, G, P, threads);
     //reorder(A, P, Aperm);
@@ -341,28 +340,42 @@ int main(int argc, char *argv[]) {
     std::vector<int64_t> G_colidxs(nnz_G);
 
     for (int64_t i = 0; i < nnz; ++i) 
-        ApermColIdx[i] = static_cast<size_t>(Aperm.colIdx[i]);
+        ApermColIdx[i] = static_cast<int64_t>(Aperm.colIdx[i]);
     for (int64_t i = 0; i < nnz_G; ++i)
-        G_colidxs[i] = static_cast<size_t>(G.colIdx[i]);
+        G_colidxs[i] = static_cast<int64_t>(G.colIdx[i]);
     for (int64_t i = 0; i < n+1; ++i) {
-        ApermRowPtr[i] = static_cast<size_t>(Aperm.rowPtr[i]);
-        G_rowptr[i]    = static_cast<size_t>(G.rowPtr[i]);
+        ApermRowPtr[i] = static_cast<int64_t>(Aperm.rowPtr[i]);
+        G_rowptr[i]    = static_cast<int64_t>(G.rowPtr[i]);
     }
 
     CSRMatrix A_perm_rb_csr(n, n, nnz,   Aperm.val, ApermRowPtr.data(), ApermColIdx.data());
     CSCMatrix A_perm_rb_csc(n, n, nnz,   Aperm.val, ApermColIdx.data(), ApermRowPtr.data());
     COOMatrix<double> A_perm_rb_coo(n, n);
+    CSRMatrix<double> G_rb_csr(n, n, nnz_G, G.val, G_rowptr.data(), G_colidxs.data());
+    COOMatrix<double> G_rb_coo(n, n);
     RandBLAS::sparse_data::conversions::csr_to_coo(A_perm_rb_csr, A_perm_rb_coo);
+    RandBLAS::sparse_data::conversions::csr_to_coo(G_rb_csr, G_rb_coo);
+
     std::vector<double> A_dense(n*n, 0.0);
-    RandBLAS::sparse_data::coo::coo_to_dense(A_rb_coo, Layout::ColMajor, A_dense.data());
+    RandBLAS::sparse_data::coo::coo_to_dense(A_perm_rb_coo, Layout::ColMajor, A_dense.data());
     RandBLAS::print_buff_to_stream(
         std::cout, Layout::ColMajor, n, n, A_dense.data(), n, "A_dense_post", 2
     );
 
+    std::vector<double> G_dense(n*n, 0.0);
+    RandBLAS::sparse_data::coo::coo_to_dense(G_rb_coo, Layout::ColMajor, G_dense.data());
+    RandBLAS::print_buff_to_stream(
+        std::cout, Layout::ColMajor, n, n, G_dense.data(), n, "G", 4
+    );
 
-    auto diag_G = extract_diagonal(n, G.rowPtr, G.colIdx, G.val);
-    double min_diag = *std::min_element(diag_G.begin(), diag_G.end()); 
-    std::cout << "Min element of diag(G): " << min_diag << std::endl;
+
+    // auto diag_G = extract_diagonal(n, G.rowPtr, G.colIdx, G.val);
+    // std::cout << "Diag G : ";
+    // for (auto g : diag_G) 
+    //     std::cout << g << ", ";
+    // std::cout << std::endl;
+    // double min_diag = *std::min_element(diag_G.begin(), diag_G.end()); 
+    // std::cout << "Min element of diag(G): " << min_diag << std::endl;
 
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR(Aperm, Aperm_mkl);
