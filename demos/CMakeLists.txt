@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../../random123/include/  -Dblaspp_DIR=`pwd`/../../../lapp-install/lib64/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapp-install/lib64/cmake/lapackpp/ -DRChol_DIR=`pwd`/../../../rchol-install/lib/cmake/RChol  -DCMAKE_BINARY_DIR=`pwd`  ..
-# cmake -DCMAKE_BUILD_TYPE=Debug -DRandom123_DIR=`pwd`/../../../random123/include/  -Dblaspp_DIR=`pwd`/../../../lapp-install/lib64/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapp-install/lib64/cmake/lapackpp/ -DRChol_DIR=`pwd`/../../../rchol-install/lib/cmake/RChol  -DCMAKE_BINARY_DIR=`pwd`  ..
+# cmake -DCMAKE_BUILD_TYPE=Debug -DRandom123_DIR=`pwd`/../../../random123/include/  -Dblaspp_DIR=`pwd`/../../../lapp-install/lib64/cmake/blaspp/  -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../../lapp-install/lib64/cmake/lapackpp/ -DRChol_DIR=`pwd`/../../../rchol-install/lib/cmake/RChol -DCMAKE_CXX_FLAGS="-Xarch_host -fsanitize=address"  -DCMAKE_BINARY_DIR=`pwd`  ..
 
 project(demos)
 
