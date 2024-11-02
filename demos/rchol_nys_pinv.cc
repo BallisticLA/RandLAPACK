@@ -306,6 +306,40 @@ std::vector<double> extract_diagonal(int64_t n, index_t* rowptr, index_t* colidx
     return out;
 }
 
+template <typename index_t>
+void handle_onezero_diag_ut(int64_t n, index_t* &rowptr, index_t* &colidxs, double* &vals) {
+    int64_t nnz = static_cast<int64_t>(rowptr[n]);
+    double Gii;
+    for (int64_t i = 0; i < n-1; ++i) {
+        randblas_require(rowptr[i] < rowptr[i+1]);
+        // ^ then we have a structural nonzero.
+        Gii = vals[rowptr[i]];
+        randblas_require(Gii > 0);
+    }
+    double TRAILING_ENTRY = 1.0;
+    if (rowptr[n-1] < rowptr[n]) {
+        // then we have a structural nonzero.
+        Gii = vals[rowptr[n-1]];
+        if (std::abs(Gii) < 1e-16) {
+            vals[rowptr[n-1]] = TRAILING_ENTRY;
+        }
+        return;
+    } 
+    // else, we have to add a single nonzero element to G.
+    index_t* extended_colidxs = new index_t[nnz+1];
+    double*  extended_vals    = new double[nnz+1];
+    for (int64_t ell = 0; ell < nnz; ++ell) {
+        extended_colidxs[ell] = colidxs[ell];
+        extended_vals[ell] = vals[ell];
+    }
+    extended_colidxs[nnz] = static_cast<size_t>(n-1);
+    extended_vals[nnz] = TRAILING_ENTRY;
+    rowptr[n] = nnz + 1;
+    colidxs = extended_colidxs;
+    vals = extended_vals;
+    return;
+}
+
 
 int main(int argc, char *argv[]) {
     std::cout << std::setprecision(3);
@@ -351,18 +385,19 @@ int main(int argc, char *argv[]) {
     CSRMatrix A_perm_rb_csr(n, n, nnz,   Aperm.val, ApermRowPtr.data(), ApermColIdx.data());
     CSCMatrix A_perm_rb_csc(n, n, nnz,   Aperm.val, ApermColIdx.data(), ApermRowPtr.data());
     COOMatrix<double> A_perm_rb_coo(n, n);
-    CSRMatrix<double> G_rb_csr(n, n, nnz_G, G.val, G_rowptr.data(), G_colidxs.data());
-    COOMatrix<double> G_rb_coo(n, n);
     RandBLAS::sparse_data::conversions::csr_to_coo(A_perm_rb_csr, A_perm_rb_coo);
-    RandBLAS::sparse_data::conversions::csr_to_coo(G_rb_csr, G_rb_coo);
-
     std::vector<double> A_dense(n*n, 0.0);
     RandBLAS::sparse_data::coo::coo_to_dense(A_perm_rb_coo, Layout::ColMajor, A_dense.data());
     RandBLAS::print_buff_to_stream(
         std::cout, Layout::ColMajor, n, n, A_dense.data(), n, "A_dense_post", 2
     );
 
+    handle_onezero_diag_ut(n, G.rowPtr, G.colIdx, G.val);
+    nnz_G = G.nnz();
+    CSRMatrix<double> G_rb_csr(n, n, nnz_G, G.val, G_rowptr.data(), G_colidxs.data());
+    COOMatrix<double> G_rb_coo(n, n);
     std::vector<double> G_dense(n*n, 0.0);
+    RandBLAS::sparse_data::conversions::csr_to_coo(G_rb_csr, G_rb_coo);
     RandBLAS::sparse_data::coo::coo_to_dense(G_rb_coo, Layout::ColMajor, G_dense.data());
     RandBLAS::print_buff_to_stream(
         std::cout, Layout::ColMajor, n, n, G_dense.data(), n, "G", 4
@@ -376,6 +411,8 @@ int main(int argc, char *argv[]) {
     // std::cout << std::endl;
     // double min_diag = *std::min_element(diag_G.begin(), diag_G.end()); 
     // std::cout << "Min element of diag(G): " << min_diag << std::endl;
+
+    // PLAN: just check if the last entry is zero, and overwrite it with 1 if that's the case.
 
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR(Aperm, Aperm_mkl);
