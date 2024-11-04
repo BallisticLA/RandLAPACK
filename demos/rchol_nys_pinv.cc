@@ -161,8 +161,10 @@ struct CallableChoSolve {
     double* work = nullptr;
     std::vector<double> work_stdvec{};
     int64_t n_work = 0;
-    //double* unit_ones = nullptr;
-    //double* work_n = nullptr;
+    double* unit_ones = nullptr;
+    std::vector<double> unit_ones_stdvec{};
+    double* work_n = nullptr;
+    std::vector<double> work_n_stdvec{};
 
     /*  C =: alpha * inv(G G') * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -171,31 +173,39 @@ struct CallableChoSolve {
         double beta, double* C, int64_t ldc
     ) {
         if (work == nullptr) {
-            work_stdvec.resize(m*n);
+            work_stdvec.resize(2*m*n);
             work = work_stdvec.data();
             //unit_ones = new double[m]{};
             //double val = std::pow((double)m, -0.5);
             //for (int64_t i = 0; i < m; ++i)
             //    unit_ones[i] = val;
             //work_n = new double[n]{};
+    
+            unit_ones_stdvec.resize(m);
+            unit_ones = unit_ones_stdvec.data();
+            double val = std::pow((double)m, -0.5);
+            for (int64_t i = 0; i < m; ++i)
+               unit_ones[i] = val;
+            work_n_stdvec.resize(n);
+            work_n = work_n_stdvec.data();
             n_work = n;
         } else {
             randblas_require(n_work >= n);
         }
         randblas_require(beta == (double) 0.0);
-        //blas::copy(m*n, B, 1, work+m*n, 1);
-        //project_out_vec(m, n, work+m*n, m, unit_ones, work_n);
+        blas::copy(m*n, B, 1, work+m*n, 1);
+        project_out_vec(m, n, work+m*n, m, unit_ones, work_n);
         randblas_require(ldb == m);
         // TRSM, then transposed TRSM.
         int t = omp_get_max_threads();
         omp_set_num_threads(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
-        auto status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, B, n, ldb, work, m); //, "TRSM G   : ");
+        auto status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
         //TIMED_LINE(
         status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
         omp_set_num_threads(t);
-        //project_out_vec(m, n, C, ldc, unit_ones, work_n);
+        project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 
     // ~CallableChoSolve() {}
@@ -284,9 +294,9 @@ void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<d
     std::vector<double> diagvec(n, 0.0);
     auto diag = diagvec.data();
     // Initialize the dense matrix
-    A_densevec.resize(n * n);
-    auto A_dense = A_densevec.data();
-    RandBLAS::util::safe_scal(n * n, 0.0, A_dense, 1);
+    // A_densevec.resize(n * n);
+    // auto A_dense = A_densevec.data();
+    // RandBLAS::util::safe_scal(n * n, 0.0, A_dense, 1);
     // Fill the COO matrix and dense matrix
     for (int64_t i = 0; i < m; ++i) {
         coo.rows[i] = rows[i];
@@ -295,11 +305,11 @@ void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<d
         randblas_require(v >= 0);
         coo.vals[i] = -v;
         diag[rows[i]] += v;
-        A_dense[rows[i] * n + cols[i]] = -v;
+        // A_dense[rows[i] * n + cols[i]] = -v;
     }
-    for (int64_t i = 0; i < n; ++i) {
-        A_dense[i * n + i] += diag[i];
-    }
+    // for (int64_t i = 0; i < n; ++i) {
+    //     A_dense[i * n + i] += diag[i];
+    // }
     // Debugging: Print diagonal values for verification
     for (int64_t i = 0; i < n; ++i) {
         coo.vals[m+i] = diag[i];
@@ -390,41 +400,13 @@ int main(int argc, char *argv[]) {
     // RandBLAS::print_buff_to_stream(
     //     std::cout, Layout::ColMajor, n, n, Adensevec.data(), n, "A_dense_pre", 2
     // );
-    SparseCSR_RC G;
-    // SparseCSR_RC G, Aperm;
+    //SparseCSR_RC G;
+    SparseCSR_RC G, Aperm;
     std::vector<size_t> P;
-    //rchol(A, G, P, threads);
-    //reorder(A, P, Aperm);
-    rchol(A, G);
-    auto Aperm = A;
-    //#define Aperm A
-    // Aperm.ownMemory = false;
-    // ^ Maybe that copy is 
-    // int64_t nnz = Aperm.nnz();
-    // int64_t nnz_G = G.nnz();
-    // std::vector<int64_t> ApermRowPtr(n+1);
-    // std::vector<int64_t> ApermColIdx(nnz);
-    // std::vector<int64_t> G_rowptr(n+1);
-    // std::vector<int64_t> G_colidxs(nnz_G);
-
-    // for (int64_t i = 0; i < nnz; ++i) 
-    //     ApermColIdx[i] = static_cast<int64_t>(Aperm.colIdx[i]);
-    // for (int64_t i = 0; i < nnz_G; ++i)
-    //     G_colidxs[i] = static_cast<int64_t>(G.colIdx[i]);
-    // for (int64_t i = 0; i < n+1; ++i) {
-    //     ApermRowPtr[i] = static_cast<int64_t>(Aperm.rowPtr[i]);
-    //     G_rowptr[i]    = static_cast<int64_t>(G.rowPtr[i]);
-    // }
-
-    // CSRMatrix A_perm_rb_csr(n, n, nnz,   Aperm.val, ApermRowPtr.data(), ApermColIdx.data());
-    // CSCMatrix A_perm_rb_csc(n, n, nnz,   Aperm.val, ApermColIdx.data(), ApermRowPtr.data());
-    // COOMatrix<double> A_perm_rb_coo(n, n);
-    // RandBLAS::sparse_data::conversions::csr_to_coo(A_perm_rb_csr, A_perm_rb_coo);
-    // std::vector<double> A_dense(n*n, 0.0);
-    // RandBLAS::sparse_data::coo::coo_to_dense(A_perm_rb_coo, Layout::ColMajor, A_dense.data());
-    // RandBLAS::print_buff_to_stream(
-    //     std::cout, Layout::ColMajor, n, n, A_dense.data(), n, "A", 3
-    // );
+    rchol(A, G, P, threads);
+    reorder(A, P, Aperm);
+    //rchol(A, G);
+    //auto Aperm = A;
 
     handle_onezero_diag_ut(n, G.rowPtr, G.colIdx, G.val);
     // nnz_G = G.nnz();
@@ -453,23 +435,6 @@ int main(int argc, char *argv[]) {
     CallableSpMat<CSCMatrix<double>> Aperm_callable{Aperm_mkl, n, nullptr};
     CallableChoSolve N_callable{G_mkl, n};
     LaplacianPinv<CSCMatrix<double>> Lpinv(Aperm_callable, N_callable);
-
-
-    /* check project_out_vec */
-    using std::vector;
-    // vector<double> bigones(10*3, 1.0);
-    // blas::scal(10, 2.0, bigones.data()+10, 1);
-    // blas::scal(10, -1, bigones.data()+20, 1);
-    // RandBLAS::print_buff_to_stream(std::cout, Layout::ColMajor, 10, 3, bigones.data(), 10, "spanones", 16);
-    // std::cout << std::setprecision(16);
-    // double invscale = std::pow((double) 10, -0.5);
-    // std::cout << "\n invscale = " << invscale << "\n";
-    // vector<double> unit_ones(10, invscale);
-    // std::cout << "\n unit ones norm = " << blas::nrm2(10, unit_ones.data(), 1) << "\n";
-    // vector<double> work_n(3,0.0);
-    // project_out_vec(10, 3, bigones.data(), 10, unit_ones.data(), work_n.data());
-    // RandBLAS::print_buff_to_stream(std::cout, Layout::ColMajor, 10, 3, bigones.data(), 10, "pout_spanones", 16);
-
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
@@ -479,8 +444,8 @@ int main(int argc, char *argv[]) {
     RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 3, false);
     double silly_tol = 1e4;
     // ^ ensures we break after one iteration
-    vector<double> V(n*k, 0.0);
-    vector<double> eigvals(k, 0.0);
+    std::vector<double> V(n*k, 0.0);
+    std::vector<double> eigvals(k, 0.0);
     RandBLAS::RNGState state{};
     int64_t k_ = k;
     NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state);
