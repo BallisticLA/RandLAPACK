@@ -100,13 +100,16 @@ struct CallableSpMat {
     sparse_matrix_t A;
     int64_t m;
     RBSpMat *A_rb;
-    bool use_mkl = false;
+    bool use_mkl = true;
     double* work = nullptr;
+    std::vector<double> work_stdvec{};
     int64_t n_work = 0;
     matrix_descr des{SPARSE_MATRIX_TYPE_GENERAL};
     std::vector<double> regs{0.0};
     double* unit_ones = nullptr;
+    std::vector<double> unit_ones_stdvec{};
     double* work_n = nullptr;
+    std::vector<double> work_n_stdvec{};
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -115,12 +118,16 @@ struct CallableSpMat {
         double beta,  double* C, int64_t ldc
     ) {
         if (work == nullptr) {
-            work = new double[m*n];
-            unit_ones = new double[m]{};
+            work_stdvec.resize(m*n);
+            unit_ones_stdvec.resize(m);
+            work_n_stdvec.resize(n);
+
+            work = work_stdvec.data();
+            unit_ones = unit_ones_stdvec.data();
             double val = std::pow((double)m, -0.5);
             for (int64_t i = 0; i < m; ++i)
                 unit_ones[i] = val;
-            work_n = new double[n]{};
+            work_n = work_n_stdvec.data();
             n_work = n;
         } else {
             randblas_require(n_work >= n);
@@ -152,6 +159,7 @@ struct CallableChoSolve {
     int64_t m;
     matrix_descr des{SPARSE_MATRIX_TYPE_TRIANGULAR, SPARSE_FILL_MODE_UPPER, SPARSE_DIAG_NON_UNIT};
     double* work = nullptr;
+    std::vector<double> work_stdvec{};
     int64_t n_work = 0;
     //double* unit_ones = nullptr;
     //double* work_n = nullptr;
@@ -163,7 +171,8 @@ struct CallableChoSolve {
         double beta, double* C, int64_t ldc
     ) {
         if (work == nullptr) {
-            work = new double[m*n];
+            work_stdvec.resize(m*n);
+            work = work_stdvec.data();
             //unit_ones = new double[m]{};
             //double val = std::pow((double)m, -0.5);
             //for (int64_t i = 0; i < m; ++i)
@@ -189,10 +198,7 @@ struct CallableChoSolve {
         //project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 
-    ~CallableChoSolve() {
-        if (work != nullptr) 
-            delete [] work;
-    }
+    // ~CallableChoSolve() {}
 };
 
 // NOTE: below probably needs to conform to the SymmetricLinearOperator API.
@@ -236,7 +242,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
 
         auto seminorm = [work_seminorm_, ones, work_n](int64_t __n, int64_t __s, double* NR) {
             blas::copy(__n*__s, NR, 1, work_seminorm_, 1);
-            //project_out_vec(__n, __s,  work_seminorm_, __n, ones, work_n);
+            project_out_vec(__n, __s,  work_seminorm_, __n, ones, work_n);
             return blas::nrm2(__n*__s, work_seminorm_, 1);
         };
 
@@ -257,7 +263,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
 };
 
 
-COOMatrix<double> laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<double> &A_densevec) {
+void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<double> &A_densevec) {
 
     int64_t n, n_ = 0;
     std::vector<int64_t> rows{};
@@ -296,8 +302,6 @@ COOMatrix<double> laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, 
     }
     // Debugging: Print diagonal values for verification
     for (int64_t i = 0; i < n; ++i) {
-        // std::cout << "Diagonal A_dense[" << i << "] = " << A_dense[i * n + i] 
-        //         << ", diag[" << i << "] = " << diag[i] << std::endl;
         coo.vals[m+i] = diag[i];
         coo.rows[m+i] = i;
         coo.cols[m+i] = i;
@@ -318,9 +322,9 @@ COOMatrix<double> laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, 
         vals[i] = csr.vals[i];
     }
 
-    A.init(rowPtrA, colIdxA, vals, false);
-    std::cout << "Hello!\n";
-    return coo;
+    A.init(rowPtrA, colIdxA, vals, true);
+    return;
+    // return coo;
 }
 
 
@@ -338,33 +342,6 @@ auto parse_args(int argc, char** argv) {
 }
 
 
-template <typename index_t>
-std::vector<double> extract_diagonal(int64_t n, index_t* rowptr, index_t* colidxs, double* vals) {
-    /***
-    
-    This is messed up. For an upper-triangular matrix in CSR format the diagonal entries should 
-    just be vals[rowptr[i]] for i = 0,...,n-1.
-
-    This function is saying that we get zeros after every element other than the first, even
-    on the tiny matrix
-     /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/chesapeake/chesapeake.mtx
-    which I'm pretty sure was running fine just a little bit ago.
-    
-     */
-    index_t n_ = static_cast<index_t>(n);
-    std::vector<double> out(n_, 0.0);
-    for (index_t i = 0; i < n_; ++i) {
-        for (index_t ell = rowptr[i]; ell < rowptr[i+1]; ++ell) {
-            if (colidxs[ell] == i) {
-                out[i] = vals[ell];
-            } // else, don't care.
-        }
-        if (std::abs(out[i]) < 1e-16) {
-            std::cout << "G[i,i] = 0 at index i = " << i << std::endl;
-        }
-    }
-    return out;
-}
 
 template <typename index_t>
 void handle_onezero_diag_ut(int64_t n, index_t* &rowptr, index_t* &colidxs, double* &vals) {
@@ -404,62 +381,58 @@ void handle_onezero_diag_ut(int64_t n, index_t* &rowptr, index_t* &colidxs, doub
 int main(int argc, char *argv[]) {
     std::cout << std::setprecision(16);
 
-    /**
-    
-    TODO: verify that for the default graph we're running on, the 
-    "Cholesky factor" ends up having a zero on the diagonal. Seems
-    that not being strongly connected is creating problems.(?)
-
-     */
-
     auto [fn, k, threads] = parse_args(argc, argv);
-    SparseCSR_RC G, Aperm;
     std::vector<double> Adensevec{};
-    SparseCSR_RC A; laplacian_from_matrix_market(fn, A, Adensevec);
+    SparseCSR_RC A;
+    laplacian_from_matrix_market(fn, A, Adensevec);
     // auto A = laplace_3d(3); // n x n x n grid
     int64_t n = A.size();
     // RandBLAS::print_buff_to_stream(
     //     std::cout, Layout::ColMajor, n, n, Adensevec.data(), n, "A_dense_pre", 2
     // );
+    SparseCSR_RC G;
+    // SparseCSR_RC G, Aperm;
     std::vector<size_t> P;
     //rchol(A, G, P, threads);
     //reorder(A, P, Aperm);
     rchol(A, G);
-    Aperm = A;
+    auto Aperm = A;
+    //#define Aperm A
+    // Aperm.ownMemory = false;
     // ^ Maybe that copy is 
-    int64_t nnz = Aperm.nnz();
-    int64_t nnz_G = G.nnz();
-    std::vector<int64_t> ApermRowPtr(n+1);
-    std::vector<int64_t> ApermColIdx(nnz);
-    std::vector<int64_t> G_rowptr(n+1);
-    std::vector<int64_t> G_colidxs(nnz_G);
+    // int64_t nnz = Aperm.nnz();
+    // int64_t nnz_G = G.nnz();
+    // std::vector<int64_t> ApermRowPtr(n+1);
+    // std::vector<int64_t> ApermColIdx(nnz);
+    // std::vector<int64_t> G_rowptr(n+1);
+    // std::vector<int64_t> G_colidxs(nnz_G);
 
-    for (int64_t i = 0; i < nnz; ++i) 
-        ApermColIdx[i] = static_cast<int64_t>(Aperm.colIdx[i]);
-    for (int64_t i = 0; i < nnz_G; ++i)
-        G_colidxs[i] = static_cast<int64_t>(G.colIdx[i]);
-    for (int64_t i = 0; i < n+1; ++i) {
-        ApermRowPtr[i] = static_cast<int64_t>(Aperm.rowPtr[i]);
-        G_rowptr[i]    = static_cast<int64_t>(G.rowPtr[i]);
-    }
+    // for (int64_t i = 0; i < nnz; ++i) 
+    //     ApermColIdx[i] = static_cast<int64_t>(Aperm.colIdx[i]);
+    // for (int64_t i = 0; i < nnz_G; ++i)
+    //     G_colidxs[i] = static_cast<int64_t>(G.colIdx[i]);
+    // for (int64_t i = 0; i < n+1; ++i) {
+    //     ApermRowPtr[i] = static_cast<int64_t>(Aperm.rowPtr[i]);
+    //     G_rowptr[i]    = static_cast<int64_t>(G.rowPtr[i]);
+    // }
 
-    CSRMatrix A_perm_rb_csr(n, n, nnz,   Aperm.val, ApermRowPtr.data(), ApermColIdx.data());
-    CSCMatrix A_perm_rb_csc(n, n, nnz,   Aperm.val, ApermColIdx.data(), ApermRowPtr.data());
-    COOMatrix<double> A_perm_rb_coo(n, n);
-    RandBLAS::sparse_data::conversions::csr_to_coo(A_perm_rb_csr, A_perm_rb_coo);
-    std::vector<double> A_dense(n*n, 0.0);
-    RandBLAS::sparse_data::coo::coo_to_dense(A_perm_rb_coo, Layout::ColMajor, A_dense.data());
+    // CSRMatrix A_perm_rb_csr(n, n, nnz,   Aperm.val, ApermRowPtr.data(), ApermColIdx.data());
+    // CSCMatrix A_perm_rb_csc(n, n, nnz,   Aperm.val, ApermColIdx.data(), ApermRowPtr.data());
+    // COOMatrix<double> A_perm_rb_coo(n, n);
+    // RandBLAS::sparse_data::conversions::csr_to_coo(A_perm_rb_csr, A_perm_rb_coo);
+    // std::vector<double> A_dense(n*n, 0.0);
+    // RandBLAS::sparse_data::coo::coo_to_dense(A_perm_rb_coo, Layout::ColMajor, A_dense.data());
     // RandBLAS::print_buff_to_stream(
     //     std::cout, Layout::ColMajor, n, n, A_dense.data(), n, "A", 3
     // );
 
     handle_onezero_diag_ut(n, G.rowPtr, G.colIdx, G.val);
-    nnz_G = G.nnz();
-    CSRMatrix<double> G_rb_csr(n, n, nnz_G, G.val, G_rowptr.data(), G_colidxs.data());
-    COOMatrix<double> G_rb_coo(n, n);
-    std::vector<double> G_dense(n*n, 0.0);
-    RandBLAS::sparse_data::conversions::csr_to_coo(G_rb_csr, G_rb_coo);
-    RandBLAS::sparse_data::coo::coo_to_dense(G_rb_coo, Layout::ColMajor, G_dense.data());
+    // nnz_G = G.nnz();
+    // CSRMatrix<double> G_rb_csr(n, n, nnz_G, G.val, G_rowptr.data(), G_colidxs.data());
+    // COOMatrix<double> G_rb_coo(n, n);
+    // std::vector<double> G_dense(n*n, 0.0);
+    // RandBLAS::sparse_data::conversions::csr_to_coo(G_rb_csr, G_rb_coo);
+    // RandBLAS::sparse_data::coo::coo_to_dense(G_rb_coo, Layout::ColMajor, G_dense.data());
     // RandBLAS::print_buff_to_stream(
     //     std::cout, Layout::ColMajor, n, n, G_dense.data(), n, "G", 16
     // );
@@ -477,7 +450,7 @@ int main(int argc, char *argv[]) {
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR_RC(Aperm, Aperm_mkl);
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
-    CallableSpMat<CSCMatrix<double>> Aperm_callable{Aperm_mkl, n, &A_perm_rb_csc};
+    CallableSpMat<CSCMatrix<double>> Aperm_callable{Aperm_mkl, n, nullptr};
     CallableChoSolve N_callable{G_mkl, n};
     LaplacianPinv<CSCMatrix<double>> Lpinv(Aperm_callable, N_callable);
 
@@ -511,5 +484,10 @@ int main(int argc, char *argv[]) {
     RandBLAS::RNGState state{};
     int64_t k_ = k;
     NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state);
+
+
+    mkl_sparse_destroy(Aperm_mkl);
+    mkl_sparse_destroy(G_mkl);
+
     return 0;
 }
