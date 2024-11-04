@@ -438,17 +438,23 @@ int main(int argc, char *argv[]) {
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
-    RandLAPACK::SYPS<double, DefaultRNG>  SYPS(1, 1, false, false);
+    RandLAPACK::SYPS<double, DefaultRNG>  SYPS(5, 1, false, false);
     RandLAPACK::HQRQ<double>              Orth(false, false); 
     RandLAPACK::SYRF<double, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 3, false);
+    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 0, false);
     double silly_tol = 1e4;
     // ^ ensures we break after one iteration
     std::vector<double> V(n*k, 0.0);
     std::vector<double> eigvals(k, 0.0);
     RandBLAS::RNGState state{};
     int64_t k_ = k;
-    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state);
+    TIMED_LINE(
+    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call : ");
+
+    // std::ofstream file_stream("V.txt");
+    // RandBLAS::print_buff_to_stream(
+    //     file_stream, Layout::ColMajor, n, k_, V.data(), n, "V", 16
+    // );
 
 
     mkl_sparse_destroy(Aperm_mkl);
