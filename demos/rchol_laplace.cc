@@ -15,14 +15,15 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
+#define SparseCSR_RC SparseCSR<double>
 
-void sparse_matrix_t_from_SparseCSR(const SparseCSR &A, sparse_matrix_t &mat) {
+void sparse_matrix_t_from_SparseCSR_RC(const SparseCSR_RC &A, sparse_matrix_t &mat) {
     // this implementation is lifted from /home/rjmurr/laps/rchol-repo/c++/util/pcg.cpp
     //
     // Expected mode of calling:
     //
     //      sparse_matrix_t mat;
-    //      sparse_matrix_t_from_SparseCSR(A, mat);
+    //      sparse_matrix_t_from_SparseCSR_RC(A, mat);
     //      /* do stuff */
     //      mkl_sparse_destroy(mat);
     //
@@ -124,7 +125,7 @@ int main(int argc, char *argv[]) {
     std::cout<<std::setprecision(3);
 
     // SDDM matrix from 3D constant Poisson equation
-    SparseCSR A;
+    SparseCSR_RC A;
     A = laplace_3d(n); // n x n x n grid
 
     // random RHS
@@ -133,7 +134,7 @@ int main(int argc, char *argv[]) {
     rand(b);
 
     // compute preconditioner (single thread) and solve 
-    SparseCSR G;
+    SparseCSR_RC G;
     rchol(A, G);
     std::cout << "Fill-in ratio: " << 2.*G.nnz()/A.nnz() << std::endl;
 
@@ -149,8 +150,8 @@ int main(int argc, char *argv[]) {
 
     std::cout << "----------- start RandLAPACK PCG -----------------" << std::endl;
     sparse_matrix_t A_mkl, G_mkl;
-    sparse_matrix_t_from_SparseCSR(A, A_mkl);
-    sparse_matrix_t_from_SparseCSR(G, G_mkl);
+    sparse_matrix_t_from_SparseCSR_RC(A, A_mkl);
+    sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
     CallableSpMat    A_callable{A_mkl, N};
     CallableChoSolve N_callable{G_mkl, N};
     auto seminorm = [](int64_t n, int64_t s, const double* NR){return blas::nrm2(n*s, NR, 1);};

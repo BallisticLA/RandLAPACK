@@ -7,6 +7,8 @@
 #include "util.hpp"
 #include "pcg.hpp"
 
+#define SparseCSR_RC SparseCSR<double>
+
 
 int main(int argc, char *argv[]) {
   int n = 3; // DoF in every dimension
@@ -20,7 +22,7 @@ int main(int argc, char *argv[]) {
   std::cout<<std::setprecision(3);
  
   // SDDM matrix from 3D constant Poisson equation
-  SparseCSR A;
+  SparseCSR_RC A;
   A = laplace_3d(n); // n x n x n grid
 
   // random RHS
@@ -29,13 +31,13 @@ int main(int argc, char *argv[]) {
   rand(b);
 
   // compute preconditioner (multithread) and solve
-  SparseCSR G;
+  SparseCSR_RC G;
   std::vector<size_t> P;
   rchol(A, G, P, threads);
   std::cout<<"Fill-in ratio: "<<2.*G.nnz()/A.nnz()<<std::endl;
 
   // solve the reordered problem with PCG
-  SparseCSR Aperm; reorder(A, P, Aperm);
+  SparseCSR_RC Aperm; reorder(A, P, Aperm);
   std::vector<double> bperm; reorder(b, P, bperm);
     
   double tol = 1e-6;
