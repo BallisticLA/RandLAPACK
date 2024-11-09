@@ -95,7 +95,6 @@ void project_out_vec(int64_t m, int64_t n, double* X, int64_t ldx, double* v, do
     return;
 }
 
-template <typename RBSpMat>
 struct CallableSpMat {
     sparse_matrix_t A;
     int64_t m;
@@ -196,12 +195,11 @@ struct CallableChoSolve {
 };
 
 // NOTE: below probably needs to conform to the SymmetricLinearOperator API.
-template <typename RBSpMat>
 struct LaplacianPinv : public SymmetricLinearOperator<double> {
     public:
     // inherited --> const int64_t m;
-    CallableSpMat<RBSpMat>    L_callable;
-    CallableChoSolve          N_callable;
+    CallableSpMat    L_callable;
+    CallableChoSolve N_callable;
     std::vector<double> work_B{};
     std::vector<double> work_C{};
     std::vector<double> work_seminorm{};
@@ -210,8 +208,8 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
 
-    LaplacianPinv(CallableSpMat<RBSpMat> &L, CallableChoSolve &N) :
-        SymmetricLinearOperator<double>(L.m), L_callable{L.A, L.m, L.A_rb}, N_callable{N.G, N.m} {}; 
+    LaplacianPinv(CallableSpMat &L, CallableChoSolve &N) :
+        SymmetricLinearOperator<double>(L.m), L_callable{L.A, L.m}, N_callable{N.G, N.m} {}; 
 
     /*  C =: alpha * pinv(L) * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -378,9 +376,9 @@ int main(int argc, char *argv[]) {
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR_RC(Aperm, Aperm_mkl);
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
-    CallableSpMat<CSCMatrix<double>> Aperm_callable{Aperm_mkl, n, nullptr};
+    CallableSpMat Aperm_callable{Aperm_mkl, n, nullptr};
     CallableChoSolve N_callable{G_mkl, n};
-    LaplacianPinv<CSCMatrix<double>> Lpinv(Aperm_callable, N_callable);
+    LaplacianPinv Lpinv(Aperm_callable, N_callable);
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
