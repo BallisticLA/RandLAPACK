@@ -99,8 +99,6 @@ template <typename RBSpMat>
 struct CallableSpMat {
     sparse_matrix_t A;
     int64_t m;
-    RBSpMat *A_rb;
-    bool use_mkl = true;
     double* work = nullptr;
     std::vector<double> work_stdvec{};
     int64_t n_work = 0;
@@ -121,7 +119,6 @@ struct CallableSpMat {
             work_stdvec.resize(m*n);
             unit_ones_stdvec.resize(m);
             work_n_stdvec.resize(n);
-
             work = work_stdvec.data();
             unit_ones = unit_ones_stdvec.data();
             double val = std::pow((double)m, -0.5);
@@ -137,18 +134,11 @@ struct CallableSpMat {
         project_out_vec(m, n, work, m, unit_ones, work_n);
         int t = omp_get_max_threads();
         omp_set_num_threads(1);
-        if (use_mkl) {
-            auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
-            TIMED_LINE(
-            mkl_sparse_d_mm(
-                SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
-            ), "SPMM A   : ");
-        } else {
-            TIMED_LINE(
-            RandBLAS::sparse_data::left_spmm(
-                Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m, alpha, *A_rb, 0, 0, work, ldb, beta, C, ldc
-            ), "SPMM A   : ");
-        }
+        auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
+        TIMED_LINE(
+        mkl_sparse_d_mm(
+            SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
+        ), "SPMM A   : ");
         omp_set_num_threads(t);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
@@ -174,13 +164,7 @@ struct CallableChoSolve {
     ) {
         if (work == nullptr) {
             work_stdvec.resize(2*m*n);
-            work = work_stdvec.data();
-            //unit_ones = new double[m]{};
-            //double val = std::pow((double)m, -0.5);
-            //for (int64_t i = 0; i < m; ++i)
-            //    unit_ones[i] = val;
-            //work_n = new double[n]{};
-    
+            work = work_stdvec.data();    
             unit_ones_stdvec.resize(m);
             unit_ones = unit_ones_stdvec.data();
             double val = std::pow((double)m, -0.5);
@@ -225,7 +209,6 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     std::vector<double> proj_work_n{};
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
-    //static const auto constexpr seminorm = [](int64_t n, int64_t s, const double* NR){return blas::nrm2(n*s, NR, 1);};
 
     LaplacianPinv(CallableSpMat<RBSpMat> &L, CallableChoSolve &N) :
         SymmetricLinearOperator<double>(L.m), L_callable{L.A, L.m, L.A_rb}, N_callable{N.G, N.m} {}; 
@@ -273,8 +256,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
 };
 
 
-void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<double> &A_densevec) {
-
+void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A) {
     int64_t n, n_ = 0;
     std::vector<int64_t> rows{};
     std::vector<int64_t> cols{};
@@ -293,11 +275,6 @@ void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<d
     RandBLAS::sparse_data::reserve_coo(nnz, coo);
     std::vector<double> diagvec(n, 0.0);
     auto diag = diagvec.data();
-    // Initialize the dense matrix
-    // A_densevec.resize(n * n);
-    // auto A_dense = A_densevec.data();
-    // RandBLAS::util::safe_scal(n * n, 0.0, A_dense, 1);
-    // Fill the COO matrix and dense matrix
     for (int64_t i = 0; i < m; ++i) {
         coo.rows[i] = rows[i];
         coo.cols[i] = cols[i];
@@ -305,12 +282,7 @@ void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<d
         randblas_require(v >= 0);
         coo.vals[i] = -v;
         diag[rows[i]] += v;
-        // A_dense[rows[i] * n + cols[i]] = -v;
     }
-    // for (int64_t i = 0; i < n; ++i) {
-    //     A_dense[i * n + i] += diag[i];
-    // }
-    // Debugging: Print diagonal values for verification
     for (int64_t i = 0; i < n; ++i) {
         coo.vals[m+i] = diag[i];
         coo.rows[m+i] = i;
@@ -334,7 +306,6 @@ void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, std::vector<d
 
     A.init(rowPtrA, colIdxA, vals, true);
     return;
-    // return coo;
 }
 
 
@@ -392,42 +363,17 @@ int main(int argc, char *argv[]) {
     std::cout << std::setprecision(16);
 
     auto [fn, k, threads] = parse_args(argc, argv);
-    std::vector<double> Adensevec{};
     SparseCSR_RC A;
-    laplacian_from_matrix_market(fn, A, Adensevec);
+    laplacian_from_matrix_market(fn, A);
     // auto A = laplace_3d(3); // n x n x n grid
     int64_t n = A.size();
-    // RandBLAS::print_buff_to_stream(
-    //     std::cout, Layout::ColMajor, n, n, Adensevec.data(), n, "A_dense_pre", 2
-    // );
     //SparseCSR_RC G;
     SparseCSR_RC G, Aperm;
     std::vector<size_t> P;
     rchol(A, G, P, threads);
     reorder(A, P, Aperm);
-    //rchol(A, G);
-    //auto Aperm = A;
 
     handle_onezero_diag_ut(n, G.rowPtr, G.colIdx, G.val);
-    // nnz_G = G.nnz();
-    // CSRMatrix<double> G_rb_csr(n, n, nnz_G, G.val, G_rowptr.data(), G_colidxs.data());
-    // COOMatrix<double> G_rb_coo(n, n);
-    // std::vector<double> G_dense(n*n, 0.0);
-    // RandBLAS::sparse_data::conversions::csr_to_coo(G_rb_csr, G_rb_coo);
-    // RandBLAS::sparse_data::coo::coo_to_dense(G_rb_coo, Layout::ColMajor, G_dense.data());
-    // RandBLAS::print_buff_to_stream(
-    //     std::cout, Layout::ColMajor, n, n, G_dense.data(), n, "G", 16
-    // );
-
-    // auto diag_G = extract_diagonal(n, G.rowPtr, G.colIdx, G.val);
-    // std::cout << "Diag G : ";
-    // for (auto g : diag_G) 
-    //     std::cout << g << ", ";
-    // std::cout << std::endl;
-    // double min_diag = *std::min_element(diag_G.begin(), diag_G.end()); 
-    // std::cout << "Min element of diag(G): " << min_diag << std::endl;
-
-    // PLAN: just check if the last entry is zero, and overwrite it with 1 if that's the case.
 
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR_RC(Aperm, Aperm_mkl);
@@ -455,7 +401,6 @@ int main(int argc, char *argv[]) {
     // RandBLAS::print_buff_to_stream(
     //     file_stream, Layout::ColMajor, n, k_, V.data(), n, "V", 16
     // );
-
 
     mkl_sparse_destroy(Aperm_mkl);
     mkl_sparse_destroy(G_mkl);
