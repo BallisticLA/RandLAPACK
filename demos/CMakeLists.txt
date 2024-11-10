@@ -33,6 +33,13 @@ message(STATUS "Checking for RandLAPACK ... ")
 find_package(RandLAPACK REQUIRED)
 message(STATUS "Done checking for RandLAPACK.")
 
+message(STATUS "Checking for SuiteSparse::AMD ... ")
+find_package(AMD REQUIRED)
+include_directories(${AMD_INCLUDE_DIRS})
+message(STATUS "AMD include directories: ${AMD_INCLUDE_DIRS}")
+message(STATUS "Done checking for SuiteSparse::AMD.")
+
+
 message(STATUS "Checking for RChol ... ")
 find_package(RChol REQUIRED)
 include_directories(${RChol_INCLUDE_DIRS})
@@ -68,6 +75,6 @@ set(
     fast_matrix_market::fast_matrix_market
 )
 
-add_demo(NAME rchol_laplace CXX_SOURCES rchol_laplace.cc LINK_LIBS ${Benchmark_libs})
+# add_demo(NAME rchol_laplace CXX_SOURCES rchol_laplace.cc LINK_LIBS ${Benchmark_libs})
 add_demo(NAME rchol_laplace_parallel CXX_SOURCES rchol_laplace_parallel.cc LINK_LIBS ${Benchmark_libs})
 add_demo(NAME rchol_nys_pinv CXX_SOURCES rchol_nys_pinv.cc LINK_LIBS ${Benchmark_libs})

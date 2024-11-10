@@ -8,7 +8,6 @@
 #include <omp.h>
 
 #include "sparse.hpp"
-// ^ defines CSR sparse matrix type
 #include "rchol.hpp"
 #include "rchol_parallel.hpp"
 #include "util.hpp"
@@ -47,7 +46,7 @@ using std::chrono::microseconds;
 #define TIMED_LINE(_op, _name) _op;
 #endif
 
-#define SparseCSR_RC SparseCSR<double>
+#define SparseCSR_RC SparseCSR
 
 void sparse_matrix_t_from_SparseCSR_RC(const SparseCSR_RC &A, sparse_matrix_t &mat) {
     // this implementation is lifted from /home/rjmurr/laps/rchol-repo/c++/util/pcg.cpp
@@ -86,11 +85,6 @@ void project_out_vec(int64_t m, int64_t n, double* X, int64_t ldx, double* v, do
     //  --> Y = X' v
     //  --> X = X - v Y'
     blas::gemv(Layout::ColMajor, blas::Op::Trans, m, n, (double) 1.0, X, ldx, v, 1, (double) 0.0, work_n, 1);
-    // std::cout << "\n X'v = ";
-    // for (int i = 0; i < n; ++i) {
-    //     std::cout << work_n[i] << ", ";
-    // }
-    // std::cout<<"\n";
     blas::ger(Layout::ColMajor, m, n,  (double)  -1.0, v, 1, work_n, 1, X, ldx);
     return;
 }
@@ -131,14 +125,14 @@ struct CallableSpMat {
         randblas_require(ldb == m);
         blas::copy(m*n, B, 1, work, 1);
         project_out_vec(m, n, work, m, unit_ones, work_n);
-        int t = omp_get_max_threads();
-        omp_set_num_threads(1);
+        //int t = omp_get_max_threads();
+        //omp_set_num_threads(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         TIMED_LINE(
         mkl_sparse_d_mm(
             SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
         ), "SPMM A   : ");
-        omp_set_num_threads(t);
+        //omp_set_num_threads(t);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 };
@@ -180,14 +174,14 @@ struct CallableChoSolve {
         project_out_vec(m, n, work+m*n, m, unit_ones, work_n);
         randblas_require(ldb == m);
         // TRSM, then transposed TRSM.
-        int t = omp_get_max_threads();
-        omp_set_num_threads(1);
+        //int t = omp_get_max_threads();
+        //omp_set_num_threads(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
         auto status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
         //TIMED_LINE(
         status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
-        omp_set_num_threads(t);
+        //omp_set_num_threads(t);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 
@@ -200,6 +194,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     // inherited --> const int64_t m;
     CallableSpMat    L_callable;
     CallableChoSolve N_callable;
+    bool verbose_pcg;
     std::vector<double> work_B{};
     std::vector<double> work_C{};
     std::vector<double> work_seminorm{};
@@ -208,8 +203,8 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
 
-    LaplacianPinv(CallableSpMat &L, CallableChoSolve &N) :
-        SymmetricLinearOperator<double>(L.m), L_callable{L.A, L.m}, N_callable{N.G, N.m} {}; 
+    LaplacianPinv(CallableSpMat &L, CallableChoSolve &N, bool verbose = true) :
+        SymmetricLinearOperator<double>(L.m), L_callable{L.A, L.m}, N_callable{N.G, N.m}, verbose_pcg(verbose) {}; 
 
     /*  C =: alpha * pinv(L) * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -239,9 +234,10 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
 
         for (int64_t i = 0; i < mn; ++i)
             work_B[i] = alpha * B[i];
+        std::cout << "n = " << n << std::endl;
         project_out_vec(m, n, work_B.data(), m, ones, work_n);
         RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
-        RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, true);
+        RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
         project_out_vec(m, n, work_C.data(), m, ones, work_n);
         blas::copy(mn, work_C.data(), 1, C, 1);
     }
@@ -368,7 +364,9 @@ int main(int argc, char *argv[]) {
     //SparseCSR_RC G;
     SparseCSR_RC G, Aperm;
     std::vector<size_t> P;
-    rchol(A, G, P, threads);
+    std::vector<int> S;
+    std::string filename = "orders/order_n" + std::to_string(n) + "_t" + std::to_string(threads) + ".txt";;
+    rchol(A, G, P, S, threads, filename);
     reorder(A, P, Aperm);
 
     handle_onezero_diag_ut(n, G.rowPtr, G.colIdx, G.val);
@@ -376,16 +374,16 @@ int main(int argc, char *argv[]) {
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR_RC(Aperm, Aperm_mkl);
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
-    CallableSpMat Aperm_callable{Aperm_mkl, n, nullptr};
+    CallableSpMat Aperm_callable{Aperm_mkl, n};
     CallableChoSolve N_callable{G_mkl, n};
-    LaplacianPinv Lpinv(Aperm_callable, N_callable);
+    LaplacianPinv Lpinv(Aperm_callable, N_callable, false);
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
     RandLAPACK::SYPS<double, DefaultRNG>  SYPS(5, 1, false, false);
     RandLAPACK::HQRQ<double>              Orth(false, false); 
     RandLAPACK::SYRF<double, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 0, false);
+    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 2, false);
     double silly_tol = 1e4;
     // ^ ensures we break after one iteration
     std::vector<double> V(n*k, 0.0);

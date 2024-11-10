@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "sparse.hpp"
-// ^ defines CSR sparse matrix type
+#include "laplace_3d.hpp"
 #include "rchol.hpp"
 #include "util.hpp"
 #include "pcg.hpp"
@@ -15,7 +15,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
-#define SparseCSR_RC SparseCSR<double>
+#define SparseCSR_RC SparseCSR
 
 void sparse_matrix_t_from_SparseCSR_RC(const SparseCSR_RC &A, sparse_matrix_t &mat) {
     // this implementation is lifted from /home/rjmurr/laps/rchol-repo/c++/util/pcg.cpp
