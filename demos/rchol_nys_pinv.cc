@@ -49,6 +49,19 @@ using std::chrono::microseconds;
 
 #define SparseCSR_RC SparseCSR
 
+// /* status of the routines */
+// typedef enum
+// {
+//     SPARSE_STATUS_SUCCESS           = 0,    /* the operation was successful */
+//     SPARSE_STATUS_NOT_INITIALIZED   = 1,    /* empty handle or matrix arrays */
+//     SPARSE_STATUS_ALLOC_FAILED      = 2,    /* internal error: memory allocation failed */
+//     SPARSE_STATUS_INVALID_VALUE     = 3,    /* invalid input value */
+//     SPARSE_STATUS_EXECUTION_FAILED  = 4,    /* e.g. 0-diagonal element for triangular solver, etc. */
+//     SPARSE_STATUS_INTERNAL_ERROR    = 5,    /* internal error */
+//     SPARSE_STATUS_NOT_SUPPORTED     = 6     /* e.g. operation for double precision doesn't support other types */
+// } sparse_status_t;
+
+
 void sparse_matrix_t_from_SparseCSR_RC(const SparseCSR_RC &A, sparse_matrix_t &mat) {
     // this implementation is lifted from /home/rjmurr/laps/rchol-repo/c++/util/pcg.cpp
     //
@@ -187,13 +200,20 @@ struct CallableChoSolve {
         // TRSM, then transposed TRSM.
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
+        sparse_status_t status;
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
-        // auto status = 
-        mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
+        status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
+        if (status != SPARSE_STATUS_SUCCESS) {
+            std::cout << "TRSM failed with error code " << status << std::endl;
+            throw std::runtime_error("TRSM failure.");
+        }
         //TIMED_LINE(
-        // status = 
-        mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
+        status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
+        if (status != SPARSE_STATUS_SUCCESS) {
+            std::cout << "TRSM failed with error code " << status << std::endl;
+            throw std::runtime_error("TRSM failure.");
+        }
         //omp_set_num_threads(t);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
@@ -256,6 +276,9 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         double *work_n = proj_work_n.data();
         double *work_seminorm_ = work_seminorm.data();
         double *rchol_pcg_work_ = rchol_pcg_work.data();
+        if (n < (int64_t) L_callable.regs.size()) {
+            L_callable.regs.resize(n, 0.0);
+        }
 
         std::vector<double> sn_log{};
         auto seminorm = [work_seminorm_, ones, work_n, &sn_log](int64_t __n, int64_t __s, double* NR) {
@@ -307,7 +330,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
 };
 
 
-void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A) {
+void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A, double reg=0.0) {
     int64_t n, n_ = 0;
     std::vector<int64_t> rows{};
     std::vector<int64_t> cols{};
@@ -324,7 +347,7 @@ void laplacian_from_matrix_market(std::string fn, SparseCSR_RC &A) {
     int64_t nnz = m + n;
     COOMatrix<double> coo(n, n);
     RandBLAS::sparse_data::reserve_coo(nnz, coo);
-    std::vector<double> diagvec(n, 0.0);
+    std::vector<double> diagvec(n, reg);
     auto diag = diagvec.data();
     for (int64_t i = 0; i < m; ++i) {
         coo.rows[i] = rows[i];
@@ -418,22 +441,48 @@ int main(int argc, char *argv[]) {
     laplacian_from_matrix_market(fn, A);
     // auto A = laplace_3d(3); // n x n x n grid
     int64_t n = A.size();
-    //SparseCSR_RC G;
     SparseCSR_RC G, Aperm;
     std::vector<size_t> P;
     std::vector<int> S;
-    std::string filename = "orders/order_n" + std::to_string(n) + "_t" + std::to_string(threads) + ".txt";;
-    rchol(A, G, P, S, threads, filename);
+    std::string filename = "orders/order_n" + std::to_string(n) + "_t" + std::to_string(threads) + ".txt";
+    
+    double reg = 1e-8;
+    SparseCSR_RC A_reg;
+    laplacian_from_matrix_market(fn, A_reg, reg);
+    rchol(A_reg, G, P, S, threads, filename);
+    // Never reference A_reg again.
     reorder(A, P, Aperm);
-
-    handle_onezero_diag_ut(n, G.rowPtr, G.colIdx, G.val);
+    if (reg == 0.0) {
+        handle_onezero_diag_ut(n, G.rowPtr, G.colIdx, G.val);
+    } // if reg > 0, then there's no need for the logic above.
 
     sparse_matrix_t Aperm_mkl, G_mkl;
     sparse_matrix_t_from_SparseCSR_RC(Aperm, Aperm_mkl);
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
     CallableSpMat Aperm_callable{Aperm_mkl, n};
     CallableChoSolve N_callable{G_mkl, n};
-    LaplacianPinv Lpinv(Aperm_callable, N_callable, S, threads, 1e-8, 100, G, false);
+    LaplacianPinv Lpinv(Aperm_callable, N_callable, S, threads, 1e-8, 200, G, false);
+    //
+    //  IDEA: right now we have "regs" that's size one and contains 0.0.
+    //        if we instead have regs be size n and contain all 0.0 then
+    //        the PCG solves will be performed in parallel. This would
+    //        make a fairer comparison of block vs non-block PCG.
+    //
+    //  VERDICT: Lockstep and block have basically the same performance.
+    //           To the extent that there's a difference at all, lockstep
+    //           is marginally faster.
+    //
+    //           One key difference is that we compute the error
+    //           with a black-box seminorm, while the rchol_pcg function
+    //           uses the 2-norm (sensible for nonsingular systems!).
+    //           But that wouldn't explain why the issue only shows up
+    //           when we increase the number of blocks in the matrix 
+    //           partitioning.
+    //
+    //  NOTE: It's a little dubious to just stick a +1 in the bottom right 
+    //        corner of G. Let's switch to regularizing the Laplacian a bit more. 
+    //        --> This doesn't address what might happen if the kernel has dimension > 1.
+    //        
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
@@ -447,14 +496,22 @@ int main(int argc, char *argv[]) {
     std::vector<double> eigvals(k, 0.0);
     RandBLAS::RNGState state{};
     int64_t k_ = k;
-    TIMED_LINE(
-    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call : ");
+    // TIMED_LINE(
+    // NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call -  rchol_pcg : ");
     std::vector<double> V_next(n*k, 0.0);
     std::vector<double> eigvals_next(k, 0.0);
     Lpinv.use_rchol_pcg = false;
+    k_ = k;
     TIMED_LINE(
-    NystromAlg.call(Lpinv, k_, silly_tol, V_next, eigvals_next, state), "NystromAlg.call : ");
-
+    NystromAlg.call(Lpinv, k_, silly_tol, V_next, eigvals_next, state), "NystromAlg.call - block PCG : ");
+    V.clear();
+    V.resize(n*k);
+    eigvals.clear();
+    eigvals.resize(k);
+    Aperm_callable.regs.resize(k, 0.0);
+    k_ = k;
+    TIMED_LINE(
+    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call - lockstep : ");
     // std::ofstream file_stream("V.txt");
     // RandBLAS::print_buff_to_stream(
     //     file_stream, Layout::ColMajor, n, k_, V.data(), n, "V", 16
