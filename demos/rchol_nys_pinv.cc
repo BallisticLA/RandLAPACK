@@ -6,6 +6,7 @@
 #include <fast_matrix_market/fast_matrix_market.hpp>
 #include <fstream>
 #include <omp.h>
+#include <iomanip>
 
 #include "sparse.hpp"
 #include "rchol.hpp"
@@ -207,16 +208,32 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     CallableSpMat    L_callable;
     CallableChoSolve N_callable;
     bool verbose_pcg;
+    pcg rchol_pcg_object;
     std::vector<double> work_B{};
     std::vector<double> work_C{};
     std::vector<double> work_seminorm{};
     std::vector<double> unit_ones{};
     std::vector<double> proj_work_n{};
+    std::vector<double> rchol_pcg_work{};
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
+    bool use_rchol_pcg = true;
 
-    LaplacianPinv(CallableSpMat &L, CallableChoSolve &N, bool verbose = true) :
-        SymmetricLinearOperator<double>(L.m), L_callable{L.A, L.m}, N_callable{N.G, N.m}, verbose_pcg(verbose) {}; 
+    LaplacianPinv(CallableSpMat &L, CallableChoSolve &N,
+        std::vector<int> &S, int num_threads, double pcg_tol, int maxit, SparseCSR_RC &G_rchol,
+        bool verbose = false
+    ) :
+        SymmetricLinearOperator<double>(L.m),
+        L_callable{L.A, L.m},
+        N_callable{N.G, N.m},
+        verbose_pcg(verbose),
+        rchol_pcg_object(L.A, L.m, S, num_threads, pcg_tol, maxit, G_rchol),
+        call_pcg_tol(pcg_tol),
+        max_iters((int64_t) maxit)
+    {
+        mkl_sparse_optimize(L.A);
+        mkl_sparse_optimize(N.G);
+    }; 
 
     /*  C =: alpha * pinv(L) * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -234,22 +251,50 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         work_seminorm.resize(mn);
         unit_ones.resize(mn, std::pow((double)m, -0.5));
         proj_work_n.resize(n);
+        rchol_pcg_work.resize(4*m);
         double *ones = unit_ones.data();
         double *work_n = proj_work_n.data();
         double *work_seminorm_ = work_seminorm.data();
+        double *rchol_pcg_work_ = rchol_pcg_work.data();
 
-        auto seminorm = [work_seminorm_, ones, work_n](int64_t __n, int64_t __s, double* NR) {
+        std::vector<double> sn_log{};
+        auto seminorm = [work_seminorm_, ones, work_n, &sn_log](int64_t __n, int64_t __s, double* NR) {
             blas::copy(__n*__s, NR, 1, work_seminorm_, 1);
             project_out_vec(__n, __s,  work_seminorm_, __n, ones, work_n);
-            return blas::nrm2(__n*__s, work_seminorm_, 1);
+            double out = blas::nrm2(__n*__s, work_seminorm_, 1);
+            sn_log.push_back(out);
+            return out;
         };
 
         for (int64_t i = 0; i < mn; ++i)
             work_B[i] = alpha * B[i];
         //std::cout << "n = " << n << std::endl;
         project_out_vec(m, n, work_B.data(), m, ones, work_n);
-        RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
-        RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
+        if (use_rchol_pcg) {
+            std::cout << std::left << std::setw(10) << "index" 
+                    << std::setw(10) << "iters" 
+                    << std::setw(15) << "relres" << std::endl;
+            for (int64_t i = 0; i < n; ++i) {
+                int iter = 0;
+                double relres = 0.0;
+                double* curr_b = work_B.data() + m*i;
+                double* curr_c = work_C.data() + m*i;
+                rchol_pcg_object.iteration(&L_callable.A, curr_b, &N_callable.G, curr_c, relres, iter, rchol_pcg_work_);
+                std::cout << std::left << std::setw(10) << i 
+                    << std::setw(10) << iter 
+                    << std::setw(15) << relres << std::endl;
+            }
+        } else {
+            // logging
+            std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
+            // work
+            RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
+            RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
+            // logging
+            std::cout << std::left 
+            << std::setw(10) << sn_log.size()
+            << std::setw(15) << sn_log[sn_log.size()-1] / sn_log[0] << std::endl;
+        }
         project_out_vec(m, n, work_C.data(), m, ones, work_n);
         blas::copy(mn, work_C.data(), 1, C, 1);
     }
@@ -388,7 +433,7 @@ int main(int argc, char *argv[]) {
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
     CallableSpMat Aperm_callable{Aperm_mkl, n};
     CallableChoSolve N_callable{G_mkl, n};
-    LaplacianPinv Lpinv(Aperm_callable, N_callable, true);
+    LaplacianPinv Lpinv(Aperm_callable, N_callable, S, threads, 1e-8, 100, G, false);
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
@@ -404,6 +449,11 @@ int main(int argc, char *argv[]) {
     int64_t k_ = k;
     TIMED_LINE(
     NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call : ");
+    std::vector<double> V_next(n*k, 0.0);
+    std::vector<double> eigvals_next(k, 0.0);
+    Lpinv.use_rchol_pcg = false;
+    TIMED_LINE(
+    NystromAlg.call(Lpinv, k_, silly_tol, V_next, eigvals_next, state), "NystromAlg.call : ");
 
     // std::ofstream file_stream("V.txt");
     // RandBLAS::print_buff_to_stream(
