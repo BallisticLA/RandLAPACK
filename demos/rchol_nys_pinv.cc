@@ -7,6 +7,8 @@
 #include <fstream>
 #include <omp.h>
 #include <iomanip>
+//#include <mkl.h>
+
 
 #include "sparse.hpp"
 #include "rchol.hpp"
@@ -151,12 +153,14 @@ struct CallableSpMat {
         project_out_vec(m, n, work, m, unit_ones, work_n);
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
+        omp_set_dynamic(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
         mkl_sparse_d_mm(
             SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
         );//, "SPMM A   : ");
         //omp_set_num_threads(t);
+        omp_set_dynamic(0);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 };
@@ -201,6 +205,7 @@ struct CallableChoSolve {
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
         sparse_status_t status;
+        omp_set_dynamic(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
         status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
@@ -215,6 +220,7 @@ struct CallableChoSolve {
             throw std::runtime_error("TRSM failure.");
         }
         //omp_set_num_threads(t);
+        omp_set_dynamic(0);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 
@@ -436,6 +442,10 @@ void handle_onezero_diag_ut(int64_t n, index_t* &rowptr, index_t* &colidxs, doub
 int main(int argc, char *argv[]) {
     std::cout << std::setprecision(16);
 
+    std::cout << "MKL  max num threads " << omp_get_max_threads() << std::endl;
+    std::cout << "MKL curr num threads " << omp_get_num_threads() << std::endl;
+    // std::cout << "MKL curr num threads " << mkl_get_num_threads() << std::endl;
+
     auto [fn, k, threads] = parse_args(argc, argv);
     SparseCSR_RC A;
     laplacian_from_matrix_market(fn, A);
@@ -479,6 +489,8 @@ int main(int argc, char *argv[]) {
     //           when we increase the number of blocks in the matrix 
     //           partitioning.
     //
+    //            ^ Try rank-16 approx. The issue then shows up with one thread!
+    //
     //  NOTE: It's a little dubious to just stick a +1 in the bottom right 
     //        corner of G. Let's switch to regularizing the Laplacian a bit more. 
     //        --> This doesn't address what might happen if the kernel has dimension > 1.
@@ -486,10 +498,10 @@ int main(int argc, char *argv[]) {
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
-    RandLAPACK::SYPS<double, DefaultRNG>  SYPS(5, 1, false, false);
+    RandLAPACK::SYPS<double, DefaultRNG>  SYPS(3, 1, false, false);
     RandLAPACK::HQRQ<double>              Orth(false, false); 
     RandLAPACK::SYRF<double, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 2, false);
+    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 1, false);
     double silly_tol = 1e4;
     // ^ ensures we break after one iteration
     std::vector<double> V(n*k, 0.0);
@@ -498,12 +510,12 @@ int main(int argc, char *argv[]) {
     int64_t k_ = k;
     // TIMED_LINE(
     // NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call -  rchol_pcg : ");
-    std::vector<double> V_next(n*k, 0.0);
-    std::vector<double> eigvals_next(k, 0.0);
+    // std::vector<double> V_next(n*k, 0.0);
+    // std::vector<double> eigvals_next(k, 0.0);
     Lpinv.use_rchol_pcg = false;
-    k_ = k;
-    TIMED_LINE(
-    NystromAlg.call(Lpinv, k_, silly_tol, V_next, eigvals_next, state), "NystromAlg.call - block PCG : ");
+    // k_ = k;
+    // TIMED_LINE(
+    // NystromAlg.call(Lpinv, k_, silly_tol, V_next, eigvals_next, state), "NystromAlg.call - block PCG : ");
     V.clear();
     V.resize(n*k);
     eigvals.clear();
