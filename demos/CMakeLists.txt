@@ -78,3 +78,4 @@ set(
 # add_demo(NAME rchol_laplace CXX_SOURCES rchol_laplace.cc LINK_LIBS ${Benchmark_libs})
 add_demo(NAME rchol_laplace_parallel CXX_SOURCES rchol_laplace_parallel.cc LINK_LIBS ${Benchmark_libs})
 add_demo(NAME rchol_nys_pinv CXX_SOURCES rchol_nys_pinv.cc LINK_LIBS ${Benchmark_libs})
+add_demo(NAME rchol_3d_laplace CXX_SOURCES rchol_3d_laplace.cc LINK_LIBS ${Benchmark_libs})

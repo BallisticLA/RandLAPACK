@@ -154,7 +154,6 @@ int SYPS<T, RNG>::call(
         A(Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
         ++p_done;
         if (p_done % q == 0) {
-            T* tau  = ( T * ) calloc( k, sizeof( T ) );
             if(lapack::geqrf(m, k, symm_out, m, tau)) {
                 delete [] tau;
                 throw std::runtime_error("GEQRF failed.");
