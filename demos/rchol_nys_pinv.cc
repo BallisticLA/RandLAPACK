@@ -76,7 +76,15 @@ void sparse_matrix_t_from_SparseCSR_RC(const SparseCSR_RC &A, sparse_matrix_t &m
         }
         pointerE[i] = last;    
     }
-    auto status = mkl_sparse_d_create_csr(&mat, SPARSE_INDEX_BASE_ZERO, N, N, pointerB, pointerE, update_intend_rpt, update_intend_datapt);
+    // auto status = 
+    mkl_sparse_d_create_csr(&mat, SPARSE_INDEX_BASE_ZERO, N, N, pointerB, pointerE, update_intend_rpt, update_intend_datapt);
+    // The AddressSanitizer says that this function has a memory leak.
+    // An obvious potential cause is that mkl_sparse_d_create_csr might not take ownership of the buffers we pass it.
+    //
+    // However, we get a segfault later on if we delete pointerB, pointerE, update_intend_rpt, and update_intend_datapt before returning.
+    //
+    // See here for a potentially useful thread:
+    //   community.intel.com/t5/Intel-oneAPI-Math-Kernel-Library/mkl-sparse-d-create-csr-possibility-of-memory-leak/m-p/1313882#M32031
     return;
 }
 
@@ -95,7 +103,9 @@ struct CallableSpMat {
     double* work = nullptr;
     std::vector<double> work_stdvec{};
     int64_t n_work = 0;
-    matrix_descr des{SPARSE_MATRIX_TYPE_GENERAL};
+    matrix_descr des{SPARSE_MATRIX_TYPE_GENERAL, SPARSE_FILL_MODE_UPPER, SPARSE_DIAG_NON_UNIT};
+    // ^ The latter two entries of des are not actually used. I'm only specifying them 
+    //   to avoid compiler warings.
     std::vector<double> regs{0.0};
     double* unit_ones = nullptr;
     std::vector<double> unit_ones_stdvec{};
@@ -128,10 +138,10 @@ struct CallableSpMat {
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
-        TIMED_LINE(
+        //TIMED_LINE(
         mkl_sparse_d_mm(
             SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
-        ), "SPMM A   : ");
+        );//, "SPMM A   : ");
         //omp_set_num_threads(t);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
@@ -140,7 +150,7 @@ struct CallableSpMat {
 struct CallableChoSolve {
     sparse_matrix_t G;
     int64_t m;
-    matrix_descr des{SPARSE_MATRIX_TYPE_TRIANGULAR, SPARSE_FILL_MODE_UPPER, SPARSE_DIAG_NON_UNIT};
+    matrix_descr des = {SPARSE_MATRIX_TYPE_TRIANGULAR, SPARSE_FILL_MODE_UPPER, SPARSE_DIAG_NON_UNIT};
     double* work = nullptr;
     std::vector<double> work_stdvec{};
     int64_t n_work = 0;
@@ -178,9 +188,11 @@ struct CallableChoSolve {
         //omp_set_num_threads(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
-        auto status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
+        // auto status = 
+        mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
         //TIMED_LINE(
-        status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
+        // status = 
+        mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
         //omp_set_num_threads(t);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
@@ -234,7 +246,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
 
         for (int64_t i = 0; i < mn; ++i)
             work_B[i] = alpha * B[i];
-        std::cout << "n = " << n << std::endl;
+        //std::cout << "n = " << n << std::endl;
         project_out_vec(m, n, work_B.data(), m, ones, work_n);
         RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
         RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
@@ -376,7 +388,7 @@ int main(int argc, char *argv[]) {
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
     CallableSpMat Aperm_callable{Aperm_mkl, n};
     CallableChoSolve N_callable{G_mkl, n};
-    LaplacianPinv Lpinv(Aperm_callable, N_callable, false);
+    LaplacianPinv Lpinv(Aperm_callable, N_callable, true);
     
     // low-rank approx time!
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
