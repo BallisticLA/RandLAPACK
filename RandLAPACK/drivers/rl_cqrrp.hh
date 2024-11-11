@@ -416,7 +416,7 @@ int CQRRP_blocked<T, RNG>::call(
         if (this -> panel_qr == "geqrt") {
             // No preconditioning required in this case
             // Performing GEQRT on a panel - this skips ORHR_COL
-            lapack::geqrt(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const);
+            lapack::geqrt(rows, b_sz, internal_nb, A_work, lda, T_dat, b_sz_const);
             // Define a pointer to the current subportion of tau vector.
             tau_sub = &tau[curr_sz];
             // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
@@ -481,7 +481,7 @@ int CQRRP_blocked<T, RNG>::call(
             // No preconditioning required in this case
             // Performing QRF on a panel - this skips ORHR_COL and tau extraction
             tau_sub = &tau[curr_sz];
-            lapack::geqrf(rows, block_rank, A_work, lda, tau_sub);
+            lapack::geqrf(rows, b_sz, A_work, lda, tau_sub);
             // R11 is computed and placed in the appropriate space
             R11 = A_work;
             if(this -> timing) {
@@ -492,6 +492,7 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
+        // If block_rank != b_sz_const -> last iteration, no need to find the new "current A." 
         // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
         // The first b_sz rows will represent R12.
         // The last rows-b_sz rows will represent the new A.
@@ -499,10 +500,18 @@ int CQRRP_blocked<T, RNG>::call(
         // Q is defined with block_rank elementary reflectors. 
         // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
         // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
-        if(this -> use_gemqrt && (this -> panel_qr == "geqrt" || this -> panel_qr == "cholqr")) {
-            lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
+        if ((block_rank != b_sz_const)) {
+            if(this -> use_gemqrt && (this -> panel_qr == "geqrt" || this -> panel_qr == "cholqr")) {
+                lapack::gemqrt(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
+            } else {
+                lapack::ormqr(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
+            }
         } else {
-            lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
+            if(this -> use_gemqrt && (this -> panel_qr == "geqrt" || this -> panel_qr == "cholqr")) {
+                lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
+            } else {
+                lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
+            }
         }
         
         if(this -> timing) {
@@ -524,14 +533,14 @@ int CQRRP_blocked<T, RNG>::call(
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
             // Compute R11 = R11_full(1:block_rank, :) * R_sk
             // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, block_rank, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
 
             // Need to copy R11 over form R_cholqr into the appropriate space in A.
             // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
             // In a global sense, this is identical to:
             // R11 =  &A[(m + 1) * curr_sz];
             R11 = A_work;
-            lapack::lacpy(MatrixType::Upper, block_rank, block_rank, R_cholqr, b_sz_const, A_work, lda);
+            lapack::lacpy(MatrixType::Upper, block_rank, b_sz, R_cholqr, b_sz_const, A_work, lda);
         }
 
         // Updating the pointer to R12

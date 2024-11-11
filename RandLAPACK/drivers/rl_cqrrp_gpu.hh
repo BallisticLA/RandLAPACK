@@ -520,12 +520,12 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             }
             // Perform an unpivoted QR instead of CholQR
             if(iter == 0) {
-                lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work, d, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
+                lapack::geqrf_work_size_bytes(rows, b_sz, A_work, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
                 d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
                 std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
                 h_work_geqrf_opt = h_work_geqrf_vector_opt.data();
             }
-            lapack::geqrf(rows, block_rank, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
+            lapack::geqrf(rows, b_sz, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
@@ -601,15 +601,28 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             nvtxRangePushA("update_A");
             updating_A_t_start = high_resolution_clock::now();
         }
-        if (iter == 0) {
-            // Compute optimal workspace size
-            cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
-            // Allocate workspace
-            cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+
+        if (block_rank != b_sz_const) {
+            if (iter == 0) {
+                // Compute optimal workspace size
+                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+                // Allocate workspace
+                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+            }
+            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+            // Synchronization required after using cusolver
+            cudaStreamSynchronize(strm);
+        } else {
+            if (iter == 0) {
+                // Compute optimal workspace size
+                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+                // Allocate workspace
+                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+            }
+            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+            // Synchronization required after using cusolver
+            cudaStreamSynchronize(strm);
         }
-        cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
-        // Synchronization required after using cusolver
-        cudaStreamSynchronize(strm);
 
         if(this -> timing) {
             cudaStreamSynchronize(strm);
@@ -680,13 +693,13 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
             // Compute R11 = R11_full(1:block_rank, :) * R_sk
             // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, block_rank, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
             // Need to copy R11 over form R_cholqr into the appropriate space in A.
             // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
             // In a global sense, this is identical to:
             // R11 =  &A[(m + 1) * curr_sz];
             R11 = A_work;
-            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, block_rank, block_rank, R_cholqr, b_sz_const, A_work, lda, true);
+            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, block_rank, b_sz, R_cholqr, b_sz_const, A_work, lda, true);
         }
 
         // Updating the pointer to R12
