@@ -434,13 +434,13 @@ int main(int argc, char *argv[]) {
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
     CallableSpMat Lreg_perm_callable{Lreg_perm_mkl, n, (int64_t) L_reg.nnz()};
     CallableChoSolve N_callable{G_mkl, n};
-    LaplacianPinv Lpinv(Lreg_perm_callable, N_callable, S, threads, 1e-10, 200, G, false);   
+    LaplacianPinv Lpinv(Lreg_perm_callable, N_callable, S, threads, 1e-10, 50, G, false);   
     
     // low-rank approx time!
     RandLAPACK::SYPS<double, DefaultRNG>  SYPS(3, 1, false, false);
     RandLAPACK::HQRQ<double>              Orth(false, false); 
     RandLAPACK::SYRF<double, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 1, false);
+    RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 0, false);
 
     std::vector<double> V{};
     std::vector<double> eigvals{};
@@ -454,36 +454,34 @@ int main(int argc, char *argv[]) {
         matrix_folder.end()
     );
 
-    std::cout << "*******\n"; 
-    std::cout << matrix_folder << std::endl;
-    std::cout << "*******\n"; 
-
-
     Lpinv.mode = PCGMode::Block;
-    int64_t num_reps = 3;
-    std::vector<int64_t> ps{1,2,3,4,5};
-    std::vector<int64_t> ks{4,16};
+    int64_t num_reps = 2;
+    std::vector<int64_t> ps{0,1,2,3};
+    std::vector<int64_t> ks{4,8,16};
     for (auto k : ks) {
         Lpinv.prep(k);
         for (auto p : ps) {
             for (int64_t r = 0; r < num_reps; ++r) {
                 SYPS.passes_over_data = p;
+                Lpinv.verbose_outer_iters = true;
                 double dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
-                std::cout << std::setw(4) << k << ",  " << p << ",  " << dt_iter << ",\n";
+                std::cout << std::setw(4) << k << ",  " << p+1 << ",  " << dt_iter << ",\n";
             }
             // write the output ...
-            std::stringstream ss;
-            ss << matrix_folder << "/V_" << k << "_" << p << ".csv";
-            std::string temp = ss.str();
-            std::ofstream file_stream(temp);
-            file_stream << std::setprecision(16);
-            for (int64_t i = 0; i < n; ++i) {
-                file_stream << P[i] << ", ";
-                int64_t j;
-                for (j = 0; j < k-1; ++j) {
-                    file_stream << V[i + n*j] << ", ";
+            if (threads == 1){
+                std::stringstream ss;
+                ss << matrix_folder << "/V_" << k << "_" << p << ".csv";
+                std::string temp = ss.str();
+                std::ofstream file_stream(temp);
+                file_stream << std::setprecision(16);
+                for (int64_t i = 0; i < n; ++i) {
+                    file_stream << P[i] << ", ";
+                    int64_t j;
+                    for (j = 0; j < k-1; ++j) {
+                        file_stream << V[i + n*j] << ", ";
+                    }
+                    file_stream << V[i + n*j] << "\n";
                 }
-                file_stream << V[i + n*j] << "\n";
             }
         }
     }
