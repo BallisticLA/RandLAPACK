@@ -427,6 +427,8 @@ int main(int argc, char *argv[]) {
     RandLAPACK::HQRQ<double>              Orth(false, false); 
     RandLAPACK::SYRF<double, DefaultRNG>  SYRF(SYPS, Orth, false, false);
     RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 1, false);
+    // ^ Use p+1 passes over data in NystromAlg by setting
+    //   NystromAlg.SYRF_Obj.SYPS_Obj.passes_over_data = p
 
     std::vector<double> V(n*k, 0.0);
     std::vector<double> V_next(n*k);
@@ -440,15 +442,19 @@ int main(int argc, char *argv[]) {
     double dt_iter;
     Lpinv.mode = PCGMode::RChol;
     dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
-    std::cout << "Time with RChol's PCG : " << dt_iter << std::endl;
+    std::cout << "Time with RChol's PCG : " << dt_iter << "\n\n";
 
     Lpinv.mode = PCGMode::Lockstep;
     dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
-    std::cout << "Time with Lockstep PCG : " << dt_iter << std::endl;
+    std::cout << "Time with Lockstep PCG : " << dt_iter << "\n\n";
 
     Lpinv.mode = PCGMode::Block;
     dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
-    std::cout << "Time with Block PCG : " << dt_iter << std::endl;
+    std::cout << "Time with Block PCG : " << dt_iter << "\n\n";
+
+    SYPS.passes_over_data = 6;
+    dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
+    std::cout << "Time with Block PCG (p=6) : " << dt_iter << "\n\n";
 
     // std::cout << std::endl;
     // std::ofstream file_stream("V.txt");
