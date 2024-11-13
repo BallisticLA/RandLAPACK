@@ -174,6 +174,12 @@ struct CallableChoSolve {
     }
 };
 
+enum PCGMode : char {
+    RChol    = 'R',
+    Lockstep = 'L',
+    Block    = 'B'
+};
+
 // NOTE: below probably needs to conform to the SymmetricLinearOperator API.
 struct LaplacianPinv : public SymmetricLinearOperator<double> {
     public:
@@ -188,7 +194,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     std::vector<double> rchol_pcg_work{};
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
-    bool use_rchol_pcg = false;
+    PCGMode mode = PCGMode::Block;
 
     LaplacianPinv(CallableSpMat &L, CallableChoSolve &N,
         std::vector<int> &S, int num_threads, double pcg_tol, int maxit, SparseCSR_RC &G_rchol,
@@ -215,25 +221,26 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         N_callable.work_stdvec.resize(2*mn);
     }
 
-    /*  C =: alpha * pinv(L) * B + beta * C, where C and B have "n" columns. */
-    void operator()(
-        Layout layout, int64_t n, 
-        double alpha, double* const B, int64_t ldb,
-        double beta, double* C, int64_t ldc
-    ) {
-        randblas_require(layout == Layout::ColMajor);
-        randblas_require(beta == (double) 0.0);
-        randblas_require(ldb == m);
-        randblas_require(ldc == m);
-        int64_t mn = m*n;
-        work_B.resize(mn);
-        work_C.resize(mn);
+    void _rchol_pcg_solve_with_work(int64_t n) {
         rchol_pcg_work.resize(4*m);
         double *rchol_pcg_work_ = rchol_pcg_work.data();
-        if (n < (int64_t) L_callable.regs.size()) {
-            L_callable.regs.resize(n, 0.0);
+        std::cout << std::left << std::setw(10) << "index" 
+                << std::setw(10) << "iters" 
+                << std::setw(15) << "relres" << std::endl;
+        for (int64_t i = 0; i < n; ++i) {
+            int iter = 0;
+            double relres = 0.0;
+            double* curr_b = work_B.data() + m*i;
+            double* curr_c = work_C.data() + m*i;
+            rchol_pcg_object.iteration(&L_callable.A, curr_b, &N_callable.G, curr_c, relres, iter, rchol_pcg_work_);
+            std::cout << std::left << std::setw(10) << i 
+                << std::setw(10) << iter 
+                << std::setw(15) << relres << std::endl;
         }
+        return;
+    }
 
+    void _lockorblock_solve_with_work(int64_t n) {
         std::vector<double> sn_log_R{};
         std::vector<double> sn_log_NR{};
         int64_t count = 0;
@@ -247,41 +254,51 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
             count++;
             return out;
         };
+        // logging
+        std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
+        // work
+        RandBLAS::util::safe_scal(m*n, 0.0, work_C.data(), 1);
+        RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
+        // logging
+        double denominator;
+        if (sn_log_NR[0] > 1e3 * sn_log_R[0]) {
+            denominator = sn_log_R[0];
+        } else {
+            denominator = sn_log_NR[0];
+        }
+        std::cout << std::left 
+        << std::setw(10) << sn_log_NR.size() - 1
+        << std::setw(15) << sn_log_NR.back() / denominator << std::endl;
+    }
+
+    /*  C =: alpha * pinv(L) * B + beta * C, where C and B have "n" columns. */
+    void operator()(
+        Layout layout, int64_t n, 
+        double alpha, double* const B, int64_t ldb,
+        double beta, double* C, int64_t ldc
+    ) {
+        randblas_require(layout == Layout::ColMajor);
+        randblas_require(beta == (double) 0.0);
+        randblas_require(ldb == m);
+        randblas_require(ldc == m);
+        int64_t mn = m*n;
+        work_B.resize(mn);
+        work_C.resize(mn);
 
         for (int64_t i = 0; i < mn; ++i)
             work_B[i] = alpha * B[i];
-        if (use_rchol_pcg) {
-            std::cout << std::left << std::setw(10) << "index" 
-                    << std::setw(10) << "iters" 
-                    << std::setw(15) << "relres" << std::endl;
-            for (int64_t i = 0; i < n; ++i) {
-                int iter = 0;
-                double relres = 0.0;
-                double* curr_b = work_B.data() + m*i;
-                double* curr_c = work_C.data() + m*i;
-                rchol_pcg_object.iteration(&L_callable.A, curr_b, &N_callable.G, curr_c, relres, iter, rchol_pcg_work_);
-                std::cout << std::left << std::setw(10) << i 
-                    << std::setw(10) << iter 
-                    << std::setw(15) << relres << std::endl;
-            }
+
+        if (mode == PCGMode::RChol)  {
+            _rchol_pcg_solve_with_work(n);
+        } else if (mode == PCGMode::Lockstep) {
+            L_callable.regs.resize(n, 0.0);
+            _lockorblock_solve_with_work(n);
         } else {
-            // logging
-            std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
-            // work
-            RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
-            RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
-            // logging; the first entry of sn_log is just norm(R), rather than norm(NR).
-            double denominator;
-            if (sn_log_NR[0] > 1e3 * sn_log_R[0]) {
-                denominator = sn_log_R[0];
-            } else {
-                denominator = sn_log_NR[0];
-            }
-            std::cout << std::left 
-            << std::setw(10) << sn_log_NR.size() - 1
-            << std::setw(15) << sn_log_NR.back() / denominator << std::endl;
+            L_callable.regs.resize(1, 0.0);
+            _lockorblock_solve_with_work(n);
         }
         blas::copy(mn, work_C.data(), 1, C, 1);
+        return;
     }
 
     double operator()(int64_t i, int64_t j) {
@@ -357,6 +374,27 @@ auto parse_args(int argc, char** argv) {
     return std::make_tuple(mat, approx_rank, threads);
 }
 
+double run_nys_approx(
+    int k, std::vector<double> &V, std::vector<double> &eigvals,
+    LaplacianPinv &Lpinv,
+    RandLAPACK::REVD2<double, DefaultRNG> &NystromAlg) {
+    int64_t n = Lpinv.m;
+    V.resize(n*k); eigvals.resize(k);
+    for (int64_t i = 0; i < n*k; ++i)
+        V[i] = 0.0;
+    for (int64_t i = 0; i < k; ++i)
+        eigvals[i] = 0.0;
+
+    int64_t k_ = k;
+    auto _tp0 = std_clock::now();
+    double dummy_tol = 1e10;
+    RandBLAS::RNGState state(8675309);
+    NystromAlg.call(Lpinv, k_, dummy_tol, V, eigvals, state);
+    auto _tp1 = std_clock::now();
+    double dtime = (double) duration_cast<microseconds>(_tp1 - _tp0).count() / 1e6;
+    return dtime;
+}
+
 
 int main(int argc, char *argv[]) {
     std::cout << std::setprecision(16);
@@ -389,45 +427,30 @@ int main(int argc, char *argv[]) {
     RandLAPACK::HQRQ<double>              Orth(false, false); 
     RandLAPACK::SYRF<double, DefaultRNG>  SYRF(SYPS, Orth, false, false);
     RandLAPACK::REVD2<double, DefaultRNG> NystromAlg(SYRF, 1, false);
-    double silly_tol = 1e4;
-    // ^ ensures we break after one iteration
+
     std::vector<double> V(n*k, 0.0);
-    std::vector<double> eigvals(k, 0.0);
-    std::vector<double> V_next(n*k, 0.0);
-    std::vector<double> eigvals_next(k, 0.0);
-    RandBLAS::RNGState state(8675309);
-    int64_t k_ = k;
+    std::vector<double> V_next(n*k);
+    std::vector<double> eigvals(k);
     
     Lpinv.prep(k);
     Lpinv(Layout::ColMajor, k, (double) 1.0, V.data(), n, (double)0.0, V_next.data(), n);
     std::cout << "\n";
     // ^ Dummy.
 
-    k_ = k;
-    V.clear(); V.resize(n*k, 0.0);
-    eigvals.clear(); eigvals.resize(k, 0.0);
-    Lpinv.use_rchol_pcg = true;
-    TIMED_LINE(
-    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call -  rchol_pcg : ");
-    Lpinv.use_rchol_pcg = false;
-    std::cout << "\n";
+    double dt_iter;
+    Lpinv.mode = PCGMode::RChol;
+    dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
+    std::cout << "Time with RChol's PCG : " << dt_iter << std::endl;
 
-    k_ = k;
-    V.clear(); V.resize(n*k, 0.0);
-    eigvals.clear(); eigvals.resize(k, 0.0);
-    Lpinv.L_callable.regs.resize(k, 0.0);
-    TIMED_LINE(
-    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call - lockstep : ");
-    std::cout << std::endl;
+    Lpinv.mode = PCGMode::Lockstep;
+    dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
+    std::cout << "Time with Lockstep PCG : " << dt_iter << std::endl;
 
-    k_ = k;
-    V.clear(); V.resize(n*k, 0.0);
-    eigvals.clear(); eigvals.resize(k, 0.0);
-    Lpinv.L_callable.regs.resize(1, 0.0);
-    TIMED_LINE(
-    NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state), "NystromAlg.call - block PCG : ");
+    Lpinv.mode = PCGMode::Block;
+    dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
+    std::cout << "Time with Block PCG : " << dt_iter << std::endl;
 
-    std::cout << std::endl;
+    // std::cout << std::endl;
     // std::ofstream file_stream("V.txt");
     // RandBLAS::print_buff_to_stream(
     //     file_stream, Layout::ColMajor, n, k_, V.data(), n, "V", 16
