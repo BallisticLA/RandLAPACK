@@ -413,7 +413,7 @@ int main(int argc, char *argv[]) {
     auto _tp1 = std_clock::now();
     double dtime = (double) duration_cast<microseconds>(_tp1 - _tp0).count() / 1e6;
     std::cout << "\n====================================================================================\n";
-    std::cout << "Running with OPENMP_NUM_THREADS = " <<  omp_get_max_threads() << "\n\n";
+    std::cout << "Running with OMP_NUM_THREADS = " <<  omp_get_max_threads() << "\n\n";
     std::cout << "Graph information\n";
     std::cout << "  Adjacency matrix file : " << fn << "\n";
     std::cout << "  Number of nodes, n : " << n << "\n";
@@ -455,7 +455,7 @@ int main(int argc, char *argv[]) {
     );
 
     Lpinv.mode = PCGMode::Block;
-    int64_t num_reps = 2;
+    int64_t num_reps = 1;
     std::vector<int64_t> ps{0,1,2};
     std::vector<int64_t> ks{4,8,16};
     for (auto k : ks) {
