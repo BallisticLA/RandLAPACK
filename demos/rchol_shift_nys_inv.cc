@@ -456,16 +456,18 @@ int main(int argc, char *argv[]) {
 
     Lpinv.mode = PCGMode::Block;
     int64_t num_reps = 2;
-    std::vector<int64_t> ps{0,1,2,3};
+    std::vector<int64_t> ps{0,1,2};
     std::vector<int64_t> ks{4,8,16};
     for (auto k : ks) {
         Lpinv.prep(k);
         for (auto p : ps) {
             for (int64_t r = 0; r < num_reps; ++r) {
                 SYPS.passes_over_data = p;
+                // ^ The rangefinder makes one pass on top of this.
+                // ^ The REVD2 algorithm makes another pass on top of the rangefinder.
                 Lpinv.verbose_outer_iters = true;
                 double dt_iter = run_nys_approx(k, V, eigvals, Lpinv, NystromAlg);
-                std::cout << std::setw(4) << k << ",  " << p+1 << ",  " << dt_iter << ",\n";
+                std::cout << std::setw(4) << k << ",  " << p+2 << ",  " << dt_iter << ",\n";
             }
             // write the output ...
             if (threads == 1){
