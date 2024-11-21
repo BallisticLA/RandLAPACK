@@ -97,6 +97,7 @@ static void R_norm_ratio(
     // Running CQRRP
     state_alg = state;
     CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+    printf("%ld\n", CQRRP_blocked.rank);
     std::vector<T> R_norms_CQRRP = get_norms(all_data);
 
     // Declare a data file
@@ -158,7 +159,6 @@ static void sv_ratio(
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i){
-        printf("%e\n", S_dat[i]);
         file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
     }
     file2  << ",\n";
@@ -192,7 +192,7 @@ int main(int argc, char *argv[]) {
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
     double d_factor    = 1.0;
-    int64_t b_sz       = n;
+    int64_t b_sz       = 4096;
     double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant1 = state;
@@ -204,11 +204,13 @@ int main(int argc, char *argv[]) {
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = std::pow(10, 10);
-    m_info.rank = n;
-    m_info.exponent = 2.0;
-    m_info.scaling = std::pow(10, 10);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::kahan);
+    m_info.theta   = 1.2;
+    m_info.perturb = 1e3;
+    //m_info.cond_num = std::pow(10, 10);
+    //m_info.rank = n;
+    //m_info.exponent = 2.0;
+    //m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     std::fstream file("A_generated_rows_"             + std::to_string(m)

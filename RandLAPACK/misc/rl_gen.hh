@@ -400,7 +400,7 @@ void gen_kahan_mat(
         A[(m + 1) * i] = perturb * std::numeric_limits<double>::epsilon() * (m - i);
         S[(m + 1) * i] = std::pow(std::sin(i), i);
         for(int j = 0; j < i; ++ j)
-            C[(m * i) + j] = std::cos(theta); 
+            C[(m * i) + j] = -std::cos(theta); 
         C[m * i + i] = 1.0;
     }
 
