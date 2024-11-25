@@ -477,7 +477,6 @@ int RBKI<T, RNG>::call(
 
             // Advance odd iteration count;
             ++iter_od;
-
         }
 
         if(this -> timing)

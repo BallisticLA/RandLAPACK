@@ -124,7 +124,7 @@ int main(int argc, char *argv[]) {
     int64_t n                      = 0;
     int64_t k_start                = 0;
     int64_t k_stop                 = 0;
-    int64_t num_krylov_iters_start = 2;
+    int64_t num_krylov_iters_start = 64;
     int64_t num_krylov_iters_curr  = num_krylov_iters_start;
     int64_t num_krylov_iters_stop  = 64;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -144,7 +144,7 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     k_start = 2;//std::max((int64_t) 1, n / 10);
-    k_stop  = 256;//std::max((int64_t) 1, n / 10);
+    k_stop  = 128;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);
