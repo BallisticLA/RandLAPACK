@@ -362,7 +362,7 @@ int main(int argc, char *argv[]) {
     int64_t b_sz_stop              = 0;
     int64_t num_matmuls_start      = 2;
     int64_t num_matmuls_curr       = num_matmuls_start;
-    int64_t num_matmuls_stop       = 30;
+    int64_t num_matmuls_stop       = 128;
     int64_t custom_rank            = 10;
     double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                     = RandBLAS::RNGState();
@@ -380,7 +380,7 @@ int main(int argc, char *argv[]) {
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
+    b_sz_start = 4;//std::max((int64_t) 1, n / 10);
     b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
@@ -422,7 +422,7 @@ int main(int argc, char *argv[]) {
                                       + "_b_sz_stop_"              + std::to_string(b_sz_stop)
                                       + "_num_matmuls_start_" + std::to_string(num_matmuls_start)
                                       + "_num_matmuls_stop_"  + std::to_string(num_matmuls_stop)
-                                      + ".dat"; 
+                                      + ".txt"; 
 
     for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
         for (;num_matmuls_curr <= num_matmuls_stop; num_matmuls_curr*=2) {
