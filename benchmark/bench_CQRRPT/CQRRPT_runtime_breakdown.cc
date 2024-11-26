@@ -68,7 +68,6 @@ static void call_all_algs(
     // Additional params setup.
     RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
-    CQRRPT.num_threads = 8;
     
     // Making sure the states are unchanged
     auto state_alg = state;
@@ -94,9 +93,9 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m           = std::pow(2, 12);
+    int64_t m           = 10000;
     int64_t n_start     = std::pow(2, 5);
-    int64_t n_stop      = std::pow(2, 5);
+    int64_t n_stop      = std::pow(2, 11);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();
@@ -104,7 +103,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 25;
+    int64_t numruns = 30;
 
     // Allocate basic workspace at its max size.
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);
@@ -117,7 +116,7 @@ int main() {
                                       + "_col_start_"    + std::to_string(n_start)
                                       + "_col_stop_"     + std::to_string(n_stop)
                                       + "_d_factor_"     + std::to_string(d_factor)
-                                      + ".dat";
+                                      + ".txt";
 
     for (;n_start <= n_stop; n_start *= 2) {
         call_all_algs(m_info, numruns, n_start, all_data, state_constant, output_filename);

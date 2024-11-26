@@ -69,7 +69,6 @@ static void call_all_algs(
     // Additional params setup.
     RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
-    CQRRPT.num_threads = 48;
 
     // timing vars
     long dur_cqrrpt     = 0;
@@ -106,7 +105,6 @@ static void call_all_algs(
         // Testing CQRRPT
         auto start_cqrrp = high_resolution_clock::now();
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
-        printf("CQRRPT RANK: %ld\n", CQRRPT.rank);
         auto stop_cqrrp = high_resolution_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
 
@@ -192,7 +190,7 @@ int main() {
                                       + "_col_start_"    + std::to_string(n_start)
                                       + "_col_stop_"     + std::to_string(n_stop)
                                       + "_d_factor_"     + std::to_string(d_factor)
-                                      + ".dat";
+                                      + ".txt";
 
     for (;n_start <= n_stop; n_start *= 2) {
         call_all_algs(m_info, numruns, n_start, all_data, state_constant, output_filename);

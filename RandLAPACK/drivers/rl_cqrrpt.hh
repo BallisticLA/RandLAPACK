@@ -128,7 +128,6 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         std::vector<long> times;
 
         // tuning SASOS
-        int num_threads;
         int64_t nnz;
 
         // HQRRP-related

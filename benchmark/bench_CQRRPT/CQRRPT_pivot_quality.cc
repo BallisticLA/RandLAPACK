@@ -78,7 +78,6 @@ static void R_norm_ratio(
     // Additional params setup.
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
-    CQRRPT.num_threads = 48;
 
     // Running GEQP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -129,7 +128,6 @@ static void sv_ratio(
     // Additional params setup.
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
-    CQRRPT.num_threads = 48;
 
     std::fstream file2("QR_sv_ratios_rows_"            + std::to_string(m)
                                     + "_cols_"         + std::to_string(n)

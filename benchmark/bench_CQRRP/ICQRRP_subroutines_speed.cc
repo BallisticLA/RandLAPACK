@@ -143,7 +143,6 @@ static void call_wide_qrcp(
 
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 4;
-    CQRRPT.num_threads = 4;
 
     // timing vars
     long dur_geqp3  = 0;
