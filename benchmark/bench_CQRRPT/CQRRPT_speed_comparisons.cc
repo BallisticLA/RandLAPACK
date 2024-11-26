@@ -169,9 +169,9 @@ static void call_all_algs(
 
 int main() {
     // Declare parameters
-    int64_t m           = 1000000;//std::pow(2, 17);
+    int64_t m           = 10000;//std::pow(2, 17);
     int64_t n_start     = std::pow(2, 5);
-    int64_t n_stop      = std::pow(2, 14);
+    int64_t n_stop      = std::pow(2, 11);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();
@@ -179,7 +179,7 @@ int main() {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 10;
+    int64_t numruns = 25;
 
     // Allocate basic workspace
     QR_benchmark_data<double> all_data(m, n_stop, tol, d_factor);

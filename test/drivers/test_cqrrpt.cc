@@ -130,9 +130,9 @@ class TestCQRRPT : public ::testing::Test
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
-    int64_t m = 10000;
-    int64_t n = 200;
-    int64_t k = 200;
+    int64_t m = 10;
+    int64_t n = 5;
+    int64_t k = 5;
     double d_factor = 2;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);

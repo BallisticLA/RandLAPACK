@@ -239,13 +239,9 @@ int CQRRPT<T, RNG>::call(
     if(this -> timing)
         rank_reveal_t_stop = high_resolution_clock::now();
 
-    // Allocating space for a preconditioner buffer.
-    T* R_sp  = ( T * ) calloc( k * k, sizeof( T ) );
-    /// Extracting a k by k upper-triangular R.
-    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, k);
-    /// Extracting a k by n R representation (k by k upper-triangular, rest - general)
-    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R, ldr);
-    lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[n * k], ldr);
+    /// Extracting a k by k R representation
+    T* R_sp  = R;
+    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, ldr);
 
     if(this -> timing)
         a_mod_piv_t_start = high_resolution_clock::now();
@@ -260,7 +256,7 @@ int CQRRPT<T, RNG>::call(
     }
 
     // A_pre * R_sp = AP
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, k, A, lda);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing) {
         a_mod_trsm_t_stop = high_resolution_clock::now();
@@ -268,8 +264,8 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, k);
-    lapack::potrf(Uplo::Upper, k, R_sp, k);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, ldr);
+    lapack::potrf(Uplo::Upper, k, R_sp, ldr);
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
@@ -281,7 +277,7 @@ int CQRRPT<T, RNG>::call(
     running_min = R_sp[0];
 
     for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp[i * k + i]);
+        curr_entry = std::abs(R_sp[i * ldr + i]);
         running_max = std::max(running_max, curr_entry);
         running_min = std::min(running_min, curr_entry);
         if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
@@ -290,13 +286,13 @@ int CQRRPT<T, RNG>::call(
         }
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, k, A, lda);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing)
         cholqr_t_stop = high_resolution_clock::now();
 
-    // Get the final R-factor.
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp, k, R, ldr);
+    // Get the final R-factor -- undoing the preconditioning
+    blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr); 
 
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = k;
@@ -318,7 +314,6 @@ int CQRRPT<T, RNG>::call(
     }
 
     free(A_hat);
-    free(R_sp);
     free(tau);
 
     return 0;
