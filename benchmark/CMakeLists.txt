@@ -97,15 +97,12 @@ add_benchmark(NAME CQRRPT_speed_comparisons CXX_SOURCES bench_CQRRPT/CQRRPT_spee
 add_benchmark(NAME CQRRPT_runtime_breakdown CXX_SOURCES bench_CQRRPT/CQRRPT_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRPT_pivot_quality     CXX_SOURCES bench_CQRRPT/CQRRPT_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
 
-# CQRRP benchmarks
-add_benchmark(NAME CQRRP_speed_comparisons              CXX_SOURCES bench_CQRRP/CQRRP_speed_comparisons.cc         LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_runtime_breakdown              CXX_SOURCES bench_CQRRP/CQRRP_runtime_breakdown.cc         LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_pivot_quality                  CXX_SOURCES bench_CQRRP/CQRRP_pivot_quality.cc             LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME HQRRP_runtime_breakdown              CXX_SOURCES bench_CQRRP/HQRRP_runtime_breakdown.cc         LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME QR_speed_comp                        CXX_SOURCES bench_CQRRP/QR_speed_comp.cc                   LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME ICQRRP_subroutines_speed             CXX_SOURCES bench_CQRRP/ICQRRP_subroutines_speed.cc        LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME CQRRP_decisions_speed_benchmark      CXX_SOURCES bench_CQRRP/CQRRP_decisions_speed_benchmark.cc LINK_LIBS ${Benchmark_libs})
-
+# BQRRP benchmarks
+add_benchmark(NAME BQRRP_speed_comparisons              CXX_SOURCES bench_BQRRP/BQRRP_speed_comparisons.cc         LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME BQRRP_runtime_breakdown              CXX_SOURCES bench_BQRRP/BQRRP_runtime_breakdown.cc         LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME BQRRP_pivot_quality                  CXX_SOURCES bench_BQRRP/BQRRP_pivot_quality.cc             LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME HQRRP_runtime_breakdown              CXX_SOURCES bench_BQRRP/HQRRP_runtime_breakdown.cc         LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME BQRRP_subroutines_speed              CXX_SOURCES bench_BQRRP/BQRRP_subroutines_speed.cc         LINK_LIBS ${Benchmark_libs})
 
 # RBKI benchmarks
 add_benchmark(NAME RBKI_speed_comparisons      CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc      LINK_LIBS ${Benchmark_libs})

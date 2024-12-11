@@ -1155,19 +1155,17 @@ int64_t hqrrp(
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long other_t_dur  = total_t_dur - (preallocation_t_dur + sketching_t_dur + downdating_t_dur + qrcp_t_dur + qr_t_dur + updating_A_t_dur + updating_Sketch_t_dur);
 
-        timing[0]  = (T) n_A;
-        timing[1]  = (T) nb_alg;
-        timing[2]  = (T) preallocation_t_dur;
-        timing[3]  = (T) sketching_t_dur;
-        timing[4]  = (T) downdating_t_dur;
-        timing[5]  = (T) qrcp_t_dur;
-        timing[6]  = (T) qr_t_dur;
-        timing[7]  = (T) updating_A_t_dur;
-        timing[8]  = (T) updating_Sketch_t_dur;
-        timing[9]  = (T) other_t_dur;
-        timing[10] = (T) total_t_dur;
-        blas::copy(9, timing_QRCP, 1, &timing[11], 1);
-        blas::copy(9, timing_QR,   1, &timing[20], 1);
+        timing[1]  = (T) preallocation_t_dur;
+        timing[2]  = (T) sketching_t_dur;
+        timing[3]  = (T) downdating_t_dur;
+        timing[4]  = (T) qrcp_t_dur;
+        timing[5]  = (T) qr_t_dur;
+        timing[6]  = (T) updating_A_t_dur;
+        timing[7]  = (T) updating_Sketch_t_dur;
+        timing[8]  = (T) other_t_dur;
+        timing[9] = (T) total_t_dur;
+        blas::copy(9, timing_QRCP, 1, &timing[10], 1);
+        blas::copy(9, timing_QR,   1, &timing[18], 1);
 
         free( timing_QRCP );
         free( timing_QR );

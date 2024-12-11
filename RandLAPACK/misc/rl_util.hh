@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <vector>
 #include <cstdint>
+#include <ctime>
+#include <iomanip>
 
 namespace RandLAPACK::util {
 
@@ -457,6 +459,23 @@ void rl_orhr_col(
         }
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::Unit, n, n, 1.0, A, lda, T_dat, n);	
     }
+}
+
+template <typename T>
+// Function returns current date
+std::string getCurrentDate() {
+    // Get the current time
+    std::time_t now = std::time(nullptr);
+    // Convert to local time
+    std::tm* localTime = std::localtime(&now);
+
+    // Create a string stream to format the date
+    std::ostringstream dateStream;
+    dateStream << std::setw(4) << std::setfill('0') << (1900 + localTime->tm_year) << "_"  // Year
+               << std::setw(2) << std::setfill('0') << (localTime->tm_mon + 1) << "_"      // Month
+               << std::setw(2) << std::setfill('0') << localTime->tm_mday << "_";          // Day
+
+    return dateStream.str();
 }
 
 } // end namespace util
