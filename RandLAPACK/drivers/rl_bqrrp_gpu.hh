@@ -45,17 +45,19 @@ template <typename T, typename RNG>
 class BQRRP_blocked_GPU : public BQRRP_GPU_alg<T, RNG> {
     public:
         /// This is a device version of the BQRRP algorithm - ALL INPUT DATA LIVES ON A GPU.
+        /// By contrast to the CPU version of BQRRP scheme, the GPU version takes the sketch as an input;
+        /// that is because at the moment RandBLAS does not have GPU support. 
         ///
         /// This file presents the BQRRP algorithmic framework for a blocked version of
         /// randomized QR with column pivoting, applicable to matrices with any aspect ratio.
         /// Depending on the user's choice for the subroutines, this framework can define versions of the practical 
         ///
         /// The core subroutines in question are:
-        ///     1. qrcp_wide     - epresents a column-pivoted QR factorization method, suitable for wide matrices;
-        ///     2. rank          - aims to estimate the exact rank of the given matrix;
+        ///     1. qrcp_wide     - epresents a column-pivoted QR factorization method, suitable for wide matrices -- for now, no options other than the default LUQR is offered;
+        ///     2. rank_est      - aims to estimate the exact rank of the given matrix -- for now, no options other than the default naive is offered;
         ///     3. col_perm      - responsible for permuting the columns of a given matrix in accordance with the indices stored in a given vector;
         ///     4. qr_tall       - performs a tall unpivoted QR factorization;
-        ///     5. apply_trans_q - applies the transpose Q-factor output by qr_tall to a given matrix.
+        ///     5. apply_trans_q - applies the transpose Q-factor output by qr_tall to a given matrix -- for now, no options other than the default ORMQR is offered.
         ///    
         /// The base structure of BQRRP resembles that of Algorithm 4 from https://arxiv.org/abs/1509.06820. 
         ///
@@ -67,11 +69,11 @@ class BQRRP_blocked_GPU : public BQRRP_GPU_alg<T, RNG> {
             T ep,
             int64_t b_sz
         ) {
-            timing = time_subroutines;
-            eps = ep;
+            timing     = time_subroutines;
+            eps        = ep;
+            tol        = std::numeric_limits<T>::epsilon();
             block_size = b_sz;
-            use_qrf = false;
-            tol = std::numeric_limits<T>::epsilon();
+            qr_tall    = "geqrf";
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -125,15 +127,19 @@ class BQRRP_blocked_GPU : public BQRRP_GPU_alg<T, RNG> {
 
     public:
         bool timing;
-        bool use_qrf;
         RandBLAS::RNGState<RNG> state;
         T eps;
         int64_t rank;
         int64_t block_size;
+
+        // 15 entries - logs time for different portions of the algorithm
         std::vector<long> times;
 
         // Naive rank estimation parameter;
         T tol;
+
+        // Core subroutines options, controlled by user
+        std::string qr_tall;
 };
 
 // -----------------------------------------------------------------------------
@@ -148,10 +154,10 @@ int BQRRP_blocked_GPU<T, RNG>::call(
     T* tau,
     int64_t* J
 ){
-    high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point qrcp_t_start;
-    high_resolution_clock::time_point qrcp_t_stop;
+    high_resolution_clock::time_point preallocation_t_stop;
+    high_resolution_clock::time_point qrcp_wide_t_start;
+    high_resolution_clock::time_point qrcp_wide_t_stop;
     high_resolution_clock::time_point copy_A_sk_t_start;
     high_resolution_clock::time_point copy_A_sk_t_stop;
     high_resolution_clock::time_point qrcp_piv_t_start;
@@ -160,39 +166,36 @@ int BQRRP_blocked_GPU<T, RNG>::call(
     high_resolution_clock::time_point copy_A_t_stop;
     high_resolution_clock::time_point piv_A_t_start;
     high_resolution_clock::time_point piv_A_t_stop;
-    high_resolution_clock::time_point preconditioning_t_start;
-    high_resolution_clock::time_point preconditioning_t_stop;
-    high_resolution_clock::time_point qr_panel_tstart;
-    high_resolution_clock::time_point qr_panel_tstop;
-    high_resolution_clock::time_point orhr_col_t_start;
-    high_resolution_clock::time_point orhr_col_t_stop;
-    high_resolution_clock::time_point updating_A_t_start;
-    high_resolution_clock::time_point updating_A_t_stop;
     high_resolution_clock::time_point updating_J_t_start;
     high_resolution_clock::time_point updating_J_t_stop;
     high_resolution_clock::time_point copy_J_t_start;
     high_resolution_clock::time_point copy_J_t_stop;
-    high_resolution_clock::time_point updating_R_t_start;
-    high_resolution_clock::time_point updating_R_t_stop;
-    high_resolution_clock::time_point updating_Sk_t_start;
-    high_resolution_clock::time_point updating_Sk_t_stop;
+    high_resolution_clock::time_point preconditioning_t_start;
+    high_resolution_clock::time_point preconditioning_t_stop;
+    high_resolution_clock::time_point qr_tall_t_start;
+    high_resolution_clock::time_point qr_tall_t_stop;
+    high_resolution_clock::time_point q_reconstruction_t_start;
+    high_resolution_clock::time_point q_reconstruction_t_stop;
+    high_resolution_clock::time_point apply_transq_t_start;
+    high_resolution_clock::time_point apply_transq_t_stop;
+    high_resolution_clock::time_point sample_update_t_start;
+    high_resolution_clock::time_point sample_update_t_stop;
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
-    long preallocation_t_dur   = 0;
-    long qrcp_t_dur            = 0;
-    long copy_A_sk_t_dur       = 0;
-    long qrcp_piv_t_dur        = 0;
-    long copy_A_t_dur          = 0;
-    long piv_A_t_dur           = 0;
-    long preconditioning_t_dur = 0;
-    long qr_panel_tdur          = 0;
-    long orhr_col_t_dur        = 0;
-    long updating_A_t_dur      = 0;
-    long updating_J_t_dur      = 0;
-    long copy_J_t_dur          = 0;
-    long updating_R_t_dur      = 0;
-    long updating_Sk_t_dur     = 0;
-    long total_t_dur           = 0;
+    long preallocation_t_dur    = 0;
+    long qrcp_wide_t_dur        = 0;
+    long copy_A_sk_t_dur        = 0;
+    long qrcp_piv_t_dur         = 0;
+    long copy_A_t_dur           = 0;
+    long piv_A_t_dur            = 0;
+    long updating_J_t_dur       = 0;
+    long copy_J_t_dur           = 0;
+    long preconditioning_t_dur  = 0;
+    long qr_tall_t_dur          = 0;
+    long q_reconstruction_t_dur = 0;
+    long apply_transq_t_dur     = 0;
+    long sample_update_t_dur    = 0;
+    long total_t_dur            = 0;
 
     if(this -> timing) {
         total_t_start = high_resolution_clock::now();
@@ -280,13 +283,13 @@ int BQRRP_blocked_GPU<T, RNG>::call(
     T* A_sk_trans;
     cudaMallocAsync(&A_sk_trans, n * d * sizeof(T), strm);
 
-    // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
+    // Buffer for the R-factor in tall QR, of size b_sz by b_sz, lda b_sz.
     // Also used to store the proper R11_full-factor after the 
-    // full Q has been restored form economy Q (the has been found via Cholesky QR);
+    // full Q has been restored form economy Q (the has been found via tall QR);
     // That is done by applying the sign vector D from orhr_col().
     // Eventually, will be used to store R11 (computed via trmm)
-    T* R_cholqr;
-    cudaMallocAsync(&R_cholqr, b_sz_const * b_sz_const * sizeof(T), strm);
+    T* R_tall_qr;
+    cudaMallocAsync(&R_tall_qr, b_sz_const * b_sz_const * sizeof(T), strm);
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
     T* Work2;
@@ -334,12 +337,14 @@ int BQRRP_blocked_GPU<T, RNG>::call(
         cudaMemsetAsync(J_buffer,    (T) 0.0, n, strm);
         cudaMemsetAsync(Work2,       (T) 0.0, n, strm);
 
-        // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
-        // Get a transpose of A_sk
+
         if(this -> timing) {
             nvtxRangePushA("qrcp");
-            qrcp_t_start = high_resolution_clock::now();
+            qrcp_wide_t_start = high_resolution_clock::now();
         }
+        // qrcp_wide through LUQR below
+        // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
+        // Get a transpose of A_sk
         RandLAPACK::cuda_kernels::transposition_gpu(strm, sampling_dimension, cols, A_sk_work, d, A_sk_trans, n, 0);
     
         // Perform a row-pivoted LU on a transpose of A_sk
@@ -395,8 +400,8 @@ int BQRRP_blocked_GPU<T, RNG>::call(
         if(this -> timing) {
             lapack_queue.sync();
             nvtxRangePop();
-            qrcp_t_stop = high_resolution_clock::now();
-            qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
+            qrcp_wide_t_stop = high_resolution_clock::now();
+            qrcp_wide_t_dur += duration_cast<microseconds>(qrcp_wide_t_stop - qrcp_wide_t_start).count();
             nvtxRangePushA("copy_A");
             copy_A_t_start = high_resolution_clock::now();
         }
@@ -486,7 +491,7 @@ int BQRRP_blocked_GPU<T, RNG>::call(
             cudaFree(J_buffer);
             cudaFree(J_buffer_lu);
             cudaFree(Work2);
-            cudaFree(R_cholqr);
+            cudaFree(R_tall_qr);
             cudaFree(d_work_ormqr);
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap);
@@ -515,123 +520,6 @@ int BQRRP_blocked_GPU<T, RNG>::call(
             piv_A_t_dur  += duration_cast<microseconds>(piv_A_t_stop - piv_A_t_start).count();
         }
 
-        if(this -> use_qrf) {
-            if(this -> timing) {
-                nvtxRangePushA("qr_panel");
-                qr_panel_tstart = high_resolution_clock::now();
-            }
-            // Perform an unpivoted QR instead of CholQR
-            if(iter == 0) {
-                lapack::geqrf_work_size_bytes(rows, b_sz, A_work, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
-                d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
-                std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
-                h_work_geqrf_opt = h_work_geqrf_vector_opt.data();
-            }
-            lapack::geqrf(rows, b_sz, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
-            if(this -> timing) {
-                cudaStreamSynchronize(strm);
-                nvtxRangePop();
-                qr_panel_tstop    = high_resolution_clock::now();
-                qr_panel_tdur     += duration_cast<microseconds>(qr_panel_tstop - qr_panel_tstart).count();
-            }
-            // R11 is computed and placed in the appropriate space
-            R11 = A_work;
-        } else {
-
-            if(this -> timing) {
-                nvtxRangePushA("precond_A");
-                preconditioning_t_start = high_resolution_clock::now();
-            }
-            
-            // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
-            // Performing preconditioning of the current matrix A.
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
-
-            if(this -> timing) {
-                lapack_queue.sync();
-                nvtxRangePop();
-                preconditioning_t_stop  = high_resolution_clock::now();
-                preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
-                nvtxRangePushA("qr_panel");
-                qr_panel_tstart = high_resolution_clock::now();
-            }
-            
-            // Performing Cholesky QR
-            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const, lapack_queue);
-            lapack::potrf(Uplo::Upper,  block_rank, R_cholqr, b_sz_const, d_info, lapack_queue);
-            // Compute Q_econ from Cholesky QR
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_cholqr, b_sz_const, A_work, lda, lapack_queue);
-            
-            if(this -> timing) {
-                lapack_queue.sync();
-                nvtxRangePop();
-                qr_panel_tstop    = high_resolution_clock::now();
-                qr_panel_tdur     += duration_cast<microseconds>(qr_panel_tstop - qr_panel_tstart).count();
-                nvtxRangePushA("orhr_col");
-                orhr_col_t_start = high_resolution_clock::now();
-            }
-
-            // Find Q (stored in A) using Householder reconstruction. 
-            // This will represent the full (rows by rows) Q factor form Cholesky QR
-            // It would have been really nice to store T right above Q, but without using extra space,
-            // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
-            // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
-            // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
-            // Q is defined with block_rank elementary reflectors.
-            RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, block_rank, A_work, lda, &tau[curr_sz], Work2);  
-
-            if(this -> timing) {
-                cudaStreamSynchronize(strm);
-                nvtxRangePop();
-                orhr_col_t_stop  = high_resolution_clock::now();
-                orhr_col_t_dur  += duration_cast<microseconds>(orhr_col_t_stop - orhr_col_t_start).count();
-            }
-
-            // Need to change signs in the R-factor from Cholesky QR.
-            // Signs correspond to matrix D from orhr_col().
-            // This allows us to not explicitly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
-            RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, block_rank, b_sz_const, R_cholqr, Work2);
-        }
-        // Perform Q_full' * A_piv(:, block_rank:end) to find R12 and the new "current A."
-        // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
-        // The first b_sz rows will represent R12.
-        // The last rows-b_sz rows will represent the new A.
-        // With that, everything is placed where it should be, no copies required.
-        // ORMQR proves to be much faster than GEMQRT with MKL.
-        // Q is defined with block_rank elementary reflectors. 
-        if(this -> timing) {
-            nvtxRangePushA("update_A");
-            updating_A_t_start = high_resolution_clock::now();
-        }
-
-        if (block_rank != b_sz_const) {
-            if (iter == 0) {
-                // Compute optimal workspace size
-                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
-                // Allocate workspace
-                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
-            }
-            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
-            // Synchronization required after using cusolver
-            cudaStreamSynchronize(strm);
-        } else {
-            if (iter == 0) {
-                // Compute optimal workspace size
-                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
-                // Allocate workspace
-                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
-            }
-            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
-            // Synchronization required after using cusolver
-            cudaStreamSynchronize(strm);
-        }
-
-        if(this -> timing) {
-            cudaStreamSynchronize(strm);
-            nvtxRangePop();
-            updating_A_t_stop  = high_resolution_clock::now();
-            updating_A_t_dur  += duration_cast<microseconds>(updating_A_t_stop - updating_A_t_start).count();
-        }
         // Updating pivots
         if(iter == 0) {
             if(this -> timing) {
@@ -645,7 +533,6 @@ int BQRRP_blocked_GPU<T, RNG>::call(
                 updating_J_t_stop  = high_resolution_clock::now();
                 updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
                 nvtxRangePushA("update_R");
-                updating_R_t_start = high_resolution_clock::now();
             }
         } else {
             if(this -> timing) {
@@ -685,35 +572,148 @@ int BQRRP_blocked_GPU<T, RNG>::call(
                 nvtxRangePop();
                 updating_J_t_stop  = high_resolution_clock::now();
                 updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
-                nvtxRangePushA("update_R");
-                updating_R_t_start = high_resolution_clock::now();
             }
         }
-        if (!(this -> use_qrf)) {
+
+        // qr_tall through either cholqr or geqrf below
+        if(this -> qr_tall == "cholqr") {
+            if(this -> timing) {
+                nvtxRangePushA("precond_A");
+                preconditioning_t_start = high_resolution_clock::now();
+            }
+            
+            // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
+            // Performing preconditioning of the current matrix A.
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda, lapack_queue);
+
+            if(this -> timing) {
+                lapack_queue.sync();
+                nvtxRangePop();
+                preconditioning_t_stop  = high_resolution_clock::now();
+                preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
+                nvtxRangePushA("qr_panel");
+                qr_tall_t_start = high_resolution_clock::now();
+            }
+            
+            // Performing tall QR
+            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_tall_qr, b_sz_const, lapack_queue);
+            lapack::potrf(Uplo::Upper,  block_rank, R_tall_qr, b_sz_const, d_info, lapack_queue);
+            // Compute Q_econ from tall QR
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_tall_qr, b_sz_const, A_work, lda, lapack_queue);
+            
+            if(this -> timing) {
+                lapack_queue.sync();
+                nvtxRangePop();
+                qr_tall_t_stop    = high_resolution_clock::now();
+                qr_tall_t_dur     += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
+                nvtxRangePushA("orhr_col");
+                q_reconstruction_t_start = high_resolution_clock::now();
+            }
+
+            // Find Q (stored in A) using Householder reconstruction. 
+            // This will represent the full (rows by rows) Q factor form tall QR
+            // It would have been really nice to store T right above Q, but without using extra space,
+            // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
+            // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
+            // This routine is defined in LAPACK 3.9.0. At the moment, LAPACK++ fails to invoke the newest Accelerate library.
+            // Q is defined with block_rank elementary reflectors.
+            RandLAPACK::cuda_kernels::orhr_col_gpu(strm, rows, block_rank, A_work, lda, &tau[curr_sz], Work2);  
+
+            if(this -> timing) {
+                cudaStreamSynchronize(strm);
+                nvtxRangePop();
+                q_reconstruction_t_stop  = high_resolution_clock::now();
+                q_reconstruction_t_dur  += duration_cast<microseconds>(q_reconstruction_t_stop - q_reconstruction_t_start).count();
+            }
+
+            // Need to change signs in the R-factor from tall QR.
+            // Signs correspond to matrix D from orhr_col().
+            // This allows us to not explicitly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
+            RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, block_rank, b_sz_const, R_tall_qr, Work2);
+
             // Undoing the preconditioning below
 
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
             // Compute R11 = R11_full(1:block_rank, :) * R_sk
-            // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const, lapack_queue);
-            // Need to copy R11 over form R_cholqr into the appropriate space in A.
-            // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
+            // R11_full is stored in R_tall_qr space, R_sk is stored in A_sk space.
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_tall_qr, b_sz_const, lapack_queue);
+            // Need to copy R11 over form R_tall_qr into the appropriate space in A.
+            // We cannot avoid this copy, since trmm() assumes R_tall_qr is a square matrix.
             // In a global sense, this is identical to:
             // R11 =  &A[(m + 1) * curr_sz];
             R11 = A_work;
-            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, block_rank, b_sz, R_cholqr, b_sz_const, A_work, lda, true);
+            RandLAPACK::cuda_kernels::copy_mat_gpu(strm, block_rank, b_sz, R_tall_qr, b_sz_const, A_work, lda, true);
+
+        } else {
+            // Default case - performing QR_tall via QRF
+            if(this -> timing) {
+                nvtxRangePushA("qr_panel");
+                qr_tall_t_start = high_resolution_clock::now();
+            }
+            // Perform an unpivoted QR instead of CholQR
+            if(iter == 0) {
+                lapack::geqrf_work_size_bytes(rows, b_sz, A_work, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
+                d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
+                std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
+                h_work_geqrf_opt = h_work_geqrf_vector_opt.data();
+            }
+            lapack::geqrf(rows, b_sz, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
+            if(this -> timing) {
+                cudaStreamSynchronize(strm);
+                nvtxRangePop();
+                qr_tall_t_stop    = high_resolution_clock::now();
+                qr_tall_t_dur     += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
+            }
+            // R11 is computed and placed in the appropriate space
+            R11 = A_work;
+        }
+        // apply_trans_q through CuSOLVER's ormqr below
+        //
+        // Perform Q_full' * A_piv(:, block_rank:end) to find R12 and the new "current A."
+        // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
+        // The first b_sz rows will represent R12.
+        // The last rows-b_sz rows will represent the new A.
+        // With that, everything is placed where it should be, no copies required.
+        // ORMQR proves to be much faster than GEMQRT with MKL.
+        // Q is defined with block_rank elementary reflectors. 
+        if(this -> timing) {
+            nvtxRangePushA("update_A");
+            apply_transq_t_start = high_resolution_clock::now();
+        }
+
+        if (block_rank != b_sz_const) {
+            if (iter == 0) {
+                // Compute optimal workspace size
+                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+                // Allocate workspace
+                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+            }
+            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+            // Synchronization required after using cusolver
+            cudaStreamSynchronize(strm);
+        } else {
+            if (iter == 0) {
+                // Compute optimal workspace size
+                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+                // Allocate workspace
+                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+            }
+            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+            // Synchronization required after using cusolver
+            cudaStreamSynchronize(strm);
+        }
+
+        if(this -> timing) {
+            cudaStreamSynchronize(strm);
+            nvtxRangePop();
+            apply_transq_t_stop  = high_resolution_clock::now();
+            apply_transq_t_dur  += duration_cast<microseconds>(apply_transq_t_stop - apply_transq_t_start).count();
         }
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
         // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
         R12 = &R11[lda * b_sz];
-        if(this -> timing) {
-            cudaStreamSynchronize(strm);
-            nvtxRangePop();
-            updating_R_t_stop  = high_resolution_clock::now();
-            updating_R_t_dur  += duration_cast<microseconds>(updating_R_t_stop - updating_R_t_start).count();
-        }
 
         // Size of the factors is updated;
         curr_sz += b_sz;
@@ -763,44 +763,42 @@ int BQRRP_blocked_GPU<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_t_dur + copy_A_t_dur + piv_A_t_dur + preconditioning_t_dur + qr_panel_tdur + orhr_col_t_dur + updating_A_t_dur + copy_J_t_dur + updating_J_t_dur + updating_R_t_dur + updating_Sk_t_dur);
-                this -> times.resize(18);
-                auto qrcp_main_t_dur = qrcp_t_dur - qrcp_piv_t_dur - copy_A_sk_t_dur;
-                this -> times = {n, b_sz_const, preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, preconditioning_t_dur, qr_panel_tdur, orhr_col_t_dur, updating_A_t_dur, copy_J_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
+                long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_wide_t_dur + copy_A_t_dur + piv_A_t_dur + copy_J_t_dur + updating_J_t_dur + preconditioning_t_dur + qr_tall_t_dur + q_reconstruction_t_dur + apply_transq_t_dur + sample_update_t_dur);
+                this -> times.resize(15);
+                auto qrcp_main_t_dur = qrcp_wide_t_dur - qrcp_piv_t_dur - copy_A_sk_t_dur;
+                this -> times = {preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur};
 
                 printf("\n\n/------------BQRRP TIMING RESULTS BEGIN------------/\n");
-                printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-                printf("QRCP main time: %36ld μs,\n",                      qrcp_main_t_dur);
-                printf("Copy(A_sk) time: %24ld μs,\n",                     copy_A_sk_t_dur);
-                printf("QRCP piv time: %36ld μs,\n",                       qrcp_piv_t_dur);
-                printf("Copy(A) time: %24ld μs,\n",                        copy_A_t_dur);
-                printf("Piv(A) time: %24ld μs,\n",                         piv_A_t_dur);
-                printf("Preconditioning time: %24ld μs,\n",                preconditioning_t_dur);
-                printf("CholQR time: %32ld μs,\n",                         qr_panel_tdur);
-                printf("ORHR_col time: %7ld μs,\n",                        orhr_col_t_dur);
-                printf("Computing A_new, R12 time: %23ld μs,\n",           updating_A_t_dur);
-                printf("Copy(J) time: %24ld μs,\n",                        copy_J_t_dur);
-                printf("J updating time: %23ld μs,\n",                     updating_J_t_dur);
-                printf("R updating time: %23ld μs,\n",                     updating_R_t_dur);
-                printf("Sketch updating time: %24ld μs,\n",                updating_Sk_t_dur);
-                printf("Other routines time: %24ld μs,\n",                 t_rest);
-                printf("Total time: %35ld μs.\n",                          total_t_dur);
+                printf("Preallocation time:                    %ld μs,\n", preallocation_t_dur);
+                printf("QRCP_wide main time:                  %ld μs,\n", qrcp_main_t_dur);
+                printf("Copy(A_sk) time:                      %ld μs,\n", copy_A_sk_t_dur);
+                printf("QRCP_wide piv time:                   %ld μs,\n", qrcp_piv_t_dur);
+                printf("Copy(A) time:                         %ld μs,\n", copy_A_t_dur);
+                printf("Piv(A) time:                          %ld μs,\n", piv_A_t_dur);
+                printf("Copy(J) time:                         %ld μs,\n", copy_J_t_dur);
+                printf("J updating time:                      %ld μs,\n", updating_J_t_dur);
+                printf("Preconditioning time:                 %ld μs,\n", preconditioning_t_dur);
+                printf("QR_tall time:                         %ld μs,\n", qr_tall_t_dur);
+                printf("Householder reconstruction time:      %ld μs,\n", q_reconstruction_t_dur);
+                printf("Apply QT time:                        %ld μs,\n", apply_transq_t_dur);
+                printf("Sample updating time:                 %ld μs,\n", sample_update_t_dur);
+                printf("Other routines time:                  %ld μs,\n", t_rest);
+                printf("Total time:                           %ld μs.\n", total_t_dur);
 
-                printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-                printf("QRCP main takes %32.2f%% of runtime.\n",                        100 * ((T) qrcp_main_t_dur       / (T) total_t_dur));
-                printf("Cpy(A_sk) takes %20.2f%% of runtime.\n",                        100 * ((T) copy_A_sk_t_dur       / (T) total_t_dur));
-                printf("QRCP piv takes %32.2f%% of runtime.\n",                         100 * ((T) qrcp_piv_t_dur        / (T) total_t_dur));
-                printf("Cpy(A) takes %20.2f%% of runtime.\n",                           100 * ((T) copy_A_t_dur          / (T) total_t_dur));
-                printf("Piv(A) takes %20.2f%% of runtime.\n",                           100 * ((T) piv_A_t_dur           / (T) total_t_dur));
-                printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) preconditioning_t_dur / (T) total_t_dur));
-                printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) qr_panel_tdur          / (T) total_t_dur));
-                printf("Orhr_col takes %22.2f%% of runtime.\n",                         100 * ((T) orhr_col_t_dur        / (T) total_t_dur));
-                printf("Computing A_new, R12 takes %14.2f%% of runtime.\n",             100 * ((T) updating_A_t_dur      / (T) total_t_dur));
-                printf("Cpy(J) takes %20.2f%% of runtime.\n",                           100 * ((T) copy_J_t_dur          / (T) total_t_dur));
-                printf("J updating time takes %20.2f%% of runtime.\n",                  100 * ((T) updating_J_t_dur      / (T) total_t_dur));
-                printf("R updating time takes %20.2f%% of runtime.\n",                  100 * ((T) updating_R_t_dur      / (T) total_t_dur));
-                printf("Sketch updating time takes %15.2f%% of runtime.\n",             100 * ((T) updating_Sk_t_dur     / (T) total_t_dur));
-                printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
+                printf("\nPreallocation takes                 %6.2f%% of runtime.\n", 100 * ((T) preallocation_t_dur    / (T) total_t_dur));
+                printf("QRCP_wide main takes                  %6.2f%% of runtime.\n", 100 * ((T) qrcp_main_t_dur        / (T) total_t_dur));
+                printf("Copy(A_sk) takes                      %6.2f%% of runtime.\n", 100 * ((T) copy_A_sk_t_dur        / (T) total_t_dur));
+                printf("QRCP_wide piv takes                   %6.2f%% of runtime.\n", 100 * ((T) qrcp_piv_t_dur         / (T) total_t_dur));
+                printf("Copy(A) takes                         %6.2f%% of runtime.\n", 100 * ((T) copy_A_t_dur           / (T) total_t_dur));
+                printf("Piv(A) takes                          %6.2f%% of runtime.\n", 100 * ((T) piv_A_t_dur            / (T) total_t_dur));
+                printf("Copy(J) takes                         %6.2f%% of runtime.\n", 100 * ((T) copy_J_t_dur           / (T) total_t_dur));
+                printf("J updating time takes                 %6.2f%% of runtime.\n", 100 * ((T) updating_J_t_dur       / (T) total_t_dur));
+                printf("Preconditioning takes                 %6.2f%% of runtime.\n", 100 * ((T) preconditioning_t_dur  / (T) total_t_dur));
+                printf("QR_tall takes                         %6.2f%% of runtime.\n", 100 * ((T) qr_tall_t_dur          / (T) total_t_dur));
+                printf("Householder reconstruction takes      %6.2f%% of runtime.\n", 100 * ((T) q_reconstruction_t_dur / (T) total_t_dur));
+                printf("Apply QT takes                        %6.2f%% of runtime.\n", 100 * ((T) apply_transq_t_dur     / (T) total_t_dur));
+                printf("Sample updating time takes            %6.2f%% of runtime.\n", 100 * ((T) sample_update_t_dur    / (T) total_t_dur));
+                printf("Everything else takes                 %6.2f%% of runtime.\n", 100 * ((T) t_rest                 / (T) total_t_dur));
                 printf("/-------------BQRRP TIMING RESULTS END-------------/\n\n");
             }
 
@@ -808,7 +806,7 @@ int BQRRP_blocked_GPU<T, RNG>::call(
             cudaFree(J_buffer); 
             cudaFree(J_buffer_lu);
             cudaFree(Work2);
-            cudaFree(R_cholqr);
+            cudaFree(R_tall_qr);
             cudaFree(d_work_ormqr);        
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap); 
@@ -818,7 +816,7 @@ int BQRRP_blocked_GPU<T, RNG>::call(
         }
         if(this -> timing) {
             nvtxRangePushA("update_Sk");
-            updating_Sk_t_start = high_resolution_clock::now();
+            sample_update_t_start = high_resolution_clock::now();
         }
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
@@ -860,8 +858,8 @@ int BQRRP_blocked_GPU<T, RNG>::call(
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
-            updating_Sk_t_stop  = high_resolution_clock::now();
-            updating_Sk_t_dur  += duration_cast<microseconds>(updating_Sk_t_stop - updating_Sk_t_start).count();
+            sample_update_t_stop  = high_resolution_clock::now();
+            sample_update_t_dur  += duration_cast<microseconds>(sample_update_t_stop - sample_update_t_start).count();
         }
         nvtxRangePop();
     }

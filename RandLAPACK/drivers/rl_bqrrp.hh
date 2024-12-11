@@ -43,7 +43,7 @@ class BQRRP_blocked : public BQRRPalg<T, RNG> {
         ///
         /// The core subroutines in question are:
         ///     1. qrcp_wide     - epresents a column-pivoted QR factorization method, suitable for wide matrices;
-        ///     2. rank          - aims to estimate the exact rank of the given matrix -- for now, no options other than the default naive is offered;
+        ///     2. rank_est      - aims to estimate the exact rank of the given matrix -- for now, no options other than the default naive is offered;
         ///     3. col_perm      - responsible for permuting the columns of a given matrix in accordance with the indices stored in a given vector;
         ///     4. qr_tall       - performs a tall unpivoted QR factorization;
         ///     5. apply_trans_q - applies the transpose Q-factor output by qr_tall to a given matrix.
@@ -119,11 +119,16 @@ class BQRRP_blocked : public BQRRPalg<T, RNG> {
 
     public:
         bool timing;
-        bool cond_check;
         RandBLAS::RNGState<RNG> state;
         T eps;
         int64_t rank;
         int64_t block_size;
+
+        // NB for orhr_col and gemqrt
+        int64_t internal_nb;
+
+        // Naive rank estimation parameter;
+        T tol;
 
         // 10 entries - logs time for different portions of the algorithm
         std::vector<long> times;
@@ -132,12 +137,6 @@ class BQRRP_blocked : public BQRRPalg<T, RNG> {
         std::string qrcp_wide;     // Supported options: "qp3," "luqr"
         std::string qr_tall;       // Supported options: "geqrt," "cholqr," "geqrf"
         std::string apply_trans_q; // Supported options: "gemqrt," "ormqr"
-
-        // NB for orhr_col and gemqrt
-        int64_t internal_nb;
-
-        // Naive rank estimation parameter;
-        T tol;
 };
 
 // We are assuming that tau and J have been pre-allocated
@@ -158,18 +157,18 @@ int BQRRP_blocked<T, RNG>::call(
     throw std::runtime_error("BQRRP is not supported when BLAS is linked against Apple Accelerate.");
     #else
     //-------TIMING VARS--------/
-    high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point skop_t_stop;
+    high_resolution_clock::time_point preallocation_t_stop;
     high_resolution_clock::time_point skop_t_start;
-    high_resolution_clock::time_point qrcp_t_start;
-    high_resolution_clock::time_point qrcp_t_stop;
+    high_resolution_clock::time_point skop_t_stop;
+    high_resolution_clock::time_point qrcp_wide_t_start;
+    high_resolution_clock::time_point qrcp_wide_t_stop;
     high_resolution_clock::time_point panel_preprocessing_t_start;
     high_resolution_clock::time_point panel_preprocessing_t_stop;
-    high_resolution_clock::time_point panelqr_t_start;
-    high_resolution_clock::time_point panelqr_t_stop;
-    high_resolution_clock::time_point reconstruction_t_start;
-    high_resolution_clock::time_point reconstruction_t_stop;
+    high_resolution_clock::time_point qr_tall_t_start;
+    high_resolution_clock::time_point qr_tall_t_stop;
+    high_resolution_clock::time_point q_reconstruction_t_start;
+    high_resolution_clock::time_point q_reconstruction_t_stop;
     high_resolution_clock::time_point apply_transq_t_start;
     high_resolution_clock::time_point apply_transq_t_stop;
     high_resolution_clock::time_point sample_update_t_start;
@@ -178,10 +177,10 @@ int BQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point total_t_stop;
     long preallocation_t_dur       = 0;
     long skop_t_dur                = 0;
-    long qrcp_t_dur                = 0;
+    long qrcp_wide_t_dur           = 0;
     long panel_preprocessing_t_dur = 0;
-    long panelqr_t_dur             = 0;
-    long reconstruction_t_dur      = 0;
+    long qr_tall_t_dur             = 0;
+    long q_reconstruction_t_dur    = 0;
     long apply_transq_t_dur        = 0;
     long sample_update_t_dur       = 0;
     long total_t_dur               = 0;
@@ -263,13 +262,13 @@ int BQRRP_blocked<T, RNG>::call(
     // Is of size n * d, with an lda n.
     T* A_sk_trans = ( T * ) calloc( n * d, sizeof( T ) );
 
-    // Buffer for the R-factor in Cholesky QR, of size b_sz by b_sz, lda b_sz.
+    // Buffer for the R-factor in tall QR, of size b_sz by b_sz, lda b_sz.
     // Also used to store the proper R11_full-factor after the 
-    // full Q has been restored form economy Q (the has been found via Cholesky QR);
+    // full Q has been restored form economy Q (the has been found via tall QR);
     // That is done by applying the sign vector D from orhr_col().
     // Eventually, will be used to store R11 (computed via trmm)
     // which is then copied into its appropriate space in the matrix A.
-    T* R_cholqr = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
+    T* R_tall_qr = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
     // Pointer to matrix T from orhr_col at currect iteration, will point to Work2 space.
     T* T_dat    = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
 
@@ -309,7 +308,7 @@ int BQRRP_blocked<T, RNG>::call(
         std::fill(&Work2[0], &Work2[n], (T) 0.0);
 
         if(this -> timing)
-            qrcp_t_start = high_resolution_clock::now();
+            qrcp_wide_t_start = high_resolution_clock::now();
             
         // Performing qrcp_wide below
         if (this -> qrcp_wide == "qp3") {
@@ -337,8 +336,8 @@ int BQRRP_blocked<T, RNG>::call(
         }
 
         if(this -> timing) {
-            qrcp_t_stop = high_resolution_clock::now();
-            qrcp_t_dur += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
+            qrcp_wide_t_stop = high_resolution_clock::now();
+            qrcp_wide_t_dur += duration_cast<microseconds>(qrcp_wide_t_stop - qrcp_wide_t_start).count();
             panel_preprocessing_t_start = high_resolution_clock::now();
         }
 
@@ -371,7 +370,7 @@ int BQRRP_blocked<T, RNG>::call(
             free(J_buffer_lu);
             free(A_sk_const);
             free(A_sk_trans);
-            free(R_cholqr);
+            free(R_tall_qr);
             free(T_dat);
             free(Work2);
             return 0;
@@ -391,6 +390,7 @@ int BQRRP_blocked<T, RNG>::call(
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
 
+        // rank_est function below.
         // Naive rank estimation to perform preconditioning safely.
         // Variable block_rank is altered if the rank is not full.
         // If this happens, we will terminate at the end of the current iteration.
@@ -407,7 +407,7 @@ int BQRRP_blocked<T, RNG>::call(
         if(this -> timing) {
             panel_preprocessing_t_stop  = high_resolution_clock::now();
             panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
-            panelqr_t_start = high_resolution_clock::now();
+            qr_tall_t_start = high_resolution_clock::now();
         }
 
         // Define a pointer to the current subportion of tau vector.
@@ -424,8 +424,8 @@ int BQRRP_blocked<T, RNG>::call(
             R11 = A_work;
 
             if(this -> timing) {
-                panelqr_t_stop  = high_resolution_clock::now();
-                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
+                qr_tall_t_stop  = high_resolution_clock::now();
+                qr_tall_t_dur  += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
                 apply_transq_t_start = high_resolution_clock::now();
             }
         } else if (this -> qr_tall == "cholqr") {
@@ -434,20 +434,20 @@ int BQRRP_blocked<T, RNG>::call(
             // Performing preconditioning of the current matrix A.
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_sk, d, A_work, lda);
 
-            // Performing Cholesky QR on a panel
-            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_cholqr, b_sz_const);
-            lapack::potrf(Uplo::Upper, block_rank, R_cholqr, b_sz_const);
-            // Compute Q_econ from Cholesky QR
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_cholqr, b_sz_const, A_work, lda);
+            // Performing tall QR on a panel
+            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_tall_qr, b_sz_const);
+            lapack::potrf(Uplo::Upper, block_rank, R_tall_qr, b_sz_const);
+            // Compute Q_econ from tall QR
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_tall_qr, b_sz_const, A_work, lda);
 
             if(this -> timing) {
-                panelqr_t_stop  = high_resolution_clock::now();
-                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
-                reconstruction_t_start = high_resolution_clock::now();
+                qr_tall_t_stop  = high_resolution_clock::now();
+                qr_tall_t_dur  += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
+                q_reconstruction_t_start = high_resolution_clock::now();
             }
 
             // Find Q (stored in A) using Householder reconstruction. 
-            // This will represent the full (rows by rows) Q factor form Cholesky QR
+            // This will represent the full (rows by rows) Q factor form tall QR
             // It would have been really nice to store T right above Q, but without using extra space,
             // it would result in us loosing the first lower-triangular b_sz by b_sz portion of implicitly-stored Q.
             // Filling T without ever touching its lower-triangular space would be a nice optimization for orhr_col routine.
@@ -456,34 +456,33 @@ int BQRRP_blocked<T, RNG>::call(
             ///     This routine is defined in LAPACK 3.9.0.
             lapack::orhr_col(rows, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work2);
 
-            // Need to change signs in the R-factor from Cholesky QR.
+            // Need to change signs in the R-factor from tall QR.
             // Signs correspond to matrix D from orhr_col().
             // This allows us to not explicitoly compute R11_full = (Q[:, 1:block_rank])' * A_pre.
             for(i = 0; i < block_rank; ++i)
                 for(j = 0; j < (i + 1); ++j)
-                R_cholqr[(b_sz_const * i) + j] *= Work2[j];
+                R_tall_qr[(b_sz_const * i) + j] *= Work2[j];
 
             // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
             for(i = 0; i < block_rank; ++i)
                 tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
 
             // Undoing the preconditioning below
-
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
             // Compute R11 = R11_full(1:block_rank, :) * R_sk
-            // R11_full is stored in R_cholqr space, R_sk is stored in A_sk space.
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_cholqr, b_sz_const);
+            // R11_full is stored in R_tall_qr space, R_sk is stored in A_sk space.
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, block_rank, b_sz, (T) 1.0, R_sk, d, R_tall_qr, b_sz_const);
 
-            // Need to copy R11 over form R_cholqr into the appropriate space in A.
-            // We cannot avoid this copy, since trmm() assumes R_cholqr is a square matrix.
+            // Need to copy R11 over form R_tall_qr into the appropriate space in A.
+            // We cannot avoid this copy, since trmm() assumes R_tall_qr is a square matrix.
             // In a global sense, this is identical to:
             // R11 =  &A[(m + 1) * curr_sz];
             R11 = A_work;
-            lapack::lacpy(MatrixType::Upper, block_rank, b_sz, R_cholqr, b_sz_const, A_work, lda);
+            lapack::lacpy(MatrixType::Upper, block_rank, b_sz, R_tall_qr, b_sz_const, A_work, lda);
 
             if(this -> timing) {
-                reconstruction_t_stop  = high_resolution_clock::now();
-                reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
+                q_reconstruction_t_stop  = high_resolution_clock::now();
+                q_reconstruction_t_dur  += duration_cast<microseconds>(q_reconstruction_t_stop - q_reconstruction_t_start).count();
                 apply_transq_t_start = high_resolution_clock::now();
             }
         } else {
@@ -494,8 +493,8 @@ int BQRRP_blocked<T, RNG>::call(
             // R11 is computed and placed in the appropriate space
             R11 = A_work;
             if(this -> timing) {
-                panelqr_t_stop  = high_resolution_clock::now();
-                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
+                qr_tall_t_stop  = high_resolution_clock::now();
+                qr_tall_t_dur  += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
                 apply_transq_t_start = high_resolution_clock::now();
             }
         }
@@ -549,17 +548,17 @@ int BQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_other  = total_t_dur - (skop_t_dur + preallocation_t_dur + qrcp_t_dur + panel_preprocessing_t_dur + panelqr_t_dur + reconstruction_t_dur + apply_transq_t_dur + sample_update_t_dur);
+                long t_other  = total_t_dur - (skop_t_dur + preallocation_t_dur + qrcp_wide_t_dur + panel_preprocessing_t_dur + qr_tall_t_dur + q_reconstruction_t_dur + apply_transq_t_dur + sample_update_t_dur);
                 this -> times.resize(10);
-                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, panel_preprocessing_t_dur, panelqr_t_dur, reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_other, total_t_dur};
+                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_wide_t_dur, panel_preprocessing_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_other, total_t_dur};
 
                 printf("\n\n/------------BQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time:                 %ld μs,\n", preallocation_t_dur);
                 printf("SKOP time:                          %ld μs,\n", skop_t_dur);
-                printf("QRCP_wide time:                     %ld μs,\n", qrcp_t_dur);
+                printf("QRCP_wide time:                     %ld μs,\n", qrcp_wide_t_dur);
                 printf("Panel preprocessing time:           %ld μs,\n", panel_preprocessing_t_dur);
-                printf("QR_tall time:                       %ld μs,\n", panelqr_t_dur);
-                printf("Householder reconstruction time:    %ld μs,\n", reconstruction_t_dur);
+                printf("QR_tall time:                       %ld μs,\n", qr_tall_t_dur);
+                printf("Householder reconstruction time:    %ld μs,\n", q_reconstruction_t_dur);
                 printf("Apply QT time:                      %ld μs,\n", apply_transq_t_dur);
                 printf("Sample updating time:               %ld μs,\n", sample_update_t_dur);
                 printf("Other routines time:                %ld μs,\n", t_other);
@@ -567,10 +566,10 @@ int BQRRP_blocked<T, RNG>::call(
 
                 printf("\nPreallocation takes                     %6.2f%% of runtime.\n",  100 * ((T) preallocation_t_dur       / (T) total_t_dur));
                 printf("SKOP generation and application takes     %6.2f%% of runtime.\n",  100 * ((T) skop_t_dur                / (T) total_t_dur));
-                printf("QRCP_wide takes                           %6.2f%% of runtime.\n",  100 * ((T) qrcp_t_dur                / (T) total_t_dur));
+                printf("QRCP_wide takes                           %6.2f%% of runtime.\n",  100 * ((T) qrcp_wide_t_dur                / (T) total_t_dur));
                 printf("Panel preprocessing takes                 %6.2f%% of runtime.\n",  100 * ((T) panel_preprocessing_t_dur / (T) total_t_dur));
-                printf("QR_tall takes                             %6.2f%% of runtime.\n",  100 * ((T) panelqr_t_dur             / (T) total_t_dur));
-                printf("Householder reconstruction takes          %6.2f%% of runtime.\n",  100 * ((T) reconstruction_t_dur      / (T) total_t_dur));
+                printf("QR_tall takes                             %6.2f%% of runtime.\n",  100 * ((T) qr_tall_t_dur             / (T) total_t_dur));
+                printf("Householder reconstruction takes          %6.2f%% of runtime.\n",  100 * ((T) q_reconstruction_t_dur      / (T) total_t_dur));
                 printf("Apply QT takes                            %6.2f%% of runtime.\n",  100 * ((T) apply_transq_t_dur        / (T) total_t_dur));
                 printf("Sample updating time takes                %6.2f%% of runtime.\n",  100 * ((T) sample_update_t_dur       / (T) total_t_dur));
                 printf("Everything else takes                     %6.2f%% of runtime.\n",  100 * ((T) t_other                   / (T) total_t_dur));
@@ -580,7 +579,7 @@ int BQRRP_blocked<T, RNG>::call(
             free(J_buffer_lu);
             free(A_sk_const);
             free(A_sk_trans);
-            free(R_cholqr);
+            free(R_tall_qr);
             free(T_dat);
             free(Work2);
 

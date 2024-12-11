@@ -265,7 +265,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_070824) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_blocked_GPU<double, r123::Philox4x32> BQRRP_blocked_GPU(profile_runtime, tol, b_sz);
-    BQRRP_blocked_GPU.use_qrf = false;
+    BQRRP_blocked_GPU.qr_tall = "cholqr";
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
@@ -289,7 +289,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_qrf) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_blocked_GPU<double, r123::Philox4x32> BQRRP_blocked_GPU(profile_runtime, tol, b_sz);
-    BQRRP_blocked_GPU.use_qrf = true;
+    BQRRP_blocked_GPU.qr_tall = "geqrf";
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
@@ -335,7 +335,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_near_zero_input) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_blocked_GPU<double, r123::Philox4x32> BQRRP_blocked_GPU(false, tol, b_sz);
-    BQRRP_blocked_GPU.use_qrf = false;
+    BQRRP_blocked_GPU.qr_tall = "cholqr";
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[1000*200 + 1] = 1;
@@ -357,7 +357,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_input) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_blocked_GPU<double, r123::Philox4x32> BQRRP_blocked_GPU(false, tol, b_sz);
-    BQRRP_blocked_GPU.use_qrf = false;
+    BQRRP_blocked_GPU.qr_tall = "cholqr";
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 

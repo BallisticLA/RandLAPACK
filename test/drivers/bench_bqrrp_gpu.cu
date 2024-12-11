@@ -107,7 +107,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
         RandLAPACK::BQRRP_blocked_GPU<double, r123::Philox4x32> BQRRP_GPU_QRF(profile_runtime, tol, block_size);
-        BQRRP_GPU_QRF.use_qrf = true;
+        BQRRP_GPU_QRF.qr_tall = "geqrf";
 	    auto start_bqrrp_qrf = std::chrono::steady_clock::now();
         BQRRP_GPU_QRF.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
         auto stop_bqrrp_qrf = std::chrono::steady_clock::now();
@@ -130,7 +130,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         free(S);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
         RandLAPACK::BQRRP_blocked_GPU<double, r123::Philox4x32> BQRRP_GPU_CholQR(profile_runtime, tol, block_size);
-        BQRRP_GPU_CholQR.use_qrf = false;
+        BQRRP_GPU_CholQR.qr_tall = "cholqr";
 	    auto start_bqrrp_cholqr = std::chrono::steady_clock::now();
         BQRRP_GPU_CholQR.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 	    auto stop_bqrrp_cholqr = std::chrono::steady_clock::now();
