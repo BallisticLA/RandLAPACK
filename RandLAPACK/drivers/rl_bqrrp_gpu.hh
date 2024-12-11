@@ -24,10 +24,10 @@ using namespace std::chrono;
 namespace RandLAPACK {
 
 template <typename T, typename RNG>
-class CQRRP_GPU_alg {
+class BQRRP_GPU_alg {
     public:
 
-        virtual ~CQRRP_GPU_alg() {}
+        virtual ~BQRRP_GPU_alg() {}
 
         virtual int call(
             int64_t m,
@@ -42,25 +42,27 @@ class CQRRP_GPU_alg {
 };
 
 template <typename T, typename RNG>
-class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
+class BQRRP_blocked_GPU : public BQRRP_GPU_alg<T, RNG> {
     public:
-        /// This is a device version of the ICQRRP algorithm - ALL INPUT DATA LIVES ON A GPU.
+        /// This is a device version of the BQRRP algorithm - ALL INPUT DATA LIVES ON A GPU.
         ///
-        /// This algorithm serves as an extension of CQRRPT's idea - CQRRP presents a blocked version of
-        /// randomized QR with column pivoting that utilizes Cholesky QR.
+        /// This file presents the BQRRP algorithmic framework for a blocked version of
+        /// randomized QR with column pivoting, applicable to matrices with any aspect ratio.
+        /// Depending on the user's choice for the subroutines, this framework can define versions of the practical 
         ///
-        /// The base structure of CQRRP resembles that of Algorithm 4 from https://arxiv.org/abs/1509.06820. 
-        /// CQRRP allows for error-tolerance based adaptive stopping criteria, taken from Section 3 of 
-        /// https://arxiv.org/abs/1606.09402.
-        ///
-        /// The main computational bottlenecks of CQRRP are in its following two components:
-        ///     1. Performing QRCP on a sketch - in our case, is implemented via pivoted LU (see below for details).
-        ///     2. Applying Q-factor from Cholesky QR to the working area of matrix A (done via gemqrt).
+        /// The core subroutines in question are:
+        ///     1. qrcp_wide     - epresents a column-pivoted QR factorization method, suitable for wide matrices;
+        ///     2. rank          - aims to estimate the exact rank of the given matrix;
+        ///     3. col_perm      - responsible for permuting the columns of a given matrix in accordance with the indices stored in a given vector;
+        ///     4. qr_tall       - performs a tall unpivoted QR factorization;
+        ///     5. apply_trans_q - applies the transpose Q-factor output by qr_tall to a given matrix.
+        ///    
+        /// The base structure of BQRRP resembles that of Algorithm 4 from https://arxiv.org/abs/1509.06820. 
         ///
         /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
 
 
-        CQRRP_blocked_GPU(
+        BQRRP_blocked_GPU(
             bool time_subroutines,
             T ep,
             int64_t b_sz
@@ -136,7 +138,7 @@ class CQRRP_blocked_GPU : public CQRRP_GPU_alg<T, RNG> {
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-int CQRRP_blocked_GPU<T, RNG>::call(
+int BQRRP_blocked_GPU<T, RNG>::call(
     int64_t m,
     int64_t n,
     T* A,
@@ -359,7 +361,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
             copy_A_sk_t_start = high_resolution_clock::now();
         }
         // Instead of copying A_sk_work into A_sk_copy_col_swap, we ``swap'' the pointers.
-        // This is safe, as A_sk is not needed outside of ICQRRP.
+        // This is safe, as A_sk is not needed outside of BQRRP.
         std::swap(A_sk_copy_col_swap_work, A_sk_work);
         
         if(this -> timing) {
@@ -412,18 +414,18 @@ int CQRRP_blocked_GPU<T, RNG>::call(
         }
 
         // Instead of copying A into A_copy_col_swap, we ``swap'' the pointers.
-        // We have to take some precautions when ICQRRP main loop terminates.
-        // Since we want A to be accessible and valid outside of ICQRRP, we need to make sure that 
+        // We have to take some precautions when BQRRP main loop terminates.
+        // Since we want A to be accessible and valid outside of BQRRP, we need to make sure that 
         // its entries were, in fact, computed correctly. 
         //
         // The original memory space that the matrix A points to would only contain the correct entry ranges, computed at ODD
-        // iterations of ICQRRP's main loop.
+        // iterations of BQRRP's main loop.
         // The correct entries from the even iterations would be contained in the memory space that was originally pointed to
         // by A_copy_col_swap.
-        // Hence, when ICQRRP terminates, we would need to copy the results from the even iterations form A_copy_col_swap to A.
+        // Hence, when BQRRP terminates, we would need to copy the results from the even iterations form A_copy_col_swap to A.
         //
-        // Remember that since the pointers A and A_copy_col_swap are swapped at every even iteration of the main ICQRRP loop,
-        // if the ICQRRP terminates with iter being even, we would need to swap these pointers back around.
+        // Remember that since the pointers A and A_copy_col_swap are swapped at every even iteration of the main BQRRP loop,
+        // if the BQRRP terminates with iter being even, we would need to swap these pointers back around.
         // Recall also that if A and A_cpy needed to be swapped at termination and iter != maxiters, A_cpy would contain the "correct"
         // entries in column range ((iter + 1) * b_sz : end), so we need to not forget to copy those over into A.
         //
@@ -651,18 +653,18 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 copy_J_t_start = high_resolution_clock::now();
             }
             // Instead of copying J into J_copy_col_swap, we ``swap'' the pointers.
-            // We have to take some precautions when ICQRRP main loop terminates.
-            // Since we want J to be accessible and valid outside of ICQRRP, we need to make sure that 
+            // We have to take some precautions when BQRRP main loop terminates.
+            // Since we want J to be accessible and valid outside of BQRRP, we need to make sure that 
             // its entries were, in fact, computed correctly. 
             //
             // The original memory space that the vector J points to would only contain the correct pivot ranges, computed at EVEN
-            // iterations of ICQRRP's main loop (by contrast to the situation with matrix A, since the pointers J and J_cpy do not get swapped at iteration 0).
+            // iterations of BQRRP's main loop (by contrast to the situation with matrix A, since the pointers J and J_cpy do not get swapped at iteration 0).
             // The correct entries from the odd iterations would be contained in the memory space that was originbally pointed to
             // by J_copy_col_swap.
-            // Hence, when ICQRRP terminates, we would need to copy the results from the odd iterations form J_copy_col_swap to J.
+            // Hence, when BQRRP terminates, we would need to copy the results from the odd iterations form J_copy_col_swap to J.
             //
-            // Remember that since the pointers J and J_copy_col_swap are swapped at every odd iteration of the main ICQRRP loop,
-            // if the ICQRRP terminates with iter being odd, we would need to swap these pointers back around.
+            // Remember that since the pointers J and J_copy_col_swap are swapped at every odd iteration of the main BQRRP loop,
+            // if the BQRRP terminates with iter being odd, we would need to swap these pointers back around.
             //
             // Additional thing to remember is that the final copy needs to be performed in terms of b_sz_const, not b_sz.
             std::swap(J_copy_col_swap, J);
@@ -766,7 +768,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 auto qrcp_main_t_dur = qrcp_t_dur - qrcp_piv_t_dur - copy_A_sk_t_dur;
                 this -> times = {n, b_sz_const, preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, preconditioning_t_dur, qr_panel_tdur, orhr_col_t_dur, updating_A_t_dur, copy_J_t_dur, updating_J_t_dur, updating_R_t_dur, updating_Sk_t_dur, t_rest, total_t_dur};
 
-                printf("\n\n/------------ICQRRP TIMING RESULTS BEGIN------------/\n");
+                printf("\n\n/------------BQRRP TIMING RESULTS BEGIN------------/\n");
                 printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
                 printf("QRCP main time: %36ld μs,\n",                      qrcp_main_t_dur);
                 printf("Copy(A_sk) time: %24ld μs,\n",                     copy_A_sk_t_dur);
@@ -799,7 +801,7 @@ int CQRRP_blocked_GPU<T, RNG>::call(
                 printf("R updating time takes %20.2f%% of runtime.\n",                  100 * ((T) updating_R_t_dur      / (T) total_t_dur));
                 printf("Sketch updating time takes %15.2f%% of runtime.\n",             100 * ((T) updating_Sk_t_dur     / (T) total_t_dur));
                 printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
-                printf("/-------------ICQRRP TIMING RESULTS END-------------/\n\n");
+                printf("/-------------BQRRP TIMING RESULTS END-------------/\n\n");
             }
 
             cudaFree(A_sk_trans);        

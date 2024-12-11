@@ -15,7 +15,7 @@ if (GTest_FOUND)
         comps/test_syrf.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
-        drivers/test_cqrrp.cc
+        drivers/test_bqrrp.cc
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
         drivers/test_rbki.cc
@@ -31,7 +31,7 @@ if (GTest_FOUND)
         set(RandLAPACK_test_cu_srcs
             comps/test_util_gpu.cu
             drivers/test_cqrrpt_gpu.cu
-            drivers/test_cqrrp_gpu.cu
+            drivers/test_bqrrp_gpu.cu
         )
         
         # Create CUDA test executables
@@ -40,7 +40,7 @@ if (GTest_FOUND)
         target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
         set_property(TARGET RandLAPACK_tests_gpu PROPERTY CUDA_ARCHITECTURES native)
 
-        add_executable(RandLAPACK_bench_gpu drivers/bench_cqrrp_gpu.cu)
+        add_executable(RandLAPACK_bench_gpu drivers/bench_bqrrp_gpu.cu)
         target_link_libraries(RandLAPACK_bench_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
         set_property(TARGET RandLAPACK_bench_gpu PROPERTY CUDA_ARCHITECTURES native)
 

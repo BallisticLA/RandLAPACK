@@ -16,10 +16,10 @@ using namespace std::chrono;
 namespace RandLAPACK {
 
 template <typename T, typename RNG>
-class CQRRPalg {
+class BQRRPalg {
     public:
 
-        virtual ~CQRRPalg() {}
+        virtual ~BQRRPalg() {}
 
         virtual int call(
             int64_t m,
@@ -34,43 +34,43 @@ class CQRRPalg {
 };
 
 template <typename T, typename RNG>
-class CQRRP_blocked : public CQRRPalg<T, RNG> {
+class BQRRP_blocked : public BQRRPalg<T, RNG> {
     public:
 
-        /// This algorithm serves as an extension of CQRRPT's idea - CQRRP presents a blocked version of
-        /// randomized QR with column pivoting that utilizes Cholesky QR.
+        /// This file presents the BQRRP algorithmic framework for a blocked version of
+        /// randomized QR with column pivoting, applicable to matrices with any aspect ratio.
+        /// Depending on the user's choice for the subroutines, this framework can define versions of the practical 
         ///
-        /// The base structure of CQRRP resembles that of Algorithm 4 from https://arxiv.org/abs/1509.06820. 
-        /// CQRRP allows for error-tolerance based adaptive stopping criteria, taken from Section 3 of 
-        /// https://arxiv.org/abs/1606.09402.
-        ///
-        /// The main computational bottlenecks of CQRRP are in its following two components:
-        ///     1. Performing QRCP on a sketch - in our case, is implemented via pivoted LU (see below for details).
-        ///     2. Applying Q-factor from Cholesky QR to the working area of matrix A (done via gemqrt).
+        /// The core subroutines in question are:
+        ///     1. qrcp_wide     - epresents a column-pivoted QR factorization method, suitable for wide matrices;
+        ///     2. rank          - aims to estimate the exact rank of the given matrix -- for now, no options other than the default naive is offered;
+        ///     3. col_perm      - responsible for permuting the columns of a given matrix in accordance with the indices stored in a given vector;
+        ///     4. qr_tall       - performs a tall unpivoted QR factorization;
+        ///     5. apply_trans_q - applies the transpose Q-factor output by qr_tall to a given matrix.
+        ///    
+        /// The base structure of BQRRP resembles that of Algorithm 4 from https://arxiv.org/abs/1509.06820. 
         ///
         /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
 
 
-        CQRRP_blocked(
+        BQRRP_blocked(
             bool time_subroutines,
             T ep,
             int64_t b_sz
         ) {
-            timing       = time_subroutines;
-            eps          = ep;
-            timing       = time_subroutines;
-            eps          = ep;
-            block_size   = b_sz;
-            use_qp3      = false;
-            panel_qr     = "geqrf";
-            use_gemqrt   = false;
-            internal_nb  = b_sz;
-            tol = std::numeric_limits<T>::epsilon();
+            timing          = time_subroutines;
+            eps             = ep;
+            tol             = std::numeric_limits<T>::epsilon();
+            block_size      = b_sz;
+            internal_nb     = b_sz;
+            qrcp_wide       = "luqr";
+            qr_tall         = "geqrf";
+            apply_trans_q   = "ormqr";
         }
 
         /// Computes a QR factorization with column pivots of the form:
         ///     A[:, J] = QR,
-        /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
+        /// where Q and R are of size m-by-l and l-by-n, with rank_estimate(A) = l.
         /// Stores implict Q factor and explicit R factor in A's space (output formatted exactly like GEQP3).
         ///
         /// @param[in] m
@@ -125,17 +125,13 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
         int64_t rank;
         int64_t block_size;
 
-        // 12 entries - logs time for different portions of the algorithm
+        // 10 entries - logs time for different portions of the algorithm
         std::vector<long> times;
 
-        // QRCP option
-        bool use_qp3;
-
-        // Panel qr option
-        std::string panel_qr;
-
-        // Option for updating A
-        bool use_gemqrt;
+        // Core subroutines options, controlled by user
+        std::string qrcp_wide;     // Supported options: "qp3," "luqr"
+        std::string qr_tall;       // Supported options: "geqrt," "cholqr," "geqrf"
+        std::string apply_trans_q; // Supported options: "gemqrt," "ormqr"
 
         // NB for orhr_col and gemqrt
         int64_t internal_nb;
@@ -147,7 +143,7 @@ class CQRRP_blocked : public CQRRPalg<T, RNG> {
 // We are assuming that tau and J have been pre-allocated
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-int CQRRP_blocked<T, RNG>::call(
+int BQRRP_blocked<T, RNG>::call(
     int64_t m,
     int64_t n,
     T* A,
@@ -159,7 +155,7 @@ int CQRRP_blocked<T, RNG>::call(
 ){
     #ifdef __APPLE__
     UNUSED(m); UNUSED(n); UNUSED(A); UNUSED(lda); UNUSED(d_factor); UNUSED(tau); UNUSED(J); UNUSED(state);
-    throw std::runtime_error("CQRRP is not supported when BLAS is linked against Apple Accelerate.");
+    throw std::runtime_error("BQRRP is not supported when BLAS is linked against Apple Accelerate.");
     #else
     //-------TIMING VARS--------/
     high_resolution_clock::time_point preallocation_t_stop;
@@ -168,33 +164,27 @@ int CQRRP_blocked<T, RNG>::call(
     high_resolution_clock::time_point skop_t_start;
     high_resolution_clock::time_point qrcp_t_start;
     high_resolution_clock::time_point qrcp_t_stop;
+    high_resolution_clock::time_point panel_preprocessing_t_start;
+    high_resolution_clock::time_point panel_preprocessing_t_stop;
     high_resolution_clock::time_point panelqr_t_start;
     high_resolution_clock::time_point panelqr_t_stop;
     high_resolution_clock::time_point reconstruction_t_start;
     high_resolution_clock::time_point reconstruction_t_stop;
-    high_resolution_clock::time_point panel_preprocessing_t_start;
-    high_resolution_clock::time_point panel_preprocessing_t_stop;
-    high_resolution_clock::time_point r_piv_t_start;
-    high_resolution_clock::time_point r_piv_t_stop;
-    high_resolution_clock::time_point updating1_t_start;
-    high_resolution_clock::time_point updating1_t_stop;
-    high_resolution_clock::time_point updating2_t_start;
-    high_resolution_clock::time_point updating2_t_stop;
-    high_resolution_clock::time_point updating3_t_start;
-    high_resolution_clock::time_point updating3_t_stop;
+    high_resolution_clock::time_point apply_transq_t_start;
+    high_resolution_clock::time_point apply_transq_t_stop;
+    high_resolution_clock::time_point sample_update_t_start;
+    high_resolution_clock::time_point sample_update_t_stop;
     high_resolution_clock::time_point total_t_start;
     high_resolution_clock::time_point total_t_stop;
-    long preallocation_t_dur   = 0;
-    long skop_t_dur            = 0;
-    long qrcp_t_dur            = 0;
-    long panelqr_t_dur          = 0;
-    long reconstruction_t_dur  = 0;
+    long preallocation_t_dur       = 0;
+    long skop_t_dur                = 0;
+    long qrcp_t_dur                = 0;
     long panel_preprocessing_t_dur = 0;
-    long r_piv_t_dur           = 0;
-    long updating1_t_dur       = 0;
-    long updating2_t_dur       = 0;
-    long updating3_t_dur       = 0;
-    long total_t_dur           = 0;
+    long panelqr_t_dur             = 0;
+    long reconstruction_t_dur      = 0;
+    long apply_transq_t_dur        = 0;
+    long sample_update_t_dur       = 0;
+    long total_t_dur               = 0;
 
     if(this -> timing) {
         total_t_start = high_resolution_clock::now();
@@ -202,28 +192,28 @@ int CQRRP_blocked<T, RNG>::call(
     }
     int iter, i, j;
     int64_t tmp;
-    int64_t rows       = m;
-    int64_t cols       = n;
+    int64_t rows              = m;
+    int64_t cols              = n;
     // Describes sizes of full Q and R factors at a given iteration.
-    int64_t curr_sz    = 0;
-    int64_t b_sz       = this->block_size;
-    int64_t maxiter    = (int64_t) std::ceil(std::min(m, n) / (T) b_sz);
+    int64_t curr_sz           = 0;
+    int64_t b_sz              = this->block_size;
+    int64_t maxiter           = (int64_t) std::ceil(std::min(m, n) / (T) b_sz);
     // Using this variable to work with matrices with leading dimension = b_sz.
-    int64_t b_sz_const = b_sz;
+    int64_t b_sz_const        = b_sz;
     // This will serve as lda of a sketch
-    int64_t d          = d_factor * b_sz;
+    int64_t d                 = d_factor * b_sz;
     // We will be using this parameter when performing QRCP on a sketch.
     // After the first iteration of the algorithm, this will change its value to min(d, cols) 
     // before "cols" is updated.
     int64_t sampling_dimension = d;
     // An indicator for whether all entries in a given block are zero.
-    bool block_zero = true;
+    bool block_zero            = true;
     // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration, 
     // since the rest of the matrx must be zero.
     // Is equal to block size by default, needs to be upated if the block size has changed.
-    int64_t block_rank = b_sz;
+    int64_t block_rank         = b_sz;
     // Parameter to control number of blocks in orhr_col and gemqrt;
-    int64_t internal_nb = this -> internal_nb;
+    int64_t internal_nb        = this -> internal_nb;
 
     //*********************************POINTERS TO A BEGIN*********************************
     // LDA for all of the below is m
@@ -321,9 +311,11 @@ int CQRRP_blocked<T, RNG>::call(
         if(this -> timing)
             qrcp_t_start = high_resolution_clock::now();
             
-        if (this -> use_qp3) {
+        // Performing qrcp_wide below
+        if (this -> qrcp_wide == "qp3") {
             lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
         } else {
+            // Defaul option
             // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
             // Get a transpose of A_sk 
             util::transposition(sampling_dimension, cols, A_sk, d, A_sk_trans, n, 0);
@@ -385,11 +377,17 @@ int CQRRP_blocked<T, RNG>::call(
             return 0;
         }
 
+        // Updating pivots
+        if(iter == 0) {
+            blas::copy(cols, J_buffer, 1, J, 1);
+        } else {
+            RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
+        }
+
         // Defining the new "working subportion" of matrix A.
         // In a global sense, below is identical to:
         // Work1 = &A[(lda * (iter + 1) * b_sz) + curr_sz];
         Work1 = &A_work[lda * b_sz];
-
         // Define the space representing R_sk (stored in A_sk)
         R_sk = A_sk;
 
@@ -406,20 +404,20 @@ int CQRRP_blocked<T, RNG>::call(
             }
         }
         
-
         if(this -> timing) {
             panel_preprocessing_t_stop  = high_resolution_clock::now();
             panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
             panelqr_t_start = high_resolution_clock::now();
         }
 
-        if (this -> panel_qr == "geqrt") {
+        // Define a pointer to the current subportion of tau vector.
+        tau_sub = &tau[curr_sz];
+
+        if (this -> qr_tall == "geqrt") {
             // No preconditioning required in this case
             // Performing GEQRT on a panel - this skips ORHR_COL
             lapack::geqrt(rows, b_sz, internal_nb, A_work, lda, T_dat, b_sz_const);
-            // Define a pointer to the current subportion of tau vector.
-            tau_sub = &tau[curr_sz];
-            // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
+            // Entries of tau will be placed on the main diagonal of the block matrix T.
             for(i = 0; i < block_rank; ++i)
                 tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
             // R11 is computed and placed in the appropriate space
@@ -428,9 +426,9 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 panelqr_t_stop  = high_resolution_clock::now();
                 panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
-                updating1_t_start = high_resolution_clock::now();
+                apply_transq_t_start = high_resolution_clock::now();
             }
-        } else if (this -> panel_qr == "cholqr") {
+        } else if (this -> qr_tall == "cholqr") {
 
             // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
             // Performing preconditioning of the current matrix A.
@@ -465,69 +463,10 @@ int CQRRP_blocked<T, RNG>::call(
                 for(j = 0; j < (i + 1); ++j)
                 R_cholqr[(b_sz_const * i) + j] *= Work2[j];
 
-            // Define a pointer to the current subportion of tau vector.
-            tau_sub = &tau[curr_sz];
             // Entries of tau will be placed on the main diagonal of the block matrix T from orhr_col().
             for(i = 0; i < block_rank; ++i)
                 tau_sub[i] = T_dat[(b_sz_const * i) + (i % internal_nb)];
 
-            if(this -> timing) {
-                reconstruction_t_stop  = high_resolution_clock::now();
-                reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
-                updating1_t_start = high_resolution_clock::now();
-            }
-        } else {
-            // Perform QRF by default
-            // No preconditioning required in this case
-            // Performing QRF on a panel - this skips ORHR_COL and tau extraction
-            tau_sub = &tau[curr_sz];
-            lapack::geqrf(rows, b_sz, A_work, lda, tau_sub);
-            // R11 is computed and placed in the appropriate space
-            R11 = A_work;
-            if(this -> timing) {
-                panelqr_t_stop  = high_resolution_clock::now();
-                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
-                updating1_t_start = high_resolution_clock::now();
-            }
-        }
-
-        // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
-        // If block_rank != b_sz_const -> last iteration, no need to find the new "current A." 
-        // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
-        // The first b_sz rows will represent R12.
-        // The last rows-b_sz rows will represent the new A.
-        // With that, everything is placed where it should be, no copies required.
-        // Q is defined with block_rank elementary reflectors. 
-        // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
-        // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
-        if ((block_rank != b_sz_const)) {
-            if(this -> use_gemqrt && (this -> panel_qr == "geqrt" || this -> panel_qr == "cholqr")) {
-                lapack::gemqrt(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
-            } else {
-                lapack::ormqr(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
-            }
-        } else {
-            if(this -> use_gemqrt && (this -> panel_qr == "geqrt" || this -> panel_qr == "cholqr")) {
-                lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
-            } else {
-                lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
-            }
-        }
-        
-        if(this -> timing) {
-            updating1_t_stop  = high_resolution_clock::now();
-            updating1_t_dur  += duration_cast<microseconds>(updating1_t_stop - updating1_t_start).count();
-            updating3_t_start = high_resolution_clock::now();
-        }
-
-        // Updating pivots
-        if(iter == 0) {
-            blas::copy(cols, J_buffer, 1, J, 1);
-        } else {
-            RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
-        }
-
-        if (this -> panel_qr == "cholqr") {
             // Undoing the preconditioning below
 
             // Alternatively, instead of trmm + copy, we could perform a single gemm.
@@ -541,17 +480,59 @@ int CQRRP_blocked<T, RNG>::call(
             // R11 =  &A[(m + 1) * curr_sz];
             R11 = A_work;
             lapack::lacpy(MatrixType::Upper, block_rank, b_sz, R_cholqr, b_sz_const, A_work, lda);
+
+            if(this -> timing) {
+                reconstruction_t_stop  = high_resolution_clock::now();
+                reconstruction_t_dur  += duration_cast<microseconds>(reconstruction_t_stop - reconstruction_t_start).count();
+                apply_transq_t_start = high_resolution_clock::now();
+            }
+        } else {
+            // Perform QRF by default
+            // No preconditioning required in this case
+            // Performing QRF on a panel - this skips ORHR_COL and tau extraction
+            lapack::geqrf(rows, b_sz, A_work, lda, tau_sub);
+            // R11 is computed and placed in the appropriate space
+            R11 = A_work;
+            if(this -> timing) {
+                panelqr_t_stop  = high_resolution_clock::now();
+                panelqr_t_dur  += duration_cast<microseconds>(panelqr_t_stop - panelqr_t_start).count();
+                apply_transq_t_start = high_resolution_clock::now();
+            }
+        }
+
+        // Performing apply_trans_q below.
+        // Perform Q_full' * A_piv(:, b_sz:end) to find R12 and the new "current A."
+        // If block_rank != b_sz_const -> last iteration, no need to find the new "current A." 
+        // A_piv (Work1) is a rows by cols - b_sz matrix, stored in space of the original A.
+        // The first b_sz rows will represent R12.
+        // The last rows-b_sz rows will represent the new A.
+        // With that, everything is placed where it should be, no copies required.
+        // Q is defined with block_rank elementary reflectors. 
+        // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
+        // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
+        if ((block_rank != b_sz_const)) {
+            if(this -> apply_trans_q == "gemqrt" && (this -> qr_tall == "geqrt" || this -> qr_tall == "cholqr")) {
+                lapack::gemqrt(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
+            } else {
+                lapack::ormqr(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
+            }
+        } else {
+            if(this -> apply_trans_q == "gemqrt" && (this -> qr_tall == "geqrt" || this -> qr_tall == "cholqr")) {
+                lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
+            } else {
+                lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
+            }
+        }
+        
+        if(this -> timing) {
+            apply_transq_t_stop  = high_resolution_clock::now();
+            apply_transq_t_dur  += duration_cast<microseconds>(apply_transq_t_stop - apply_transq_t_start).count();
         }
 
         // Updating the pointer to R12
         // In a global sense, this is identical to:
         // R12 =  &A[(m * (curr_sz + b_sz)) + curr_sz];
         R12 = &R11[lda * b_sz];
-
-        if(this -> timing) {
-            updating3_t_stop  = high_resolution_clock::now();
-            updating3_t_dur  += duration_cast<microseconds>(updating3_t_stop - updating3_t_start).count();
-        }
 
         // Size of the factors is updated;
         curr_sz += b_sz;
@@ -568,36 +549,32 @@ int CQRRP_blocked<T, RNG>::call(
             if(this -> timing) {
                 total_t_stop = high_resolution_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (skop_t_dur + preallocation_t_dur + qrcp_t_dur + panel_preprocessing_t_dur + panelqr_t_dur + reconstruction_t_dur + updating1_t_dur + updating2_t_dur + updating3_t_dur + r_piv_t_dur);
-                this -> times.resize(12);
-                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, panel_preprocessing_t_dur, panelqr_t_dur, reconstruction_t_dur, updating1_t_dur, updating2_t_dur, updating3_t_dur, r_piv_t_dur, t_rest, total_t_dur};
+                long t_other  = total_t_dur - (skop_t_dur + preallocation_t_dur + qrcp_t_dur + panel_preprocessing_t_dur + panelqr_t_dur + reconstruction_t_dur + apply_transq_t_dur + sample_update_t_dur);
+                this -> times.resize(10);
+                this -> times = {skop_t_dur, preallocation_t_dur, qrcp_t_dur, panel_preprocessing_t_dur, panelqr_t_dur, reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_other, total_t_dur};
 
-                printf("\n\n/------------CQRRP TIMING RESULTS BEGIN------------/\n");
-                printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-                printf("skop time: %34ld μs,\n",                           skop_t_dur);
-                printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
-                printf("Preconditioning time: %24ld μs,\n",                panel_preprocessing_t_dur);
-                printf("CholQR time: %32ld μs,\n",                         panelqr_t_dur);
-                printf("Householder vector restoration time: %7ld μs,\n",  reconstruction_t_dur);
-                printf("Computing A_new, R12 time: %23ld μs,\n",           updating1_t_dur);
-                printf("Factors updating time: %23ld μs,\n",               updating3_t_dur);
-                printf("Sketch updating time: %24ld μs,\n",                updating2_t_dur);
-                printf("Trailing cols(R) pivoting time: %10ld μs,\n",      r_piv_t_dur);
-                printf("Other routines time: %24ld μs,\n",                 t_rest);
-                printf("Total time: %35ld μs.\n",                          total_t_dur);
+                printf("\n\n/------------BQRRP TIMING RESULTS BEGIN------------/\n");
+                printf("Preallocation time:                 %ld μs,\n", preallocation_t_dur);
+                printf("SKOP time:                          %ld μs,\n", skop_t_dur);
+                printf("QRCP_wide time:                     %ld μs,\n", qrcp_t_dur);
+                printf("Panel preprocessing time:           %ld μs,\n", panel_preprocessing_t_dur);
+                printf("QR_tall time:                       %ld μs,\n", panelqr_t_dur);
+                printf("Householder reconstruction time:    %ld μs,\n", reconstruction_t_dur);
+                printf("Apply QT time:                      %ld μs,\n", apply_transq_t_dur);
+                printf("Sample updating time:               %ld μs,\n", sample_update_t_dur);
+                printf("Other routines time:                %ld μs,\n", t_other);
+                printf("Total time:                         %ld μs.\n", total_t_dur);
 
-                printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-                printf("skop generation and application takes %2.2f%% of runtime.\n",   100 * ((T) skop_t_dur            / (T) total_t_dur));
-                printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
-                printf("Preconditioning takes %20.2f%% of runtime.\n",                  100 * ((T) panel_preprocessing_t_dur / (T) total_t_dur));
-                printf("Cholqr takes %29.2f%% of runtime.\n",                           100 * ((T) panelqr_t_dur          / (T) total_t_dur));
-                printf("Householder restoration takes %12.2f%% of runtime.\n",          100 * ((T) reconstruction_t_dur  / (T) total_t_dur));
-                printf("Computing A_new, R12 takes %14.2f%% of runtime.\n",             100 * ((T) updating1_t_dur       / (T) total_t_dur));
-                printf("Factors updating time takes %14.2f%% of runtime.\n",            100 * ((T) updating3_t_dur       / (T) total_t_dur));
-                printf("Sketch updating time takes %15.2f%% of runtime.\n",             100 * ((T) updating2_t_dur       / (T) total_t_dur));
-                printf("Trailing cols(R) pivoting takes %10.2f%% of runtime.\n",        100 * ((T) r_piv_t_dur           / (T) total_t_dur));
-                printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) t_rest                / (T) total_t_dur));
-                printf("/-------------CQRRP TIMING RESULTS END-------------/\n\n");
+                printf("\nPreallocation takes                     %6.2f%% of runtime.\n",  100 * ((T) preallocation_t_dur       / (T) total_t_dur));
+                printf("SKOP generation and application takes     %6.2f%% of runtime.\n",  100 * ((T) skop_t_dur                / (T) total_t_dur));
+                printf("QRCP_wide takes                           %6.2f%% of runtime.\n",  100 * ((T) qrcp_t_dur                / (T) total_t_dur));
+                printf("Panel preprocessing takes                 %6.2f%% of runtime.\n",  100 * ((T) panel_preprocessing_t_dur / (T) total_t_dur));
+                printf("QR_tall takes                             %6.2f%% of runtime.\n",  100 * ((T) panelqr_t_dur             / (T) total_t_dur));
+                printf("Householder reconstruction takes          %6.2f%% of runtime.\n",  100 * ((T) reconstruction_t_dur      / (T) total_t_dur));
+                printf("Apply QT takes                            %6.2f%% of runtime.\n",  100 * ((T) apply_transq_t_dur        / (T) total_t_dur));
+                printf("Sample updating time takes                %6.2f%% of runtime.\n",  100 * ((T) sample_update_t_dur       / (T) total_t_dur));
+                printf("Everything else takes                     %6.2f%% of runtime.\n",  100 * ((T) t_other                   / (T) total_t_dur));
+                printf("/-------------BQRRP TIMING RESULTS END-------------/\n\n");
             }
 
             free(J_buffer_lu);
@@ -611,7 +588,7 @@ int CQRRP_blocked<T, RNG>::call(
         }
 
         if(this -> timing)
-            updating2_t_start = high_resolution_clock::now();
+            sample_update_t_start = high_resolution_clock::now();
 
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
@@ -644,8 +621,8 @@ int CQRRP_blocked<T, RNG>::call(
         A_sk = &A_sk[d * b_sz];
 
         if(this -> timing) {
-            updating2_t_stop  = high_resolution_clock::now();
-            updating2_t_dur  += duration_cast<microseconds>(updating2_t_stop - updating2_t_start).count();
+            sample_update_t_stop  = high_resolution_clock::now();
+            sample_update_t_dur  += duration_cast<microseconds>(sample_update_t_stop - sample_update_t_start).count();
         }
 
         // Data size decreases by block_size per iteration.

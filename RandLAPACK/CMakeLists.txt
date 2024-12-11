@@ -3,7 +3,7 @@ set(RandLAPACK_cxx_sources
     rl_rbki.hh
     rl_lapackpp.hh
     rl_cqrrpt.hh
-    rl_cqrrp.hh
+    rl_bqrrp.hh
     rl_rsvd.hh
     rl_revd2.hh
     rl_qb.hh
@@ -22,7 +22,7 @@ set(RandLAPACK_cxx_sources
     rl_cuda_kernels.cuh
     rl_cuda_macros.hh
     rl_cqrrpt_gpu.hh
-    rl_cqrrp_gpu.hh
+    rl_bqrrp_gpu.hh
 )
 
 add_library(RandLAPACK INTERFACE)
