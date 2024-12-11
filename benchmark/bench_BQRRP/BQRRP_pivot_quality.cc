@@ -230,7 +230,7 @@ int main(int argc, char *argv[]) {
                                               + "_mat_type_"     + std::to_string(m_info.m_type)
                                               + "_numrows_"      + std::to_string(m)
                                               + "_numcols_"      + std::to_string(n)
-                                              , std::ios::out | std::ios::trunc);
+                                              + ".txt", std::ios::out | std::ios::trunc);
 
     R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("Pivot quality metric 1 done\n");
