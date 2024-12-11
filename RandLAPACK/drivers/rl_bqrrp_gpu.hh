@@ -42,7 +42,7 @@ class BQRRP_GPU_alg {
 };
 
 template <typename T, typename RNG>
-class BQRRP_blocked_GPU : public BQRRP_GPU_alg<T, RNG> {
+class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
     public:
         /// This is a device version of the BQRRP algorithm - ALL INPUT DATA LIVES ON A GPU.
         /// By contrast to the CPU version of BQRRP scheme, the GPU version takes the sketch as an input;
@@ -64,7 +64,7 @@ class BQRRP_blocked_GPU : public BQRRP_GPU_alg<T, RNG> {
         /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
 
 
-        BQRRP_blocked_GPU(
+        BQRRP_GPU(
             bool time_subroutines,
             T ep,
             int64_t b_sz
@@ -144,7 +144,7 @@ class BQRRP_blocked_GPU : public BQRRP_GPU_alg<T, RNG> {
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-int BQRRP_blocked_GPU<T, RNG>::call(
+int BQRRP_GPU<T, RNG>::call(
     int64_t m,
     int64_t n,
     T* A,

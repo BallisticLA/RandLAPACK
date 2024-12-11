@@ -34,7 +34,7 @@ class BQRRPalg {
 };
 
 template <typename T, typename RNG>
-class BQRRP_blocked : public BQRRPalg<T, RNG> {
+class BQRRP : public BQRRPalg<T, RNG> {
     public:
 
         /// This file presents the BQRRP algorithmic framework for a blocked version of
@@ -53,7 +53,7 @@ class BQRRP_blocked : public BQRRPalg<T, RNG> {
         /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
 
 
-        BQRRP_blocked(
+        BQRRP(
             bool time_subroutines,
             T ep,
             int64_t b_sz
@@ -142,7 +142,7 @@ class BQRRP_blocked : public BQRRPalg<T, RNG> {
 // We are assuming that tau and J have been pre-allocated
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
-int BQRRP_blocked<T, RNG>::call(
+int BQRRP<T, RNG>::call(
     int64_t m,
     int64_t n,
     T* A,

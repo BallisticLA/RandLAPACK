@@ -80,9 +80,9 @@ static void R_norm_ratio(
     auto state_gen = state;
 
     // Additional params setup.
-    RandLAPACK::BQRRP_blocked<double, r123::Philox4x32> BQRRP_blocked(false, tol, b_sz);
-    BQRRP_blocked.qr_tall = "cholqr";
-    //BQRRP_blocked.qrcp_wide = "qp3";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, tol, b_sz);
+    BQRRP.qr_tall = "cholqr";
+    //BQRRP.qrcp_wide = "qp3";
 
     // Running QP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -96,8 +96,8 @@ static void R_norm_ratio(
     printf("\nStarting BQRRP\n");
     // Running BQRRP
     state_alg = state;
-    BQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-    printf("%ld\n", BQRRP_blocked.rank);
+    BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+    printf("%ld\n", BQRRP.rank);
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 
     // Declare a data file
@@ -141,9 +141,9 @@ static void sv_ratio(
     auto state_gen = state;
 
     // Additional params setup.
-    RandLAPACK::BQRRP_blocked<double, r123::Philox4x32> BQRRP_blocked(false, tol, b_sz);
-    BQRRP_blocked.qr_tall = "cholqr";
-    //BQRRP_blocked.qrcp_wide = "qp3";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, tol, b_sz);
+    BQRRP.qr_tall = "cholqr";
+    //BQRRP.qrcp_wide = "qp3";
 
     std::ofstream file2(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_2"
                                                           + "_num_info_lines_" + std::to_string(5) +
@@ -182,7 +182,7 @@ static void sv_ratio(
 
     // Running BQRRP
     state_alg = state;
-    BQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+    BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i)

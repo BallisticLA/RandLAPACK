@@ -3,7 +3,7 @@ int main() {return 0;}
 #else
 /*
 BQRRP speed comparison benchmark - runs:
-    1. BQRRP
+    1. BQRRP_CQR and BQRRP_HQR
     2. GEQRF
     3. GEQP3 - takes too long!
     5. HQRRP + CholQR
@@ -117,7 +117,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen);
+        data_regen(m_info, all_data, state_gen, 0);
 
         // Testing BQRRP - CholQR
         BQRRP.qr_tall = "cholqr";

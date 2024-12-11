@@ -73,16 +73,16 @@ static void call_all_algs(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::BQRRP_blocked<T, r123::Philox4x32> BQRRP_blocked(true, tol, b_sz);
+    RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(true, tol, b_sz);
     if(qr_tall == "geqrt") {
-        BQRRP_blocked.qr_tall       = "geqrt";
-        BQRRP_blocked.apply_trans_q = "gemqrt";
+        BQRRP.qr_tall       = "geqrt";
+        BQRRP.apply_trans_q = "gemqrt";
     } else if (qr_tall == "cholqr") {
-        BQRRP_blocked.qr_tall       = "cholqr";
-        BQRRP_blocked.apply_trans_q = "ormqr";
+        BQRRP.qr_tall       = "cholqr";
+        BQRRP.apply_trans_q = "ormqr";
     } else {
-        BQRRP_blocked.qr_tall       = "geqrf";
-        BQRRP_blocked.apply_trans_q = "ormqr";
+        BQRRP.qr_tall       = "geqrf";
+        BQRRP.apply_trans_q = "ormqr";
     }
 
     // Making sure the states are unchanged
@@ -94,10 +94,10 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, b_sz %ld\n", i, b_sz);
-        BQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
 
         // Update timing vector
-        inner_timing = BQRRP_blocked.times;
+        inner_timing = BQRRP.times;
         std::ofstream file(output_filename, std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
         file << "\n";
