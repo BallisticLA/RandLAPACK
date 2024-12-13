@@ -105,6 +105,6 @@ add_benchmark(NAME HQRRP_runtime_breakdown              CXX_SOURCES bench_BQRRP/
 add_benchmark(NAME BQRRP_subroutines_speed              CXX_SOURCES bench_BQRRP/BQRRP_subroutines_speed.cc         LINK_LIBS ${Benchmark_libs})
 
 # RBKI benchmarks
-add_benchmark(NAME RBKI_speed_comparisons      CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc      LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME RBKI_runtime_breakdown      CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc      LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME RBKI_speed_comparisons_SVDS CXX_SOURCES bench_RBKI/RBKI_speed_comparisons_SVDS.cc LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME RBKI_speed_comparisons      CXX_SOURCES bench_RBKI/RBKI_speed_comparisons_just_RBKI.cc LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME RBKI_runtime_breakdown      CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc           LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME RBKI_speed_comparisons_SVDS CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc           LINK_LIBS ${Benchmark_libs_external})

@@ -118,7 +118,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_QRF, std::ios::app);
-            std::copy(BQRRP_GPU_QRF.times.data(), BQRRP_GPU_QRF.times.data() + 18, std::ostream_iterator<T>(file, ", "));
+            std::copy(BQRRP_GPU_QRF.times.data(), BQRRP_GPU_QRF.times.data() + 15, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
 
@@ -141,7 +141,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_CholQR, std::ios::app);
-            std::copy(BQRRP_GPU_CholQR.times.data(), BQRRP_GPU_CholQR.times.data() + 18, std::ostream_iterator<T>(file, ", "));
+            std::copy(BQRRP_GPU_CholQR.times.data(), BQRRP_GPU_CholQR.times.data() + 15, std::ostream_iterator<T>(file, ", "));
             file << "\n";
         } 
 
@@ -267,17 +267,17 @@ TEST_P(BenchBQRRP, GPU_fixed_blocksize) {
     std::string file1 = "BQRRP_GPU_runtime_breakdown_innerQRF_1_rows_"       
                                                       + std::to_string(m)
                                     +  "_cols_"       + std::to_string(n)
-                                    +  "_d_factor_1.0.dat";
+                                    +  "_d_factor_1.0.txt";
 
     std::string file2 = "BQRRP_GPU_runtime_breakdown_innerQRF_0_rows_"       
                                                     + std::to_string(m)
                                 +  "_cols_"       + std::to_string(n)
-                                +  "_d_factor_1.0.dat";
+                                +  "_d_factor_1.0.txt";
 
     std::string file3 = "BQRRP_GPU_speed_rows_"      
                                                       + std::to_string(m)
                                     + "_cols_"        + std::to_string(n)
-                                    + "_d_factor_1.0.dat";
+                                    + "_d_factor_1.0.txt";
 
     bench_BQRRP(profile_runtime, run_qrf, m_info, tol, b_sz, all_data, state, file1, file2, file3);
 }

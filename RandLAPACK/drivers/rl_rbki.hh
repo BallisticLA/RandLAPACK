@@ -372,8 +372,8 @@ int RBKI<T, RNG>::call(
             }
 
             // Early termination
-            // if (abs(R(end)) <= sqrt(eps('double')))
-            if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
+            // if (abs(R(end)) <= sqrt(eps('T')))
+            if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<doubTle>::epsilon())) {
                 //printf("TERMINATION 1 at iteration %ld\n", iter);
                 break;
             }
@@ -461,7 +461,7 @@ int RBKI<T, RNG>::call(
 
             // Early termination
             // if (abs(S(end)) <= sqrt(eps('double')))
-            if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<double>::epsilon())) {
+            if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
                 //printf("TERMINATION 2 at iteration %ld\n", iter);
                 break;
             }
