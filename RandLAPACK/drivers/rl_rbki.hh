@@ -373,7 +373,7 @@ int RBKI<T, RNG>::call(
 
             // Early termination
             // if (abs(R(end)) <= sqrt(eps('T')))
-            if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<doubTle>::epsilon())) {
+            if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
                 //printf("TERMINATION 1 at iteration %ld\n", iter);
                 break;
             }
