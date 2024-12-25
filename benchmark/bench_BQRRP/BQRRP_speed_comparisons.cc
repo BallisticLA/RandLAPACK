@@ -24,20 +24,18 @@ template <typename T>
 struct QR_speed_benchmark_data {
     int64_t row;
     int64_t col;
-    T       tolerance;
     T sampling_factor;
     std::vector<T> A;
     std::vector<T> tau;
     std::vector<int64_t> J;
 
-    QR_speed_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
+    QR_speed_benchmark_data(int64_t m, int64_t n, T d_factor) :
     A(m * n, 0.0),
     tau(n, 0.0),
     J(n, 0)
     {
         row             = m;
         col             = n;
-        tolerance       = tol;
         sampling_factor = d_factor;
     }
 };
@@ -68,11 +66,10 @@ static void call_all_algs(
 
     auto m        = all_data.row;
     auto n        = all_data.col;
-    auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(false, tol, b_sz);
+    RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(false, b_sz);
     // We are nbot using panel pivoting in performance testing.
     int panel_pivoting = 0;
 
@@ -105,8 +102,8 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 0);
         
         // Testing BQRRP - QRF
-        BQRRP.qr_tall = "geqrf";
-        BQRRP.apply_trans_q = false;
+        BQRRP.qr_tall = RandLAPACK::geqrf;
+        BQRRP.apply_trans_q = RandLAPACK::ormqr;
         auto start_bqrrp_qrf = high_resolution_clock::now();
         BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_bqrrp_qrf = high_resolution_clock::now();
@@ -120,8 +117,8 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 0);
 
         // Testing BQRRP - CholQR
-        BQRRP.qr_tall = "cholqr";
-        BQRRP.apply_trans_q = false;
+        BQRRP.qr_tall = RandLAPACK::cholqr;
+        BQRRP.apply_trans_q = RandLAPACK::ormqr;
         auto start_bqrrp_cholqr = high_resolution_clock::now();
         BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_bqrrp_cholqr = high_resolution_clock::now();
@@ -205,7 +202,6 @@ int main(int argc, char *argv[]) {
     double d_factor    = 1.0;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
-    double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
@@ -214,7 +210,7 @@ int main(int argc, char *argv[]) {
     int64_t numruns = 3;
 
     // Allocate basic workspace
-    QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
+    QR_speed_benchmark_data<double> all_data(m, n, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);

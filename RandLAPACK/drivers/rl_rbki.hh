@@ -207,7 +207,7 @@ int RBKI<T, RNG>::call(
     // At the end, size of R would by d x d and size of S would
     // be (d + 1) x d, where d = numiters_complete * b_sz, d <= n.
     // Note that the total amount of iterations will always be numiters <= n * 2 / block_size
-    T* R    = ( T * ) calloc( n * k, sizeof( T ) );
+    T* R   = ( T * ) calloc( n * k, sizeof( T ) );
     T* S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
 
     // These buffers are of constant size
@@ -559,44 +559,44 @@ int RBKI<T, RNG>::call(
         allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
     }
 
-        if(this -> timing) {
-            total_t_stop = high_resolution_clock::now();
-            total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-            long t_rest  = total_t_dur - (allocation_t_dur + get_factors_t_dur + ungqr_t_dur + reorth_t_dur + qr_t_dur + gemm_A_t_dur + sketching_t_dur + r_cpy_t_dur + s_cpy_t_dur + norm_t_dur);
-            this -> times.resize(13);
-            this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
+    if(this -> timing) {
+        total_t_stop = high_resolution_clock::now();
+        total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+        long t_rest  = total_t_dur - (allocation_t_dur + get_factors_t_dur + ungqr_t_dur + reorth_t_dur + qr_t_dur + gemm_A_t_dur + sketching_t_dur + r_cpy_t_dur + s_cpy_t_dur + norm_t_dur);
+        this -> times.resize(13);
+        this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
 
-            if (this -> verbose) {
-                printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
-                printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
+        if (this -> verbose) {
+            printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
+            printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
 
-                printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
-                printf("Time to acquire the SVD factors: %25ld μs,\n", get_factors_t_dur);
-                printf("UNGQR time:                      %25ld μs,\n", ungqr_t_dur);
-                printf("Reorthogonalization time:        %25ld μs,\n", reorth_t_dur);
-                printf("QR time:                         %25ld μs,\n", qr_t_dur);
-                printf("GEMM A time:                     %25ld μs,\n", gemm_A_t_dur);
-                printf("Sketching time:                  %25ld μs,\n", sketching_t_dur);
-                printf("R_ii cpy time:                   %25ld μs,\n", r_cpy_t_dur);
-                printf("S_ii cpy time:                   %25ld μs,\n", s_cpy_t_dur);
-                printf("Norm R time:                     %25ld μs,\n", norm_t_dur);
+            printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
+            printf("Time to acquire the SVD factors: %25ld μs,\n", get_factors_t_dur);
+            printf("UNGQR time:                      %25ld μs,\n", ungqr_t_dur);
+            printf("Reorthogonalization time:        %25ld μs,\n", reorth_t_dur);
+            printf("QR time:                         %25ld μs,\n", qr_t_dur);
+            printf("GEMM A time:                     %25ld μs,\n", gemm_A_t_dur);
+            printf("Sketching time:                  %25ld μs,\n", sketching_t_dur);
+            printf("R_ii cpy time:                   %25ld μs,\n", r_cpy_t_dur);
+            printf("S_ii cpy time:                   %25ld μs,\n", s_cpy_t_dur);
+            printf("Norm R time:                     %25ld μs,\n", norm_t_dur);
 
-                printf("\nAllocation takes %22.2f%% of runtime.\n",                100 * ((T) allocation_t_dur  / (T) total_t_dur));
-                printf("Factors takes    %22.2f%% of runtime.\n",                  100 * ((T) get_factors_t_dur / (T) total_t_dur));
-                printf("Ungqr takes      %22.2f%% of runtime.\n",                  100 * ((T) ungqr_t_dur       / (T) total_t_dur));
-                printf("Reorth takes     %22.2f%% of runtime.\n",                  100 * ((T) reorth_t_dur      / (T) total_t_dur));
-                printf("QR takes         %22.2f%% of runtime.\n",                  100 * ((T) qr_t_dur          / (T) total_t_dur));
-                printf("GEMM A takes     %22.2f%% of runtime.\n",                  100 * ((T) gemm_A_t_dur      / (T) total_t_dur));
-                printf("Sketching takes  %22.2f%% of runtime.\n",                  100 * ((T) sketching_t_dur   / (T) total_t_dur));
-                printf("R_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) r_cpy_t_dur       / (T) total_t_dur));
-                printf("S_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) s_cpy_t_dur       / (T) total_t_dur));
-                printf("Norm R takes     %22.2f%% of runtime.\n",                  100 * ((T) norm_t_dur        / (T) total_t_dur));
-                printf("Rest takes       %22.2f%% of runtime.\n",                  100 * ((T) t_rest            / (T) total_t_dur));
-                
-                printf("\nMain loop takes  %22.2f%% of runtime.\n",                  100 * ((T) main_loop_t_dur   / (T) total_t_dur));
-                printf("/-------------RBKI TIMING RESULTS END-------------/\n\n");
-            }
+            printf("\nAllocation takes %22.2f%% of runtime.\n",                100 * ((T) allocation_t_dur  / (T) total_t_dur));
+            printf("Factors takes    %22.2f%% of runtime.\n",                  100 * ((T) get_factors_t_dur / (T) total_t_dur));
+            printf("Ungqr takes      %22.2f%% of runtime.\n",                  100 * ((T) ungqr_t_dur       / (T) total_t_dur));
+            printf("Reorth takes     %22.2f%% of runtime.\n",                  100 * ((T) reorth_t_dur      / (T) total_t_dur));
+            printf("QR takes         %22.2f%% of runtime.\n",                  100 * ((T) qr_t_dur          / (T) total_t_dur));
+            printf("GEMM A takes     %22.2f%% of runtime.\n",                  100 * ((T) gemm_A_t_dur      / (T) total_t_dur));
+            printf("Sketching takes  %22.2f%% of runtime.\n",                  100 * ((T) sketching_t_dur   / (T) total_t_dur));
+            printf("R_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) r_cpy_t_dur       / (T) total_t_dur));
+            printf("S_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) s_cpy_t_dur       / (T) total_t_dur));
+            printf("Norm R takes     %22.2f%% of runtime.\n",                  100 * ((T) norm_t_dur        / (T) total_t_dur));
+            printf("Rest takes       %22.2f%% of runtime.\n",                  100 * ((T) t_rest            / (T) total_t_dur));
+            
+            printf("\nMain loop takes  %22.2f%% of runtime.\n",                  100 * ((T) main_loop_t_dur   / (T) total_t_dur));
+            printf("/-------------RBKI TIMING RESULTS END-------------/\n\n");
         }
+    }
     return 0;
 }
 } // end namespace RandLAPACK

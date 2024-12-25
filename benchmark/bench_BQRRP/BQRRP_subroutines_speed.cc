@@ -28,7 +28,6 @@ struct benchmark_data {
     std::vector<T> A_gemqrt;
     std::vector<T> B;
     std::vector<T> B1;
-    std::vector<T> B2;
     std::vector<T> C;
     std::vector<T> R;
     std::vector<T> Q;
@@ -47,7 +46,6 @@ struct benchmark_data {
     A_gemqrt(m * n, 0.0),
     B(m * m, 0.0),
     B1(m * m, 0.0),
-    B2(m * m, 0.0),
     C(m * m, 0.0),
     R(n * n, 0.0),
     Q(m * n, 0.0),
@@ -124,7 +122,6 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
         std::fill(all_data.D.begin(), all_data.D.end(), 0.0);
         std::fill(all_data.A1.begin(), all_data.A1.end(), 0.0);
         std::fill(all_data.B1.begin(), all_data.B1.end(), 0.0);
-        std::fill(all_data.B2.begin(), all_data.B2.end(), 0.0);
         std::fill(all_data.C.begin(), all_data.C.end(), 0.0);
     }
 }
@@ -162,41 +159,30 @@ static void call_wide_qrcp(
         dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         data_regen(m_info, all_data, state, state, 1);
 
-
-        // Testing CQRRPT
-        auto start_cqrrpt = high_resolution_clock::now();
-        //RandLAPACK::util::transposition(n, m, all_data.A.data(), n, all_data.A_trans.data(), m, 0);
-        //CQRRPT.call(m, n, all_data.A_trans.data(), m, all_data.R_trans.data(), n, all_data.J.data(), 1.25, state_alg);
-        //RandLAPACK::util::transposition(n, n, all_data.R_trans.data(), n, all_data.R.data(), n, 0);
-        auto stop_cqrrpt = high_resolution_clock::now();
-        dur_cqrrpt = duration_cast<microseconds>(stop_cqrrpt - start_cqrrpt).count();
-        state_alg = state;
-        data_regen(m_info, all_data, state, state, 1);
-
         // Testing LUQR
         auto start_luqr = high_resolution_clock::now();
-            // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
-            // Get a transpose of A_sk 
-            RandLAPACK::util::transposition(n, m, all_data.A.data(), n, all_data.A_trans.data(), m, 0);
-            // Perform a row-pivoted LU on a transpose of A_sk
-            lapack::getrf(m, n, all_data.A_trans.data(), m, all_data.J_lu.data());
-            // Fill the pivot vector, apply swaps found via lu on A_sk'.
-            std::iota(&(all_data.J)[0], &(all_data.J)[m], 1);
-            for (j = 0; j < n; ++j) {
-                int tmp = all_data.J[all_data.J_lu[j] - 1];
-                all_data.J[all_data.J_lu[j] - 1] = all_data.J[j];
-                all_data.J[j] = tmp;
-            }
-            // Apply pivots to A_sk
-            RandLAPACK::util::col_swap(n, m, m, all_data.A.data(), n, all_data.J);
-            // Perform an unpivoted QR on A_sk
-            lapack::geqrf(n, m, all_data.A.data(), n, all_data.tau.data());
+        // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
+        // Get a transpose of A_sk 
+        RandLAPACK::util::transposition(n, m, all_data.A.data(), n, all_data.A_trans.data(), m, 0);
+        // Perform a row-pivoted LU on a transpose of A_sk
+        lapack::getrf(m, n, all_data.A_trans.data(), m, all_data.J_lu.data());
+        // Fill the pivot vector, apply swaps found via lu on A_sk'.
+        std::iota(&(all_data.J)[0], &(all_data.J)[m], 1);
+        for (j = 0; j < n; ++j) {
+            int tmp = all_data.J[all_data.J_lu[j] - 1];
+            all_data.J[all_data.J_lu[j] - 1] = all_data.J[j];
+            all_data.J[j] = tmp;
+        }
+        // Apply pivots to A_sk
+        RandLAPACK::util::col_swap(n, m, m, all_data.A.data(), n, all_data.J);
+        // Perform an unpivoted QR on A_sk
+        lapack::geqrf(n, m, all_data.A.data(), n, all_data.tau.data());
         auto stop_luqr = high_resolution_clock::now();
         dur_luqr = duration_cast<microseconds>(stop_luqr - start_luqr).count();
         data_regen(m_info, all_data, state, state, 1);
     
         std::ofstream file(output_filename, std::ios::app);
-        file << dur_geqp3 << ",  " << dur_luqr << ",  " << dur_cqrrpt << ",\n";
+        file << dur_geqp3 << ",  " << dur_luqr << ",\n";
     }
 }
 
@@ -359,14 +345,8 @@ static void call_apply_q(
                 lapack::ormqr(Side::Left, Op::Trans, m, m - n, n, all_data.A.data(), m, all_data.tau.data(), all_data.B.data(), m);
                 auto stop_ormqr = high_resolution_clock::now();
                 dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
-
-                //lapack::ungqr(m, m, n, all_data.A1.data(), m, all_data.tau.data());
-                auto start_gemm = high_resolution_clock::now();
-                //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, m, m - n, m, 1.0, all_data.A1.data(), m, all_data.B2.data(), m, 0.0, all_data.C.data(), m);
-                auto stop_gemm = high_resolution_clock::now();
-                dur_gemm = duration_cast<microseconds>(stop_gemm - start_gemm).count();
             
-                file << dur_ormqr << ",  " << dur_gemm << ",  ";                
+                file << dur_ormqr << ",  ";                
             } 
             file << dur_gemqrt << ",  ";
             data_regen(m_info, all_data, state, state_B, 3);
@@ -413,7 +393,7 @@ int main(int argc, char *argv[]) {
               "\nFile format: the format varies for each subroutine"
               "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
               "               \n qr_tall:   six columns with timing for different tall QR candidates and their related parts: GEQRF, GEQR, CHOLQR, CHOLQR_PREPROCESSING, CHOLQR_HOUSEHOLDER_RESTORATION, CHOLQR_UNTO_PRECONDITIONING."
-              "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR, CQRRPT"
+              "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR"
               "               \n In all cases, rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
               "\nInput type:" + std::to_string(m_info.m_type) +
               "\nInput size:" + std::to_string(m) + " by "  + std::to_string(n_start) + " to " + std::to_string(n_stop) +

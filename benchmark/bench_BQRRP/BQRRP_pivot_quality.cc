@@ -17,14 +17,13 @@ template <typename T>
 struct QR_speed_benchmark_data {
     int64_t row;
     int64_t col;
-    T       tolerance;
     T sampling_factor;
     std::vector<T> A;
     std::vector<T> tau;
     std::vector<int64_t> J;
     std::vector<T> S;
 
-    QR_speed_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
+    QR_speed_benchmark_data(int64_t m, int64_t n, T d_factor) :
     A(m * n, 0.0),
     tau(n, 0.0),
     J(n, 0),
@@ -32,7 +31,6 @@ struct QR_speed_benchmark_data {
     {
         row             = m;
         col             = n;
-        tolerance       = tol;
         sampling_factor = d_factor;
     }
 };
@@ -73,16 +71,15 @@ static void R_norm_ratio(
 
     auto m        = all_data.row;
     auto n        = all_data.col;
-    auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
 
     auto state_alg = state;
     auto state_gen = state;
 
     // Additional params setup.
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
-    //BQRRP.qrcp_wide = "qp3";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
+    //BQRRP.qrcp_wide = RandLAPACK::geqp3;
 
     // Running QP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -132,7 +129,6 @@ static void sv_ratio(
 
     auto m        = all_data.row;
     auto n        = all_data.col;
-    auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
     std::vector<T> geqp3 (n, 0.0);
     std::vector<T> sv_ratios_bqrrp (n, 0.0);
@@ -141,9 +137,9 @@ static void sv_ratio(
     auto state_gen = state;
 
     // Additional params setup.
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
-    //BQRRP.qrcp_wide = "qp3";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
+    //BQRRP.qrcp_wide = RandLAPACK::geqp3;
 
     std::ofstream file2(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_2"
                                                           + "_num_info_lines_" + std::to_string(5) +
@@ -206,7 +202,6 @@ int main(int argc, char *argv[]) {
     int64_t n          = std::stol(size);
     double d_factor    = 1.0;
     int64_t b_sz       = 4096;
-    double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant1 = state;
     auto state_constant2 = state;
@@ -215,7 +210,7 @@ int main(int argc, char *argv[]) {
     std::vector<double> res2;
 
     // Allocate basic workspace
-    QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
+    QR_speed_benchmark_data<double> all_data(m, n, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::kahan);
     m_info.theta   = 1.2;
@@ -235,6 +230,6 @@ int main(int argc, char *argv[]) {
     R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("Pivot quality metric 1 done\n");
     sv_ratio(m_info, b_sz, all_data, state_constant2);
-    printf("SPivot quality metric 2 done\n\n");
+    printf("Pivot quality metric 2 done\n\n");
 }
 #endif

@@ -25,20 +25,18 @@ template <typename T>
 struct QR_speed_benchmark_data {
     int64_t row;
     int64_t col;
-    T       tolerance;
     T       sampling_factor;
     std::vector<T> A;
     std::vector<T> tau;
     std::vector<int64_t> J;
 
-    QR_speed_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
+    QR_speed_benchmark_data(int64_t m, int64_t n, T d_factor) :
     A(m * n, 0.0),
     tau(n, 0.0),
     J(n, 0)
     {
         row             = m;
         col             = n;
-        tolerance       = tol;
         sampling_factor = d_factor;
     }
 };
@@ -109,7 +107,6 @@ int main(int argc, char *argv[]) {
     double  d_factor   = 1.0;
     int64_t b_sz_start = 32;
     int64_t b_sz_end   = 2048;
-    double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
@@ -118,7 +115,7 @@ int main(int argc, char *argv[]) {
     int64_t numruns = 3;
 
     // Allocate basic workspace
-    QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
+    QR_speed_benchmark_data<double> all_data(m, n, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);

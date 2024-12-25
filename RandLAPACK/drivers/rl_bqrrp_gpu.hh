@@ -23,6 +23,10 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
+enum qr_tall_subroutines {
+cholqr,
+geqrf};
+
 template <typename T, typename RNG>
 class BQRRP_GPU_alg {
     public:
@@ -66,14 +70,12 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
 
         BQRRP_GPU(
             bool time_subroutines,
-            T ep,
             int64_t b_sz
         ) {
             timing     = time_subroutines;
-            eps        = ep;
             tol        = std::numeric_limits<T>::epsilon();
             block_size = b_sz;
-            qr_tall    = "geqrf";
+            qr_tall    = geqrf;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -128,7 +130,6 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
     public:
         bool timing;
         RandBLAS::RNGState<RNG> state;
-        T eps;
         int64_t rank;
         int64_t block_size;
 
@@ -139,7 +140,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         T tol;
 
         // Core subroutines options, controlled by user
-        std::string qr_tall;
+        qr_tall_subroutines qr_tall;
 };
 
 // -----------------------------------------------------------------------------
@@ -339,7 +340,7 @@ int BQRRP_GPU<T, RNG>::call(
 
 
         if(this -> timing) {
-            nvtxRangePushA("qrcp");
+            nvtxRangePushA("qrcp_wide");
             qrcp_wide_t_start = high_resolution_clock::now();
         }
         // qrcp_wide through LUQR below
@@ -576,7 +577,7 @@ int BQRRP_GPU<T, RNG>::call(
         }
 
         // qr_tall through either cholqr or geqrf below
-        if(this -> qr_tall == "cholqr") {
+        if(this -> qr_tall == cholqr) {
             if(this -> timing) {
                 nvtxRangePushA("precond_A");
                 preconditioning_t_start = high_resolution_clock::now();
@@ -591,7 +592,7 @@ int BQRRP_GPU<T, RNG>::call(
                 nvtxRangePop();
                 preconditioning_t_stop  = high_resolution_clock::now();
                 preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
-                nvtxRangePushA("qr_panel");
+                nvtxRangePushA("qr_tall");
                 qr_tall_t_start = high_resolution_clock::now();
             }
             
@@ -647,7 +648,7 @@ int BQRRP_GPU<T, RNG>::call(
         } else {
             // Default case - performing QR_tall via QRF
             if(this -> timing) {
-                nvtxRangePushA("qr_panel");
+                nvtxRangePushA("qr_tall");
                 qr_tall_t_start = high_resolution_clock::now();
             }
             // Perform an unpivoted QR instead of CholQR

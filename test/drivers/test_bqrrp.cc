@@ -154,12 +154,11 @@ TEST_F(TestBQRRP, BQRRP_full_rank_basic) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 500;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -176,12 +175,11 @@ TEST_F(TestBQRRP, BQRRP_full_rank_block_change) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 700;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -198,12 +196,11 @@ TEST_F(TestBQRRP, BQRRP_low_rank) {
     double d_factor = 2.0;
     int64_t b_sz = 200;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -223,13 +220,12 @@ TEST_F(TestBQRRP, BQRRP_pivot_qual) {
     double d_factor = 1.25;
     int64_t b_sz = 256;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall    = "cholqr";
-    BQRRP.qrcp_wide  = "qp3";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall    = RandLAPACK::cholqr;
+    BQRRP.qrcp_wide  = RandLAPACK::geqp3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
     m_info.cond_num = std::pow(10, 10);
@@ -249,13 +245,12 @@ TEST_F(TestBQRRP, BQRRP_gemqrt) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 900;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall        = "cholqr";
-    BQRRP.apply_trans_q = "gemqrt";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall       = RandLAPACK::cholqr;
+    BQRRP.apply_trans_q = RandLAPACK::gemqrt;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -273,13 +268,12 @@ TEST_F(TestBQRRP, BQRRP_near_zero_input_qp3) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 100;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall   = "cholqr";
-    BQRRP.qrcp_wide = "qp3";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall   = RandLAPACK::cholqr;
+    BQRRP.qrcp_wide = RandLAPACK::geqp3;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[1000*200 + 10] = 1;
@@ -296,12 +290,11 @@ TEST_F(TestBQRRP, BQRRP_near_zero_luqr) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 100;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     //all_data.A[1000*200 + 10] = 1;
@@ -319,12 +312,11 @@ TEST_F(TestBQRRP, BQRRP_half_zero_luqr) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 500;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -342,12 +334,11 @@ TEST_F(TestBQRRP, BQRRP_zero_mat) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 100;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 
@@ -362,12 +353,11 @@ TEST_F(TestBQRRP, BQRRP_qrf) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 900;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "geqrf";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::geqrf;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -384,12 +374,11 @@ TEST_F(TestBQRRP, BQRRP_qrt) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 900;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "geqrt";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::geqrt;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -406,12 +395,11 @@ TEST_F(TestBQRRP, BQRRP_cholqr_nb) {
     double d_factor = 1;//1.0;
     int64_t b_sz = 900;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, tol, b_sz);
-    BQRRP.qr_tall = "cholqr";
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = RandLAPACK::cholqr;
     BQRRP.internal_nb = 7;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
