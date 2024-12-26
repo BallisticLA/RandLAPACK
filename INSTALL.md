@@ -62,6 +62,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=`pwd`/../blaspp-install \
     -DCMAKE_BINARY_DIR=`pwd` \
     -Dbuild_tests=OFF \
+    -Dblas_int=int64 \
     ../blaspp
 make -j2 install
 ```
