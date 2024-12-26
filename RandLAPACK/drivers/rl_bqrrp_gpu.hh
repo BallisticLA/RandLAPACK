@@ -26,9 +26,6 @@ namespace RandLAPACK {
 template <typename T, typename RNG>
 class BQRRP_GPU_alg {
     public:
-        struct SubroutineType{
-            enum qr_tall_subroutines {cholqr, geqrf};
-        };
 
         virtual ~BQRRP_GPU_alg() {}
 
@@ -47,6 +44,13 @@ class BQRRP_GPU_alg {
 template <typename T, typename RNG>
 class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
     public:
+
+        struct SubroutineType{
+            enum qr_tall_subroutines {cholqr, geqrf};
+        };
+
+        using BQRRPGPUSubroutine = BQRRP_GPU<T, RNG>::SubroutineType;
+
         /// This is a device version of the BQRRP algorithm - ALL INPUT DATA LIVES ON A GPU.
         /// By contrast to the CPU version of BQRRP scheme, the GPU version takes the sketch as an input;
         /// that is because at the moment RandBLAS does not have GPU support. 
@@ -74,7 +78,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
             timing     = time_subroutines;
             tol        = std::numeric_limits<T>::epsilon();
             block_size = b_sz;
-            qr_tall    = BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::geqrf;
+            qr_tall    = BQRRPGPUSubroutine::qr_tall_subroutines::geqrf;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -139,7 +143,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         T tol;
 
         // Core subroutines options, controlled by user
-        BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines qr_tall;
+        BQRRPGPUSubroutine::qr_tall_subroutines qr_tall;
 };
 
 // -----------------------------------------------------------------------------
@@ -576,7 +580,7 @@ int BQRRP_GPU<T, RNG>::call(
         }
 
         // qr_tall through either cholqr or geqrf below
-        if(this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::cholqr) {
+        if(this -> qr_tall == BQRRPGPUSubroutine::qr_tall_subroutines::cholqr) {
             if(this -> timing) {
                 nvtxRangePushA("precond_A");
                 preconditioning_t_start = high_resolution_clock::now();

@@ -20,6 +20,8 @@ Records the best timing, saves that into a file.
 #include <RandBLAS.hh>
 #include <fstream>
 
+using BQRRPSubroutine = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType;
+
 template <typename T>
 struct QR_speed_benchmark_data {
     int64_t row;
@@ -102,8 +104,8 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 0);
         
         // Testing BQRRP - QRF
-        BQRRP.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::geqrf;
-        BQRRP.apply_trans_q = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::apply_trans_q_subroutines::ormqr;
+        BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::geqrf;
+        BQRRP.apply_trans_q = BQRRPSubroutine::apply_trans_q_subroutines::ormqr;
         auto start_bqrrp_qrf = high_resolution_clock::now();
         BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_bqrrp_qrf = high_resolution_clock::now();
@@ -117,8 +119,8 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 0);
 
         // Testing BQRRP - CholQR
-        BQRRP.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
-        BQRRP.apply_trans_q = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::apply_trans_q_subroutines::ormqr;
+        BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+        BQRRP.apply_trans_q = BQRRPSubroutine::apply_trans_q_subroutines::ormqr;
         auto start_bqrrp_cholqr = high_resolution_clock::now();
         BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
         auto stop_bqrrp_cholqr = high_resolution_clock::now();

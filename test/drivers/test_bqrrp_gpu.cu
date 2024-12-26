@@ -17,6 +17,8 @@
 #define USE_CUDA
 #include "RandLAPACK/drivers/rl_bqrrp_gpu.hh"
 
+using BQRRPSubroutine = RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>::SubroutineType;
+
 class TestBQRRP : public ::testing::TestWithParam<int64_t>
 {
     protected:
@@ -264,7 +266,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_070824) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(profile_runtime, b_sz);
-    BQRRP_GPU.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
+    BQRRP_GPU.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
@@ -287,7 +289,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_qrf) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(profile_runtime, b_sz);
-    BQRRP_GPU.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::geqrf;
+    BQRRP_GPU.qr_tall = BQRRPSubroutine::qr_tall_subroutines::geqrf;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
@@ -331,7 +333,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_near_zero_input) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
-    BQRRP_GPU.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
+    BQRRP_GPU.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[1000*200 + 1] = 1;
@@ -352,7 +354,7 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_input) {
 
     BQRRPTestData<double> all_data(m, n, k, d);
     RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
-    BQRRP_GPU.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
+    BQRRP_GPU.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 

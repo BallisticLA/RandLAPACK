@@ -13,6 +13,8 @@ The setup is described in detail in Section 4 of The arXiv version 2 CQRRPT (htt
 #include <RandBLAS.hh>
 #include <fstream>
 
+using BQRRPSubroutine = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType;
+
 template <typename T>
 struct QR_speed_benchmark_data {
     int64_t row;
@@ -78,7 +80,7 @@ static void R_norm_ratio(
 
     // Additional params setup.
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
-    BQRRP.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
 
     // Running QP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -137,7 +139,7 @@ static void sv_ratio(
 
     // Additional params setup.
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
-    BQRRP.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
 
     std::ofstream file2(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_2"
                                                           + "_num_info_lines_" + std::to_string(5) +
