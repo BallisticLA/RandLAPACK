@@ -15,22 +15,14 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-enum qrcp_wide_subroutines {
-    luqr,
-    geqp3};
-
-enum qr_tall_subroutines {
-    geqrt,
-    cholqr,
-    geqrf};
-
-enum apply_trans_q_subroutines {
-    ormqr,
-    gemqrt};
-
 template <typename T, typename RNG>
 class BQRRPalg {
     public:
+        struct SubroutineType{
+            enum qrcp_wide_subroutines {luqr, geqp3};
+            enum qr_tall_subroutines {geqrt, cholqr, geqrf};
+            enum apply_trans_q_subroutines {ormqr, gemqrt};
+        };
 
         virtual ~BQRRPalg() {}
 
@@ -74,9 +66,9 @@ class BQRRP : public BQRRPalg<T, RNG> {
             tol             = std::numeric_limits<T>::epsilon();
             block_size      = b_sz;
             internal_nb     = b_sz;
-            qrcp_wide       = luqr;
-            qr_tall         = geqrf;
-            apply_trans_q   = ormqr;
+            qrcp_wide       = BQRRP<T, RNG>::SubroutineType::qrcp_wide_subroutines::luqr;
+            qr_tall         = BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::geqrf;
+            apply_trans_q   = BQRRP<T, RNG>::SubroutineType::apply_trans_q_subroutines::ormqr;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -144,9 +136,9 @@ class BQRRP : public BQRRPalg<T, RNG> {
         std::vector<long> times;
 
         // Core subroutines options, controlled by user
-        qrcp_wide_subroutines     qrcp_wide;     // Supported options: "qp3," "luqr"
-        qr_tall_subroutines       qr_tall;       // Supported options: "geqrt," "cholqr," "geqrf"
-        apply_trans_q_subroutines apply_trans_q; // Supported options: "gemqrt," "ormqr"
+        BQRRP<T, RNG>::SubroutineType::qrcp_wide_subroutines     qrcp_wide;     // Supported options: "qp3," "luqr"
+        BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines       qr_tall;       // Supported options: "geqrt," "cholqr," "geqrf"
+        BQRRP<T, RNG>::SubroutineType::apply_trans_q_subroutines apply_trans_q; // Supported options: "gemqrt," "ormqr"
 };
 
 // We are assuming that tau and J have been pre-allocated
@@ -321,7 +313,7 @@ int BQRRP<T, RNG>::call(
             qrcp_wide_t_start = high_resolution_clock::now();
             
         // Performing qrcp_wide below
-        if (this -> qrcp_wide == geqp3) {
+        if (this -> qrcp_wide == BQRRP<T, RNG>::SubroutineType::qrcp_wide_subroutines::geqp3) {
             lapack::geqp3(sampling_dimension, cols, A_sk, d, J_buffer, Work2);
         } else {
             // Defaul option
@@ -423,7 +415,7 @@ int BQRRP<T, RNG>::call(
         // Define a pointer to the current subportion of tau vector.
         tau_sub = &tau[curr_sz];
 
-        if (this -> qr_tall == geqrt) {
+        if (this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::geqrt) {
             // No preconditioning required in this case
             // Performing GEQRT on a panel - this skips ORHR_COL
             lapack::geqrt(rows, b_sz, internal_nb, A_work, lda, T_dat, b_sz_const);
@@ -438,7 +430,7 @@ int BQRRP<T, RNG>::call(
                 qr_tall_t_dur  += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
                 apply_transq_t_start = high_resolution_clock::now();
             }
-        } else if (this -> qr_tall == cholqr) {
+        } else if (this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::cholqr) {
 
             // A_pre = AJ(:, 1:rank_b_sz) * inv(R_sk)
             // Performing preconditioning of the current matrix A.
@@ -520,13 +512,13 @@ int BQRRP<T, RNG>::call(
         // GEMQRT is a faster alternative to ORMQR, takes in the matrix T instead of vector tau.
         // Using QRF prevents us from using gemqrt unless matrix T was explicitly constructed.
         if ((block_rank != b_sz_const)) {
-            if(this -> apply_trans_q == gemqrt && (this -> qr_tall == geqrt || this -> qr_tall == cholqr)) {
+            if(this -> apply_trans_q == BQRRP<T, RNG>::SubroutineType::apply_trans_q_subroutines::gemqrt && (this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::geqrt || this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::cholqr)) {
                 lapack::gemqrt(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
             } else {
                 lapack::ormqr(Side::Left, Op::Trans, block_rank, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);
             }
         } else {
-            if(this -> apply_trans_q == gemqrt && (this -> qr_tall == geqrt || this -> qr_tall == cholqr)) {
+            if(this -> apply_trans_q == BQRRP<T, RNG>::SubroutineType::apply_trans_q_subroutines::gemqrt && (this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::geqrt || this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::cholqr)) {
                 lapack::gemqrt(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, internal_nb, A_work, lda, T_dat, b_sz_const, Work1, lda);
             } else {
                 lapack::ormqr(Side::Left, Op::Trans, rows, cols - b_sz, block_rank, A_work, lda, tau_sub, Work1, lda);

@@ -23,13 +23,12 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-enum qr_tall_subroutines {
-cholqr,
-geqrf};
-
 template <typename T, typename RNG>
 class BQRRP_GPU_alg {
     public:
+        struct SubroutineType{
+            enum qr_tall_subroutines {cholqr, geqrf};
+        };
 
         virtual ~BQRRP_GPU_alg() {}
 
@@ -75,7 +74,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
             timing     = time_subroutines;
             tol        = std::numeric_limits<T>::epsilon();
             block_size = b_sz;
-            qr_tall    = geqrf;
+            qr_tall    = BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::geqrf;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -140,7 +139,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         T tol;
 
         // Core subroutines options, controlled by user
-        qr_tall_subroutines qr_tall;
+        BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines qr_tall;
 };
 
 // -----------------------------------------------------------------------------
@@ -577,7 +576,7 @@ int BQRRP_GPU<T, RNG>::call(
         }
 
         // qr_tall through either cholqr or geqrf below
-        if(this -> qr_tall == cholqr) {
+        if(this -> qr_tall == BQRRP<T, RNG>::SubroutineType::qr_tall_subroutines::cholqr) {
             if(this -> timing) {
                 nvtxRangePushA("precond_A");
                 preconditioning_t_start = high_resolution_clock::now();

@@ -78,8 +78,7 @@ static void R_norm_ratio(
 
     // Additional params setup.
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
-    BQRRP.qr_tall = RandLAPACK::cholqr;
-    //BQRRP.qrcp_wide = RandLAPACK::geqp3;
+    BQRRP.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
 
     // Running QP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -138,8 +137,7 @@ static void sv_ratio(
 
     // Additional params setup.
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
-    BQRRP.qr_tall = RandLAPACK::cholqr;
-    //BQRRP.qrcp_wide = RandLAPACK::geqp3;
+    BQRRP.qr_tall = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
 
     std::ofstream file2(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_2"
                                                           + "_num_info_lines_" + std::to_string(5) +

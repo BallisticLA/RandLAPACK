@@ -72,14 +72,14 @@ static void call_all_algs(
     // Additional params setup.
     RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(true, b_sz);
     if(qr_tall == "geqrt") {
-        BQRRP.qr_tall       = RandLAPACK::geqrt;
-        BQRRP.apply_trans_q = RandLAPACK::gemqrt;
+        BQRRP.qr_tall       = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::geqrt;
+        BQRRP.apply_trans_q = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::apply_trans_q_subroutines::gemqrt;
     } else if (qr_tall == "cholqr") {
-        BQRRP.qr_tall       = RandLAPACK::cholqr;
-        BQRRP.apply_trans_q = RandLAPACK::ormqr;
+        BQRRP.qr_tall       = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::cholqr;
+        BQRRP.apply_trans_q = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::apply_trans_q_subroutines::ormqr;
     } else {
-        BQRRP.qr_tall       = RandLAPACK::geqrf;
-        BQRRP.apply_trans_q = RandLAPACK::ormqr;
+        BQRRP.qr_tall       = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::qr_tall_subroutines::geqrf;
+        BQRRP.apply_trans_q = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType::apply_trans_q_subroutines::ormqr;
     }
 
     // Making sure the states are unchanged
