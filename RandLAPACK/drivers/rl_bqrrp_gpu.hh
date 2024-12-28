@@ -41,15 +41,16 @@ class BQRRP_GPU_alg {
         ) = 0;
 };
 
+// Struct outside of BQRRP class to make symbols shorter
+struct BQRRPGPUSubroutines {
+    enum QRTall {geqrt, cholqr, geqrf};
+};
+
 template <typename T, typename RNG>
 class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
     public:
 
-        struct SubroutineType{
-            enum qr_tall_subroutines {cholqr, geqrf};
-        };
-
-        using BQRRPGPUSubroutine = BQRRP_GPU<T, RNG>::SubroutineType;
+        using GPUSubroutine = BQRRPGPUSubroutines;
 
         /// This is a device version of the BQRRP algorithm - ALL INPUT DATA LIVES ON A GPU.
         /// By contrast to the CPU version of BQRRP scheme, the GPU version takes the sketch as an input;
@@ -78,7 +79,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
             timing     = time_subroutines;
             tol        = std::numeric_limits<T>::epsilon();
             block_size = b_sz;
-            qr_tall    = BQRRPGPUSubroutine::qr_tall_subroutines::geqrf;
+            qr_tall    = GPUSubroutine::QRTall::geqrf;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -143,7 +144,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         T tol;
 
         // Core subroutines options, controlled by user
-        BQRRPGPUSubroutine::qr_tall_subroutines qr_tall;
+        GPUSubroutine::QRTall qr_tall;
 };
 
 // -----------------------------------------------------------------------------
@@ -580,7 +581,7 @@ int BQRRP_GPU<T, RNG>::call(
         }
 
         // qr_tall through either cholqr or geqrf below
-        if(this -> qr_tall == BQRRPGPUSubroutine::qr_tall_subroutines::cholqr) {
+        if(this -> qr_tall == GPUSubroutine::QRTall::cholqr) {
             if(this -> timing) {
                 nvtxRangePushA("precond_A");
                 preconditioning_t_start = high_resolution_clock::now();

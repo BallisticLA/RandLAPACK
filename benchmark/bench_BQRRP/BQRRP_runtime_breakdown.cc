@@ -24,7 +24,7 @@ There are 10 things that we time:
 #include <RandBLAS.hh>
 #include <fstream>
 
-using BQRRPSubroutine = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType;
+using Subroutines = RandLAPACK::BQRRPSubroutines;
 
 template <typename T>
 struct QR_speed_benchmark_data {
@@ -74,14 +74,14 @@ static void call_all_algs(
     // Additional params setup.
     RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(true, b_sz);
     if(qr_tall == "geqrt") {
-        BQRRP.qr_tall       = BQRRPSubroutine::qr_tall_subroutines::geqrt;
-        BQRRP.apply_trans_q = BQRRPSubroutine::apply_trans_q_subroutines::gemqrt;
+        BQRRP.qr_tall       = Subroutines::QRTall::geqrt;
+        BQRRP.apply_trans_q = Subroutines::ApplyTransQ::gemqrt;
     } else if (qr_tall == "cholqr") {
-        BQRRP.qr_tall       = BQRRPSubroutine::qr_tall_subroutines::cholqr;
-        BQRRP.apply_trans_q = BQRRPSubroutine::apply_trans_q_subroutines::ormqr;
+        BQRRP.qr_tall       = Subroutines::QRTall::cholqr;
+        BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
     } else {
-        BQRRP.qr_tall       = BQRRPSubroutine::qr_tall_subroutines::geqrf;
-        BQRRP.apply_trans_q = BQRRPSubroutine::apply_trans_q_subroutines::ormqr;
+        BQRRP.qr_tall       = Subroutines::QRTall::geqrf;
+        BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
     }
 
     // Making sure the states are unchanged

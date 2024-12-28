@@ -7,7 +7,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
-using BQRRPSubroutine = RandLAPACK::BQRRP<double, r123::Philox4x32>::SubroutineType;
+using Subroutines = RandLAPACK::BQRRPSubroutines;
 
 class TestBQRRP : public ::testing::Test
 {
@@ -159,7 +159,7 @@ TEST_F(TestBQRRP, BQRRP_full_rank_basic) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -180,7 +180,7 @@ TEST_F(TestBQRRP, BQRRP_full_rank_block_change) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -201,7 +201,7 @@ TEST_F(TestBQRRP, BQRRP_low_rank) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -225,8 +225,8 @@ TEST_F(TestBQRRP, BQRRP_pivot_qual) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall    = BQRRPSubroutine::qr_tall_subroutines::cholqr;
-    BQRRP.qrcp_wide  = BQRRPSubroutine::qrcp_wide_subroutines::geqp3;
+    BQRRP.qr_tall    = Subroutines::QRTall::cholqr;
+    BQRRP.qrcp_wide  = Subroutines::QRCPWide::geqp3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
     m_info.cond_num = std::pow(10, 10);
@@ -250,8 +250,8 @@ TEST_F(TestBQRRP, BQRRP_gemqrt) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall       = BQRRPSubroutine::qr_tall_subroutines::cholqr;
-    BQRRP.apply_trans_q = BQRRPSubroutine::apply_trans_q_subroutines::gemqrt;
+    BQRRP.qr_tall       = Subroutines::QRTall::cholqr;
+    BQRRP.apply_trans_q = Subroutines::ApplyTransQ::gemqrt;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -273,8 +273,8 @@ TEST_F(TestBQRRP, BQRRP_near_zero_input_qp3) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall   = BQRRPSubroutine::qr_tall_subroutines::cholqr;
-    BQRRP.qrcp_wide = BQRRPSubroutine::qrcp_wide_subroutines::geqp3;
+    BQRRP.qr_tall   = Subroutines::QRTall::cholqr;
+    BQRRP.qrcp_wide = Subroutines::QRCPWide::geqp3;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[1000*200 + 10] = 1;
@@ -295,7 +295,7 @@ TEST_F(TestBQRRP, BQRRP_near_zero_luqr) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     //all_data.A[1000*200 + 10] = 1;
@@ -317,7 +317,7 @@ TEST_F(TestBQRRP, BQRRP_half_zero_luqr) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -339,7 +339,7 @@ TEST_F(TestBQRRP, BQRRP_zero_mat) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 
@@ -358,7 +358,7 @@ TEST_F(TestBQRRP, BQRRP_qrf) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::geqrf;
+    BQRRP.qr_tall = Subroutines::QRTall::geqrf;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -379,7 +379,7 @@ TEST_F(TestBQRRP, BQRRP_qrt) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::geqrt;
+    BQRRP.qr_tall = Subroutines::QRTall::geqrt;
     BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -400,7 +400,7 @@ TEST_F(TestBQRRP, BQRRP_cholqr_nb) {
 
     BQRRPTestData<double> all_data(m, n, k);
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = BQRRPSubroutine::qr_tall_subroutines::cholqr;
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
     BQRRP.internal_nb = 7;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
