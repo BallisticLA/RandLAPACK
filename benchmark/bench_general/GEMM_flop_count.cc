@@ -16,31 +16,25 @@ static void
 test_flops(int64_t k, 
         RandBLAS::RNGState<RNG> state) {
     int size = k * k;
-
-    // Flops in gemm of given size - overflows
-    long buf = k * k;
-    long flop_cnt = buf * (2 * k - 1);
+    // Flops in gemm of given size
+    int64_t flop_cnt = 2 * std::pow(k, 3);
 
     int runs = 50;
     T GFLOPS_rate_best = 0;
 
+    T* A = ( T * ) calloc( size, sizeof( T ) );
+    T* B = ( T * ) calloc( size, sizeof( T ) );
+    T* C = ( T * ) calloc( size, sizeof( T ) );
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(k, k, RandLAPACK::gen::gaussian);  
+
     for (int i = 0; i < runs; ++i) {
-
-        std::vector<T> A(size, 0.0);
-        std::vector<T> B(size, 0.0);
-        std::vector<T> C(size, 0.0);
-
-        T* A_dat = A.data();
-        T* B_dat = B.data();
-        T* C_dat = C.data();
-
-        RandLAPACK::gen::mat_gen_info<double> m_info(k, k, RandLAPACK::gen::gaussian);
-        RandLAPACK::gen::mat_gen(m_info, A.data(), state);
-        RandLAPACK::gen::mat_gen(m_info, B.data(), state);
+        RandLAPACK::gen::mat_gen(m_info, A, state);
+        RandLAPACK::gen::mat_gen(m_info, B, state);
 
         // Get the timing
         auto start = high_resolution_clock::now();
-        gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, k, k, 1.0, A_dat, k, B_dat, k, 0.0, C_dat, k);
+        gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, k, k, 1.0, A, k, B, k, 0.0, C, k);
         auto stop = high_resolution_clock::now();
         long dur = duration_cast<microseconds>(stop - start).count();
     
@@ -56,6 +50,6 @@ test_flops(int64_t k,
 
 int main() {
     auto state = RandBLAS::RNGState();
-    test_flops<double>(1000, state);
+    test_flops<double>(10000, state);
     return 0;
 }

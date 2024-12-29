@@ -241,13 +241,14 @@ void gen_spiked_mat(
     T spike_scale,
     RandBLAS::RNGState<RNG> &state
 ) {
+
     int64_t num_rows_sampled = n / 2;
 
     /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
     RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
     RandBLAS::SparseSkOp<T> S(DS, state);
     state = RandBLAS::fill_sparse(S);
-    
+
     T* V   = ( T * ) calloc( n * n, sizeof( T ) );
     T* tau = ( T * ) calloc( n,     sizeof( T ) );
 
@@ -258,13 +259,12 @@ void gen_spiked_mat(
     lapack::ungqr(n, n, n, V, n, tau);
 
     // Fill A with stacked copies of V
-    int start = 0;
+    int64_t size = 0;
     int i, j;
-    while(start + n <= m){
-        for( j = 0; j < n; ++j) {
-            blas::copy(n, &V[m * j], 1, &A[start + (m * j)], 1);
-        }
-        start += n;
+
+    while(size < m){
+        lapack::lacpy(MatrixType::General, std::min(n, m - size), n, V, n, &A[size], m);
+        size += std::min(n, m - size);
     }
 
     for (i = 0; i < n; ++ i) {
@@ -400,7 +400,7 @@ void gen_kahan_mat(
         A[(m + 1) * i] = perturb * std::numeric_limits<double>::epsilon() * (m - i);
         S[(m + 1) * i] = std::pow(std::sin(i), i);
         for(int j = 0; j < i; ++ j)
-            C[(m * i) + j] = std::cos(theta); 
+            C[(m * i) + j] = -std::cos(theta); 
         C[m * i + i] = 1.0;
     }
 

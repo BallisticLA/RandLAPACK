@@ -1,7 +1,12 @@
 name: core-linux
 on:
   pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
   workflow_dispatch:
+  push:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
 
 jobs:
   build:

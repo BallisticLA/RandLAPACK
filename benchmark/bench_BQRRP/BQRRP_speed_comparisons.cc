@@ -2,13 +2,13 @@
 int main() {return 0;}
 #else
 /*
-ICQRRP speed comparison benchmark - runs:
-    1. ICQRRP
+BQRRP speed comparison benchmark - runs:
+    1. BQRRP_CQR and BQRRP_HQR
     2. GEQRF
     3. GEQP3 - takes too long!
     5. HQRRP + CholQR
     6. HQRRP + GEQRF
-for a matrix with fixed number of rows and columns and a varying ICQRRP block size.
+for a matrix with fixed number of rows and columns and a varying BQRRP block size.
 Records the best timing, saves that into a file.
 */
 
@@ -20,24 +20,24 @@ Records the best timing, saves that into a file.
 #include <RandBLAS.hh>
 #include <fstream>
 
+using Subroutines = RandLAPACK::BQRRPSubroutines;
+
 template <typename T>
 struct QR_speed_benchmark_data {
     int64_t row;
     int64_t col;
-    T       tolerance;
     T sampling_factor;
     std::vector<T> A;
     std::vector<T> tau;
     std::vector<int64_t> J;
 
-    QR_speed_benchmark_data(int64_t m, int64_t n, T tol, T d_factor) :
+    QR_speed_benchmark_data(int64_t m, int64_t n, T d_factor) :
     A(m * n, 0.0),
     tau(n, 0.0),
     J(n, 0)
     {
         row             = m;
         col             = n;
-        tolerance       = tol;
         sampling_factor = d_factor;
     }
 };
@@ -68,17 +68,16 @@ static void call_all_algs(
 
     auto m        = all_data.row;
     auto n        = all_data.col;
-    auto tol      = all_data.tolerance;
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRP_blocked<T, r123::Philox4x32> CQRRP_blocked(false, tol, b_sz);
+    RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(false, b_sz);
     // We are nbot using panel pivoting in performance testing.
     int panel_pivoting = 0;
 
     // timing vars
-    long dur_cqrrp        = 0;
-    long dur_cqrrp_qp3    = 0;
+    long dur_bqrrp_cholqr = 0;
+    long dur_bqrrp_qrf    = 0;
     long dur_hqrrp        = 0;
     long dur_hqrrp_geqrf  = 0;
     long dur_hqrrp_cholqr = 0;
@@ -90,7 +89,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("\nITERATION %d\n", i);
+        printf("ITERATION %d, B_SZ %ld\n", i, b_sz);
         
         // Testing GEQRF
         auto start_geqrf = high_resolution_clock::now();
@@ -104,13 +103,14 @@ static void call_all_algs(
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
         
-        // Testing CQRRP - best setup
-        CQRRP_blocked.use_qp3 = false;
-        auto start_cqrrp = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-        auto stop_cqrrp = high_resolution_clock::now();
-        dur_cqrrp = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
-        printf("TOTAL TIME FOR CQRRP %ld\n", dur_cqrrp);
+        // Testing BQRRP - QRF
+        BQRRP.qr_tall = Subroutines::QRTall::geqrf;
+        BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
+        auto start_bqrrp_qrf = high_resolution_clock::now();
+        BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        auto stop_bqrrp_qrf = high_resolution_clock::now();
+        dur_bqrrp_qrf = duration_cast<microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
+        printf("TOTAL TIME FOR BQRRP_QRF %ld\n", dur_bqrrp_qrf);
 
         // Making sure the states are unchanged
         state_gen = state;
@@ -118,14 +118,14 @@ static void call_all_algs(
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen, 0);
 
-        // Testing CQRRP - using QP3
-        CQRRP_blocked.use_qp3 = true;
-        auto start_cqrrp_qp3 = high_resolution_clock::now();
-        CQRRP_blocked.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-        auto stop_cqrrp_qp3 = high_resolution_clock::now();
-        CQRRP_blocked.use_qp3 = false;
-        dur_cqrrp_qp3 = duration_cast<microseconds>(stop_cqrrp_qp3 - start_cqrrp_qp3).count();
-        printf("TOTAL TIME FOR CQRRP WITH GEQP3 %ld\n", dur_cqrrp_qp3);
+        // Testing BQRRP - CholQR
+        BQRRP.qr_tall = Subroutines::QRTall::cholqr;
+        BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
+        auto start_bqrrp_cholqr = high_resolution_clock::now();
+        BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+        auto stop_bqrrp_cholqr = high_resolution_clock::now();
+        dur_bqrrp_cholqr = duration_cast<microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
+        printf("TOTAL TIME FOR BQRRP_CHOLQR %ld\n", dur_bqrrp_cholqr);
 
         // Making sure the states are unchanged
         state_gen = state;
@@ -185,7 +185,7 @@ static void call_all_algs(
         }
         
         std::ofstream file(output_filename, std::ios::app);
-        file << dur_cqrrp << ",  " << dur_cqrrp_qp3 << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
+        file << dur_bqrrp_cholqr << ",  " << dur_bqrrp_qrf << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
     }
 }
 
@@ -201,30 +201,39 @@ int main(int argc, char *argv[]) {
     // Declare parameters
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
-    double d_factor    = 1.25;
+    double d_factor    = 1.0;
     int64_t b_sz_start = 256;
     int64_t b_sz_end   = 2048;
-    double tol         = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 10;
+    int64_t numruns = 3;
 
     // Allocate basic workspace
-    QR_speed_benchmark_data<double> all_data(m, n, tol, d_factor);
+    QR_speed_benchmark_data<double> all_data(m, n, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = "ICQRRP_time_raw_rows_"              + std::to_string(m)
-                                    + "_cols_"         + std::to_string(n)
-                                    + "_b_sz_start_"   + std::to_string(b_sz_start)
-                                    + "_b_sz_end_"     + std::to_string(b_sz_end)
-                                    + "_d_factor_"     + std::to_string(d_factor)
-                                    + ".dat";
+    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_speed_comparisons" 
+                                                                 + "_num_info_lines_" + std::to_string(6) +
+                                                                   ".txt";
+
+    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
+
+    // Writing important data into file
+    file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
+              "\nFile format: 7 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, HQRRP, HQRRP+QRF, HQRRP+CholQR, QRF, QP3;"
+              "               rows correspond to BQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nInput type:"       + std::to_string(m_info.m_type) +
+              "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+              "\nAdditional parameters: BQRRP block size start: " + std::to_string(b_sz_start) + " BQRRP block size end: " + std::to_string(b_sz_end) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
+              "\n";
+    file.flush();
+
     for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
         call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, output_filename);
     }

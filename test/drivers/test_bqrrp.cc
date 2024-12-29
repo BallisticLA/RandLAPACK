@@ -7,8 +7,9 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+using Subroutines = RandLAPACK::BQRRPSubroutines;
 
-class TestCQRRP : public ::testing::Test
+class TestBQRRP : public ::testing::Test
 {
     protected:
 
@@ -17,7 +18,7 @@ class TestCQRRP : public ::testing::Test
     virtual void TearDown() {};
 
     template <typename T>
-    struct CQRRPTestData {
+    struct BQRRPTestData {
         int64_t row;
         int64_t col;
         int64_t rank; // has to be modifiable
@@ -30,7 +31,7 @@ class TestCQRRP : public ::testing::Test
         std::vector<T> A_cpy2;
         std::vector<T> I_ref;
 
-        CQRRPTestData(int64_t m, int64_t n, int64_t k) :
+        BQRRPTestData(int64_t m, int64_t n, int64_t k) :
         A(m * n, 0.0),
         Q(m * n, 0.0),
         tau(n, 0.0),
@@ -46,7 +47,7 @@ class TestCQRRP : public ::testing::Test
     };
 
     template <typename T>
-    static void norm_and_copy_computational_helper(T &norm_A, CQRRPTestData<T> &all_data) {
+    static void norm_and_copy_computational_helper(T &norm_A, BQRRPTestData<T> &all_data) {
         auto m = all_data.row;
         auto n = all_data.col;
 
@@ -59,7 +60,7 @@ class TestCQRRP : public ::testing::Test
     /// This routine also appears in benchmarks, but idk if it should be put into utils
     template <typename T>
     static void
-    error_check(T &norm_A, CQRRPTestData<T> &all_data, T atol) {
+    error_check(T &norm_A, BQRRPTestData<T> &all_data, T atol) {
 
         auto m = all_data.row;
         auto n = all_data.col;
@@ -105,29 +106,29 @@ class TestCQRRP : public ::testing::Test
         ASSERT_LE(norm_0, atol * std::sqrt((T) n));
     }
 
-    /// General test for CQRRPT:
+    /// General test for BQRRP:
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T, typename RNG, typename alg_type>
-    static void test_CQRRP_general(
+    static void test_BQRRP_general(
         T d_factor, 
         T norm_A,
-        CQRRPTestData<T> &all_data,
-        alg_type &CQRRP,
+        BQRRPTestData<T> &all_data,
+        alg_type &BQRRP,
         RandBLAS::RNGState<RNG> &state) {
 
         auto m = all_data.row;
         auto n = all_data.col;
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
-        CQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
+        BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state);
 
-        if(CQRRP.rank == 0) {
+        if(BQRRP.rank == 0) {
             for(int i = 0; i < m * n; ++i) {
                 ASSERT_NEAR(all_data.A[i], 0.0, atol);
             }
         } else {
-            all_data.rank = CQRRP.rank;
-            printf("RANK AS RETURNED BY CQRRP %4ld\n", all_data.rank);
+            all_data.rank = BQRRP.rank;
+            printf("RANK AS RETURNED BY BQRRP %4ld\n", all_data.rank);
 
             RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
 
@@ -143,67 +144,65 @@ class TestCQRRP : public ::testing::Test
             error_check(norm_A, all_data, atol);
         }
     }
-
 };
 
 #if !defined(__APPLE__)
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_full_rank_basic) {
+TEST_F(TestBQRRP, BQRRP_full_rank_basic) {
     int64_t m = 5000;//5000;
     int64_t n = 2000;//2000;
     int64_t k = 2000;
     double d_factor = 1;//1.0;
     int64_t b_sz = 500;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_full_rank_block_change) {
+TEST_F(TestBQRRP, BQRRP_full_rank_block_change) {
     int64_t m = 5000;//5000;
     int64_t n = 2000;//2000;
     int64_t k = 2000;
     double d_factor = 1;//1.0;
     int64_t b_sz = 700;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
+TEST_F(TestBQRRP, BQRRP_low_rank) {
     int64_t m = 5000;
     int64_t n = 2000;
     int64_t k = 100;
     double d_factor = 2.0;
     int64_t b_sz = 200;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
-    //RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
@@ -211,23 +210,23 @@ TEST_F(TestCQRRP, CQRRP_blocked_low_rank) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_pivot_qual) {
+TEST_F(TestBQRRP, BQRRP_pivot_qual) {
     int64_t m = std::pow(2, 10);
     int64_t n = std::pow(2, 10);
     int64_t k = std::pow(2, 10);
     double d_factor = 1.25;
     int64_t b_sz = 256;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.use_qp3      = 1;
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall    = Subroutines::QRTall::cholqr;
+    BQRRP.qrcp_wide  = Subroutines::QRCPWide::geqp3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
     m_info.cond_num = std::pow(10, 10);
@@ -236,114 +235,178 @@ TEST_F(TestCQRRP, CQRRP_pivot_qual) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_gemqrt) {
+TEST_F(TestBQRRP, BQRRP_gemqrt) {
     int64_t m = 5000;//5000;
     int64_t n = 2800;//2000;
     int64_t k = 2800;
     double d_factor = 1;//1.0;
     int64_t b_sz = 900;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.use_gemqrt = true;
-    CQRRP_blocked.internal_nb = 10;
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall       = Subroutines::QRTall::cholqr;
+    BQRRP.apply_trans_q = Subroutines::ApplyTransQ::gemqrt;
+    BQRRP.internal_nb = 10;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_near_zero_input_qp3) {
+TEST_F(TestBQRRP, BQRRP_near_zero_input_qp3) {
     int64_t m = 1000;//5000;
     int64_t n = 1000;//2000;
     int64_t k = 1000;
     double d_factor = 1;//1.0;
     int64_t b_sz = 100;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
-    CQRRP_blocked.use_qp3 = true;
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall   = Subroutines::QRTall::cholqr;
+    BQRRP.qrcp_wide = Subroutines::QRCPWide::geqp3;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
     all_data.A[1000*200 + 10] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_near_zero_luqr) {
-    int64_t m = 1000;//5000;
-    int64_t n = 1000;//2000;
+TEST_F(TestBQRRP, BQRRP_near_zero_luqr) {
+    int64_t m = 1000;
+    int64_t n = 1000;
     int64_t k = 1000;
     double d_factor = 1;//1.0;
-    int64_t b_sz = 100;//500;
+    int64_t b_sz = 100;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
-    all_data.A[1000*200 + 10] = 1;
+    //all_data.A[1000*200 + 10] = 1;
+    all_data.A[10*5 + 1] = 1;
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_half_zero_luqr) {
+TEST_F(TestBQRRP, BQRRP_half_zero_luqr) {
     int64_t m = 5000;//5000;
     int64_t n = 2000;//2000;
     int64_t k = 2000;
     double d_factor = 1;//1.0;
     int64_t b_sz = 500;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(&(all_data.A.data())[m * n / 2], &(all_data.A.data())[m * n], 0.0);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 
 // Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestCQRRP, CQRRP_blocked_zero_mat) {
+TEST_F(TestBQRRP, BQRRP_zero_mat) {
     int64_t m = 1000;//5000;
     int64_t n = 1000;//2000;
     int64_t k = 1000;
     double d_factor = 1;//1.0;
     int64_t b_sz = 100;//500;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    CQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRP_blocked<double, r123::Philox4x32> CQRRP_blocked(true, tol, b_sz);
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     std::fill(&(all_data.A.data())[0], &(all_data.A.data())[m * n], 0.0);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRP_general(d_factor, norm_A, all_data, CQRRP_blocked, state);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+}
+
+TEST_F(TestBQRRP, BQRRP_qrf) {
+    int64_t m = 5000;//5000;
+    int64_t n = 2800;//2000;
+    int64_t k = 2800;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 900;//500;
+    double norm_A = 0;
+    auto state = RandBLAS::RNGState();
+
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::geqrf;
+    BQRRP.internal_nb = 10;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+}
+
+TEST_F(TestBQRRP, BQRRP_qrt) {
+    int64_t m = 5000;//5000;
+    int64_t n = 2800;//2000;
+    int64_t k = 2800;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 900;//500;
+    double norm_A = 0;
+    auto state = RandBLAS::RNGState();
+
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::geqrt;
+    BQRRP.internal_nb = 10;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+}
+
+TEST_F(TestBQRRP, BQRRP_cholqr_nb) {
+    int64_t m = 5000;//5000;
+    int64_t n = 2800;//2000;
+    int64_t k = 2800;
+    double d_factor = 1;//1.0;
+    int64_t b_sz = 900;//500;
+    double norm_A = 0;
+    auto state = RandBLAS::RNGState();
+
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
+    BQRRP.internal_nb = 7;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
 #endif
