@@ -1,0 +1,1 @@
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/vsmall.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/vsmall/omp1_t2_log.txt

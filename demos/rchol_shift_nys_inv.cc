@@ -96,6 +96,16 @@ void sparse_matrix_t_from_SparseCSR_RC(const SparseCSR_RC &A, sparse_matrix_t &m
 }
 
 
+void project_out_vec(int64_t m, int64_t n, double* X, int64_t ldx, double* v, double* work_n) {
+    // X = (I - vv') X
+    //  --> Y = X' v
+    //  --> X = X - v Y'
+    blas::gemv(Layout::ColMajor, blas::Op::Trans, m, n, (double) 1.0, X, ldx, v, 1, (double) 0.0, work_n, 1);
+    blas::ger(Layout::ColMajor, m, n,  (double)  -1.0, v, 1, work_n, 1, X, ldx);
+    return;
+}
+
+
 struct CallableSpMat {
     sparse_matrix_t A;
     int64_t m;
@@ -106,6 +116,10 @@ struct CallableSpMat {
     // ^ The latter two entries of des are not actually used. I'm only specifying them 
     //   to avoid compiler warings.
     std::vector<double> regs{0.0};
+    double* unit_ones = nullptr;
+    std::vector<double> unit_ones_stdvec{};
+    double* work_n = nullptr;
+    std::vector<double> work_n_stdvec{};
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -114,9 +128,17 @@ struct CallableSpMat {
         double beta,  double* C, int64_t ldc
     ) {
         work_stdvec.resize(m*n);
+        unit_ones_stdvec.resize(m);
+        work_n_stdvec.resize(n);
         work = work_stdvec.data();
+        unit_ones = unit_ones_stdvec.data();
+        double val = std::pow((double)m, -0.5);
+        for (int64_t i = 0; i < m; ++i)
+            unit_ones[i] = val;
+        work_n = work_n_stdvec.data();
         randblas_require(ldb == m);
         blas::copy(m*n, B, 1, work, 1);
+        project_out_vec(m, n, work, m, unit_ones, work_n);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         omp_set_dynamic(1);
         //TIMED_LINE(
@@ -124,6 +146,7 @@ struct CallableSpMat {
             SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
         );//, "SPMM A   : ");
         omp_set_dynamic(0);
+        project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 };
 
@@ -133,6 +156,10 @@ struct CallableChoSolve {
     matrix_descr des = {SPARSE_MATRIX_TYPE_TRIANGULAR, SPARSE_FILL_MODE_UPPER, SPARSE_DIAG_NON_UNIT};
     double* work = nullptr;
     std::vector<double> work_stdvec{};
+    double* unit_ones = nullptr;
+    std::vector<double> unit_ones_stdvec{};
+    double* work_n = nullptr;
+    std::vector<double> work_n_stdvec{};
 
     /*  C =: alpha * inv(G G') * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -142,8 +169,16 @@ struct CallableChoSolve {
     ) {
         work_stdvec.resize(2*m*n);
         work = work_stdvec.data();    
+        unit_ones_stdvec.resize(m);
+        unit_ones = unit_ones_stdvec.data();
+        double val = std::pow((double)m, -0.5);
+        for (int64_t i = 0; i < m; ++i)
+            unit_ones[i] = val;
+        work_n_stdvec.resize(n);
+        work_n = work_n_stdvec.data();
         randblas_require(beta == (double) 0.0);
         blas::copy(m*n, B, 1, work+m*n, 1);
+        project_out_vec(m, n, work+m*n, m, unit_ones, work_n);
         randblas_require(ldb == m);
         // TRSM, then transposed TRSM.
         sparse_status_t status;
@@ -162,6 +197,7 @@ struct CallableChoSolve {
             throw std::runtime_error("TRSM failure.");
         }
         omp_set_dynamic(0);
+        project_out_vec(m, n, C, ldc, unit_ones, work_n);
     }
 };
 
@@ -182,6 +218,8 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     std::vector<double> work_B{};
     std::vector<double> work_C{};
     std::vector<double> work_seminorm{};
+    std::vector<double> unit_ones{};
+    std::vector<double> proj_work_n{};
     std::vector<double> rchol_pcg_work{};
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
@@ -208,6 +246,8 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         int64_t mn = m*n;
         work_B.resize(mn);
         work_C.resize(mn);
+        proj_work_n.resize(n);
+        unit_ones.resize(m);
         rchol_pcg_work.resize(4*m);
         L_callable.work_stdvec.resize(mn);
         N_callable.work_stdvec.resize(2*mn);
@@ -232,12 +272,16 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         return;
     }
 
-    void _lockorblock_solve_with_work(int64_t n) {
+    void _lockorblock_solve_with_work(int64_t n, double* ones, double*work_n) {
         std::vector<double> sn_log_R{};
         std::vector<double> sn_log_NR{};
         int64_t count = 0;
-        auto seminorm = [&count, &sn_log_R, &sn_log_NR](int64_t __n, int64_t __s, double* NR) {
-            double out = blas::nrm2(__n*__s, NR, 1);
+        work_seminorm.resize(m*n);
+        double *work_seminorm_ = work_seminorm.data();
+        auto seminorm = [work_seminorm_, ones, work_n, &count, &sn_log_R, &sn_log_NR](int64_t __n, int64_t __s, double* NR) {
+            blas::copy(__n*__s, NR, 1, work_seminorm_, 1);
+            project_out_vec(__n, __s,  work_seminorm_, __n, ones, work_n);
+            double out = blas::nrm2(__n*__s, work_seminorm_, 1);
             if (count % 2 == 0) {
                 sn_log_R.push_back(out);
             } else {
@@ -273,6 +317,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         double alpha, double* const B, int64_t ldb,
         double beta, double* C, int64_t ldc
     ) {
+
         randblas_require(layout == Layout::ColMajor);
         randblas_require(beta == (double) 0.0);
         randblas_require(ldb == m);
@@ -280,19 +325,27 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         int64_t mn = m*n;
         work_B.resize(mn);
         work_C.resize(mn);
+        unit_ones.resize(m);
+        proj_work_n.resize(n);
+        double *ones = unit_ones.data();
+        for (int i = 0; i < m; ++i)
+            ones[i] = std::pow((double)m, -0.5);
+        double *work_n = proj_work_n.data();
 
         for (int64_t i = 0; i < mn; ++i)
             work_B[i] = alpha * B[i];
 
+        project_out_vec(m, n, work_B.data(), m, ones, work_n);
         if (mode == PCGMode::RChol)  {
             _rchol_pcg_solve_with_work(n);
         } else if (mode == PCGMode::Lockstep) {
             L_callable.regs.resize(n, 0.0);
-            _lockorblock_solve_with_work(n);
+            _lockorblock_solve_with_work(n, ones, work_n);
         } else {
             L_callable.regs.resize(1, 0.0);
-            _lockorblock_solve_with_work(n);
+            _lockorblock_solve_with_work(n, ones, work_n);
         }
+        project_out_vec(m, n, work_C.data(), m, ones, work_n);
         blas::copy(mn, work_C.data(), 1, C, 1);
         return;
     }
@@ -391,14 +444,15 @@ double run_nys_approx(
 
 
 int main(int argc, char *argv[]) {
-    std::cout << std::setprecision(16);
+    std::cout << std::setprecision(8);
 
 
     auto [threads, fn] = parse_args(argc, argv);  
     double reg = 1e-4;
-    SparseCSR_RC G, L_reg, Lreg_perm;
+    SparseCSR_RC G, L_reg, L, L_perm;
 
     laplacian_from_matrix_market(fn, L_reg, reg);
+    laplacian_from_matrix_market(fn, L, 0.0);
     int64_t n = L_reg.size();
     std::vector<size_t> P;
     std::vector<int> S;
@@ -409,7 +463,7 @@ int main(int argc, char *argv[]) {
 
     auto _tp0 = std_clock::now();
     rchol(L_reg, G, P, S, threads, filename);
-    reorder(L_reg, P, Lreg_perm);
+    reorder(L, P, L_perm);
     auto _tp1 = std_clock::now();
     double dtime = (double) duration_cast<microseconds>(_tp1 - _tp0).count() / 1e6;
     std::cout << "\n====================================================================================\n";
@@ -429,12 +483,12 @@ int main(int argc, char *argv[]) {
     std::cout << "Nystrom running in shift-invert mode with regularization parameter = " << reg << ".\n";
     std::cout << "Logging results in rows of comma-separated values: k, p, seconds in Nystrom.\n\n";
 
-    sparse_matrix_t Lreg_perm_mkl, G_mkl;
-    sparse_matrix_t_from_SparseCSR_RC(Lreg_perm, Lreg_perm_mkl);
+    sparse_matrix_t L_perm_mkl, G_mkl;
+    sparse_matrix_t_from_SparseCSR_RC(L_perm, L_perm_mkl);
     sparse_matrix_t_from_SparseCSR_RC(G, G_mkl);
-    CallableSpMat Lreg_perm_callable{Lreg_perm_mkl, n, (int64_t) L_reg.nnz()};
+    CallableSpMat L_perm_callable{L_perm_mkl, n, (int64_t) L_reg.nnz()};
     CallableChoSolve N_callable{G_mkl, n};
-    LaplacianPinv Lpinv(Lreg_perm_callable, N_callable, S, threads, 1e-10, 50, G, false);   
+    LaplacianPinv Lpinv(L_perm_callable, N_callable, S, threads, 1e-10, 50, G, true);   
     
     // low-rank approx time!
     RandLAPACK::SYPS<double, DefaultRNG>  SYPS(3, 1, false, false);
@@ -456,8 +510,8 @@ int main(int argc, char *argv[]) {
 
     Lpinv.mode = PCGMode::Block;
     int64_t num_reps = 1;
-    std::vector<int64_t> ps{0,1,2};
-    std::vector<int64_t> ks{4,8,16};
+    std::vector<int64_t> ps{5};
+    std::vector<int64_t> ks{8};
     for (auto k : ks) {
         Lpinv.prep(k);
         for (auto p : ps) {
@@ -472,7 +526,7 @@ int main(int argc, char *argv[]) {
             // write the output ...
             if (threads == 1){
                 std::stringstream ss;
-                ss << matrix_folder << "/V_" << k << "_" << p << ".csv";
+                ss << matrix_folder << "/V_" << k << "_" << p+2 << ".csv";
                 std::string temp = ss.str();
                 std::ofstream file_stream(temp);
                 file_stream << std::setprecision(16);
@@ -485,11 +539,12 @@ int main(int argc, char *argv[]) {
                     file_stream << V[i + n*j] << "\n";
                 }
             }
+            std::cout << std::setprecision(8);
         }
     }
     std::cout << "====================================================================================\n\n";
 
-    mkl_sparse_destroy(Lreg_perm_mkl);
+    mkl_sparse_destroy(L_perm_mkl);
     mkl_sparse_destroy(G_mkl);
 
     return 0;

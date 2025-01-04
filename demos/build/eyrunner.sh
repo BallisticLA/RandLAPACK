@@ -1,0 +1,19 @@
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G2/sG2.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G2/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G3/sG3.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G3/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G4/sG4.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G4/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G5/sG5.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G5/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G6/sG6.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G6/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G7/sG7.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G7/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G8/sG8.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G8/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G9/sG9.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G9/omp1_t2_log.txt
+export OMP_NUM_THREADS=1; ./rchol_shift_inv 2 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G10/sG10.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G10/omp1_t2_log.txt
+
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G2/sG2.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G2/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G3/sG3.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G3/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G4/sG4.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G4/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G5/sG5.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G5/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G6/sG6.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G6/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G7/sG7.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G7/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G8/sG8.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G8/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G9/sG9.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G9/omp2_t1_log.txt
+export OMP_NUM_THREADS=2; ./rchol_shift_inv 1 /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G10/sG10.mtx | tee -a /home/rjmurr/laps/RandLAPACK/demos/sparse-data-matrices/EY/smaller/G10/omp2_t1_log.txt
