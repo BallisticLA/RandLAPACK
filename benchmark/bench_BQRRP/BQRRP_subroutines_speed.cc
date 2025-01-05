@@ -217,7 +217,7 @@ static void call_tsqr(
     T* tau     = ( T * )       calloc( n,     sizeof( T ) );
     RandBLAS::DenseDist D(n, m);
     auto state_const = state;
-    RandBLAS::fill_dense(D, S, state_const).second;
+    RandBLAS::fill_dense(D, S, state_const);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, S, n, all_data.A.data(), m, 0.0, A_sk, n);
     lapack::geqp3(n, n, A_sk, n, J, tau);
 

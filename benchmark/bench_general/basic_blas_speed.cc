@@ -44,18 +44,18 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
             }
         case 2: {
             RandBLAS::DenseDist D1(1, m_info.cols);
-            RandBLAS::fill_dense(D1, all_data.a.data(), state_const).second;
+            RandBLAS::fill_dense(D1, all_data.a.data(), state_const);
             state_const = state;
-            RandBLAS::fill_dense(D1, all_data.b.data(), state_const).second;
+            RandBLAS::fill_dense(D1, all_data.b.data(), state_const);
             state_const = state;
             RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state_const);
             break;
             }
         case 1: {
             RandBLAS::DenseDist D2(1, m_info.cols);
-            RandBLAS::fill_dense(D2, all_data.a.data(), state_const).second;
+            RandBLAS::fill_dense(D2, all_data.a.data(), state_const);
             state_const = state;
-            RandBLAS::fill_dense(D2, all_data.b.data(), state_const).second;
+            RandBLAS::fill_dense(D2, all_data.b.data(), state_const);
             break;
         }
         default: {
