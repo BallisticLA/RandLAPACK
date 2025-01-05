@@ -36,29 +36,22 @@ struct mat_gen_info {
     int64_t cols;
     int64_t rank;
     mat_type m_type;
-    T cond_num;
-    T scaling;
-    T exponent;
-    bool diag;
-    bool check_true_rank;
-    T theta;
-    T perturb;
+    T cond_num = 1.0;
+    T scaling = 1.0;
+    T exponent = 1.0;
+    bool diag = false;
+    bool check_true_rank = false;
+    T theta = 1.0;
+    T perturb = 1.0;
     char* filename;
     int workspace_query_mod;
+    T frac_spectrum_one = 0.1;
 
     mat_gen_info(int64_t& m, int64_t& n, mat_type t) {
         rows = m;
         cols = n;
         m_type = t;
-        /// default values
-        diag = false;
-        rank = n;
-        cond_num = 1.0;
-        scaling = 1.0;
-        exponent = 1.0;
-        theta = 1.0;
-        perturb = 1.0;
-        check_true_rank = false;
+        rank = n; // < default
     }
 };
 
@@ -80,8 +73,8 @@ void gen_singvec(
 
     RandBLAS::DenseDist DU(m, k);
     RandBLAS::DenseDist DV(n, k);
-    state = RandBLAS::fill_dense(DU, U, state).second;
-    state = RandBLAS::fill_dense(DV, V, state).second;
+    state = RandBLAS::fill_dense(DU, U, state);
+    state = RandBLAS::fill_dense(DV, V, state);
 
     blas::copy(k, S, k + 1, A, m + 1);
 
@@ -108,6 +101,7 @@ void gen_poly_mat(
     int64_t &n,
     T* A,
     int64_t k,
+    T frac_spectrum_one,
     T cond,
     T p,
     bool diagon,
@@ -119,11 +113,12 @@ void gen_poly_mat(
     T* S = ( T * ) calloc( k * k, sizeof( T ) );
 
     // The first 10% of the singular values will be equal to one
-    int offset = (int) floor(k * 0.1);
+    int offset = (int) floor(k * frac_spectrum_one);
     T first_entry = 1.0;
     T last_entry = first_entry / cond;
-    T a = std::pow((std::pow(last_entry, -1 / p) - std::pow(first_entry, -1 / p)) / (k - offset), p);
-    T b = std::pow(a * first_entry, -1 / p) - offset;
+    T neg_invp = -((T)1.0)/p;
+    T a = std::pow((std::pow(last_entry, neg_invp) - std::pow(first_entry, neg_invp)) / (k - offset), p);
+    T b = std::pow(a * first_entry, neg_invp) - offset;
     // apply lambda function to every entry of s
     std::fill(s, s + offset, 1.0);
     for (int i = offset; i < k; ++i) {
@@ -245,15 +240,14 @@ void gen_spiked_mat(
     int64_t num_rows_sampled = n / 2;
 
     /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
-    RandBLAS::SparseDist DS = {.n_rows = m, .n_cols = 1, .vec_nnz = num_rows_sampled, .major_axis = RandBLAS::MajorAxis::Long};
-    RandBLAS::SparseSkOp<T> S(DS, state);
-    state = RandBLAS::fill_sparse(S);
+    int64_t* rows = ( int64_t * ) calloc( num_rows_sampled, sizeof( int64_t ) );
+    state = RandBLAS::repeated_fisher_yates(num_rows_sampled, m, 1, rows, state);
 
     T* V   = ( T * ) calloc( n * n, sizeof( T ) );
     T* tau = ( T * ) calloc( n,     sizeof( T ) );
 
     RandBLAS::DenseDist DV(n, n);
-    state = RandBLAS::fill_dense(DV, V, state).second;
+    state = RandBLAS::fill_dense(DV, V, state);
 
     lapack::geqrf(n, n, V, n, tau);
     lapack::ungqr(n, n, n, V, n, tau);
@@ -269,11 +263,11 @@ void gen_spiked_mat(
 
     for (i = 0; i < n; ++ i) {
         for (j = 0; j < num_rows_sampled; ++j) {
-            A[m * i + S.rows[j]] *= spike_scale;
+            A[m * i + rows[j]] *= spike_scale;
         }
         j = 0;
     }
-
+    free(rows);
     free(V);
     free(tau);
 }
@@ -304,10 +298,10 @@ void gen_oleg_adversarial_mat(
     T* tau2 = ( T * ) calloc( n,     sizeof( T ) );
 
     RandBLAS::DenseDist DU(m, n);
-    state = RandBLAS::fill_dense(DU, U, state).second;
+    state = RandBLAS::fill_dense(DU, U, state);
 
     RandBLAS::DenseDist DV(n, n);
-    state = RandBLAS::fill_dense(DV, V, state).second;
+    state = RandBLAS::fill_dense(DV, V, state);
 
     for(int i = 0; i < n; ++i) {
         //U_dat[m * i + 1] *= scaling_factor_U;
@@ -470,7 +464,7 @@ void mat_gen(
     switch(info.m_type) {
         case polynomial:
                 // Generating matrix with polynomially decaying singular values
-                RandLAPACK::gen::gen_poly_mat(info.rows, info.cols, A, info.rank, info.cond_num, info.exponent, info.diag, state);
+                RandLAPACK::gen::gen_poly_mat(info.rows, info.cols, A, info.rank, info.frac_spectrum_one, info.cond_num, info.exponent, info.diag, state);
                 break;
         case exponential:
                 // Generating matrix with exponentially decaying singular values
@@ -480,7 +474,7 @@ void mat_gen(
         case gaussian: {
                 // Gaussian random matrix
                 RandBLAS::DenseDist D(info.rows, info.cols);
-                state = RandBLAS::fill_dense(D, A, state).second;
+                state = RandBLAS::fill_dense(D, A, state);
             }
             break;
         case step: {
@@ -522,4 +516,12 @@ void mat_gen(
             break;
     }
 }
+
+template <typename T, typename RNG>
+std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
+    std::vector<T> A(info.rows * info.cols, 0.0);
+    mat_gen(info, A.data(), state);
+    return A;
+}
+
 }

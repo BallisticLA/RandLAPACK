@@ -248,7 +248,7 @@ int RBKI<T, RNG>::call(
     omp_set_num_threads(this->num_threads_some);
 #endif
     RandBLAS::DenseDist D(n, k);
-    state = RandBLAS::fill_dense(D, Y_i, state).second;
+    state = RandBLAS::fill_dense(D, Y_i, state);
 #if RandLAPACK_HAS_OpenMP
     omp_set_num_threads(this->num_threads_rest);
 #endif

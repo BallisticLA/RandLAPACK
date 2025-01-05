@@ -1,6 +1,11 @@
 #ifndef RANDLAPACK_HH
 #define RANDLAPACK_HH
 
+// config and dependencies
+#include "RandLAPACK/rl_blaspp.hh"
+#include "RandLAPACK/rl_lapackpp.hh"
+#include "RandBLAS.hh"
+
 // misc
 #include "RandLAPACK/misc/rl_util.hh"
 #include "RandLAPACK/misc/rl_linops.hh"
