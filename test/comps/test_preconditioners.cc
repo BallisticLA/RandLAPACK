@@ -5,6 +5,8 @@
 #include <math.h>
 #include <lapack.hh>
 
+#include "../RandLAPACK/RandBLAS/test/comparison.hh"
+
 
 template <typename T>
 void check_condnum_after_precond(
@@ -77,7 +79,7 @@ class Test_rpc_svd : public ::testing::Test
         // construct "A" with cond(A) >= sqrt_cond^2.
         std::vector<T> A(m*n, 0.0);
         T *a = A.data();
-        RandBLAS::DenseDist D(m, n, RandBLAS::DenseDistName::Uniform);
+        RandBLAS::DenseDist D(m, n, RandBLAS::ScalarDist::Uniform);
         auto state = RandBLAS::RNGState(99);
         RandBLAS::fill_dense(D, a, state);
     
@@ -100,7 +102,7 @@ class Test_rpc_svd : public ::testing::Test
         std::vector<T> M_wk(d*n, 0.0);
         std::vector<T> sigma_sk(n, 0.0);
         int64_t lda = (layout == blas::Layout::ColMajor) ? m : n;
-        RandBLAS::SparseDist SDist{.n_rows=d, .n_cols=m, .vec_nnz=8};
+        RandBLAS::SparseDist SDist(d, m, 8, RandBLAS::Axis::Short);
         RandBLAS::SparseSkOp<T> S(SDist, alg_state);
         RandBLAS::fill_sparse(S);
         
@@ -134,7 +136,7 @@ class Test_rpc_svd : public ::testing::Test
         // After regularization the augmented matrix will still be full-rank.
         std::vector<double> A(m*n, 0.0);
         double *a = A.data();
-        RandBLAS::DenseDist D(m, n, RandBLAS::DenseDistName::Uniform);
+        RandBLAS::DenseDist D(m, n, RandBLAS::ScalarDist::Uniform);
         auto state = RandBLAS::RNGState(99);
         RandBLAS::fill_dense(D, a, state);
                       

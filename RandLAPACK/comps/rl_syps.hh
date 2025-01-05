@@ -31,7 +31,7 @@ class SymmetricPowerSketch {
         ) = 0;
 
         virtual int call(
-            SymmetricLinearOperator<T> &A,
+            linops::SymmetricLinearOperator<T> &A,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
             T* &skop_buff = nullptr,
@@ -108,7 +108,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
         );
 
         int call(
-            SymmetricLinearOperator<T> &A,
+            linops::SymmetricLinearOperator<T> &A,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
             T* &skop_buff,
@@ -125,7 +125,7 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYPS<T, RNG>::call(
-    SymmetricLinearOperator<T> &A,
+    linops::SymmetricLinearOperator<T> &A,
     int64_t k,
     RandBLAS::RNGState<RNG> &state,
     T* &skop_buff,
@@ -140,12 +140,12 @@ int SYPS<T, RNG>::call(
      if (!callers_skop_buff)
          skop_buff = new T[m * k];
     RandBLAS::DenseDist D(m, k);
-    state = RandBLAS::fill_dense(D, skop_buff, state).second;
+    state = RandBLAS::fill_dense(D, skop_buff, state);
 
      bool callers_work_buff = work_buff != nullptr;
      if (!callers_work_buff)
          work_buff = new T[m * k];
-    RandBLAS::util::safe_scal(m * k, 0.0, work_buff, 1);
+    RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
 
     T *symm_out = work_buff;
     T *symm_in  = skop_buff;
@@ -166,8 +166,6 @@ int SYPS<T, RNG>::call(
     if (p % 2 == 1)
         blas::copy(m * k, work_buff, 1, skop_buff, 1);
 
-    RandBLAS::DenseSkOp<T>(D, state, skop_buff);
-
     if (!callers_work_buff)
         delete[] work_buff;
 
@@ -186,7 +184,7 @@ int SYPS<T, RNG>::call(
     T* &skop_buff,
     T* work_buff
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);
     return call(A_linop, k, state, skop_buff, work_buff);
 }
 

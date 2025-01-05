@@ -11,7 +11,9 @@
 #include <vector>
 #include <cstdint>
 
-namespace RandLAPACK {
+namespace RandLAPACK::linops {
+
+using std::vector;
 
 template <typename T>
 struct SymmetricLinearOperator {

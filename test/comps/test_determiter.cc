@@ -1,13 +1,21 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
+#include "../RandLAPACK/RandBLAS/test/comparison.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
 #include <gtest/gtest.h>
 
+template <typename T>
+std::vector<T> eye(int64_t n) {
+    std::vector<T> A(n * n, 0.0);
+    for (int i = 0; i < n; ++i)
+        A[i + n*i] = 1.0;
+    return A;
+}
 
-class TestDetermiterOLS : public ::testing::Test
-{
+
+class TestDetermiterOLS : public ::testing::Test {
     protected:
         int64_t m = 201;
         int64_t n = 12;
@@ -17,13 +25,13 @@ class TestDetermiterOLS : public ::testing::Test
 
     virtual void TearDown() {};
 
-    virtual void run(uint64_t key_index)
-    {   
+    virtual void run(uint64_t key_index) {   
         std::vector<double> A(m * n);
-        RandBLAS::util::genmat(m, n, A.data(), keys[key_index]);
+        RandBLAS::RNGState state0(keys[key_index]);
+        auto state1 = RandBLAS::fill_dense({m, n}, A.data(), state0);
         
         std::vector<double> b(m);
-        RandBLAS::util::genmat(m, 1, b.data(), keys[key_index] + (uint64_t) 1);
+        RandBLAS::fill_dense({m, 1}, b.data(), state1);
         
         std::vector<double> c(n, 0.0);
         std::vector<double> x0(n, 0.0);

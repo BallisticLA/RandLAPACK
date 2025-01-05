@@ -141,15 +141,11 @@ RandBLAS::RNGState<RNG> rpc_data_svd_saso(
     T *sigma_sk, //buffer of size at least n.
     RandBLAS::RNGState<RNG> state
 ) {
-    RandBLAS::SparseDist D{
-        .n_rows = d,
-        .n_cols = m,
-        .vec_nnz = k
-    };
+    RandBLAS::SparseDist D(d, m, k, RandBLAS::Axis::Short);
     RandBLAS::SparseSkOp<T> S(D, state);
-    auto next_state = RandBLAS::fill_sparse(S);
+    RandBLAS::fill_sparse(S);
     rpc_data_svd(layout, m, n, A, lda, S, V_sk, sigma_sk);
-    return next_state;
+    return S.next_state;
 }
 
 /**
@@ -277,7 +273,7 @@ int64_t make_right_orthogonalizer(
  */
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
-    SymmetricLinearOperator<T> &A,
+    linops::SymmetricLinearOperator<T> &A,
     std::vector<T> &V,
     std::vector<T> &eigvals,
     int64_t &k,
@@ -327,7 +323,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
-    ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
     return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
 }
 
