@@ -1,3 +1,4 @@
+#pragma once
 
 #include <RandLAPACK.hh>
 #include <blas.hh>
@@ -7,8 +8,14 @@
 #include <map>
 #include <exception>
 #include <iterator>
+#include <fstream>
+#include <fast_matrix_market/fast_matrix_market.hpp>
+
 
 namespace richol {
+
+
+using symmetry_type = fast_matrix_market::symmetry_type;
 
 
 template <typename ScalarType, typename OrdinalType>
@@ -38,8 +45,6 @@ struct SparseVec {
     std::vector<comp_t> data{};
 
     SparseVec() = default;
-
-    SparseVec( std::vector<comp_t> &d ) : data(d) {}
 
     SparseVec( SparseVec<scalar_t, ordinal_t> &s ) : data(s.data) {}
 
@@ -76,7 +81,9 @@ struct SparseVec {
         return ind;
     }
 
-    inline bool empty() { return data.empty() == 0; }
+    inline size_t size() { return data.size(); }
+
+    inline bool empty() { return data.empty(); }
 
     inline comp_t leading_component() { return data[0]; }
 
@@ -102,6 +109,50 @@ void sym_as_upper_tri_from_csr( int64_t n, const ordinal_t1* rowptr, const ordin
             }
         }
     }
+    return;
+}
+
+
+template <typename T>
+T epsilon() { return std::numeric_limits<T>::epsilon(); }
+
+
+template <typename spvec_t, typename scalar_t = typename spvec_t::scalar_t>
+size_t coallesce_spvecs(std::vector<spvec_t> &spvecs, scalar_t tol = epsilon<scalar_t>()) {
+    size_t nnz = 0;
+    for (spvec_t &row : spvecs) {
+        row.coallesce(tol);
+        nnz += row.size();
+    }
+    return nnz;
+}
+
+
+template <typename spvec_t, typename tol_t = typename spvec_t::scalar_t>
+void write_square_matrix_market(
+    std::vector<spvec_t> &csr_like, std::ostream &os, symmetry_type symtype, std::string comment = {}, tol_t tol = 0.0
+) {
+    size_t nz = coallesce_spvecs(csr_like, tol);
+    std::vector<typename spvec_t::scalar_t > vals(nz);
+    std::vector<typename spvec_t::ordinal_t> rows(nz);
+    std::vector<typename spvec_t::ordinal_t> cols(nz);
+    nz = 0;
+    typename spvec_t::ordinal_t row_ind = 0;
+    for (const spvec_t &row : csr_like) {
+        for (const auto &comp : row.data) {
+            vals[nz] = comp.val;
+            rows[nz] = row_ind;
+            cols[nz] = comp.ind;
+            ++nz;
+        }
+        ++row_ind;
+    }
+    
+    fast_matrix_market::matrix_market_header header(row_ind, row_ind);
+    header.comment = comment;
+    header.symmetry = symtype;
+
+    fast_matrix_market::write_matrix_market_triplet(os, header, rows, cols, vals);
     return;
 }
 
@@ -180,10 +231,6 @@ void full(spvec_t &v, std::vector<spvec_t> &M) {
 } // end namespace richol::downdaters
 
 
-template <typename T>
-T epsilon() { return std::numeric_limits<T>::epsilon(); }
-
-
 template <typename spvec_t>
 typename spvec_t::ordinal_t full_cholesky(
     std::vector<spvec_t>  M, // pass by value
@@ -191,11 +238,9 @@ typename spvec_t::ordinal_t full_cholesky(
     typename spvec_t::scalar_t zero_threshold = epsilon<typename spvec_t::scalar_t>(),
     bool handle_trailing_zero = true
 ) {
-    using comp_t    = typename spvec_t::comp_t;  
     using scalar_t  = typename spvec_t::scalar_t;
     using ordinal_t = typename spvec_t::ordinal_t;
 
-    ordinal_t n = M.size();
     auto stopper = [zero_threshold](scalar_t vk, ordinal_t k) { return vk < zero_threshold;  }; // do NOT check agains abs(vk)
     auto downdater = [](spvec_t &v, std::vector<spvec_t> &M_intermediate) { downdaters::full(v, M_intermediate); };
     // TODO: try downdater = downdaters::full;

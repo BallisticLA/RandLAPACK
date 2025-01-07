@@ -4,7 +4,7 @@
 #include <iostream>
 
 int main(int argc, char** argv) {
-    using T = float;
+    using T = double;
     int64_t n = 8;
     int64_t nnz = 32;
     std::vector<T> vals{6, -1, -1, -1, -1, 6, -1, -1, -1, 6, -1, -1, -1, -1, 6, -1, -1, 6, -1, -1, -1, -1, 6, -1, -1, -1, 6, -1, -1, -1, -1, 6};
@@ -14,9 +14,14 @@ int main(int argc, char** argv) {
     using spvec = richol::SparseVec<T, int64_t>;
     std::vector<spvec> sym;
     richol::sym_as_upper_tri_from_csr(n, rowptr.data(), colidxs.data(), vals.data(), sym);
+    std::ofstream fl("L.mtx");
+    richol::write_square_matrix_market(sym, fl, richol::symmetry_type::symmetric, "Laplacian");
     std::vector<spvec> C;
     auto k = richol::full_cholesky(sym, C);
     std::cout << "Exited with C of rank k = " << k << std::endl;
+
+    std::ofstream fc("C.mtx");
+    richol::write_square_matrix_market(C, fc, richol::symmetry_type::general, "Exact Cholesky factor");
 
     return 0;
 }
