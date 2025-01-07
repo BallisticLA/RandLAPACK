@@ -6,9 +6,12 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <unordered_map>
 #include <exception>
 #include <iterator>
 #include <fstream>
+#include <numeric>       
+
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
 
@@ -23,14 +26,21 @@ struct VectorComponent {
 
     using scalar_t = ScalarType;
     using ordinal_t = OrdinalType;
+    using self_t = VectorComponent<scalar_t, ordinal_t>;
 
     scalar_t  val = 0.0;
     ordinal_t ind = 0;
 
     VectorComponent() = default;
     VectorComponent(scalar_t s, ordinal_t o) : val(s), ind(o){ assert(ind >= 0); };
-    VectorComponent(VectorComponent<scalar_t,ordinal_t>  &vc) : val(vc.val), ind(vc.ind) { assert(ind >= 0); };
-    VectorComponent(VectorComponent<scalar_t,ordinal_t> &&vc) : val(vc.val), ind(vc.ind) { vc.ind = 0; vc.val = 0; };
+    VectorComponent(const self_t  &vc) : val(vc.val), ind(vc.ind) { assert(ind >= 0); };
+    VectorComponent(self_t &&vc) : val(vc.val), ind(vc.ind) { vc.ind = 0; vc.val = 0; };
+
+    self_t& operator=(const self_t &vc) { 
+        val = vc.val;
+        ind = vc.ind; 
+        return *this;
+    };
 
 };
 
@@ -84,6 +94,8 @@ struct SparseVec {
     inline size_t size() { return data.size(); }
 
     inline bool empty() { return data.empty(); }
+
+    inline void clear() { data.clear(); }
 
     inline comp_t leading_component() { return data[0]; }
 
@@ -184,7 +196,7 @@ typename spvec_t::ordinal_t abstract_cholesky(
         v.coallesce( zero_threshold );
         if (v.empty())
             break;
-        auto [ vk, _k ] = v.leading_component();
+        const auto &[ vk, _k ] = v.leading_component();
         assert( k == _k );
         if (should_stop( vk, k ))
             break;
@@ -214,17 +226,91 @@ void full(spvec_t &v, std::vector<spvec_t> &M) {
     vector<comp_t> v_data_copy(v.data);
     scalar_t sqrt_vk = sqrt(v_data_copy[0].val);
     int64_t ctr = 0;
-    for (auto [vi, i] : v_data_copy) {
+    for (auto &[vi, i] : v_data_copy) {
         // subtract off v_i v[i:] / v[k] from M[i]
         spvec_t  &row_i = M[i];
         scalar_t temp_i = vi / sqrt_vk;
         for (auto it = v_data_copy.begin() + ctr; it != v_data_copy.end(); ++it) {
-            auto [vj, j] = (*it);
+            auto &[vj, j] = (*it);
             scalar_t update_ij = -temp_i * (vj / sqrt_vk);
             row_i.push_back(j, update_ij);
         }
         ++ctr;
     }
+    return;
+}
+
+template <typename scalar_t>
+inline void scal(int64_t n, scalar_t alpha, scalar_t *x, int64_t incx) {
+    blas::scal(n, alpha, x, incx);
+}
+
+template <typename spvec_t, typename state_t> 
+void sample_clique_clb21(spvec_t &v, std::vector<spvec_t> &M, typename spvec_t::scalar_t p_sum_tol, bool diag_adjust, state_t &state) {
+    /**
+     *   v is coallesced, v[:k] == 0, and v[k] > 0.
+     *   Compute M -= D, where E[D] = outer(v, v)/v[k].
+     *   
+     */
+    using comp_t    = typename spvec_t::comp_t;
+    using scalar_t  = typename spvec_t::scalar_t;
+    using ordinal_t = typename spvec_t::ordinal_t; 
+    using std::vector; using std::unordered_map;
+    using std::min;    using std::max;
+    ordinal_t ell;
+
+    // split into the elimination index and trailing indices (neighbors)
+    const auto &[vk, k] = v.leading_component();
+    vector<comp_t> neighbors(v.data.begin()+1, v.data.end());
+    auto num_neighbors = static_cast<ordinal_t>(neighbors.size()); 
+    for (ell = 0; ell < num_neighbors; ++ell)
+        neighbors[ell].val *= -1;
+
+    // sort neighbors in ascending order of edge weight; split into index and weight vectors.
+    auto ascending_val = [](const comp_t &ca, const comp_t &cb){ return ca.val < cb.val; };
+    std::sort(neighbors.begin(), neighbors.end(), ascending_val);
+    vector<scalar_t>  neighbor_weights(num_neighbors);
+    vector<ordinal_t> neighbor_indices(num_neighbors);
+    unordered_map<ordinal_t, ordinal_t> ind_map;
+    ell = 0;
+    for (const comp_t &comp : neighbors) {
+        auto &[val, ind] = comp;
+        assert(val > 0);
+        assert(ind > k);
+        neighbor_weights[ell] = val;
+        neighbor_indices[ell] = ind;
+        ind_map[ind] = ell;
+        ++ell;
+    }
+
+    // add the sampled spanning tree that approximates the clique in expectation
+    auto num_neighbors_64t = static_cast<int64_t>(num_neighbors);
+    int64_t sample_ind;
+    vector<scalar_t> p;
+    scalar_t trailing_weight = std::reduce(neighbor_weights.begin(), neighbor_weights.end());
+    for (const auto &[abs_vi, i] : neighbors) {
+        neighbor_weights[ind_map[i]] = static_cast<scalar_t>(0.0);
+        p = neighbor_weights;
+        scalar_t* p_buf = p.data();
+        scalar_t  p_sum  = std::reduce(p_buf, p_buf + num_neighbors);
+        if (p_sum <= p_sum_tol)
+            break; // we should always hit this when i = neighbors.back().ind
+        RandBLAS::weights_to_cdf(num_neighbors, p_buf);
+        state = RandBLAS::sample_indices_iid(num_neighbors_64t, p_buf, 1, &sample_ind, state);
+        ordinal_t j = neighbor_indices[sample_ind];
+        scalar_t  w = (p_sum * abs_vi) / vk;
+        M[i].push_back(i, w);
+        M[min(i, j)].push_back(max(i, j), -w);
+        M[j].push_back(j, w);
+    }
+
+    // subtract off the star centered at j.
+    scalar_t scale = (diag_adjust) ? trailing_weight / vk : static_cast<scalar_t>(1);  
+    for (auto it = v.data.begin() + 1; it != v.data.end(); ++it) {
+        auto &[vi, i] = (*it);
+        M[i].push_back(i, scale * vi);
+    }
+    M[k].clear();
     return;
 }
 
@@ -240,12 +326,32 @@ typename spvec_t::ordinal_t full_cholesky(
 ) {
     using scalar_t  = typename spvec_t::scalar_t;
     using ordinal_t = typename spvec_t::ordinal_t;
+    auto stopper = [zero_threshold](scalar_t vk, ordinal_t k) { return vk < zero_threshold;  };
+    // ^ do NOT check agains abs(vk)
+    ordinal_t k = abstract_cholesky(M, C, downdaters::full<spvec_t>, stopper, zero_threshold, handle_trailing_zero);
+    return k;
+}
 
-    auto stopper = [zero_threshold](scalar_t vk, ordinal_t k) { return vk < zero_threshold;  }; // do NOT check agains abs(vk)
-    auto downdater = [](spvec_t &v, std::vector<spvec_t> &M_intermediate) { downdaters::full(v, M_intermediate); };
-    // TODO: try downdater = downdaters::full;
-
-    ordinal_t k = abstract_cholesky(M, C, downdater, stopper, zero_threshold, handle_trailing_zero);
+template <typename spvec_t, typename state_t>
+typename spvec_t::ordinal_t clb21_rand_cholesky(
+    std::vector<spvec_t>  M, // pass by value
+    std::vector<spvec_t> &C, // pass by reference
+    state_t &state,
+    bool diag_adjust = false,
+    typename spvec_t::scalar_t zero_threshold = epsilon<typename spvec_t::scalar_t>()
+) {
+    using scalar_t  = typename spvec_t::scalar_t;
+    using ordinal_t = typename spvec_t::ordinal_t;
+    auto n = static_cast<ordinal_t>(M.size());
+    auto stopper = [zero_threshold, n, diag_adjust](scalar_t vk, ordinal_t k) { 
+        ordinal_t processable_cols = (diag_adjust) ? n : n - 1;
+        return (vk < zero_threshold) || (k == processable_cols); 
+    };
+    scalar_t p_sum_tol = 50*zero_threshold;
+    auto downdater = [p_sum_tol, diag_adjust, &state](spvec_t &v, std::vector<spvec_t> &M_work) { 
+        downdaters::sample_clique_clb21(v, M_work, p_sum_tol, diag_adjust, state);
+    };
+    ordinal_t k = abstract_cholesky(M, C, downdater, stopper, zero_threshold, true);
     return k;
 }
 

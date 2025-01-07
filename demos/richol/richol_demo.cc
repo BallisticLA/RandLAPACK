@@ -16,12 +16,19 @@ int main(int argc, char** argv) {
     richol::sym_as_upper_tri_from_csr(n, rowptr.data(), colidxs.data(), vals.data(), sym);
     std::ofstream fl("L.mtx");
     richol::write_square_matrix_market(sym, fl, richol::symmetry_type::symmetric, "Laplacian");
+
     std::vector<spvec> C;
     auto k = richol::full_cholesky(sym, C);
     std::cout << "Exited with C of rank k = " << k << std::endl;
-
     std::ofstream fc("C.mtx");
     richol::write_square_matrix_market(C, fc, richol::symmetry_type::general, "Exact Cholesky factor");
+
+    std::vector<spvec> C_approx;
+    RandBLAS::RNGState state(0);
+    k = richol::clb21_rand_cholesky(sym, C_approx, state, true);
+    std::cout << "Exited with C_approx of rank k = " << k << std::endl;
+    std::ofstream fa("C_approx.mtx");
+    richol::write_square_matrix_market(C_approx, fa, richol::symmetry_type::general, "Approximate Cholesky factor");
 
     return 0;
 }
