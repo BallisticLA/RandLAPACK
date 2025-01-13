@@ -82,15 +82,17 @@ set(
 )
 
 # Performance profiling through GEMM
-add_benchmark(NAME GEMM_flop_count CXX_SOURCES bench_general/GEMM_flop_count.cc       LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME GEMM_flop_count  CXX_SOURCES bench_general/GEMM_flop_count.cc       LINK_LIBS ${Benchmark_libs})
+# Performance profiling through GEQRF
+add_benchmark(NAME GEQRF_flop_count CXX_SOURCES bench_general/GEQRF_flop_count.cc      LINK_LIBS ${Benchmark_libs})
 # Lapack functionality benchmark
-add_benchmark(NAME Chol_check      CXX_SOURCES bench_general/Chol_check.cc            LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME Chol_check       CXX_SOURCES bench_general/Chol_check.cc            LINK_LIBS ${Benchmark_libs})
 # Data conversion helper script
-add_benchmark(NAME convert_time    CXX_SOURCES bench_general/convert_time.cc          LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME convert_time     CXX_SOURCES bench_general/convert_time.cc          LINK_LIBS ${Benchmark_libs})
 # Compare GEMM and ORMQR performance
-add_benchmark(NAME Gemm_vs_ormqr   CXX_SOURCES bench_general/Gemm_vs_ormqr.cc         LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME Gemm_vs_ormqr    CXX_SOURCES bench_general/Gemm_vs_ormqr.cc         LINK_LIBS ${Benchmark_libs})
 # BLAS levels performance
-add_benchmark(NAME basic_blas_speed   CXX_SOURCES bench_general/basic_blas_speed.cc   LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME basic_blas_speed   CXX_SOURCES bench_general/basic_blas_speed.cc    LINK_LIBS ${Benchmark_libs})
 
 # CQRRPT benchmarks
 add_benchmark(NAME CQRRPT_speed_comparisons CXX_SOURCES bench_CQRRPT/CQRRPT_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
