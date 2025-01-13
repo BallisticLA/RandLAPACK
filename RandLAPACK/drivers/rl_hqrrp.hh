@@ -41,6 +41,7 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <math.h>
 #include <algorithm>
 #include <typeinfo>
+#include <numeric>
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -926,6 +927,10 @@ int64_t hqrrp(
     ldim_R = nb_alg;
     buff_R  = ( T * ) calloc( nb_alg * nb_alg, sizeof( T ) );
     buff_D  = ( T * ) calloc( nb_alg, sizeof( T ) );
+
+    // Required for how HQRRP is setup
+    // Adding this line ensures that the input fromat of HQRRP is identical to that of GEQP3.
+    std::iota(buff_jpvt, &buff_jpvt[n_A], 1);
 
     if(timing != nullptr) {
         preallocation_t_stop = high_resolution_clock::now();

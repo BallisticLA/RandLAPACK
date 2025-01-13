@@ -49,7 +49,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    std::iota(all_data.J.begin(), all_data.J.end(), 1);
+    std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
 
 template <typename T, typename RNG>
