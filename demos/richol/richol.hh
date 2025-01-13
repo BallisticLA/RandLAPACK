@@ -170,7 +170,7 @@ void write_square_matrix_market(
 
 
 template <typename scalar_t, typename spvec_t>
-inline void xbapy(spvec_t x, scalar_t a, int64_t col_ind, std::vector<spvec_t> &csr_like) {
+inline void xbapy(const spvec_t &x, scalar_t a, int64_t col_ind, std::vector<spvec_t> &csr_like) {
     for (const auto &xc : x.data) {
         csr_like[xc.ind].push_back(col_ind, xc.val/a);
     }
@@ -260,6 +260,10 @@ void sample_clique_clb21(spvec_t &v, std::vector<spvec_t> &M, typename spvec_t::
     ordinal_t ell;
 
     // split into the elimination index and trailing indices (neighbors)
+    //
+    // NOTE: there's no strict need to define a new "neighbors."
+    //       it's safe to swap the leading compoinent of v.data to the end of v.data,
+    //       then operate on the first num_neighbors entries of v.data in-place.
     const auto &[vk, k] = v.leading_component();
     vector<comp_t> neighbors(v.data.begin()+1, v.data.end());
     auto num_neighbors = static_cast<ordinal_t>(neighbors.size()); 
@@ -347,7 +351,7 @@ typename spvec_t::ordinal_t clb21_rand_cholesky(
         ordinal_t processable_cols = (diag_adjust) ? n : n - 1;
         return (vk < zero_threshold) || (k == processable_cols); 
     };
-    scalar_t p_sum_tol = 50*zero_threshold;
+    scalar_t p_sum_tol = zero_threshold;
     auto downdater = [p_sum_tol, diag_adjust, &state](spvec_t &v, std::vector<spvec_t> &M_work) { 
         downdaters::sample_clique_clb21(v, M_work, p_sum_tol, diag_adjust, state);
     };
