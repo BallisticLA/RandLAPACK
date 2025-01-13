@@ -46,15 +46,11 @@ struct QR_speed_benchmark_data {
 template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         QR_speed_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state, int apply_itoa) {
+                                        RandBLAS::RNGState<RNG> &state) {
 
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    if (apply_itoa) {
-        std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    } else {
-        std::fill(all_data.J.begin(), all_data.J.end(), 0);
-    }
+    std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
 
 template <typename T, typename RNG>
@@ -101,7 +97,7 @@ static void call_all_algs(
         // Making sure the states are unchanged
         state_gen = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen);
         
         // Testing BQRRP - QRF
         BQRRP.qr_tall = Subroutines::QRTall::geqrf;
@@ -116,7 +112,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing BQRRP - CholQR
         BQRRP.qr_tall = Subroutines::QRTall::cholqr;
@@ -131,7 +127,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen);
         
         // Testing HQRRP DEFAULT
         auto start_hqrrp = steady_clock::now();
@@ -144,7 +140,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen);
         
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = steady_clock::now();
@@ -157,7 +153,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing HQRRP with CholQR
         auto start_hqrrp_cholqr = steady_clock::now();
@@ -170,7 +166,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen);
 
         if ((i <= 2) && (b_sz == 256)) {
             // Testing GEQP3
@@ -181,7 +177,7 @@ static void call_all_algs(
             printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
 
             state_gen = state;
-            data_regen(m_info, all_data, state_gen, 0);
+            data_regen(m_info, all_data, state_gen);
         }
         
         std::ofstream file(output_filename, std::ios::app);

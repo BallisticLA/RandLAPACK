@@ -53,7 +53,7 @@ class TestHQRRP : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-        std::iota(all_data.J.begin(), all_data.J.end(), 1);
+        std::fill(all_data.J.begin(), all_data.J.end(), 0);
     }
 
 

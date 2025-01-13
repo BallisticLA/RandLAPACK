@@ -215,7 +215,6 @@ int CQRRPT<T, RNG>::call(
     if(this->no_hqrrp) {
         lapack::geqp3(d, n, A_hat, d, J, tau);
     } else {
-        std::iota(J, &J[n], 1);
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T*) nullptr);
     }
 
