@@ -35,13 +35,11 @@ int main(int argc, char** argv) {
     richol::permuted(L, perm, Lperm);, "AMD reordering      : ");
     using spvec = richol::SparseVec<T, int64_t>;
     std::vector<spvec> sym;
-    TIMED_LINE(
-    richol::sym_as_upper_tri_from_csr(Lperm.n_rows, Lperm.rowptr, Lperm.colidxs, Lperm.vals, sym), "sym_as_upper_tri    : ");
-
     std::vector<spvec> C;
     RandBLAS::RNGState state(0);
     int64_t rank;
     TIMED_LINE(
+    richol::sym_as_upper_tri_from_csr(Lperm.n_rows, Lperm.rowptr, Lperm.colidxs, Lperm.vals, sym);
     rank = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "SparseCholesky: ");
     std::cout << "Exited with C of rank k = " << rank << std::endl;
     int64_t nnz_G = 0;

@@ -41,6 +41,10 @@ using std::chrono::microseconds;
 #endif
 #endif
 
+double seconds_elapsed(timepoint_t tp0, timepoint_t tp1) {
+    return (double) duration_cast<microseconds>(tp1 - tp0).count() / 1e6;
+}
+
 
 namespace richol::linops {
 
@@ -124,6 +128,7 @@ struct CallableSpMat {
     std::vector<double> unit_ones_stdvec{};
     double* work_n = nullptr;
     std::vector<double> work_n_stdvec{};
+    std::vector<double> times{};
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -150,12 +155,15 @@ struct CallableSpMat {
         project_out_vec(m, n, work, m, unit_ones, work_n);
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
+        auto t0 = std_clock::now();
         omp_set_dynamic(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
         mkl_sparse_d_mm(
             SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
         );//, "SPMM A   : ");
+        auto t1 = std_clock::now();
+        times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
@@ -174,6 +182,7 @@ struct CallableChoSolve {
     std::vector<double> unit_ones_stdvec{};
     double* work_n = nullptr;
     std::vector<double> work_n_stdvec{};
+    std::vector<double> times{};
 
     /*  C =: alpha * inv(G G') * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -205,6 +214,7 @@ struct CallableChoSolve {
         sparse_status_t status;
         omp_set_dynamic(1);
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
+        auto t0 = std_clock::now();
         //TIMED_LINE(
         status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
         if (status != SPARSE_STATUS_SUCCESS) {
@@ -217,6 +227,8 @@ struct CallableChoSolve {
             std::cout << "TRSM failed with error code " << status << std::endl;
             throw std::runtime_error("TRSM failure.");
         }
+        auto t1 = std_clock::now();
+        times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
         project_out_vec(m, n, C, ldc, unit_ones, work_n);
@@ -236,6 +248,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     std::vector<double> work_seminorm{};
     std::vector<double> unit_ones{};
     std::vector<double> proj_work_n{};
+    std::vector<double> times{};
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
 
@@ -246,6 +259,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         L_callable{L.A, L.m},
         N_callable{N.G, N.m},
         verbose_pcg(verbose),
+        times(4, 0.0),
         call_pcg_tol(pcg_tol),
         max_iters((int64_t) maxit)
     {
@@ -293,7 +307,18 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
         // work
         RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
+        auto t0 = std_clock::now();
         RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
+        auto t1 = std_clock::now();
+        auto total_spmm   = std::reduce(L_callable.times.begin(), L_callable.times.end());
+        auto total_sptrsm = std::reduce(N_callable.times.begin(), N_callable.times.end());
+        times[0] += total_spmm;
+        times[1] += total_sptrsm;
+        L_callable.times.clear();
+        N_callable.times.clear();
+        times[2] += seconds_elapsed(t0, t1);
+        times[3] += (double) sn_log.size()/2;
+
         // logging
         std::cout << std::left 
         << std::setw(10) << sn_log.size()
