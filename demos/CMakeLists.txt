@@ -62,10 +62,21 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(fast_matrix_market)
 
 set(
-    Benchmark_libs
+    main_libs
     RandLAPACK
     fast_matrix_market::fast_matrix_market
     SuiteSparse::AMD
 )
 
-add_demo(NAME richol_demo CXX_SOURCES richol/richol.hh richol/richol_demo.cc LINK_LIBS ${Benchmark_libs})
+set(
+    our_mkl_libs
+    mkl_intel_ilp64 mkl_core pthread m
+)
+
+set(richol_headers
+    richol/richol_core.hh
+    richol/richol_mkl.hh
+)
+
+add_demo(NAME demo_factor CXX_SOURCES richol/richol_core.hh                      richol/demo_factor.cc LINK_LIBS ${main_libs}                )
+add_demo(NAME demo_pinv   CXX_SOURCES richol/richol_core.hh richol/richol_mkl.hh richol/demo_pinv.cc   LINK_LIBS ${main_libs} ${our_mkl_libs})

@@ -1,5 +1,5 @@
 
-#include "richol.hh"
+#include "richol_core.hh"
 
 #include <iomanip>
 #include <iostream>
@@ -31,35 +31,6 @@ using RandBLAS::CSCMatrix;
 using RandBLAS::COOMatrix;
 using RandBLAS::sparse_data::conversions::coo_to_csr;
 
-template <typename spvec_t>
-std::vector<spvec_t> lift2lap(const std::vector<spvec_t> &sym) {
-    std::vector<spvec_t> sym_lift(sym);
-    using scalar_t  = typename spvec_t::scalar_t;
-    using ordinal_t = typename spvec_t::ordinal_t;
-    auto n = static_cast<ordinal_t>(sym.size());
-    // set d = sym * vector-of-ones.
-    std::vector<scalar_t> d(n, 0);
-    for (ordinal_t i = 0; i < n; ++i) {
-        auto &vec = sym_lift[i];
-        vec.coallesce((scalar_t) 0);
-        for (const auto &[val, ind] : vec.data) {
-            d[i] += val;
-            if (ind != i) {
-                d[ind] += val;
-            }
-        }
-    }
-    // extend sym_lift = [sym  ,   -d ]
-    //                   [ -d' , sum(d) ]
-    for (ordinal_t i = 0; i < n; ++i) {
-        auto &vec = sym_lift[i];
-        vec.push_back(n, -d[i]);
-    }
-    scalar_t sum_d = std::reduce(d.begin(), d.end());
-    sym_lift.resize(n+1);
-    sym_lift[n].push_back(sum_d, n);
-    return sym_lift;
-}
 
 void small_3dlap() {
     using T = double;
@@ -93,7 +64,7 @@ void small_3dlap() {
     to the version computed above with Rob's diagonal trick?
     */
     state = backup_state;
-    auto sym_lift = lift2lap(sym);
+    auto sym_lift = richol::lift2lap(sym);
     k = richol::clb21_rand_cholesky(sym_lift, C_approx, state, false);
     std::cout << "Exited with C_approx of rank k = " << k << std::endl;
     std::ofstream flc("C_lifted.mtx");
@@ -101,45 +72,6 @@ void small_3dlap() {
     return;
 }
 
-
-template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
-CSRMatrix<scalar_t, sint_t> laplacian_from_matrix_market(std::string fn, scalar_t reg) {
-    int64_t n, n_ = 0;
-    std::vector<int64_t> rows{};
-    std::vector<int64_t> cols{};
-    std::vector<double> vals{};
-
-    std::ifstream file_stream(fn);
-    fast_matrix_market::read_matrix_market_triplet(
-        file_stream, n, n_, rows,  cols, vals
-    );
-    randblas_require(n == n_); // we must be square.
-
-    // Convert adjacency matrix to COO format Laplacian
-    int64_t m = vals.size();
-    int64_t nnz = m + n;
-    COOMatrix<double> coo(n, n);
-    RandBLAS::sparse_data::reserve_coo(nnz, coo);
-    std::vector<double> diagvec(n, reg);
-    auto diag = diagvec.data();
-    for (int64_t i = 0; i < m; ++i) {
-        coo.rows[i] = rows[i];
-        coo.cols[i] = cols[i];
-        double v = vals[i];
-        randblas_require(v >= 0);
-        coo.vals[i] = -v;
-        diag[rows[i]] += v;
-    }
-    for (int64_t i = 0; i < n; ++i) {
-        coo.vals[m+i] = diag[i];
-        coo.rows[m+i] = i;
-        coo.cols[m+i] = i;
-    }
-    // convert COO format Laplacian to CSR format, using RandBLAS.
-    CSRMatrix<double> csr(n, n);
-    RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
-    return csr;
-}
 
 template <typename CSR_t = CSRMatrix<double, int64_t>>
 void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
@@ -170,36 +102,12 @@ void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
     return;
 }
 
-template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
-void permuted(const CSRMatrix<scalar_t, sint_t> &A, const std::vector<sint_t> &perm, CSRMatrix<scalar_t, sint_t> &out) {
-    auto  n   = A.n_rows;
-    COOMatrix<scalar_t, sint_t> coo(n, n);
-    reserve_coo(A.nnz, coo);
-    std::vector<sint_t> invperm(n);
-    for (sint_t k = 0; k < n; ++k) {
-        invperm[perm[k]] = k;
-    }
-    sint_t inew, jnew, p, ctr = 0;
-    for (jnew = 0; jnew < n; ++jnew) {
-        auto j = perm[jnew];
-        for (p = A.rowptr[j]; p < A.rowptr[j+1]; ++p) {
-            inew = invperm[A.colidxs[p]];
-            coo.rows[ctr] = inew;
-            coo.cols[ctr] = jnew;
-            coo.vals[ctr] = A.vals[p];
-            ++ctr;
-        }
-    }
-    coo_to_csr(coo, out);
-    return;
-}
-
 
 int main(int argc, char** argv) {
     using T = double;
 
-    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G1/sG1.mtx");
-    auto csr = laplacian_from_matrix_market(fn, (T)0.0);
+    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/uk/uk.mtx");
+    auto csr = richol::laplacian_from_matrix_market(fn, (T)0.0);
     int64_t n = csr.n_rows;
     std::vector<int64_t> perm(n);
     for (int64_t i = 0; i < n; ++i)
@@ -207,7 +115,7 @@ int main(int argc, char** argv) {
     CSRMatrix<double, int64_t> L(n, n);
     TIMED_LINE(
     //amd_permutation(csr, perm);
-    permuted(csr, perm, L);, "AMD reordering      : "
+    richol::permuted(csr, perm, L);, "AMD reordering      : "
     );
 
     using spvec = richol::SparseVec<T, int64_t>;
@@ -224,6 +132,14 @@ int main(int argc, char** argv) {
     k = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "SparseCholesky: "
     );
     std::cout << "Exited with C of rank k = " << k << std::endl;
+
+    // template <typename spvec_t, typename tol_t = typename spvec_t::scalar_t>
+    // void write_square_matrix_market(
+    //     std::vector<spvec_t> &csr_like, std::ostream &os, symmetry_type symtype, std::string comment = {}, tol_t tol = 0.0
+    // ) {
+    std::ofstream fnc("C.mtx");
+    richol::write_square_matrix_market(C, fnc, fast_matrix_market::general, "approximate Cholesky factor");
+
 
     return 0;
 }

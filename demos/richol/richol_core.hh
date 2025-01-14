@@ -14,16 +14,20 @@
 
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
-extern "C" {
-#include "amd.h"
-}
-
+#include <amd.h>
 
 
 namespace richol {
 
 
 using symmetry_type = fast_matrix_market::symmetry_type;
+using RandBLAS::CSRMatrix;
+using RandBLAS::sparse_data::reserve_csr;
+using RandBLAS::sparse_data::reserve_coo;
+using RandBLAS::CSCMatrix;
+using RandBLAS::COOMatrix;
+using RandBLAS::sparse_data::conversions::coo_to_csr;
+
 
 
 template <typename ScalarType, typename OrdinalType>
@@ -96,9 +100,9 @@ struct SparseVec {
         return ind;
     }
 
-    inline size_t size() { return data.size(); }
+    inline size_t size() const { return data.size(); }
 
-    inline bool empty() { return data.empty(); }
+    inline bool empty() const { return data.empty(); }
 
     inline void clear() { data.clear(); }
 
@@ -126,6 +130,24 @@ void sym_as_upper_tri_from_csr( int64_t n, const ordinal_t1* rowptr, const ordin
             }
         }
     }
+    return;
+}
+
+
+template <typename ordinal_t1, typename ordinal_t2, typename vals_t, typename spvec_t>
+void csr_from_csrlike(const std::vector<spvec_t> &csrlike, ordinal_t1* rowptr, ordinal_t2* colinds, vals_t* vals) {
+    auto n = static_cast<int64_t>(csrlike.size());
+    ordinal_t1 nzind = 0;
+    for (int64_t i = 0; i < n; ++i) {
+        const auto &row  = csrlike[i];
+        rowptr[i] = nzind;
+        for (const auto &[val, ind] : row.data) {
+            colinds[nzind] = static_cast<ordinal_t2>(ind);
+            vals   [nzind] = static_cast<vals_t>    (val);
+            ++nzind;
+        }
+    }
+    rowptr[n] = nzind;
     return;
 }
 
@@ -335,7 +357,7 @@ typename spvec_t::ordinal_t full_cholesky(
 ) {
     using scalar_t  = typename spvec_t::scalar_t;
     using ordinal_t = typename spvec_t::ordinal_t;
-    auto stopper = [zero_threshold](scalar_t vk, ordinal_t k) { return vk < zero_threshold;  };
+    auto stopper = [zero_threshold](scalar_t vk, ordinal_t k) {  UNUSED(k); return vk < zero_threshold;  };
     // ^ do NOT check agains abs(vk)
     ordinal_t k = abstract_cholesky(M, C, downdaters::full<spvec_t>, stopper, zero_threshold, handle_trailing_zero);
     return k;
@@ -363,6 +385,103 @@ typename spvec_t::ordinal_t clb21_rand_cholesky(
     ordinal_t k = abstract_cholesky(M, C, downdater, stopper, zero_threshold, true);
     return k;
 }
+
+
+template <typename spvec_t>
+std::vector<spvec_t> lift2lap(const std::vector<spvec_t> &sym) {
+    std::vector<spvec_t> sym_lift(sym);
+    using scalar_t  = typename spvec_t::scalar_t;
+    using ordinal_t = typename spvec_t::ordinal_t;
+    auto n = static_cast<ordinal_t>(sym.size());
+    // set d = sym * vector-of-ones.
+    std::vector<scalar_t> d(n, 0);
+    for (ordinal_t i = 0; i < n; ++i) {
+        auto &vec = sym_lift[i];
+        vec.coallesce((scalar_t) 0);
+        for (const auto &[val, ind] : vec.data) {
+            d[i] += val;
+            if (ind != i) {
+                d[ind] += val;
+            }
+        }
+    }
+    // extend sym_lift = [sym  ,   -d ]
+    //                   [ -d' , sum(d) ]
+    for (ordinal_t i = 0; i < n; ++i) {
+        auto &vec = sym_lift[i];
+        vec.push_back(n, -d[i]);
+    }
+    scalar_t sum_d = std::reduce(d.begin(), d.end());
+    sym_lift.resize(n+1);
+    sym_lift[n].push_back(sum_d, n);
+    return sym_lift;
+}
+
+
+template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
+CSRMatrix<scalar_t, sint_t> laplacian_from_matrix_market(std::string fn, scalar_t reg) {
+    int64_t n, n_ = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<double> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n, n_, rows,  cols, vals
+    );
+    randblas_require(n == n_); // we must be square.
+
+    // Convert adjacency matrix to COO format Laplacian
+    int64_t m = vals.size();
+    int64_t nnz = m + n;
+    COOMatrix<double> coo(n, n);
+    RandBLAS::sparse_data::reserve_coo(nnz, coo);
+    std::vector<double> diagvec(n, reg);
+    auto diag = diagvec.data();
+    for (int64_t i = 0; i < m; ++i) {
+        coo.rows[i] = rows[i];
+        coo.cols[i] = cols[i];
+        double v = vals[i];
+        randblas_require(v >= 0);
+        coo.vals[i] = -v;
+        diag[rows[i]] += v;
+    }
+    for (int64_t i = 0; i < n; ++i) {
+        coo.vals[m+i] = diag[i];
+        coo.rows[m+i] = i;
+        coo.cols[m+i] = i;
+    }
+    // convert COO format Laplacian to CSR format, using RandBLAS.
+    CSRMatrix<double> csr(n, n);
+    RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
+    return csr;
+}
+
+
+template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
+void permuted(const CSRMatrix<scalar_t, sint_t> &A, const std::vector<sint_t> &perm, CSRMatrix<scalar_t, sint_t> &out) {
+    auto  n   = A.n_rows;
+    COOMatrix<scalar_t, sint_t> coo(n, n);
+    reserve_coo(A.nnz, coo);
+    std::vector<sint_t> invperm(n);
+    for (sint_t k = 0; k < n; ++k) {
+        invperm[perm[k]] = k;
+    }
+    sint_t inew, jnew, p, ctr = 0;
+    for (jnew = 0; jnew < n; ++jnew) {
+        auto j = perm[jnew];
+        for (p = A.rowptr[j]; p < A.rowptr[j+1]; ++p) {
+            inew = invperm[A.colidxs[p]];
+            coo.rows[ctr] = inew;
+            coo.cols[ctr] = jnew;
+            coo.vals[ctr] = A.vals[p];
+            ++ctr;
+        }
+    }
+    coo_to_csr(coo, out);
+    return;
+}
+
 
 
 } // end namespace richol
