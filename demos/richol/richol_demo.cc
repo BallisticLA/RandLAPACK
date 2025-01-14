@@ -25,9 +25,11 @@ using std::chrono::microseconds;
 #endif
 
 using RandBLAS::CSRMatrix;
+using RandBLAS::sparse_data::reserve_csr;
+using RandBLAS::sparse_data::reserve_coo;
 using RandBLAS::CSCMatrix;
 using RandBLAS::COOMatrix;
-
+using RandBLAS::sparse_data::conversions::coo_to_csr;
 
 template <typename spvec_t>
 std::vector<spvec_t> lift2lap(const std::vector<spvec_t> &sym) {
@@ -62,7 +64,6 @@ std::vector<spvec_t> lift2lap(const std::vector<spvec_t> &sym) {
 void small_3dlap() {
     using T = double;
     int64_t n = 8;
-    int64_t nnz = 32;
     std::vector<T> vals{6, -1, -1, -1, -1, 6, -1, -1, -1, 6, -1, -1, -1, -1, 6, -1, -1, 6, -1, -1, -1, -1, 6, -1, -1, -1, 6, -1, -1, -1, -1, 6};
     std::vector<int64_t> rowptr{0, 4, 8, 12, 16, 20, 24, 28, 32};
     std::vector<int64_t> colidxs{0, 1, 2, 4, 0, 1, 3, 5, 0, 2, 3, 6, 1, 2, 3, 7, 0, 4, 5, 6, 1, 4, 5, 7, 2, 4, 6, 7, 3, 5, 6, 7};
@@ -140,22 +141,87 @@ CSRMatrix<scalar_t, sint_t> laplacian_from_matrix_market(std::string fn, scalar_
     return csr;
 }
 
+template <typename CSR_t = CSRMatrix<double, int64_t>>
+void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
+    perm.resize(A.n_rows);
+    int64_t result;
+    double Control [AMD_CONTROL], Info [AMD_INFO];
+    amd_l_defaults (Control) ;
+    amd_l_control  (Control) ;
+    result = amd_l_order (A.n_rows, A.rowptr, A.colidxs, perm.data(), Control, Info) ;
+    printf ("return value from amd_order: %ld (should be %d)\n", result, AMD_OK) ;
+    if (result != AMD_OK)
+    {
+	printf ("AMD failed\n") ;
+	exit (1) ;
+    }
+    // /* print a character plot of the permuted matrix. */
+    // printf ("\nPlot of permuted matrix pattern:\n") ;
+    // for (jnew = 0 ; jnew < n ; jnew++)
+    // {
+	// j = P [jnew] ;
+	// for (inew = 0 ; inew < n ; inew++) A [inew][jnew] = '.' ;
+	// for (p = Ap [j] ; p < Ap [j+1] ; p++)
+	// {
+	//     inew = Pinv [Ai [p]] ;
+	//     A [inew][jnew] = 'X' ;
+	// }
+    // }
+    return;
+}
+
+template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
+void permuted(const CSRMatrix<scalar_t, sint_t> &A, const std::vector<sint_t> &perm, CSRMatrix<scalar_t, sint_t> &out) {
+    auto  n   = A.n_rows;
+    COOMatrix<scalar_t, sint_t> coo(n, n);
+    reserve_coo(A.nnz, coo);
+    std::vector<sint_t> invperm(n);
+    for (sint_t k = 0; k < n; ++k) {
+        invperm[perm[k]] = k;
+    }
+    sint_t inew, jnew, p, ctr = 0;
+    for (jnew = 0; jnew < n; ++jnew) {
+        auto j = perm[jnew];
+        for (p = A.rowptr[j]; p < A.rowptr[j+1]; ++p) {
+            inew = invperm[A.colidxs[p]];
+            coo.rows[ctr] = inew;
+            coo.cols[ctr] = jnew;
+            coo.vals[ctr] = A.vals[p];
+            ++ctr;
+        }
+    }
+    coo_to_csr(coo, out);
+    return;
+}
+
 
 int main(int argc, char** argv) {
     using T = double;
 
-    std::string fn("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G0.1.mtx");
+    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G1/sG1.mtx");
     auto csr = laplacian_from_matrix_market(fn, (T)0.0);
+    int64_t n = csr.n_rows;
+    std::vector<int64_t> perm(n);
+    for (int64_t i = 0; i < n; ++i)
+        perm[i] = i;
+    CSRMatrix<double, int64_t> L(n, n);
+    TIMED_LINE(
+    //amd_permutation(csr, perm);
+    permuted(csr, perm, L);, "AMD reordering      : "
+    );
 
     using spvec = richol::SparseVec<T, int64_t>;
     std::vector<spvec> sym;
+
+    TIMED_LINE(
+    richol::sym_as_upper_tri_from_csr(L.n_rows, L.rowptr, L.colidxs, L.vals, sym), "sym_as_upper_tri    : "
+    );
 
     std::vector<spvec> C;
     RandBLAS::RNGState state(0);
     int64_t k;
     TIMED_LINE(
-    richol::sym_as_upper_tri_from_csr(csr.n_rows, csr.rowptr, csr.colidxs, csr.vals, sym);
-    k = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "prep + SparseCholesky: "
+    k = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "SparseCholesky: "
     );
     std::cout << "Exited with C of rank k = " << k << std::endl;
 

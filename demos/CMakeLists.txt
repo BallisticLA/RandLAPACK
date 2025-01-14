@@ -33,11 +33,11 @@ message(STATUS "Checking for RandLAPACK ... ")
 find_package(RandLAPACK REQUIRED)
 message(STATUS "Done checking for RandLAPACK.")
 
-#message(STATUS "Checking for SuiteSparse::AMD ... ")
-#find_package(AMD REQUIRED)
-#include_directories(${AMD_INCLUDE_DIRS})
-#message(STATUS "AMD include directories: ${AMD_INCLUDE_DIRS}")
-#message(STATUS "Done checking for SuiteSparse::AMD.")
+message(STATUS "Checking for SuiteSparse::AMD ... ")
+find_package(AMD REQUIRED)
+include_directories(${AMD_INCLUDE_DIRS})
+message(STATUS "AMD include directories: ${AMD_INCLUDE_DIRS}")
+message(STATUS "Done checking for SuiteSparse::AMD.")
 
 
 function(add_demo)
@@ -65,6 +65,7 @@ set(
     Benchmark_libs
     RandLAPACK
     fast_matrix_market::fast_matrix_market
+    SuiteSparse::AMD
 )
 
 add_demo(NAME richol_demo CXX_SOURCES richol/richol.hh richol/richol_demo.cc LINK_LIBS ${Benchmark_libs})

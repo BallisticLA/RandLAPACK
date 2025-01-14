@@ -14,6 +14,11 @@
 
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
+extern "C" {
+#include "amd.h"
+}
+
+
 
 namespace richol {
 
@@ -56,7 +61,7 @@ struct SparseVec {
 
     SparseVec() = default;
 
-    SparseVec( SparseVec<scalar_t, ordinal_t> &s ) : data(s.data) {}
+    SparseVec( const SparseVec<scalar_t, ordinal_t> &s ) : data(s.data) {}
 
     SparseVec( SparseVec<scalar_t, ordinal_t> &&s ) : data(std::move(s.data)) {}
 
@@ -170,7 +175,7 @@ void write_square_matrix_market(
 
 
 template <typename scalar_t, typename spvec_t>
-inline void xbapy(const spvec_t &x, scalar_t a, int64_t col_ind, std::vector<spvec_t> &csr_like) {
+inline void xbapy(spvec_t &x, scalar_t a, int64_t col_ind, std::vector<spvec_t> &csr_like) {
     for (const auto &xc : x.data) {
         csr_like[xc.ind].push_back(col_ind, xc.val/a);
     }
