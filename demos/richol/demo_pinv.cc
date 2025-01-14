@@ -37,7 +37,7 @@ void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
 int main(int argc, char** argv) {
     using T = double;
 
-    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/uk/uk.mtx");
+    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx");
     auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
     int64_t n = L.n_rows;
 
@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
     RandBLAS::RNGState state(0);
     int64_t rank;
     TIMED_LINE(
-    rank = richol::clb21_rand_cholesky(sym, C, state, true, (T)0.0), "SparseCholesky: ");
+    rank = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "SparseCholesky: ");
     std::cout << "Exited with C of rank k = " << rank << std::endl;
     int64_t nnz_G = 0;
     for (const auto &row : C) 
