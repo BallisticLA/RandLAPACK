@@ -73,35 +73,6 @@ void small_3dlap() {
 }
 
 
-template <typename CSR_t = CSRMatrix<double, int64_t>>
-void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
-    perm.resize(A.n_rows);
-    int64_t result;
-    double Control [AMD_CONTROL], Info [AMD_INFO];
-    amd_l_defaults (Control) ;
-    amd_l_control  (Control) ;
-    result = amd_l_order (A.n_rows, A.rowptr, A.colidxs, perm.data(), Control, Info) ;
-    printf ("return value from amd_order: %ld (should be %d)\n", result, AMD_OK) ;
-    if (result != AMD_OK)
-    {
-	printf ("AMD failed\n") ;
-	exit (1) ;
-    }
-    // /* print a character plot of the permuted matrix. */
-    // printf ("\nPlot of permuted matrix pattern:\n") ;
-    // for (jnew = 0 ; jnew < n ; jnew++)
-    // {
-	// j = P [jnew] ;
-	// for (inew = 0 ; inew < n ; inew++) A [inew][jnew] = '.' ;
-	// for (p = Ap [j] ; p < Ap [j+1] ; p++)
-	// {
-	//     inew = Pinv [Ai [p]] ;
-	//     A [inew][jnew] = 'X' ;
-	// }
-    // }
-    return;
-}
-
 
 int main(int argc, char** argv) {
     using T = double;
@@ -114,7 +85,7 @@ int main(int argc, char** argv) {
         perm[i] = i;
     CSRMatrix<double, int64_t> L(n, n);
     TIMED_LINE(
-    //amd_permutation(csr, perm);
+    //richol::amd_permutation(csr, perm);
     richol::permuted(csr, perm, L);, "AMD reordering      : "
     );
 

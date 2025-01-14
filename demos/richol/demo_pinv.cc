@@ -17,22 +17,6 @@ using RandBLAS::sparse_data::conversions::coo_to_csr;
 
 using namespace richol::linops;
 
-template <typename CSR_t = CSRMatrix<double, int64_t>>
-void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
-    perm.resize(A.n_rows);
-    int64_t result;
-    double Control [AMD_CONTROL], Info [AMD_INFO];
-    amd_l_defaults (Control) ;
-    amd_l_control  (Control) ;
-    result = amd_l_order (A.n_rows, A.rowptr, A.colidxs, perm.data(), Control, Info) ;
-    printf ("return value from amd_order: %ld (should be %d)\n", result, AMD_OK) ;
-    if (result != AMD_OK) {
-        printf ("AMD failed\n") ;
-        exit (1) ;
-    }
-    return;
-}
-
 
 int main(int argc, char** argv) {
     using T = double;
@@ -47,7 +31,7 @@ int main(int argc, char** argv) {
         perm[i] = i;
     CSRMatrix<T, int64_t> Lperm(n, n);
     TIMED_LINE(
-    if (use_amd_perm) amd_permutation(L, perm);
+    if (use_amd_perm) richol::amd_permutation(L, perm);
     richol::permuted(L, perm, Lperm);, "AMD reordering      : ");
     using spvec = richol::SparseVec<T, int64_t>;
     std::vector<spvec> sym;
