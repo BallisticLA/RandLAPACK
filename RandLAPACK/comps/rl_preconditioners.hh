@@ -3,11 +3,12 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_linops.hh"
+
 #include "rl_orth.hh"
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
 #include "rl_revd2.hh"
-#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -192,19 +193,23 @@ int64_t make_right_orthogonalizer(
     int64_t n,
     T* V,
     T* sigma,
-    T mu
+    T mu,
+    int64_t cols_V = -1
 ) {
+    if (cols_V < 0) {
+        cols_V = n;
+    }
     double sqrtmu = std::sqrt((double) mu);
     auto regularized = [sqrtmu](T s) {
         return (sqrtmu == 0) ? s : (T) std::hypot((double) s, sqrtmu);
     };
     T curr_s = regularized(sigma[0]);
-    T abstol = curr_s * n * std::numeric_limits<T>::epsilon();
+    T abstol = curr_s * cols_V * std::numeric_limits<T>::epsilon();
     
     int64_t rank = 0;
     int64_t inter_col_stride = (layout == Layout::ColMajor) ? n : 1;
-    int64_t intra_col_stride = (layout == Layout::ColMajor) ? 1 : n;
-    while (rank < n) {
+    int64_t intra_col_stride = (layout == Layout::ColMajor) ? 1 : cols_V;
+    while (rank < cols_V) {
         curr_s = regularized(sigma[rank]);
         if (curr_s < abstol)
             break;
@@ -310,8 +315,8 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
  * This wraps a function of the same name that accepts a SymmetricLinearOperator object.
  * The purpose of this wrapper is just to define such an object from data (uplo, A, m).
  */
-template <typename T, typename RNG>
-RandBLAS::RNGState<RNG> nystrom_pc_data(
+template <typename T, typename STATE>
+STATE nystrom_pc_data(
     Uplo uplo,
     const T* A,
     int64_t m,
@@ -319,7 +324,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     std::vector<T> &eigvals,
     int64_t &k,
     T mu_min,
-    RandBLAS::RNGState<RNG> state,
+    STATE state,
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
