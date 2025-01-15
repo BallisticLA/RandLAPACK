@@ -74,20 +74,34 @@ struct SparseVec {
     }
 
     void coallesce(scalar_t threshold = std::numeric_limits<scalar_t>::epsilon()) {
-        std::map<ordinal_t, scalar_t> map;
-        for (const comp_t &c : data)
-            map[c.ind] += c.val;
-
-        int64_t size = 0;
-        for (const auto &pair : map) {
-            // iterating over std::map automatically sorts by key in increasing order.
-            if (std::abs(pair.second) >= threshold) {
-                data[size].ind = pair.first;
-                data[size].val = pair.second;
-                ++size;
+        int64_t sz = static_cast<int64_t>(size());
+        if (sz <= 1) return;
+        auto ascending_ind = [](const comp_t &ca, const comp_t &cb){ return ca.ind < cb.ind; };
+        std::sort(data.begin(), data.end(), ascending_ind);
+        comp_t* p0;
+        comp_t* p1;
+        p0 = &data[0];
+        int num_distinct_ind = 1;
+        for (int i = 1; i < sz; ++i) {
+            p1 = &data[i];
+            if ((*p0).ind == (*p1).ind) {
+                (*p0).val += (*p1).val;
+            } else {
+                p0 = &data[num_distinct_ind];
+                (*p0).ind = (*p1).ind;
+                (*p0).val = (*p1).val;
+                ++num_distinct_ind;
             }
         }
-        data.resize(size);
+        sz = 0;
+        for (int i = 0; i < num_distinct_ind; ++i) {
+            const auto &c = data[i];
+            if (std::abs(c.val) >= threshold) {
+                data[sz] = c;
+                ++sz;
+            }
+        }
+        data.resize(sz);
         return;
     }
 
@@ -272,6 +286,7 @@ inline void scal(int64_t n, scalar_t alpha, scalar_t *x, int64_t incx) {
     blas::scal(n, alpha, x, incx);
 }
 
+
 template <typename spvec_t, typename state_t> 
 void sample_clique_clb21(spvec_t &v, std::vector<spvec_t> &M, typename spvec_t::scalar_t p_sum_tol, bool diag_adjust, state_t &state) {
     /**
@@ -287,13 +302,11 @@ void sample_clique_clb21(spvec_t &v, std::vector<spvec_t> &M, typename spvec_t::
     ordinal_t ell;
 
     // split into the elimination index and trailing indices (neighbors)
-    //
-    // NOTE: there's no strict need to define a new "neighbors."
-    //       it's safe to swap the leading compoinent of v.data to the end of v.data,
-    //       then operate on the first num_neighbors entries of v.data in-place.
-    const auto &[vk, k] = v.leading_component();
-    vector<comp_t> neighbors(v.data.begin()+1, v.data.end());
-    auto num_neighbors = static_cast<ordinal_t>(neighbors.size()); 
+    const auto [vk, k] = v.leading_component();
+    vector<comp_t> &neighbors = v.data;
+    neighbors[0] = neighbors[v.data.size()-1];
+    neighbors.erase(neighbors.end()-1);
+    auto num_neighbors = static_cast<ordinal_t>(neighbors.size());
     for (ell = 0; ell < num_neighbors; ++ell)
         neighbors[ell].val *= -1;
 
@@ -337,7 +350,7 @@ void sample_clique_clb21(spvec_t &v, std::vector<spvec_t> &M, typename spvec_t::
 
     // subtract off the star centered at j.
     scalar_t scale = (diag_adjust) ? trailing_weight / vk : static_cast<scalar_t>(1);  
-    for (auto it = v.data.begin() + 1; it != v.data.end(); ++it) {
+    for (auto it = neighbors.begin(); it != neighbors.end(); ++it) {
         auto &[vi, i] = (*it);
         M[i].push_back(i, scale * vi);
     }
@@ -378,7 +391,7 @@ typename spvec_t::ordinal_t clb21_rand_cholesky(
         ordinal_t processable_cols = (diag_adjust) ? n : n - 1;
         return (vk < zero_threshold) || (k == processable_cols); 
     };
-    scalar_t p_sum_tol = zero_threshold;
+    scalar_t p_sum_tol = epsilon<typename spvec_t::scalar_t>();
     auto downdater = [p_sum_tol, diag_adjust, &state](spvec_t &v, std::vector<spvec_t> &M_work) { 
         downdaters::sample_clique_clb21(v, M_work, p_sum_tol, diag_adjust, state);
     };
@@ -420,6 +433,7 @@ std::vector<spvec_t> lift2lap(const std::vector<spvec_t> &sym) {
 
 template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
 CSRMatrix<scalar_t, sint_t> laplacian_from_matrix_market(std::string fn, scalar_t reg) {
+    randblas_require(reg >= 0);
     int64_t n, n_ = 0;
     std::vector<int64_t> rows{};
     std::vector<int64_t> cols{};

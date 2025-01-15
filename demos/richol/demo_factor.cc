@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
     using T = double;
 
     std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/uk/uk.mtx");
-    auto csr = richol::laplacian_from_matrix_market(fn, (T)0.0);
+    auto csr = richol::laplacian_from_matrix_market(fn, (T)1e-8);
     int64_t n = csr.n_rows;
     std::vector<int64_t> perm(n);
     for (int64_t i = 0; i < n; ++i)
@@ -100,7 +100,7 @@ int main(int argc, char** argv) {
     RandBLAS::RNGState state(0);
     int64_t k;
     TIMED_LINE(
-    k = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "SparseCholesky: "
+    k = richol::clb21_rand_cholesky(sym, C, state, true, (T)0.0), "SparseCholesky: "
     );
     std::cout << "Exited with C of rank k = " << k << std::endl;
 

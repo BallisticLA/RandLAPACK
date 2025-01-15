@@ -78,6 +78,7 @@ set(richol_headers
     richol/richol_mkl.hh
 )
 
-add_demo(NAME demo_factor CXX_SOURCES richol/richol_core.hh                      richol/demo_factor.cc  LINK_LIBS ${main_libs}                )
-add_demo(NAME demo_pinv   CXX_SOURCES richol/richol_core.hh richol/richol_mkl.hh richol/demo_pinv.cc    LINK_LIBS ${main_libs} ${our_mkl_libs})
-add_demo(NAME bench_pinv  CXX_SOURCES richol/richol_core.hh richol/richol_mkl.hh richol/bench_pinv.cc   LINK_LIBS ${main_libs} ${our_mkl_libs})
+add_demo(NAME demo_factor CXX_SOURCES richol/richol_core.hh                      richol/demo_factor.cc    LINK_LIBS ${main_libs}                )
+add_demo(NAME demo_pinv   CXX_SOURCES richol/richol_core.hh richol/richol_mkl.hh richol/demo_pinv.cc      LINK_LIBS ${main_libs} ${our_mkl_libs})
+add_demo(NAME bench_pinv  CXX_SOURCES richol/richol_core.hh richol/richol_mkl.hh richol/bench_pinv.cc     LINK_LIBS ${main_libs} ${our_mkl_libs})
+add_demo(NAME bench_fact  CXX_SOURCES richol/richol_core.hh richol/richol_mkl.hh richol/bench_factor.cc   LINK_LIBS ${main_libs} ${our_mkl_libs})
