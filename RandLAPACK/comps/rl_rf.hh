@@ -113,10 +113,9 @@ int RF<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
 
-    T* Omega  = ( T * ) calloc( n * k, sizeof( T ) );
+    T* Omega  = new T[n * k]();
 
     if(this->rs.call(m, n, A, k, Omega, state)) {
-        free(Omega);
         return 1;
     }
 
@@ -128,10 +127,12 @@ int RF<T, RNG>::call(
         this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->verbose));
 
     if(this->orth.call(m, k, Q))
+        delete[] Omega;
         return 2; // Orthogonalization failed
+    }
 
     // Normal termination
-    free(Omega);
+    delete[] Omega;
     return 0;
 }
 

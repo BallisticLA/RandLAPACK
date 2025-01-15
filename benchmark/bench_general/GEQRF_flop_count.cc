@@ -22,8 +22,8 @@ test_flops(int64_t k,
     int runs = 50;
     T GFLOPS_rate_best = 0;
 
-    T* A   = ( T * ) calloc( size, sizeof( T ) );
-    T* tau = ( T * ) calloc( k,    sizeof( T ) );
+    T* A   = new T[size]();
+    T* tau = new T[k]();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(k, k, RandLAPACK::gen::gaussian);  
 
@@ -44,6 +44,9 @@ test_flops(int64_t k,
     }
 
     printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec.\n\n", GFLOPS_rate_best);
+
+    delete[] A;
+    delete[] tau;
 }
 
 int main() {

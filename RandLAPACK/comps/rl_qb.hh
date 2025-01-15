@@ -152,14 +152,14 @@ int QB<T, RNG>::call(
     T approx_err = 0.0;
 
     // We require Q, B to be nullptr.
-    if(Q) free(Q);
-    if(BT) free(BT);
+    if(Q) delete[] Q;
+    if(BT) delete[] BT;
     // Make sure Q, B have space for one iteration
-    Q  = ( T * ) calloc(m * b_sz, sizeof( T ) );
-    BT = ( T * ) calloc(n * b_sz, sizeof( T ) );
+    Q  = new T[m * b_sz]();
+    BT = new T[n * b_sz]();
     // Allocate buffers
-    T* QtQi  = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
-    T* A_cpy = ( T * ) calloc( m * n,       sizeof( T ) );
+    T* QtQi  = new T[b_sz * b_sz]();
+    T* A_cpy = new T[m * n]();
     // Declate pointers to the iteration buffers.
     T* Q_i;
     T* BT_i;
@@ -191,8 +191,8 @@ int QB<T, RNG>::call(
         if(this->rf.call(m, n, A_cpy, b_sz, Q_i, state)) {
             // RF failed
             k = curr_sz;
-            free(A_cpy);
-            free(QtQi);
+            delete[] A_cpy;
+            delete[] QtQi;
             return 6;
         }
 
@@ -200,8 +200,8 @@ int QB<T, RNG>::call(
             if (util::orthogonality_check(m, b_sz, Q_i, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
-                free(A_cpy);
-                free(QtQi);
+                delete[] A_cpy;
+                delete[] QtQi;
                 return 4;
             }
         }
@@ -228,8 +228,8 @@ int QB<T, RNG>::call(
         if ((curr_sz > 0) && (approx_err > prev_err)) {
             // Early termination - error has grown.
             k = curr_sz;
-            free(A_cpy);
-            free(QtQi);
+            delete[] A_cpy;
+            delete[] QtQi;
             return 2;
         }
 
@@ -237,8 +237,8 @@ int QB<T, RNG>::call(
             if (util::orthogonality_check(m, next_sz, Q, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
-                free(A_cpy);
-                free(QtQi);
+                delete[] A_cpy;
+                delete[] QtQi;
                 return 5;
             }
         }
@@ -250,8 +250,8 @@ int QB<T, RNG>::call(
         if (approx_err < tol) {
             // Reached the required error tol
             k = curr_sz;
-            free(A_cpy);
-            free(QtQi);
+            delete[] A_cpy;
+            delete[] QtQi;
             return 0;
         }
 
@@ -260,8 +260,8 @@ int QB<T, RNG>::call(
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A_cpy, m);
     }
 
-    free(A_cpy);
-    free(QtQi);
+    delete[] A_cpy;
+    delete[] QtQi;
 
     // Reached expected rank without achieving the tolerance
     return 3;

@@ -190,8 +190,8 @@ int CQRRPT_GPU<T, RNG>::call(
     // A constant for initial rank estimation.
     T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
 
-    T* A_hat = ( T * ) calloc( d * n, sizeof( T ) );
-    T* tau   = ( T * ) calloc( n, sizeof( T ) );
+    T* A_hat = new T[d * n]();
+    T* tau   = new T[n]();
     // Buffer for column pivoting.
     std::vector<int64_t> J_buf(n, 0);
 
@@ -245,7 +245,7 @@ int CQRRPT_GPU<T, RNG>::call(
         rank_reveal_t_stop = steady_clock::now();
 
     // Allocating space for a preconditioner buffer.
-    T* R_sp  = ( T * ) calloc( k * k, sizeof( T ) );
+    T* R_sp = new T[k * k]();
     /// Extracting a k by k upper-triangular R.
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, k);
     /// Extracting a k by n R representation (k by k upper-triangular, rest - general)
@@ -327,7 +327,7 @@ int CQRRPT_GPU<T, RNG>::call(
     //                                                                         want the "vector" to start with a diagonal element.
     // width   (5th argument) - number of columns in data transfer           - sizeof(T), since we transfer one element per column.
     // heighth (6th argument) - numer of rows in data transfer               - k, since we will be transferring k elements total.
-    T* R_sp_diag = ( T * ) calloc( k, sizeof( T ) );
+    T* R_sp_diag = new T[k]();
     cudaMemcpy2D(R_sp_diag, sizeof(T), R_sp_device, (k + 1) * sizeof(T), sizeof(T), k, cudaMemcpyDeviceToHost);
 
     new_rank = k;
@@ -377,10 +377,10 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaFree(A_device);
     cudaFree(R_device);
     cudaFree(R_sp_device);
-    free(A_hat);
-    free(R_sp);
-    free(tau);
-    free(R_sp_diag);
+    delete[] A_hat;
+    delete[] R_sp;
+    delete[] tau;    
+    delete[] R_sp_diag;
 
     return 0;
 }

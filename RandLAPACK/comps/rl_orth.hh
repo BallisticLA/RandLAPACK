@@ -72,7 +72,7 @@ int CholQRQ<T>::call(
     T* A
 ){
 
-    T* A_gram  = ( T * ) calloc( k * k, sizeof( T ) );
+    T* A_gram  = new T[k * k]();
 
     // Find normal equation Q'Q - Just the upper triangular portion
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
@@ -83,20 +83,20 @@ int CholQRQ<T>::call(
             printf("CHOLESKY QR FAILED\n");
         }
         this->chol_fail = true; // scheme failure
-        free(A_gram);
+        delete[] A_gram;
         return 1;
     }
 
     // Scheme may succeed, but output garbage
     if(this->cond_check) {
         if(util::cond_num_check(k, k, A_gram, this->verbose) > (1 / std::sqrt(std::numeric_limits<T>::epsilon()))){
-                free(A_gram);
+                delete[] A_gram;
                 return 1;
         }
     }
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, A_gram, k, A, m);
-    free(A_gram);
+    delete[] A_gram;
     return 0;
 }
 
@@ -154,15 +154,15 @@ int HQRQ<T>::call(
     // tau The vector tau of length min(m,n). The scalar factors of the elementary reflectors (see Further Details).
     // tau needs to be a vector of all 2's by default
 
-    T* tau  = ( T * ) calloc( n, sizeof( T ) );
+    T* tau  = new T[n]();
 
     if(lapack::geqrf(m, n, A, m, tau)) {
-        free(tau);
+        delete[] tau;
         return 1; // Failure condition
     }
 
     lapack::ungqr(m, n, n, A, m, tau);
-    free(tau);
+    delete[] tau;
     return 0;
 }
 
@@ -217,17 +217,17 @@ int PLUL<T>::call(
     int64_t n,
     T* A
 ){
-    int64_t* ipiv  = ( int64_t * ) calloc( n, sizeof( int64_t ) );
+    int64_t* ipiv  = new int64_t[n]();
 
     if(lapack::getrf(m, n, A, m, ipiv)) {
-        free(ipiv);
+        delete[] ipiv;
         return 1; // failure condition
     }
 
     util::get_L(m, n, A, 1);
     lapack::laswp(n, A, m, 1, n, ipiv, 1);
 
-    free(ipiv);
+    delete[] ipiv;
     return 0;
 }
 
