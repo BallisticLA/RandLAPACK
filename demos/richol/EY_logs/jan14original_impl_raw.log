@@ -1,0 +1,825 @@
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 146.82991
+SparseCholesky: 110.65713
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 275.44866	normR : 2828.6972	k: 0	dim : 0
+normNR : 51.955998	normR : 534.42545	k: 1	dim : 8
+normNR : 13.671532	normR : 139.47257	k: 2	dim : 16
+normNR : 6.554744	normR : 46.325473	k: 3	dim : 24
+normNR : 2.0337888	normR : 16.009467	k: 4	dim : 32
+normNR : 0.61954199	normR : 5.3640186	k: 5	dim : 40
+normNR : 0.22236513	normR : 1.926346	k: 6	dim : 48
+normNR : 0.07847332	normR : 0.66955428	k: 7	dim : 56
+normNR : 0.026737457	normR : 0.24009131	k: 8	dim : 64
+normNR : 0.010214517	normR : 0.091794414	k: 9	dim : 72
+normNR : 0.0038573154	normR : 0.034304226	k: 10	dim : 80
+normNR : 0.0014086175	normR : 0.01305822	k: 11	dim : 88
+normNR : 0.0005483742	normR : 0.0050216078	k: 12	dim : 96
+normNR : 0.0002015679	normR : 0.0018428843	k: 13	dim : 104
+normNR : 7.3235262e-05	normR : 0.000688043	k: 14	dim : 112
+normNR : 2.773878e-05	normR : 0.0002559939	k: 15	dim : 120
+normNR : 9.8055862e-06	normR : 9.1907556e-05	k: 16	dim : 128
+normNR : 3.5225139e-06	normR : 3.3677456e-05	k: 17	dim : 136
+normNR : 1.3003153e-06	normR : 1.214556e-05	k: 18	dim : 144
+38        4.5968698e-10  
+iters     relres         
+normNR : 0.41924614	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.062042988	normR : 0.59834414	k: 1	dim : 8
+normNR : 0.016127218	normR : 0.1590954	k: 2	dim : 16
+normNR : 0.0080801319	normR : 0.054821529	k: 3	dim : 24
+normNR : 0.0024868583	normR : 0.018810869	k: 4	dim : 32
+normNR : 0.00073520362	normR : 0.0062697822	k: 5	dim : 40
+normNR : 0.00026979704	normR : 0.002289491	k: 6	dim : 48
+normNR : 9.6360345e-05	normR : 0.00080002406	k: 7	dim : 56
+normNR : 3.2800954e-05	normR : 0.000290227	k: 8	dim : 64
+normNR : 1.2936613e-05	normR : 0.00011320202	k: 9	dim : 72
+normNR : 4.8790752e-06	normR : 4.23305e-05	k: 10	dim : 80
+normNR : 1.7553864e-06	normR : 1.6085251e-05	k: 11	dim : 88
+normNR : 6.8442286e-07	normR : 6.1538698e-06	k: 12	dim : 96
+normNR : 2.4849709e-07	normR : 2.2331242e-06	k: 13	dim : 104
+normNR : 8.9277458e-08	normR : 8.3191066e-07	k: 14	dim : 112
+normNR : 3.3945604e-08	normR : 3.087431e-07	k: 15	dim : 120
+normNR : 1.188588e-08	normR : 1.0998517e-07	k: 16	dim : 128
+34        4.2022933e-09  
+iters     relres         
+normNR : 1.1459872	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.070016739	normR : 0.62182164	k: 1	dim : 8
+normNR : 0.017097796	normR : 0.1674567	k: 2	dim : 16
+normNR : 0.0088548369	normR : 0.057316975	k: 3	dim : 24
+normNR : 0.0027347185	normR : 0.019598151	k: 4	dim : 32
+normNR : 0.0007614491	normR : 0.006487316	k: 5	dim : 40
+normNR : 0.00028827331	normR : 0.0023893924	k: 6	dim : 48
+normNR : 0.00010342554	normR : 0.0008324437	k: 7	dim : 56
+normNR : 3.4704847e-05	normR : 0.00030496021	k: 8	dim : 64
+normNR : 1.3970257e-05	normR : 0.00012030656	k: 9	dim : 72
+normNR : 5.2076233e-06	normR : 4.4417178e-05	k: 10	dim : 80
+normNR : 1.8459119e-06	normR : 1.6797711e-05	k: 11	dim : 88
+normNR : 7.1751884e-07	normR : 6.3935243e-06	k: 12	dim : 96
+normNR : 2.5678717e-07	normR : 2.2864226e-06	k: 13	dim : 104
+normNR : 9.1782591e-08	normR : 8.493268e-07	k: 14	dim : 112
+normNR : 3.4971502e-08	normR : 3.1519497e-07	k: 15	dim : 120
+normNR : 1.2126866e-08	normR : 1.1175128e-07	k: 16	dim : 128
+34        4.2874947e-09  
+iters     relres         
+normNR : 2.5930104	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.057380314	normR : 0.5796784	k: 1	dim : 8
+normNR : 0.015057036	normR : 0.16123239	k: 2	dim : 16
+normNR : 0.0058684151	normR : 0.044577507	k: 3	dim : 24
+normNR : 0.0020612934	normR : 0.014279794	k: 4	dim : 32
+normNR : 0.00057887244	normR : 0.0049731493	k: 5	dim : 40
+normNR : 0.00020796495	normR : 0.0017433029	k: 6	dim : 48
+normNR : 7.0142971e-05	normR : 0.00057154764	k: 7	dim : 56
+normNR : 2.3366865e-05	normR : 0.00020583996	k: 8	dim : 64
+normNR : 9.1524792e-06	normR : 7.9808728e-05	k: 9	dim : 72
+normNR : 3.3410644e-06	normR : 2.9038404e-05	k: 10	dim : 80
+normNR : 1.2030847e-06	normR : 1.1019999e-05	k: 11	dim : 88
+normNR : 4.6719547e-07	normR : 4.191513e-06	k: 12	dim : 96
+normNR : 1.687555e-07	normR : 1.5153148e-06	k: 13	dim : 104
+normNR : 6.1592258e-08	normR : 5.715661e-07	k: 14	dim : 112
+normNR : 2.3237764e-08	normR : 2.1094008e-07	k: 15	dim : 120
+32        8.2157902e-09  
+iters     relres         
+normNR : 0.097488634	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.018332853	normR : 0.18881221	k: 1	dim : 1
+normNR : 0.0047746229	normR : 0.049147183	k: 2	dim : 2
+normNR : 0.0026592222	normR : 0.016683012	k: 3	dim : 3
+normNR : 0.001243805	normR : 0.0077430326	k: 4	dim : 4
+normNR : 0.00037650559	normR : 0.0028458005	k: 5	dim : 5
+normNR : 0.00013303101	normR : 0.0010907494	k: 6	dim : 6
+normNR : 5.1719756e-05	normR : 0.00040740052	k: 7	dim : 7
+normNR : 1.8659899e-05	normR : 0.00015102887	k: 8	dim : 8
+normNR : 6.9087727e-06	normR : 6.0239006e-05	k: 9	dim : 9
+normNR : 2.9259602e-06	normR : 2.4863162e-05	k: 10	dim : 10
+normNR : 1.1784189e-06	normR : 1.0119994e-05	k: 11	dim : 11
+normNR : 4.8183613e-07	normR : 4.2780927e-06	k: 12	dim : 12
+normNR : 1.9676071e-07	normR : 1.7287787e-06	k: 13	dim : 13
+normNR : 7.2422636e-08	normR : 6.5807775e-07	k: 14	dim : 14
+normNR : 2.8391818e-08	normR : 2.5703683e-07	k: 15	dim : 15
+normNR : 1.1184849e-08	normR : 9.7756096e-08	k: 16	dim : 16
+normNR : 4.0837484e-09	normR : 3.6994797e-08	k: 17	dim : 17
+36        4.0837498e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 167.59099
+SparseCholesky: 192.88438
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 164.83037	normR : 2828.6972	k: 0	dim : 0
+normNR : 24.584728	normR : 424.13518	k: 1	dim : 8
+normNR : 4.9895699	normR : 87.88849	k: 2	dim : 16
+normNR : 1.299703	normR : 19.200806	k: 3	dim : 24
+normNR : 0.3526487	normR : 4.7745005	k: 4	dim : 32
+normNR : 0.092369259	normR : 1.3634494	k: 5	dim : 40
+normNR : 0.02479946	normR : 0.36937988	k: 6	dim : 48
+normNR : 0.0063887387	normR : 0.099047867	k: 7	dim : 56
+normNR : 0.0018386004	normR : 0.028740004	k: 8	dim : 64
+normNR : 0.00052966659	normR : 0.0081900735	k: 9	dim : 72
+normNR : 0.00015046778	normR : 0.0023998178	k: 10	dim : 80
+normNR : 4.5039388e-05	normR : 0.00070461376	k: 11	dim : 88
+normNR : 1.2353258e-05	normR : 0.00019722136	k: 12	dim : 96
+normNR : 3.4706428e-06	normR : 5.6166001e-05	k: 13	dim : 104
+normNR : 9.6025389e-07	normR : 1.5389477e-05	k: 14	dim : 112
+30        3.394686e-10   
+iters     relres         
+normNR : 0.20427791	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.027284946	normR : 0.45472649	k: 1	dim : 8
+normNR : 0.0055880679	normR : 0.096272995	k: 2	dim : 16
+normNR : 0.0015666919	normR : 0.021561464	k: 3	dim : 24
+normNR : 0.00040483525	normR : 0.0054333235	k: 4	dim : 32
+normNR : 0.00010425271	normR : 0.0015447948	k: 5	dim : 40
+normNR : 2.8890091e-05	normR : 0.00041959136	k: 6	dim : 48
+normNR : 7.4210323e-06	normR : 0.0001130446	k: 7	dim : 56
+normNR : 2.1702921e-06	normR : 3.3360866e-05	k: 8	dim : 64
+normNR : 6.2784771e-07	normR : 9.5203295e-06	k: 9	dim : 72
+normNR : 1.7538886e-07	normR : 2.7783473e-06	k: 10	dim : 80
+normNR : 5.2218037e-08	normR : 8.0924102e-07	k: 11	dim : 88
+normNR : 1.4024728e-08	normR : 2.230683e-07	k: 12	dim : 96
+normNR : 3.9642227e-09	normR : 6.3700707e-08	k: 13	dim : 104
+28        1.4015644e-09  
+iters     relres         
+normNR : 0.25119444	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.028902293	normR : 0.46655596	k: 1	dim : 8
+normNR : 0.0059461817	normR : 0.10041974	k: 2	dim : 16
+normNR : 0.0017633246	normR : 0.022954804	k: 3	dim : 24
+normNR : 0.00043228934	normR : 0.0057747628	k: 4	dim : 32
+normNR : 0.00011097366	normR : 0.0016373533	k: 5	dim : 40
+normNR : 3.1626385e-05	normR : 0.00044760644	k: 6	dim : 48
+normNR : 8.0639589e-06	normR : 0.00012120669	k: 7	dim : 56
+normNR : 2.3953101e-06	normR : 3.6310708e-05	k: 8	dim : 64
+normNR : 6.9703255e-07	normR : 1.0381626e-05	k: 9	dim : 72
+normNR : 1.923284e-07	normR : 3.0239865e-06	k: 10	dim : 80
+normNR : 5.7473408e-08	normR : 8.7941949e-07	k: 11	dim : 88
+normNR : 1.5240558e-08	normR : 2.4003555e-07	k: 12	dim : 96
+normNR : 4.2850563e-09	normR : 6.8413541e-08	k: 13	dim : 104
+28        1.5149962e-09  
+iters     relres         
+normNR : 0.33121061	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.028846696	normR : 0.45170217	k: 1	dim : 8
+normNR : 0.0059064346	normR : 0.098266959	k: 2	dim : 16
+normNR : 0.0018156795	normR : 0.022741088	k: 3	dim : 24
+normNR : 0.00042794977	normR : 0.0056630121	k: 4	dim : 32
+normNR : 0.00010977405	normR : 0.0016097242	k: 5	dim : 40
+normNR : 3.1983071e-05	normR : 0.00044309013	k: 6	dim : 48
+normNR : 8.0779199e-06	normR : 0.00011996588	k: 7	dim : 56
+normNR : 2.4212821e-06	normR : 3.6220494e-05	k: 8	dim : 64
+normNR : 7.04015e-07	normR : 1.0313589e-05	k: 9	dim : 72
+normNR : 1.9131793e-07	normR : 2.9817517e-06	k: 10	dim : 80
+normNR : 5.7697297e-08	normR : 8.7165378e-07	k: 11	dim : 88
+normNR : 1.5441104e-08	normR : 2.3895436e-07	k: 12	dim : 96
+normNR : 4.3323409e-09	normR : 6.8423276e-08	k: 13	dim : 104
+28        1.5317138e-09  
+iters     relres         
+normNR : 0.058312122	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0087120471	normR : 0.15008678	k: 1	dim : 1
+normNR : 0.0017714042	normR : 0.031161461	k: 2	dim : 2
+normNR : 0.00046189688	normR : 0.0068633503	k: 3	dim : 3
+normNR : 0.00014078948	normR : 0.0017945356	k: 4	dim : 4
+normNR : 4.1338974e-05	normR : 0.00057191508	k: 5	dim : 5
+normNR : 1.1822625e-05	normR : 0.00016399701	k: 6	dim : 6
+normNR : 3.2458799e-06	normR : 4.5506305e-05	k: 7	dim : 7
+normNR : 9.1822116e-07	normR : 1.3470421e-05	k: 8	dim : 8
+normNR : 2.8401888e-07	normR : 4.0490184e-06	k: 9	dim : 9
+normNR : 8.689942e-08	normR : 1.2441519e-06	k: 10	dim : 10
+normNR : 3.0988347e-08	normR : 4.2160344e-07	k: 11	dim : 11
+normNR : 1.0976029e-08	normR : 1.4581622e-07	k: 12	dim : 12
+normNR : 3.3167263e-09	normR : 4.8374119e-08	k: 13	dim : 13
+28        3.3167274e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 282.28901
+SparseCholesky: 188.87384
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 164.83037	normR : 2828.6972	k: 0	dim : 0
+normNR : 24.584728	normR : 424.13518	k: 1	dim : 8
+normNR : 4.9895699	normR : 87.88849	k: 2	dim : 16
+normNR : 1.299703	normR : 19.200806	k: 3	dim : 24
+normNR : 0.3526487	normR : 4.7745005	k: 4	dim : 32
+normNR : 0.092369259	normR : 1.3634494	k: 5	dim : 40
+normNR : 0.02479946	normR : 0.36937988	k: 6	dim : 48
+normNR : 0.0063887387	normR : 0.099047867	k: 7	dim : 56
+normNR : 0.0018386004	normR : 0.028740004	k: 8	dim : 64
+normNR : 0.00052966659	normR : 0.0081900735	k: 9	dim : 72
+normNR : 0.00015046778	normR : 0.0023998178	k: 10	dim : 80
+normNR : 4.5039388e-05	normR : 0.00070461376	k: 11	dim : 88
+normNR : 1.2353258e-05	normR : 0.00019722136	k: 12	dim : 96
+normNR : 3.4706428e-06	normR : 5.6166001e-05	k: 13	dim : 104
+normNR : 9.6025389e-07	normR : 1.5389477e-05	k: 14	dim : 112
+30        3.394686e-10   
+iters     relres         
+normNR : 0.20427791	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.027284946	normR : 0.45472649	k: 1	dim : 8
+normNR : 0.0055880679	normR : 0.096272995	k: 2	dim : 16
+normNR : 0.0015666919	normR : 0.021561464	k: 3	dim : 24
+normNR : 0.00040483525	normR : 0.0054333235	k: 4	dim : 32
+normNR : 0.00010425271	normR : 0.0015447948	k: 5	dim : 40
+normNR : 2.8890091e-05	normR : 0.00041959136	k: 6	dim : 48
+normNR : 7.4210323e-06	normR : 0.0001130446	k: 7	dim : 56
+normNR : 2.1702921e-06	normR : 3.3360866e-05	k: 8	dim : 64
+normNR : 6.2784771e-07	normR : 9.5203295e-06	k: 9	dim : 72
+normNR : 1.7538886e-07	normR : 2.7783473e-06	k: 10	dim : 80
+normNR : 5.2218037e-08	normR : 8.0924102e-07	k: 11	dim : 88
+normNR : 1.4024728e-08	normR : 2.230683e-07	k: 12	dim : 96
+normNR : 3.9642227e-09	normR : 6.3700707e-08	k: 13	dim : 104
+28        1.4015644e-09  
+iters     relres         
+normNR : 0.25119444	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.028902293	normR : 0.46655596	k: 1	dim : 8
+normNR : 0.0059461817	normR : 0.10041974	k: 2	dim : 16
+normNR : 0.0017633246	normR : 0.022954804	k: 3	dim : 24
+normNR : 0.00043228934	normR : 0.0057747628	k: 4	dim : 32
+normNR : 0.00011097366	normR : 0.0016373533	k: 5	dim : 40
+normNR : 3.1626385e-05	normR : 0.00044760644	k: 6	dim : 48
+normNR : 8.0639589e-06	normR : 0.00012120669	k: 7	dim : 56
+normNR : 2.3953101e-06	normR : 3.6310708e-05	k: 8	dim : 64
+normNR : 6.9703255e-07	normR : 1.0381626e-05	k: 9	dim : 72
+normNR : 1.923284e-07	normR : 3.0239865e-06	k: 10	dim : 80
+normNR : 5.7473408e-08	normR : 8.7941949e-07	k: 11	dim : 88
+normNR : 1.5240558e-08	normR : 2.4003555e-07	k: 12	dim : 96
+normNR : 4.2850563e-09	normR : 6.8413541e-08	k: 13	dim : 104
+28        1.5149962e-09  
+iters     relres         
+normNR : 0.33121061	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.028846696	normR : 0.45170217	k: 1	dim : 8
+normNR : 0.0059064346	normR : 0.098266959	k: 2	dim : 16
+normNR : 0.0018156795	normR : 0.022741088	k: 3	dim : 24
+normNR : 0.00042794977	normR : 0.0056630121	k: 4	dim : 32
+normNR : 0.00010977405	normR : 0.0016097242	k: 5	dim : 40
+normNR : 3.1983071e-05	normR : 0.00044309013	k: 6	dim : 48
+normNR : 8.0779199e-06	normR : 0.00011996588	k: 7	dim : 56
+normNR : 2.4212821e-06	normR : 3.6220494e-05	k: 8	dim : 64
+normNR : 7.04015e-07	normR : 1.0313589e-05	k: 9	dim : 72
+normNR : 1.9131793e-07	normR : 2.9817517e-06	k: 10	dim : 80
+normNR : 5.7697297e-08	normR : 8.7165378e-07	k: 11	dim : 88
+normNR : 1.5441104e-08	normR : 2.3895436e-07	k: 12	dim : 96
+normNR : 4.3323409e-09	normR : 6.8423276e-08	k: 13	dim : 104
+28        1.5317138e-09  
+iters     relres         
+normNR : 0.058312122	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0087120471	normR : 0.15008678	k: 1	dim : 1
+normNR : 0.0017714042	normR : 0.031161461	k: 2	dim : 2
+normNR : 0.00046189688	normR : 0.0068633503	k: 3	dim : 3
+normNR : 0.00014078948	normR : 0.0017945356	k: 4	dim : 4
+normNR : 4.1338974e-05	normR : 0.00057191508	k: 5	dim : 5
+normNR : 1.1822625e-05	normR : 0.00016399701	k: 6	dim : 6
+normNR : 3.2458799e-06	normR : 4.5506305e-05	k: 7	dim : 7
+normNR : 9.1822116e-07	normR : 1.3470421e-05	k: 8	dim : 8
+normNR : 2.8401888e-07	normR : 4.0490184e-06	k: 9	dim : 9
+normNR : 8.689942e-08	normR : 1.2441519e-06	k: 10	dim : 10
+normNR : 3.0988347e-08	normR : 4.2160344e-07	k: 11	dim : 11
+normNR : 1.0976029e-08	normR : 1.4581622e-07	k: 12	dim : 12
+normNR : 3.3167263e-09	normR : 4.8374119e-08	k: 13	dim : 13
+28        3.3167274e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 182.63017
+SparseCholesky: 289.75116
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 117.6148	normR : 2828.6972	k: 0	dim : 0
+normNR : 14.98202	normR : 362.11671	k: 1	dim : 8
+normNR : 2.6189797	normR : 63.869927	k: 2	dim : 16
+normNR : 0.58215753	normR : 11.961556	k: 3	dim : 24
+normNR : 0.13328055	normR : 2.7761055	k: 4	dim : 32
+normNR : 0.028046386	normR : 0.61390629	k: 5	dim : 40
+normNR : 0.0061061382	normR : 0.1343176	k: 6	dim : 48
+normNR : 0.0013283031	normR : 0.030245508	k: 7	dim : 56
+normNR : 0.00031470761	normR : 0.0071548834	k: 8	dim : 64
+normNR : 7.1299855e-05	normR : 0.0016429643	k: 9	dim : 72
+normNR : 1.6574301e-05	normR : 0.00038455192	k: 10	dim : 80
+normNR : 3.8105727e-06	normR : 8.7364359e-05	k: 11	dim : 88
+normNR : 8.4613167e-07	normR : 1.9666257e-05	k: 12	dim : 96
+26        2.9912416e-10  
+iters     relres         
+normNR : 0.13732295	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.016186747	normR : 0.38170873	k: 1	dim : 8
+normNR : 0.0028577235	normR : 0.068600017	k: 2	dim : 16
+normNR : 0.00064492076	normR : 0.012932804	k: 3	dim : 24
+normNR : 0.00014791833	normR : 0.0030125341	k: 4	dim : 32
+normNR : 3.1023882e-05	normR : 0.0006765401	k: 5	dim : 40
+normNR : 6.8223159e-06	normR : 0.00014811936	k: 6	dim : 48
+normNR : 1.4804477e-06	normR : 3.3464183e-05	k: 7	dim : 56
+normNR : 3.5686961e-07	normR : 8.0018646e-06	k: 8	dim : 64
+normNR : 8.0919178e-08	normR : 1.8396073e-06	k: 9	dim : 72
+normNR : 1.89593e-08	normR : 4.336558e-07	k: 10	dim : 80
+normNR : 4.3646043e-09	normR : 9.8597187e-08	k: 11	dim : 88
+24        1.5431207e-09  
+iters     relres         
+normNR : 0.1577873	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.016950048	normR : 0.39067582	k: 1	dim : 8
+normNR : 0.003018172	normR : 0.071436175	k: 2	dim : 16
+normNR : 0.00069518315	normR : 0.013568497	k: 3	dim : 24
+normNR : 0.00015761038	normR : 0.0031615894	k: 4	dim : 32
+normNR : 3.2891627e-05	normR : 0.00071530381	k: 5	dim : 40
+normNR : 7.3070645e-06	normR : 0.00015665173	k: 6	dim : 48
+normNR : 1.5806851e-06	normR : 3.5468565e-05	k: 7	dim : 56
+normNR : 3.8490587e-07	normR : 8.5105255e-06	k: 8	dim : 64
+normNR : 8.6511154e-08	normR : 1.9422448e-06	k: 9	dim : 72
+normNR : 2.0264565e-08	normR : 4.5774277e-07	k: 10	dim : 80
+normNR : 4.6577718e-09	normR : 1.0394668e-07	k: 11	dim : 88
+24        1.646771e-09   
+iters     relres         
+normNR : 0.17968597	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.017083292	normR : 0.3856538	k: 1	dim : 8
+normNR : 0.0030629004	normR : 0.071599151	k: 2	dim : 16
+normNR : 0.00071926691	normR : 0.013685107	k: 3	dim : 24
+normNR : 0.00015974811	normR : 0.0031765711	k: 4	dim : 32
+normNR : 3.3246738e-05	normR : 0.0007203362	k: 5	dim : 40
+normNR : 7.4636784e-06	normR : 0.00015795202	k: 6	dim : 48
+normNR : 1.6156463e-06	normR : 3.5975832e-05	k: 7	dim : 56
+normNR : 3.9753803e-07	normR : 8.6772074e-06	k: 8	dim : 64
+normNR : 8.824518e-08	normR : 1.9653758e-06	k: 9	dim : 72
+normNR : 2.0731017e-08	normR : 4.6421028e-07	k: 10	dim : 80
+normNR : 4.7396355e-09	normR : 1.0470999e-07	k: 11	dim : 88
+24        1.6757142e-09  
+iters     relres         
+normNR : 0.041594205	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0053071763	normR : 0.12821997	k: 1	dim : 1
+normNR : 0.00092398738	normR : 0.02260536	k: 2	dim : 2
+normNR : 0.00018903084	normR : 0.0040954393	k: 3	dim : 3
+normNR : 6.2993667e-05	normR : 0.0010573281	k: 4	dim : 4
+normNR : 1.7979859e-05	normR : 0.00035417022	k: 5	dim : 5
+normNR : 4.7507672e-06	normR : 8.945785e-05	k: 6	dim : 6
+normNR : 1.2916363e-06	normR : 2.3852447e-05	k: 7	dim : 7
+normNR : 3.0490678e-07	normR : 6.2499819e-06	k: 8	dim : 8
+normNR : 7.8575339e-08	normR : 1.6103268e-06	k: 9	dim : 9
+normNR : 2.0616292e-08	normR : 4.2837347e-07	k: 10	dim : 10
+normNR : 5.6319409e-09	normR : 1.1972585e-07	k: 11	dim : 11
+24        5.6319428e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 191.33873
+SparseCholesky: 398.42249
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 91.432207	normR : 2828.6972	k: 0	dim : 0
+normNR : 10.425269	normR : 323.88306	k: 1	dim : 8
+normNR : 1.6312283	normR : 50.877658	k: 2	dim : 16
+normNR : 0.28718355	normR : 8.1377495	k: 3	dim : 24
+normNR : 0.065591154	normR : 1.6786162	k: 4	dim : 32
+normNR : 0.013185228	normR : 0.37065063	k: 5	dim : 40
+normNR : 0.0025887938	normR : 0.075209941	k: 6	dim : 48
+normNR : 0.00054891438	normR : 0.01675064	k: 7	dim : 56
+normNR : 0.00012918496	normR : 0.0038599981	k: 8	dim : 64
+normNR : 2.8109248e-05	normR : 0.00083450169	k: 9	dim : 72
+normNR : 6.0198095e-06	normR : 0.00017731497	k: 10	dim : 80
+normNR : 1.2533278e-06	normR : 3.6953437e-05	k: 11	dim : 88
+normNR : 2.6308842e-07	normR : 7.7603221e-06	k: 12	dim : 96
+26        9.3006922e-11  
+iters     relres         
+normNR : 0.10326728	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.011097612	normR : 0.33814266	k: 1	dim : 8
+normNR : 0.001758685	normR : 0.054029135	k: 2	dim : 16
+normNR : 0.000311957	normR : 0.0086676416	k: 3	dim : 24
+normNR : 6.9509977e-05	normR : 0.0017710497	k: 4	dim : 32
+normNR : 1.4339196e-05	normR : 0.00039580582	k: 5	dim : 40
+normNR : 2.8197194e-06	normR : 8.0453234e-05	k: 6	dim : 48
+normNR : 5.8726944e-07	normR : 1.7733351e-05	k: 7	dim : 56
+normNR : 1.379144e-07	normR : 4.0799084e-06	k: 8	dim : 64
+normNR : 3.0262444e-08	normR : 8.9224653e-07	k: 9	dim : 72
+normNR : 6.6036831e-09	normR : 1.9295803e-07	k: 10	dim : 80
+22        2.3347545e-09  
+iters     relres         
+normNR : 0.11513997	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.011543918	normR : 0.3454462	k: 1	dim : 8
+normNR : 0.0018527413	normR : 0.05613574	k: 2	dim : 16
+normNR : 0.00033175743	normR : 0.0090241466	k: 3	dim : 24
+normNR : 7.1729884e-05	normR : 0.0018254667	k: 4	dim : 32
+normNR : 1.5092087e-05	normR : 0.00040983712	k: 5	dim : 40
+normNR : 2.9859181e-06	normR : 8.3552416e-05	k: 6	dim : 48
+normNR : 6.1208095e-07	normR : 1.8267031e-05	k: 7	dim : 56
+normNR : 1.4360586e-07	normR : 4.1971782e-06	k: 8	dim : 64
+normNR : 3.1617413e-08	normR : 9.2568543e-07	k: 9	dim : 72
+normNR : 7.0047974e-09	normR : 2.02868e-07	k: 10	dim : 80
+22        2.4765699e-09  
+iters     relres         
+normNR : 0.12650768	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.011673429	normR : 0.343747	k: 1	dim : 8
+normNR : 0.0018961496	normR : 0.056749721	k: 2	dim : 16
+normNR : 0.00034302907	normR : 0.0091348368	k: 3	dim : 24
+normNR : 7.2075746e-05	normR : 0.0018333196	k: 4	dim : 32
+normNR : 1.5348967e-05	normR : 0.00041158596	k: 5	dim : 40
+normNR : 3.0686932e-06	normR : 8.4349515e-05	k: 6	dim : 48
+normNR : 6.23756e-07	normR : 1.8536453e-05	k: 7	dim : 56
+normNR : 1.4875026e-07	normR : 4.3314674e-06	k: 8	dim : 64
+normNR : 3.2698446e-08	normR : 9.6006443e-07	k: 9	dim : 72
+normNR : 7.3004224e-09	normR : 2.0966278e-07	k: 10	dim : 80
+22        2.5810891e-09  
+iters     relres         
+normNR : 0.032332856	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0036859397	normR : 0.11441815	k: 1	dim : 1
+normNR : 0.00058157636	normR : 0.018001748	k: 2	dim : 2
+normNR : 0.00012084662	normR : 0.0030681079	k: 3	dim : 3
+normNR : 3.923122e-05	normR : 0.00086061944	k: 4	dim : 4
+normNR : 7.8426065e-06	normR : 0.00021304501	k: 5	dim : 5
+normNR : 2.0852184e-06	normR : 5.0939079e-05	k: 6	dim : 6
+normNR : 5.0954163e-07	normR : 1.3588587e-05	k: 7	dim : 7
+normNR : 1.1564325e-07	normR : 3.3828399e-06	k: 8	dim : 8
+normNR : 2.9856075e-08	normR : 9.1921821e-07	k: 9	dim : 9
+normNR : 8.1306378e-09	normR : 2.724475e-07	k: 10	dim : 10
+22        8.1306405e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 180.71931
+SparseCholesky: 513.95087
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 74.793427	normR : 2828.6972	k: 0	dim : 0
+normNR : 7.8038787	normR : 296.30426	k: 1	dim : 8
+normNR : 1.1188734	normR : 42.456938	k: 2	dim : 16
+normNR : 0.18508275	normR : 6.2905811	k: 3	dim : 24
+normNR : 0.041737501	normR : 1.3111102	k: 4	dim : 32
+normNR : 0.0074339032	normR : 0.26009147	k: 5	dim : 40
+normNR : 0.0013522681	normR : 0.047986513	k: 6	dim : 48
+normNR : 0.00026509667	normR : 0.00961653	k: 7	dim : 56
+normNR : 5.6750726e-05	normR : 0.0020300612	k: 8	dim : 64
+normNR : 1.1420266e-05	normR : 0.00041041942	k: 9	dim : 72
+normNR : 2.2492038e-06	normR : 8.0724343e-05	k: 10	dim : 80
+normNR : 4.1850714e-07	normR : 1.5193888e-05	k: 11	dim : 88
+24        1.4795049e-10  
+iters     relres         
+normNR : 0.08270042	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0082295912	normR : 0.30753328	k: 1	dim : 8
+normNR : 0.0011946584	normR : 0.04474448	k: 2	dim : 16
+normNR : 0.00019554383	normR : 0.0066032673	k: 3	dim : 24
+normNR : 4.4030753e-05	normR : 0.0013601496	k: 4	dim : 32
+normNR : 8.1034179e-06	normR : 0.00027916173	k: 5	dim : 40
+normNR : 1.4987636e-06	normR : 5.235245e-05	k: 6	dim : 48
+normNR : 2.9723039e-07	normR : 1.0699682e-05	k: 7	dim : 56
+normNR : 6.3737396e-08	normR : 2.2475499e-06	k: 8	dim : 64
+normNR : 1.2524376e-08	normR : 4.475273e-07	k: 9	dim : 72
+normNR : 2.438907e-09	normR : 8.719087e-08	k: 10	dim : 80
+22        8.6228383e-10  
+iters     relres         
+normNR : 0.090562384	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0085257939	normR : 0.31388943	k: 1	dim : 8
+normNR : 0.0012536573	normR : 0.046383091	k: 2	dim : 16
+normNR : 0.00020403596	normR : 0.0068198283	k: 3	dim : 24
+normNR : 4.5255213e-05	normR : 0.0013850688	k: 4	dim : 32
+normNR : 8.6299202e-06	normR : 0.00029287626	k: 5	dim : 40
+normNR : 1.6128149e-06	normR : 5.5648683e-05	k: 6	dim : 48
+normNR : 3.2361274e-07	normR : 1.1588793e-05	k: 7	dim : 56
+normNR : 7.038637e-08	normR : 2.4558821e-06	k: 8	dim : 64
+normNR : 1.371244e-08	normR : 4.8732063e-07	k: 9	dim : 72
+normNR : 2.6593664e-09	normR : 9.4445354e-08	k: 10	dim : 80
+22        9.4022802e-10  
+iters     relres         
+normNR : 0.097951002	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0086388024	normR : 0.31381848	k: 1	dim : 8
+normNR : 0.0012866015	normR : 0.047074457	k: 2	dim : 16
+normNR : 0.00020923883	normR : 0.006900812	k: 3	dim : 24
+normNR : 4.5466203e-05	normR : 0.0013873612	k: 4	dim : 32
+normNR : 8.906203e-06	normR : 0.00029856099	k: 5	dim : 40
+normNR : 1.6662421e-06	normR : 5.7007763e-05	k: 6	dim : 48
+normNR : 3.3518976e-07	normR : 1.1942562e-05	k: 7	dim : 56
+normNR : 7.3213857e-08	normR : 2.5368482e-06	k: 8	dim : 64
+normNR : 1.4194291e-08	normR : 5.0200321e-07	k: 9	dim : 72
+normNR : 2.7658268e-09	normR : 9.7664344e-08	k: 10	dim : 80
+22        9.7786743e-10  
+iters     relres         
+normNR : 0.02646055	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0027579474	normR : 0.10479109	k: 1	dim : 1
+normNR : 0.00039516556	normR : 0.015007328	k: 2	dim : 2
+normNR : 6.3841096e-05	normR : 0.0022189893	k: 3	dim : 3
+normNR : 1.7175779e-05	normR : 0.00049627767	k: 4	dim : 4
+normNR : 4.1791134e-06	normR : 0.00013521425	k: 5	dim : 5
+normNR : 1.1126194e-06	normR : 3.2141246e-05	k: 6	dim : 6
+normNR : 3.2497473e-07	normR : 1.0227093e-05	k: 7	dim : 7
+normNR : 7.9752414e-08	normR : 2.893151e-06	k: 8	dim : 8
+normNR : 2.2713412e-08	normR : 7.9371628e-07	k: 9	dim : 9
+normNR : 5.8107959e-09	normR : 2.064164e-07	k: 10	dim : 10
+22        5.8107979e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 175.16946
+SparseCholesky: 647.80858
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 63.241338	normR : 2828.6972	k: 0	dim : 0
+normNR : 6.1123876	normR : 274.49464	k: 1	dim : 8
+normNR : 0.80725164	normR : 36.217915	k: 2	dim : 16
+normNR : 0.11129924	normR : 4.7843806	k: 3	dim : 24
+normNR : 0.018760744	normR : 0.75709966	k: 4	dim : 32
+normNR : 0.0036742222	normR : 0.14642469	k: 5	dim : 40
+normNR : 0.00061825207	normR : 0.026245501	k: 6	dim : 48
+normNR : 0.00011491483	normR : 0.0050811456	k: 7	dim : 56
+normNR : 2.3048514e-05	normR : 0.0010022595	k: 8	dim : 64
+normNR : 4.4281801e-06	normR : 0.00019006167	k: 9	dim : 72
+normNR : 8.1677218e-07	normR : 3.4539549e-05	k: 10	dim : 80
+normNR : 1.4555802e-07	normR : 6.2100882e-06	k: 11	dim : 88
+24        5.1457617e-11  
+iters     relres         
+normNR : 0.068862719	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0063964947	normR : 0.28351588	k: 1	dim : 8
+normNR : 0.00085608926	normR : 0.037935528	k: 2	dim : 16
+normNR : 0.00011890371	normR : 0.0050226047	k: 3	dim : 24
+normNR : 2.0166036e-05	normR : 0.00080262677	k: 4	dim : 32
+normNR : 3.9980122e-06	normR : 0.00015718851	k: 5	dim : 40
+normNR : 6.6677886e-07	normR : 2.791391e-05	k: 6	dim : 48
+normNR : 1.2313189e-07	normR : 5.3759675e-06	k: 7	dim : 56
+normNR : 2.4510968e-08	normR : 1.0665624e-06	k: 8	dim : 64
+normNR : 4.7412055e-09	normR : 2.0545501e-07	k: 9	dim : 72
+20        1.6762693e-09  
+iters     relres         
+normNR : 0.074419764	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0066015303	normR : 0.28902099	k: 1	dim : 8
+normNR : 0.00089633408	normR : 0.039245291	k: 2	dim : 16
+normNR : 0.00012552011	normR : 0.0052019552	k: 3	dim : 24
+normNR : 2.1394267e-05	normR : 0.00084000047	k: 4	dim : 32
+normNR : 4.2774574e-06	normR : 0.00016627334	k: 5	dim : 40
+normNR : 7.0695871e-07	normR : 2.9268262e-05	k: 6	dim : 48
+normNR : 1.2977607e-07	normR : 5.6140343e-06	k: 7	dim : 56
+normNR : 2.5556215e-08	normR : 1.110709e-06	k: 8	dim : 64
+normNR : 4.971947e-09	normR : 2.1651698e-07	k: 9	dim : 72
+20        1.7578487e-09  
+iters     relres         
+normNR : 0.079553854	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0066948068	normR : 0.28985908	k: 1	dim : 8
+normNR : 0.00092269281	normR : 0.039945522	k: 2	dim : 16
+normNR : 0.00013043584	normR : 0.0052973675	k: 3	dim : 24
+normNR : 2.2284895e-05	normR : 0.00086473271	k: 4	dim : 32
+normNR : 4.4722652e-06	normR : 0.00017257326	k: 5	dim : 40
+normNR : 7.3178764e-07	normR : 3.0092462e-05	k: 6	dim : 48
+normNR : 1.3401032e-07	normR : 5.7635678e-06	k: 7	dim : 56
+normNR : 2.6311484e-08	normR : 1.1393125e-06	k: 8	dim : 64
+normNR : 5.17037e-09	normR : 2.2558972e-07	k: 9	dim : 72
+20        1.8280018e-09  
+iters     relres         
+normNR : 0.022364123	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0021604358	normR : 0.097003282	k: 1	dim : 1
+normNR : 0.00028521317	normR : 0.012789681	k: 2	dim : 2
+normNR : 3.9276619e-05	normR : 0.0016909449	k: 3	dim : 3
+normNR : 6.6092314e-06	normR : 0.00026800467	k: 4	dim : 4
+normNR : 1.5341444e-06	normR : 5.8123311e-05	k: 5	dim : 5
+normNR : 2.9988037e-07	normR : 1.2138473e-05	k: 6	dim : 6
+normNR : 5.8012593e-08	normR : 2.4417405e-06	k: 7	dim : 7
+normNR : 1.2650511e-08	normR : 5.3189731e-07	k: 8	dim : 8
+normNR : 3.0131103e-09	normR : 1.2328302e-07	k: 9	dim : 9
+20        3.0131113e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 181.13629
+SparseCholesky: 789.31218
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 54.793343	normR : 2828.6972	k: 0	dim : 0
+normNR : 4.9589517	normR : 256.97258	k: 1	dim : 8
+normNR : 0.61361393	normR : 31.702046	k: 2	dim : 16
+normNR : 0.084467094	normR : 4.0343101	k: 3	dim : 24
+normNR : 0.01644203	normR : 0.72950599	k: 4	dim : 32
+normNR : 0.0026121872	normR : 0.12683429	k: 5	dim : 40
+normNR : 0.00041109556	normR : 0.020299965	k: 6	dim : 48
+normNR : 7.0050163e-05	normR : 0.0035544954	k: 7	dim : 56
+normNR : 1.243086e-05	normR : 0.00063051316	k: 8	dim : 64
+normNR : 2.1073509e-06	normR : 0.00010718353	k: 9	dim : 72
+normNR : 3.5246889e-07	normR : 1.7785584e-05	k: 10	dim : 80
+22        1.2460467e-10  
+iters     relres         
+normNR : 0.059025758	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0051650703	normR : 0.26455154	k: 1	dim : 8
+normNR : 0.00064606997	normR : 0.033022447	k: 2	dim : 16
+normNR : 8.8082161e-05	normR : 0.0041817342	k: 3	dim : 24
+normNR : 1.6937865e-05	normR : 0.00074773996	k: 4	dim : 32
+normNR : 2.7728149e-06	normR : 0.00013237349	k: 5	dim : 40
+normNR : 4.3860914e-07	normR : 2.1420164e-05	k: 6	dim : 48
+normNR : 7.4403051e-08	normR : 3.7621749e-06	k: 7	dim : 56
+normNR : 1.3286778e-08	normR : 6.7045236e-07	k: 8	dim : 64
+normNR : 2.26971e-09	normR : 1.1481306e-07	k: 9	dim : 72
+20        8.0246366e-10  
+iters     relres         
+normNR : 0.063199979	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.005319664	normR : 0.26947688	k: 1	dim : 8
+normNR : 0.00067334292	normR : 0.034061964	k: 2	dim : 16
+normNR : 9.1066958e-05	normR : 0.0042907416	k: 3	dim : 24
+normNR : 1.7301623e-05	normR : 0.00076057508	k: 4	dim : 32
+normNR : 2.9001613e-06	normR : 0.00013645864	k: 5	dim : 40
+normNR : 4.5939281e-07	normR : 2.2215919e-05	k: 6	dim : 48
+normNR : 7.7420804e-08	normR : 3.895e-06	k: 7	dim : 56
+normNR : 1.3865327e-08	normR : 6.9402047e-07	k: 8	dim : 64
+normNR : 2.3750411e-09	normR : 1.1930218e-07	k: 9	dim : 72
+20        8.3970384e-10  
+iters     relres         
+normNR : 0.067034986	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0054004187	normR : 0.27083592	k: 1	dim : 8
+normNR : 0.00069205273	normR : 0.03467631	k: 2	dim : 16
+normNR : 9.2975793e-05	normR : 0.0043441563	k: 3	dim : 24
+normNR : 1.7454098e-05	normR : 0.00076494041	k: 4	dim : 32
+normNR : 2.9734504e-06	normR : 0.00013836245	k: 5	dim : 40
+normNR : 4.7017179e-07	normR : 2.2548249e-05	k: 6	dim : 48
+normNR : 7.8663949e-08	normR : 3.9303013e-06	k: 7	dim : 56
+normNR : 1.3985702e-08	normR : 6.9304255e-07	k: 8	dim : 64
+normNR : 2.3658105e-09	normR : 1.1821554e-07	k: 9	dim : 72
+20        8.3644034e-10  
+iters     relres         
+normNR : 0.019371823	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0017527886	normR : 0.090767205	k: 1	dim : 1
+normNR : 0.00021660139	normR : 0.011186678	k: 2	dim : 2
+normNR : 2.9015158e-05	normR : 0.0014069266	k: 3	dim : 3
+normNR : 6.7367651e-06	normR : 0.00026481947	k: 4	dim : 4
+normNR : 1.6648324e-06	normR : 7.1761419e-05	k: 5	dim : 5
+normNR : 3.0936997e-07	normR : 1.424842e-05	k: 6	dim : 6
+normNR : 6.0860493e-08	normR : 3.0979784e-06	k: 7	dim : 7
+normNR : 1.3311246e-08	normR : 7.1144665e-07	k: 8	dim : 8
+normNR : 3.2467848e-09	normR : 1.6297759e-07	k: 9	dim : 9
+20        3.2467859e-09  
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 110.30744
+SparseCholesky: 939.14547
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 48.325775	normR : 2828.6972	k: 0	dim : 0
+normNR : 4.1286699	normR : 242.36245	k: 1	dim : 8
+normNR : 0.48753075	normR : 28.263914	k: 2	dim : 16
+normNR : 0.089135091	normR : 3.8742423	k: 3	dim : 24
+normNR : 0.016055303	normR : 0.81220562	k: 4	dim : 32
+normNR : 0.002326062	normR : 0.12904031	k: 5	dim : 40
+normNR : 0.00037779076	normR : 0.021589078	k: 6	dim : 48
+normNR : 7.2887209e-05	normR : 0.0042799749	k: 7	dim : 56
+normNR : 1.4310912e-05	normR : 0.00082849163	k: 8	dim : 64
+normNR : 2.5065948e-06	normR : 0.00014403749	k: 9	dim : 72
+normNR : 4.2010445e-07	normR : 2.4042165e-05	k: 10	dim : 80
+22        1.4851517e-10  
+iters     relres         
+normNR : 0.051615158	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0042832938	normR : 0.2488628	k: 1	dim : 8
+normNR : 0.00051217111	normR : 0.029357441	k: 2	dim : 16
+normNR : 9.5931012e-05	normR : 0.0040901001	k: 3	dim : 24
+normNR : 1.6594559e-05	normR : 0.00083671464	k: 4	dim : 32
+normNR : 2.4552447e-06	normR : 0.00013501562	k: 5	dim : 40
+normNR : 4.0092099e-07	normR : 2.2718092e-05	k: 6	dim : 48
+normNR : 7.6497414e-08	normR : 4.4321346e-06	k: 7	dim : 56
+normNR : 1.4448685e-08	normR : 8.2552071e-07	k: 8	dim : 64
+normNR : 2.4791044e-09	normR : 1.4146086e-07	k: 9	dim : 72
+20        8.7649575e-10  
+iters     relres         
+normNR : 0.054859511	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0044018318	normR : 0.25326154	k: 1	dim : 8
+normNR : 0.0005329986	normR : 0.030238471	k: 2	dim : 16
+normNR : 0.00010065079	normR : 0.0042425634	k: 3	dim : 24
+normNR : 1.697757e-05	normR : 0.00085135085	k: 4	dim : 32
+normNR : 2.5676855e-06	normR : 0.0001399372	k: 5	dim : 40
+normNR : 4.2206782e-07	normR : 2.3720987e-05	k: 6	dim : 48
+normNR : 7.9792411e-08	normR : 4.5715806e-06	k: 7	dim : 56
+normNR : 1.4665442e-08	normR : 8.2907529e-07	k: 8	dim : 64
+normNR : 2.4875654e-09	normR : 1.4095686e-07	k: 9	dim : 72
+20        8.7948719e-10  
+iters     relres         
+normNR : 0.057852581	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0044686035	normR : 0.25481746	k: 1	dim : 8
+normNR : 0.00054781148	normR : 0.030798865	k: 2	dim : 16
+normNR : 0.00010336254	normR : 0.0043244623	k: 3	dim : 24
+normNR : 1.7233494e-05	normR : 0.00086010318	k: 4	dim : 32
+normNR : 2.6454198e-06	normR : 0.00014317778	k: 5	dim : 40
+normNR : 4.3786249e-07	normR : 2.4446035e-05	k: 6	dim : 48
+normNR : 8.2556627e-08	normR : 4.6938642e-06	k: 7	dim : 56
+normNR : 1.4968246e-08	normR : 8.395925e-07	k: 8	dim : 64
+normNR : 2.5247317e-09	normR : 1.4231468e-07	k: 9	dim : 72
+20        8.9262745e-10  
+iters     relres         
+normNR : 0.017086052	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0014601028	normR : 0.085755335	k: 1	dim : 1
+normNR : 0.00017205438	normR : 0.010003139	k: 2	dim : 2
+normNR : 2.9260594e-05	normR : 0.0013465221	k: 3	dim : 3
+normNR : 9.8737199e-06	normR : 0.00040579924	k: 4	dim : 4
+normNR : 1.941356e-06	normR : 8.3472531e-05	k: 5	dim : 5
+normNR : 6.1645339e-07	normR : 2.6603528e-05	k: 6	dim : 6
+normNR : 9.1422946e-08	normR : 5.2125838e-06	k: 7	dim : 7
+normNR : 2.0344417e-08	normR : 1.2004661e-06	k: 8	dim : 8
+normNR : 5.5356812e-09	normR : 3.2038018e-07	k: 9	dim : 9
+20        5.535683e-09   
+
+AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
+    dense row parameter: 10
+    (rows with more than max (10 * sqrt (n), 16) entries are
+    considered "dense", and placed last in output permutation)
+    aggressive absorption:  yes
+    size of AMD integer: 8
+
+return value from amd_order: 0 (should be 0)
+AMD reordering      : 181.05031
+SparseCholesky: 1077.8413
+Exited with C of rank k = 1000000
+iters     relres         
+normNR : 43.23658	normR : 2828.6972	k: 0	dim : 0
+normNR : 3.5056777	normR : 229.89225	k: 1	dim : 8
+normNR : 0.39491035	normR : 25.464305	k: 2	dim : 16
+normNR : 0.070879796	normR : 3.5656664	k: 3	dim : 24
+normNR : 0.011612677	normR : 0.66792191	k: 4	dim : 32
+normNR : 0.0016006701	normR : 0.099797652	k: 5	dim : 40
+normNR : 0.00022795459	normR : 0.014428855	k: 6	dim : 48
+normNR : 3.5881783e-05	normR : 0.0023469102	k: 7	dim : 56
+normNR : 6.0341067e-06	normR : 0.00039370993	k: 8	dim : 64
+normNR : 9.7440437e-07	normR : 6.3244468e-05	k: 9	dim : 72
+normNR : 1.5302839e-07	normR : 9.788197e-06	k: 10	dim : 80
+22        5.4098539e-11  
+iters     relres         
+normNR : 0.045868912	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0036252501	normR : 0.23555982	k: 1	dim : 8
+normNR : 0.00041253847	normR : 0.026359014	k: 2	dim : 16
+normNR : 7.3478916e-05	normR : 0.0036817913	k: 3	dim : 24
+normNR : 1.1912444e-05	normR : 0.00067954112	k: 4	dim : 32
+normNR : 1.6993685e-06	normR : 0.0001046316	k: 5	dim : 40
+normNR : 2.4294388e-07	normR : 1.5199757e-05	k: 6	dim : 48
+normNR : 3.7748056e-08	normR : 2.4508086e-06	k: 7	dim : 56
+normNR : 6.3062608e-09	normR : 4.0908713e-07	k: 8	dim : 64
+18        2.2295999e-09  
+iters     relres         
+normNR : 0.048470481	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0037190859	normR : 0.23955099	k: 1	dim : 8
+normNR : 0.00042801972	normR : 0.027104611	k: 2	dim : 16
+normNR : 7.5782867e-05	normR : 0.0037773677	k: 3	dim : 24
+normNR : 1.216079e-05	normR : 0.00068977425	k: 4	dim : 32
+normNR : 1.7838131e-06	normR : 0.0001085834	k: 5	dim : 40
+normNR : 2.5433014e-07	normR : 1.5736107e-05	k: 6	dim : 48
+normNR : 3.9032224e-08	normR : 2.5109602e-06	k: 7	dim : 56
+normNR : 6.4934005e-09	normR : 4.1867735e-07	k: 8	dim : 64
+18        2.2957638e-09  
+iters     relres         
+normNR : 0.050887149	normR : 2.8284271	k: 0	dim : 0
+normNR : 0.0037753728	normR : 0.24123023	k: 1	dim : 8
+normNR : 0.00043976511	normR : 0.027614036	k: 2	dim : 16
+normNR : 7.7556336e-05	normR : 0.0038413735	k: 3	dim : 24
+normNR : 1.2374984e-05	normR : 0.00069864575	k: 4	dim : 32
+normNR : 1.8390346e-06	normR : 0.00011106816	k: 5	dim : 40
+normNR : 2.6016745e-07	normR : 1.5946642e-05	k: 6	dim : 48
+normNR : 3.9575611e-08	normR : 2.5236376e-06	k: 7	dim : 56
+normNR : 6.5561974e-09	normR : 4.2000733e-07	k: 8	dim : 64
+18        2.3179658e-09  
+iters     relres         
+normNR : 0.015283622	normR : 0.99999967	k: 0	dim : 0
+normNR : 0.0012400878	normR : 0.081230786	k: 1	dim : 1
+normNR : 0.00014130211	normR : 0.0090567682	k: 2	dim : 2
+normNR : 3.0951117e-05	normR : 0.0014417344	k: 3	dim : 3
+normNR : 7.5397653e-06	normR : 0.00040376605	k: 4	dim : 4
+normNR : 1.421147e-06	normR : 7.3188269e-05	k: 5	dim : 5
+normNR : 3.5367352e-07	normR : 1.9214982e-05	k: 6	dim : 6
+normNR : 5.5126935e-08	normR : 3.3408115e-06	k: 7	dim : 7
+normNR : 1.3393631e-08	normR : 7.6862086e-07	k: 8	dim : 8
+normNR : 3.2508288e-09	normR : 1.9333905e-07	k: 9	dim : 9
+20        3.2508299e-09  
