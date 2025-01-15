@@ -545,16 +545,15 @@ int RBKI<T, RNG>::call(
         allocation_t_start  = high_resolution_clock::now();
     }
 
-    delete[] Y_od;
-    delete[] X_ev;
-    delete[] tau;
-    delete[] R;
-    delete[] S;
-    delete[] U_hat;
-    delete[] VT_hat;
-    delete[] Y_orth_buf;
-    delete[] X_orth_buf;
-
+    delete [] Y_od;
+    delete [] X_ev;
+    delete [] tau;
+    delete [] R;
+    delete [] S;
+    delete [] U_hat;
+    delete [] VT_hat;
+    delete [] Y_orth_buf;
+    delete [] X_orth_buf;
 
     if(this -> timing) {
         allocation_t_stop  = high_resolution_clock::now();
