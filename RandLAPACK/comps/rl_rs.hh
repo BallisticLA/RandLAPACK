@@ -127,7 +127,7 @@ int RS<T, RNG>::call(
     int64_t q = this->passes_per_stab;
     int64_t p_done= 0;
 
-    T* Omega_1  = ( T * ) calloc( m * k, sizeof( T ) );
+    T* Omega_1  = new T[m * k]();
 
     if (p % 2 == 0) {
         // Fill n by k Omega
@@ -142,8 +142,10 @@ int RS<T, RNG>::call(
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, Omega_1, m, 0.0, Omega, n);
 
         ++ p_done;
-        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega)))
-            return 1; // Scheme failure
+        if ((p_done % q == 0) && (this->Stab_Obj.call(n, k, Omega))) {
+            delete[] Omega_1;
+            return 1;
+        }
     }
 
     while (p - p_done > 0) {
@@ -154,8 +156,10 @@ int RS<T, RNG>::call(
         if(this->cond_check)
             this->cond_nums.push_back(util::cond_num_check(m, k, Omega_1, this->verbose));
 
-        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1)))
+        if ((p_done % q == 0) && (this->Stab_Obj.call(m, k, Omega_1))) {
+            delete[] Omega_1;
             return 1;
+        }
 
         // Omega = A' * Omega
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, Omega_1, m, 0.0, Omega, n);
@@ -168,7 +172,7 @@ int RS<T, RNG>::call(
             return 1;
     }
 
-    free(Omega_1);
+    delete[] Omega_1;
     //successful termination
     return 0;
 }

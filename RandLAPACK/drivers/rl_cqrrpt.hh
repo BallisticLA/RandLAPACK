@@ -186,8 +186,8 @@ int CQRRPT<T, RNG>::call(
     int64_t new_rank;
     T running_max, running_min, curr_entry;
 
-    T* A_hat = ( T * ) calloc( d * n, sizeof( T ) );
-    T* tau   = ( T * ) calloc( n, sizeof( T ) );
+    T* A_hat = new T[d * n]();
+    T* tau   = new T[n]();
     // Buffer for column pivoting.
     std::vector<int64_t> J_buf(n, 0);
 
@@ -312,8 +312,8 @@ int CQRRPT<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
-    free(A_hat);
-    free(tau);
+    delete[] A_hat;
+    delete[] tau;
 
     return 0;
 }
