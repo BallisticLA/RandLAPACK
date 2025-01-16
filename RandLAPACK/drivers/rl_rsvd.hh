@@ -126,11 +126,11 @@ int RSVD<T, RNG>::call(
     // Q and B sizes will be adjusted automatically
     this->QB_Obj.call(m, n, A, k, this->block_sz, tol, Q, BT, state);
 
-    T* UT_buf  = new T[k * k]();
+    T* UT_buf  = ( T * ) calloc(k * k, sizeof( T ) );
     // Making sure all vectors are large enough
-    U  = new T[m * k]();
-    S  = new T[k]();
-    V  = new T[n * k]();
+    U  = ( T * ) calloc(m * k, sizeof( T ) );
+    S  = ( T * ) calloc(k,     sizeof( T ) );
+    V  = ( T * ) calloc(n * k, sizeof( T ) );
 
     // SVD of B
     lapack::gesdd(Job::SomeVec, n, k, BT, n, S, V, n, UT_buf, k);
@@ -139,7 +139,7 @@ int RSVD<T, RNG>::call(
 
     free(Q);
     free(BT);
-    delete[] UT_buf;
+    free(UT_buf);
     return 0;
 }
 
