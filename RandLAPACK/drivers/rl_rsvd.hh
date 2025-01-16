@@ -137,8 +137,8 @@ int RSVD<T, RNG>::call(
     // Adjusting U
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k, 1.0, Q, m, UT_buf, k, 0.0, U, m);
 
-    delete[] Q;
-    delete[] BT;
+    free(Q);
+    free(BT);
     delete[] UT_buf;
     return 0;
 }
