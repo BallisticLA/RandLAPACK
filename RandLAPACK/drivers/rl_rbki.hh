@@ -193,10 +193,10 @@ int RBKI<T, RNG>::call(
     // due to an operation with X_odd and Y_odd happening at the end.
     // Below pointers stay the same throughout the alg; the space will be alloacted iteratively
     // Space for Y_i and Y_odd.
-    T* Y_od = new T[n * k]();
+    T* Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
     int64_t curr_Y_cols = k;
     // Space for X_i and X_ev. 
-    T* X_ev = new T[m * k]();
+    T* X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
     int64_t curr_X_cols = k;
 
     // While R and S matrices are structured (both band), we cannot make use of this structure through
@@ -207,12 +207,12 @@ int RBKI<T, RNG>::call(
     // At the end, size of R would by d x d and size of S would
     // be (d + 1) x d, where d = numiters_complete * b_sz, d <= n.
     // Note that the total amount of iterations will always be numiters <= n * 2 / block_size
-    T* R = new T[n * k]();
-    T* S = new T[(n + k) * k]();
+    T* R   = ( T * ) calloc( n * k, sizeof( T ) );
+    T* S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
 
     // These buffers are of constant size
-    T* Y_orth_buf = new T[k * n]();
-    T* X_orth_buf = new T[k * (n + k)]();
+    T* Y_orth_buf = ( T * ) calloc( k * n, sizeof( T ) );
+    T* X_orth_buf = ( T * ) calloc( k * (n + k), sizeof( T ) );
 
     // Pointers allocation
     // Below pointers will be offset by (n or m) * k at every even iteration.
@@ -227,7 +227,7 @@ int RBKI<T, RNG>::call(
     T* U_hat = NULL;
     T* VT_hat = NULL;
     // tau space for QR
-    T* tau = new T[k]();
+    T* tau = ( T * ) calloc( k, sizeof( T ) );
 
     if(this -> timing) {
         allocation_t_stop  = steady_clock::now();
@@ -516,8 +516,8 @@ int RBKI<T, RNG>::call(
         allocation_t_start  = steady_clock::now();
     }
 
-    U_hat = new T[end_rows * end_cols]();
-    VT_hat = new T[end_rows * end_cols]();
+    U_hat  = ( T * ) calloc( end_rows * end_cols, sizeof( T ) );
+    VT_hat = ( T * ) calloc( end_cols * end_cols, sizeof( T ) );
 
     if(this -> timing) {
         allocation_t_stop  = steady_clock::now();
@@ -544,16 +544,15 @@ int RBKI<T, RNG>::call(
         get_factors_t_dur   = duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
         allocation_t_start  = steady_clock::now();
     }
-
-    delete [] Y_od;
-    delete [] X_ev;
-    delete [] tau;
-    delete [] R;
-    delete [] S;
-    delete [] U_hat;
-    delete [] VT_hat;
-    delete [] Y_orth_buf;
-    delete [] X_orth_buf;
+    free(Y_od);
+    free(X_ev);
+    free(tau);
+    free(R);
+    free(S);
+    free(U_hat);
+    free(VT_hat);
+    free(Y_orth_buf);
+    free(X_orth_buf);
 
     if(this -> timing) {
         allocation_t_stop  = steady_clock::now();
