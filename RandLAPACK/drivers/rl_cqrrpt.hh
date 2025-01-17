@@ -295,6 +295,7 @@ int CQRRPT<T, RNG>::call(
         cholqr_t_stop = high_resolution_clock::now();
 
     // Get the final R-factor -- undoing the preconditioning
+    RandLAPACK::util::get_U(new_rank, new_rank, R_sp, ldr);
     blas::trmm(layout, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr);
 
     // Set the rank parameter to the value comuted a posteriori.
