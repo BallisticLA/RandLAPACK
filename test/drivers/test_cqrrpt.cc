@@ -36,14 +36,16 @@ class TestCQRRPT : public ::testing::Test
         row(m),
         col(n),
         rank(k),
-        layout(layout),
         A(m * n, 0.0),
         A_row(m * n, 0.0),
         R(n * n, 0.0),
         J(n, 0),
         A_cpy1(m * n, 0.0),
         A_cpy2(m * n, 0.0),
-        I_ref(k * k, 0.0){}
+        A_cpy3(m * n, 0.0),
+        I_ref(k * k, 0.0),
+        layout(layout)
+        {}
 
     };
 
@@ -99,12 +101,28 @@ class TestCQRRPT : public ::testing::Test
 
         // A - QR
         blas::gemm(all_data.layout, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, ldq, R_dat, n, -1.0, A_dat, ldq);
+
+        // Implementing max col norm metric
+        T max_col_norm = 0.0;
+        T col_norm = 0.0;
+        int max_idx = 0;
+        for(int i = 0; i < n; ++i) {
+            col_norm = blas::nrm2(m, &A_dat[ldq * i], 1);
+            if(max_col_norm < col_norm) {
+                max_col_norm = col_norm;
+                max_idx = i;
+            }
+        }
+        T col_norm_A = blas::nrm2(n, &A_cpy_dat[ldq * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, ldq);
+
         printf("REL NORM OF AP - QR:    %15e\n", norm_AQR / norm_A);
+        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
         printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_LE(norm_AQR, atol * norm_A);
+        ASSERT_LE(max_col_norm, atol * col_norm_A);
         ASSERT_LE(norm_0, atol * std::sqrt((T) n));
     }
 
@@ -121,8 +139,7 @@ class TestCQRRPT : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        //NOTE: should be the sole remaining piece
-        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
+        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state, all_data.layout);
 
         all_data.rank = CQRRPT.rank;
         printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);

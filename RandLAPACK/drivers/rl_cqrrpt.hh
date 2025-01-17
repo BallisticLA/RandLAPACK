@@ -30,7 +30,8 @@ class CQRRPTalg {
             int64_t ldr,
             int64_t* J,
             T d_factor,
-            RandBLAS::RNGState<RNG> &state
+            RandBLAS::RNGState<RNG> &state,
+            Layout layout
         ) = 0;
 };
 
@@ -116,7 +117,8 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             int64_t ldr,
             int64_t* J,
             T d_factor,
-            RandBLAS::RNGState<RNG> &state
+            RandBLAS::RNGState<RNG> &state,
+            Layout layout=Layout::ColMajor
         ) override;
 
     public:
@@ -128,7 +130,6 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         std::vector<long> times;
 
         // tuning SASOS
-        int num_threads;
         int64_t nnz;
 
         // HQRRP-related
@@ -150,7 +151,8 @@ int CQRRPT<T, RNG>::call(
     int64_t ldr,
     int64_t* J,
     T d_factor,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<RNG> &state,
+    Layout layout
 ){
     ///--------------------TIMING VARS--------------------/
     high_resolution_clock::time_point saso_t_stop;
@@ -196,13 +198,14 @@ int CQRRPT<T, RNG>::call(
         saso_t_start = high_resolution_clock::now();
 
     /// Generating a SASO
-    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
+    RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    state = RandBLAS::fill_sparse(S);
+    RandBLAS::fill_sparse(S);
+    state = S.next_state;
 
     /// Applying a SASO
     RandBLAS::sketch_general(
-        Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+        layout, Op::NoTrans, Op::NoTrans,
         d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
 
@@ -239,7 +242,9 @@ int CQRRPT<T, RNG>::call(
     if(this -> timing)
         rank_reveal_t_stop = high_resolution_clock::now();
 
-    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R, ldr);
+    /// Extracting a k by k R representation
+    T* R_sp  = R;
+    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, ldr);
 
     if(this -> timing)
         a_mod_piv_t_start = high_resolution_clock::now();
@@ -254,7 +259,7 @@ int CQRRPT<T, RNG>::call(
     }
 
     // A_pre * R_sp = AP
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R, ldr, A, lda);
+    blas::trsm(layout, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing) {
         a_mod_trsm_t_stop = high_resolution_clock::now();
@@ -262,8 +267,8 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R, ldr);
-    lapack::potrf(Uplo::Upper, k, R, ldr);
+    blas::syrk(layout, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, ldr);
+    lapack::potrf(Uplo::Upper, k, R_sp, ldr);
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
@@ -271,11 +276,11 @@ int CQRRPT<T, RNG>::call(
     // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
     new_rank = k;
-    running_max = R[0];
-    running_min = R[0];
+    running_max = R_sp[0];
+    running_min = R_sp[0];
 
     for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R[i * ldr + i]);
+        curr_entry = std::abs(R_sp[i * ldr + i]);
         running_max = std::max(running_max, curr_entry);
         running_min = std::min(running_min, curr_entry);
         if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
@@ -284,14 +289,13 @@ int CQRRPT<T, RNG>::call(
         }
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R, ldr, A, lda);
+    blas::trsm(layout, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing)
         cholqr_t_stop = high_resolution_clock::now();
 
-    // Get the final R-factor.
-    RandLAPACK::util::get_U(new_rank, new_rank, R, ldr);
-    blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R, ldr);
+    // Get the final R-factor -- undoing the preconditioning
+    blas::trmm(layout, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr);
 
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = k;
