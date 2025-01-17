@@ -204,8 +204,9 @@ int CQRRPT<T, RNG>::call(
     state = S.next_state;
 
     /// Applying a SASO
+    auto layout_flag_1 = layout == Layout::ColMajor ? Op::NoTrans : Op::Trans;
     RandBLAS::sketch_general(
-        layout, Op::NoTrans, Op::NoTrans,
+        layout, Op::NoTrans, layout_flag_1,
         d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
 
@@ -244,7 +245,8 @@ int CQRRPT<T, RNG>::call(
 
     /// Extracting a k by k R representation
     T* R_sp  = R;
-    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, ldr);
+    auto layout_flag_2 = layout == Layout::ColMajor ? MatrixType::Upper : MatrixType::Lower;
+    lapack::lacpy(layout_flag_2, k, k, A_hat, d, R_sp, ldr);
 
     if(this -> timing)
         a_mod_piv_t_start = high_resolution_clock::now();
@@ -268,7 +270,8 @@ int CQRRPT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(layout, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, ldr);
-    lapack::potrf(Uplo::Upper, k, R_sp, ldr);
+    auto layout_flag_3 = layout == Layout::ColMajor ? Uplo::Upper : Uplo::Lower;
+    lapack::potrf(layout_flag_3, k, R_sp, ldr);
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
