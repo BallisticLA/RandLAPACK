@@ -167,6 +167,31 @@ void col_swap(
     }
 }
 
+template <typename t>
+void col_swap_row_major(
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    t* a,
+    int64_t lda,
+    std::vector<int64_t> idx
+) {
+    if (k > n)
+        throw std::runtime_error("invalid rank parameter.");
+
+    int64_t i, j;
+    for (i = 0, j = 0; i < k; ++i) {
+        j = idx[i] - 1; // adjust for zero-based index
+        // use blas to swap the whole columns
+        blas::swap(m, &a[i], lda, &a[j], lda);
+
+        // swap idx array elements
+        // find idx element with value i and assign it to j
+        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
+        idx[it - idx.begin()] = j + 1;
+    }
+}
+
 /// Checks if the given size is larger than available. 
 /// If so, resizes the vector.
 template <typename T>

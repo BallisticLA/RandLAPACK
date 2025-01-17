@@ -30,7 +30,8 @@ class CQRRPTalg {
             int64_t ldr,
             int64_t* J,
             T d_factor,
-            RandBLAS::RNGState<RNG> &state
+            RandBLAS::RNGState<RNG> &state,
+            Layout layout
         ) = 0;
 };
 
@@ -49,8 +50,8 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///
         ///
         /// The algorithm optionally computes a condition number of a preconditioned matrix A through a 'cond_check'
-        /// parameter, which defaults to 0. This requires extra n * (m + 1) * sizeof(T) bytes of space, which will be 
-        /// internally allocated by a utility routine. 
+        /// parameter, which defaults to 0. This requires extra n * (m + 1) * sizeof(T) bytes of space, which will be
+        /// internally allocated by a utility routine.
         /// A computation is handled by a utility method that finds the l2 condition number by computing all singular
         /// values of the R-factor via an appropriate LAPACK function.
         CQRRPT(
@@ -70,7 +71,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///     A[:, J] = QR,
         /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
         /// Detailed description of this algorithm may be found in Section 5.1.2.
-        /// of "the RandLAPACK book". 
+        /// of "the RandLAPACK book".
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -116,7 +117,8 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             int64_t ldr,
             int64_t* J,
             T d_factor,
-            RandBLAS::RNGState<RNG> &state
+            RandBLAS::RNGState<RNG> &state,
+            Layout layout=Layout::ColMajor
         ) override;
 
     public:
@@ -149,7 +151,8 @@ int CQRRPT<T, RNG>::call(
     int64_t ldr,
     int64_t* J,
     T d_factor,
-    RandBLAS::RNGState<RNG> &state
+    RandBLAS::RNGState<RNG> &state,
+    Layout layout
 ){
     ///--------------------TIMING VARS--------------------/
     high_resolution_clock::time_point saso_t_stop;
@@ -193,7 +196,7 @@ int CQRRPT<T, RNG>::call(
 
     if(this -> timing)
         saso_t_start = high_resolution_clock::now();
-    
+
     /// Generating a SASO
     RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -201,8 +204,9 @@ int CQRRPT<T, RNG>::call(
     state = S.next_state;
 
     /// Applying a SASO
+    auto layout_flag_1 = layout == Layout::ColMajor ? Op::NoTrans : Op::Trans;
     RandBLAS::sketch_general(
-        Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+        layout, Op::NoTrans, layout_flag_1,
         d, n, m, (T) 1.0, S, 0, 0, A, lda, (T) 0.0, A_hat, d
     );
 
@@ -225,8 +229,8 @@ int CQRRPT<T, RNG>::call(
     }
 
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
-    /// The actual rank estimate k will be computed a posteriori. 
-    /// Using R[i,i] to approximate the i-th singular value of A_hat. 
+    /// The actual rank estimate k will be computed a posteriori.
+    /// Using R[i,i] to approximate the i-th singular value of A_hat.
     /// Truncate at the largest i where R[i,i] / R[0,0] >= eps.
     for(i = 0; i < n; ++i) {
         if(std::abs(A_hat[i * d + i]) / std::abs(A_hat[0]) < eps_initial_rank_estimation) {
@@ -241,7 +245,8 @@ int CQRRPT<T, RNG>::call(
 
     /// Extracting a k by k R representation
     T* R_sp  = R;
-    lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, ldr);
+    auto layout_flag_2 = layout == Layout::ColMajor ? MatrixType::Upper : MatrixType::Lower;
+    lapack::lacpy(layout_flag_2, k, k, A_hat, d, R_sp, ldr);
 
     if(this -> timing)
         a_mod_piv_t_start = high_resolution_clock::now();
@@ -256,7 +261,7 @@ int CQRRPT<T, RNG>::call(
     }
 
     // A_pre * R_sp = AP
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, ldr, A, lda);
+    blas::trsm(layout, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing) {
         a_mod_trsm_t_stop = high_resolution_clock::now();
@@ -264,8 +269,9 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, ldr);
-    lapack::potrf(Uplo::Upper, k, R_sp, ldr);
+    blas::syrk(layout, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, ldr);
+    auto layout_flag_3 = layout == Layout::ColMajor ? Uplo::Upper : Uplo::Lower;
+    lapack::potrf(layout_flag_3, k, R_sp, ldr);
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
@@ -286,13 +292,14 @@ int CQRRPT<T, RNG>::call(
         }
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, ldr, A, lda);
+    blas::trsm(layout, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing)
         cholqr_t_stop = high_resolution_clock::now();
 
     // Get the final R-factor -- undoing the preconditioning
-    blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr); 
+    RandLAPACK::util::get_U(new_rank, new_rank, R_sp, ldr);
+    blas::trmm(layout, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr);
 
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = k;
