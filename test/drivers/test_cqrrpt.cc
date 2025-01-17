@@ -42,7 +42,6 @@ class TestCQRRPT : public ::testing::Test
         J(n, 0),
         A_cpy1(m * n, 0.0),
         A_cpy2(m * n, 0.0),
-        A_cpy3(m * n, 0.0),
         I_ref(k * k, 0.0),
         layout(layout)
         {}
@@ -177,6 +176,33 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     m_info.rank = k;
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+}
+
+TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp_RowMajor) {
+    int64_t m = 10;
+    int64_t n = 5;
+    int64_t k = 5;
+    double d_factor = 2;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+    Layout layout = Layout::RowMajor;
+
+    CQRRPTTestData<double> all_data(m, n, k, layout);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    CQRRPT.nnz = 2;
+    CQRRPT.no_hqrrp = 1;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    ColMajor2RowMajor(all_data);
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
