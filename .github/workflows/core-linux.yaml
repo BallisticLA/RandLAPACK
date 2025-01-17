@@ -14,11 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: webfactory/ssh-agent
-        uses: webfactory/ssh-agent@v0.5.4
-        with:
-            ssh-private-key: ${{ secrets.PRIVATE_CLONE_SSH_KEY }}
-
       - name: submodule update
         run: |
           git submodule update --init --recursive
