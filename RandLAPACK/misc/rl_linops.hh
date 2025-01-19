@@ -150,7 +150,7 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
         } else {
             val = A_buff[i + j*lda];
         }
-        if (_eval_includes_reg) {
+        if (_eval_includes_reg && i == j) {
             randblas_require(regs.size() == 1);
             val += regs[0];
         }

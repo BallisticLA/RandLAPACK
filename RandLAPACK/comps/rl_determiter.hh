@@ -133,12 +133,6 @@ void pcg_saddle(
 // MARK: [L/B]PCG helpers
 
 template <typename T>
-struct StatefulSeminorm {
-    ~StatefulSeminorm() {};
-    virtual T operator()(int64_t n, int64_t s, const T* NR) = 0;
-};
-
-template <typename T>
 struct StatefulFrobeniusNorm {
     std::vector<T> history;
     StatefulFrobeniusNorm() : history() {};
