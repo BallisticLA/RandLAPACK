@@ -150,7 +150,9 @@ template <typename T>
 void zero_off_diagonal(T* mat, int64_t s) {
     for (int64_t i = 0; i < s - 1; ++i) {
         T* ptr_to_next_diag = mat + i + i*s;
-        blas::scal(s, 0.0, ptr_to_next_diag + 1, 1);
+        //blas::scal(s, 0.0, ptr_to_next_diag + 1, 1);
+        for (int64_t j = 0; j < s; ++j)
+            ptr_to_next_diag[j+1] = (T) 0.0;
     }
 }
 
@@ -200,6 +202,7 @@ int64_t psd_sqrt_pinv(
     return ker;
 }
 
+
 /** 
  * Check if LHS is PSD. If it is, then update RHS <- pinv(LHS)*RHS.
  * 
@@ -214,12 +217,8 @@ int64_t psd_sqrt_pinv(
  * @param[in,out] LHS
  *      buffer for an n-by-n matrix.
  *      Contents of this buffer are destroyed.
- * @param[in] lda
- *      Leading dimension of LHS.
  * @param[in,out] RHS
  *      buffer for n-by-n matrix.
- * @param[in] ldb
- *      Leading dimension of RHS.
  * @param[out] work
  *     buffer of size >= n*n.
  * 
@@ -228,46 +227,40 @@ int64_t psd_sqrt_pinv(
 template <typename T>
 int64_t posm_square(
     int64_t n,
-    std::vector<T> & LHS,
-    int64_t lda,
-    std::vector<T> & RHS,
-    int64_t ldb,
-    std::vector<T> & work
+    T* LHS,
+    T* RHS,
+    T* work
 ) {
     auto layout = blas::Layout::ColMajor;
     auto uplo = blas::Uplo::Lower;
     using blas::Op;
     using blas::Side;
     using blas::Diag;
-    assert(n * n <= (int64_t) work.size());
 
     // Try Cholesky (store a backup of LHS into "work")
-    std::copy(LHS.begin(), LHS.end(), work.begin());
-    int chol_err = lapack::potrf(uplo, n, LHS.data(), lda);
+    std::copy(LHS, LHS + n*n, work);
+    int chol_err = lapack::potrf(uplo, n, LHS, n);
     if (!chol_err) {
         blas::trsm(
             layout, Side::Left, uplo, Op::NoTrans,
-            Diag::NonUnit, n, n, 1.0, LHS.data(), lda, RHS.data(), ldb
+            Diag::NonUnit, n, n, 1.0, LHS, n, RHS, n
         ); // L y = b
         blas::trsm(
             layout, Side::Left, uplo, Op::Trans,
-            Diag::NonUnit, n, n, 1.0, LHS.data(), lda, RHS.data(), ldb
+            Diag::NonUnit, n, n, 1.0, LHS, n, RHS, n
         ); // L^T x = y
         return n;
     } 
     // Cholesky failed.
     //      apply pinv(LHS) * RHS by computing an eigendecomposition of LHS.
-    T* LHS_eigvecs = work.data();
-    T* LHS_eigvals = LHS.data();
+    T* LHS_eigvecs = work;
+    T* LHS_eigvals = LHS;
     int ker = psd_sqrt_pinv(n, LHS_eigvecs, n, LHS_eigvals);
     if (ker < 0) {
         return ker;
     } else if (ker == n) {
-        T* rhs = RHS.data();
-        for (int i = 0; i < n; ++i) {
-            for (int j = 0; j < n; ++j) {
-                rhs[i + lda*j] = 0.0;
-            }
+        for (int i = 0; i < n*n; ++i) {
+            RHS[i] = 0.0;
         }
         return 0;
     }
@@ -276,10 +269,10 @@ int64_t posm_square(
     
     // pinv_sqrt is n-by-rank, and pinv(LHS) = pinv_sqrt * (pinv_sqrt').
     blas::gemm(
-        layout, Op::Trans, Op::NoTrans, rank, n, n, 1.0, pinv_sqrt, n, RHS.data(), n,  0.0, work.data(), rank
+        layout, Op::Trans, Op::NoTrans, rank, n, n, 1.0, pinv_sqrt, n, RHS, n,  0.0, work, rank
     ); // work <- pinv_sqrt' * RHS
     blas::gemm(
-        layout, Op::NoTrans, Op::NoTrans, n, n, rank, 1.0, pinv_sqrt, n, work.data(), rank, 0.0, RHS.data(), n
+        layout, Op::NoTrans, Op::NoTrans, n, n, rank, 1.0, pinv_sqrt, n, work, rank, 0.0, RHS, n
     ); // RHS <- pinv_sqrt * work
     return rank;
 }
@@ -288,7 +281,7 @@ int64_t posm_square(
 // MARK: [L/B]PCG
 
 template <typename T, typename FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
-FSeminorm lockorblock_pcg(
+FSeminorm pcg(
     FG &G,
     const std::vector<T> &H,
     T tol,
@@ -298,66 +291,67 @@ FSeminorm lockorblock_pcg(
     bool verbose
 ) {
     FSeminorm seminorm{};
-    lockorblock_pcg(G, H, tol, max_iters, N, X, verbose, seminorm);
+    int64_t s = ((int64_t) H.size()) / G.m;
+    pcg(G, H.data(), s, tol, max_iters, N, X.data(), verbose, seminorm);
     return seminorm;
 }
 
 template <typename T, typename FG, typename FN, typename FSeminorm>
-void lockorblock_pcg(
+void pcg(
     FG &G,
-    const std::vector<T> &H,
+    const T* H,
+    int64_t s,
     T tol,
     int64_t max_iters,
     FN &N,
-    std::vector<T> &X,
+    T* X,
     bool verbose,
     FSeminorm &seminorm
 ) {
     int64_t n = G.m;
     randblas_require(n == N.m);
-    int64_t s = ((int64_t) H.size()) / n;
     int64_t ns = n*s;
     int64_t ss = s*s;
-    randblas_require(ns == (int64_t) H.size());
-    randblas_require(ns == (int64_t) X.size());
     bool treat_as_separable = G.regs.size() > 1;
-    if (treat_as_separable)
-        randblas_require(s == (int64_t) G.regs.size());
+    if (treat_as_separable) randblas_require(s == (int64_t) G.regs.size());
 
-    using std::vector;
-
-    vector<T> R(H);
-    vector<T> P(ns, 0.0);
-    vector<T> GP(P);
-    vector<T> NR_or_scratch(P);
-
-    vector<T> RNR(ss, 0.0);
-    vector<T> alpha(RNR);
-    vector<T> beta(RNR);
-    vector<T> more_scratch(RNR);
-    vector<T> alpha_beta_left_buffer(RNR);
+    // All workspace gets zero-initialized; this is only
+    // overridden for "R".
+    T* allwork = new T[4*ns + 5*ss]{};
+    
+    // block vector work; n-by-s matrices.
+    T* R  = allwork; std::copy(H, H + ns, R);
+    T* P  = R  + ns;
+    T* GP = P  + ns;
+    T* NR = GP + ns;
+    // block "scalar" work; s-by-s matrices.
+    T* RNR     = NR      + ns;
+    T* alpha   = RNR     + ss;
+    T* beta    = alpha   + ss;
+    T* scratch = beta    + ss;
+    T* ableft  = scratch + ss; 
 
     T normNR = INFINITY, prevnormNR = INFINITY;
 
     auto layout = blas::Layout::ColMajor;
     using blas::Op;
 
-    G(layout, s, 1.0, X.data(), n, 0.0, GP.data(), n);
-    // ^ GP <- G X
-    blas::axpy(ns, -1.0, GP.data(), 1, R.data(), 1);
-    T normR0 = seminorm(n, s, R.data());
-    // ^ R <- R - G X 
-    N(layout, s, 1.0, R.data(), n, 0.0, P.data(), n);
-    // ^ P <- N R
-    T normNR0 = seminorm(n, s, P.data());
-    blas::gemm(
-        layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R.data(), n, P.data(), n, 0.0, RNR.data(), s
+    G(layout, s, 1.0, X, n, 0.0, GP, n
+    ); // GP <- G X
+    blas::axpy(ns, -1.0, GP, 1, R, 1
+    ); // R <- R - GP
+    N(layout, s, 1.0, R, n, 0.0, P, n
+    ); // P <- N R
+    blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R, n, P, n, 0.0, RNR, s
     ); // RNR <- R^T P = R^T N R
-    if (treat_as_separable)
-        zero_off_diagonal(RNR.data(), s);
-    alpha = RNR;
+    if (treat_as_separable) zero_off_diagonal(RNR, s);
+
+    std::copy(RNR, RNR + ss, alpha
+    ); // alpha <- RNR
 
     int64_t k = 0;
+    T normR0  = seminorm(n, s, R);
+    T normNR0 = seminorm(n, s, P);
     T stop_abstol = tol*(1.0 + normNR0);
     int64_t subspace_dim = 0;
     if (verbose)
@@ -368,17 +362,13 @@ void lockorblock_pcg(
         //
         k++;
 
-        G(layout, s, (T) 1.0, P.data(), n, (T) 0.0, GP.data(), n);
-        // ^ GP <- G P
-        blas::gemm(
-            layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, P.data(), n, GP.data(), n, 0.0, alpha_beta_left_buffer.data(), s
-        ); // alpha_beta_left_buffer <- P^T G P
-        if (treat_as_separable)
-            zero_off_diagonal(alpha_beta_left_buffer.data(), s);
-
-        int64_t subspace_incr = posm_square(
-            s, alpha_beta_left_buffer, s, alpha, s, more_scratch
-        ); // alpha <- (alpha_beta_left_buffer)^(-1) alpha
+        G(layout, s, (T) 1.0, P, n, (T) 0.0, GP, n
+        ); // ^ GP <- G P
+        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, P, n, GP, n, 0.0, ableft, s
+        ); // ableft <- P^T G P
+        if (treat_as_separable) zero_off_diagonal(ableft, s);
+        int64_t subspace_incr = posm_square(s, ableft, alpha, scratch
+        ); // alpha <- (ableft)^(-1) alpha
         if (treat_as_separable && subspace_incr > 0)
             subspace_incr = 1;
 
@@ -386,11 +376,9 @@ void lockorblock_pcg(
             break;
         subspace_dim = subspace_dim + subspace_incr;
 
-        blas::gemm(
-            layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P.data(), n, alpha.data(), s, 1.0, X.data(), n
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P, n, alpha, s, 1.0, X, n
         ); // X <- X + P alpha
-        blas::gemm(
-            layout, Op::NoTrans, Op::NoTrans, n, s, s, -1.0, GP.data(), n, alpha.data(), s, 1.0, R.data(), n
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, -1.0, GP, n, alpha, s, 1.0, R, n
         ); // R <- R - GP alpha
 
         //
@@ -398,11 +386,12 @@ void lockorblock_pcg(
         //
         //      TODO: change how we check termination criteria in the event that we're working
         //            with treat_as_separable = true.
-        T normR = seminorm(n, s, R.data());
+        T normR = seminorm(n, s, R);
 
-        N(layout, s, 1.0, R.data(), n, 0.0, NR_or_scratch.data(), n); // NR <- N R
+        N(layout, s, 1.0, R, n, 0.0, NR, n
+        ); // NR <- N R
         prevnormNR = normNR;
-        normNR = seminorm(n, s, NR_or_scratch.data());
+        normNR = seminorm(n, s, NR);
         if (verbose)
             std::cout << "normNR : " << normNR << "\tnormR : " << normR << "\tk: " << k << "\tdim : " << subspace_dim << '\n';
         if (normNR < stop_abstol)
@@ -410,24 +399,26 @@ void lockorblock_pcg(
         // 
         //  Update P, beta, and alpha
         //
-        alpha_beta_left_buffer = RNR;
-        blas::gemm(
-            layout, blas::Op::Trans, blas::Op::NoTrans, s, s, n, 1.0, R.data(), n, NR_or_scratch.data(), n, 0.0, RNR.data(), s
+        std::copy(RNR, RNR + ss, ableft
+        ); // ableft <- RNR
+        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, s, s, n, 1.0, R, n, NR, n, 0.0, RNR, s
         ); // RNR <- R^T NR
-        if (treat_as_separable)
-            zero_off_diagonal(RNR.data(), s);
-        alpha = RNR;
-        beta = alpha;
-        int err = posm_square(
-            s, alpha_beta_left_buffer, s, beta, s, more_scratch
-        ); // beta <- (alpha_beta_left_buffer)^-1 beta
+        if (treat_as_separable) zero_off_diagonal(RNR, s);
+        std::copy(RNR, RNR + ss, alpha
+        ); // alpha <- RNR
+        std::copy(alpha, alpha + ss, beta
+        ); // beta <- alpha
+        int err = posm_square( s, ableft, beta, scratch
+        ); // beta <- (ableft)^-1 beta
         if (err < - ((int64_t) s))
             break;
-        blas::gemm(
-            layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P.data(), n, beta.data(), s, 1.0, NR_or_scratch.data(), n
-        ); // NR_or_scratch <- P * beta
-        P = NR_or_scratch;
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P, n, beta, s, 1.0, NR, n
+        ); // NR <- P beta
+        std::copy(NR, NR + ns, P
+        ); // P <- NR
     }
+
+    delete [] allwork;
     return;
 }
 

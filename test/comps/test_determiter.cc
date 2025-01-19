@@ -109,7 +109,7 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         RandLAPACK::linops::RegExplicitSymLinOp I(m, I_buff.data(), m, zeros);
 
         T tol = 100*std::numeric_limits<T>::epsilon();
-        RandLAPACK::lockorblock_pcg(G, H, tol, m, I, X_init, true, seminorm);
+        RandLAPACK::pcg(G, H.data(), s, tol, m, I, X_init.data(), true, seminorm);
 
         T tol_scale = std::sqrt((T)m);
         T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);
@@ -155,11 +155,11 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         vector<T> zeros(s, 0.0);
         RandLAPACK::linops::RegExplicitSymLinOp I(m, I_buff.data(), m, zeros);
 
-        // While we're testing lockstep PCG, let's call the overload of lockorblock_pcg
+        // While we're testing lockstep PCG, let's call the overload of pcg
         // that automatically chooses the seminorm. We don't care about the return value
         // in this case.
         T tol = 100*std::numeric_limits<T>::epsilon();
-        RandLAPACK::lockorblock_pcg(G, H, tol, m, I, X_init, true);
+        RandLAPACK::pcg(G, H, tol, m, I, X_init, true);
 
         T tol_scale = std::sqrt((T)m);
         T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);
