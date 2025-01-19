@@ -405,7 +405,7 @@ void pcg(
         //
         std::copy(RNR, RNR + ss, ableft
         ); // ableft <- RNR
-        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, s, s, n, 1.0, R, n, NR, n, 0.0, RNR, s
+        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R, n, NR, n, 0.0, RNR, s
         ); // RNR <- R^T NR
         if (treat_as_separable) zero_off_diagonal(RNR, s);
         std::copy(RNR, RNR + ss, alpha
