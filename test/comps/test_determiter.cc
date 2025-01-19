@@ -47,7 +47,7 @@ class TestDetermiterOLS : public ::testing::Test {
         double delta = 0.1;
 	    double tol = 1e-8;
 
-        RandLAPACK::pcg(
+        RandLAPACK::pcg_saddle(
             m, n, A.data(), m, b.data(), c.data(), delta,
             resid_vec, tol, n, M.data(), n, x0.data(), x.data(), y.data());
         
