@@ -30,7 +30,7 @@ void run_pcgls_ex(int n, int m)
     double tol = 1e-8;
 
     RandLAPACK::pcg_saddle(m, n, A.data(), m, b.data(), c.data(), delta,
-        resid_vec, tol, n, M.data(), n, x0.data(), x.data(), y.data());
+        10*n, resid_vec.data(), tol, n, M.data(), n, x0.data(), x.data(), y.data());
 
     for (double res: resid_vec)
     {
