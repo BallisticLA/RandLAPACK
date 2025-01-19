@@ -135,7 +135,10 @@ void pcg_saddle(
 template <typename T>
 struct StatefulFrobeniusNorm {
     std::vector<T> history;
+    // default constructor
     StatefulFrobeniusNorm() : history() {};
+    // move constructor
+    StatefulFrobeniusNorm(StatefulFrobeniusNorm<T> &&other) noexcept : history(std::move(other.history)) {};
     inline T operator()(int64_t n, int64_t s, const T* NR) { 
         T nrm = blas::nrm2(n * s, NR, 1);
         this->history.push_back(nrm);
@@ -284,6 +287,21 @@ int64_t posm_square(
 
 // MARK: [L/B]PCG
 
+template <typename T, typename FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
+FSeminorm lockorblock_pcg(
+    FG &G,
+    const std::vector<T> &H,
+    T tol,
+    int64_t max_iters,
+    FN &N,
+    std::vector<T> &X,
+    bool verbose
+) {
+    FSeminorm seminorm{};
+    lockorblock_pcg(G, H, tol, max_iters, N, X, verbose, seminorm);
+    return seminorm;
+}
+
 template <typename T, typename FG, typename FN, typename FSeminorm>
 void lockorblock_pcg(
     FG &G,
@@ -291,9 +309,9 @@ void lockorblock_pcg(
     T tol,
     int64_t max_iters,
     FN &N,
-    FSeminorm &seminorm,
     std::vector<T> &X,
-    bool verbose = false
+    bool verbose,
+    FSeminorm &seminorm
 ) {
     int64_t n = G.m;
     randblas_require(n == N.m);
