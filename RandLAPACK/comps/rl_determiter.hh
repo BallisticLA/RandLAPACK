@@ -316,8 +316,8 @@ void pcg(
     randblas_require(n == N.m);
     int64_t ns = n*s;
     int64_t ss = s*s;
-    bool treat_as_separable = G.regs.size() > 1;
-    if (treat_as_separable) randblas_require(s == (int64_t) G.regs.size());
+    bool treat_as_separable = G.num_regs > 1;
+    if (treat_as_separable) randblas_require(s == G.num_regs);
 
     // All workspace gets zero-initialized; this is only
     // overridden for "R".

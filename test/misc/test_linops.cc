@@ -65,7 +65,7 @@ class TestSpectralPrecondLinearOperator: public ::testing::Test {
         vector<T> mus(1, mu);
         invP_operator.prep(pcV, pceigs, mus, n);
         vector<T> G_mu_pre_actual(n*n, 0.0);
-        invP_operator.evaluate(n, G_mu.data(), G_mu_pre_actual.data());
+        invP_operator(blas::Layout::ColMajor, n, (T) 1.0,  G_mu.data(), n, (T)0.0, G_mu_pre_actual.data(), n);
         test::comparison::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, n, n, G_mu_pre_actual.data(), n,
             G_mu_pre_expect.data(), n, __PRETTY_FUNCTION__, 
