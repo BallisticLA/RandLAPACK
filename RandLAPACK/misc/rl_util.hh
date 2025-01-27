@@ -188,8 +188,8 @@ T cond_num_check(
     const T* A,
     bool verbose
 ) {
-    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
-    T* s     = ( T * ) calloc( n, sizeof( T ) );
+    T* A_cpy = new T[m * n]();
+    T* s     = new T[n]();
 
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
@@ -199,8 +199,8 @@ T cond_num_check(
     if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
 
-    free(A_cpy);
-    free(s);
+    delete[] A_cpy;
+    delete[] s;
 
     return cond_num;
 }
@@ -212,8 +212,8 @@ int64_t rank_check(
     int64_t n,
     const T* A
 ) {
-    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
-    T* s     = ( T * ) calloc( n, sizeof( T ) );
+    T* A_cpy = new T[m * n]();
+    T* s     = new T[n]();
 
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
@@ -223,8 +223,8 @@ int64_t rank_check(
             return i - 1;
     }
 
-    free(A_cpy);
-    free(s);
+    delete[] A_cpy;
+    delete[] s;
 
     return n;
 }
@@ -238,7 +238,7 @@ bool orthogonality_check(
     bool verbose
 ) {
 
-    T* A_gram  = ( T * ) calloc( k * k, sizeof( T ) );
+    T* A_gram  = new T[k * k]();
 
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
 
@@ -252,11 +252,11 @@ bool orthogonality_check(
     }
 
     if (orth_err > 1.0e-10) {
-        free(A_gram);
+        delete[] A_gram;
         return true;
     }
 
-    free(A_gram);
+    delete[] A_gram;
     return false;
 }
 

@@ -211,10 +211,11 @@ static void call_tsqr(
     long dur_cholqr_r_restore  = 0;
 
     // Imitating the QRCP on a sketch stage of BQRRP - needed to get a preconditioner
-    T* S       = ( T * )       calloc( n * m, sizeof( T ) );
-    T* A_sk    = ( T * )       calloc( n * n, sizeof( T ) );
-    int64_t* J = ( int64_t * ) calloc( n,     sizeof( int64_t ) );
-    T* tau     = ( T * )       calloc( n,     sizeof( T ) );
+    T* S       = new T[n * m]();
+    T* A_sk    = new T[n * n]();
+    int64_t* J = new int64_t[n]();
+    T* tau     = new T[n]();
+    
     RandBLAS::DenseDist D(n, m);
     auto state_const = state;
     RandBLAS::fill_dense(D, S, state_const);
@@ -289,10 +290,10 @@ static void call_tsqr(
         file << "\n";
     }
 
-    free(A_sk);
-    free(S);
-    free(J);
-    free(tau);
+    delete[] A_sk;
+    delete[] S;
+    delete[] J;
+    delete[] tau;
 }
 
 template <typename T, typename RNG>

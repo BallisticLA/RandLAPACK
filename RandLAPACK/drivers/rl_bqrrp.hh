@@ -249,7 +249,7 @@ int BQRRP<T, RNG>::call(
     int64_t* J_buffer = J_buf.data();
     // Special pivoting buffer for LU factorization, capturing the swaps on A_sk'.
     // Needs to be converted in a proper format of length rows(A_sk')
-    int64_t* J_buffer_lu = ( int64_t * ) calloc( std::min(d, n), sizeof( int64_t ) );
+    int64_t* J_buffer_lu = new int64_t[std::min(d, n)]();
 
     // A_sk serves as a skething matrix, of size d by n, lda d
     // Below algorithm does not perform repeated sampling, hence A_sk
@@ -257,14 +257,15 @@ int BQRRP<T, RNG>::call(
     // Should remain unchanged throughout the algorithm,
     // As the algorithm needs to have access to the upper-triangular factor R
     // (stored in this matrix after geqp3) at all times. 
-    T* A_sk = ( T * ) calloc( d * n, sizeof( T ) );
+    T* A_sk = new T[d * n]();
+
     // Create a separate pointer to free when function terminates
     T* A_sk_const = A_sk;
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
     T* R_sk = NULL;
     // View to the transpose of A_sk.
     // Is of size n * d, with an lda n.
-    T* A_sk_trans = ( T * ) calloc( n * d, sizeof( T ) );
+    T* A_sk_trans = new T[n * d]();
 
     // Buffer for the R-factor in tall QR, of size b_sz by b_sz, lda b_sz.
     // Also used to store the proper R11_full-factor after the 
@@ -272,12 +273,12 @@ int BQRRP<T, RNG>::call(
     // That is done by applying the sign vector D from orhr_col().
     // Eventually, will be used to store R11 (computed via trmm)
     // which is then copied into its appropriate space in the matrix A.
-    T* R_tall_qr = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
+    T* R_tall_qr = new T[b_sz_const * b_sz_const]();
     // Pointer to matrix T from orhr_col at currect iteration, will point to Work2 space.
-    T* T_dat    = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
+    T* T_dat = new T[b_sz_const * b_sz_const]();
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
-    T* Work2    = ( T * ) calloc( n, sizeof( T ) );
+    T* Work2 = new T[n]();
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
     if(this -> timing) {
@@ -289,11 +290,11 @@ int BQRRP<T, RNG>::call(
     // Using Gaussian matrix as a sketching operator.
     // Using a sparse sketching operator may be dangerous if LU-based QRCP is in use,
     // as LU is not intended to be used with rank-deficient matrices.
-    T* S  = ( T * ) calloc( d * m, sizeof( T ) );
+    T* S = new T[d * m]();
     RandBLAS::DenseDist D(d, m);
     state = RandBLAS::fill_dense(D, S, state);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
-    free(S);
+    delete[] S;
 
     if(this -> timing) {
         skop_t_stop  = high_resolution_clock::now();
@@ -371,12 +372,12 @@ int BQRRP<T, RNG>::call(
                 RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
             }
 
-            free(J_buffer_lu);
-            free(A_sk_const);
-            free(A_sk_trans);
-            free(R_tall_qr);
-            free(T_dat);
-            free(Work2);
+            delete[] J_buffer_lu;
+            delete[] A_sk_const;
+            delete[] A_sk_trans;
+            delete[] R_tall_qr;
+            delete[] T_dat;
+            delete[] Work2;
             return 0;
         }
 
@@ -579,13 +580,12 @@ int BQRRP<T, RNG>::call(
                 printf("Everything else takes                     %6.2f%% of runtime.\n",  100 * ((T) t_other                   / (T) total_t_dur));
                 printf("/-------------BQRRP TIMING RESULTS END-------------/\n\n");
             }
-
-            free(J_buffer_lu);
-            free(A_sk_const);
-            free(A_sk_trans);
-            free(R_tall_qr);
-            free(T_dat);
-            free(Work2);
+            delete[] J_buffer_lu;
+            delete[] A_sk_const;
+            delete[] A_sk_trans;
+            delete[] R_tall_qr;
+            delete[] T_dat;
+            delete[] Work2;
 
             return 0;
         }
