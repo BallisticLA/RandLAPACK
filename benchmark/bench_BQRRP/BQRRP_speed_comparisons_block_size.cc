@@ -214,7 +214,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_speed_comparisons" 
+    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_speed_comparisons_block_size" 
                                                                  + "_num_info_lines_" + std::to_string(6) +
                                                                    ".txt";
 
