@@ -149,20 +149,21 @@ int SYPS<T, RNG>::call(
 
     T *symm_out = work_buff;
     T *symm_in  = skop_buff;
-    int64_t* ipiv = new int64_t[m]{};
+    T *tau = new T[k]{};
     while (p - p_done > 0) {
         A(Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
         ++p_done;
         if (p_done % q == 0) {
-                if(lapack::getrf(m, k, symm_out, m, ipiv))
-                    throw std::runtime_error("Sketch did not have an LU decomposition.");
-                util::get_L(m, k, symm_out, 1);
-                lapack::laswp(k, symm_out, m, 1, k, ipiv, 1);
+            if(lapack::geqrf(m, k, symm_out, m, tau)) {
+                delete [] tau;
+                throw std::runtime_error("GEQRF failed.");
+            }
+            lapack::ungqr(m, k, k, symm_out, m, tau);
         }
         symm_out = (p_done % 2 == 1) ? skop_buff : work_buff;
         symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff; 
     }
-    delete[] ipiv;
+    delete[] tau;
     if (p % 2 == 1)
         blas::copy(m * k, work_buff, 1, skop_buff, 1);
 
