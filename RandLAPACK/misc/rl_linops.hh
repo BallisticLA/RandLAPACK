@@ -106,7 +106,7 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
 
     const T* A_buff;
     const int64_t lda;
-    int64_t num_regs = 1;
+    int64_t num_ops = 1;
     T* regs = nullptr;
     bool _eval_includes_reg;
 
@@ -115,13 +115,13 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
     using scalar_t = T;
 
     RegExplicitSymLinOp(
-        int64_t m, const T* A_buff, int64_t lda, T* arg_regs, int64_t arg_num_regs
+        int64_t m, const T* A_buff, int64_t lda, T* arg_regs, int64_t arg_num_ops
     ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda) {
         randblas_require(lda >= m);
         _eval_includes_reg = false;
-        num_regs = arg_num_regs;
-        num_regs = std::max(num_regs, (int64_t) 1);
-        regs = new T[num_regs]{};
+        num_ops = arg_num_ops;
+        num_ops = std::max(num_ops, (int64_t) 1);
+        regs = new T[num_ops]{};
         std::copy(arg_regs, arg_regs, regs);
     }
 
@@ -144,9 +144,9 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
         blas::symm(layout, blas::Side::Left, this->uplo, this->m, n, alpha, this->A_buff, this->lda, B, ldb, beta, C, ldc);
 
         if (_eval_includes_reg) {
-            if (num_regs != 1) randblas_require(n == num_regs);
+            if (num_ops != 1) randblas_require(n == num_ops);
             for (int64_t i = 0; i < n; ++i) {
-                T coeff =  alpha * regs[std::min(i, num_regs - 1)];
+                T coeff =  alpha * regs[std::min(i, num_ops - 1)];
                 blas::axpy(this->m, coeff, B + i*ldb, 1, C +  i*ldc, 1);
             }
         }
@@ -161,7 +161,7 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
             val = A_buff[i + j*lda];
         }
         if (_eval_includes_reg && i == j) {
-            randblas_require(num_regs == 1);
+            randblas_require(num_ops == 1);
             val += regs[0];
         }
         return val;
@@ -180,7 +180,7 @@ struct SpectralPrecond {
     T* V = nullptr;
     T* D = nullptr;
     T* W = nullptr;
-    int64_t num_regs = 0;
+    int64_t num_ops = 0;
 
     /* Suppose we want to precondition a positive semidefinite matrix G_mu = G + mu*I.
      *
@@ -204,7 +204,7 @@ struct SpectralPrecond {
     // Call as SpectralPrecond<T> spc(std::move(other)) when we want to transfer the
     // contents of "other" to "this". 
     SpectralPrecond(SpectralPrecond &&other) noexcept
-        : m(other.m), dim_pre(other.dim_pre), num_rhs(other.num_rhs), num_regs(other.num_regs)
+        : m(other.m), dim_pre(other.dim_pre), num_rhs(other.num_rhs), num_ops(other.num_ops)
     {
         std::swap(V, other.V);
         std::swap(D, other.D);
@@ -214,11 +214,11 @@ struct SpectralPrecond {
     // Copy constructor
     // Call as SpectralPrecond<T> spc(other) when we want to copy "other".
     SpectralPrecond(const SpectralPrecond &other)
-        : m(other.m), dim_pre(other.dim_pre), num_rhs(other.num_rhs),  num_regs(other.num_regs)
+        : m(other.m), dim_pre(other.dim_pre), num_rhs(other.num_rhs),  num_ops(other.num_ops)
      {
-        reset_owned_buffers(dim_pre, num_rhs, num_regs);
+        reset_owned_buffers(dim_pre, num_rhs, num_ops);
         std::copy(other.V, other.V + m * dim_pre,        V);
-        std::copy(other.D, other.D + dim_pre * num_regs, D);
+        std::copy(other.D, other.D + dim_pre * num_ops, D);
      } 
 
     ~SpectralPrecond() {
@@ -227,12 +227,12 @@ struct SpectralPrecond {
         if (W != nullptr) delete [] W;
     }
 
-    void reset_owned_buffers(int64_t arg_dim_pre, int64_t arg_num_rhs, int64_t arg_num_regs) {
-        randblas_require(arg_num_rhs == arg_num_regs || arg_num_regs == 1);
+    void reset_owned_buffers(int64_t arg_dim_pre, int64_t arg_num_rhs, int64_t arg_num_ops) {
+        randblas_require(arg_num_rhs == arg_num_ops || arg_num_ops == 1);
 
-        if (arg_dim_pre * arg_num_regs > dim_pre * num_regs) {
+        if (arg_dim_pre * arg_num_ops > dim_pre * num_ops) {
             if (D != nullptr) delete [] D;
-            D = new T[arg_dim_pre * arg_num_regs]{};
+            D = new T[arg_dim_pre * arg_num_ops]{};
         } 
         if (arg_dim_pre > dim_pre) {
             if (V != nullptr) delete [] V;
@@ -245,11 +245,11 @@ struct SpectralPrecond {
 
         dim_pre  = arg_dim_pre;
         num_rhs  = arg_num_rhs;
-        num_regs = arg_num_regs;
+        num_ops = arg_num_ops;
     }
 
     void set_D_from_eigs_and_regs(T* eigvals, T* mus) {
-        for (int64_t r = 0; r < num_regs; ++r) {
+        for (int64_t r = 0; r < num_ops; ++r) {
             T  mu_r = mus[r];
             T* D_r  = D + r*dim_pre;
             T  numerator = eigvals[dim_pre-1] + mu_r;
@@ -262,9 +262,9 @@ struct SpectralPrecond {
 
     void prep(vector<T> &eigvecs, vector<T> &eigvals, vector<T> &mus, int64_t arg_num_rhs) {
         // assume eigvals are positive numbers sorted in decreasing order.
-        int64_t arg_num_regs = mus.size();
+        int64_t arg_num_ops = mus.size();
         int64_t arg_dim_pre  = eigvals.size();
-        reset_owned_buffers(arg_dim_pre, arg_num_rhs, arg_num_regs);
+        reset_owned_buffers(arg_dim_pre, arg_num_rhs, arg_num_ops);
         set_D_from_eigs_and_regs(eigvals.data(), mus.data());
         std::copy(eigvecs.begin(), eigvecs.end(), V);
         return;
@@ -276,8 +276,8 @@ struct SpectralPrecond {
         randblas_require(layout == blas::Layout::ColMajor);
         randblas_require(ldb >= this->m);
         randblas_require(ldc >= this->m);
-        if (this->num_regs != 1) {
-            randblas_require(n == num_regs);
+        if (this->num_ops != 1) {
+            randblas_require(n == num_ops);
         } else {
             randblas_require(this->num_rhs >= n);
         }
@@ -289,7 +289,7 @@ struct SpectralPrecond {
         blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, dim_pre, n, m, (T) 1.0, V, m, B, ldb, (T) 0.0, W, dim_pre);
  
         // -----> start step 2
-        #define mat_D(_i, _j)  ((num_regs == 1) ? D[(_i)] : D[(_i) + dim_pre*(_j)])
+        #define mat_D(_i, _j)  ((num_ops == 1) ? D[(_i)] : D[(_i) + dim_pre*(_j)])
         #define mat_W(_i, _j)  W[(_i) + dim_pre*(_j)]
         for (int64_t j = 0; j < n; j++) {
             for (int64_t i = 0; i < dim_pre; i++) {

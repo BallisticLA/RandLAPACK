@@ -284,40 +284,108 @@ int64_t posm_square(
 
 // MARK: [L/B]PCG
 
-template <typename T, typename FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
-FSeminorm pcg(
-    FG &G,
-    const std::vector<T> &H,
-    T tol,
-    int64_t max_iters,
-    FN &N,
-    std::vector<T> &X,
-    bool verbose
-) {
-    FSeminorm seminorm{};
-    int64_t s = ((int64_t) H.size()) / G.m;
-    pcg(G, H.data(), s, tol, max_iters, N, X.data(), verbose, seminorm);
-    return seminorm;
-}
-
-template <typename T, typename FG, typename FN, typename FSeminorm>
+/**
+ * Uses (a variant of) preconditioned conjugate gradient to solve systems of linear equations
+ * 
+ *  G_i * x_i = h_i for i in {1, ..., s}        (Eq. 1)
+ *
+ * with preconditioners N_1, ..., N_s. The linear systems all have the same number 
+ * of variables, m, so X = [x_1,..., x_s] and H = [h_1, ..., h_s] are passed as m-by-s matrices. 
+ * 
+ * Arguments "G" and "N" act as operator-overloaded containers for the G_i and N_i.
+ * We template these arguments abstractly. See below for details.
+ *
+ * PCG iterations continue until a maximum number of steps is reached OR an error metric
+ * computed from the "seminorm" callable argument falls below the specified tolerance.
+ * 
+ * @param[in] G
+ *
+ *      A callable object storing one or more positive semidefinite linear operators.
+ *      We have three requirements on the type of this object:
+ * 
+ *              G.num_ops = the number of distinct linear operators stored in G.
+ *                  If G.num_ops == 1, then G_i = G_1 for all i in {1, ..., s}.
+ *                  If G.num_ops >  1, then we assume each G_i is distinct, and 
+ *                  we require that G.num_ops == s.
+ *
+ *              G.m = the number of rows and columns in each G_i.
+ *
+ *              G(blas::Layout::ColMajor, s, alpha, B, ldb, beta, C, ldc) updates
+ *                  c_i := alpha G_i * b_i + beta c_i
+ *              where C = [c_1, ..., c_s] and B = [b_1, ..., b_s] are m-by-s matrices stored
+ *              in column-major order with strides ldc and ldb, respectively.
+ * 
+ *      If G.num_ops == 1 then we solve (Eq. 1) using block PCG with block size s. If G.num_ops > 1
+ *      then we run an algorithm which is equivalent to s embarassingly parallel single-vector
+ *      PCG, but which takes care to keep iterations of the embarassingly parallel solves in 
+ *      lockstep synchronization. The lockstep mode is useful when the G_i share a common 
+ *      structure, such as having the form G_i = A + mu_i*I for a psd matrix A and regularization
+ *      parameters (mu_1,...,mu_s). In this case one can compute the s matrix-vector products with
+ *      (G_1,...,G_s) with one matrix-matrix multiply (against A) followed by cheap postprocessing. 
+ * 
+ * @param[in] H
+ *      Pointer to a column-major matrix of shape (G.m, s) with stride parameter G.m.
+ *      Defines the right-hand sides in (Eq. 1).
+ * 
+ * @param[in] s
+ *      The number of linear systems to be solved.
+ *
+ * @param[in,out] seminorm
+ *      Callable as val = seminorm(m, s, R), where R is a pointer to an array of type T
+ *      read as a column-major matrix of shape (m, s) with stride equal to m. One valid
+ *      implementation is 
+ *
+ *          auto seminorm = [](int64_t rows, int64_t cols, T* R) {
+ *              return blas::nrm2(rows * cols, R, 1);
+ *          };
+ *
+ *      in which case seminorm is actually a proper norm. (The "semi" in "seminorm" allows
+ *      for the possibility that val == 0 if R belongs to fixed linear subspace, such as
+ *      the space of matrices whose columns sum to the zero vector.)
+ *
+ *      We call seminorm twice at each iteration of PCG. Even calls (i.e., call 0, call 2, etc..)
+ *      input the raw residual matrix, H - G(X). Odd calls (i.e., call 1, call 3, etc..)
+ *      input the preconditioned residual matrix, equal to N(H - G(X)).
+ * 
+ * @param[in] tol
+ *      All PCG iterations stop if normNR < tol*(1.0 + normNR0), normNR is the value returned
+ *      by seminorm applied to the current preconditioned residual, and normNR0 is the value
+ *      returned by seminorm applied to the preconditioned residual before iterations began.
+ *
+ * @param[in] max_iters
+ *      An upper bound on the number of calls to G's operator() function.
+ * 
+ * @param[in] N
+ *     This is any object that implements operator() with the same semantics of G's implementation.
+ *     Each N_i should be an approximate inverse for G_i.
+ *
+  * @param[in,out] X
+ *      Pointer to a column-major matrix of shape (G.m, s) with stride parameter G.m.
+ *      The values of its columns on entry are used to initialize PCG solves of (Eq. 1).
+ *      The values of its columns on exit contain the results of the PCG solves.
+ *
+ * @param[in] verbose
+ *      A boolean. If true, then logging information is printed to stdout.
+ * 
+ */
+template <typename T, typename FG, typename FSeminorm, typename FN>
 void pcg(
     FG &G,
     const T* H,
     int64_t s,
+    FSeminorm &seminorm,
     T tol,
     int64_t max_iters,
     FN &N,
     T* X,
-    bool verbose,
-    FSeminorm &seminorm
+    bool verbose
 ) {
     int64_t n = G.m;
     randblas_require(n == N.m);
     int64_t ns = n*s;
     int64_t ss = s*s;
-    bool treat_as_separable = G.num_regs > 1;
-    if (treat_as_separable) randblas_require(s == G.num_regs);
+    bool treat_as_separable = G.num_ops > 1;
+    if (treat_as_separable) randblas_require(s == G.num_ops);
 
     // All workspace gets zero-initialized; this is only
     // overridden for "R".
@@ -424,6 +492,39 @@ void pcg(
 
     delete [] allwork;
     return;
+}
+
+
+/**
+ * This wraps a function of the same name that has a lower-level API. Refer to that lower-level
+ * function for detailed documentation. The key __differences__ between that lower-level function
+ * and this wrapper are as follows.
+ * 
+ *    1. This wrapper accepts std::vector instead of raw pointers.
+ * 
+ *    2. This wrapper doesn't require the user to specifify the number of right-hand-sides
+ *       (since that can be inferred from the sizes of the input std::vector objects).
+ * 
+ *    3. This wrapper has a default method for the seminorm used in PCG stopping criteria.
+ *       That default is to use the StatefulFrobeniusNorm type (defined above), which logs
+ *       residuals both before and after preconditioning.
+ *       
+ * The main purpose of this wrapper is backward-compatibility with existing code.
+ */
+template <typename T, typename FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
+FSeminorm pcg(
+    FG &G,
+    const std::vector<T> &H,
+    T tol,
+    int64_t max_iters,
+    FN &N,
+    std::vector<T> &X,
+    bool verbose
+) {
+    FSeminorm seminorm{};
+    int64_t s = ((int64_t) H.size()) / G.m;
+    pcg(G, H.data(), s, seminorm, tol, max_iters, N, X.data(), verbose);
+    return seminorm;
 }
 
 

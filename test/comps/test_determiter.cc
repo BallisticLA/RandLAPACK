@@ -109,7 +109,7 @@ class TestDetermiterLockBlockPCG : public ::testing::Test {
         RandLAPACK::linops::RegExplicitSymLinOp I(m, I_buff.data(), m, zeros);
 
         T tol = 100*std::numeric_limits<T>::epsilon();
-        RandLAPACK::pcg(G, H.data(), s, tol, m, I, X_init.data(), true, seminorm);
+        RandLAPACK::pcg(G, H.data(), s, seminorm, tol, m, I, X_init.data(), true);
 
         T tol_scale = std::sqrt((T)m);
         T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);
