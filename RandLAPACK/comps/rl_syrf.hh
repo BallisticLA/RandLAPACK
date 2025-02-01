@@ -102,7 +102,7 @@ class SYRF {
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) {
-            int64_t m = A.m;
+            int64_t m = A.dim;
             bool callers_work_buff = work_buff != nullptr;
             if (!callers_work_buff)
                 work_buff = new T[m * k];

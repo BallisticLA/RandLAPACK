@@ -290,7 +290,7 @@ int64_t posm_square(
  *  G_i * x_i = h_i for i in {1, ..., s}        (Eq. 1)
  *
  * with preconditioners N_1, ..., N_s. The linear systems all have the same number 
- * of variables, m, so X = [x_1,..., x_s] and H = [h_1, ..., h_s] are passed as m-by-s matrices. 
+ * of variables, dim, so X = [x_1,..., x_s] and H = [h_1, ..., h_s] are passed as dim-by-s matrices. 
  * 
  * Arguments "G" and "N" act as operator-overloaded containers for the G_i and N_i.
  * We template these arguments abstractly. See below for details.
@@ -308,11 +308,11 @@ int64_t posm_square(
  *                  If G.num_ops >  1, then we assume each G_i is distinct, and 
  *                  we require that G.num_ops == s.
  *
- *              G.m = the number of rows and columns in each G_i.
+ *              G.dim = the number of rows and columns in each G_i.
  *
  *              G(blas::Layout::ColMajor, s, alpha, B, ldb, beta, C, ldc) updates
  *                  c_i := alpha G_i * b_i + beta c_i
- *              where C = [c_1, ..., c_s] and B = [b_1, ..., b_s] are m-by-s matrices stored
+ *              where C = [c_1, ..., c_s] and B = [b_1, ..., b_s] are dim-by-s matrices stored
  *              in column-major order with strides ldc and ldb, respectively.
  * 
  *      If G.num_ops == 1 then we solve (Eq. 1) using block PCG with block size s. If G.num_ops > 1
@@ -324,15 +324,15 @@ int64_t posm_square(
  *      (G_1,...,G_s) with one matrix-matrix multiply (against A) followed by cheap postprocessing. 
  * 
  * @param[in] H
- *      Pointer to a column-major matrix of shape (G.m, s) with stride parameter G.m.
+ *      Pointer to a column-major matrix of shape (G.dim, s) with stride parameter G.dim.
  *      Defines the right-hand sides in (Eq. 1).
  * 
  * @param[in] s
  *      The number of linear systems to be solved.
  *
  * @param[in,out] seminorm
- *      Callable as val = seminorm(m, s, R), where R is a pointer to an array of type T
- *      read as a column-major matrix of shape (m, s) with stride equal to m. One valid
+ *      Callable as val = seminorm(dim, s, R), where R is a pointer to an array of type T
+ *      read as a column-major matrix of shape (dim, s) with stride equal to dim. One valid
  *      implementation is 
  *
  *          auto seminorm = [](int64_t rows, int64_t cols, T* R) {
@@ -360,7 +360,7 @@ int64_t posm_square(
  *     Each N_i should be an approximate inverse for G_i.
  *
   * @param[in,out] X
- *      Pointer to a column-major matrix of shape (G.m, s) with stride parameter G.m.
+ *      Pointer to a column-major matrix of shape (G.dim, s) with stride parameter G.dim.
  *      The values of its columns on entry are used to initialize PCG solves of (Eq. 1).
  *      The values of its columns on exit contain the results of the PCG solves.
  *
@@ -368,7 +368,7 @@ int64_t posm_square(
  *      A boolean. If true, then logging information is printed to stdout.
  * 
  */
-template <typename T, typename FG, typename FSeminorm, typename FN>
+template <typename T, linops::SymmetricLinearOperator FG, typename FSeminorm, typename FN>
 void pcg(
     FG &G,
     const T* H,
@@ -380,8 +380,7 @@ void pcg(
     T* X,
     bool verbose
 ) {
-    int64_t n = G.m;
-    randblas_require(n == N.m);
+    int64_t n = G.dim;
     int64_t ns = n*s;
     int64_t ss = s*s;
     bool treat_as_separable = G.num_ops > 1;
@@ -511,7 +510,7 @@ void pcg(
  *       
  * The main purpose of this wrapper is backward-compatibility with existing code.
  */
-template <typename T, typename FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
+template <typename T, linops::SymmetricLinearOperator FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
 FSeminorm pcg(
     FG &G,
     const std::vector<T> &H,
@@ -522,7 +521,7 @@ FSeminorm pcg(
     bool verbose
 ) {
     FSeminorm seminorm{};
-    int64_t s = ((int64_t) H.size()) / G.m;
+    int64_t s = ((int64_t) H.size()) / G.dim;
     pcg(G, H.data(), s, seminorm, tol, max_iters, N, X.data(), verbose);
     return seminorm;
 }

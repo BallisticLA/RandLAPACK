@@ -244,7 +244,7 @@ int64_t make_right_orthogonalizer(
  * 
  * @param[in] A
  *      An object conforming to the SymmetricLinearOperator interface.
- *      It represents a matrix of order A.m. It is callable, and responsible
+ *      It represents a matrix of order A.dim. It is callable, and responsible
  *      for allocating any memory it might need when called.
  * @param[out] V
  *      A std::vector that gives a column-major representation of an m-by-k_out

@@ -31,7 +31,7 @@ T power_error_est(
     T* Mat_buf,
     T* eigvals
 ) {
-    int64_t m = A.m;
+    int64_t m = A.dim;
     T err = 0;
     for(int i = 0; i < p; ++i) {
         T g_norm = blas::nrm2(m, vector_buf, 1);
@@ -150,7 +150,7 @@ class REVD2 {
             std::vector<T> &eigvals,
             RandBLAS::RNGState<RNG> &state
         ) {
-            int64_t m = A.m;
+            int64_t m = A.dim;
             T err = 0;
             RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
             error_est_state.key.incr(1);

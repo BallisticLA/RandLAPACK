@@ -126,7 +126,7 @@ class SYPS {
             T* &skop_buff,
             T* work_buff
         ) {
-            int64_t m = A.m;
+            int64_t m = A.dim;
             int64_t p = this->passes_over_data;
             int64_t q = this->passes_per_stab;
             int64_t p_done = 0;
