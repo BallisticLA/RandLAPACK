@@ -71,17 +71,17 @@ struct SymLinOp {
 template <typename T>
 struct ExplicitSymLinOp : public SymLinOp<T> {
 
-    const blas::Uplo uplo;
+    const Uplo uplo;
     const T* A_buff;
     const int64_t lda;
-    const blas::Layout buff_layout;
+    const Layout buff_layout;
 
     ExplicitSymLinOp(
         int64_t m,
-        blas::Uplo uplo,
+        Uplo uplo,
         const T* A_buff,
         int64_t lda,
-        blas::Layout buff_layout
+        Layout buff_layout
     ) : SymLinOp<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
 
     // Note: the "layout" parameter here is interpreted for (B and C).
@@ -89,7 +89,7 @@ struct ExplicitSymLinOp : public SymLinOp<T> {
     // parameters to blas::symm to reconcile the different layouts of
     // A vs (B, C).
     void operator()(
-        blas::Layout layout,
+        Layout layout,
         int64_t n,
         T alpha,
         T* const B,
@@ -102,7 +102,7 @@ struct ExplicitSymLinOp : public SymLinOp<T> {
         randblas_require(ldc >= this->m);
         auto blas_call_uplo = this->uplo;
         if (layout != this->buff_layout)
-            blas_call_uplo = (this->uplo == blas::Uplo::Upper) ? blas::Uplo::Lower : blas::Uplo::Upper;
+            blas_call_uplo = (this->uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
         // Reading the "blas_call_uplo" triangle of "this->A_buff" in "layout" order is the same
         // as reading the "this->uplo" triangle of "this->A_buff" in "this->buff_layout" order.
         blas::symm(
@@ -112,7 +112,7 @@ struct ExplicitSymLinOp : public SymLinOp<T> {
     }
 
     inline T operator()(int64_t i, int64_t j) {
-        randblas_require(this->uplo == blas::Uplo::Upper && this->buff_layout == blas::Layout::ColMajor);
+        randblas_require(this->uplo == Uplo::Upper && this->buff_layout == Layout::ColMajor);
         if (i > j) {
             return A_buff[j + i*lda];
         } else {
@@ -130,8 +130,8 @@ struct RegExplicitSymLinOp : public SymLinOp<T> {
     T* regs = nullptr;
     bool _eval_includes_reg;
 
-    static const blas::Uplo uplo = blas::Uplo::Upper;
-    static const blas::Layout buff_layout = blas::Layout::ColMajor;
+    static const Uplo uplo = Uplo::Upper;
+    static const Layout buff_layout = Layout::ColMajor;
     using scalar_t = T;
 
     RegExplicitSymLinOp(
@@ -157,7 +157,7 @@ struct RegExplicitSymLinOp : public SymLinOp<T> {
         _eval_includes_reg = eir;
     }
 
-    void operator()(blas::Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+    void operator()(Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
         randblas_require(layout == this->buff_layout);
         randblas_require(ldb >= this->m);
         randblas_require(ldc >= this->m);
@@ -291,9 +291,9 @@ struct SpectralPrecond {
     }
 
     void operator()(
-        blas::Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
+        Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
     ) {
-        randblas_require(layout == blas::Layout::ColMajor);
+        randblas_require(layout == Layout::ColMajor);
         randblas_require(ldb >= this->m);
         randblas_require(ldc >= this->m);
         if (this->num_ops != 1) {
