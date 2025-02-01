@@ -47,7 +47,7 @@ class TestSYRF : public ::testing::Test
     struct algorithm_objects {
         RandLAPACK::SYPS<T, RNG> SYPS;
         RandLAPACK::HQRQ<T> Orth_RF; 
-        RandLAPACK::SYRF<T, RNG> SYRF;
+        RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, T, RNG> SYRF;
 
         algorithm_objects(
             bool verbose, 

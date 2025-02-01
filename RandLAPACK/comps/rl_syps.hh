@@ -14,37 +14,58 @@
 
 namespace RandLAPACK {
 
-template <typename T, typename RNG>
-class SymmetricPowerSketch {
-    public:
-        virtual ~SymmetricPowerSketch() {}
+// template <typename T, typename RNG>
+// class SymmetricPowerSketch {
+//     public:
+//         virtual ~SymmetricPowerSketch() {}
 
-        virtual int call(
-            Uplo uplo,
-            int64_t m,
-            const T* A,
-            int64_t lda,
-            int64_t k,
-            RandBLAS::RNGState<RNG> &state,
-            T* &skop_buff = nullptr,
-            T* work_buff = nullptr
-        ) = 0;
+//         virtual int call(
+//             Uplo uplo,
+//             int64_t m,
+//             const T* A,
+//             int64_t lda,
+//             int64_t k,
+//             RandBLAS::RNGState<RNG> &state,
+//             T* &skop_buff = nullptr,
+//             T* work_buff = nullptr
+//         ) = 0;
 
-        virtual int call(
-            linops::SymLinOp<T> &A,
-            int64_t k,
-            RandBLAS::RNGState<RNG> &state,
-            T* &skop_buff = nullptr,
-            T* work_buff = nullptr
-        ) = 0;
+//         virtual int call(
+//             linops::SymLinOp<T> &A,
+//             int64_t k,
+//             RandBLAS::RNGState<RNG> &state,
+//             T* &skop_buff = nullptr,
+//             T* work_buff = nullptr
+//         ) = 0;
 
+// };
+
+// template <typename SYPS_t, typename T, typename RNG>
+// concept SymmetricPowerSketch = requires(SYPS_t obj, Uplo uplo, int64_t m, const T* A, int64_t lda, int64_t k, RandBLAS::RNGState<RNG> &state, T* skop_buff, T* work_buff) {
+//     { obj.call(uplo, m, A, lda, k, state, skop_buff, work_buff) } -> std::same_as<int>;
+//     { obj.call(std::declval<linops::SymmetricLinearOperator>(), k, state, skop_buff, work_buff) } -> std::same_as<int>;
+// };
+
+template <typename SYPS_t, typename Op, typename T, typename RNG>
+concept SymmetricPowerSketchConcept = 
+    linops::SymmetricLinearOperator<Op> && // Ensure Op conforms to the concept
+    requires(SYPS_t obj, Uplo uplo, int64_t m, const T* A, int64_t lda, int64_t k, RandBLAS::RNGState<RNG> &state, T* skop_buff, T* work_buff) {
+        // First version of call
+        { obj.call(uplo, m, A, lda, k, state, skop_buff, work_buff) } -> std::same_as<int>;
+        // Second version of call, templated on a type that satisfies SymmetricLinearOperator
+        { obj.call(std::declval<Op>(), k, state, skop_buff, work_buff) } -> std::same_as<int>;
 };
 
 
 template <typename T, typename RNG>
-class SYPS : public SymmetricPowerSketch<T, RNG> {
+class SYPS {
     public:
-
+        int64_t passes_over_data;
+        int64_t passes_per_stab;
+        bool verbose;
+        bool cond_check;
+        std::vector<T> cond_nums;
+    
         SYPS(
             int64_t p, // number of passes
             int64_t q, // passes per stabilization
@@ -107,71 +128,58 @@ class SYPS : public SymmetricPowerSketch<T, RNG> {
             T* work_buff
         );
 
+        template <linops::SymmetricLinearOperator SLO>
         int call(
-            linops::SymLinOp<T> &A,
+            SLO &A,
             int64_t k,
             RandBLAS::RNGState<RNG> &state,
             T* &skop_buff,
             T* work_buff
-        );
+        ) {
+            int64_t m = A.m;
+            int64_t p = this->passes_over_data;
+            int64_t q = this->passes_per_stab;
+            int64_t p_done = 0;
+
+            bool callers_skop_buff = skop_buff != nullptr;
+            if (!callers_skop_buff)
+                skop_buff = new T[m * k];
+            RandBLAS::DenseDist D(m, k);
+            state = RandBLAS::fill_dense(D, skop_buff, state);
+
+            bool callers_work_buff = work_buff != nullptr;
+            if (!callers_work_buff)
+                work_buff = new T[m * k];
+            RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
+
+            T *symm_out = work_buff;
+            T *symm_in  = skop_buff;
+            T *tau = new T[k]{};
+            while (p - p_done > 0) {
+                A(Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
+                ++p_done;
+                if (p_done % q == 0) {
+                    if(lapack::geqrf(m, k, symm_out, m, tau)) {
+                        delete [] tau;
+                        throw std::runtime_error("GEQRF failed.");
+                    }
+                    lapack::ungqr(m, k, k, symm_out, m, tau);
+                }
+                symm_out = (p_done % 2 == 1) ? skop_buff : work_buff;
+                symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff; 
+            }
+            delete[] tau;
+            if (p % 2 == 1)
+                blas::copy(m * k, work_buff, 1, skop_buff, 1);
+
+            if (!callers_work_buff)
+                delete[] work_buff;
+
+            return 0;
+        }
     
-        int64_t passes_over_data;
-        int64_t passes_per_stab;
-        bool verbose;
-        bool cond_check;
-        std::vector<T> cond_nums;
 };
 
-// -----------------------------------------------------------------------------
-template <typename T, typename RNG>
-int SYPS<T, RNG>::call(
-    linops::SymLinOp<T> &A,
-    int64_t k,
-    RandBLAS::RNGState<RNG> &state,
-    T* &skop_buff,
-    T* work_buff
-){
-    int64_t m = A.m;
-    int64_t p = this->passes_over_data;
-    int64_t q = this->passes_per_stab;
-    int64_t p_done = 0;
-
-     bool callers_skop_buff = skop_buff != nullptr;
-     if (!callers_skop_buff)
-         skop_buff = new T[m * k];
-    RandBLAS::DenseDist D(m, k);
-    state = RandBLAS::fill_dense(D, skop_buff, state);
-
-     bool callers_work_buff = work_buff != nullptr;
-     if (!callers_work_buff)
-         work_buff = new T[m * k];
-    RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
-
-    T *symm_out = work_buff;
-    T *symm_in  = skop_buff;
-    T *tau = new T[k]{};
-    while (p - p_done > 0) {
-        A(Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
-        ++p_done;
-        if (p_done % q == 0) {
-            if(lapack::geqrf(m, k, symm_out, m, tau)) {
-                delete [] tau;
-                throw std::runtime_error("GEQRF failed.");
-            }
-            lapack::ungqr(m, k, k, symm_out, m, tau);
-        }
-        symm_out = (p_done % 2 == 1) ? skop_buff : work_buff;
-        symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff; 
-    }
-    delete[] tau;
-    if (p % 2 == 1)
-        blas::copy(m * k, work_buff, 1, skop_buff, 1);
-
-    if (!callers_work_buff)
-        delete[] work_buff;
-
-   return 0;
-}
 
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>

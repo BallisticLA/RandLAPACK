@@ -77,7 +77,7 @@ class TestREVD2 : public ::testing::Test
     struct algorithm_objects {
         RandLAPACK::SYPS<T, RNG> SYPS;
         RandLAPACK::HQRQ<T> Orth_RF; 
-        RandLAPACK::SYRF<T, RNG> SYRF;
+        RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, T, RNG> SYRF;
         //  ^ Needs a symmetric power skether and an orthogonalizer
         RandLAPACK::REVD2<T, RNG> REVD2;
         //  ^ Needs a symmetric rangefinder.

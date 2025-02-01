@@ -296,7 +296,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     // ^ Define an orthogonalizer for a symmetric rangefinder.
     //      (*) Get a dense representation of Q from Householder QR.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::SYRF<T, RNG> SYRF(SYPS, Orth, false, false);
+    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, T, RNG> SYRF(SYPS, Orth, false, false);
     // ^ Define the symmetric rangefinder algorithm.
     //      (*) Use power sketching followed by Householder orthogonalization.
     //      (*) Do not check condition numbers or log to std::out.

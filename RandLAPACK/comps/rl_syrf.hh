@@ -40,12 +40,20 @@ class SymmetricRangeFinder {
         ) = 0;
 };
 
-template <typename T, typename RNG>
+template <typename SYPS_t, typename T, typename RNG>
 class SYRF : public SymmetricRangeFinder<T, RNG> {
     public:
+    //    RandLAPACK::SymmetricPowerSketch<T, RNG> &SYPS_Obj;
+       SYPS_t &SYPS_Obj;
+       RandLAPACK::Stabilization<T> &Orth_Obj;
+       bool verbose;
+       bool cond_check;
+       std::vector<T> cond_work_mat;
+       std::vector<T> cond_work_vec;
+       std::vector<T> cond_nums; // Condition nubers of sketches
 
         SYRF(
-            RandLAPACK::SymmetricPowerSketch<T, RNG> &syps_obj,
+            SYPS_t &syps_obj,
             RandLAPACK::Stabilization<T> &orth_obj,
             bool verb = false,
             bool cond = false
@@ -101,21 +109,11 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
             T* work_buff
         ) override;
 
-
-    public:
-       // Instantiated in the constructor
-       RandLAPACK::SymmetricPowerSketch<T, RNG> &SYPS_Obj;
-       RandLAPACK::Stabilization<T> &Orth_Obj;
-       bool verbose;
-       bool cond_check;
-       std::vector<T> cond_work_mat;
-       std::vector<T> cond_work_vec;
-       std::vector<T> cond_nums; // Condition nubers of sketches
 };
 
 // -----------------------------------------------------------------------------
-template <typename T, typename RNG>
-int SYRF<T, RNG>::call(
+template <typename SYPS_t, typename T, typename RNG>
+int SYRF<SYPS_t, T, RNG>::call(
     linops::SymLinOp<T> &A,
     int64_t k,
     std::vector<T> &Q,
@@ -151,8 +149,8 @@ int SYRF<T, RNG>::call(
 }
 
 // -----------------------------------------------------------------------------
-template <typename T, typename RNG>
-int SYRF<T, RNG>::call(
+template <typename SYPS_t, typename T, typename RNG>
+int SYRF<SYPS_t, T, RNG>::call(
     Uplo uplo,
     int64_t m,
     const T* A,
