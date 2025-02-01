@@ -45,7 +45,7 @@ class QB : public QBalg<T, RNG> {
             RandLAPACK::Stabilization<T> &orth_obj,
             bool verb,
             bool orth
-        ) : RF_Obj(rf_obj), orth(orth_obj) {
+        ) : rf(rf_obj), orth(orth_obj) {
             verbose = verb;
             orth_check = orth;
         }
@@ -123,7 +123,7 @@ class QB : public QBalg<T, RNG> {
         ) override;
 
     public:
-        RandLAPACK::RangeFinder<T, RNG> &RF_Obj;
+        RandLAPACK::RangeFinder<T, RNG> &rf;
         RandLAPACK::Stabilization<T> &orth;
         bool verbose;
         bool orth_check;
@@ -188,7 +188,7 @@ int QB<T, RNG>::call(
         BT_i = &BT[n * curr_sz];
 
         // Calling RangeFinder
-        if(this->RF_Obj.call(m, n, A_cpy, b_sz, Q_i, state)) {
+        if(this->rf.call(m, n, A_cpy, b_sz, Q_i, state)) {
             // RF failed
             k = curr_sz;
             free(A_cpy);
