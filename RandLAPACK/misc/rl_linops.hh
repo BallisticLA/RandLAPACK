@@ -31,46 +31,12 @@ concept SymmetricLinearOperator = requires(LinOp A) {
 };
 
 
-using std::vector;
-
 template <typename T>
-struct SymLinOp {
+struct ExplicitSymLinOp {
 
+    using scalar_t = T;
     const int64_t m;
     const int64_t dim;
-    using scalar_t = T;
-
-    SymLinOp(int64_t m) : m(m), dim(m) {};
-
-    /* The semantics of this function are similar to blas::symm.
-        * We compute
-        *      C = alpha * A * B + beta * C
-        * where this SymLinOp object represents "A"
-        * and "B" has "n" columns.
-        * 
-        * Note: The parameter "layout" refers to the storage
-        * order of B and C. There's no universal notion of "layout"
-        * for A since A is an abstract linear operator.
-    */
-    virtual void operator()(
-        Layout layout,
-        int64_t n,
-        T alpha,
-        T* const B,
-        int64_t ldb,
-        T beta,
-        T* C,
-        int64_t ldc
-    ) = 0;
-
-    virtual T operator()(int64_t i, int64_t j) = 0;
- 
-    virtual ~SymLinOp() {}
-};
-
-template <typename T>
-struct ExplicitSymLinOp : public SymLinOp<T> {
-
     const Uplo uplo;
     const T* A_buff;
     const int64_t lda;
@@ -82,7 +48,7 @@ struct ExplicitSymLinOp : public SymLinOp<T> {
         const T* A_buff,
         int64_t lda,
         Layout buff_layout
-    ) : SymLinOp<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
+    ) : m(m), dim(dim), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
 
     // Note: the "layout" parameter here is interpreted for (B and C).
     // If layout conflicts with this->buff_layout then we manipulate
@@ -122,8 +88,11 @@ struct ExplicitSymLinOp : public SymLinOp<T> {
 };
 
 template <typename T>
-struct RegExplicitSymLinOp : public SymLinOp<T> {
+struct RegExplicitSymLinOp {
 
+    using scalar_t = T;
+    const int64_t m;
+    const int64_t dim;
     const T* A_buff;
     const int64_t lda;
     int64_t num_ops = 1;
@@ -132,11 +101,10 @@ struct RegExplicitSymLinOp : public SymLinOp<T> {
 
     static const Uplo uplo = Uplo::Upper;
     static const Layout buff_layout = Layout::ColMajor;
-    using scalar_t = T;
 
     RegExplicitSymLinOp(
         int64_t m, const T* A_buff, int64_t lda, T* arg_regs, int64_t arg_num_ops
-    ) : SymLinOp<T>(m), A_buff(A_buff), lda(lda) {
+    ) : m(m), dim(dim), A_buff(A_buff), lda(lda) {
         randblas_require(lda >= m);
         _eval_includes_reg = false;
         num_ops = arg_num_ops;
@@ -146,7 +114,7 @@ struct RegExplicitSymLinOp : public SymLinOp<T> {
     }
 
     RegExplicitSymLinOp(
-        int64_t m, const T* A_buff, int64_t lda, vector<T> &arg_regs
+        int64_t m, const T* A_buff, int64_t lda, std::vector<T> &arg_regs
     ) : RegExplicitSymLinOp<T>(m, A_buff, lda, arg_regs.data(), static_cast<int64_t>(arg_regs.size())) {}
 
     ~RegExplicitSymLinOp() {
@@ -192,7 +160,6 @@ struct RegExplicitSymLinOp : public SymLinOp<T> {
 template<typename T>
 struct SpectralPrecond {
 
-    public:
     using scalar_t = T; 
     const int64_t m;
     int64_t dim_pre;
@@ -280,7 +247,7 @@ struct SpectralPrecond {
         return;
     }
 
-    void prep(vector<T> &eigvecs, vector<T> &eigvals, vector<T> &mus, int64_t arg_num_rhs) {
+    void prep(std::vector<T> &eigvecs, std::vector<T> &eigvals, std::vector<T> &mus, int64_t arg_num_rhs) {
         // assume eigvals are positive numbers sorted in decreasing order.
         int64_t arg_num_ops = mus.size();
         int64_t arg_dim_pre  = eigvals.size();
