@@ -75,7 +75,7 @@ class REVD2 {
     public:
         using T   = typename SYRF_t::T;
         using RNG = typename SYRF_t::RNG;
-        SYRF_t &SYRF_Obj;
+        SYRF_t &syrf;
         int error_est_p;
         bool verbose;
 
@@ -90,7 +90,7 @@ class REVD2 {
             SYRF_t &syrf_obj,
             int error_est_power_iters,
             bool verb = false
-        ) : SYRF_Obj(syrf_obj) {
+        ) : syrf(syrf_obj) {
             error_est_p = error_est_power_iters;
             verbose = verb;
         }
@@ -165,7 +165,7 @@ class REVD2 {
 
                 // Construnct a sketching operator
                 // If CholeskyQR is used for stab/orth here, RF can fail
-                this->SYRF_Obj.call(A, k, this->Omega, state, symrf_work_dat);
+                this->syrf.call(A, k, this->Omega, state, symrf_work_dat);
 
                 // Y = A * Omega
                 A(Layout::ColMajor, k, 1.0, Omega_dat, m, 0.0, Y_dat, m);

@@ -29,13 +29,13 @@ concept SymmetricRangeFinderConcept =
 };
 
 
-template <typename SYPS_t>
+template <typename SYPS_t, typename Orth_t>
 class SYRF {
     public:
-        using T = typename SYPS_t::scalar_t;
+        using T  = typename SYPS_t::scalar_t;
         using RNG = typename SYPS_t::RNG_t;
-        SYPS_t &SYPS_Obj;
-        RandLAPACK::Stabilization<T> &Orth_Obj;
+        SYPS_t &syps;
+        Orth_t &orth;
         bool verbose;
         bool cond_check;
         std::vector<T> cond_work_mat;
@@ -44,10 +44,10 @@ class SYRF {
 
         SYRF(
             SYPS_t &syps_obj,
-            RandLAPACK::Stabilization<T> &orth_obj,
+            Orth_t &orth_obj,
             bool verb = false,
             bool cond = false
-        ) : SYPS_Obj(syps_obj), Orth_Obj(orth_obj) {
+        ) : syps(syps_obj), orth(orth_obj) {
             verbose = verb;
             cond_check = cond;
         }
@@ -110,7 +110,7 @@ class SYRF {
             RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
 
             T* Q_dat = util::upsize(m * k, Q);
-            SYPS_Obj.call(A, k, state, work_buff, Q_dat);
+            syps.call(A, k, state, work_buff, Q_dat);
 
             // Q = orth(A * Omega)
             A(Layout::ColMajor, k, (T) 1.0, work_buff, m, (T) 0.0, Q_dat, m);
@@ -121,7 +121,7 @@ class SYRF {
                     util::cond_num_check(m, k, Q.data(), this->verbose)
                 );
             }
-            if(this->Orth_Obj.call(m, k, Q.data()))
+            if(this->orth.call(m, k, Q.data()))
                 throw std::runtime_error("Orthogonalization failed.");
             
             if (!callers_work_buff)

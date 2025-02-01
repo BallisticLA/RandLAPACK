@@ -288,20 +288,23 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
-    RandLAPACK::SYPS<T, RNG> SYPS(num_syps_passes, 1, false, false);
+    using SYPS_t = RandLAPACK::SYPS<T, RNG>;
+    using Orth_t = RandLAPACK::HQRQ<T>;
+    using SYRF_t = RandLAPACK::SYRF<SYPS_t, Orth_t>;
+    SYPS_t SYPS(num_syps_passes, 1, false, false);
     // ^ Define a symmetric power sketch algorithm.
     //      (*) Stabilize power iteration with pivoted-LU after every
     //          mulitplication with A.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::HQRQ<T> Orth(false, false); 
+    Orth_t Orth(false, false); 
     // ^ Define an orthogonalizer for a symmetric rangefinder.
     //      (*) Get a dense representation of Q from Householder QR.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>> SYRF(SYPS, Orth, false, false);
+    SYRF_t SYRF(SYPS, Orth, false, false);
     // ^ Define the symmetric rangefinder algorithm.
     //      (*) Use power sketching followed by Householder orthogonalization.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::REVD2<RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>>> NystromAlg(SYRF, num_steps_power_iter_error_est, false);
+    RandLAPACK::REVD2<SYRF_t> NystromAlg(SYRF, num_steps_power_iter_error_est, false);
     // ^ Define the algorithm for low-rank approximation via Nystrom.
     //      (*) Handle accuracy requests by estimating ||A - V diag(eigvals) V'||
     //          with "num_steps_power_iter_error_est" steps of power iteration.
