@@ -17,18 +17,6 @@
 namespace RandLAPACK {
 
 
-template <typename SYRF_t, typename Op, typename T, typename RNG>
-concept SymmetricRangeFinderConcept = 
-    // Ensure Op conforms to the SymmetricLinearOperator concept
-    linops::SymmetricLinearOperator<Op> &&
-    requires(SYRF_t obj, Uplo uplo, int64_t m, const T* A, int64_t lda, int64_t k, std::vector<T> Q, RandBLAS::RNGState<RNG> &state, T* work_buff) {
-        // First version of call
-        { obj.call(uplo, m, A, lda, k, Q, state, work_buff) } -> std::same_as<int>;
-        // Second version of call, templated on a type that satisfies SymmetricLinearOperator
-        { obj.call(std::declval<Op>(), k, Q, state, work_buff) } -> std::same_as<int>;
-};
-
-
 template <typename SYPS_t, typename Orth_t>
 class SYRF {
     public:
