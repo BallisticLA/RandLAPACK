@@ -276,9 +276,9 @@ int64_t make_right_orthogonalizer(
  *      An RNGState that the calling function should use the next
  *      time it needs an RNGState.
  */
-template <typename T, typename RNG>
+template <typename T, typename RNG, linops::SymmetricLinearOperator SLO>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
-    linops::SymLinOp<T> &A,
+    SLO &A,
     std::vector<T> &V,
     std::vector<T> &eigvals,
     int64_t &k,
