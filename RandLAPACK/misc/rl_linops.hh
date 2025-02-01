@@ -10,11 +10,11 @@
 #include <algorithm>
 #include <vector>
 #include <cstdint>
+#include <concepts>
+
 
 namespace RandLAPACK::linops {
 
-#ifdef __cpp_concepts
-#include <concepts>
 
 template<typename LinOp, typename T = LinOp::scalar_t>
 concept SymmetricLinearOperator = requires(LinOp A) {
@@ -29,9 +29,7 @@ concept SymmetricLinearOperator = requires(LinOp A) {
     //
     { A(layout, n, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
 };
-#else
-#define SymmetricLinearOperator typename
-#endif
+
 
 using std::vector;
 

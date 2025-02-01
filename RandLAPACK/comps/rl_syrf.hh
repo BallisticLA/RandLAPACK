@@ -32,7 +32,7 @@ concept SymmetricRangeFinderConcept =
 template <typename SYPS_t>
 class SYRF {
     public:
-        using T   = typename SYPS_t::scalar_t;
+        using T = typename SYPS_t::scalar_t;
         using RNG = typename SYPS_t::RNG_t;
         SYPS_t &SYPS_Obj;
         RandLAPACK::Stabilization<T> &Orth_Obj;

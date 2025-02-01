@@ -11,20 +11,36 @@
 #include <vector>
 #include <stdexcept>
 #include <cstdio>
+#include <concepts>
+
 
 namespace RandLAPACK {
 
+/*
+Looks like there's no way to define a concept for a single type, SYPS_t,
+where SYPS_t satisftying the SymmetricPowerSketcherConcept implies that 
+objects of type SYPS_t have a call(...) method whose first argument is
+templated to accept any object whose type satisfies SymmetricLinearOperator.
 
-template <typename SYPS_t, typename Op, typename T, typename RNG>
+I can only define a concept that accepts two template parameters. Those
+can, in principle, be used for templating with patterns of the form
+
+    template <typename SYPS_t, typename SLO>
+    requires SymmetricPowerSketchConcept<SYPS_t, SLO>
+    // ... definition here ...
+
+*/
+
+// In the concept below the template parameters T and RNG are just aliases for readibility.
+// Because they have default values, an expression "SymmetricPowerSketchConcept<SYPS_t, SLO>""
+// is a well-formed way of enforcing the SymmetricPowerSketchConcept requirement on (SYPS_t, SLO).
+template <typename SYPS_t, typename SLO, typename T = SYPS_t::scalar_t, typename RNG = SYPS_t::RNG_t>
 concept SymmetricPowerSketchConcept = 
-    linops::SymmetricLinearOperator<Op> && // Ensure Op conforms to the concept
+    linops::SymmetricLinearOperator<SLO> &&
     requires(SYPS_t obj, Uplo uplo, int64_t m, const T* A, int64_t lda, int64_t k, RandBLAS::RNGState<RNG> &state, T* skop_buff, T* work_buff) {
-        // First version of call
         { obj.call(uplo, m, A, lda, k, state, skop_buff, work_buff) } -> std::same_as<int>;
-        // Second version of call, templated on a type that satisfies SymmetricLinearOperator
-        { obj.call(std::declval<Op>(), k, state, skop_buff, work_buff) } -> std::same_as<int>;
+        { obj.call(std::declval<SLO>(), k, state, skop_buff, work_buff) } -> std::same_as<int>;
 };
-
 
 template <typename T, typename RNG>
 class SYPS {
