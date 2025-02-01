@@ -22,7 +22,7 @@ class SymmetricRangeFinder {
         virtual ~SymmetricRangeFinder() {}
 
         virtual int call(
-            linops::SymmetricLinearOperator<T> &A,
+            linops::SymLinOp<T> &A,
             int64_t k,
             std::vector<T> &Q,
             RandBLAS::RNGState<RNG> &state,
@@ -94,7 +94,7 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
         ) override;
 
         int call(
-            linops::SymmetricLinearOperator<T> &A,
+            linops::SymLinOp<T> &A,
             int64_t k,
             std::vector<T> &Q,
             RandBLAS::RNGState<RNG> &state,
@@ -116,7 +116,7 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
 // -----------------------------------------------------------------------------
 template <typename T, typename RNG>
 int SYRF<T, RNG>::call(
-    linops::SymmetricLinearOperator<T> &A,
+    linops::SymLinOp<T> &A,
     int64_t k,
     std::vector<T> &Q,
     RandBLAS::RNGState<RNG> &state,

@@ -31,7 +31,7 @@ class REVD2alg {
         ) = 0;
 
         virtual int call(
-            linops::SymmetricLinearOperator<T> &A,
+            linops::SymLinOp<T> &A,
             int64_t &k,
             T tol,
             std::vector<T> &V,
@@ -98,7 +98,7 @@ class REVD2 : public REVD2alg<T, RNG> {
         ) override;
 
         int call(
-            linops::SymmetricLinearOperator<T> &A,
+            linops::SymLinOp<T> &A,
             int64_t &k,
             T tol,
             std::vector<T> &V,
@@ -127,7 +127,7 @@ class REVD2 : public REVD2alg<T, RNG> {
 /// All other parameters come from REVD2
 template <typename T>
 T power_error_est(
-    linops::SymmetricLinearOperator<T> &A,
+    linops::SymLinOp<T> &A,
     int64_t k,
     int p,
     T* vector_buf,
@@ -176,7 +176,7 @@ T power_error_est(
 
 template <typename T, typename RNG>
 int REVD2<T, RNG>::call(
-        linops::SymmetricLinearOperator<T> &A,
+        linops::SymLinOp<T> &A,
         int64_t &k,
         T tol,
         std::vector<T> &V,

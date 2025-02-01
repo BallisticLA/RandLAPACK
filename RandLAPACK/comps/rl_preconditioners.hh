@@ -278,7 +278,7 @@ int64_t make_right_orthogonalizer(
  */
 template <typename T, typename RNG>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
-    linops::SymmetricLinearOperator<T> &A,
+    linops::SymLinOp<T> &A,
     std::vector<T> &V,
     std::vector<T> &eigvals,
     int64_t &k,

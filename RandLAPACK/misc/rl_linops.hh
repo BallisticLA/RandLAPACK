@@ -13,19 +13,41 @@
 
 namespace RandLAPACK::linops {
 
+#ifdef __cpp_concepts
+#include <concepts>
+
+template<typename LinOp, typename T = LinOp::scalar_t>
+concept SymmetricLinearOperator = requires(LinOp A) {
+    { A.dim }  -> std::same_as<const int64_t&>;
+    // It's recommended that A also have const int64_t members n_rows and n_cols,
+    // both equal to A.dim.
+} && requires(LinOp A, Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+    // A SYMM-like function that updates C := alpha A*B + beta C, where
+    // B and C have n columns and are stored in layout order with strides (ldb, ldc).
+    //
+    // If layout is ColMajor then an error will be thrown if min(ldb, ldc) < A.dim.
+    //
+    { A(layout, n, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
+};
+#else
+#define SymmetricLinearOperator typename
+#endif
+
 using std::vector;
 
 template <typename T>
-struct SymmetricLinearOperator {
+struct SymLinOp {
 
     const int64_t m;
+    const int64_t dim;
+    using scalar_t = T;
 
-    SymmetricLinearOperator(int64_t m) : m(m) {};
+    SymLinOp(int64_t m) : m(m), dim(m) {};
 
     /* The semantics of this function are similar to blas::symm.
         * We compute
         *      C = alpha * A * B + beta * C
-        * where this SymmetricLinearOperator object represents "A"
+        * where this SymLinOp object represents "A"
         * and "B" has "n" columns.
         * 
         * Note: The parameter "layout" refers to the storage
@@ -45,11 +67,11 @@ struct SymmetricLinearOperator {
 
     virtual T operator()(int64_t i, int64_t j) = 0;
  
-    virtual ~SymmetricLinearOperator() {}
+    virtual ~SymLinOp() {}
 };
 
 template <typename T>
-struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
+struct ExplicitSymLinOp : public SymLinOp<T> {
 
     const blas::Uplo uplo;
     const T* A_buff;
@@ -62,7 +84,7 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
         const T* A_buff,
         int64_t lda,
         blas::Layout buff_layout
-    ) : SymmetricLinearOperator<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
+    ) : SymLinOp<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
 
     // Note: the "layout" parameter here is interpreted for (B and C).
     // If layout conflicts with this->buff_layout then we manipulate
@@ -102,7 +124,7 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
 };
 
 template <typename T>
-struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
+struct RegExplicitSymLinOp : public SymLinOp<T> {
 
     const T* A_buff;
     const int64_t lda;
@@ -116,7 +138,7 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
 
     RegExplicitSymLinOp(
         int64_t m, const T* A_buff, int64_t lda, T* arg_regs, int64_t arg_num_ops
-    ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda) {
+    ) : SymLinOp<T>(m), A_buff(A_buff), lda(lda) {
         randblas_require(lda >= m);
         _eval_includes_reg = false;
         num_ops = arg_num_ops;
