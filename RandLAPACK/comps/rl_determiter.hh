@@ -368,7 +368,7 @@ int64_t posm_square(
  *      A boolean. If true, then logging information is printed to stdout.
  * 
  */
-template <typename T, linops::SymmetricLinearOperator FG, typename FSeminorm, typename FN>
+template <typename T, typename FG, typename FSeminorm, typename FN>
 void pcg(
     FG &G,
     const T* H,
@@ -510,7 +510,7 @@ void pcg(
  *       
  * The main purpose of this wrapper is backward-compatibility with existing code.
  */
-template <typename T, linops::SymmetricLinearOperator FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
+template <typename T, typename FG, typename FN, typename FSeminorm = StatefulFrobeniusNorm<T>>
 FSeminorm pcg(
     FG &G,
     const std::vector<T> &H,
