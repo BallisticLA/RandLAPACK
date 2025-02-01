@@ -16,41 +16,31 @@
 
 namespace RandLAPACK {
 
-template <typename T, typename RNG>
-class SymmetricRangeFinder {
-    public:
-        virtual ~SymmetricRangeFinder() {}
 
-        virtual int call(
-            linops::SymLinOp<T> &A,
-            int64_t k,
-            std::vector<T> &Q,
-            RandBLAS::RNGState<RNG> &state,
-            T* work_buff
-        ) = 0;
-
-        virtual int call(
-            Uplo uplo,
-            int64_t m,
-            const T* A,
-            int64_t k,
-            std::vector<T> &Q,
-            RandBLAS::RNGState<RNG> &state,
-            T* work_buff
-        ) = 0;
+template <typename SYRF_t, typename Op, typename T, typename RNG>
+concept SymmetricRangeFinderConcept = 
+    // Ensure Op conforms to the SymmetricLinearOperator concept
+    linops::SymmetricLinearOperator<Op> &&
+    requires(SYRF_t obj, Uplo uplo, int64_t m, const T* A, int64_t lda, int64_t k, std::vector<T> Q, RandBLAS::RNGState<RNG> &state, T* work_buff) {
+        // First version of call
+        { obj.call(uplo, m, A, lda, k, Q, state, work_buff) } -> std::same_as<int>;
+        // Second version of call, templated on a type that satisfies SymmetricLinearOperator
+        { obj.call(std::declval<Op>(), k, Q, state, work_buff) } -> std::same_as<int>;
 };
 
-template <typename SYPS_t, typename T, typename RNG>
-class SYRF : public SymmetricRangeFinder<T, RNG> {
+
+template <typename SYPS_t>
+class SYRF {
     public:
-    //    RandLAPACK::SymmetricPowerSketch<T, RNG> &SYPS_Obj;
-       SYPS_t &SYPS_Obj;
-       RandLAPACK::Stabilization<T> &Orth_Obj;
-       bool verbose;
-       bool cond_check;
-       std::vector<T> cond_work_mat;
-       std::vector<T> cond_work_vec;
-       std::vector<T> cond_nums; // Condition nubers of sketches
+        using T   = typename SYPS_t::scalar_t;
+        using RNG = typename SYPS_t::RNG_t;
+        SYPS_t &SYPS_Obj;
+        RandLAPACK::Stabilization<T> &Orth_Obj;
+        bool verbose;
+        bool cond_check;
+        std::vector<T> cond_work_mat;
+        std::vector<T> cond_work_vec;
+        std::vector<T> cond_nums; // Condition nubers of sketches
 
         SYRF(
             SYPS_t &syps_obj,
@@ -99,68 +89,49 @@ class SYRF : public SymmetricRangeFinder<T, RNG> {
             std::vector<T> &Q,
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
-        ) override;
+        ) {
+            linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
+            return this->call(A_linop, k, Q, state, work_buff);
+        }
 
+        template <linops::SymmetricLinearOperator SLO>
         int call(
-            linops::SymLinOp<T> &A,
+            SLO &A,
             int64_t k,
             std::vector<T> &Q,
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
-        ) override;
+        ) {
+            int64_t m = A.m;
+            bool callers_work_buff = work_buff != nullptr;
+            if (!callers_work_buff)
+                work_buff = new T[m * k];
+
+            RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
+
+            T* Q_dat = util::upsize(m * k, Q);
+            SYPS_Obj.call(A, k, state, work_buff, Q_dat);
+
+            // Q = orth(A * Omega)
+            A(Layout::ColMajor, k, (T) 1.0, work_buff, m, (T) 0.0, Q_dat, m);
+            if(this->cond_check) {
+                util::upsize(m * k, this->cond_work_mat);
+                util::upsize(k, this->cond_work_vec);
+                this->cond_nums.push_back(
+                    util::cond_num_check(m, k, Q.data(), this->verbose)
+                );
+            }
+            if(this->Orth_Obj.call(m, k, Q.data()))
+                throw std::runtime_error("Orthogonalization failed.");
+            
+            if (!callers_work_buff)
+                delete[] work_buff;
+
+            return 0;
+        }
 
 };
 
-// -----------------------------------------------------------------------------
-template <typename SYPS_t, typename T, typename RNG>
-int SYRF<SYPS_t, T, RNG>::call(
-    linops::SymLinOp<T> &A,
-    int64_t k,
-    std::vector<T> &Q,
-    RandBLAS::RNGState<RNG> &state,
-    T* work_buff
-) {
-    int64_t m = A.m;
-    bool callers_work_buff = work_buff != nullptr;
-    if (!callers_work_buff)
-        work_buff = new T[m * k];
 
-    RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
-
-    T* Q_dat = util::upsize(m * k, Q);
-    SYPS_Obj.call(A, k, state, work_buff, Q_dat);
-
-    // Q = orth(A * Omega)
-    A(Layout::ColMajor, k, (T) 1.0, work_buff, m, (T) 0.0, Q_dat, m);
-    if(this->cond_check) {
-        util::upsize(m * k, this->cond_work_mat);
-        util::upsize(k, this->cond_work_vec);
-        this->cond_nums.push_back(
-            util::cond_num_check(m, k, Q.data(), this->verbose)
-        );
-    }
-    if(this->Orth_Obj.call(m, k, Q.data()))
-        throw std::runtime_error("Orthogonalization failed.");
-    
-    if (!callers_work_buff)
-        delete[] work_buff;
-
-    return 0;
-}
-
-// -----------------------------------------------------------------------------
-template <typename SYPS_t, typename T, typename RNG>
-int SYRF<SYPS_t, T, RNG>::call(
-    Uplo uplo,
-    int64_t m,
-    const T* A,
-    int64_t k,
-    std::vector<T> &Q,
-    RandBLAS::RNGState<RNG> &state,
-    T* work_buff
-) {
-    linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
-    return this->call(A_linop, k, Q, state, work_buff);
-}
 
 } // end namespace RandLAPACK

@@ -21,6 +21,7 @@
 
 namespace RandLAPACK {
 
+
 // Note: This function is not intended for end-users at this time.
 // We have it here to simplify unittests later on.
 template <typename T, typename SKOP>
@@ -296,11 +297,11 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     // ^ Define an orthogonalizer for a symmetric rangefinder.
     //      (*) Get a dense representation of Q from Householder QR.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, T, RNG> SYRF(SYPS, Orth, false, false);
+    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>> SYRF(SYPS, Orth, false, false);
     // ^ Define the symmetric rangefinder algorithm.
     //      (*) Use power sketching followed by Householder orthogonalization.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::REVD2<T, RNG> NystromAlg(SYRF, num_steps_power_iter_error_est, false);
+    RandLAPACK::REVD2<RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>>> NystromAlg(SYRF, num_steps_power_iter_error_est, false);
     // ^ Define the algorithm for low-rank approximation via Nystrom.
     //      (*) Handle accuracy requests by estimating ||A - V diag(eigvals) V'||
     //          with "num_steps_power_iter_error_est" steps of power iteration.

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+
 class TestREVD2 : public ::testing::Test
 {
     protected:
@@ -75,12 +76,13 @@ class TestREVD2 : public ::testing::Test
 
     template <typename T, typename RNG>
     struct algorithm_objects {
-        RandLAPACK::SYPS<T, RNG> SYPS;
-        RandLAPACK::HQRQ<T> Orth_RF; 
-        RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, T, RNG> SYRF;
-        //  ^ Needs a symmetric power skether and an orthogonalizer
-        RandLAPACK::REVD2<T, RNG> REVD2;
-        //  ^ Needs a symmetric rangefinder.
+        using SYPS_t = RandLAPACK::SYPS<T, RNG>;
+        using SYRF_t = RandLAPACK::SYRF<SYPS_t>;
+        using Orth_t = RandLAPACK::HQRQ<T>;
+        SYPS_t SYPS;
+        Orth_t Orth; 
+        SYRF_t SYRF;
+        RandLAPACK::REVD2<SYRF_t> REVD2;
 
 
         algorithm_objects(
@@ -91,8 +93,8 @@ class TestREVD2 : public ::testing::Test
             int64_t num_steps_power_iter_error_est
         ) : 
             SYPS(num_syps_passes, passes_per_syps_stabilization, verbose, cond_check),
-            Orth_RF(cond_check, verbose),
-            SYRF(SYPS, Orth_RF, verbose, cond_check),
+            Orth(cond_check, verbose),
+            SYRF(SYPS, Orth, verbose, cond_check),
             REVD2(SYRF, num_steps_power_iter_error_est, verbose)
             {}
     };

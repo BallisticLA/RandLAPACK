@@ -14,37 +14,6 @@
 
 namespace RandLAPACK {
 
-// template <typename T, typename RNG>
-// class SymmetricPowerSketch {
-//     public:
-//         virtual ~SymmetricPowerSketch() {}
-
-//         virtual int call(
-//             Uplo uplo,
-//             int64_t m,
-//             const T* A,
-//             int64_t lda,
-//             int64_t k,
-//             RandBLAS::RNGState<RNG> &state,
-//             T* &skop_buff = nullptr,
-//             T* work_buff = nullptr
-//         ) = 0;
-
-//         virtual int call(
-//             linops::SymLinOp<T> &A,
-//             int64_t k,
-//             RandBLAS::RNGState<RNG> &state,
-//             T* &skop_buff = nullptr,
-//             T* work_buff = nullptr
-//         ) = 0;
-
-// };
-
-// template <typename SYPS_t, typename T, typename RNG>
-// concept SymmetricPowerSketch = requires(SYPS_t obj, Uplo uplo, int64_t m, const T* A, int64_t lda, int64_t k, RandBLAS::RNGState<RNG> &state, T* skop_buff, T* work_buff) {
-//     { obj.call(uplo, m, A, lda, k, state, skop_buff, work_buff) } -> std::same_as<int>;
-//     { obj.call(std::declval<linops::SymmetricLinearOperator>(), k, state, skop_buff, work_buff) } -> std::same_as<int>;
-// };
 
 template <typename SYPS_t, typename Op, typename T, typename RNG>
 concept SymmetricPowerSketchConcept = 
@@ -60,6 +29,8 @@ concept SymmetricPowerSketchConcept =
 template <typename T, typename RNG>
 class SYPS {
     public:
+        using scalar_t = T;
+        using RNG_t    = RNG;
         int64_t passes_over_data;
         int64_t passes_per_stab;
         bool verbose;
@@ -126,7 +97,10 @@ class SYPS {
             RandBLAS::RNGState<RNG> &state,
             T* &skop_buff,
             T* work_buff
-        );
+        ) {
+            linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);
+            return call(A_linop, k, state, skop_buff, work_buff);
+        }
 
         template <linops::SymmetricLinearOperator SLO>
         int call(
@@ -179,23 +153,6 @@ class SYPS {
         }
     
 };
-
-
-// -----------------------------------------------------------------------------
-template <typename T, typename RNG>
-int SYPS<T, RNG>::call(
-    Uplo uplo,
-    int64_t m,
-    const T* A,
-    int64_t lda,
-    int64_t k,
-    RandBLAS::RNGState<RNG> &state,
-    T* &skop_buff,
-    T* work_buff
-) {
-    linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, lda, Layout::ColMajor);
-    return call(A_linop, k, state, skop_buff, work_buff);
-}
 
 
 } // end namespace RandLAPACK
