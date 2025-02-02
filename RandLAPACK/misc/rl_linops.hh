@@ -10,29 +10,51 @@
 #include <algorithm>
 #include <vector>
 #include <cstdint>
+#include <concepts>
+
 
 namespace RandLAPACK::linops {
 
-using std::vector;
+
+template<typename LinOp, typename T = LinOp::scalar_t>
+concept SymmetricLinearOperator = requires(LinOp A) {
+    { A.dim }  -> std::same_as<const int64_t&>;
+    // It's recommended that A also have const int64_t members n_rows and n_cols,
+    // both equal to A.dim.
+} && requires(LinOp A, Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+    // A SYMM-like function that updates C := alpha A*B + beta C, where
+    // B and C have n columns and are stored in layout order with strides (ldb, ldc).
+    //
+    // If layout is ColMajor then an error will be thrown if min(ldb, ldc) < A.dim.
+    //
+    { A(layout, n, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
+};
+
 
 template <typename T>
-struct SymmetricLinearOperator {
+struct ExplicitSymLinOp {
 
+    using scalar_t = T;
     const int64_t m;
+    const int64_t dim;
+    const Uplo uplo;
+    const T* A_buff;
+    const int64_t lda;
+    const Layout buff_layout;
 
-    SymmetricLinearOperator(int64_t m) : m(m) {};
+    ExplicitSymLinOp(
+        int64_t dim,
+        Uplo uplo,
+        const T* A_buff,
+        int64_t lda,
+        Layout buff_layout
+    ) : m(dim), dim(dim), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
 
-    /* The semantics of this function are similar to blas::symm.
-        * We compute
-        *      C = alpha * A * B + beta * C
-        * where this SymmetricLinearOperator object represents "A"
-        * and "B" has "n" columns.
-        * 
-        * Note: The parameter "layout" refers to the storage
-        * order of B and C. There's no universal notion of "layout"
-        * for A since A is an abstract linear operator.
-    */
-    virtual void operator()(
+    // Note: the "layout" parameter here is interpreted for (B and C).
+    // If layout conflicts with this->buff_layout then we manipulate
+    // parameters to blas::symm to reconcile the different layouts of
+    // A vs (B, C).
+    void operator()(
         Layout layout,
         int64_t n,
         T alpha,
@@ -41,58 +63,22 @@ struct SymmetricLinearOperator {
         T beta,
         T* C,
         int64_t ldc
-    ) = 0;
-
-    virtual T operator()(int64_t i, int64_t j) = 0;
- 
-    virtual ~SymmetricLinearOperator() {}
-};
-
-template <typename T>
-struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
-
-    const blas::Uplo uplo;
-    const T* A_buff;
-    const int64_t lda;
-    const blas::Layout buff_layout;
-
-    ExplicitSymLinOp(
-        int64_t m,
-        blas::Uplo uplo,
-        const T* A_buff,
-        int64_t lda,
-        blas::Layout buff_layout
-    ) : SymmetricLinearOperator<T>(m), uplo(uplo), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {}
-
-    // Note: the "layout" parameter here is interpreted for (B and C).
-    // If layout conflicts with this->buff_layout then we manipulate
-    // parameters to blas::symm to reconcile the different layouts of
-    // A vs (B, C).
-    void operator()(
-        blas::Layout layout,
-        int64_t n,
-        T alpha,
-        T* const B,
-        int64_t ldb,
-        T beta,
-        T* C,
-        int64_t ldc
     ) {
-        randblas_require(ldb >= this->m);
-        randblas_require(ldc >= this->m);
+        randblas_require(ldb >= dim);
+        randblas_require(ldc >= dim);
         auto blas_call_uplo = this->uplo;
         if (layout != this->buff_layout)
-            blas_call_uplo = (this->uplo == blas::Uplo::Upper) ? blas::Uplo::Lower : blas::Uplo::Upper;
+            blas_call_uplo = (this->uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
         // Reading the "blas_call_uplo" triangle of "this->A_buff" in "layout" order is the same
         // as reading the "this->uplo" triangle of "this->A_buff" in "this->buff_layout" order.
         blas::symm(
-            layout, Side::Left, blas_call_uplo, this->m, n, alpha,
+            layout, Side::Left, blas_call_uplo, dim, n, alpha,
             this->A_buff, this->lda, B, ldb, beta, C, ldc
         );
     }
 
     inline T operator()(int64_t i, int64_t j) {
-        randblas_require(this->uplo == blas::Uplo::Upper && this->buff_layout == blas::Layout::ColMajor);
+        randblas_require(this->uplo == Uplo::Upper && this->buff_layout == Layout::ColMajor);
         if (i > j) {
             return A_buff[j + i*lda];
         } else {
@@ -102,22 +88,24 @@ struct ExplicitSymLinOp : public SymmetricLinearOperator<T> {
 };
 
 template <typename T>
-struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
+struct RegExplicitSymLinOp {
 
+    using scalar_t = T;
+    const int64_t m;
+    const int64_t dim;
     const T* A_buff;
     const int64_t lda;
     int64_t num_ops = 1;
     T* regs = nullptr;
     bool _eval_includes_reg;
 
-    static const blas::Uplo uplo = blas::Uplo::Upper;
-    static const blas::Layout buff_layout = blas::Layout::ColMajor;
-    using scalar_t = T;
+    static const Uplo uplo = Uplo::Upper;
+    static const Layout buff_layout = Layout::ColMajor;
 
     RegExplicitSymLinOp(
-        int64_t m, const T* A_buff, int64_t lda, T* arg_regs, int64_t arg_num_ops
-    ) : SymmetricLinearOperator<T>(m), A_buff(A_buff), lda(lda) {
-        randblas_require(lda >= m);
+        int64_t dim, const T* A_buff, int64_t lda, T* arg_regs, int64_t arg_num_ops
+    ) : m(dim), dim(dim), A_buff(A_buff), lda(lda) {
+        randblas_require(lda >= dim);
         _eval_includes_reg = false;
         num_ops = arg_num_ops;
         num_ops = std::max(num_ops, (int64_t) 1);
@@ -126,8 +114,8 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
     }
 
     RegExplicitSymLinOp(
-        int64_t m, const T* A_buff, int64_t lda, vector<T> &arg_regs
-    ) : RegExplicitSymLinOp<T>(m, A_buff, lda, arg_regs.data(), static_cast<int64_t>(arg_regs.size())) {}
+        int64_t dim, const T* A_buff, int64_t lda, std::vector<T> &arg_regs
+    ) : RegExplicitSymLinOp<T>(dim, A_buff, lda, arg_regs.data(), static_cast<int64_t>(arg_regs.size())) {}
 
     ~RegExplicitSymLinOp() {
         if (regs != nullptr) delete [] regs;
@@ -137,17 +125,17 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
         _eval_includes_reg = eir;
     }
 
-    void operator()(blas::Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+    void operator()(Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
         randblas_require(layout == this->buff_layout);
-        randblas_require(ldb >= this->m);
-        randblas_require(ldc >= this->m);
-        blas::symm(layout, blas::Side::Left, this->uplo, this->m, n, alpha, this->A_buff, this->lda, B, ldb, beta, C, ldc);
+        randblas_require(ldb >= dim);
+        randblas_require(ldc >= dim);
+        blas::symm(layout, blas::Side::Left, this->uplo, dim, n, alpha, this->A_buff, this->lda, B, ldb, beta, C, ldc);
 
         if (_eval_includes_reg) {
             if (num_ops != 1) randblas_require(n == num_ops);
             for (int64_t i = 0; i < n; ++i) {
                 T coeff =  alpha * regs[std::min(i, num_ops - 1)];
-                blas::axpy(this->m, coeff, B + i*ldb, 1, C +  i*ldc, 1);
+                blas::axpy(dim, coeff, B + i*ldb, 1, C +  i*ldc, 1);
             }
         }
         return;
@@ -172,9 +160,9 @@ struct RegExplicitSymLinOp : public SymmetricLinearOperator<T> {
 template<typename T>
 struct SpectralPrecond {
 
-    public:
     using scalar_t = T; 
-    const int64_t m;
+    const int64_t m; // an alias for dim, keeping for backward compatibility reasons.
+    const int64_t dim;
     int64_t dim_pre;
     int64_t num_rhs;
     T* V = nullptr;
@@ -198,13 +186,13 @@ struct SpectralPrecond {
      * instead of three if we store D = D0 - 1 instead of D0 itself.
      */
 
-    SpectralPrecond(int64_t m) : m(m), dim_pre(0), num_rhs(0) {}
+    SpectralPrecond(int64_t dim) : m(dim), dim(dim), dim_pre(0), num_rhs(0) {}
 
     // Move constructor
     // Call as SpectralPrecond<T> spc(std::move(other)) when we want to transfer the
     // contents of "other" to "this". 
     SpectralPrecond(SpectralPrecond &&other) noexcept
-        : m(other.m), dim_pre(other.dim_pre), num_rhs(other.num_rhs), num_ops(other.num_ops)
+        : m(other.dim), dim(other.dim), dim_pre(other.dim_pre), num_rhs(other.num_rhs), num_ops(other.num_ops)
     {
         std::swap(V, other.V);
         std::swap(D, other.D);
@@ -214,10 +202,10 @@ struct SpectralPrecond {
     // Copy constructor
     // Call as SpectralPrecond<T> spc(other) when we want to copy "other".
     SpectralPrecond(const SpectralPrecond &other)
-        : m(other.m), dim_pre(other.dim_pre), num_rhs(other.num_rhs),  num_ops(other.num_ops)
+        : m(other.dim), dim(other.dim), dim_pre(other.dim_pre), num_rhs(other.num_rhs),  num_ops(other.num_ops)
      {
         reset_owned_buffers(dim_pre, num_rhs, num_ops);
-        std::copy(other.V, other.V + m * dim_pre,        V);
+        std::copy(other.V, other.V + dim * dim_pre,        V);
         std::copy(other.D, other.D + dim_pre * num_ops, D);
      } 
 
@@ -236,15 +224,15 @@ struct SpectralPrecond {
         } 
         if (arg_dim_pre > dim_pre) {
             if (V != nullptr) delete [] V;
-            V = new T[m * arg_dim_pre];
+            V = new T[dim * arg_dim_pre];
         }
         if (arg_dim_pre * arg_num_rhs > dim_pre * num_rhs) {
             if (W != nullptr) delete [] W;
             W = new T[arg_dim_pre * arg_num_rhs];
         }
 
-        dim_pre  = arg_dim_pre;
-        num_rhs  = arg_num_rhs;
+        dim_pre = arg_dim_pre;
+        num_rhs = arg_num_rhs;
         num_ops = arg_num_ops;
     }
 
@@ -260,7 +248,7 @@ struct SpectralPrecond {
         return;
     }
 
-    void prep(vector<T> &eigvecs, vector<T> &eigvals, vector<T> &mus, int64_t arg_num_rhs) {
+    void prep(std::vector<T> &eigvecs, std::vector<T> &eigvals, std::vector<T> &mus, int64_t arg_num_rhs) {
         // assume eigvals are positive numbers sorted in decreasing order.
         int64_t arg_num_ops = mus.size();
         int64_t arg_dim_pre  = eigvals.size();
@@ -271,11 +259,11 @@ struct SpectralPrecond {
     }
 
     void operator()(
-        blas::Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
+        Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
     ) {
-        randblas_require(layout == blas::Layout::ColMajor);
-        randblas_require(ldb >= this->m);
-        randblas_require(ldc >= this->m);
+        randblas_require(layout == Layout::ColMajor);
+        randblas_require(ldb >= dim);
+        randblas_require(ldc >= dim);
         if (this->num_ops != 1) {
             randblas_require(n == num_ops);
         } else {
@@ -286,7 +274,7 @@ struct SpectralPrecond {
         //      Step 2: w = D w                    with our own kernel
         //      Step 3: C = beta * C + alpha * B   with blas::copy or blas::scal + blas::axpy
         //      Step 4: C = alpha * V w + C        with blas::gemm
-        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, dim_pre, n, m, (T) 1.0, V, m, B, ldb, (T) 0.0, W, dim_pre);
+        blas::gemm(layout, blas::Op::Trans, blas::Op::NoTrans, dim_pre, n, dim, (T) 1.0, V, dim, B, ldb, (T) 0.0, W, dim_pre);
  
         // -----> start step 2
         #define mat_D(_i, _j)  ((num_ops == 1) ? D[(_i)] : D[(_i) + dim_pre*(_j)])
@@ -306,19 +294,19 @@ struct SpectralPrecond {
         #define colC(_i) &C[(_i)*ldb]
         if (beta == (T) 0.0 && alpha == (T) 1.0) {
             for (i = 0; i < n; ++i)
-                blas::copy(m, colB(i), 1, colC(i), 1);
+                blas::copy(dim, colB(i), 1, colC(i), 1);
         } else {
             for (i = 0; i < n; ++i) {
                 T* Ci = colC(i);
-                blas::scal(m, beta, Ci, 1);
-                blas::axpy(m, alpha, colB(i), 1, Ci, 1);
+                blas::scal(dim, beta, Ci, 1);
+                blas::axpy(dim, alpha, colB(i), 1, Ci, 1);
             }
         }
         #undef colB
         #undef colC
         // <----- end step 3
     
-        blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, m, n, dim_pre, (T) 1.0, V, m, W, dim_pre, 1.0, C, ldc);
+        blas::gemm(layout, blas::Op::NoTrans, blas::Op::NoTrans, dim, n, dim_pre, (T) 1.0, V, dim, W, dim_pre, 1.0, C, ldc);
         return;
     }
 };

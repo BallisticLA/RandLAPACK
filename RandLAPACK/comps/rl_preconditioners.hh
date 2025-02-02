@@ -21,6 +21,7 @@
 
 namespace RandLAPACK {
 
+
 // Note: This function is not intended for end-users at this time.
 // We have it here to simplify unittests later on.
 template <typename T, typename SKOP>
@@ -243,7 +244,7 @@ int64_t make_right_orthogonalizer(
  * 
  * @param[in] A
  *      An object conforming to the SymmetricLinearOperator interface.
- *      It represents a matrix of order A.m. It is callable, and responsible
+ *      It represents a matrix of order A.dim. It is callable, and responsible
  *      for allocating any memory it might need when called.
  * @param[out] V
  *      A std::vector that gives a column-major representation of an m-by-k_out
@@ -276,9 +277,9 @@ int64_t make_right_orthogonalizer(
  *      An RNGState that the calling function should use the next
  *      time it needs an RNGState.
  */
-template <typename T, typename RNG>
+template <typename T, typename RNG, linops::SymmetricLinearOperator SLO>
 RandBLAS::RNGState<RNG> nystrom_pc_data(
-    linops::SymmetricLinearOperator<T> &A,
+    SLO &A,
     std::vector<T> &V,
     std::vector<T> &eigvals,
     int64_t &k,
@@ -287,20 +288,23 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     int64_t num_syps_passes = 3,
     int64_t num_steps_power_iter_error_est = 10
 ) {
-    RandLAPACK::SYPS<T, RNG> SYPS(num_syps_passes, 1, false, false);
+    using SYPS_t = RandLAPACK::SYPS<T, RNG>;
+    using Orth_t = RandLAPACK::HQRQ<T>;
+    using SYRF_t = RandLAPACK::SYRF<SYPS_t, Orth_t>;
+    SYPS_t syps(num_syps_passes, 1, false, false);
     // ^ Define a symmetric power sketch algorithm.
     //      (*) Stabilize power iteration with pivoted-LU after every
     //          mulitplication with A.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::HQRQ<T> Orth(false, false); 
+    Orth_t orth(false, false); 
     // ^ Define an orthogonalizer for a symmetric rangefinder.
     //      (*) Get a dense representation of Q from Householder QR.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::SYRF<T, RNG> SYRF(SYPS, Orth, false, false);
+    SYRF_t syrf(syps, orth, false, false);
     // ^ Define the symmetric rangefinder algorithm.
     //      (*) Use power sketching followed by Householder orthogonalization.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::REVD2<T, RNG> NystromAlg(SYRF, num_steps_power_iter_error_est, false);
+    RandLAPACK::REVD2<SYRF_t> NystromAlg(syrf, num_steps_power_iter_error_est, false);
     // ^ Define the algorithm for low-rank approximation via Nystrom.
     //      (*) Handle accuracy requests by estimating ||A - V diag(eigvals) V'||
     //          with "num_steps_power_iter_error_est" steps of power iteration.
