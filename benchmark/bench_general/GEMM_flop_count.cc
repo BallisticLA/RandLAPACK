@@ -33,9 +33,9 @@ test_flops(int64_t k,
         RandLAPACK::gen::mat_gen(m_info, B, state);
 
         // Get the timing
-        auto start = high_resolution_clock::now();
+        auto start = steady_clock::now();
         gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, k, k, 1.0, A, k, B, k, 0.0, C, k);
-        auto stop = high_resolution_clock::now();
+        auto stop = steady_clock::now();
         long dur = duration_cast<microseconds>(stop - start).count();
     
         T dur_s = dur / 1e+6;

@@ -159,20 +159,20 @@ int CQRRPT_GPU<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
     ///--------------------TIMING VARS--------------------/
-    high_resolution_clock::time_point saso_t_stop;
-    high_resolution_clock::time_point saso_t_start;
-    high_resolution_clock::time_point qrcp_t_start;
-    high_resolution_clock::time_point qrcp_t_stop;
-    high_resolution_clock::time_point rank_reveal_t_start;
-    high_resolution_clock::time_point rank_reveal_t_stop;
-    high_resolution_clock::time_point cholqr_t_start;
-    high_resolution_clock::time_point cholqr_t_stop;
-    high_resolution_clock::time_point a_mod_piv_t_start;
-    high_resolution_clock::time_point a_mod_piv_t_stop;
-    high_resolution_clock::time_point a_mod_trsm_t_start;
-    high_resolution_clock::time_point a_mod_trsm_t_stop;
-    high_resolution_clock::time_point total_t_start;
-    high_resolution_clock::time_point total_t_stop;
+    steady_clock::time_point saso_t_stop;
+    steady_clock::time_point saso_t_start;
+    steady_clock::time_point qrcp_t_start;
+    steady_clock::time_point qrcp_t_stop;
+    steady_clock::time_point rank_reveal_t_start;
+    steady_clock::time_point rank_reveal_t_stop;
+    steady_clock::time_point cholqr_t_start;
+    steady_clock::time_point cholqr_t_stop;
+    steady_clock::time_point a_mod_piv_t_start;
+    steady_clock::time_point a_mod_piv_t_stop;
+    steady_clock::time_point a_mod_trsm_t_start;
+    steady_clock::time_point a_mod_trsm_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
     long saso_t_dur        = 0;
     long qrcp_t_dur        = 0;
     long rank_reveal_t_dur = 0;
@@ -182,7 +182,7 @@ int CQRRPT_GPU<T, RNG>::call(
     long total_t_dur       = 0;
 
     if(this -> timing)
-        total_t_start = high_resolution_clock::now();
+        total_t_start = steady_clock::now();
 
     int i;
     int64_t k = n;
@@ -196,7 +196,7 @@ int CQRRPT_GPU<T, RNG>::call(
     std::vector<int64_t> J_buf(n, 0);
 
     if(this -> timing)
-        saso_t_start = high_resolution_clock::now();
+        saso_t_start = steady_clock::now();
     /***********************************************************************************/
     // I will avoid performing skething on a GPU for now
 
@@ -212,8 +212,8 @@ int CQRRPT_GPU<T, RNG>::call(
     );
 
     if(this -> timing) {
-        saso_t_stop = high_resolution_clock::now();
-        qrcp_t_start = high_resolution_clock::now();
+        saso_t_stop = steady_clock::now();
+        qrcp_t_start = steady_clock::now();
     }
 
     /// Performing QRCP on a sketch
@@ -225,8 +225,8 @@ int CQRRPT_GPU<T, RNG>::call(
     }
 
     if(this -> timing) {
-        qrcp_t_stop = high_resolution_clock::now();
-        rank_reveal_t_start = high_resolution_clock::now();
+        qrcp_t_stop = steady_clock::now();
+        rank_reveal_t_start = steady_clock::now();
     }
 
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
@@ -242,7 +242,7 @@ int CQRRPT_GPU<T, RNG>::call(
     this->rank = k;
 
     if(this -> timing)
-        rank_reveal_t_stop = high_resolution_clock::now();
+        rank_reveal_t_stop = steady_clock::now();
 
     // Allocating space for a preconditioner buffer.
     T* R_sp  = ( T * ) calloc( k * k, sizeof( T ) );
@@ -253,15 +253,15 @@ int CQRRPT_GPU<T, RNG>::call(
     lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[n * k], ldr);
 
     if(this -> timing)
-        a_mod_piv_t_start = high_resolution_clock::now();
+        a_mod_piv_t_start = steady_clock::now();
 
     // Swap k columns of A with pivots from J
     blas::copy(n, J, 1, J_buf.data(), 1);
     util::col_swap(m, n, k, A, lda, J_buf);
 
     if(this -> timing) {
-        a_mod_piv_t_stop = high_resolution_clock::now();
-        a_mod_trsm_t_start = high_resolution_clock::now();
+        a_mod_piv_t_stop = steady_clock::now();
+        a_mod_trsm_t_start = steady_clock::now();
     }
 
     /******************************GPU REGION BEGIN*********************************/
@@ -303,8 +303,8 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing) {
-        a_mod_trsm_t_stop = high_resolution_clock::now();
-        cholqr_t_start = high_resolution_clock::now();
+        a_mod_trsm_t_stop = steady_clock::now();
+        cholqr_t_start = steady_clock::now();
     }
 
     // Do Cholesky QR
@@ -347,7 +347,7 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing)
-        cholqr_t_stop = high_resolution_clock::now();
+        cholqr_t_stop = steady_clock::now();
 
     // Get the final R-factor.
     blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp_device, k, R_device, ldr, blas_queue);
@@ -363,7 +363,7 @@ int CQRRPT_GPU<T, RNG>::call(
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
         cholqr_t_dur      = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
 
-        total_t_stop = high_resolution_clock::now();
+        total_t_stop = steady_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur);
 

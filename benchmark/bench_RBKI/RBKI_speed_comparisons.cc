@@ -244,9 +244,9 @@ static void call_all_algs(
         // There is no reason to run SVD many times, as it always outputs the same result.
         if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVD
-            auto start_svd = high_resolution_clock::now();
+            auto start_svd = steady_clock::now();
             lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
-            auto stop_svd = high_resolution_clock::now();
+            auto stop_svd = steady_clock::now();
             dur_svd = duration_cast<microseconds>(stop_svd - start_svd).count();
             printf("TOTAL TIME FOR SVD %ld\n", dur_svd);
 
@@ -266,9 +266,9 @@ static void call_all_algs(
         }
         
         // Running RBKI
-        auto start_rbki = high_resolution_clock::now();
+        auto start_rbki = steady_clock::now();
         all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
-        auto stop_rbki = high_resolution_clock::now();
+        auto stop_rbki = steady_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
 
@@ -283,10 +283,10 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 1);
         
         // Running RSVD
-        auto start_rsvd = high_resolution_clock::now();
+        auto start_rsvd = steady_clock::now();
         int64_t threshold_RSVD = (int64_t ) (b_sz * num_matmuls / 2);
         all_algs.RSVD.call(m, n, all_data.A, threshold_RSVD, tol, all_data.U_RSVD, all_data.Sigma_RSVD, all_data.V_RSVD, state_alg);
-        auto stop_rsvd = high_resolution_clock::now();
+        auto stop_rsvd = steady_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
@@ -309,10 +309,10 @@ static void call_all_algs(
         // There is no reason to run SVDS many times, as it always outputs the same result.
         if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
-            auto start_svds = high_resolution_clock::now();
+            auto start_svds = steady_clock::now();
             Spectra::PartialSVDSolver<Eigen::MatrixXd> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
             svds.compute();
-            auto stop_svds = high_resolution_clock::now();
+            auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
             printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 

@@ -159,34 +159,34 @@ int BQRRP_GPU<T, RNG>::call(
     T* tau,
     int64_t* J
 ){
-    high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point preallocation_t_stop;
-    high_resolution_clock::time_point qrcp_wide_t_start;
-    high_resolution_clock::time_point qrcp_wide_t_stop;
-    high_resolution_clock::time_point copy_A_sk_t_start;
-    high_resolution_clock::time_point copy_A_sk_t_stop;
-    high_resolution_clock::time_point qrcp_piv_t_start;
-    high_resolution_clock::time_point qrcp_piv_t_stop;
-    high_resolution_clock::time_point copy_A_t_start;
-    high_resolution_clock::time_point copy_A_t_stop;
-    high_resolution_clock::time_point piv_A_t_start;
-    high_resolution_clock::time_point piv_A_t_stop;
-    high_resolution_clock::time_point updating_J_t_start;
-    high_resolution_clock::time_point updating_J_t_stop;
-    high_resolution_clock::time_point copy_J_t_start;
-    high_resolution_clock::time_point copy_J_t_stop;
-    high_resolution_clock::time_point preconditioning_t_start;
-    high_resolution_clock::time_point preconditioning_t_stop;
-    high_resolution_clock::time_point qr_tall_t_start;
-    high_resolution_clock::time_point qr_tall_t_stop;
-    high_resolution_clock::time_point q_reconstruction_t_start;
-    high_resolution_clock::time_point q_reconstruction_t_stop;
-    high_resolution_clock::time_point apply_transq_t_start;
-    high_resolution_clock::time_point apply_transq_t_stop;
-    high_resolution_clock::time_point sample_update_t_start;
-    high_resolution_clock::time_point sample_update_t_stop;
-    high_resolution_clock::time_point total_t_start;
-    high_resolution_clock::time_point total_t_stop;
+    steady_clock::time_point preallocation_t_start;
+    steady_clock::time_point preallocation_t_stop;
+    steady_clock::time_point qrcp_wide_t_start;
+    steady_clock::time_point qrcp_wide_t_stop;
+    steady_clock::time_point copy_A_sk_t_start;
+    steady_clock::time_point copy_A_sk_t_stop;
+    steady_clock::time_point qrcp_piv_t_start;
+    steady_clock::time_point qrcp_piv_t_stop;
+    steady_clock::time_point copy_A_t_start;
+    steady_clock::time_point copy_A_t_stop;
+    steady_clock::time_point piv_A_t_start;
+    steady_clock::time_point piv_A_t_stop;
+    steady_clock::time_point updating_J_t_start;
+    steady_clock::time_point updating_J_t_stop;
+    steady_clock::time_point copy_J_t_start;
+    steady_clock::time_point copy_J_t_stop;
+    steady_clock::time_point preconditioning_t_start;
+    steady_clock::time_point preconditioning_t_stop;
+    steady_clock::time_point qr_tall_t_start;
+    steady_clock::time_point qr_tall_t_stop;
+    steady_clock::time_point q_reconstruction_t_start;
+    steady_clock::time_point q_reconstruction_t_stop;
+    steady_clock::time_point apply_transq_t_start;
+    steady_clock::time_point apply_transq_t_stop;
+    steady_clock::time_point sample_update_t_start;
+    steady_clock::time_point sample_update_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
     long preallocation_t_dur    = 0;
     long qrcp_wide_t_dur        = 0;
     long copy_A_sk_t_dur        = 0;
@@ -203,8 +203,8 @@ int BQRRP_GPU<T, RNG>::call(
     long total_t_dur            = 0;
 
     if(this -> timing) {
-        total_t_start = high_resolution_clock::now();
-        preallocation_t_start = high_resolution_clock::now();
+        total_t_start = steady_clock::now();
+        preallocation_t_start = steady_clock::now();
     }
 
     int iter;
@@ -326,7 +326,7 @@ int BQRRP_GPU<T, RNG>::call(
     cudaStreamSynchronize(strm);
     if(this -> timing) {
         lapack_queue.sync();
-        preallocation_t_stop  = high_resolution_clock::now();
+        preallocation_t_stop  = steady_clock::now();
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
     }
 
@@ -345,7 +345,7 @@ int BQRRP_GPU<T, RNG>::call(
 
         if(this -> timing) {
             nvtxRangePushA("qrcp_wide");
-            qrcp_wide_t_start = high_resolution_clock::now();
+            qrcp_wide_t_start = steady_clock::now();
         }
         // qrcp_wide through LUQR below
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
@@ -368,7 +368,7 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePushA("copy_A_sk");
-            copy_A_sk_t_start = high_resolution_clock::now();
+            copy_A_sk_t_start = steady_clock::now();
         }
         // Instead of copying A_sk_work into A_sk_copy_col_swap, we ``swap'' the pointers.
         // This is safe, as A_sk is not needed outside of BQRRP.
@@ -377,10 +377,10 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
-            copy_A_sk_t_stop = high_resolution_clock::now();
+            copy_A_sk_t_stop = steady_clock::now();
             copy_A_sk_t_dur += duration_cast<microseconds>(copy_A_sk_t_stop - copy_A_sk_t_start).count();
             nvtxRangePushA("piv_A_sk");
-            qrcp_piv_t_start = high_resolution_clock::now();
+            qrcp_piv_t_start = steady_clock::now();
         }
 
         // Apply pivots to A_sk
@@ -389,7 +389,7 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
-            qrcp_piv_t_stop = high_resolution_clock::now();
+            qrcp_piv_t_stop = steady_clock::now();
             qrcp_piv_t_dur += duration_cast<microseconds>(qrcp_piv_t_stop - qrcp_piv_t_start).count();
         }
 
@@ -405,10 +405,10 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> timing) {
             lapack_queue.sync();
             nvtxRangePop();
-            qrcp_wide_t_stop = high_resolution_clock::now();
+            qrcp_wide_t_stop = steady_clock::now();
             qrcp_wide_t_dur += duration_cast<microseconds>(qrcp_wide_t_stop - qrcp_wide_t_start).count();
             nvtxRangePushA("copy_A");
-            copy_A_t_start = high_resolution_clock::now();
+            copy_A_t_start = steady_clock::now();
         }
         // Need to premute trailing columns of the full R-factor.
         // Remember that the R-factor is stored the upper-triangular portion of A.
@@ -417,10 +417,10 @@ int BQRRP_GPU<T, RNG>::call(
         
         if(this -> timing) {
             nvtxRangePop();
-            copy_A_t_stop = high_resolution_clock::now();
+            copy_A_t_stop = steady_clock::now();
             copy_A_t_dur += duration_cast<microseconds>(copy_A_t_stop - copy_A_t_start).count();
             nvtxRangePushA("piv_A");
-            piv_A_t_start = high_resolution_clock::now();
+            piv_A_t_start = steady_clock::now();
         }
 
         // Instead of copying A into A_copy_col_swap, we ``swap'' the pointers.
@@ -521,7 +521,7 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
-            piv_A_t_stop  = high_resolution_clock::now();
+            piv_A_t_stop  = steady_clock::now();
             piv_A_t_dur  += duration_cast<microseconds>(piv_A_t_stop - piv_A_t_start).count();
         }
 
@@ -529,20 +529,20 @@ int BQRRP_GPU<T, RNG>::call(
         if(iter == 0) {
             if(this -> timing) {
                 nvtxRangePushA("update_J");
-                updating_J_t_start = high_resolution_clock::now();
+                updating_J_t_start = steady_clock::now();
             }
             RandLAPACK::cuda_kernels::copy_gpu(strm, n, J_buffer, 1, J, 1);
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
-                updating_J_t_stop  = high_resolution_clock::now();
+                updating_J_t_stop  = steady_clock::now();
                 updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
                 nvtxRangePushA("update_R");
             }
         } else {
             if(this -> timing) {
                 nvtxRangePushA("copy_J");
-                copy_J_t_start = high_resolution_clock::now();
+                copy_J_t_start = steady_clock::now();
             }
             // Instead of copying J into J_copy_col_swap, we ``swap'' the pointers.
             // We have to take some precautions when BQRRP main loop terminates.
@@ -565,17 +565,17 @@ int BQRRP_GPU<T, RNG>::call(
 
             if(this -> timing) {
                 nvtxRangePop();
-                copy_J_t_stop  = high_resolution_clock::now();
+                copy_J_t_stop  = steady_clock::now();
                 copy_J_t_dur  += duration_cast<microseconds>(copy_J_t_stop - copy_J_t_start).count();
                 nvtxRangePushA("update_J");
-                updating_J_t_start = high_resolution_clock::now();
+                updating_J_t_start = steady_clock::now();
             }
 
             RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, cols, cols, J_work, J_copy_col_swap_work, J_buffer);
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
-                updating_J_t_stop  = high_resolution_clock::now();
+                updating_J_t_stop  = steady_clock::now();
                 updating_J_t_dur  += duration_cast<microseconds>(updating_J_t_stop - updating_J_t_start).count();
             }
         }
@@ -584,7 +584,7 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> qr_tall == GPUSubroutine::QRTall::cholqr) {
             if(this -> timing) {
                 nvtxRangePushA("precond_A");
-                preconditioning_t_start = high_resolution_clock::now();
+                preconditioning_t_start = steady_clock::now();
             }
             
             // A_pre = AJ(:, 1:b_sz) * inv(R_sk)
@@ -594,10 +594,10 @@ int BQRRP_GPU<T, RNG>::call(
             if(this -> timing) {
                 lapack_queue.sync();
                 nvtxRangePop();
-                preconditioning_t_stop  = high_resolution_clock::now();
+                preconditioning_t_stop  = steady_clock::now();
                 preconditioning_t_dur  += duration_cast<microseconds>(preconditioning_t_stop - preconditioning_t_start).count();
                 nvtxRangePushA("qr_tall");
-                qr_tall_t_start = high_resolution_clock::now();
+                qr_tall_t_start = steady_clock::now();
             }
             
             // Performing tall QR
@@ -609,10 +609,10 @@ int BQRRP_GPU<T, RNG>::call(
             if(this -> timing) {
                 lapack_queue.sync();
                 nvtxRangePop();
-                qr_tall_t_stop    = high_resolution_clock::now();
+                qr_tall_t_stop    = steady_clock::now();
                 qr_tall_t_dur     += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
                 nvtxRangePushA("orhr_col");
-                q_reconstruction_t_start = high_resolution_clock::now();
+                q_reconstruction_t_start = steady_clock::now();
             }
 
             // Find Q (stored in A) using Householder reconstruction. 
@@ -627,7 +627,7 @@ int BQRRP_GPU<T, RNG>::call(
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
-                q_reconstruction_t_stop  = high_resolution_clock::now();
+                q_reconstruction_t_stop  = steady_clock::now();
                 q_reconstruction_t_dur  += duration_cast<microseconds>(q_reconstruction_t_stop - q_reconstruction_t_start).count();
             }
 
@@ -653,7 +653,7 @@ int BQRRP_GPU<T, RNG>::call(
             // Default case - performing QR_tall via QRF
             if(this -> timing) {
                 nvtxRangePushA("qr_tall");
-                qr_tall_t_start = high_resolution_clock::now();
+                qr_tall_t_start = steady_clock::now();
             }
             // Perform an unpivoted QR instead of CholQR
             if(iter == 0) {
@@ -666,7 +666,7 @@ int BQRRP_GPU<T, RNG>::call(
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
                 nvtxRangePop();
-                qr_tall_t_stop    = high_resolution_clock::now();
+                qr_tall_t_stop    = steady_clock::now();
                 qr_tall_t_dur     += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
             }
             // R11 is computed and placed in the appropriate space
@@ -683,7 +683,7 @@ int BQRRP_GPU<T, RNG>::call(
         // Q is defined with block_rank elementary reflectors. 
         if(this -> timing) {
             nvtxRangePushA("update_A");
-            apply_transq_t_start = high_resolution_clock::now();
+            apply_transq_t_start = steady_clock::now();
         }
 
         if (block_rank != b_sz_const) {
@@ -711,7 +711,7 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
-            apply_transq_t_stop  = high_resolution_clock::now();
+            apply_transq_t_stop  = steady_clock::now();
             apply_transq_t_dur  += duration_cast<microseconds>(apply_transq_t_stop - apply_transq_t_start).count();
         }
 
@@ -766,7 +766,7 @@ int BQRRP_GPU<T, RNG>::call(
             lapack_queue.sync();
 
             if(this -> timing) {
-                total_t_stop = high_resolution_clock::now();
+                total_t_stop = steady_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 long t_rest  = total_t_dur - (preallocation_t_dur + qrcp_wide_t_dur + copy_A_t_dur + piv_A_t_dur + copy_J_t_dur + updating_J_t_dur + preconditioning_t_dur + qr_tall_t_dur + q_reconstruction_t_dur + apply_transq_t_dur + sample_update_t_dur);
                 this -> times.resize(15);
@@ -821,7 +821,7 @@ int BQRRP_GPU<T, RNG>::call(
         }
         if(this -> timing) {
             nvtxRangePushA("update_Sk");
-            sample_update_t_start = high_resolution_clock::now();
+            sample_update_t_start = steady_clock::now();
         }
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
@@ -863,7 +863,7 @@ int BQRRP_GPU<T, RNG>::call(
         if(this -> timing) {
             cudaStreamSynchronize(strm);
             nvtxRangePop();
-            sample_update_t_stop  = high_resolution_clock::now();
+            sample_update_t_stop  = steady_clock::now();
             sample_update_t_dur  += duration_cast<microseconds>(sample_update_t_stop - sample_update_t_start).count();
         }
         nvtxRangePop();

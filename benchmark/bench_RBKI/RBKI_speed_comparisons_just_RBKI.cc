@@ -138,9 +138,9 @@ static void call_all_algs(
         printf("Iteration %d start.\n", i);
         
         // Testing RBKI
-        auto start_rbki = high_resolution_clock::now();
+        auto start_rbki = steady_clock::now();
         RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state_alg);
-        auto stop_rbki = high_resolution_clock::now();
+        auto stop_rbki = steady_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);

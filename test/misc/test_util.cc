@@ -230,14 +230,14 @@ class TestUtil : public ::testing::Test
             tau[i] = T_mat[(n + 1) * i];
 
 
-        auto start_std = high_resolution_clock::now();
+        auto start_std = steady_clock::now();
         lapack::ormqr(Side::Left, Op::Trans, m, n, n, A,  m, tau,  B,  m);
-        auto stop_std = high_resolution_clock::now();
+        auto stop_std = steady_clock::now();
         long dur_std = duration_cast<microseconds>(stop_std - start_std).count();
 
-        auto start_own = high_resolution_clock::now();
+        auto start_own = steady_clock::now();
         lapack::ormqr(Side::Left, Op::Trans, m, n, n, A1, m, tau1, B1, m);
-        auto stop_own = high_resolution_clock::now();
+        auto stop_own = steady_clock::now();
         long dur_own = duration_cast<microseconds>(stop_own - start_own).count();
 
         printf("Own is %fx faster than std.\n", (T) dur_std / dur_own);
