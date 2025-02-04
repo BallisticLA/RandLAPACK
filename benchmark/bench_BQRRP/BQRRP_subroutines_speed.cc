@@ -308,6 +308,7 @@ static void call_apply_q(
     std::string output_filename) {
 
     auto m   = all_data.row;
+    std::vector<int64_t> nb_gemqrt = {25, 50, 125, 250, 500, 1000, 2000, 4000, 8000};
 
     // timing vars
     long dur_ormqr  = 0;
@@ -316,11 +317,12 @@ static void call_apply_q(
 
     std::ofstream file(output_filename, std::ios::app);
 
-    int i, j   = 0;
-    int64_t nb = 0;
+    int i, j, k = 0;
+    int64_t nb  = 0;
     for (i = 0; i < numruns; ++i) {
-        for(nb = gemqrt_nb_start; nb <= n; nb *=2) {
+        for(k = 0; k <= nb_gemqrt.size(); ++k) {
             printf("Apply Q iteration %d; n==%d start.\n", i, n);
+            nb = nb_gemqrt[k];
             // Performing CholQR
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
             lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
@@ -329,22 +331,22 @@ static void call_apply_q(
             lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_gemqrt.data(), m);
             lapack::orhr_col(m, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.D.data());
             
-            auto start_gemqrt = high_resolution_clock::now();
+            auto start_gemqrt = steady_clock::now();
             lapack::gemqrt(Side::Left, Op::Trans, m, m - n, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
-            auto stop_gemqrt = high_resolution_clock::now();
+            auto stop_gemqrt = steady_clock::now();
             dur_gemqrt = duration_cast<microseconds>(stop_gemqrt - start_gemqrt).count();
 
             // We do not re-run ormqr and gemm for different nbs
-            if(nb == gemqrt_nb_start) {
+            if(nb == nb_gemqrt[0]) {
                 lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
                 lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A1.data(), m);
 
                 for(j = 0; j < n; ++j)
                     all_data.tau[j] = all_data.T_mat[(n + 1) * j];
 
-                auto start_ormqr = high_resolution_clock::now();
+                auto start_ormqr = steady_clock::now();
                 lapack::ormqr(Side::Left, Op::Trans, m, m - n, n, all_data.A.data(), m, all_data.tau.data(), all_data.B.data(), m);
-                auto stop_ormqr = high_resolution_clock::now();
+                auto stop_ormqr = steady_clock::now();
                 dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
             
                 file << dur_ormqr << ",  ";                
@@ -352,10 +354,10 @@ static void call_apply_q(
             file << dur_gemqrt << ",  ";
             data_regen(m_info, all_data, state, state_B, 3);
         }
-        nb = gemqrt_nb_start;
         file << "\n";
     }
 }
+
 
 int main(int argc, char *argv[]) {
 
@@ -364,8 +366,9 @@ int main(int argc, char *argv[]) {
     int64_t i = 0;
     // Declare parameters
     int64_t m             = std::stol(size);
-    int64_t n_start       = 256;
-    int64_t n_stop        = 2048;
+    std::vector<int64_t> n = {25, 50, 125, 250, 500, 1000, 2000, 4000, 8000};
+    //std::vector<int64_t> b_sz = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
+
     int64_t nb_start      = 256;
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();
@@ -377,9 +380,9 @@ int main(int argc, char *argv[]) {
     int64_t numruns = 3;
 
     // Allocate basic workspace
-    benchmark_data<double> all_data(m, n_stop);
+    benchmark_data<double> all_data(m, n.back());
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n.back(), RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     RandLAPACK::gen::mat_gen(m_info, all_data.B.data(), state_B);
 
@@ -392,23 +395,23 @@ int main(int argc, char *argv[]) {
     // Writing important data into file
     file << "Description: Results from the BQRRP subroutines benchmark, recording time for the alternative options of the three main BQRRP subroutines: wide_qrcp, tall qr and application of transpose orthonormal matrix."
               "\nFile format: the format varies for each subroutine"
-              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n.front() to n.back() in powers of two (with numruns runs per size)."
               "               \n qr_tall:   six columns with timing for different tall QR candidates and their related parts: GEQRF, GEQR, CHOLQR, CHOLQR_PREPROCESSING, CHOLQR_HOUSEHOLDER_RESTORATION, CHOLQR_UNTO_PRECONDITIONING."
               "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR"
-              "               \n In all cases, rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n In all cases, rows vary from n.front() to n.back() in powers of two (with numruns runs per size)."
               "\nInput type:" + std::to_string(m_info.m_type) +
-              "\nInput size:" + std::to_string(m) + " by "  + std::to_string(n_start) + " to " + std::to_string(n_stop) +
+              "\nInput size:" + std::to_string(m) + " by "  + std::to_string(n.front()) + " to " + std::to_string(n.back()) +
               "\nAdditional parameters num runs per size " + std::to_string(numruns) + " nb_start "   + std::to_string(nb_start) +
               "\n";
     file.flush();
 
-    for (i = n_start; i <= n_stop; i *= 2)
+    for (i = n.front(); i <= n.back(); i *= 2)
         call_wide_qrcp(m_info, numruns, i, all_data, state, output_filename);
 
-    for (i = n_start; i <= n_stop; i *= 2)
+    for (i = n.front(); i <= n.back(); i *= 2)
         call_tsqr(m_info, numruns, i, nb_start, all_data, state, output_filename);
 
-    for (i = n_start; i <= n_stop; i *= 2)
+    for (i = n.front(); i <= n.back(); i *= 2)
         call_apply_q(m_info, numruns, i, nb_start, all_data, state, state_B, output_filename);
 }
 #endif
