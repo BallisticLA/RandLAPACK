@@ -517,9 +517,9 @@ TEST_F(TestUtil_GPU, test_ger_gpu) {
     m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state); 
     RandBLAS::DenseDist D1(n, n);
-    state = RandBLAS::fill_dense(D1, all_data.y.data(), state).second;
+    state = RandBLAS::fill_dense(D1, all_data.y.data(), state);
     RandBLAS::DenseDist D2(1, m);
-    state = RandBLAS::fill_dense(D2, all_data.x.data(), state).second;
+    state = RandBLAS::fill_dense(D2, all_data.x.data(), state);
     
     ger_gpu(alpha, all_data);
 }
