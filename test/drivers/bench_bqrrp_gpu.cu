@@ -104,7 +104,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         all_data.A_sk = ( T * ) calloc( d * n, sizeof( T ) );
         T* S          = ( T * ) calloc( d * m, sizeof( T ) );
         RandBLAS::DenseDist D(d, m);
-        RandBLAS::fill_dense(D, S, state_const).second;
+        RandBLAS::fill_dense(D, S, state_const);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
         RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU_QRF(profile_runtime, block_size);

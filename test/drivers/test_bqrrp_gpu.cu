@@ -97,7 +97,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         // Skethcing in an sampling regime
         T* S  = ( T * ) calloc( d * m, sizeof( T ) );
         RandBLAS::DenseDist D(d, m);
-        RandBLAS::fill_dense(D, S, state_const).second;
+        RandBLAS::fill_dense(D, S, state_const);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk.data(), d);
         free(S);
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk.data(), d * n * sizeof(double), cudaMemcpyHostToDevice);
