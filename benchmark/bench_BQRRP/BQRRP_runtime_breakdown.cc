@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
                                                                  + "_num_info_lines_" + std::to_string(6) +
                                                                    ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
