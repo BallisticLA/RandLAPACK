@@ -308,7 +308,7 @@ static void call_apply_q(
     std::string output_filename) {
 
     auto m   = all_data.row;
-    std::vector<int64_t> nb_gemqrt = {25, 50, 125, 250, 500, 1000, 2000, 4000, 8000};
+    std::vector<int64_t> nb_gemqrt = {250, 500, 1000, 2000, 4000, 8000};
 
     // timing vars
     long dur_ormqr  = 0;
@@ -323,6 +323,10 @@ static void call_apply_q(
         for(k = 0; k <= nb_gemqrt.size(); ++k) {
             printf("Apply Q iteration %d; n==%d start.\n", i, n);
             nb = nb_gemqrt[k];
+            printf("%d\n", nb);
+            printf("%d\n", m);
+            printf("%d\n", m - n);
+            printf("%d\n", n);
             // Performing CholQR
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
             lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
@@ -366,8 +370,8 @@ int main(int argc, char *argv[]) {
     int64_t i = 0;
     // Declare parameters
     int64_t m             = std::stol(size);
-    std::vector<int64_t> n = {25, 50, 125, 250, 500, 1000, 2000, 4000, 8000};
-    //std::vector<int64_t> b_sz = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
+    std::vector<int64_t> n = {250, 500, 1000, 2000, 4000, 8000};
+    //std::vector<int64_t> b_sz = {256, 512, 1024, 2048, 4096, 8192};
 
     int64_t nb_start      = 256;
     auto state            = RandBLAS::RNGState();
@@ -405,13 +409,13 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
-    for (i = n.front(); i <= n.back(); i *= 2)
-        call_wide_qrcp(m_info, numruns, i, all_data, state, output_filename);
+    for (i = 0; i <= n.size(); ++i)
+        call_wide_qrcp(m_info, numruns, n[i], all_data, state, output_filename);
 
-    for (i = n.front(); i <= n.back(); i *= 2)
-        call_tsqr(m_info, numruns, i, nb_start, all_data, state, output_filename);
+    for (i = 0; i <= n.size(); ++i)
+        call_tsqr(m_info, numruns, n[i], nb_start, all_data, state, output_filename);
 
-    for (i = n.front(); i <= n.back(); i *= 2)
-        call_apply_q(m_info, numruns, i, nb_start, all_data, state, state_B, output_filename);
+    for (i = 0; i <= n.size(); ++i)
+        call_apply_q(m_info, numruns, n[i], nb_start, all_data, state, state_B, output_filename);
 }
 #endif

@@ -198,8 +198,8 @@ int main(int argc, char *argv[]) {
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
     double d_factor    = 1.0;
-    std::vector<int64_t> b_sz = {25, 50, 125, 250, 500, 1000, 2000, 4000, 8000};
-    //std::vector<int64_t> b_sz = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
+    std::vector<int64_t> b_sz = {250, 500, 1000, 2000, 4000, 8000};
+    //std::vector<int64_t> b_sz = {256, 512, 1024, 2048, 4096, 8192};
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
@@ -231,7 +231,7 @@ int main(int argc, char *argv[]) {
     file.flush();
 
     int i = 0;
-    for (;i <= b_sz.size(); ++i) {
+    for (;i < b_sz.size(); ++i) {
         call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, output_filename);
     }
 }
