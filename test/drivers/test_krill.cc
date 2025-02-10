@@ -34,7 +34,9 @@ class TestKrillIsh: public ::testing::Test {
     void run_common(T mu_min, vector<T> &V, vector<T> &lambda, RegExplicitSymLinOp<T> &G_linop) {
         RandLAPACK::linops::SpectralPrecond<T> invP(m);
         vector<T> mus {mu_min, mu_min/10, mu_min/100};
-        G_linop.regs = mus;
+        G_linop.regs = new T[3];
+        G_linop.num_ops = 3;
+        std::copy(mus.begin(), mus.end(), G_linop.regs);
         G_linop.set_eval_includes_reg(true);
         invP.prep(V, lambda, mus, mus.size());
         int64_t s = mus.size();
@@ -127,7 +129,7 @@ class TestKrillx: public ::testing::Test {
     template <typename RELO>
     void run_krill_separable(int key_index, RELO &G_linop, int64_t k) {
         using T = typename RELO::scalar_t;
-        int64_t s = G_linop.num_regs;
+        int64_t s = G_linop.num_ops;
 
         vector<T> X_star(m*s, 0.0);
         vector<T> X_init(m*s, 0.0);
@@ -147,7 +149,7 @@ class TestKrillx: public ::testing::Test {
         int64_t rpc_blocksize = 16;
         RNGState state2(keys[key_index]);
         RandLAPACK::krill_full_rpchol(
-            m, G_linop, H, X_init, tol, state2, seminorm, rpc_blocksize, max_iters, k
+            m, G_linop, s, H.data(), X_init.data(), tol, state2, seminorm, rpc_blocksize, max_iters, k
         );
         T tol_scale = std::sqrt((T)m);
         T atol = tol_scale * std::pow(std::numeric_limits<T>::epsilon(), 0.5);

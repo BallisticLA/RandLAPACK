@@ -185,39 +185,53 @@ void block_arrowhead_multiply(int64_t k, int64_t ell, int64_t n, const T* A, con
 
 namespace linops {
 
-using std::vector;
 
 /***
- * It might be practical to have one class that handles several different kinds of kernels.
+ * A representation of num_ops >= 1 regularized Radial Basis Function (RBF)
+ * kernel matrices, differing from one another only on their diagonals.
+ * 
+ * Every constituent matrix represented by this object is dim-by-dim.
+ * 
+ *   For i != j, the (i,j)-th matrix entry is equal to 
+ *      exp(-||X(:,i) - X(:,j)||_2^2 / bandwidth),
+ *   where X is a matrix with dim columns and bandwidth is some
+ *   positive number.
+ *   
+ *   The diagonals of this object's constituent matrices are all
+ *   proportional to the identity. For matrix k (0 <= k < num_ops),
+ *   the constant of proportionality is (1+regs[k]).
  */
 template <typename T>
 struct RBFKernelMatrix {
-    // squared exp kernel linear operator
     const int64_t dim;
-    const int64_t m;
+    /***
+    * X is a rows_x-by-dim matrix stored in column major format with
+    * leading dimension equal to rows_x. Each column of X is interpreted
+    * as a datapoint in "rows_x" dimensional space. 
+     */
     const T* X;
     const int64_t rows_x;
     T bandwidth;
     int64_t num_ops;
-    vector<T> regs;
+    T* regs;
 
-    vector<T> _sq_colnorms_x;
-    vector<T> _eval_work1;
-    vector<T> _eval_work2;
+    std::vector<T> _sq_colnorms_x;
+    std::vector<T> _eval_work1;
+    std::vector<T> _eval_work2;
     bool      _eval_includes_reg;
     int64_t   _eval_block_size;
 
     using scalar_t = T;
 
     RBFKernelMatrix(
-        int64_t dim, const T* X, int64_t rows_x, T bandwidth, vector<T> &regs
-    ) : dim(dim), m(dim), X(X), rows_x(rows_x), bandwidth(bandwidth),  regs(regs), _sq_colnorms_x(m), _eval_work1{}, _eval_work2{} {
-        num_ops = regs.size();
-        for (int64_t i = 0; i < m; ++i) {
+        int64_t dim, const T* X, int64_t rows_x, T bandwidth, std::vector<T> &argregs
+    ) : dim(dim), X(X), rows_x(rows_x), bandwidth(bandwidth),  regs(argregs.data()), _sq_colnorms_x(dim), _eval_work1{}, _eval_work2{} {
+        num_ops = argregs.size();
+        for (int64_t i = 0; i < dim; ++i) {
             _sq_colnorms_x[i] = std::pow(blas::nrm2(rows_x, X + i*rows_x, 1), 2);
         }
-        _eval_block_size = std::min(m / ((int64_t) 4), (int64_t) 512);
-        _eval_work1.resize(_eval_block_size * m);
+        _eval_block_size = std::min(dim / ((int64_t) 4), (int64_t) 512);
+        _eval_work1.resize(_eval_block_size * dim);
         _eval_includes_reg = false;
         return;
     }
@@ -225,10 +239,9 @@ struct RBFKernelMatrix {
     void _prep_eval_work1(int64_t rows_ksub, int64_t cols_ksub, int64_t ro_ksub, int64_t co_ksub) {
         randblas_require(rows_ksub * cols_ksub <= (int64_t) _eval_work1.size());
         squared_exp_kernel_submatrix(
-            rows_x, this->m, X, _sq_colnorms_x.data(),
+            rows_x, dim, X, _sq_colnorms_x.data(),
             rows_ksub, cols_ksub, _eval_work1.data(), ro_ksub, co_ksub, bandwidth
         );
-        num_ops = regs.size();
     }
 
     void set_eval_includes_reg(bool eir) {
@@ -237,15 +250,15 @@ struct RBFKernelMatrix {
 
     void operator()(blas::Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
         randblas_require(layout == blas::Layout::ColMajor);
-        randblas_require(ldb >= this->m);
-        randblas_require(ldc >= this->m);
+        randblas_require(ldb >= dim);
+        randblas_require(ldc >= dim);
 
-        _eval_work2.resize(this->m * n);
+        _eval_work2.resize(dim * n);
         for (int64_t i = 0; i < n; ++i) {
-            blas::scal(this->m, beta, C + i*ldc, 1);
+            blas::scal(dim, beta, C + i*ldc, 1);
         }
         int64_t done = 0;
-        int64_t todo = this->m;
+        int64_t todo = dim;
         while (todo > 0) {
             int64_t k = std::min(_eval_block_size, todo);
             _prep_eval_work1(k, todo, done, done);
@@ -262,12 +275,10 @@ struct RBFKernelMatrix {
             todo -= k;
         }
         if (_eval_includes_reg) {
-            int64_t num_regs = this->regs.size();
-            randblas_require(num_regs == 1 || n == num_regs);
-            T* regsp = regs.data();
+            randblas_require(num_ops == 1 || n == num_ops);
             for (int64_t i = 0; i < n; ++i) {
-                T coeff =  alpha * regsp[std::min(i, num_regs - 1)];
-                blas::axpy(this->m, coeff, B + i*ldb, 1, C +  i*ldc, 1);
+                T coeff =  alpha * regs[std::min(i, num_ops - 1)];
+                blas::axpy(dim, coeff, B + i*ldb, 1, C +  i*ldc, 1);
             }
         }
         return;
@@ -276,7 +287,7 @@ struct RBFKernelMatrix {
     inline T operator()(int64_t i, int64_t j) {
         T val = squared_exp_kernel(rows_x, X + i*rows_x, X + j*rows_x, bandwidth);
         if (_eval_includes_reg && i == j) {
-            randblas_require(regs.size() == 1);
+            randblas_require(num_ops == 1);
             val += regs[0];
         }
         return val;

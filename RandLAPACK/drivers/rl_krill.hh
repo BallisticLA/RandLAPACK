@@ -12,38 +12,18 @@
 #include <limits>
 #include <vector>
 
-/**
- * 
- * TODO:
- *  (1) finish and test krill_restricted_rpchol
- *  (2) write and test a krill_restricted function that accepts the centers as inputs
- *      in advance.
- *  (3) See also, rl_preconditioners.hh
- * 
- */
 
 namespace RandLAPACK {
-
-/**
- * Fun thing about the name KRILLx:
- * 
- *      we can do KRILLrs for KRILL with lockstep PCG for regularization sweep.
- * 
- *      we can do KRILLb (?) for "random lifting + block" version.
- */
 
 
 template <typename T, typename FUNC, typename SEMINORM, typename STATE>
 STATE krill_full_rpchol(
-    int64_t n, FUNC &G, std::vector<T> &H, std::vector<T> &X, T tol,
+    int64_t n, FUNC &G, int64_t ell, const T* H, T* X, T tol,
     STATE state, SEMINORM &seminorm, int64_t rpchol_block_size = -1, int64_t max_iters = 20, int64_t k = -1
 ) {
-    using std::vector;
     int64_t mu_size = G.num_ops;
-    vector<T> mus(mu_size);
+    std::vector<T> mus(mu_size);
     std::copy(G.regs, G.regs + mu_size, mus.data());
-    int64_t ell = ((int64_t) H.size()) / n;
-    randblas_require(ell * n == (int64_t) H.size());
     randblas_require(mu_size == 1 || mu_size == ell);
 
     if (rpchol_block_size < 0)
@@ -51,17 +31,24 @@ STATE krill_full_rpchol(
     if (k < 0)
         k = (int64_t) std::sqrt(n);
     
-    vector<T> V(n*k, 0.0);
-    vector<T> eigvals(k, 0.0);
+    std::vector<T> V(n*k, 0.0);
+    std::vector<T> eigvals(k, 0.0);
     G.set_eval_includes_reg(false);
     state = rpchol_pc_data(n, G, k, rpchol_block_size, V.data(), eigvals.data(), state);
     linops::SpectralPrecond<T> invP(n);
     invP.prep(V, eigvals, mus, ell);
     G.set_eval_includes_reg(true);
-    pcg(G, H.data(), ell, seminorm, tol, max_iters, invP, X.data(), true);
+    pcg(G, H, ell, seminorm, tol, max_iters, invP, X, true);
 
     return state;
 }
+
+/**
+ * TODO:
+ *  (1) write and test krill_restricted_rpchol, documented below.
+ *  (2) write and test a krill_restricted function that accepts the centers as inputs in advance.
+ * 
+ */
 
 /**
  * We start with a regularized kernel linear operator G and target data H.
@@ -139,25 +126,9 @@ STATE krill_full_rpchol(
 //     //
 //     //   That second identity can be written as MM' = G(inds, inds) for M = V(inds, :).
 //     //
-
-
-//     vector<T> M(k * k);
-//     _rpchol_impl::pack_selected_rows(blas::Layout::ColMajor, n, k, V.data(), inds, M.data());
-//     //
-//     //
-//     //
-
-//     linops::SpectralPrecond<T> invP(n);
-//     // invP.prep(V, eigvals, mus, ell);
 //     return state;
 // }
 
-// template <typename T, typename FUNC, typename STATE>
-// STATE krill_block(
-//
-// ) {
-//
-// }
 
 
 } // end namespace RandLAPACK
