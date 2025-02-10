@@ -61,11 +61,6 @@ int downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F_
     } catch(RandBLAS::Error &e) {
         std::string message{e.what()};
         if (message.find("sum >=") != std::string::npos) {
-            // T sum = cdf[N-1];
-            // if (sum > 0) {
-            //     blas::scal(N, 1/sum, cdf.data(), 1);
-            //     return 0;
-            // }
             return 1;
         } else if (message.find("val >= error_if_below") != std::string::npos) {
             return 2;
