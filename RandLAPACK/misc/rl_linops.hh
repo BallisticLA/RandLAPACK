@@ -110,7 +110,7 @@ struct RegExplicitSymLinOp {
         num_ops = arg_num_ops;
         num_ops = std::max(num_ops, (int64_t) 1);
         regs = new T[num_ops]{};
-        std::copy(arg_regs, arg_regs, regs);
+        std::copy(arg_regs, arg_regs + arg_num_ops, regs);
     }
 
     RegExplicitSymLinOp(
