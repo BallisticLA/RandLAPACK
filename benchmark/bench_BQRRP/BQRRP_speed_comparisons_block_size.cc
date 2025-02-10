@@ -230,7 +230,7 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
-    int i = 0;
+    int64_t i = 0;
     for (;i < b_sz.size(); ++i) {
         call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, output_filename);
     }
