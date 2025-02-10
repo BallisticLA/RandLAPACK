@@ -50,7 +50,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
 // Re-generate and clear data
 template <typename T>
-static std::vector<T> get_norms( int64_t m, int64_t n, std::vector<T> Mat, int64_t lda) {
+static std::vector<T> get_norms(int64_t n, std::vector<T> Mat, int64_t lda) {
 
     std::vector<T> R_norms (n, 0.0);
     for (int i = 0; i < n; ++i) {
@@ -81,7 +81,7 @@ static void R_norm_ratio(
 
     // Running GEQP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-    std::vector<T> R_norms_GEQP3 = get_norms(m, n, all_data.A, m);
+    std::vector<T> R_norms_GEQP3 = get_norms(n, all_data.A, m);
     printf("\nDone with QP3\n");
 
     // Clear and re-generate data
@@ -92,7 +92,7 @@ static void R_norm_ratio(
     // Running CQRRP
     state_alg = state;
     CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
-    std::vector<T> R_norms_CQRRPT = get_norms(n, n, all_data.R, n);
+    std::vector<T> R_norms_CQRRPT = get_norms(n, all_data.R, n);
 
     // Declare a data file
     std::fstream file1("QR_R_norm_ratios_rows_"        + std::to_string(m)

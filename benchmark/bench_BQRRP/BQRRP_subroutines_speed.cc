@@ -136,22 +136,17 @@ static void call_wide_qrcp(
     std::string output_filename) {
 
     auto m = all_data.row;  
-    auto tol = all_data.tolerance;
-
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 4;
 
     // timing vars
     long dur_geqp3  = 0;
     long dur_luqr   = 0;
-    long dur_cqrrpt = 0;
  
     // Making sure the states are unchanged
     auto state_alg = state;
 
     int i, j = 0;
     for (i = 0; i < numruns; ++i) {
-        printf("Wide QRCP iteration %d; m==%d start.\n", i, n);
+        printf("Wide QRCP iteration %d; m==%ld start.\n", i, n);
         // Testing GEQP3
         auto start_geqp3 = steady_clock::now();
         lapack::geqp3(n, m, all_data.A.data(), n, all_data.J.data(), all_data.tau.data());
@@ -198,7 +193,6 @@ static void call_tsqr(
     std::string output_filename) {
 
     auto m   = all_data.row;
-    auto tol = all_data.tolerance;
     int64_t tsize = 0;
 
     // timing vars
@@ -312,7 +306,6 @@ static void call_apply_q(
     // timing vars
     long dur_ormqr  = 0;
     long dur_gemqrt = 0;
-    long dur_gemm   = 0;
 
     std::ofstream file(output_filename, std::ios::app);
 
@@ -320,7 +313,7 @@ static void call_apply_q(
     int64_t nb = 0;
     for (i = 0; i < numruns; ++i) {
         for(nb = gemqrt_nb_start; nb <= n; nb *=2) {
-            printf("Apply Q iteration %d; n==%d start.\n", i, n);
+            printf("Apply Q iteration %d; n==%ld start.\n", i, n);
             // Performing CholQR
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
             lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
