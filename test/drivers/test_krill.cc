@@ -34,6 +34,7 @@ class TestKrillIsh: public ::testing::Test {
     void run_common(T mu_min, vector<T> &V, vector<T> &lambda, RegExplicitSymLinOp<T> &G_linop) {
         RandLAPACK::linops::SpectralPrecond<T> invP(m);
         vector<T> mus {mu_min, mu_min/10, mu_min/100};
+        delete [] G_linop.regs;
         G_linop.regs = new T[3];
         G_linop.num_ops = 3;
         std::copy(mus.begin(), mus.end(), G_linop.regs);
