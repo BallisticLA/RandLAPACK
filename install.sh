@@ -26,7 +26,7 @@ if [[ "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
     fi
 fi
 
-GPU_AVAIL="none"
+GPU_AVAIL="auto"
 # Detect NVIDIA GPU
 echo "Detecting NVIDIA GPU..." | tee -a $LOG_FILE
 if command -v nvidia-smi &> /dev/null; then
