@@ -3,13 +3,13 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
-#include <cuda.h>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <RandBLAS.hh>
 #include <fstream>
 #include <gtest/gtest.h>
-#include <cusolverDn.h>
+#include <hipsolver.h>
 
 #ifndef USE_CUDA
 #define USE_CUDA

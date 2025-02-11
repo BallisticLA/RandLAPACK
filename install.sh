@@ -169,7 +169,7 @@ cmake  -S $PROJECT_DIR/lib/lapackpp/ -B $PROJECT_DIR/build/lapackpp-build/ -Dgpu
 make  -C $PROJECT_DIR/build/lapackpp-build/ -j20 install
 # Configure, build, and install RandLAPACK
 echo $LIB_VAR
-cmake  -S $PROJECT_DIR/lib/RandLAPACK/ -B $PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release  -Dlapackpp_DIR=$PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$PROJECT_DIR/install/RandLAPACK-install
+cmake  -S $PROJECT_DIR/lib/RandLAPACK/ -B $PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release  -Dlapackpp_DIR=$PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$PROJECT_DIR/install/RandLAPACK-install -DRequireCUDA=ON
 make  -C $PROJECT_DIR/build/RandLAPACK-build/ -j20 install
 # Configure and build RandLAPACK-benchmark
 cmake  -S $PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/ -Dlapackpp_DIR=$PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$PROJECT_DIR/install/random123/include/

@@ -3,9 +3,9 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <cusolverDn.h>
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime.h>
+#include <hipsolver.h>
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -73,17 +73,17 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             row = m;
             col = n;
             rank = k;
-            cudaMalloc(&A_device,    m * n * sizeof(T));
-            cudaMalloc(&A_sk_device, d * n * sizeof(T));
-            cudaMalloc(&tau_device,  n *     sizeof(T));
-            cudaMalloc(&J_device,    n *     sizeof(int64_t));
+            hipMalloc(&A_device,    m * n * sizeof(T));
+            hipMalloc(&A_sk_device, d * n * sizeof(T));
+            hipMalloc(&tau_device,  n *     sizeof(T));
+            hipMalloc(&J_device,    n *     sizeof(int64_t));
         }
 
         ~BQRRPTestData() {
-            cudaFree(A_device);
-            cudaFree(A_sk_device);
-            cudaFree(tau_device);
-            cudaFree(J_device);
+            hipFree(A_device);
+            hipFree(A_sk_device);
+            hipFree(tau_device);
+            hipFree(J_device);
         }
     };
 
@@ -100,9 +100,9 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         RandBLAS::fill_dense(D, S, state_const);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk.data(), d);
         delete[] S;
-        cudaMemcpy(all_data.A_sk_device, all_data.A_sk.data(), d * n * sizeof(double), cudaMemcpyHostToDevice);
+        hipMemcpy(all_data.A_sk_device, all_data.A_sk.data(), d * n * sizeof(double), hipMemcpyHostToDevice);
 
-        cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+        hipMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), hipMemcpyHostToDevice);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpu.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
@@ -174,7 +174,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
 
         if(BQRRP_GPU.rank == 0) {
-            cudaMemcpy(all_data.A.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+            hipMemcpy(all_data.A.data(), all_data.A_device, m * n * sizeof(T), hipMemcpyDeviceToHost);
             for(int i = 0; i < m * n; ++i) {
                 ASSERT_NEAR(all_data.A[i], 0.0, atol);
             }
@@ -182,10 +182,10 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             all_data.rank = BQRRP_GPU.rank;
             printf("RANK AS RETURNED BY BQRRP GPU %4ld\n", all_data.rank);
             
-            cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
-            cudaMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
-            cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
-            cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+            hipMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   hipMemcpyDeviceToHost);
+            hipMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   hipMemcpyDeviceToHost);
+            hipMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       hipMemcpyDeviceToHost);
+            hipMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), hipMemcpyDeviceToHost);
 
             lapack::ungqr(m, n, n, all_data.Q.data(), m, all_data.tau.data());
             RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
@@ -197,10 +197,10 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             error_check(norm_A, all_data, atol);
         }
 
-        cudaError_t ierr = cudaGetLastError();
-        if (ierr != cudaSuccess)
+        hipError_t ierr = hipGetLastError();
+        if (ierr != hipSuccess)
         {
-                RandLAPACK_CUDA_ERROR("Error before test_BQRRP_general returned. " << cudaGetErrorString(ierr))
+                RandLAPACK_CUDA_ERROR("Error before test_BQRRP_general returned. " << hipGetErrorString(ierr))
                 abort();
         }
     }
@@ -219,9 +219,9 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         BQRRP_GPU.call(m, n, all_data.A_device, m, all_data.A_sk_device, d, all_data.tau_device, all_data.J_device);
         BQRRP_CPU.call(m, n, all_data.A_cpu.data(), m, (T) (d / BQRRP_CPU.block_size) , all_data.tau_cpu.data(), all_data.J_cpu.data(), state);
         
-        cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
-        cudaMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       cudaMemcpyDeviceToHost);
-        cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
+        hipMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   hipMemcpyDeviceToHost);
+        hipMemcpy(all_data.tau.data(),    all_data.tau_device, n * sizeof(T),       hipMemcpyDeviceToHost);
+        hipMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), hipMemcpyDeviceToHost);
 
         for(int i = 0; i < n; ++i) {
             all_data.tau[i] -= all_data.tau_cpu[i];
@@ -243,10 +243,10 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         ASSERT_NEAR(col_nrm_tau, 0.0, atol1);
         ASSERT_NEAR(norm_R_diff, 0.0, atol2);
     
-    	cudaError_t ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+    	hipError_t ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test_BQRRP_compare_with_CPU returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test_BQRRP_compare_with_CPU returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }

@@ -4,8 +4,8 @@
 
 #include <RandBLAS.hh>
 
-#include <cuda.h>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime.h>
 
 #include <math.h>
 #include <chrono>
@@ -61,18 +61,18 @@ class TestUtil_GPU : public ::testing::Test
         {
             row = m;
             col = n;
-            cudaMalloc(&A_device,   m * n * sizeof(T));
-            cudaMalloc(&B_device,   m * n * sizeof(T));
-            cudaMalloc(&J_device,   n * sizeof(int64_t));
-            cudaMalloc(&buf_device, n * sizeof(int64_t));
-            cudaDeviceSynchronize();
+            hipMalloc(&A_device,   m * n * sizeof(T));
+            hipMalloc(&B_device,   m * n * sizeof(T));
+            hipMalloc(&J_device,   n * sizeof(int64_t));
+            hipMalloc(&buf_device, n * sizeof(int64_t));
+            hipDeviceSynchronize();
         }
         
         ~ColSwpTestData() {
-            cudaFree(A_device);
-            cudaFree(B_device);
-            cudaFree(J_device);
-            cudaFree(buf_device);
+            hipFree(A_device);
+            hipFree(B_device);
+            hipFree(J_device);
+            hipFree(buf_device);
         }
     };
 
@@ -93,14 +93,14 @@ class TestUtil_GPU : public ::testing::Test
         {
             length_J   = m;
             length_idx = k;
-            cudaMalloc(&J_device,   m * sizeof(int64_t));
-            cudaMalloc(&idx_device, k * sizeof(int64_t));
-            cudaDeviceSynchronize();
+            hipMalloc(&J_device,   m * sizeof(int64_t));
+            hipMalloc(&idx_device, k * sizeof(int64_t));
+            hipDeviceSynchronize();
         }
 
         ~ColSwpVecTestData() {
-            cudaFree(J_device);
-            cudaFree(idx_device);
+            hipFree(J_device);
+            hipFree(idx_device);
         }
     };
 
@@ -121,13 +121,13 @@ class TestUtil_GPU : public ::testing::Test
         {
             row = m;
             col = n;
-            cudaMalloc(&A_device,   m * n * sizeof(T));
-            cudaMalloc(&A_device_T, n * m * sizeof(T));
+            hipMalloc(&A_device,   m * n * sizeof(T));
+            hipMalloc(&A_device_T, n * m * sizeof(T));
         }
 
         ~TranspTestData() {
-            cudaFree(A_device);
-            cudaFree(A_device_T);
+            hipFree(A_device);
+            hipFree(A_device_T);
         }
     };
 
@@ -151,15 +151,15 @@ class TestUtil_GPU : public ::testing::Test
         {
             row = m;
             col = n;
-            cudaMalloc(&A_device, m * n * sizeof(T));
-            cudaMalloc(&y_device, n * n * sizeof(T));
-            cudaMalloc(&x_device, m * sizeof(T));
+            hipMalloc(&A_device, m * n * sizeof(T));
+            hipMalloc(&y_device, n * n * sizeof(T));
+            hipMalloc(&x_device, m * sizeof(T));
         }
 
         ~GerTestData() {
-            cudaFree(A_device);
-            cudaFree(y_device);
-            cudaFree(x_device);
+            hipFree(A_device);
+            hipFree(y_device);
+            hipFree(x_device);
         }
     };
 
@@ -169,26 +169,26 @@ class TestUtil_GPU : public ::testing::Test
 
         auto m = all_data.row;
         auto n = all_data.col;
-        cudaStream_t strm = cudaStreamPerThread;
+        hipStream_t strm = hipStreamPerThread;
 
-        cudaMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice, strm);
-        cudaMemcpyAsync(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
-        cudaStreamSynchronize(strm);
+        hipMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(double), hipMemcpyHostToDevice, strm);
+        hipMemcpyAsync(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), hipMemcpyHostToDevice, strm);
+        hipStreamSynchronize(strm);
 
 
-        cudaError_t ierr = cudaGetLastError();
-        if (ierr != cudaSuccess)
+        hipError_t ierr = hipGetLastError();
+        if (ierr != hipSuccess)
         {
-            RandLAPACK_CUDA_ERROR("GPU ERROR. " << cudaGetErrorString(ierr))
+            RandLAPACK_CUDA_ERROR("GPU ERROR. " << hipGetErrorString(ierr))
             abort();
         }
         printf("Passed the general error check\n");
 
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
-        cudaMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
-        cudaMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+        hipMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), hipMemcpyDeviceToHost, strm);
+        hipMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), hipMemcpyDeviceToHost, strm);
         RandLAPACK::util::col_swap(m, n, n, all_data.A.data(), m, all_data.J);
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
 
         for(int i = 0; i < m*n; ++i)
             all_data.A[i] -= all_data.A_host_buffer[i];
@@ -196,10 +196,10 @@ class TestUtil_GPU : public ::testing::Test
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
-    	ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+    	ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }
@@ -218,21 +218,21 @@ class TestUtil_GPU : public ::testing::Test
         auto n   = all_data.col;
         auto lda = m;
 
-        cudaStream_t strm = cudaStreamPerThread;
-        cudaMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(T), cudaMemcpyHostToDevice, strm);
-        cudaMemcpyAsync(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
+        hipStream_t strm = hipStreamPerThread;
+        hipMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(T), hipMemcpyHostToDevice, strm);
+        hipMemcpyAsync(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), hipMemcpyHostToDevice, strm);
         T* A_device = all_data.A_device;
         T* A_device_submat = all_data.A_device + (col_offset * m + offset);
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m_submat, n_submat, k_submat, A_device_submat, lda, all_data.J_device);
-        cudaMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
-        cudaMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+        hipMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), hipMemcpyDeviceToHost, strm);
+        hipMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), hipMemcpyDeviceToHost, strm);
 
         T* A = all_data.A.data();
         T* A_submat = all_data.A.data() + (col_offset * m + offset);
         RandLAPACK::util::col_swap(m_submat, n_submat, k_submat, A_submat, lda, all_data.J);
 
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
 
         for(int i = 0; i < m*n; ++i)
             all_data.A[i] -= all_data.A_host_buffer[i];
@@ -241,10 +241,10 @@ class TestUtil_GPU : public ::testing::Test
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     
-    	cudaError_t ierr  = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+    	hipError_t ierr  = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }
@@ -258,18 +258,18 @@ class TestUtil_GPU : public ::testing::Test
         auto m   = all_data.length_J;
         auto k   = all_data.length_idx;
 
-        cudaStream_t strm = cudaStreamPerThread;
-        cudaMemcpyAsync(all_data.J_device, all_data.J.data(),     m * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
-        cudaMemcpyAsync(all_data.idx_device, all_data.idx.data(), k * sizeof(int64_t), cudaMemcpyHostToDevice, strm);
+        hipStream_t strm = hipStreamPerThread;
+        hipMemcpyAsync(all_data.J_device, all_data.J.data(),     m * sizeof(int64_t), hipMemcpyHostToDevice, strm);
+        hipMemcpyAsync(all_data.idx_device, all_data.idx.data(), k * sizeof(int64_t), hipMemcpyHostToDevice, strm);
         int64_t* J_device_subvec = all_data.J_device + offset;
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
         RandLAPACK::cuda_kernels::col_swap_gpu<T>(strm, m, k, J_device_subvec, all_data.idx_device);
-        cudaMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, m * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
+        hipMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, m * sizeof(int64_t), hipMemcpyDeviceToHost, strm);
 
         int64_t* J_subvec = all_data.J.data() + offset;
         std::vector<int64_t> buf;
         RandLAPACK::util::col_swap<T>(m, k, J_subvec, all_data.idx);
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
 
         for(int i = 0; i < m; ++i){
             all_data.J[i] -= all_data.J_host_buffer[i];
@@ -279,10 +279,10 @@ class TestUtil_GPU : public ::testing::Test
         printf("\nNorm diff GPU CPU: %e\n", norm_test);
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
    	 
-    	cudaError_t ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+    	hipError_t ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }
@@ -294,15 +294,15 @@ class TestUtil_GPU : public ::testing::Test
 
         auto m = all_data.row;
         auto n = all_data.col;
-        cudaStream_t strm = cudaStreamPerThread;
+        hipStream_t strm = hipStreamPerThread;
     
-        cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+        hipMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), hipMemcpyHostToDevice);
         // Perform Pivoted QR
         lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
         // Swap columns in A's copy
-        cudaMemcpy(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), cudaMemcpyHostToDevice);
+        hipMemcpy(all_data.J_device, all_data.J.data(), n * sizeof(int64_t), hipMemcpyHostToDevice);
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
-        cudaMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost);
+        hipMemcpy(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), hipMemcpyDeviceToHost);
 
         // Create an identity and store Q in it.
         RandLAPACK::util::eye(m, n, all_data.Ident.data());
@@ -318,10 +318,10 @@ class TestUtil_GPU : public ::testing::Test
         printf("||A_piv - QR||_F:  %e\n", norm);
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     	
-    	cudaError_t ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+    	hipError_t ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }
@@ -332,14 +332,14 @@ class TestUtil_GPU : public ::testing::Test
 
         auto m = all_data.row;
         auto n = all_data.col;
-        cudaStream_t strm = cudaStreamPerThread;
+        hipStream_t strm = hipStreamPerThread;
     
-        cudaMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice, strm);
-        cudaStreamSynchronize(strm);
+        hipMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(double), hipMemcpyHostToDevice, strm);
+        hipStreamSynchronize(strm);
         RandLAPACK::cuda_kernels::transposition_gpu(strm, m, n, all_data.A_device, m, all_data.A_device_T, n, 0);
-        cudaMemcpyAsync(all_data.A_T_buffer.data(), all_data.A_device_T, n * m * sizeof(T), cudaMemcpyDeviceToHost, strm);
+        hipMemcpyAsync(all_data.A_T_buffer.data(), all_data.A_device_T, n * m * sizeof(T), hipMemcpyDeviceToHost, strm);
         RandLAPACK::util::transposition(m, n, all_data.A.data(), m, all_data.A_T.data(), n, 0);
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
 
         // A_piv - A_cpy
         for(int i = 0; i < m * n; ++i)
@@ -349,10 +349,10 @@ class TestUtil_GPU : public ::testing::Test
         printf("||A_T_host - A_T_device||_F:  %e\n", norm);
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     	
-    	cudaError_t ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+    	hipError_t ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }
@@ -365,16 +365,16 @@ class TestUtil_GPU : public ::testing::Test
 
         auto m = all_data.row;
         auto n = all_data.col;
-        cudaStream_t strm = cudaStreamPerThread;
-        cudaMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(T), cudaMemcpyHostToDevice, strm);
-        cudaStreamSynchronize(strm);
-        cudaMemcpyAsync(all_data.y_device, all_data.y.data(), n * n * sizeof(T), cudaMemcpyHostToDevice, strm);
-        cudaMemcpyAsync(all_data.x_device, all_data.x.data(), m * sizeof(T),     cudaMemcpyHostToDevice, strm);
+        hipStream_t strm = hipStreamPerThread;
+        hipMemcpyAsync(all_data.A_device, all_data.A.data(), m * n * sizeof(T), hipMemcpyHostToDevice, strm);
+        hipStreamSynchronize(strm);
+        hipMemcpyAsync(all_data.y_device, all_data.y.data(), n * n * sizeof(T), hipMemcpyHostToDevice, strm);
+        hipMemcpyAsync(all_data.x_device, all_data.x.data(), m * sizeof(T),     hipMemcpyHostToDevice, strm);
         RandLAPACK::cuda_kernels::ger_gpu(strm, m, n, alpha, all_data.x_device, 1, all_data.y_device, n + 1, all_data.A_device, m);
-        cudaMemcpyAsync(all_data.A_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
+        hipMemcpyAsync(all_data.A_buffer.data(), all_data.A_device, m * n * sizeof(T), hipMemcpyDeviceToHost, strm);
         // Y has stride of n + 1
         blas::ger(Layout::ColMajor, m, n, alpha, all_data.x.data(), 1, all_data.y.data(), n + 1, all_data.A.data(), m);
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
         
         // A_piv - A_cpy
         for(int i = 0; i < m * n; ++i)
@@ -384,10 +384,10 @@ class TestUtil_GPU : public ::testing::Test
         printf("||A_host - A_device||_F:  %e\n", norm);
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     	
-    	cudaError_t ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+    	hipError_t ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before test returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before test returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }
