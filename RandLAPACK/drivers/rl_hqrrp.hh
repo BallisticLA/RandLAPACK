@@ -89,10 +89,10 @@ void _LAPACK_lafrb(
     lapack_int ldim_T = (lapack_int) ldt;
     lapack_int ldim_B = (lapack_int) ldb;
     lapack_int ldim_W = (lapack_int) ldw;
-    char side_ = blas::side2char( side );
-    char trans_ = blas::op2char( op );
-    char direction_ = lapack::direction2char( dir );
-    char storev_ = lapack::storev2char( storev );
+    char side_ = blas::to_char( side );
+    char trans_ = blas::to_char( op );
+    char direction_ = lapack::to_char( dir );
+    char storev_ = lapack::to_char( storev );
     if (typeid(T) == typeid(double)) {
         LAPACK_dlarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (double *) buff_U, & ldim_U, (double *) buff_T, & ldim_T, 
@@ -124,7 +124,7 @@ void _LAPACK_larf(
     T *C, int64_t ldc,
     T *work
 ){
-    char side_ = blas::side2char( side );
+    char side_ = blas::to_char( side );
     lapack_int inc_v_ = (lapack_int) inc_v;
     lapack_int m_ = (lapack_int) m;
     lapack_int n_ = (lapack_int) n;
