@@ -126,7 +126,7 @@ int RF<T, RNG>::call(
         // Writes into this->cond_nums
         this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->verbose));
 
-    if(this->orth.call(m, k, Q))
+    if(this->orth.call(m, k, Q)) {
         delete[] Omega;
         return 2; // Orthogonalization failed
     }
