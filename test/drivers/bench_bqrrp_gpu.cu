@@ -3,9 +3,9 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <cusolverDn.h>
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime.h>
+#include <hipsolver.h>
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -49,19 +49,19 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         {
             row = m;
             col = n;
-            cudaMalloc(&A_device,    m * n * sizeof(T));
-            cudaMalloc(&tau_device,  n *     sizeof(T));
-            cudaMalloc(&J_device,    n *     sizeof(int64_t));
-            cudaMalloc(&R_device,    n * n * sizeof(T));
-            cudaMalloc(&D_device,    n *     sizeof(T));
+            hipMalloc(&A_device,    m * n * sizeof(T));
+            hipMalloc(&tau_device,  n *     sizeof(T));
+            hipMalloc(&J_device,    n *     sizeof(int64_t));
+            hipMalloc(&R_device,    n * n * sizeof(T));
+            hipMalloc(&D_device,    n *     sizeof(T));
         }
 
         ~BQRRPBenchData() {
-            cudaFree(A_device);
-            cudaFree(tau_device);
-            cudaFree(J_device);
-            cudaFree(R_device);
-            cudaFree(D_device);
+            hipFree(A_device);
+            hipFree(tau_device);
+            hipFree(J_device);
+            hipFree(R_device);
+            hipFree(D_device);
         }
     };
 
@@ -76,8 +76,8 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         auto n = m_info.cols;
 
         RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state_const);
-        cudaMemset(all_data.J_device, 0.0, n);
-        cudaMemset(all_data.tau_device, 0.0, n);
+        hipMemset(all_data.J_device, 0.0, n);
+        hipMemset(all_data.tau_device, 0.0, n);
     }
 
     template <typename T, typename RNG>
@@ -100,14 +100,13 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 
         // BQRRP with QRF
         // Skethcing in an sampling regime
-        cudaMalloc(&all_data.A_sk_device, d * n * sizeof(T));
-        all_data.A_sk = new T[d * n]();
-        T* S          = new T[d * m]();
-
+        hipMalloc(&all_data.A_sk_device, d * n * sizeof(T));
+        all_data.A_sk = ( T * ) calloc( d * n, sizeof( T ) );
+        T* S          = ( T * ) calloc( d * m, sizeof( T ) );
         RandBLAS::DenseDist D(d, m);
-        RandBLAS::fill_dense(D, S, state_const).second;
+        RandBLAS::fill_dense(D, S, state_const);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
-        cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
+        hipMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), hipMemcpyHostToDevice);
         RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU_QRF(profile_runtime, block_size);
         BQRRP_GPU_QRF.qr_tall = GPUSubroutines::QRTall::geqrf;
 	    auto start_bqrrp_qrf = std::chrono::steady_clock::now();
@@ -115,8 +114,8 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         auto stop_bqrrp_qrf = std::chrono::steady_clock::now();
 	    auto diff_bqrrp_qrf = std::chrono::duration_cast<std::chrono::microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
         data_regen(m_info, all_data, state);
-        cudaFree(all_data.A_sk_device);
-        delete[] all_data.A_sk;
+        hipFree(all_data.A_sk_device);
+        free(all_data.A_sk);
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_QRF, std::ios::app);
@@ -126,11 +125,11 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 
         // BQRRP with CholQR
         // Skethcing in an sampling regime
-        cudaMalloc(&all_data.A_sk_device, d * n * sizeof(T));
-        all_data.A_sk = new T[d * n]();
+        hipMalloc(&all_data.A_sk_device, d * n * sizeof(T));
+        all_data.A_sk = ( T * ) calloc( d * n, sizeof( T ) );
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
-        delete[] S;
-        cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
+        free(S);
+        hipMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), hipMemcpyHostToDevice);
         RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU_CholQR(profile_runtime, block_size);
         BQRRP_GPU_CholQR.qr_tall = GPUSubroutines::QRTall::cholqr;
 	    auto start_bqrrp_cholqr = std::chrono::steady_clock::now();
@@ -138,8 +137,8 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 	    auto stop_bqrrp_cholqr = std::chrono::steady_clock::now();
 	    auto diff_bqrrp_cholqr = std::chrono::duration_cast<std::chrono::microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
         data_regen(m_info, all_data, state);
-        cudaFree(all_data.A_sk_device);
-        delete[] all_data.A_sk;
+        hipFree(all_data.A_sk_device);
+        free(all_data.A_sk);
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_CholQR, std::ios::app);
@@ -172,10 +171,10 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 	    printf("  BLOCK SIZE = %ld BQRRP+QRF TIME (MS) = %ld BQRRP+CholQR TIME (MS) = %ld\n", block_size, diff_bqrrp_qrf, diff_bqrrp_cholqr);
         std::ofstream file(output_filename_speed, std::ios::app);
         file << m << "  " << n << "  " << block_size << "  " << diff_bqrrp_qrf << "  " << diff_bqrrp_cholqr << "  " << diff_qrf << "\n";
-        cudaError_t ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+        hipError_t ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before bench_bqrrp returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before bench_bqrrp returned. " << hipGetErrorString(ierr))
         	abort();
     	}
     }
@@ -195,7 +194,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 
         // Initialize GPU stuff
         lapack::Queue lapack_queue(0);
-        cudaStream_t strm = lapack_queue.stream();
+        hipStream_t strm = lapack_queue.stream();
         using lapack::device_info_int;
         device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
         char* d_work_geqrf;
@@ -215,7 +214,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         // ORHR_COL part
         RandLAPACK::cuda_kernels::orhr_col_gpu(strm, m, n, all_data.A_device, m, all_data.tau_device, all_data.D_device);  
         RandLAPACK::cuda_kernels::R_cholqr_signs_gpu(strm, n, n, all_data.R_device, all_data.D_device);
-        cudaStreamSynchronize(strm);
+        hipStreamSynchronize(strm);
         auto stop_orhr_col  = std::chrono::steady_clock::now();
         auto diff_orhr_col  = std::chrono::duration_cast<std::chrono::microseconds>(stop_orhr_col  - start_orhr_col).count();
 
@@ -239,10 +238,10 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         std::ofstream file(output_filename, std::ios::app);
         file << m << "  " << n << "  " << diff_cholqr << "  " << diff_orhr_col << "  " << diff_qrf << "\n";
 
-        cudaError_t ierr = cudaGetLastError();
-    	if (ierr != cudaSuccess)
+        hipError_t ierr = hipGetLastError();
+    	if (ierr != hipSuccess)
     	{
-        	RandLAPACK_CUDA_ERROR("Error before bench_CholQR returned. " << cudaGetErrorString(ierr))
+        	RandLAPACK_CUDA_ERROR("Error before bench_CholQR returned. " << hipGetErrorString(ierr))
         	abort();
     	}    
     }
@@ -262,7 +261,7 @@ TEST_P(BenchBQRRP, GPU_fixed_blocksize) {
     BQRRPBenchData<double> all_data(m, n);
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+    hipMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), hipMemcpyHostToDevice);
 
 
     std::string file1 = "BQRRP_GPU_runtime_breakdown_innerQRF_1_rows_"       

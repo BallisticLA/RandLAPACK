@@ -45,41 +45,26 @@ struct RBKI_benchmark_data {
     RBKI_benchmark_data(int64_t m, int64_t n, T tol) :
     A_spectra(m, n)
     {
-        A          = new T[m * n]();
-        U          = new T[m * n]();
-        VT         = new T[n * n]();
-        V          = new T[n * n]();
-        Sigma      = new T[m]();
-        U_RSVD     = new T[m * n]();
-        V_RSVD     = new T[n * n]();
-        Sigma_RSVD = new T[n]();
-        Buffer     = new T[m * n]();
-        Sigma_cpy  = new T[n * n]();
-        U_cpy      = new T[m * n]();
-        VT_cpy     = new T[n * n]();
+        A                   = ( T * ) calloc(m * n, sizeof( T ) );
+        U                   = ( T * ) calloc(m * n, sizeof( T ) );
+        VT                  = ( T * ) calloc(n * n, sizeof( T ) );
+        V                   = ( T * ) calloc(n * n, sizeof( T ) );
+        Sigma               = ( T * ) calloc(m,     sizeof( T ) );
+        U_RSVD              = ( T * ) calloc(m * n, sizeof( T ) );
+	    V_RSVD              = ( T * ) calloc(n * n, sizeof( T ) );
+	    Sigma_RSVD          = ( T * ) calloc(n,     sizeof( T ) );
+	    Buffer              = ( T * ) calloc(m * n, sizeof( T ) );
+        Sigma_cpy           = ( T * ) calloc(n * n, sizeof( T ) );
+        U_cpy               = ( T * ) calloc(m * n, sizeof( T ) );
+        VT_cpy              = ( T * ) calloc(n * n, sizeof( T ) );
 
+        //A_lowrank_svd       = ( T * ) calloc(m * n, sizeof( T ) );
+        //A_lowrank_svd_const = ( T * ) calloc(m * n, sizeof( T ) );
         A_lowrank_svd       = nullptr;
         A_lowrank_svd_const = nullptr;
         row                 = m;
         col                 = n;
         tolerance           = tol;
-    }
-
-    ~RBKI_benchmark_data() {
-        delete[] A;
-        delete[] U;
-        delete[] VT;
-        delete[] V;
-        delete[] Sigma;
-        delete[] U_RSVD;
-        delete[] V_RSVD;
-        delete[] Sigma_RSVD;
-        delete[] Buffer;
-        delete[] Sigma_cpy;
-        delete[] U_cpy;
-        delete[] VT_cpy;
-        delete[] A_lowrank_svd;
-        delete[] A_lowrank_svd_const;
     }
 };
 
@@ -259,9 +244,9 @@ static void call_all_algs(
         // There is no reason to run SVD many times, as it always outputs the same result.
         if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVD
-            auto start_svd = high_resolution_clock::now();
+            auto start_svd = steady_clock::now();
             lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
-            auto stop_svd = high_resolution_clock::now();
+            auto stop_svd = steady_clock::now();
             dur_svd = duration_cast<microseconds>(stop_svd - start_svd).count();
             printf("TOTAL TIME FOR SVD %ld\n", dur_svd);
 
@@ -281,9 +266,9 @@ static void call_all_algs(
         }
         
         // Running RBKI
-        auto start_rbki = high_resolution_clock::now();
+        auto start_rbki = steady_clock::now();
         all_algs.RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
-        auto stop_rbki = high_resolution_clock::now();
+        auto stop_rbki = steady_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
 
@@ -298,10 +283,10 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 1);
         
         // Running RSVD
-        auto start_rsvd = high_resolution_clock::now();
+        auto start_rsvd = steady_clock::now();
         int64_t threshold_RSVD = (int64_t ) (b_sz * num_matmuls / 2);
         all_algs.RSVD.call(m, n, all_data.A, threshold_RSVD, tol, all_data.U_RSVD, all_data.Sigma_RSVD, all_data.V_RSVD, state_alg);
-        auto stop_rsvd = high_resolution_clock::now();
+        auto stop_rsvd = steady_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
@@ -324,10 +309,10 @@ static void call_all_algs(
         // There is no reason to run SVDS many times, as it always outputs the same result.
         if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
-            auto start_svds = high_resolution_clock::now();
+            auto start_svds = steady_clock::now();
             Spectra::PartialSVDSolver<Eigen::MatrixXd> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
             svds.compute();
-            auto stop_svds = high_resolution_clock::now();
+            auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
             printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
@@ -418,8 +403,8 @@ int main(int argc, char *argv[]) {
         RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
         m_info_A_svd.filename            = argv[2];
         m_info_A_svd.workspace_query_mod = 0;
-        all_data.A_lowrank_svd       = new double[m * n]();
-        all_data.A_lowrank_svd_const = new double[m * n]();
+        all_data.A_lowrank_svd           = ( double * ) calloc(m * n, sizeof( double ) );
+        all_data.A_lowrank_svd_const     = ( double * ) calloc(m * n, sizeof( double ) );
         RandLAPACK::gen::mat_gen<double>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
         lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     

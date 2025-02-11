@@ -85,27 +85,27 @@ static void call_all_algs(
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
         // Testing GEQP3
-        auto start_geqp3 = high_resolution_clock::now();
+        auto start_geqp3 = steady_clock::now();
         lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-        auto stop_geqp3 = high_resolution_clock::now();
+        auto stop_geqp3 = steady_clock::now();
         dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen);
 
         // Testing GEQRF
-        auto start_geqrf = high_resolution_clock::now();
+        auto start_geqrf = steady_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
-        auto stop_geqrf = high_resolution_clock::now();
+        auto stop_geqrf = steady_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen);
 
         // Testing CQRRPT
-        auto start_cqrrp = high_resolution_clock::now();
+        auto start_cqrrp = steady_clock::now();
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
-        auto stop_cqrrp = high_resolution_clock::now();
+        auto stop_cqrrp = steady_clock::now();
         dur_cqrrpt = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
 
         state_gen = state;
@@ -113,7 +113,7 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
 
         // Testing SCHOLQR3
-        auto start_scholqr = high_resolution_clock::now();
+        auto start_scholqr = steady_clock::now();
         //--------------------------------------------------------------------------------------------------------------------------//
         T norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
         T shift = 11 * std::numeric_limits<T>::epsilon() * n * std::pow(norm_A, 2);
@@ -131,7 +131,7 @@ static void call_all_algs(
         lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, all_data.R.data(), n, all_data.A.data(), m);
         //--------------------------------------------------------------------------------------------------------------------------//
-        auto stop_scholqr = high_resolution_clock::now();
+        auto stop_scholqr = steady_clock::now();
         dur_scholqr = duration_cast<microseconds>(stop_scholqr - start_scholqr).count();
 
         auto state_gen = state;
@@ -139,21 +139,21 @@ static void call_all_algs(
 
         // Testing GEQR + GEQPT
 #if !defined(__APPLE__)
-        auto start_geqpt = high_resolution_clock::now();
-        auto start_geqr  = high_resolution_clock::now();
+        auto start_geqpt = steady_clock::now();
+        auto start_geqr  = steady_clock::now();
         // GEQR(A) part
         lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
         int64_t tsize = (int64_t) all_data.tau[0]; 
         all_data.tau.resize(tsize);
         lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
 
-        auto stop_geqr = high_resolution_clock::now();
+        auto stop_geqr = steady_clock::now();
         dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
 
         // GEQP3(R) part
         lapack::lacpy(MatrixType::Upper, n, n, all_data.A.data(), m, all_data.R.data(), n);
         lapack::geqp3(n, n, all_data.R.data(), n, all_data.J.data(), all_data.tau.data());
-        auto stop_geqpt = high_resolution_clock::now();
+        auto stop_geqpt = steady_clock::now();
         dur_geqpt = duration_cast<microseconds>(stop_geqpt - start_geqpt).count();
         state_gen = state;
         data_regen(m_info, all_data, state_gen);

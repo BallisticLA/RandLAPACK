@@ -1,8 +1,9 @@
+#include "hip/hip_runtime.h"
 #pragma once
 #include "rl_cuda_macros.hh"
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <cooperative_groups.h>
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime.h>
+#include <hip/hip_cooperative_groups.h>
 
 namespace RandLAPACK::cuda_kernels {
 
@@ -487,7 +488,7 @@ __global__ void copy_mat_gpu(
 
 template <typename T>
 void naive_rank_est(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t n,
     const T alpha,
     const T* A,
@@ -496,21 +497,21 @@ void naive_rank_est(
 ) {
 #ifdef USE_CUDA
     int64_t* rank_device;
-    cudaMalloc(&rank_device, sizeof(int64_t));
+    hipMalloc(&rank_device, sizeof(int64_t));
 
     constexpr int threadsPerBlock{128};
     int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
     naive_rank_est<<<num_blocks_ger, threadsPerBlock, sizeof(int64_t), stream>>>(n, alpha, A, lda, rank_device);
 
     // It seems that these synchs are required, after all
-    cudaStreamSynchronize(stream);
-    cudaMemcpy(&rank, rank_device, sizeof(int64_t), cudaMemcpyDeviceToHost);
-    cudaStreamSynchronize(stream);
-    cudaFree(rank_device);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipStreamSynchronize(stream);
+    hipMemcpy(&rank, rank_device, sizeof(int64_t), hipMemcpyDeviceToHost);
+    hipStreamSynchronize(stream);
+    hipFree(rank_device);
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch naive_rank_est. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch naive_rank_est. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -520,7 +521,7 @@ void naive_rank_est(
 
 template <typename T>
 void all_of(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t n,
     const T alpha,
     const T* A,
@@ -528,19 +529,19 @@ void all_of(
 ) {
 #ifdef USE_CUDA
     bool* all_greater_device;
-    cudaMalloc(&all_greater_device, sizeof(bool));
+    hipMalloc(&all_greater_device, sizeof(bool));
 
     constexpr int threadsPerBlock{128};
     int64_t num_blocks_ger{(n + threadsPerBlock - 1) / threadsPerBlock};
     all_of<<<num_blocks_ger, threadsPerBlock, sizeof(bool), stream>>>(n, alpha, A, all_greater_device);
-    cudaStreamSynchronize(stream);
-    cudaMemcpy(&all_greater, all_greater_device, sizeof(bool), cudaMemcpyDeviceToHost);
-    cudaStreamSynchronize(stream);
-    cudaFree(all_greater_device);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipStreamSynchronize(stream);
+    hipMemcpy(&all_greater, all_greater_device, sizeof(bool), hipMemcpyDeviceToHost);
+    hipStreamSynchronize(stream);
+    hipFree(all_greater_device);
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch all_greater. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch all_greater. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -550,7 +551,7 @@ void all_of(
 
 template <typename T>
 void ger_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m, 
     int64_t n, 
     T alpha, 
@@ -567,10 +568,10 @@ void ger_gpu(
     int64_t num_blocks_ger{(m + threadsPerBlock - 1) / threadsPerBlock};
     ger_gpu<<<num_blocks_ger, threadsPerBlock, 0, stream>>>(m, n, alpha, x, incx, y, incy, A, lda);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch ger_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch ger_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -580,7 +581,7 @@ void ger_gpu(
 
 template <typename T>
 void copy_mat_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m,
     int64_t n,
     const T* A,
@@ -594,10 +595,10 @@ void copy_mat_gpu(
     dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
     copy_mat_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, A_cpy, ldat, copy_upper_triangle);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch copy_mat_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch copy_mat_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -607,7 +608,7 @@ void copy_mat_gpu(
 
 template <typename T>
 void col_swap_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m, 
     int64_t n, 
     int64_t k,
@@ -617,39 +618,39 @@ void col_swap_gpu(
 ) {
 #ifdef USE_CUDA
     int64_t* idx_copy;
-    cudaMallocAsync(&idx_copy, sizeof(int64_t) * n, stream);
+    hipMallocAsync(&idx_copy, sizeof(int64_t) * n, stream);
     
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to allocate for col_swap_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to allocate for col_swap_gpu. " << hipGetErrorString(ierr))
         abort();
     }
     constexpr int numThreads = 128;
     dim3 dimBlock(numThreads, 1, 1);
     static int upper_bound = [&] {
         int numBlocksPerSm = 0;
-        cudaDeviceProp deviceProp;
-        cudaGetDeviceProperties(&deviceProp, 0);
-        cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
+        hipDeviceProp_t deviceProp;
+        hipGetDeviceProperties(&deviceProp, 0);
+        hipOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, col_swap_gpu_kernel<T>, numThreads, 0);
         return deviceProp.multiProcessorCount * numBlocksPerSm;
     }();
     int lower_bound = std::max(m, k);
     lower_bound = (lower_bound + numThreads - 1) / numThreads;
     dim3 dimGrid(std::min(upper_bound, lower_bound), 1, 1);
     void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
-    cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel_sequential<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
-    ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipLaunchCooperativeKernel((void*)col_swap_gpu_kernel_sequential<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
+    ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu sequential. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu sequential. " << hipGetErrorString(ierr))
         abort();
     }
-    cudaFreeAsync(idx_copy, stream);
-    ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipFreeAsync(idx_copy, stream);
+    ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to deallocate for col_swap_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to deallocate for col_swap_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -661,7 +662,7 @@ void col_swap_gpu(
 /// idx array modified ONLY within the scope of this function.
 template <typename T>
 void col_swap_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m, 
     int64_t n, 
     int64_t k,
@@ -678,10 +679,10 @@ void col_swap_gpu(
                          (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
     col_swap_gpu_kernel<<<blocksPerGrid, threadsPerBlock, 0, stream>>>(m, n, k, A, lda, A_cpy, ldac, idx);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu with parallel pivots. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu with parallel pivots. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -693,7 +694,7 @@ void col_swap_gpu(
 /// idx array modified ONLY within the scope of this function.
 template <typename T>
 void col_swap_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m,  
     int64_t k,
     int64_t* J, 
@@ -703,26 +704,26 @@ void col_swap_gpu(
 /*
     std::vector<int64_t> idx_copy(k);
     auto j = std::make_unique<int64_t[]>(m);
-    cudaMemcpyAsync(idx_copy.data(), idx, sizeof(int64_t) * k, cudaMemcpyDeviceToHost, stream);
-    cudaMemcpyAsync(j.get(), J, sizeof(int64_t) * m, cudaMemcpyDeviceToHost, stream);
-    cudaStreamSynchronize(stream);
+    hipMemcpyAsync(idx_copy.data(), idx, sizeof(int64_t) * k, hipMemcpyDeviceToHost, stream);
+    hipMemcpyAsync(j.get(), J, sizeof(int64_t) * m, hipMemcpyDeviceToHost, stream);
+    hipStreamSynchronize(stream);
 
     RandLAPACK::util::col_swap<T>(m, k, j.get(), std::move(idx_copy));
 
-    cudaMemcpyAsync(J, j.get(), sizeof(int64_t) * m, cudaMemcpyHostToDevice, stream);
+    hipMemcpyAsync(J, j.get(), sizeof(int64_t) * m, hipMemcpyHostToDevice, stream);
     // must add this to avoid dangling reference during async copy
-    cudaStreamSynchronize(stream);
+    hipStreamSynchronize(stream);
 */
 #ifdef USE_CUDA
     int64_t* idx_copy;
-    cudaMallocAsync(&idx_copy, sizeof(int64_t) * k, stream);
+    hipMallocAsync(&idx_copy, sizeof(int64_t) * k, stream);
     vec_ell_swap_gpu<T><<<1, 512, 0, stream>>>(m, k, J, idx, idx_copy);
 
-    cudaFreeAsync(idx_copy, stream);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipFreeAsync(idx_copy, stream);
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -732,7 +733,7 @@ void col_swap_gpu(
 
 template <typename T>
 void col_swap_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m,  
     int64_t k,
     int64_t* J, 
@@ -744,10 +745,10 @@ void col_swap_gpu(
     int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
     vec_ell_swap_gpu<T><<<num_blocks, threadsPerBlock, 0, stream>>>(m, k, J, J_cpy, idx);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu vector. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu vector. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -758,7 +759,7 @@ void col_swap_gpu(
 
 template <typename T>
 void transposition_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m,
     int64_t n,
     const T* A,
@@ -772,10 +773,10 @@ void transposition_gpu(
     int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
     transposition_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, AT, ldat, copy_upper_triangle);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch transposition_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch transposition_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -788,7 +789,7 @@ void transposition_gpu(
 // TODO: we get a multiple definition linker error if this function is not templated.
 template <typename Idx>
 inline void LUQRCP_piv_process_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     Idx sampling_dim,
     Idx cols,
     Idx* J_buffer,
@@ -799,10 +800,10 @@ inline void LUQRCP_piv_process_gpu(
     Idx n{std::min(sampling_dim, cols)};
     LUQRCP_piv_process_gpu_global<<<1, threadsPerBlock, 0, stream>>>(cols, n, J_buffer, J_buffer_lu);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch piv_process_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch piv_process_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -814,7 +815,7 @@ inline void LUQRCP_piv_process_gpu(
 // Outputs tau instead of T.
 template <typename T>
 void orhr_col_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t m,
     int64_t n,
     T* A,
@@ -840,10 +841,10 @@ void orhr_col_gpu(
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     elementwise_product<<<num_blocks, threadsPerBlock, 0, stream>>>(n, T{-1}, A, lda + 1, D, 1, tau, 1);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch orhr_col_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch orhr_col_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -854,7 +855,7 @@ void orhr_col_gpu(
 // Setting signs in the R-factor from CholQR after orhr_col outputs.
 template <typename T>
 void R_cholqr_signs_gpu(
-    cudaStream_t stream, 
+    hipStream_t stream, 
     int64_t b_sz,
     int64_t b_sz_const, 
     T* R,  
@@ -867,10 +868,10 @@ void R_cholqr_signs_gpu(
 
     R_cholqr_signs_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(b_sz, b_sz_const, R, D);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch R_cholqr_signs_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch R_cholqr_signs_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -880,7 +881,7 @@ void R_cholqr_signs_gpu(
 
 template <typename T>
 void copy_gpu(
-    cudaStream_t stream,
+    hipStream_t stream,
     int64_t n,  
     T const* src,
     int64_t incr_src,  
@@ -892,10 +893,10 @@ void copy_gpu(
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     copy_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, src, incr_src, dest, incr_dest);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch copy_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch copy_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -905,7 +906,7 @@ void copy_gpu(
 
 template <typename T>
 void fill_gpu(
-    cudaStream_t stream,
+    hipStream_t stream,
     int64_t n,  
     T* x,
     int64_t incx,  
@@ -916,10 +917,10 @@ void fill_gpu(
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     fill_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, x, incx, alpha);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -929,7 +930,7 @@ void fill_gpu(
 
 template <typename T>
 void fill_gpu(
-    cudaStream_t stream,
+    hipStream_t stream,
     int64_t n,  
     int64_t* x,
     int64_t incx,  
@@ -940,10 +941,10 @@ void fill_gpu(
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     fill_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, x, incx, alpha);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else
@@ -953,7 +954,7 @@ void fill_gpu(
 
 template <typename T>
 void get_U_gpu(
-    cudaStream_t stream,
+    hipStream_t stream,
     int64_t m,
     int64_t n,
     T* A,
@@ -964,10 +965,10 @@ void get_U_gpu(
     int64_t num_blocks{std::max((n + threadsPerBlock - 1) / threadsPerBlock, (int64_t) 1)};
     get_U_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, A, lda);
 
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
+    hipError_t ierr = hipGetLastError();
+    if (ierr != hipSuccess)
     {
-        RandLAPACK_CUDA_ERROR("Failed to launch get_U_gpu. " << cudaGetErrorString(ierr))
+        RandLAPACK_CUDA_ERROR("Failed to launch get_U_gpu. " << hipGetErrorString(ierr))
         abort();
     }
 #else

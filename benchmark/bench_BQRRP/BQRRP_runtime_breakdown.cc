@@ -120,8 +120,8 @@ int main(int argc, char *argv[]) {
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
     double  d_factor   = 1.0;
-    std::vector<int64_t> b_sz = {250, 500, 1000, 2000, 4000, 8000};
-    //std::vector<int64_t> b_sz = {256, 512, 1024, 2048, 4096, 8192};
+    int64_t b_sz_start = 32;
+    int64_t b_sz_end   = 128;
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
@@ -141,7 +141,7 @@ int main(int argc, char *argv[]) {
                                                                  + "_num_info_lines_" + std::to_string(6) +
                                                                    ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
@@ -149,13 +149,12 @@ int main(int argc, char *argv[]) {
               "               rows correspond to BQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-              "\nAdditional parameters: Tall QR subroutine " + argv[2] + " BQRRP block size start: " + std::to_string(b_sz.front()) + " BQRRP block size end: " + std::to_string(b_sz.back()) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
+              "\nAdditional parameters: Tall QR subroutine " + argv[2] + " BQRRP block size start: " + std::to_string(b_sz_start) + " BQRRP block size end: " + std::to_string(b_sz_end) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 
-    int i = 0;
-    for (;i < b_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, b_sz[i], qr_tall, all_data, state_constant, output_filename);
+    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
+        call_all_algs(m_info, numruns, b_sz_start, qr_tall, all_data, state_constant, output_filename);
     }
 }
 #endif

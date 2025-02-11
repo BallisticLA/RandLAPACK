@@ -49,7 +49,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    std::fill(all_data.J.begin(), all_data.J.end(), 0);
+    std::iota(all_data.J.begin(), all_data.J.end(), 1);
 }
 
 template <typename T, typename RNG>
@@ -71,7 +71,7 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    T* times  = ( T * ) calloc( 27, sizeof( T ) );
+    T* times = ( T * ) calloc(27, sizeof( T ) );
 
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, NUMCOLS %ld\n", i, n);
@@ -125,7 +125,7 @@ int main(int argc, char *argv[]) {
                                                                  + "_num_info_lines_" + std::to_string(6) +
                                                                    ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
 
     // Writing important data into file
     file << "Description: Results from the HQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in HQRRP."
