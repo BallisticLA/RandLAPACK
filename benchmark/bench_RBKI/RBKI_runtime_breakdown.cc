@@ -92,7 +92,7 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state_alg);
+        RBKI.call(m, n, all_data.A.data(), m, n, m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state_alg);
         
         // Update timing vector
         inner_timing = RBKI.times;

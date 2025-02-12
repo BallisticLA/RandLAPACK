@@ -139,7 +139,7 @@ static void call_all_algs(
         
         // Testing RBKI
         auto start_rbki = steady_clock::now();
-        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state_alg);
+        RBKI.call(m, n, all_data.A.data(), m, n, m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state_alg);
         auto stop_rbki = steady_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 
