@@ -92,7 +92,7 @@ class TestRBKI : public ::testing::Test
         auto n = all_data.col;
         RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
 
-        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
+        RBKI.call(m, n, all_data.A.data(), m, n, m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
         // Compute singular values via a deterministic method
 
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
