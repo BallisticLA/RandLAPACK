@@ -3,6 +3,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "RandBLAS/sparse_data/base.hh"
 
 #include <RandBLAS.hh>
 #include <iostream>
@@ -15,36 +16,36 @@
 
 namespace RandLAPACK::linops {
 /*
-template<typename SpMat, typename T = LinOp::scalar_t>
-concept SparseLinearOperator = requires(SpMat A) {
+template<typename LinOp, typename T = LinOp::scalar_t>
+concept SparseLinearOperator = requires(LinOp A) {
     { A.n_rows }     -> std::same_as<const int64_t&>;
     { A.n_cols }     -> std::same_as<const int64_t&>;
     { A.nnz }        -> std::same_as<const int64_t&>;
-    { A.vals }       -> std::same_as<scalar_t *>;
+    { A.vals }       -> std::same_as<T *>;
     { A.own_memory } -> std::same_as<bool>;
-} && requires(SpMat A, Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, T alpha, int64_t lda, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+} && requires(LinOp A, Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, T alpha, int64_t lda, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
     // A SPMM-like function that updates C := alpha A*B + beta C, where
     // B and C have n columns and are stored in layout order with strides (ldb, ldc).
     { A(layout, trans_A, trans_B, m, n, k, alpha, lda, B, ldb, beta, C, ldc) } -> std::same_as<void>;
 };
+*/
 
-template <typename T>
-struct ExplicitGemLinOp {
-
+template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
+struct SpLinOp {
     using scalar_t = T;
     const int64_t n_rows;
     const int64_t n_cols;
-    const T* A_buff;
+    SpMat &A_sp_buff;
     const int64_t lda;
     const Layout buff_layout;
 
-    ExplicitGemLinOp(
+    SpLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
-        const T* A_buff,
+        SpMat &A_sp_buff,
         int64_t lda,
         Layout buff_layout
-    ) : n_rows(n_rows), n_cols(n_cols), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {
+    ) : n_rows(n_rows), n_cols(n_cols), A_sp_buff(A_sp_buff), lda(lda), buff_layout(buff_layout) {
         randblas_require(buff_layout == Layout::ColMajor);
     }
 
@@ -75,12 +76,12 @@ struct ExplicitGemLinOp {
         randblas_require(cols_submat_A == n_cols);
         randblas_require(ldc >= m);
 
-        blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+        RandBLAS::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp_buff, lda, B, ldb, beta, C, ldc);
     }
 };
-*/
+
 template<typename LinOp, typename T = LinOp::scalar_t>
-concept GeneralLinearOperator = requires(LinOp A) {
+concept LinearOperator = requires(LinOp A) {
     { A.n_rows }  -> std::same_as<const int64_t&>;
     { A.n_cols }  -> std::same_as<const int64_t&>;
     // It's recommended that A also have const int64_t members n_rows and n_cols,
@@ -92,7 +93,7 @@ concept GeneralLinearOperator = requires(LinOp A) {
 };
 
 template <typename T>
-struct ExplicitGemLinOp {
+struct GemLinOp {
 
     using scalar_t = T;
     const int64_t n_rows;
@@ -101,7 +102,7 @@ struct ExplicitGemLinOp {
     const int64_t lda;
     const Layout buff_layout;
 
-    ExplicitGemLinOp(
+    GemLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
         const T* A_buff,

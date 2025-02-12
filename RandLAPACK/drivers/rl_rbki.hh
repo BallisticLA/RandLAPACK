@@ -112,11 +112,11 @@ class RBKI {
             T* Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
-            linops::ExplicitGemLinOp<T> A_linop(n_rows, n_cols, A, lda, Layout::ColMajor);
+            linops::GemLinOp<T> A_linop(n_rows, n_cols, A, lda, Layout::ColMajor);
             return this->call(m, n, A_linop, lda, k, U, VT, Sigma, state);
         }
 
-        template <RandLAPACK::linops::GeneralLinearOperator GLO>
+        template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             int64_t m,
             int64_t n,
