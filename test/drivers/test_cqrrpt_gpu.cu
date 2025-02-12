@@ -4,7 +4,6 @@
 #include "rl_gen.hh"
 
 #include <hip/hip_runtime.h>
-#include <hip/hip_runtime.h>
 
 #include <RandBLAS.hh>
 #include <fstream>

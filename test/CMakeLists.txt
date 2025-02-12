@@ -39,15 +39,17 @@ if (GTest_FOUND)
         # Create CUDA test executables
         set_source_files_properties(${RandLAPACK_test_cu_srcs} PROPERTIES LANGUAGE CUDA)
         add_executable(RandLAPACK_tests_gpu ${RandLAPACK_test_cu_srcs})
-        target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
+	target_include_directories(RandLAPACK_tests_gpu SYSTEM INTERFACE ${hipsolver_INCLUDE_DIR})
+	message("WOOHOO WE REACHED THE POINT" ${hipsolver_INCLUDE_DIR})
+	target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver hipsolver)
         set_property(TARGET RandLAPACK_tests_gpu PROPERTY CUDA_ARCHITECTURES native)
 
-        add_executable(RandLAPACK_bench_gpu drivers/bench_bqrrp_gpu.cu)
-        target_link_libraries(RandLAPACK_bench_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
-        set_property(TARGET RandLAPACK_bench_gpu PROPERTY CUDA_ARCHITECTURES native)
+	#add_executable(RandLAPACK_bench_gpu drivers/bench_bqrrp_gpu.cu)
+	#target_link_libraries(RandLAPACK_bench_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver hip::hipsolver)
+	#set_property(TARGET RandLAPACK_bench_gpu PROPERTY CUDA_ARCHITECTURES native)
 
         # Discover CUDA tests
-        gtest_discover_tests(RandLAPACK_bench_gpu)
+	#gtest_discover_tests(RandLAPACK_bench_gpu)
         gtest_discover_tests(RandLAPACK_tests_gpu)
     endif()
 

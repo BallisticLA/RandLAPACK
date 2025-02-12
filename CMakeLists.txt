@@ -45,7 +45,6 @@ include(rl_version)
 # Find dependencies
 find_package(lapackpp REQUIRED)
 find_package(hipsolver REQUIRED)
-
 # Configure RandBLAS subproject
 add_subdirectory(RandBLAS)
 
