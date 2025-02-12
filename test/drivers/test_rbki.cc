@@ -92,7 +92,8 @@ class TestRBKI : public ::testing::Test
         auto n = all_data.col;
         RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
 
-        RBKI.call(m, n, all_data.A.data(), m, n, m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
+        //RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
+        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
         // Compute singular values via a deterministic method
 
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
@@ -113,11 +114,35 @@ TEST_F(TestRBKI, RBKI_basic) {
 
     RBKITestData<double> all_data(m, n);
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
-    RBKI.num_threads_some = 4;
-    RBKI.num_threads_rest = 16;
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+    RBKI.num_threads_min = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     test_RBKI_general(b_sz, target_rank, custom_rank, all_data, RBKI, state);
 }
+
+/*
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestRBKI, TestSparse) {
+    int64_t m           = 20;
+    int64_t n           = 10;
+    int64_t b_sz        = 5;
+    int64_t target_rank = 10;
+    int64_t custom_rank = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    RBKITestData_sparse<double, SCMatrix<double>> all_data(m, n);
+    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
+    RBKI.num_threads_min = 1;
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    iid_sparsify_random_dense<T>(m, n, Layout::ColMajor, all_data.A_buff.data(), 0.9, 0);
+    RandBLAS::sparse_data::csc::dense_to_csc<T>(Layout::ColMajor, all_data.A_buff.data(), 0.0, all_data.A.data());
+
+    test_RBKI_general(b_sz, target_rank, custom_rank, all_data, RBKI, state);
+}
+*/

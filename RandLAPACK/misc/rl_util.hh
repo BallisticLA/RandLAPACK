@@ -15,6 +15,17 @@
 namespace RandLAPACK::util {
 
 template <typename T>
+int get_omp_threads(
+) {
+    int num_threads = 0;
+    #pragma omp parallel
+    {
+        num_threads = omp_get_num_threads();
+    }
+    return num_threads;
+}
+
+template <typename T>
 void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[])
 {
 	int64_t i, j;

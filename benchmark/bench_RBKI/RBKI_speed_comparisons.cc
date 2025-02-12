@@ -223,8 +223,8 @@ static void call_all_algs(
 
     // Additional params setup.
     all_algs.RSVD.block_sz = b_sz;
-    all_algs.RBKI.num_threads_some = 4;
-    all_algs.RBKI.num_threads_rest = 48;
+    RBKI.num_threads_min = 4;
+    RBKI.num_threads_max = util::get_omp_threads();
     // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
@@ -282,7 +282,7 @@ static void call_all_algs(
         
         // Running RBKI
         auto start_rbki = steady_clock::now();
-        all_algs.RBKI.call(m, n, all_data.A, m, n, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
+        all_algs.RBKI.call(all_data.A, m, n, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
         auto stop_rbki = steady_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);

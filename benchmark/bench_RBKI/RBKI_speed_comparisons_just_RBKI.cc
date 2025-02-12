@@ -116,8 +116,8 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
-    RBKI.num_threads_some = 4;
-    RBKI.num_threads_rest = 48;
+    RBKI.num_threads_min = 4;
+    RBKI.num_threads_max = util::get_omp_threads();
     // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
@@ -128,7 +128,7 @@ static void call_all_algs(
     int64_t target_rank = b_sz * num_matmuls / 2;
 
     // timing vars
-    long dur_rbki    = 0;
+    long dur_rbki  = 0;
 
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -139,7 +139,7 @@ static void call_all_algs(
         
         // Testing RBKI
         auto start_rbki = steady_clock::now();
-        RBKI.call(m, n, all_data.A.data(), m, n, m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state_alg);
+        RBKI.call(all_data.A.data(), m, n, m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state_alg);
         auto stop_rbki = steady_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
 

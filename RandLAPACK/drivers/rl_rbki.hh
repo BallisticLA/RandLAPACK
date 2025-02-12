@@ -43,8 +43,11 @@ class RBKI {
         std::vector<long> times;
         T norm_R_end;
 
-        int num_threads_some;
-        int num_threads_rest;
+        // Numbr of threads that will be used in 
+        // functions where parallelism can tank performance.
+        int num_threads_min;
+        // Number of threads used in the rest of the code.
+        int num_threads_max;
 
         RBKI(
             bool verb,
@@ -55,6 +58,8 @@ class RBKI {
             timing = time_subroutines;
             tol = ep;
             max_krylov_iters = INT_MAX;
+            num_threads_min = util::get_omp_threads<T>();
+            num_threads_max = util::get_omp_threads<T>();
         }
 
         /// Computes an SVD of the form:
@@ -100,26 +105,22 @@ class RBKI {
         ///
 
         int call(
-            const int64_t n_rows,
-            const int64_t n_cols,
-            const T* A,
-            const int64_t lda,
             int64_t m,
             int64_t n,
+            T* A,
+            int64_t lda,
             int64_t k,
             T* U,
             T* VT,
             T* Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
-            linops::GemLinOp<T> A_linop(n_rows, n_cols, A, lda, Layout::ColMajor);
-            return this->call(m, n, A_linop, lda, k, U, VT, Sigma, state);
+            linops::GemLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
+            return this->call(A_linop, lda, k, U, VT, Sigma, state);
         }
 
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
-            int64_t m,
-            int64_t n,
             GLO& A,
             int64_t lda,
             int64_t k,
@@ -171,6 +172,8 @@ class RBKI {
                     allocation_t_start  = steady_clock::now();
                 }
 
+                int64_t m = A.n_rows;
+                int64_t n = A.n_cols;
                 int64_t iter = 0, iter_od = 0, iter_ev = 0, end_rows = 0, end_cols = 0;
                 T norm_R = 0;
                 int max_iters = this->max_krylov_iters;//std::min(this->max_krylov_iters, (int) (n / (T) k));
@@ -230,14 +233,14 @@ class RBKI {
 
                 // Generate a dense Gaussian random matrx.
                 // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
-            #if RandLAPACK_HAS_OpenMP
-                omp_set_num_threads(this->num_threads_some);
-            #endif
+                #if RandLAPACK_HAS_OpenMP
+                    omp_set_num_threads(this->num_threads_min);
+                #endif
                 RandBLAS::DenseDist D(n, k);
                 state = RandBLAS::fill_dense(D, Y_i, state);
-            #if RandLAPACK_HAS_OpenMP
-                omp_set_num_threads(this->num_threads_rest);
-            #endif
+                #if RandLAPACK_HAS_OpenMP
+                    omp_set_num_threads(this->num_threads_max);
+                #endif
 
                 if(this -> timing) {
                     sketching_t_stop  = steady_clock::now();
@@ -246,7 +249,7 @@ class RBKI {
                 }
 
                 // [X_ev, ~] = qr(A * Y_i, 0)
-                //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
+                //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.A_buff, m, Y_i, n, 0.0, X_i, m);
                 A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, m, Y_i, n, 0.0, X_i, m);
 
                 if(this -> timing) {
@@ -287,7 +290,7 @@ class RBKI {
                         if(this -> timing)
                             gemm_A_t_start = steady_clock::now();
                         // Y_i = A' * X_i 
-                        //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A, m, X_i, m, 0.0, Y_i, n);
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A.A_buff, m, X_i, m, 0.0, Y_i, n);
                         A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, m, X_i, m, 0.0, Y_i, n);
 
                         if(this -> timing) {
@@ -337,13 +340,13 @@ class RBKI {
                         }
 
                         // Copy R_ii over to R's (in transposed format).
-            #if RandLAPACK_HAS_OpenMP
-                        omp_set_num_threads(this->num_threads_some);
-            #endif
+                        #if RandLAPACK_HAS_OpenMP
+                                    omp_set_num_threads(this->num_threads_min);
+                        #endif
                         util::transposition(0, k, Y_i, n, R_ii, n, 1);
-            #if RandLAPACK_HAS_OpenMP
-                        omp_set_num_threads(this->num_threads_rest);
-            #endif
+                        #if RandLAPACK_HAS_OpenMP
+                                    omp_set_num_threads(this->num_threads_max);
+                        #endif
 
                         if(this -> timing) {
                             r_cpy_t_stop  = steady_clock::now();
@@ -383,7 +386,7 @@ class RBKI {
                             gemm_A_t_start = steady_clock::now();
 
                         // X_i = A * Y_i
-                        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A, m, Y_i, n, 0.0, X_i, m);
+                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.A_buff, m, Y_i, n, 0.0, X_i, m);
                         A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, m, Y_i, n, 0.0, X_i, m);
 
                         if(this -> timing) {
@@ -588,5 +591,5 @@ class RBKI {
                 }
                 return 0;
             }
-};
+    };
 }

@@ -132,11 +132,11 @@ struct GemLinOp {
         int64_t ldc
     ) {
         randblas_require(layout == buff_layout);
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
+        auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
         randblas_require(ldb >= rows_B);
         auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
-        randblas_require(rows_submat_A == n_rows);
-        randblas_require(cols_submat_A == n_cols);
+        randblas_require(rows_submat_A <= n_rows);
+        randblas_require(cols_submat_A <= n_cols);
         randblas_require(ldc >= m);
 
         blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
