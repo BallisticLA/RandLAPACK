@@ -19,7 +19,7 @@ if (OpenMP_CXX_FOUND)
     set(tmp TRUE)
 endif()
 
-set(RandLAPACK_HAS_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
+set(RandBLAS_HAS_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
 message(STATUS "Checking for OpenMP ... ${RandBLAS_HAS_OpenMP}")
 
 include(GNUInstallDirs)

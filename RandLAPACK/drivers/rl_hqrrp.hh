@@ -41,6 +41,7 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <math.h>
 #include <algorithm>
 #include <typeinfo>
+#include <numeric>
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -88,10 +89,10 @@ void _LAPACK_lafrb(
     lapack_int ldim_T = (lapack_int) ldt;
     lapack_int ldim_B = (lapack_int) ldb;
     lapack_int ldim_W = (lapack_int) ldw;
-    char side_ = blas::side2char( side );
-    char trans_ = blas::op2char( op );
-    char direction_ = lapack::direction2char( dir );
-    char storev_ = lapack::storev2char( storev );
+    char side_ = blas::to_char( side );
+    char trans_ = blas::to_char( op );
+    char direction_ = lapack::to_char( dir );
+    char storev_ = lapack::to_char( storev );
     if (typeid(T) == typeid(double)) {
         LAPACK_dlarfb( & side_, & trans_, & direction_, & storev_,  
                     & m_, & n_, & k_, (double *) buff_U, & ldim_U, (double *) buff_T, & ldim_T, 
@@ -123,7 +124,7 @@ void _LAPACK_larf(
     T *C, int64_t ldc,
     T *work
 ){
-    char side_ = blas::side2char( side );
+    char side_ = blas::to_char( side );
     lapack_int inc_v_ = (lapack_int) inc_v;
     lapack_int m_ = (lapack_int) m;
     lapack_int n_ = (lapack_int) n;
@@ -195,7 +196,7 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) calloc( m_B * n_U, sizeof( T ) );
+    buff_W  = new T[m_B * n_U]();
     ldim_W = std::max<int64_t>( 1, m_B );
 
     // Apply the block transformation. 
@@ -206,7 +207,7 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
     );
 
     // Remove auxiliary object.
-    free( buff_W );
+    delete[] buff_W;
 
     return 0;
 }
@@ -238,7 +239,7 @@ int64_t NoFLA_Downdate_Y(
     int64_t    ldim_B      = m_G1;
 
     // Create object B.
-    buff_B = ( T * ) calloc( m_B * n_B, sizeof( T ) );
+    buff_B  = new T[m_B * n_B]();
 
     // B = G1.
     lapack::lacpy( MatrixType::General,
@@ -300,7 +301,7 @@ int64_t NoFLA_Downdate_Y(
         n_G1 + n_G2, buff_G1, ldim_G1 );
 
     // Remove object B.
-    free( buff_B );
+    delete[] buff_B;
 
     return 0;
 }
@@ -323,7 +324,7 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_NO_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) calloc( n_B * n_U, sizeof( T ) );
+    buff_W  = new T[n_B * n_U]();
     ldim_W = std::max<int64_t>( 1, n_B );
 
     // Apply the block transformation.
@@ -337,7 +338,7 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
     );
 
     // Remove auxiliary object.
-    free( buff_W );
+    delete[] buff_W;
 
     return 0;
 }
@@ -496,7 +497,7 @@ static int64_t GEQRF_mod_WY(
     lwork[0] = -1;
     _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, work_query, lwork, info);
     lwork[0] = std::max((int64_t) blas::real(work_query[0]), n_A);
-    T *buff_workspace = ( T * ) calloc( lwork[0], sizeof( T ) );
+    T* buff_workspace  = new T[lwork[0]]();
     _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, buff_workspace, lwork, info);
 
     // Build T.
@@ -507,7 +508,7 @@ static int64_t GEQRF_mod_WY(
     );
 
     // Remove auxiliary vectors.
-    free( buff_workspace );
+    delete[] buff_workspace;
 
     return 0;
 }
@@ -640,9 +641,9 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     }
 
     // Create auxiliary vectors.
-    buff_d         = ( T * ) calloc( n_A, sizeof( T ) );
-    buff_e         = ( T * ) calloc( n_A, sizeof( T ) );
-    buff_workspace = ( T * ) calloc( n_A, sizeof( T ) );
+    buff_d         = new T[n_A]();
+    buff_e         = new T[n_A]();
+    buff_workspace = new T[n_A]();
 
     if(timing != nullptr) {
         preallocation_t_stop = steady_clock::now();
@@ -760,9 +761,9 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     }
 
     // Remove auxiliary vectors.
-    free( buff_d );
-    free( buff_e );
-    free( buff_workspace );
+    delete[] buff_d;
+    delete[] buff_e;
+    delete[] buff_workspace;
 
     if(timing != nullptr) {
         preallocation_t_stop = steady_clock::now();
@@ -858,8 +859,8 @@ int64_t hqrrp(
     T* timing_QR   = nullptr;
 
     if(timing != nullptr) {
-        timing_QRCP = ( T * ) calloc( 10, sizeof( T ) );
-        timing_QR   = ( T * ) calloc( 10, sizeof( T ) );
+        timing_QRCP  = new T[10]();
+        timing_QR    = new T[10]();
     }
 
     if(timing != nullptr) {
@@ -904,28 +905,32 @@ int64_t hqrrp(
     // Create auxiliary objects.
     m_Y     = nb_alg + pp;
     n_Y     = n_A;
-    buff_Y  = ( T * ) calloc( m_Y * n_Y, sizeof( T ) );
+    buff_Y  = new T[m_Y * n_Y]();
     ldim_Y  = m_Y;
 
     m_V     = nb_alg + pp;
     n_V     = n_A;
-    buff_V  = ( T * ) calloc( m_V * n_V, sizeof( T ) );
+    buff_V  = new T[m_V * n_V]();
     ldim_V  = m_V;
 
     m_W     = nb_alg;
     n_W     = n_A;
-    buff_W  = ( T * ) calloc( m_W * n_W, sizeof( T ) );
+    buff_W  = new T[m_W * n_W]();
     ldim_W  = m_W;
 
     m_G     = nb_alg + pp;
     n_G     = m_A;
-    buff_G  = ( T * ) calloc( m_G * n_G, sizeof( T ) );
+    buff_G  = new T[m_G * n_G]();
     ldim_G  = m_G;
 
     // Required for CHolesky QR
     ldim_R = nb_alg;
-    buff_R  = ( T * ) calloc( nb_alg * nb_alg, sizeof( T ) );
-    buff_D  = ( T * ) calloc( nb_alg, sizeof( T ) );
+    buff_R  = new T[nb_alg * nb_alg]();
+    buff_D  = new T[nb_alg]();
+
+    // Required for how HQRRP is setup
+    // Adding this line ensures that the input fromat of HQRRP is identical to that of GEQP3.
+    std::iota(buff_jpvt, &buff_jpvt[n_A], 1);
 
     if(timing != nullptr) {
         preallocation_t_stop = steady_clock::now();
@@ -1006,7 +1011,7 @@ int64_t hqrrp(
         n_cyr    = n_Y - j;
         ldim_cyr = m_cyr;
         m_ABR    = m_A - j;
-        buff_cyr = ( T * ) calloc( m_cyr * n_cyr, sizeof( T ) );
+        buff_buff_cyrD  = new T[m_cyr * n_cyr]();
 
         //// FLA_Gemm( FLA_NO_TRANSPOSE, FLA_NO_TRANSPOSE, 
         ////           FLA_ONE, GR, ABR, FLA_ZERO, CYR ); 
@@ -1027,7 +1032,7 @@ int64_t hqrrp(
         sum = sqrt( sum );
         printf( "%%  diff between Y and downdated Y: %le\n", sum );
 
-        free( buff_cyr );
+        delete[] buff_cyr;
 #endif
         if(timing != nullptr) {
             downdating_t_stop = steady_clock::now();
@@ -1167,8 +1172,8 @@ int64_t hqrrp(
         blas::copy(9, timing_QRCP, 1, &timing[10], 1);
         blas::copy(9, timing_QR,   1, &timing[18], 1);
 
-        free( timing_QRCP );
-        free( timing_QR );
+        delete[] timing_QRCP;
+        delete[] timing_QR;
         
         printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
         printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
@@ -1193,12 +1198,12 @@ int64_t hqrrp(
     }
 
     // Remove auxiliary objects.
-    free( buff_G );
-    free( buff_Y );
-    free( buff_V );
-    free( buff_W );
-    free( buff_R );
-    free( buff_D );
+    delete[] buff_G;
+    delete[] buff_Y;
+    delete[] buff_V;
+    delete[] buff_W;
+    delete[] buff_R;
+    delete[] buff_D;
 
     return 0;
 }

@@ -101,8 +101,9 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         // BQRRP with QRF
         // Skethcing in an sampling regime
         cudaMalloc(&all_data.A_sk_device, d * n * sizeof(T));
-        all_data.A_sk = ( T * ) calloc( d * n, sizeof( T ) );
-        T* S          = ( T * ) calloc( d * m, sizeof( T ) );
+        all_data.A_sk = new T[d * n]();
+        T* S          = new T[d * m]();
+
         RandBLAS::DenseDist D(d, m);
         RandBLAS::fill_dense(D, S, state_const);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
@@ -115,7 +116,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 	    auto diff_bqrrp_qrf = std::chrono::duration_cast<std::chrono::microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
         data_regen(m_info, all_data, state);
         cudaFree(all_data.A_sk_device);
-        free(all_data.A_sk);
+        delete[] all_data.A_sk;
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_QRF, std::ios::app);
@@ -126,9 +127,9 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         // BQRRP with CholQR
         // Skethcing in an sampling regime
         cudaMalloc(&all_data.A_sk_device, d * n * sizeof(T));
-        all_data.A_sk = ( T * ) calloc( d * n, sizeof( T ) );
+        all_data.A_sk = new T[d * n]();
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, all_data.A.data(), m, 0.0, all_data.A_sk, d);
-        free(S);
+        delete[] S;
         cudaMemcpy(all_data.A_sk_device, all_data.A_sk, d * n * sizeof(double), cudaMemcpyHostToDevice);
         RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU_CholQR(profile_runtime, block_size);
         BQRRP_GPU_CholQR.qr_tall = GPUSubroutines::QRTall::cholqr;
@@ -138,7 +139,7 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
 	    auto diff_bqrrp_cholqr = std::chrono::duration_cast<std::chrono::microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
         data_regen(m_info, all_data, state);
         cudaFree(all_data.A_sk_device);
-        free(all_data.A_sk);
+        delete[] all_data.A_sk;
 
         if(profile_runtime) {
             std::ofstream file(output_filename_breakdown_CholQR, std::ios::app);

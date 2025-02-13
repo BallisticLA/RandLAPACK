@@ -45,26 +45,41 @@ struct RBKI_benchmark_data {
     RBKI_benchmark_data(int64_t m, int64_t n, T tol) :
     A_spectra(m, n)
     {
-        A                   = ( T * ) calloc(m * n, sizeof( T ) );
-        U                   = ( T * ) calloc(m * n, sizeof( T ) );
-        VT                  = ( T * ) calloc(n * n, sizeof( T ) );
-        V                   = ( T * ) calloc(n * n, sizeof( T ) );
-        Sigma               = ( T * ) calloc(m,     sizeof( T ) );
-        U_RSVD              = ( T * ) calloc(m * n, sizeof( T ) );
-	    V_RSVD              = ( T * ) calloc(n * n, sizeof( T ) );
-	    Sigma_RSVD          = ( T * ) calloc(n,     sizeof( T ) );
-	    Buffer              = ( T * ) calloc(m * n, sizeof( T ) );
-        Sigma_cpy           = ( T * ) calloc(n * n, sizeof( T ) );
-        U_cpy               = ( T * ) calloc(m * n, sizeof( T ) );
-        VT_cpy              = ( T * ) calloc(n * n, sizeof( T ) );
+        A          = new T[m * n]();
+        U          = new T[m * n]();
+        VT         = new T[n * n]();
+        V          = new T[n * n]();
+        Sigma      = new T[m]();
+        U_RSVD     = new T[m * n]();
+        V_RSVD     = new T[n * n]();
+        Sigma_RSVD = new T[n]();
+        Buffer     = new T[m * n]();
+        Sigma_cpy  = new T[n * n]();
+        U_cpy      = new T[m * n]();
+        VT_cpy     = new T[n * n]();
 
-        //A_lowrank_svd       = ( T * ) calloc(m * n, sizeof( T ) );
-        //A_lowrank_svd_const = ( T * ) calloc(m * n, sizeof( T ) );
         A_lowrank_svd       = nullptr;
         A_lowrank_svd_const = nullptr;
         row                 = m;
         col                 = n;
         tolerance           = tol;
+    }
+
+    ~RBKI_benchmark_data() {
+        delete[] A;
+        delete[] U;
+        delete[] VT;
+        delete[] V;
+        delete[] Sigma;
+        delete[] U_RSVD;
+        delete[] V_RSVD;
+        delete[] Sigma_RSVD;
+        delete[] Buffer;
+        delete[] Sigma_cpy;
+        delete[] U_cpy;
+        delete[] VT_cpy;
+        delete[] A_lowrank_svd;
+        delete[] A_lowrank_svd_const;
     }
 };
 
@@ -208,8 +223,6 @@ static void call_all_algs(
 
     // Additional params setup.
     all_algs.RSVD.block_sz = b_sz;
-    all_algs.RBKI.num_threads_some = 4;
-    all_algs.RBKI.num_threads_rest = 48;
     // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
@@ -217,7 +230,9 @@ static void call_all_algs(
     // 
     // Instead of the above approach, we now pre-specify the maximum number of Krylov iters that we allow for in num_matmuls.
     all_algs.RBKI.max_krylov_iters = (int) num_matmuls;
-
+    all_algs.RBKI.num_threads_min = 4;
+    all_algs.RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
+    
     // timing vars
     long dur_rbki = 0;
     long dur_rsvd = 0;
@@ -403,8 +418,8 @@ int main(int argc, char *argv[]) {
         RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
         m_info_A_svd.filename            = argv[2];
         m_info_A_svd.workspace_query_mod = 0;
-        all_data.A_lowrank_svd           = ( double * ) calloc(m * n, sizeof( double ) );
-        all_data.A_lowrank_svd_const     = ( double * ) calloc(m * n, sizeof( double ) );
+        all_data.A_lowrank_svd       = new double[m * n]();
+        all_data.A_lowrank_svd_const = new double[m * n]();
         RandLAPACK::gen::mat_gen<double>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
         lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     

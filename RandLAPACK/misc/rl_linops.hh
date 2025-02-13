@@ -3,6 +3,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "RandBLAS/sparse_data/base.hh"
 
 #include <RandBLAS.hh>
 #include <iostream>
@@ -15,6 +16,128 @@
 
 namespace RandLAPACK::linops {
 
+// Abstract linear operator concept
+template<typename LinOp, typename T = LinOp::scalar_t>
+concept LinearOperator = requires(LinOp A) {
+    { A.n_rows }  -> std::same_as<const int64_t&>;
+    { A.n_cols }  -> std::same_as<const int64_t&>;
+} && requires(LinOp A, Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+    // A Matmul-like function that updates C := alpha A*B + beta C, where
+    // B and C have n columns and are stored in layout order with strides (ldb, ldc).
+    { A(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
+};
+
+// Sparse linear operator struct, supplied with a sparse-with-dense matrix multiplication operator 
+// (with sparse input on the left) and a Frobenius norm function.
+template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
+struct SpLinOp {
+    using scalar_t = T;
+    const int64_t n_rows;
+    const int64_t n_cols;
+    SpMat &A_sp;
+    const int64_t lda;
+    const Layout buff_layout;
+
+    SpLinOp(
+        const int64_t n_rows,
+        const int64_t n_cols,
+        SpMat &A_sp,
+        int64_t lda,
+        Layout buff_layout
+    ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp), lda(lda), buff_layout(buff_layout) {
+        randblas_require(buff_layout == Layout::ColMajor);
+    }
+
+    T fro_nrm(
+    ) {
+        return blas::nrm2(A_sp.nnz, A_sp.vals, 1);
+    }
+
+    // Note: the "layout" parameter here is interpreted for (B and C).
+    // If layout conflicts with this->buff_layout then we manipulate
+    // parameters to RandBLAS::left_spmm to reconcile the different layouts of
+    // A vs (B, C).
+    void operator()(
+        Layout layout, 
+        Op trans_A, 
+        Op trans_B, 
+        int64_t m, 
+        int64_t n, 
+        int64_t k, 
+        T alpha,  
+        const T* B, 
+        int64_t ldb, 
+        T beta, 
+        T* C, 
+        int64_t ldc
+    ) {
+        randblas_require(layout == buff_layout);
+        auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
+        randblas_require(ldb >= rows_B);
+        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
+        randblas_require(rows_submat_A <= n_rows);
+        randblas_require(cols_submat_A <= n_cols);
+        randblas_require(ldc >= m);
+
+        RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+    }
+};
+
+// General linear operator struct, supplied with a general matrix multiplication operator 
+// (through blas::gemm) and a Frobenius norm function.
+template <typename T>
+struct GenLinOp {
+    using scalar_t = T;
+    const int64_t n_rows;
+    const int64_t n_cols;
+    const T* A_buff;
+    const int64_t lda;
+    const Layout buff_layout;
+
+    GenLinOp(
+        const int64_t n_rows,
+        const int64_t n_cols,
+        const T* A_buff,
+        int64_t lda,
+        Layout buff_layout
+    ) : n_rows(n_rows), n_cols(n_cols), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {
+        randblas_require(buff_layout == Layout::ColMajor);
+    }
+
+    T fro_nrm(
+    ) {
+        return lapack::lange(Norm::Fro, n_rows, n_cols, A_buff, lda);
+    }
+
+    // Note: the "layout" parameter here is interpreted for (B and C).
+    // If layout conflicts with this->buff_layout then we manipulate
+    // parameters to blas::gemm to reconcile the different layouts of
+    // A vs (B, C).
+    void operator()(
+        Layout layout, 
+        Op trans_A, 
+        Op trans_B, 
+        int64_t m, 
+        int64_t n, 
+        int64_t k, 
+        T alpha,  
+        T* const B, 
+        int64_t ldb, 
+        T beta, 
+        T* C, 
+        int64_t ldc
+    ) {
+        randblas_require(layout == buff_layout);
+        auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
+        randblas_require(ldb >= rows_B);
+        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
+        randblas_require(rows_submat_A <= n_rows);
+        randblas_require(cols_submat_A <= n_cols);
+        randblas_require(ldc >= m);
+
+        blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+    }
+};
 
 template<typename LinOp, typename T = LinOp::scalar_t>
 concept SymmetricLinearOperator = requires(LinOp A) {
@@ -29,7 +152,6 @@ concept SymmetricLinearOperator = requires(LinOp A) {
     //
     { A(layout, n, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
 };
-
 
 template <typename T>
 struct ExplicitSymLinOp {
