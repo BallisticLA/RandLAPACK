@@ -88,7 +88,6 @@ class TestRBKI : public ::testing::Test
         }
     };
 
-
     // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
     // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
     template <typename T, typename TestData>
@@ -151,7 +150,6 @@ class TestRBKI : public ::testing::Test
     }
 };
 
-// Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestRBKI, RBKI_basic) {
     int64_t m           = 400;
     int64_t n           = 200;
@@ -173,8 +171,7 @@ TEST_F(TestRBKI, RBKI_basic) {
     test_RBKI_general<double>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
 }
 
-// Note: If Subprocess killed exception -> reload vscode
-TEST_F(TestRBKI, TestSparse) {
+TEST_F(TestRBKI, RBKI_sparse_csc) {
     int64_t m           = 400;
     int64_t n           = 200;
     int64_t b_sz        = 10;
@@ -191,6 +188,48 @@ TEST_F(TestRBKI, TestSparse) {
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
     RandBLAS::sparse_data::csc::dense_to_csc<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
+
+    test_RBKI_general<double>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
+}
+
+TEST_F(TestRBKI, RBKI_sparse_csr) {
+    int64_t m           = 400;
+    int64_t n           = 200;
+    int64_t b_sz        = 10;
+    int64_t target_rank = 200;
+    int64_t custom_rank = 100;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    RBKITestDataSparse<double, RandBLAS::sparse_data::CSRMatrix<double>> all_data(m, n);
+    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
+    RBKI.num_threads_min = 1;
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::sparse_data::csr::dense_to_csr<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
+
+    test_RBKI_general<double>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
+}
+
+TEST_F(TestRBKI, RBKI_sparse_coo) {
+    int64_t m           = 400;
+    int64_t n           = 200;
+    int64_t b_sz        = 10;
+    int64_t target_rank = 200;
+    int64_t custom_rank = 100;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    RBKITestDataSparse<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n);
+    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
+    RBKI.num_threads_min = 1;
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::sparse_data::coo::dense_to_coo<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
     test_RBKI_general<double>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
 }
