@@ -83,7 +83,7 @@ static void call_all_algs(
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
     RBKI.max_krylov_iters = num_krylov_iters;
     RBKI.num_threads_min = 4;
-    RBKI.num_threads_max = util::get_omp_threads();
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<T>();
 
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -94,7 +94,7 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        RBKI.call(all_data.A.data(), m, n, m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state_alg);
+        RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state_alg);
         
         // Update timing vector
         inner_timing = RBKI.times;

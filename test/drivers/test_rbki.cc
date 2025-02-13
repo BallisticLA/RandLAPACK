@@ -4,6 +4,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
+#include "../RandLAPACK/RandBLAS/test/test_datastructures/test_spmats/common.hh"
 #include <fstream>
 #include <gtest/gtest.h>
 
@@ -20,38 +21,68 @@ class TestRBKI : public ::testing::Test
     struct RBKITestData {
         int64_t row;
         int64_t col;
-        std::vector<T> A;
-        std::vector<T> U;
-        std::vector<T> VT; // RBKI returns V'
-        std::vector<T> Sigma;
-        std::vector<T> U_cpy;
-        std::vector<T> VT_cpy;
+        T* A;
+        T* A_buff;
+        T* U;
+        T* VT; // RBKI returns V'
+        T* Sigma;
+        T* U_cpy;
+        T* VT_cpy;
 
-        RBKITestData(int64_t m, int64_t n) :
-        A(m * n, 0.0),
-        U(m * n, 0.0),
-        VT(n * n, 0.0),
-        Sigma(n, 0.0)
+        RBKITestData(int64_t m, int64_t n)
         {
-            row = m;
-            col = n;
+            A      = new T[m * n]();
+            A_buff = new T[m * n]();
+            U      = new T[m * n]();
+            VT     = new T[n * n]();
+            Sigma  = new T[n]();
+            U_cpy  = new T[m * n]();
+            VT_cpy = new T[n * n]();
+            row   = m;
+            col   = n;
+        }
+    };
+
+    template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
+    struct RBKITestDataSparse {
+        int64_t row;
+        int64_t col;
+        SpMat A;
+        T*  A_buff;
+        T*  U;
+        T*  VT; // RBKI returns V'
+        T*  Sigma;
+        T*  U_cpy;
+        T*  VT_cpy;
+
+        RBKITestDataSparse(int64_t m, int64_t n) :
+        A(m, n)
+        {
+            A_buff = new T[m * n]();
+            U      = new T[m * n]();
+            VT     = new T[n * n]();
+            Sigma  = new T[n]();
+            U_cpy  = new T[m * n]();
+            VT_cpy = new T[n * n]();
+            row    = m;
+            col    = n;
         }
     };
 
 
     // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
     // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
-    template <typename T>
+    template <typename T, typename TestData>
     static T
-    residual_error_comp(RBKITestData<T> &all_data, int64_t custom_rank) {
+    residual_error_comp(TestData &all_data, int64_t custom_rank) {
         auto m = all_data.row;
         auto n = all_data.col;
 
-        T* U_cpy_dat = RandLAPACK::util::upsize(m * n, all_data.U_cpy);
-        T* VT_cpy_dat = RandLAPACK::util::upsize(n * n, all_data.VT_cpy);
+        T* U_cpy_dat = all_data.U_cpy;
+        T* VT_cpy_dat = all_data.VT_cpy;
 
-        lapack::lacpy(MatrixType::General, m, n, all_data.U.data(), m, U_cpy_dat, m);
-        lapack::lacpy(MatrixType::General, n, n, all_data.VT.data(), n, VT_cpy_dat, n);
+        lapack::lacpy(MatrixType::General, m, n, all_data.U, m, U_cpy_dat, m);
+        lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, VT_cpy_dat, n);
 
         // AV - US
         // Scale columns of U by S
@@ -59,7 +90,7 @@ class TestRBKI : public ::testing::Test
             blas::scal(m, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
 
         // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A.data(), m, all_data.VT.data(), n, -1.0, U_cpy_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A_buff, m, all_data.VT, n, -1.0, U_cpy_dat, m);
 
 
         // A'U - VS
@@ -70,7 +101,7 @@ class TestRBKI : public ::testing::Test
             blas::scal(n, all_data.Sigma[i], &VT_cpy_dat[i], n);
         // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
         // We will actually have to perform U' * A - Sigma * VT.
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U.data(), m, all_data.A.data(), m, -1.0, VT_cpy_dat, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A_buff, m, -1.0, VT_cpy_dat, n);
 
         T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
         T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
@@ -79,12 +110,12 @@ class TestRBKI : public ::testing::Test
     }
 
 
-    template <typename T, typename RNG, typename alg_type>
+    template <typename T, typename RNG, typename TestData, typename alg_type>
     static void test_RBKI_general(
         int64_t b_sz,
         int64_t target_rank,
         int64_t custom_rank,
-        RBKITestData<T> &all_data,
+        TestData &all_data,
         alg_type &RBKI,
         RandBLAS::RNGState<RNG> &state) {
 
@@ -92,8 +123,7 @@ class TestRBKI : public ::testing::Test
         auto n = all_data.col;
         RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
 
-        //RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
-        RBKI.call(m, n, all_data.A.data(), m, b_sz, all_data.U.data(), all_data.VT.data(), all_data.Sigma.data(), state);
+        RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state);
         // Compute singular values via a deterministic method
 
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
@@ -118,31 +148,30 @@ TEST_F(TestRBKI, RBKI_basic) {
     RBKI.num_threads_min = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A, m, all_data.A_buff, m);
 
-    test_RBKI_general(b_sz, target_rank, custom_rank, all_data, RBKI, state);
+    test_RBKI_general<double>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
 }
 
-/*
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestRBKI, TestSparse) {
-    int64_t m           = 20;
-    int64_t n           = 10;
-    int64_t b_sz        = 5;
-    int64_t target_rank = 10;
-    int64_t custom_rank = 10;
+    int64_t m           = 400;
+    int64_t n           = 200;
+    int64_t b_sz        = 10;
+    int64_t target_rank = 200;
+    int64_t custom_rank = 100;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    RBKITestData_sparse<double, SCMatrix<double>> all_data(m, n);
+    RBKITestDataSparse<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(m, n);
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
     RBKI.num_threads_min = 1;
     RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    iid_sparsify_random_dense<T>(m, n, Layout::ColMajor, all_data.A_buff.data(), 0.9, 0);
-    RandBLAS::sparse_data::csc::dense_to_csc<T>(Layout::ColMajor, all_data.A_buff.data(), 0.0, all_data.A.data());
+    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::sparse_data::csc::dense_to_csc<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
-    test_RBKI_general(b_sz, target_rank, custom_rank, all_data, RBKI, state);
+    test_RBKI_general<double>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
 }
-*/

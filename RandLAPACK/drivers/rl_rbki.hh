@@ -115,7 +115,23 @@ class RBKI {
             T* Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
-            linops::GemLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
+            linops::GenLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
+            return this->call(A_linop, lda, k, U, VT, Sigma, state);
+        }
+
+        template <RandBLAS::sparse_data::SparseMatrix SpMat>
+        int call(
+            int64_t m,
+            int64_t n,
+            SpMat &A,
+            int64_t lda,
+            int64_t k,
+            T* U,
+            T* VT,
+            T* Sigma,
+            RandBLAS::RNGState<RNG> &state
+        ) {
+            linops::SpLinOp<T, SpMat> A_linop(m, n, A, lda, Layout::ColMajor);
             return this->call(A_linop, lda, k, U, VT, Sigma, state);
         }
 
@@ -224,7 +240,8 @@ class RBKI {
                 }
 
                 // Pre-conpute Fro norm of an input matrix.
-                T norm_A = lapack::lange(Norm::Fro, m, n, A.A_buff, lda);
+                //T norm_A = lapack::lange(Norm::Fro, m, n, A.A_buff, lda);
+                T norm_A = A.fro_nrm();
                 T sq_tol = std::pow(this->tol, 2);
                 T threshold =  std::sqrt(1 - sq_tol) * norm_A;
 
@@ -290,7 +307,7 @@ class RBKI {
                         if(this -> timing)
                             gemm_A_t_start = steady_clock::now();
                         // Y_i = A' * X_i 
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A.A_buff, m, X_i, m, 0.0, Y_i, n);
+                        //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A.A_buff, m, X_i, m, 0.0, Y_i, n);
                         A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, m, X_i, m, 0.0, Y_i, n);
 
                         if(this -> timing) {
@@ -386,7 +403,7 @@ class RBKI {
                             gemm_A_t_start = steady_clock::now();
 
                         // X_i = A * Y_i
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.A_buff, m, Y_i, n, 0.0, X_i, m);
+                        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.A_buff, m, Y_i, n, 0.0, X_i, m);
                         A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, m, Y_i, n, 0.0, X_i, m);
 
                         if(this -> timing) {
@@ -493,7 +510,7 @@ class RBKI {
                     ++iter;
                     //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
                     if(norm_R > threshold) {
-                        //printf("Threshold termination\n");
+                        // Threshold termination.
                         break;
                     }
                 }
