@@ -34,23 +34,23 @@ struct SpLinOp {
     using scalar_t = T;
     const int64_t n_rows;
     const int64_t n_cols;
-    SpMat &A_sp_buff;
+    SpMat &A_sp;
     const int64_t lda;
     const Layout buff_layout;
 
     SpLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
-        SpMat &A_sp_buff,
+        SpMat &A_sp,
         int64_t lda,
         Layout buff_layout
-    ) : n_rows(n_rows), n_cols(n_cols), A_sp_buff(A_sp_buff), lda(lda), buff_layout(buff_layout) {
+    ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp), lda(lda), buff_layout(buff_layout) {
         randblas_require(buff_layout == Layout::ColMajor);
     }
 
     T fro_nrm(
     ) {
-        return blas::nrm2(A_sp_buff.nnz, A_sp_buff.vals, 1);
+        return blas::nrm2(A_sp.nnz, A_sp.vals, 1);
     }
 
     // Note: the "layout" parameter here is interpreted for (B and C).
@@ -80,7 +80,7 @@ struct SpLinOp {
         randblas_require(cols_submat_A <= n_cols);
         randblas_require(ldc >= m);
 
-        RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp_buff, 0, 0, B, ldb, beta, C, ldc);
+        RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
     }
 };
 

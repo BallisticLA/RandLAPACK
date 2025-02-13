@@ -161,7 +161,7 @@ TEST_F(TestRBKI, RBKI_basic) {
 
     RBKITestData<double> all_data(m, n);
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
-    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
     RBKI.num_threads_min = 1;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -183,7 +183,7 @@ TEST_F(TestRBKI, RBKI_sparse_csc) {
     RBKITestDataSparse<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(m, n);
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
     RBKI.num_threads_min = 1;
-    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
@@ -204,7 +204,7 @@ TEST_F(TestRBKI, RBKI_sparse_csr) {
     RBKITestDataSparse<double, RandBLAS::sparse_data::CSRMatrix<double>> all_data(m, n);
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
     RBKI.num_threads_min = 1;
-    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
@@ -225,7 +225,7 @@ TEST_F(TestRBKI, RBKI_sparse_coo) {
     RBKITestDataSparse<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n);
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
     RBKI.num_threads_min = 1;
-    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<double>();
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);

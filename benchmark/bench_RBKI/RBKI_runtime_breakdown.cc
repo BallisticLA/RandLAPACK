@@ -27,27 +27,37 @@ struct RBKI_benchmark_data {
     int64_t col;
     int64_t rank; // has to be modifiable
     T tolerance;
-    std::vector<T> A;
-    std::vector<T> U;
-    std::vector<T> V;
-    std::vector<T> Sigma;
-    std::vector<T> Sigma_cpy_RBKI;
-    std::vector<T> Sigma_cpy_SVD;
-    std::vector<T> Sigma_cpy_Other;
+    T* A;
+    T* U;
+    T* V;
+    T* Sigma;
+    T* Sigma_cpy_RBKI;
+    T* Sigma_cpy_SVD;
+    T* Sigma_cpy_Other;
 
-    RBKI_benchmark_data(int64_t m, int64_t n, int64_t k, T tol) :
-    A(m * n, 0.0),
-    U(m * n, 0.0),
-    V(n * n, 0.0),
-    Sigma(n, 0.0),
-    Sigma_cpy_RBKI(n, 0.0),
-    Sigma_cpy_SVD(n, 0.0),
-    Sigma_cpy_Other(n, 0.0)
+    RBKI_benchmark_data(int64_t m, int64_t n, int64_t k, T tol)
     {
         row = m;
         col = n;
         rank = k;
         tolerance = tol;
+        A               = new T[m * n]();
+        U               = new T[m * n]();
+        V               = new T[n * n]();
+        Sigma           = new T[m * n]();
+        Sigma_cpy_RBKI  = new T[n]();
+        Sigma_cpy_SVD   = new T[n]();
+        Sigma_cpy_Other = new T[n]();
+    }
+
+    ~RBKI_benchmark_data(){
+        delete[] A;
+        delete[] U;
+        delete[] V;
+        delete[] Sigma;
+        delete[] Sigma_cpy_RBKI;
+        delete[] Sigma_cpy_SVD;
+        delete[] Sigma_cpy_Other;
     }
 };
 
@@ -56,12 +66,14 @@ template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         RBKI_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state, int overwrite_A) {
+    auto m   = all_data.row;
+    auto n   = all_data. col;
 
     if (overwrite_A)
-        RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-    std::fill(all_data.U.begin(), all_data.U.end(), 0.0);
-    std::fill(all_data.V.begin(), all_data.V.end(), 0.0);
-    std::fill(all_data.Sigma.begin(), all_data.Sigma.end(), 0.0);
+        RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    std::fill(all_data.U, all_data.U + (m * n), 0.0);
+    std::fill(all_data.V, all_data.V + (n * n), 0.0);
+    std::fill(all_data.Sigma, all_data.Sigma + n, 0.0);
 }
 
 template <typename T, typename RNG>
@@ -83,7 +95,7 @@ static void call_all_algs(
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
     RBKI.max_krylov_iters = num_krylov_iters;
     RBKI.num_threads_min = 4;
-    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<T>();
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -94,7 +106,7 @@ static void call_all_algs(
 
     for (int i = 0; i < numruns; ++i) {
         printf("Iteration %d start.\n", i);
-        RBKI.call(m, n, all_data.A.data(), m, k, all_data.U.data(), all_data.V.data(), all_data.Sigma.data(), state_alg);
+        RBKI.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
         inner_timing = RBKI.times;
@@ -152,7 +164,7 @@ int main(int argc, char *argv[]) {
     RBKI_benchmark_data<double> all_data(m, n, k_stop, tol);
   
     // Fill the data matrix;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     printf("Finished data preparation\n");
 

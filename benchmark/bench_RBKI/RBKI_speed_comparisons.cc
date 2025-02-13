@@ -231,7 +231,7 @@ static void call_all_algs(
     // Instead of the above approach, we now pre-specify the maximum number of Krylov iters that we allow for in num_matmuls.
     all_algs.RBKI.max_krylov_iters = (int) num_matmuls;
     all_algs.RBKI.num_threads_min = 4;
-    all_algs.RBKI.num_threads_max = RandLAPACK::util::get_omp_threads<T>();
+    all_algs.RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
     
     // timing vars
     long dur_rbki = 0;

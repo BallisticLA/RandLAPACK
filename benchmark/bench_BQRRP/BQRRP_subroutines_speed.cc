@@ -322,9 +322,9 @@ static void call_apply_q(
             lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_gemqrt.data(), m);
             lapack::orhr_col(m, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.D.data());
             
-            auto start_gemqrt = high_resolution_clock::now();
+            auto start_gemqrt = steady_clock::now();
             lapack::gemqrt(Side::Left, Op::Trans, m, m - n, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
-            auto stop_gemqrt = high_resolution_clock::now();
+            auto stop_gemqrt = steady_clock::now();
             dur_gemqrt = duration_cast<microseconds>(stop_gemqrt - start_gemqrt).count();
 
             // We do not re-run ormqr and gemm for different nbs
@@ -335,9 +335,9 @@ static void call_apply_q(
                 for(j = 0; j < n; ++j)
                     all_data.tau[j] = all_data.T_mat[(n + 1) * j];
 
-                auto start_ormqr = high_resolution_clock::now();
+                auto start_ormqr = steady_clock::now();
                 lapack::ormqr(Side::Left, Op::Trans, m, m - n, n, all_data.A.data(), m, all_data.tau.data(), all_data.B.data(), m);
-                auto stop_ormqr = high_resolution_clock::now();
+                auto stop_ormqr = steady_clock::now();
                 dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
             
                 file << dur_ormqr << ",  ";                

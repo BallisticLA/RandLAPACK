@@ -91,9 +91,9 @@ static void call_all_algs(
         printf("ITERATION %d, DIM %ld\n", i, dim);
         
         // Testing GEQRF
-        auto start_geqrf = high_resolution_clock::now();
+        auto start_geqrf = steady_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
-        auto stop_geqrf = high_resolution_clock::now();
+        auto stop_geqrf = steady_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
         printf("TOTAL TIME FOR GEQRF %ld\n", dur_geqrf);
 
@@ -105,9 +105,9 @@ static void call_all_algs(
         // Testing BQRRP - QRF
         BQRRP.qr_tall = Subroutines::QRTall::geqrf;
         BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
-        auto start_bqrrp_qrf = high_resolution_clock::now();
+        auto start_bqrrp_qrf = steady_clock::now();
         BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-        auto stop_bqrrp_qrf = high_resolution_clock::now();
+        auto stop_bqrrp_qrf = steady_clock::now();
         dur_bqrrp_qrf = duration_cast<microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
         printf("TOTAL TIME FOR BQRRP_QRF %ld\n", dur_bqrrp_qrf);
 
@@ -120,9 +120,9 @@ static void call_all_algs(
         // Testing BQRRP - CholQR
         BQRRP.qr_tall = Subroutines::QRTall::cholqr;
         BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
-        auto start_bqrrp_cholqr = high_resolution_clock::now();
+        auto start_bqrrp_cholqr = steady_clock::now();
         BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-        auto stop_bqrrp_cholqr = high_resolution_clock::now();
+        auto stop_bqrrp_cholqr = steady_clock::now();
         dur_bqrrp_cholqr = duration_cast<microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
         printf("TOTAL TIME FOR BQRRP_CHOLQR %ld\n", dur_bqrrp_cholqr);
 
@@ -133,9 +133,9 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
         
         // Testing HQRRP DEFAULT
-        auto start_hqrrp = high_resolution_clock::now();
+        auto start_hqrrp = steady_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T*) nullptr);
-        auto stop_hqrrp = high_resolution_clock::now();
+        auto stop_hqrrp = steady_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
         printf("TOTAL TIME FOR HQRRP %ld\n", dur_hqrrp);
 
@@ -146,9 +146,9 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
         
         // Testing HQRRP with GEQRF
-        auto start_hqrrp_geqrf = high_resolution_clock::now();
+        auto start_hqrrp_geqrf = steady_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg, (T*) nullptr);
-        auto stop_hqrrp_geqrf = high_resolution_clock::now();
+        auto stop_hqrrp_geqrf = steady_clock::now();
         dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
         printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
 
@@ -159,9 +159,9 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
 
         // Testing HQRRP with CholQR
-        auto start_hqrrp_cholqr = high_resolution_clock::now();
+        auto start_hqrrp_cholqr = steady_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 2, state_alg, (T*) nullptr);
-        auto stop_hqrrp_cholqr = high_resolution_clock::now();
+        auto stop_hqrrp_cholqr = steady_clock::now();
         dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
         printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
 
@@ -173,9 +173,9 @@ static void call_all_algs(
 
         if (i <= 2) {
             // Testing GEQP3
-            auto start_geqp3 = high_resolution_clock::now();
+            auto start_geqp3 = steady_clock::now();
             lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
-            auto stop_geqp3 = high_resolution_clock::now();
+            auto stop_geqp3 = steady_clock::now();
             dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
             printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
 

@@ -34,7 +34,7 @@ target_link_libraries(RandLAPACK INTERFACE
     Random123
 )
 
-if (RandLAPACK_HAS_OpenMP)
+if (RandBLAS_HAS_OpenMP)
     target_link_libraries(RandLAPACK INTERFACE OpenMP::OpenMP_CXX)
 endif()
 

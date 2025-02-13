@@ -31,9 +31,9 @@ test_flops(int64_t k,
         RandLAPACK::gen::mat_gen(m_info, A, state);
 
         // Get the timing
-        auto start = high_resolution_clock::now();
+        auto start = steady_clock::now();
         lapack::geqrf(k, k, A, k, tau);
-        auto stop = high_resolution_clock::now();
+        auto stop = steady_clock::now();
         long dur  = duration_cast<microseconds>(stop - start).count();
     
         T dur_s = dur / 1e+6;

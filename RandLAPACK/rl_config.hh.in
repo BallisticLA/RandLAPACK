@@ -1,11 +1,11 @@
-#ifndef RandLAPACK_config_h
-#define RandLAPACK_config_h
+#pragma once
+#include "../RandBLAS/RandBLAS/config.h.in"
 
 #define RandLAPACK_VERSION "@RandLAPACK_VERSION@"
 #define RandLAPACK_VERSION_MAJOR @RandLAPACK_VERSION_MAJOR@
 #define RandLAPACK_VERSION_MINOR @RandLAPACK_VERSION_MINOR@
 #define RandLAPACK_VERSION_PATCH @RandLAPACK_VERSION_PATCH@
 
-#CMAKEDEFINE RandLAPACK_HAS_OpenMP
+#CMAKEDEFINE RandBLAS_HAS_OpenMP
 
 #endif

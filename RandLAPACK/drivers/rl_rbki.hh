@@ -58,8 +58,8 @@ class RBKI {
             timing = time_subroutines;
             tol = ep;
             max_krylov_iters = INT_MAX;
-            num_threads_min = util::get_omp_threads<T>();
-            num_threads_max = util::get_omp_threads<T>();
+            num_threads_min = util::get_omp_threads();
+            num_threads_max = util::get_omp_threads();
         }
 
         /// Computes an SVD of the form:
@@ -120,7 +120,7 @@ class RBKI {
             return this->call(A_linop, lda, k, U, VT, Sigma, state);
         }
 
-        // RBKI call that accepts a sparse matrix.
+        // RBKI call that accepts sparse matrix.
         template <RandBLAS::sparse_data::SparseMatrix SpMat>
         int call(
             int64_t m,
@@ -252,12 +252,12 @@ class RBKI {
 
                 // Generate a dense Gaussian random matrx.
                 // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
-                #if RandLAPACK_HAS_OpenMP
+                #ifdef RandBLAS_HAS_OpenMP
                     omp_set_num_threads(this->num_threads_min);
                 #endif
                 RandBLAS::DenseDist D(n, k);
                 state = RandBLAS::fill_dense(D, Y_i, state);
-                #if RandLAPACK_HAS_OpenMP
+                #ifdef RandBLAS_HAS_OpenMP
                     omp_set_num_threads(this->num_threads_max);
                 #endif
 
@@ -359,11 +359,11 @@ class RBKI {
                         }
 
                         // Copy R_ii over to R's (in transposed format).
-                        #if RandLAPACK_HAS_OpenMP
+                        #ifdef RandBLAS_HAS_OpenMP
                                     omp_set_num_threads(this->num_threads_min);
                         #endif
                         util::transposition(0, k, Y_i, n, R_ii, n, 1);
-                        #if RandLAPACK_HAS_OpenMP
+                        #ifdef RandBLAS_HAS_OpenMP
                                     omp_set_num_threads(this->num_threads_max);
                         #endif
 
