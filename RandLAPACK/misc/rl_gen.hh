@@ -67,9 +67,9 @@ void gen_singvec(
     RandBLAS::RNGState<RNG> &state
 ) {
     std::fill(&A[0], &A[m * n], 0.0);
-    T* U   = ( T * ) calloc( m * k, sizeof( T ) );
-    T* V   = ( T * ) calloc( n * k, sizeof( T ) );
-    T* tau = ( T * ) calloc( k    , sizeof( T ) );
+    T* U   = new T[m * k]();
+    T* V   = new T[n * k]();
+    T* tau = new T[k]();
 
     RandBLAS::DenseDist DU(m, k);
     RandBLAS::DenseDist DV(n, k);
@@ -84,9 +84,9 @@ void gen_singvec(
     lapack::geqrf(n, k, V, n, tau);
     lapack::ormqr(Side::Right, Op::Trans, m, n, k, V, n, tau, A, m);
 
-    free(U);
-    free(V);
-    free(tau);
+    delete[] U;
+    delete[] V;
+    delete[] tau;
 }
 
 /// Generates a matrix with polynomially-decaying spectrum of the following form:
@@ -109,8 +109,8 @@ void gen_poly_mat(
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
-    T* s = ( T * ) calloc( k,     sizeof( T ) );
-    T* S = ( T * ) calloc( k * k, sizeof( T ) );
+    T* s = new T[k]();
+    T* S = new T[k * k]();
 
     // The first 10% of the singular values will be equal to one
     int offset = (int) floor(k * frac_spectrum_one);
@@ -135,8 +135,8 @@ void gen_poly_mat(
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    free(s);
-    free(S);
+    delete[] s;
+    delete[] S;
 }
 
 /// Generates a matrix with exponentially-decaying spectrum of the following form:
@@ -154,8 +154,8 @@ void gen_exp_mat(
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* s = ( T * ) calloc( k,     sizeof( T ) );
-    T* S = ( T * ) calloc( k * k, sizeof( T ) );
+    T* s = new T[k]();
+    T* S = new T[k * k]();
 
     // The first 10% of the singular values will be =1
     int offset = (int) floor(k * 0.1);
@@ -179,8 +179,8 @@ void gen_exp_mat(
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    free(s);
-    free(S);
+    delete[] s;
+    delete[] S;
 }
 
 /// Generates matrix with a staircase spectrum with 4 steps.
@@ -200,8 +200,8 @@ void gen_step_mat(
 ) {
 
     // Predeclare to all nonzero constants, start decay where needed
-    T* s = ( T * ) calloc( k,     sizeof( T ) );
-    T* S = ( T * ) calloc( k * k, sizeof( T ) );
+    T* s = new T[k]();
+    T* S = new T[k * k]();
 
     // We will have 4 steps controlled by the condition number size and starting with 1
     int offset = (int) (k / 4);
@@ -220,8 +220,8 @@ void gen_step_mat(
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    free(s);
-    free(S);
+    delete[] s;
+    delete[] S;
 }
 
 /// Generates a matrix with high coherence between the left singular vectors.
@@ -240,11 +240,11 @@ void gen_spiked_mat(
     int64_t num_rows_sampled = n / 2;
 
     /// sample from [m] without replacement. Get the row indices for a tall LASO with a single column.
-    int64_t* rows = ( int64_t * ) calloc( num_rows_sampled, sizeof( int64_t ) );
+    int64_t* rows   = new int64_t[num_rows_sampled]();
     state = RandBLAS::repeated_fisher_yates(num_rows_sampled, m, 1, rows, state);
 
-    T* V   = ( T * ) calloc( n * n, sizeof( T ) );
-    T* tau = ( T * ) calloc( n,     sizeof( T ) );
+    T* V   = new T[n * n]();
+    T* tau = new T[n]();
 
     RandBLAS::DenseDist DV(n, n);
     state = RandBLAS::fill_dense(DV, V, state);
@@ -267,9 +267,10 @@ void gen_spiked_mat(
         }
         j = 0;
     }
-    free(rows);
-    free(V);
-    free(tau);
+
+    delete[] rows;
+    delete[] V;
+    delete[] tau;
 }
 
 /// Generates a numerically rank-deficient matrix.
@@ -292,10 +293,10 @@ void gen_oleg_adversarial_mat(
     T scaling_factor_U = sigma;
     T scaling_factor_V = 10e-3;
 
-    T* U    = ( T * ) calloc( m * n, sizeof( T ) );
-    T* V    = ( T * ) calloc( n * n, sizeof( T ) );
-    T* tau1 = ( T * ) calloc( n,     sizeof( T ) );
-    T* tau2 = ( T * ) calloc( n,     sizeof( T ) );
+    T* U    = new T[m * n]();
+    T* V    = new T[n * n]();
+    T* tau1 = new T[n]();
+    T* tau2 = new T[n]();
 
     RandBLAS::DenseDist DU(m, n);
     state = RandBLAS::fill_dense(DU, U, state);
@@ -324,10 +325,10 @@ void gen_oleg_adversarial_mat(
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, U, m, V, n, 0.0, A, m);
 
-    free(U);
-    free(V);
-    free(tau1);
-    free(tau2);
+    delete[] U;
+    delete[] V;
+    delete[] tau1;
+    delete[] tau2;
 }
 
 /// Per Oleg Balabanov's suggestion, this matrix is supposed to break QB with Cholesky QR.
@@ -346,8 +347,8 @@ void gen_bad_cholqr_mat(
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* s = ( T * ) calloc( n,     sizeof( T ) );
-    T* S = ( T * ) calloc( n * n, sizeof( T ) );
+    T* s = new T[k]();
+    T* S = new T[k * k]();
 
     // The first k singular values will be =1
     int offset = k;
@@ -374,8 +375,8 @@ void gen_bad_cholqr_mat(
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    free(s);
-    free(S);
+    delete[] s;
+    delete[] S;
 }
 
 /// Generates Kahan matrix
@@ -387,8 +388,8 @@ void gen_kahan_mat(
     T theta,
     T perturb
 ) {
-    T* S = ( T * ) calloc( m * m, sizeof( T ) );
-    T* C = ( T * ) calloc( m * m, sizeof( T ) );
+    T* S = new T[m * m]();
+    T* C = new T[m * m]();
 
     for (int i = 0; i < n; ++i) {
         A[(m + 1) * i] = perturb * std::numeric_limits<double>::epsilon() * (m - i);
@@ -400,8 +401,8 @@ void gen_kahan_mat(
 
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, m, 1.0, S, m, C, m, 1.0, A, m);
 
-    free(S);
-    free(C);
+    delete[] S;
+    delete[] C;
 }
 
 /// Reads a matrix from a file

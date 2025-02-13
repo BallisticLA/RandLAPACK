@@ -46,15 +46,11 @@ struct QR_speed_benchmark_data {
 template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         QR_speed_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state, int apply_itoa) {
+                                        RandBLAS::RNGState<RNG> &state) {
 
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    if (apply_itoa) {
-        std::iota(all_data.J.begin(), all_data.J.end(), 1);
-    } else {
-        std::fill(all_data.J.begin(), all_data.J.end(), 0);
-    }
+    std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
 
 template <typename T, typename RNG>
@@ -101,7 +97,7 @@ static void call_all_algs(
         // Making sure the states are unchanged
         state_gen = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen);
         
         // Testing BQRRP - QRF
         BQRRP.qr_tall = Subroutines::QRTall::geqrf;
@@ -116,7 +112,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing BQRRP - CholQR
         BQRRP.qr_tall = Subroutines::QRTall::cholqr;
@@ -131,7 +127,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen);
         
         // Testing HQRRP DEFAULT
         auto start_hqrrp = steady_clock::now();
@@ -144,7 +140,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen);
         
         // Testing HQRRP with GEQRF
         auto start_hqrrp_geqrf = steady_clock::now();
@@ -157,7 +153,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 1);
+        data_regen(m_info, all_data, state_gen);
 
         // Testing HQRRP with CholQR
         auto start_hqrrp_cholqr = steady_clock::now();
@@ -170,7 +166,7 @@ static void call_all_algs(
         state_gen = state;
         state_alg = state;
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
+        data_regen(m_info, all_data, state_gen);
 
         if ((i <= 2) && (b_sz == 256)) {
             // Testing GEQP3
@@ -181,7 +177,7 @@ static void call_all_algs(
             printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
 
             state_gen = state;
-            data_regen(m_info, all_data, state_gen, 0);
+            data_regen(m_info, all_data, state_gen);
         }
         
         std::ofstream file(output_filename, std::ios::app);
@@ -202,8 +198,8 @@ int main(int argc, char *argv[]) {
     int64_t m          = std::stol(size);
     int64_t n          = std::stol(size);
     double d_factor    = 1.0;
-    int64_t b_sz_start = 256;
-    int64_t b_sz_end   = 2048;
+    std::vector<int64_t> b_sz = {250, 500, 1000, 2000, 4000, 8000};
+    //std::vector<int64_t> b_sz = {256, 512, 1024, 2048, 4096, 8192};
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
@@ -218,11 +214,11 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_speed_comparisons" 
+    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_speed_comparisons_block_size" 
                                                                  + "_num_info_lines_" + std::to_string(6) +
                                                                    ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
@@ -230,12 +226,13 @@ int main(int argc, char *argv[]) {
               "               rows correspond to BQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-              "\nAdditional parameters: BQRRP block size start: " + std::to_string(b_sz_start) + " BQRRP block size end: " + std::to_string(b_sz_end) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
+              "\nAdditional parameters: BQRRP block size start: " + std::to_string(b_sz.front()) + " BQRRP block size end: " + std::to_string(b_sz.back()) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, output_filename);
+    int64_t i = 0;
+    for (;i < b_sz.size(); ++i) {
+        call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, output_filename);
     }
 }
 #endif

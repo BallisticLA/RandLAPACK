@@ -1,5 +1,5 @@
 /*
-RBKI speed comparison benchmark - technically only runs RBKI, but has an option to run SVD (gesdd()) to be compared against RBKI (direct SVD is WAY slower than RBKI). 
+RBKI speed benchmark - technically only runs RBKI, but has an option to run SVD (gesdd()) to be compared against RBKI (direct SVD is WAY slower than RBKI). 
 The user is required to provide a matrix file to be read, set min and max numbers of large gemms (Krylov iterations) that the algorithm is allowed to perform min and max block sizes that RBKI is to use; 
 furthermore, the user is to provide a 'custom rank' parameter (number of singular vectors to approximate by RBKI). 
 The benchmark outputs the basic data of a given run, as well as the RBKI runtime and singular vector residual error, 
@@ -116,8 +116,8 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
-    RBKI.num_threads_some = 4;
-    RBKI.num_threads_rest = 48;
+    RBKI.num_threads_min = 4;
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
     // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
@@ -128,7 +128,7 @@ static void call_all_algs(
     int64_t target_rank = b_sz * num_matmuls / 2;
 
     // timing vars
-    long dur_rbki    = 0;
+    long dur_rbki  = 0;
 
     // Making sure the states are unchanged
     auto state_gen = state;

@@ -1,4 +1,5 @@
 # Make sure to enable the script via "chmod +x install.sh"
+#
 # This script automatically installs RandLAPACK library with all of its dependencies, as well as builds the RandLAPACK benchmark files (done separately).
 # The project layout will be as such: the directory where the RandLAPACK project was originally located will contain the top-level "BALLISTIC_RandNLA" priject direcort with three subdirectories: 
 # lib: contains library files for RandLAPACK, blaspp, and lapackpp; 
@@ -25,7 +26,7 @@ if [[ "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
     fi
 fi
 
-GPU_AVAIL="none"
+GPU_AVAIL="auto"
 # Detect NVIDIA GPU
 echo "Detecting NVIDIA GPU..." | tee -a $LOG_FILE
 if command -v nvidia-smi &> /dev/null; then
@@ -172,4 +173,4 @@ cmake  -S $PROJECT_DIR/lib/RandLAPACK/ -B $PROJECT_DIR/build/RandLAPACK-build/ -
 make  -C $PROJECT_DIR/build/RandLAPACK-build/ -j20 install
 # Configure and build RandLAPACK-benchmark
 cmake  -S $PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/ -Dlapackpp_DIR=$PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$PROJECT_DIR/install/random123/include/
-make  -C $PROJECT_DIR/build/benchmark-build/ -j20 install
+make  -C $PROJECT_DIR/build/benchmark-build/ -j20
