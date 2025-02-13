@@ -13,6 +13,8 @@ if (GTest_FOUND)
         comps/test_preconditioners.cc
         comps/test_rf.cc
         comps/test_syrf.cc
+        comps/test_rpchol.cc
+        drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
         drivers/test_bqrrp.cc
@@ -20,6 +22,7 @@ if (GTest_FOUND)
         drivers/test_hqrrp.cc
         drivers/test_rbki.cc
         misc/test_util.cc
+        misc/test_pdkernels.cc
         misc/test_linops.cc
     )
     

@@ -8,6 +8,7 @@
 #include "rl_orth.hh"
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
+#include "rl_rpchol.hh"
 #include "rl_revd2.hh"
 
 #include <RandBLAS.hh>
@@ -335,6 +336,28 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
     return nystrom_pc_data(A_linop, V, eigvals, k, mu_min, state, num_syps_passes, num_steps_power_iter_error_est);
 }
+
+
+/**
+ * TODO: make an overload of rpchol_pc_data that omits "n" and assumes A implements
+ * some linear operator interface.
+ */
+
+template <typename T, typename STATE, typename FUNC>
+STATE rpchol_pc_data(
+    int64_t n, FUNC &A_stateless, int64_t &k, int64_t b, T* V, T* eigvals, STATE state
+) {
+    std::vector<int64_t> selection(k, -1);
+    state = RandLAPACK::rp_cholesky(n, A_stateless, k, selection.data(), V, b, state);
+    // ^ A_stateless \approx VV'; need to convert VV' into its eigendecomposition.
+    std::vector<T> work(k*k, 0.0);
+    lapack::gesdd(lapack::Job::OverwriteVec, n, k, V, n, eigvals, nullptr, 1, work.data(), k);
+    // V has been overwritten with its (nontrivial) left singular vectors
+    for (int64_t i = 0; i < k; ++i) 
+        eigvals[i] = std::pow(eigvals[i], 2);
+    return state;
+}
+
 
 
 }  // end namespace RandLAPACK

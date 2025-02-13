@@ -14,9 +14,11 @@ set(RandLAPACK_cxx_sources
     rl_rf.hh
     rl_syps.hh
     rl_syrf.hh
+    rl_rpchol.hh
     rl_gen.hh
     rl_blaspp.hh
     rl_linops.hh
+    rl_pdkernels.hh
 
     rl_cusolver.hh
     rl_cuda_kernels.cuh
