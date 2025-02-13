@@ -41,6 +41,16 @@ class TestRBKI : public ::testing::Test
             row   = m;
             col   = n;
         }
+
+        ~RBKITestData() {
+            delete[] A;
+            delete[] A_buff;
+            delete[] U;
+            delete[] VT;
+            delete[] Sigma;
+            delete[] U_cpy;
+            delete[] VT_cpy;
+        }
     };
 
     template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
@@ -66,6 +76,15 @@ class TestRBKI : public ::testing::Test
             VT_cpy = new T[n * n]();
             row    = m;
             col    = n;
+        }
+
+        ~RBKITestDataSparse() {
+            delete[] A_buff;
+            delete[] U;
+            delete[] VT;
+            delete[] Sigma;
+            delete[] U_cpy;
+            delete[] VT_cpy;
         }
     };
 
