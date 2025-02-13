@@ -104,6 +104,7 @@ class RBKI {
         /// @return = 0: successful exit
         ///
 
+        // RBKI call that accepts a general dense matrix.
         int call(
             int64_t m,
             int64_t n,
@@ -119,6 +120,7 @@ class RBKI {
             return this->call(A_linop, lda, k, U, VT, Sigma, state);
         }
 
+        // RBKI call that accepts a sparse matrix.
         template <RandBLAS::sparse_data::SparseMatrix SpMat>
         int call(
             int64_t m,

@@ -17,11 +17,13 @@ namespace RandLAPACK::util {
 template <typename T>
 int get_omp_threads(
 ) {
-    int num_threads = 0;
+    int num_threads = 1;
+    #if RandLAPACK_HAS_OpenMP
     #pragma omp parallel
     {
         num_threads = omp_get_num_threads();
     }
+    #endif
     return num_threads;
 }
 
