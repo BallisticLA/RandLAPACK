@@ -21,10 +21,10 @@ template<typename LinOp, typename T = LinOp::scalar_t>
 concept LinearOperator = requires(LinOp A) {
     { A.n_rows }  -> std::same_as<const int64_t&>;
     { A.n_cols }  -> std::same_as<const int64_t&>;
-} && requires(LinOp A, Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, T alpha, int64_t lda, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+} && requires(LinOp A, Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
     // A Matmul-like function that updates C := alpha A*B + beta C, where
     // B and C have n columns and are stored in layout order with strides (ldb, ldc).
-    { A(layout, trans_A, trans_B, m, n, k, alpha, lda, B, ldb, beta, C, ldc) } -> std::same_as<void>;
+    { A(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
 };
 
 // Sparse linear operator struct, supplied with a sparse-with-dense matrix multiplication operator 
@@ -64,8 +64,7 @@ struct SpLinOp {
         int64_t m, 
         int64_t n, 
         int64_t k, 
-        T alpha, 
-        int64_t lda, 
+        T alpha,  
         const T* B, 
         int64_t ldb, 
         T beta, 
@@ -121,8 +120,7 @@ struct GenLinOp {
         int64_t m, 
         int64_t n, 
         int64_t k, 
-        T alpha, 
-        int64_t lda, 
+        T alpha,  
         T* const B, 
         int64_t ldb, 
         T beta, 

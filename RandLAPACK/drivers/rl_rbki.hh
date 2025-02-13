@@ -117,7 +117,7 @@ class RBKI {
             RandBLAS::RNGState<RNG> &state
         ) {
             linops::GenLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
-            return this->call(A_linop, lda, k, U, VT, Sigma, state);
+            return this->call(A_linop, k, U, VT, Sigma, state);
         }
 
         // RBKI call that accepts sparse matrix.
@@ -134,13 +134,12 @@ class RBKI {
             RandBLAS::RNGState<RNG> &state
         ) {
             linops::SpLinOp<T, SpMat> A_linop(m, n, A, lda, Layout::ColMajor);
-            return this->call(A_linop, lda, k, U, VT, Sigma, state);
+            return this->call(A_linop, k, U, VT, Sigma, state);
         }
 
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
-            int64_t lda,
             int64_t k,
             T* U,
             T* VT,
@@ -268,8 +267,7 @@ class RBKI {
                 }
 
                 // [X_ev, ~] = qr(A * Y_i, 0)
-                //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.A_buff, m, Y_i, n, 0.0, X_i, m);
-                A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, m, Y_i, n, 0.0, X_i, m);
+                A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                 if(this -> timing) {
                     gemm_A_t_stop = steady_clock::now();
@@ -309,8 +307,7 @@ class RBKI {
                         if(this -> timing)
                             gemm_A_t_start = steady_clock::now();
                         // Y_i = A' * X_i 
-                        //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, A.A_buff, m, X_i, m, 0.0, Y_i, n);
-                        A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, m, X_i, m, 0.0, Y_i, n);
+                        A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, X_i, m, 0.0, Y_i, n);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
@@ -405,8 +402,7 @@ class RBKI {
                             gemm_A_t_start = steady_clock::now();
 
                         // X_i = A * Y_i
-                        //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, A.A_buff, m, Y_i, n, 0.0, X_i, m);
-                        A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, m, Y_i, n, 0.0, X_i, m);
+                        A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
