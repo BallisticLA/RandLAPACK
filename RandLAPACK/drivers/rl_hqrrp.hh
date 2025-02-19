@@ -825,7 +825,7 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t qr_type, RandBLAS::RNGState<RNG> &state, T* timing) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t qr_type, RandBLAS::RNGState<RNG> &state, T** timing) {
 
     //-------TIMING VARS--------/
     steady_clock::time_point preallocation_t_stop;
@@ -858,12 +858,12 @@ int64_t hqrrp(
     // Buffer for QR timing.
     T* timing_QR   = nullptr;
 
-    if(timing != nullptr) {
+    if(*timing != nullptr) {
         timing_QRCP  = new T[10]();
         timing_QR    = new T[10]();
     }
 
-    if(timing != nullptr) {
+    if(*timing != nullptr) {
         total_t_start = steady_clock::now();
         preallocation_t_start = steady_clock::now();
     }
@@ -932,7 +932,7 @@ int64_t hqrrp(
     // Adding this line ensures that the input fromat of HQRRP is identical to that of GEQP3.
     std::iota(buff_jpvt, &buff_jpvt[n_A], 1);
 
-    if(timing != nullptr) {
+    if(*timing != nullptr) {
         preallocation_t_stop = steady_clock::now();
         preallocation_t_dur  = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
         sketching_t_start    = steady_clock::now();
@@ -947,7 +947,7 @@ int64_t hqrrp(
                 d_one, buff_G,  ldim_G, buff_A, ldim_A, 
                 d_zero, buff_Y, ldim_Y );
     
-    if(timing != nullptr) {
+    if(*timing != nullptr) {
         sketching_t_stop  = steady_clock::now();
         sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
     }
@@ -998,7 +998,7 @@ int64_t hqrrp(
         buff_G2 = & buff_G[ 0 + std::min( n_G - 1, j + b ) * ldim_G ];
 
 
-        if(timing != nullptr)
+        if(*timing != nullptr)
             downdating_t_start = steady_clock::now();
 
 #ifdef CHECK_DOWNDATING_OF_Y
@@ -1034,7 +1034,7 @@ int64_t hqrrp(
 
         delete[] buff_cyr;
 #endif
-        if(timing != nullptr) {
+        if(*timing != nullptr) {
             downdating_t_stop = steady_clock::now();
             downdating_t_dur  += duration_cast<microseconds>(downdating_t_stop - downdating_t_start).count();
         }
@@ -1057,7 +1057,7 @@ int64_t hqrrp(
                             buff_YR, ldim_Y,
                             buff_VR, ldim_V);
 
-            if(timing != nullptr)
+            if(*timing != nullptr)
                 qrcp_t_start    = steady_clock::now();
 
             NoFLA_QRPmod_WY_unb_var4(0, 1, b,
@@ -1070,7 +1070,7 @@ int64_t hqrrp(
                 timing_QRCP 
             );
 
-            if(timing != nullptr) {
+            if(*timing != nullptr) {
                 qrcp_t_stop = steady_clock::now();
                 qrcp_t_dur  += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
             }
@@ -1095,7 +1095,7 @@ int64_t hqrrp(
         //    it only operates on AB1!
         //
 
-        if(timing != nullptr)
+        if(*timing != nullptr)
             qr_t_start = steady_clock::now();
 
         NoFLA_QRPmod_WY_unb_var4(qr_type, panel_pivoting, -1,
@@ -1104,7 +1104,7 @@ int64_t hqrrp(
             1, m_Y, buff_Y1, ldim_Y,
             1, buff_T1_T, ldim_W, buff_R, ldim_R, buff_D, timing_QR);
 
-        if(timing != nullptr) {
+        if(*timing != nullptr) {
             qr_t_stop = steady_clock::now();
             qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
             updating_A_t_start = steady_clock::now();
@@ -1125,7 +1125,7 @@ int64_t hqrrp(
             n_A12, buff_A12, ldim_A );
         }
 
-        if(timing != nullptr) {
+        if(*timing != nullptr) {
             updating_A_t_stop = steady_clock::now();
             updating_A_t_dur  += duration_cast<microseconds>(updating_A_t_stop - updating_A_t_start).count();
             updating_Sketch_t_start = steady_clock::now();
@@ -1145,40 +1145,36 @@ int64_t hqrrp(
                 std::max<int64_t>( 0, n_G - j - b ), buff_G2, ldim_G );
         }
 
-        if(timing != nullptr) {
+        if(*timing != nullptr) {
             updating_Sketch_t_stop = steady_clock::now();
             updating_Sketch_t_dur  += duration_cast<microseconds>(updating_Sketch_t_stop - updating_Sketch_t_start).count();
         }
     }
 
-    if(timing != nullptr) {
+    if(*timing != nullptr) {
 
         // Make sure that timing points to a sufficient amount of space.
-        //timing = ( T * ) realloc(timing, 30 * sizeof( T ) );
+        T* timing_temp = ( T * ) realloc(*timing, 26 * sizeof( T ) );
 
         total_t_stop = steady_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long other_t_dur  = total_t_dur - (preallocation_t_dur + sketching_t_dur + downdating_t_dur + qrcp_t_dur + qr_t_dur + updating_A_t_dur + updating_Sketch_t_dur);
 
-        timing[0] = (T) preallocation_t_dur;
-        timing[1] = (T) sketching_t_dur;
-        timing[2] = (T) downdating_t_dur;
-        timing[3] = (T) qrcp_t_dur;
-        timing[4] = (T) qr_t_dur;
-        timing[5] = (T) updating_A_t_dur;
-        timing[6] = (T) updating_Sketch_t_dur;
-        timing[7] = (T) other_t_dur;
-        timing[8] = (T) total_t_dur;
-        blas::copy(9, timing_QRCP, 1, &timing[9], 1);
-        blas::copy(9, timing_QR,   1, &timing[17], 1);
+        timing_temp[0] = (T) preallocation_t_dur;
+        timing_temp[1] = (T) sketching_t_dur;
+        timing_temp[2] = (T) downdating_t_dur;
+        timing_temp[3] = (T) qrcp_t_dur;
+        timing_temp[4] = (T) qr_t_dur;
+        timing_temp[5] = (T) updating_A_t_dur;
+        timing_temp[6] = (T) updating_Sketch_t_dur;
+        timing_temp[7] = (T) other_t_dur;
+        timing_temp[8] = (T) total_t_dur;
+        blas::copy(9, timing_QRCP, 1, &timing_temp[9], 1);
+        blas::copy(9, timing_QR,   1, &timing_temp[17], 1);
 
         delete[] timing_QRCP;
         delete[] timing_QR;
-        
-        printf("%ld\n", preallocation_t_dur);
-        printf("%f\n",  timing[0]);
-        printf("%f\n",  &timing[0]);
-        printf("%f\n",  *timing);
+        *timing = timing_temp;
 
         printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
         printf("Preallocation time:   %ld μs,\n",   preallocation_t_dur);

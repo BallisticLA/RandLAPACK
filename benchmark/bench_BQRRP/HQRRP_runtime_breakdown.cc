@@ -72,13 +72,14 @@ static void call_all_algs(
 
     // Timing vars
     T* times  = ( T * ) calloc( 26, sizeof( T ) );
+    T** times_ptr = &times;
 
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, NUMCOLS %ld\n", i, n);
 
         // Testing HQRRP
         // No CholQR
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times_ptr);
 
         std::ofstream file(output_filename, std::ios::app);
         std::copy(times, times + 26, std::ostream_iterator<T>(file, ", "));
@@ -106,7 +107,7 @@ int main(int argc, char *argv[]) {
     int64_t n          = std::stol(size);
     double  d_factor   = 1.0;
     int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 64;
+    int64_t b_sz_end   = 8192;
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
