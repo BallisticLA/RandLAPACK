@@ -71,7 +71,7 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    T* times  = ( T * ) calloc( 27, sizeof( T ) );
+    T* times  = ( T * ) calloc( 26, sizeof( T ) );
 
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, NUMCOLS %ld\n", i, n);
@@ -81,7 +81,7 @@ static void call_all_algs(
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times);
 
         std::ofstream file(output_filename, std::ios::app);
-        std::copy(times, times + 27, std::ostream_iterator<T>(file, ", "));
+        std::copy(times, times + 26, std::ostream_iterator<T>(file, ", "));
         file << "\n";
 
         // Clear and re-generate data
@@ -106,13 +106,13 @@ int main(int argc, char *argv[]) {
     int64_t n          = std::stol(size);
     double  d_factor   = 1.0;
     int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 2048;
+    int64_t b_sz_end   = 64;
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs.
-    int64_t numruns = 3;
+    int64_t numruns = 1;
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, d_factor);
@@ -129,8 +129,8 @@ int main(int argc, char *argv[]) {
 
     // Writing important data into file
     file << "Description: Results from the HQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in HQRRP."
-              "\nFile format: 27 data columns, each corresponding to a given HQRRP subroutine (please see /RandLAPACK/drivers/rl_hqrrp.hh for details) "
-              "               rows correspond to HQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nFile format: 26 data columns, each corresponding to a given HQRRP subroutine (please see /RandLAPACK/drivers/rl_hqrrp.hh for details)"
+              "\nrows correspond to HQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
               "\nAdditional parameters: HQRRP block size start: " + std::to_string(b_sz_start) + " HQRRP block size end: " + std::to_string(b_sz_end) + " num runs per size " + std::to_string(numruns) + " HQRRP d factor: "   + std::to_string(d_factor) +
