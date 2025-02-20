@@ -361,8 +361,6 @@ int main(int argc, char *argv[]) {
     size_t i = 0;
     // Declare parameters
     int64_t m       = std::stol(argv[2]);
-    int64_t n_start = 256;
-    int64_t n_stop  = 2048;
     // Fill the n size vector
     std::vector<int64_t> n_sz;
     for (int i = 0; i < argc-3; ++i)
@@ -374,7 +372,7 @@ int main(int argc, char *argv[]) {
     std::string n_sz_string = oss.str();
 
     // Internal block size for ORMQR, will increase by 2 at every iteration
-    int64_t nb_start      = n_start;
+    int64_t nb_start      = n_sz[0];
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();
     auto state_constant   = state;
@@ -401,10 +399,10 @@ int main(int argc, char *argv[]) {
     // Writing important data into file
     file << "Description: Results from the BQRRP subroutines benchmark, recording time for the alternative options of the three main BQRRP subroutines: wide_qrcp, tall qr and application of transpose orthonormal matrix."
               "\nFile format: the format varies for each subroutine"
-              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
               "               \n qr_tall:   six columns with timing for different tall QR candidates and their related parts: GEQRF, GEQR, CHOLQR, CHOLQR_PREPROCESSING, CHOLQR_HOUSEHOLDER_RESTORATION, CHOLQR_UNTO_PRECONDITIONING."
               "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR"
-              "               \n In all cases, rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n In all cases, rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:" + std::to_string(m_info.m_type) +
               "\nInput size:" + std::to_string(m) + " by "  + n_sz_string +
