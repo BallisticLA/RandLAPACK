@@ -110,25 +110,34 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc < 5) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <qr_fname> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
+        return 1;
     }
-    auto size = argv[1];
 
     // Declare parameters
-    int64_t m          = std::stol(size);
-    int64_t n          = std::stol(size);
+    int64_t m          = std::stol(argv[3]);
+    int64_t n          = std::stol(argv[4]);
     double  d_factor   = 1.0;
-    std::vector<int64_t> b_sz = {250, 500, 1000, 2000, 4000, 8000};
+    // Fill the block size vector
+    std::vector<int64_t> b_sz;
+    for (int i = 0; i < argc-5; ++i)
+        b_sz.push_back(std::stoi(argv[i + 5]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss;
+    for (const auto &val : b_sz)
+        oss << val << ", ";
+    std::string b_sz_string = oss.str();
+
     //std::vector<int64_t> b_sz = {256, 512, 1024, 2048, 4096, 8192};
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns     = 3;
-    std::string qr_tall = argv[2];
+    int64_t numruns     = std::stol(argv[2]);
+    std::string qr_tall = argv[1];
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, d_factor);
@@ -150,7 +159,7 @@ int main(int argc, char *argv[]) {
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-              "\nAdditional parameters: Tall QR subroutine " + argv[2] + " BQRRP block size start: " + std::to_string(b_sz.front()) + " BQRRP block size end: " + std::to_string(b_sz.back()) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
+              "\nAdditional parameters: Tall QR subroutine " + argv[2] + " BQRRP block sizes: " + b_sz_string + "num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 

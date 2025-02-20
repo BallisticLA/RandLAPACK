@@ -190,29 +190,37 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc < 3) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <num_runs> <block_size> <square_matrix_dim (multiple)>..." << std::endl;
+        return 1;
     }
 
-    auto block_size = argv[1];
-
     // Declare parameters
-    int64_t m_start     = std::pow(2, 10);
-    int64_t m_end       = std::pow(2, 16);
+    // Fill the block size vector
+    std::vector<int64_t> m_sz;
+    for (int i = 0; i < argc-3; ++i)
+        m_sz.push_back(std::stoi(argv[i + 3]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss;
+    for (const auto &val : m_sz)
+        oss << val << ", ";
+    std::string m_sz_string = oss.str();
+
     double d_factor     = 1.0;
-    int64_t b_sz        = std::stol(block_size);
+    int64_t b_sz        = std::stol(argv[2]);
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 3;
+    int64_t numruns = std::stol(argv[1]);
 
     // Allocate basic workspace
-    QR_speed_benchmark_data<double> all_data(m_end, m_end, b_sz, d_factor);
+    int64_t m_max = *std::max_element(m_sz.begin(), m_sz.end());
+    QR_speed_benchmark_data<double> all_data(m_max, m_max, b_sz, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m_end, m_end, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m_max, m_max, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
@@ -228,13 +236,14 @@ int main(int argc, char *argv[]) {
               "               rows correspond to BQRRP runs with mat sizes varying with powers of 2, with numruns repititions of each mat size."
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
-              "\nInput size:"       + " dim start: " + std::to_string(m_start) + " dim stop: "  + std::to_string(m_end) +
+              "\nInput size:"       + " dim start: " + m_sz_string +
               "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 
-    for (;m_start <= m_end; m_start *= 2) {
-        call_all_algs(m_info, numruns, m_start, all_data, state_constant, output_filename);
+    size_t i = 0;
+    for (;i < m_sz.size(); ++i) {
+        call_all_algs(m_info, numruns, m_sz[i], all_data, state_constant, output_filename);
     }
 }
 #endif

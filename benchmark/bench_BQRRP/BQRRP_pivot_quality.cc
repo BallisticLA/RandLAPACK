@@ -191,18 +191,17 @@ static void sv_ratio(
 }
 
 int main(int argc, char *argv[]) {
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc != 3) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <num_rows> <num_cols> <block_size>..." << std::endl;
+        return 1;
     }
-    auto size = argv[1];
 
     // Declare parameters
-    int64_t m          = std::stol(size);
-    int64_t n          = std::stol(size);
+    int64_t m          = std::stol(argv[1]);
+    int64_t n          = std::stol(argv[2]);
     double d_factor    = 1.0;
-    int64_t b_sz       = 4096;
+    int64_t b_sz       = std::stol(argv[3]);;
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant1 = state;
     auto state_constant2 = state;

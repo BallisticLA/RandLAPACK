@@ -352,14 +352,29 @@ static void call_apply_q(
 
 int main(int argc, char *argv[]) {
 
-    auto size = argv[1];
+    if (argc < 3) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <num_runs> <num_rows> <num_cols(multiple, increasing order)> ..." << std::endl;
+        return 1;
+    }
 
-    int64_t i = 0;
+    size_t i = 0;
     // Declare parameters
-    int64_t m             = std::stol(size);
-    int64_t n_start       = 256;
-    int64_t n_stop        = 2048;
-    int64_t nb_start      = 256;
+    int64_t m       = std::stol(argv[2]);
+    int64_t n_start = 256;
+    int64_t n_stop  = 2048;
+    // Fill the n size vector
+    std::vector<int64_t> n_sz;
+    for (int i = 0; i < argc-3; ++i)
+        n_sz.push_back(std::stoi(argv[i + 3]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss;
+    for (const auto &val : n_sz)
+        oss << val << ", ";
+    std::string n_sz_string = oss.str();
+
+    // Internal block size for ORMQR, will increase by 2 at every iteration
+    int64_t nb_start      = n_start;
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();
     auto state_constant   = state;
@@ -367,12 +382,13 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 3;
+    int64_t numruns = std::stol(argv[1]);
 
     // Allocate basic workspace
-    benchmark_data<double> all_data(m, n_stop);
+    int64_t n_max = *std::max_element(n_sz.begin(), n_sz.end());
+    benchmark_data<double> all_data(m, n_max);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_max, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     RandLAPACK::gen::mat_gen(m_info, all_data.B.data(), state_B);
 
@@ -391,18 +407,18 @@ int main(int argc, char *argv[]) {
               "               \n In all cases, rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:" + std::to_string(m_info.m_type) +
-              "\nInput size:" + std::to_string(m) + " by "  + std::to_string(n_start) + " to " + std::to_string(n_stop) +
+              "\nInput size:" + std::to_string(m) + " by "  + n_sz_string +
               "\nAdditional parameters num runs per size " + std::to_string(numruns) + " nb_start "   + std::to_string(nb_start) +
               "\n";
     file.flush();
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_wide_qrcp(m_info, numruns, i, all_data, state, output_filename);
+    for (;i < n_sz.size(); ++i) 
+        call_wide_qrcp(m_info, numruns, n_sz[i], all_data, state, output_filename);
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_tsqr(m_info, numruns, i, nb_start, all_data, state, output_filename);
+    for (;i < n_sz.size(); ++i) 
+        call_tsqr(m_info, numruns, n_sz[i], nb_start, all_data, state, output_filename);
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_apply_q(m_info, numruns, i, nb_start, all_data, state, state_B, output_filename);
+    for (;i < n_sz.size(); ++i) 
+        call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, output_filename);
 }
 #endif
