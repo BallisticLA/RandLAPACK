@@ -21,7 +21,13 @@ geqrf_flops(
     RandBLAS::RNGState<RNG> state) {
 
     // Sourced from LAWN (LAPACK Work Notes) 41
-    int64_t flop_count = 2 * rows * std::pow(cols, 2) - (2/3) * std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14/3) * cols;
+    T flop_count = 0;
+    if (rows >= cols) {
+        flop_count = 2. * rows * std::pow(cols, 2) - (2./3.) * std::pow(cols, 3) + rows * cols + std::pow(cols, 2) + (14./3.) * cols;
+    } else {
+        flop_count = 2. * cols * std::pow(rows, 2) - (2./3.) * std::pow(rows, 3) + 3. * rows * cols - std::pow(rows, 2) + (14./3.) * cols;
+    }
+    printf("%f\n", flop_count);
 
     long dur_microsec_best = LONG_MAX;
 
@@ -61,7 +67,7 @@ getrf_flops(
     RandBLAS::RNGState<RNG> state) {
 
     // Sourced from LAWN (LAPACK Work Notes) 41
-    int64_t flop_count = rows * std::pow(cols, 2) - (1/3) * std::pow(cols, 3) - (1/2) * std::pow(cols, 2) + (5/6) * cols;
+    T flop_count = rows * std::pow(cols, 2) - (1./3.) * std::pow(cols, 3) - (1./2.) * std::pow(cols, 2) + (5./6.) * cols;
 
     long dur_microsec_best = LONG_MAX;
 
@@ -100,7 +106,7 @@ potrf_flops(
     RandBLAS::RNGState<RNG> state) {
 
     // Sourced from LAWN (LAPACK Work Notes) 41
-    int64_t flop_count = (1/3) * std::pow(dim, 3) + (1/2) * std::pow(dim, 2) + (1/6) * dim;
+    T flop_count = (1./3.) * std::pow(dim, 3) + (1./2.) * std::pow(dim, 2) + (1./6.) * dim;
 
     long dur_microsec_best = LONG_MAX;
 

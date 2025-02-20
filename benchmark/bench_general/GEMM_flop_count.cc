@@ -17,7 +17,7 @@ test_flops(int64_t k,
         RandBLAS::RNGState<RNG> state) {
     int size = k * k;
     // Flops in gemm of given size
-    int64_t flop_cnt = 2 * std::pow(k, 3);
+    T flop_cnt = 2. * std::pow(k, 3);
 
     int runs = 50;
     T GFLOPS_rate_best = 0;
