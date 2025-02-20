@@ -142,11 +142,12 @@ static void sv_ratio(
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     std::ofstream file2(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_2"
-                                                          + "_num_info_lines_" + std::to_string(5) +
+                                                          + "_num_info_lines_" + std::to_string(6) +
                                                             ".txt", std::ios::out | std::ios::trunc);
     // Writing important data into file
     file2 << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the diagonal R entries to true singular values."
               "\nFile format: Line one contains BQRRP retults, line 2 contains GEQP3 retults."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"        + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
               "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + " BQRRP d factor: "   + std::to_string(d_factor) +

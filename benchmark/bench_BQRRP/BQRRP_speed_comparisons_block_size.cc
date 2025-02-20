@@ -215,7 +215,7 @@ int main(int argc, char *argv[]) {
 
     // Declare a data file
     std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_speed_comparisons_block_size" 
-                                                                 + "_num_info_lines_" + std::to_string(6) +
+                                                                 + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 
     std::ofstream file(output_filename, std::ios::out | std::ios::app);
@@ -224,13 +224,14 @@ int main(int argc, char *argv[]) {
     file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
               "\nFile format: 7 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, HQRRP, HQRRP+QRF, HQRRP+CholQR, QRF, QP3;"
               "               rows correspond to BQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
               "\nAdditional parameters: BQRRP block size start: " + std::to_string(b_sz.front()) + " BQRRP block size end: " + std::to_string(b_sz.back()) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 
-    int64_t i = 0;
+    size_t i = 0;
     for (;i < b_sz.size(); ++i) {
         call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, output_filename);
     }

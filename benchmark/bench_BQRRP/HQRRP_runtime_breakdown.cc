@@ -123,7 +123,7 @@ int main(int argc, char *argv[]) {
 
     // Declare a data file
     std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "HQRRP_runtime_breakdown" 
-                                                                 + "_num_info_lines_" + std::to_string(6) +
+                                                                 + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 
     std::ofstream file(output_filename, std::ios::out | std::ios::app);
@@ -132,6 +132,7 @@ int main(int argc, char *argv[]) {
     file << "Description: Results from the HQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in HQRRP."
               "\nFile format: 26 data columns, each corresponding to a given HQRRP subroutine (please see /RandLAPACK/drivers/rl_hqrrp.hh for details)"
               "\nrows correspond to HQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
               "\nAdditional parameters: HQRRP block size start: " + std::to_string(b_sz_start) + " HQRRP block size end: " + std::to_string(b_sz_end) + " num runs per size " + std::to_string(numruns) + " HQRRP d factor: "   + std::to_string(d_factor) +

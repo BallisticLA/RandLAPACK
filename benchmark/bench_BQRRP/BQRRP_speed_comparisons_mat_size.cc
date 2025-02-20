@@ -217,7 +217,7 @@ int main(int argc, char *argv[]) {
 
     // Declare a data file
     std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_speed_comparisons_mat_size" 
-                                                                 + "_num_info_lines_" + std::to_string(6) +
+                                                                 + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 
     std::ofstream file(output_filename, std::ios::out | std::ios::app);
@@ -226,6 +226,7 @@ int main(int argc, char *argv[]) {
     file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
               "\nFile format: 7 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, HQRRP, HQRRP+QRF, HQRRP+CholQR, QRF, QP3;"
               "               rows correspond to BQRRP runs with mat sizes varying with powers of 2, with numruns repititions of each mat size."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + " dim start: " + std::to_string(m_start) + " dim stop: "  + std::to_string(m_end) +
               "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +

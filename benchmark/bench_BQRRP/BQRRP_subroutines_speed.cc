@@ -378,7 +378,7 @@ int main(int argc, char *argv[]) {
 
     // Declare a data file
     std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_subroutines_speed" 
-                                                                 + "_num_info_lines_" + std::to_string(9) +
+                                                                 + "_num_info_lines_" + std::to_string(10) +
                                                                    ".txt";
     std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
 
@@ -389,6 +389,7 @@ int main(int argc, char *argv[]) {
               "               \n qr_tall:   six columns with timing for different tall QR candidates and their related parts: GEQRF, GEQR, CHOLQR, CHOLQR_PREPROCESSING, CHOLQR_HOUSEHOLDER_RESTORATION, CHOLQR_UNTO_PRECONDITIONING."
               "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR"
               "               \n In all cases, rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:" + std::to_string(m_info.m_type) +
               "\nInput size:" + std::to_string(m) + " by "  + std::to_string(n_start) + " to " + std::to_string(n_stop) +
               "\nAdditional parameters num runs per size " + std::to_string(numruns) + " nb_start "   + std::to_string(nb_start) +
