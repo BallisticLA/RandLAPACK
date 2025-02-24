@@ -410,13 +410,13 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
-    for (;i < n_sz.size(); ++i) 
+    for (i = 0 ;i < n_sz.size(); ++i) 
         call_wide_qrcp(m_info, numruns, n_sz[i], all_data, state, output_filename);
 
-    for (;i < n_sz.size(); ++i) 
+    for (i = 0 ;i < n_sz.size(); ++i) 
         call_tsqr(m_info, numruns, n_sz[i], nb_start, all_data, state, output_filename);
 
-    for (;i < n_sz.size(); ++i) 
+    for (i = 0 ;i < n_sz.size(); ++i) 
         call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, output_filename);
 }
 #endif

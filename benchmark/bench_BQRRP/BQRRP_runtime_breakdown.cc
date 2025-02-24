@@ -130,7 +130,6 @@ int main(int argc, char *argv[]) {
         oss << val << ", ";
     std::string b_sz_string = oss.str();
 
-    //std::vector<int64_t> b_sz = {256, 512, 1024, 2048, 4096, 8192};
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
