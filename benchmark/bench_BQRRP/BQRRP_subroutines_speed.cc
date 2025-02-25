@@ -394,7 +394,7 @@ int main(int argc, char *argv[]) {
     std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_subroutines_speed" 
                                                                  + "_num_info_lines_" + std::to_string(10) +
                                                                    ".txt";
-    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP subroutines benchmark, recording time for the alternative options of the three main BQRRP subroutines: wide_qrcp, tall qr and application of transpose orthonormal matrix."
