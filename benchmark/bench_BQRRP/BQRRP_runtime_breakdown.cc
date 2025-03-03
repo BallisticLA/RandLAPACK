@@ -158,7 +158,7 @@ int main(int argc, char *argv[]) {
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-              "\nAdditional parameters: Tall QR subroutine " + argv[2] + " BQRRP block sizes: " + b_sz_string + "num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
+              "\nAdditional parameters: Tall QR subroutine " + argv[1] + " BQRRP block sizes: " + b_sz_string + "num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 
