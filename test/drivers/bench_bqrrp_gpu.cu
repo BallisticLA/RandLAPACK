@@ -172,7 +172,7 @@ class BenchBQRRP : public ::testing::Test
 
 	    printf("  BLOCK SIZE = %ld BQRRP+QRF TIME (MS) = %ld BQRRP+CholQR TIME (MS) = %ld\n", block_size, diff_bqrrp_qrf, diff_bqrrp_cholqr);
         std::ofstream file(*output_filename_speed, std::ios::app);
-        file << m << "  " << n << "  " << block_size << "  " << diff_bqrrp_qrf << "  " << diff_bqrrp_cholqr << "  " << diff_qrf << "\n";
+        file << diff_bqrrp_qrf << "  " << diff_bqrrp_cholqr << "  " << diff_qrf << "\n";
         cudaError_t ierr = cudaGetLastError();
     	if (ierr != cudaSuccess)
     	{
@@ -238,7 +238,7 @@ class BenchBQRRP : public ::testing::Test
         printf(" QRF TIME (MS)      = %ld\n", diff_qrf);
 
         std::ofstream file(output_filename, std::ios::app);
-        file << m << "  " << n << "  " << diff_cholqr << "  " << diff_orhr_col << "  " << diff_qrf << "\n";
+        file << diff_cholqr << "  " << diff_orhr_col << "  " << diff_qrf << "\n";
 
         cudaError_t ierr = cudaGetLastError();
     	if (ierr != cudaSuccess)
