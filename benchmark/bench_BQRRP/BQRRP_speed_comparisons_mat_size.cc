@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
     // Writing important data into file
     file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
               "\nFile format: 7 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, HQRRP, HQRRP+QRF, HQRRP+CholQR, QRF, QP3;"
-              "               rows correspond to BQRRP runs with mat sizes varying with powers of 2, with numruns repititions of each mat size."
+              "               rows correspond to BQRRP runs with varying mat sizes, with numruns repititions of each mat size."
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + " dim start: " + m_sz_string +
