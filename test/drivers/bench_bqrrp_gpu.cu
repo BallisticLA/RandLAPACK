@@ -11,6 +11,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <chrono>
+#include <numeric>
 
 // Use cuda kernels.
 #ifndef USE_CUDA
@@ -246,46 +247,92 @@ class BenchBQRRP : public ::testing::TestWithParam<int64_t>
         	abort();
     	}    
     }
+
+    static void setup_bqrrp_benchmark(
+        int64_t m,
+        int64_t n,
+        std::vector<int64_t> b_sz 
+    ){
+        // Get a string representation of the block size vector
+        std::string b_sz_string = std::accumulate(b_sz.begin(), b_sz.end(), std::string(), 
+                                    [](const std::string& a, int b) {
+                                        return a.empty() ? std::to_string(b) : a + "," + std::to_string(b);
+                                    });
+
+        auto state           = RandBLAS::RNGState();
+        bool profile_runtime = true;
+        bool run_qrf         = true;
+
+        BQRRPBenchData<double> all_data(m, n);
+        RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+        RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+        cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
+
+        std::string file_name_1 = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_qrf_"       
+                            + "_num_info_lines_" + std::to_string(7) +
+                            ".txt";
+
+        std::string file_name_2 = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_cholqr_"  
+                            + "_num_info_lines_" + std::to_string(7) +
+                              ".txt";
+
+        std::string file_name_3 = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_speed_comparisons_block_size"  
+                            + "_num_info_lines_" + std::to_string(7) +
+                              ".txt";
+
+        std::ofstream file1(file_name_1, std::ios::out | std::ios::app);
+        std::ofstream file2(file_name_2, std::ios::out | std::ios::app);
+        std::ofstream file3(file_name_3, std::ios::out | std::ios::app);
+
+        file1 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
+                "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
+                "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
+                "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
+                "\nInput type:"       + std::to_string(m_info.m_type) +
+                "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+                "\nAdditional parameters: Tall QR subroutine cholqr BQRRP block sizes: " + b_sz_string +
+                "\n";
+        file1.flush();
+
+        file2 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
+                "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
+                "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
+                "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
+                "\nInput type:"       + std::to_string(m_info.m_type) +
+                "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+                "\nAdditional parameters: Tall QR subroutine geqrf BQRRP block sizes: " + b_sz_string +
+                "\n";
+        file2.flush();
+
+        file3 << "Description: Results from the BQRRP GPU speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
+                "\nFile format: 3 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, QRF;"
+                "               rows correspond to BQRRP runs with block sizes varying in powers of 2 or multiples of 10"
+                "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
+                "\nInput type:"       + std::to_string(m_info.m_type) +
+                "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+                "\nAdditional parameters: BQRRP block sizes: " + b_sz_string +
+                "\n";
+        file3.flush();
+
+        for(size_t i = 0; i < b_sz.size(); ++i) {
+            bench_BQRRP(profile_runtime, run_qrf, m_info, b_sz[i], all_data, state, file_name_1, file_name_2, file_name_3);
+            run_qrf = false;
+        }
+    }
 };
 
-TEST_P(BenchBQRRP, GPU_fixed_blocksize) {
-    int64_t m            = std::pow(2, 15);
-    int64_t n            = std::pow(2, 15);
-    int64_t b_sz         = GetParam();
-    auto state           = RandBLAS::RNGState();
-    bool profile_runtime = true;
-    bool run_qrf         = false;
-    if(b_sz == 128) {
-        run_qrf = true;
-    }
-
-    BQRRPBenchData<double> all_data(m, n);
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
-    cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
-
-
-    std::string file1 = "BQRRP_GPU_runtime_breakdown_innerQRF_1_rows_"       
-                                                      + std::to_string(m)
-                                    +  "_cols_"       + std::to_string(n)
-                                    +  "_d_factor_1.0.txt";
-
-    std::string file2 = "BQRRP_GPU_runtime_breakdown_innerQRF_0_rows_"       
-                                                    + std::to_string(m)
-                                +  "_cols_"       + std::to_string(n)
-                                +  "_d_factor_1.0.txt";
-
-    std::string file3 = "BQRRP_GPU_speed_rows_"      
-                                                      + std::to_string(m)
-                                    + "_cols_"        + std::to_string(n)
-                                    + "_d_factor_1.0.txt";
-
-    bench_BQRRP(profile_runtime, run_qrf, m_info, b_sz, all_data, state, file1, file2, file3);
+TEST_P(BenchBQRRP, BQRRP_GPU_powers_of_two) {
+    int64_t m                 = std::pow(2, 15);
+    int64_t n                 = std::pow(2, 15);
+    std::vector<int64_t> b_sz = {32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048};
+    setup_bqrrp_benchmark(m, n, b_sz);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    BQRRP_GPU_benchmarks,
-    BenchBQRRP,
-    ::testing::Values(32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048)
-);
+TEST_P(BenchBQRRP, BQRRP_GPU_multiples_of_ten) {
+    int64_t m                 = 32000;
+    int64_t n                 = 32000;
+    std::vector<int64_t> b_sz = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1000, 1125, 1250, 1375, 1500, 1625, 1750, 1875, 2000};
+    setup_bqrrp_benchmark(m, n, b_sz);
+}
+
 #endif
