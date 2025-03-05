@@ -342,7 +342,7 @@ class BenchBQRRP : public ::testing::Test
 
         std::ofstream file(*file_name, std::ios::out | std::ios::app);
         file << "Description: Results from the BQRRP GPU speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
-                "\nFile format: 7 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, QRF;"
+                "\nFile format: 3 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, QRF;"
                 "               rows correspond to BQRRP runs with varying mat sizes, with numruns repititions of each mat size."
                 "\nInput type:"       + std::to_string(m_info.m_type) +
                 "\nInput size:"       + " dim start: " + m_sz_string +
@@ -371,13 +371,13 @@ TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_multiples_of_ten) {
 }
 
 TEST_F(BenchBQRRP, BQRRP_GPU_mat_sizes_powers_of_two) {
-    std::vector<int64_t> m_sz = {512, 1024, 2048, 4096, 8192, 32768};
+    std::vector<int64_t> m_sz = {512, 1024, 2048, 4096, 8192, 16384, 32768};
     int64_t b_sz              = 0;
     setup_bqrrp_speed_comparisons_mat_size(m_sz, b_sz);
 }
 
 TEST_F(BenchBQRRP, BQRRP_GPU_mat_sizes_multiples_of_ten) {
-    std::vector<int64_t> m_sz = {512, 1000, 2000, 4000, 8000, 32000};
+    std::vector<int64_t> m_sz = {500, 1000, 2000, 4000, 8000, 16000, 32000};
     int64_t b_sz              = 0;
     setup_bqrrp_speed_comparisons_mat_size(m_sz, b_sz);
 }
