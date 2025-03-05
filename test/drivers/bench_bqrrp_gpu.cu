@@ -316,7 +316,6 @@ class BenchBQRRP : public ::testing::Test
 
         for(size_t i = 0; i < b_sz.size(); ++i) {
             bench_BQRRP(profile_runtime, run_qrf, m_info, m, n, b_sz[i], all_data, state, file_name_1, file_name_2, file_name_3);
-            run_qrf = false;
         }
     }
 
@@ -357,7 +356,6 @@ class BenchBQRRP : public ::testing::Test
 
         for(size_t i = 0; i < m_sz.size(); ++i) {
             bench_BQRRP(profile_runtime, run_qrf, m_info, m_sz[i], m_sz[i], m_sz[i]/32, all_data, state, nullptr, nullptr, file_name);
-            run_qrf = false;
         }
     }
 };
