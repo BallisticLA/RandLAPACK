@@ -370,7 +370,7 @@ TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two) {
 TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_multiples_of_ten) {
     int64_t m                 = 32000;
     int64_t n                 = 32000;
-    std::vector<int64_t> b_sz = {50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1000, 1125, 1250, 1375, 1500, 1625, 1750, 1875, 2000};
+    std::vector<int64_t> b_sz = {125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500, 625, 750, 875, 1000, 1125, 1250, 1375, 1500, 1625, 1750, 1875, 2000};
     setup_bqrrp_speed_comparisons_block_size(m, n, b_sz);
 }
 
