@@ -269,15 +269,15 @@ class BenchBQRRP : public ::testing::Test
         cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
         std::string* file_name_1 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_qrf_"       
-                            + "_num_info_lines_" + std::to_string(7) +
+                            + "_num_info_lines_" + std::to_string(6) +
                             ".txt");
 
         std::string* file_name_2 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_cholqr_"  
-                            + "_num_info_lines_" + std::to_string(7) +
+                            + "_num_info_lines_" + std::to_string(6) +
                               ".txt");
 
         std::string* file_name_3 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_speed_comparisons_block_size"  
-                            + "_num_info_lines_" + std::to_string(7) +
+                            + "_num_info_lines_" + std::to_string(6) +
                               ".txt");
 
         std::ofstream file1(*file_name_1, std::ios::out | std::ios::app);
@@ -287,7 +287,6 @@ class BenchBQRRP : public ::testing::Test
         file1 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
                 "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
                 "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
-                "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
                 "\nInput type:"       + std::to_string(m_info.m_type) +
                 "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
                 "\nAdditional parameters: Tall QR subroutine cholqr BQRRP block sizes: " + b_sz_string +
@@ -297,7 +296,6 @@ class BenchBQRRP : public ::testing::Test
         file2 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
                 "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
                 "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
-                "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
                 "\nInput type:"       + std::to_string(m_info.m_type) +
                 "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
                 "\nAdditional parameters: Tall QR subroutine geqrf BQRRP block sizes: " + b_sz_string +
@@ -307,7 +305,6 @@ class BenchBQRRP : public ::testing::Test
         file3 << "Description: Results from the BQRRP GPU speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
                 "\nFile format: 3 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, QRF;"
                 "               rows correspond to BQRRP runs with block sizes varying in powers of 2 or multiples of 10"
-                "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
                 "\nInput type:"       + std::to_string(m_info.m_type) +
                 "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
                 "\nAdditional parameters: BQRRP block sizes: " + b_sz_string +
@@ -340,14 +337,13 @@ class BenchBQRRP : public ::testing::Test
         cudaMemcpy(all_data.A_device, all_data.A.data(), m_max * m_max * sizeof(double), cudaMemcpyHostToDevice);
 
         std::string* file_name = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_speed_comparisons_mat_size"  
-                            + "_num_info_lines_" + std::to_string(7) +
+                            + "_num_info_lines_" + std::to_string(6) +
                               ".txt");
 
         std::ofstream file(*file_name, std::ios::out | std::ios::app);
         file << "Description: Results from the BQRRP GPU speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
                 "\nFile format: 7 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, QRF;"
                 "               rows correspond to BQRRP runs with varying mat sizes, with numruns repititions of each mat size."
-                "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
                 "\nInput type:"       + std::to_string(m_info.m_type) +
                 "\nInput size:"       + " dim start: " + m_sz_string +
                 "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + 
