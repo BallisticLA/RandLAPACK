@@ -268,13 +268,17 @@ class BenchBQRRP : public ::testing::Test
         RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
         cudaMemcpy(all_data.A_device, all_data.A.data(), m * n * sizeof(double), cudaMemcpyHostToDevice);
 
-        std::string* file_name_1 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_qrf_"       
-                            + "_num_info_lines_" + std::to_string(6) +
-                            ".txt");
+        std::string* file_name_1 = nullptr;
+        std::string* file_name_2 = nullptr;
+        if (profile_runtime) {
+            file_name_1 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_qrf"       
+                                + "_num_info_lines_" + std::to_string(6) +
+                                ".txt");
 
-        std::string* file_name_2 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_cholqr_"  
-                            + "_num_info_lines_" + std::to_string(6) +
-                              ".txt");
+            file_name_2 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_cholqr"  
+                                + "_num_info_lines_" + std::to_string(6) +
+                                ".txt");
+        }
 
         std::string* file_name_3 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_speed_comparisons_block_size"  
                             + "_num_info_lines_" + std::to_string(6) +
