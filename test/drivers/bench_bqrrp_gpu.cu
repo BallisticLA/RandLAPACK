@@ -251,7 +251,9 @@ class BenchBQRRP : public ::testing::Test
     static void setup_bqrrp_speed_comparisons_block_size(
         int64_t m,
         int64_t n,
-        std::vector<int64_t> b_sz 
+        std::vector<int64_t> b_sz,
+        bool profile_runtime,
+        bool run_qrf  
     ){
         // Get a string representation of the block size vector
         std::string b_sz_string = std::accumulate(b_sz.begin(), b_sz.end(), std::string(), 
@@ -260,8 +262,6 @@ class BenchBQRRP : public ::testing::Test
                                     });
 
         auto state           = RandBLAS::RNGState();
-        bool profile_runtime = true;
-        bool run_qrf         = true;
 
         BQRRPBenchData<double> all_data(m, n);
         RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
@@ -318,7 +318,9 @@ class BenchBQRRP : public ::testing::Test
 
     static void setup_bqrrp_speed_comparisons_mat_size(
         std::vector<int64_t> m_sz,
-        int64_t b_sz 
+        int64_t b_sz,
+        bool profile_runtime,
+        bool run_qrf 
     ){
         // Get a string representation of the block size vector
         std::string m_sz_string = std::accumulate(m_sz.begin(), m_sz.end(), std::string(), 
@@ -326,9 +328,7 @@ class BenchBQRRP : public ::testing::Test
                                         return a.empty() ? std::to_string(b) : a + "," + std::to_string(b);
                                     });
 
-        auto state           = RandBLAS::RNGState();
-        bool profile_runtime = false;
-        bool run_qrf         = true;
+        auto state = RandBLAS::RNGState();
 
         int64_t m_max = *std::max_element(m_sz.begin(), m_sz.end());
         BQRRPBenchData<double> all_data(m_max, m_max);
@@ -356,18 +356,49 @@ class BenchBQRRP : public ::testing::Test
     }
 };
 
-TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two) {
+TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two_32k) {
     int64_t m                 = std::pow(2, 15);
     int64_t n                 = std::pow(2, 15);
     std::vector<int64_t> b_sz = {32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048};
-    setup_bqrrp_speed_comparisons_block_size(m, n, b_sz);
+    bool profile_runtime = true;
+    bool run_qrf         = true;
+    setup_bqrrp_speed_comparisons_block_size(m, n, b_sz, profile_runtime, run_qrf);
 }
 
-TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_multiples_of_ten) {
-    int64_t m                 = 32000;
-    int64_t n                 = 32000;
-    std::vector<int64_t> b_sz = {125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500, 625, 750, 875, 1000, 1125, 1250, 1375, 1500, 1625, 1750, 1875, 2000};
-    setup_bqrrp_speed_comparisons_block_size(m, n, b_sz);
+TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two_16k) {
+    int64_t m                 = std::pow(2, 14);
+    int64_t n                 = std::pow(2, 14);
+    std::vector<int64_t> b_sz = {32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048};
+    bool profile_runtime = true;
+    bool run_qrf         = true;
+    setup_bqrrp_speed_comparisons_block_size(m, n, b_sz, profile_runtime, run_qrf);
+}
+
+TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two_8k) {
+    int64_t m                 = std::pow(2, 13);
+    int64_t n                 = std::pow(2, 13);
+    std::vector<int64_t> b_sz = {32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048};
+    bool profile_runtime = true;
+    bool run_qrf         = true;
+    setup_bqrrp_speed_comparisons_block_size(m, n, b_sz, profile_runtime, run_qrf);
+}
+
+TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two_4k) {
+    int64_t m                 = std::pow(2, 12);
+    int64_t n                 = std::pow(2, 12);
+    std::vector<int64_t> b_sz = {32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048};
+    bool profile_runtime = true;
+    bool run_qrf         = true;
+    setup_bqrrp_speed_comparisons_block_size(m, n, b_sz, profile_runtime, run_qrf);
+}
+
+TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two_2k) {
+    int64_t m                 = std::pow(2, 11);
+    int64_t n                 = std::pow(2, 11);
+    std::vector<int64_t> b_sz = {32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 480, 512, 640, 768, 896, 1024, 1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048};
+    bool profile_runtime = true;
+    bool run_qrf         = true;
+    setup_bqrrp_speed_comparisons_block_size(m, n, b_sz, profile_runtime, run_qrf);
 }
 
 TEST_F(BenchBQRRP, BQRRP_GPU_mat_sizes_powers_of_two) {
