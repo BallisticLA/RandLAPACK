@@ -99,7 +99,7 @@ static void R_norm_ratio(
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 
     // Declare a data file
-    std::ofstream file1(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_1"
+    std::ofstream file1(RandLAPACK::util::getCurrentDateTime<T>() + "BQRRP_pivot_quality_metric_1"
                                                           + "_num_info_lines_" + std::to_string(5) +
                                                             ".txt", std::ios::out | std::ios::trunc);
 
@@ -141,7 +141,7 @@ static void sv_ratio(
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
-    std::ofstream file2(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_2"
+    std::ofstream file2(RandLAPACK::util::getCurrentDateTime<T>() + "BQRRP_pivot_quality_metric_2"
                                                           + "_num_info_lines_" + std::to_string(6) +
                                                             ".txt", std::ios::out | std::ios::trunc);
     // Writing important data into file
@@ -221,7 +221,7 @@ int main(int argc, char *argv[]) {
     //m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    std::ofstream file(RandLAPACK::util::getCurrentDate<double>() + "Pivot_quality_benchmark_generated_matrix" 
+    std::ofstream file(RandLAPACK::util::getCurrentDateTime<double>() + "Pivot_quality_benchmark_generated_matrix" 
                                               + "_mat_type_"     + std::to_string(m_info.m_type)
                                               + "_numrows_"      + std::to_string(m)
                                               + "_numcols_"      + std::to_string(n)

@@ -271,16 +271,16 @@ class BenchBQRRP : public ::testing::Test
         std::string* file_name_1 = nullptr;
         std::string* file_name_2 = nullptr;
         if (profile_runtime) {
-            file_name_1 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_qrf"       
+            file_name_1 = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_runtime_breakdown_qrf"       
                                 + "_num_info_lines_" + std::to_string(6) +
                                 ".txt");
 
-            file_name_2 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_runtime_breakdown_cholqr"  
+            file_name_2 = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_runtime_breakdown_cholqr"  
                                 + "_num_info_lines_" + std::to_string(6) +
                                 ".txt");
         }
 
-        std::string* file_name_3 = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_speed_comparisons_block_size"  
+        std::string* file_name_3 = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_speed_comparisons_block_size"  
                             + "_num_info_lines_" + std::to_string(6) +
                               ".txt");
 
@@ -315,9 +315,14 @@ class BenchBQRRP : public ::testing::Test
                 "\n";
         file3.flush();
 
+        auto start_time_all = steady_clock::now();
         for(size_t i = 0; i < b_sz.size(); ++i) {
             bench_BQRRP(profile_runtime, run_qrf, m_info, m, n, b_sz[i], all_data, state, file_name_1, file_name_2, file_name_3);
         }
+        auto stop_time_all = steady_clock::now();
+        long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
+        file3 << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
+        file3.flush();   
     }
 
     static void setup_bqrrp_speed_comparisons_mat_size(
@@ -340,7 +345,7 @@ class BenchBQRRP : public ::testing::Test
         RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
         cudaMemcpy(all_data.A_device, all_data.A.data(), m_max * m_max * sizeof(double), cudaMemcpyHostToDevice);
 
-        std::string* file_name = new std::string(RandLAPACK::util::getCurrentDate<double>() + "BQRRP_GPU_speed_comparisons_mat_size"  
+        std::string* file_name = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_speed_comparisons_mat_size"  
                             + "_num_info_lines_" + std::to_string(6) +
                               ".txt");
 

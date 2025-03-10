@@ -391,7 +391,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.B.data(), state_B);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_subroutines_speed" 
+    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_subroutines_speed" 
                                                                  + "_num_info_lines_" + std::to_string(10) +
                                                                    ".txt";
     std::ofstream file(output_filename, std::ios::out | std::ios::app);
@@ -410,6 +410,7 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
+    auto start_time_all = steady_clock::now();
     for (i = 0 ;i < n_sz.size(); ++i) 
         call_wide_qrcp(m_info, numruns, n_sz[i], all_data, state, output_filename);
 
@@ -418,5 +419,10 @@ int main(int argc, char *argv[]) {
 
     for (i = 0 ;i < n_sz.size(); ++i) 
         call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, output_filename);
+
+    auto stop_time_all = steady_clock::now();
+    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
+    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
+    file.flush();   
 }
 #endif

@@ -475,20 +475,23 @@ void rl_orhr_col(
 }
 
 template <typename T>
-// Function returns current date
-std::string getCurrentDate() {
+// Function returns current date and time
+std::string getCurrentDateTime() {
     // Get the current time
     std::time_t now = std::time(nullptr);
     // Convert to local time
     std::tm* localTime = std::localtime(&now);
 
-    // Create a string stream to format the date
-    std::ostringstream dateStream;
-    dateStream << std::setw(4) << std::setfill('0') << (1900 + localTime->tm_year) << "_"  // Year
-               << std::setw(2) << std::setfill('0') << (localTime->tm_mon + 1) << "_"      // Month
-               << std::setw(2) << std::setfill('0') << localTime->tm_mday << "_";          // Day
+    // Create a string stream to format the date and time
+    std::ostringstream dateTimeStream;
+    dateTimeStream << std::setw(4) << std::setfill('0') << (1900 + localTime->tm_year) << "_"  // Year
+                   << std::setw(2) << std::setfill('0') << (localTime->tm_mon + 1) << "_"      // Month
+                   << std::setw(2) << std::setfill('0') << localTime->tm_mday << "_"           // Day
+                   << std::setw(2) << std::setfill('0') << localTime->tm_hour << "_"           // Hour
+                   << std::setw(2) << std::setfill('0') << localTime->tm_min << "_"            // Minute
+                   << std::setw(2) << std::setfill('0') << localTime->tm_sec;                  // Second
 
-    return dateStream.str();
+    return dateTimeStream.str();
 }
 
 } // end namespace util

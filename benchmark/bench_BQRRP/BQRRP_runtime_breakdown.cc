@@ -145,7 +145,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_runtime_breakdown" 
+    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_runtime_breakdown" 
                                                                  + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 
@@ -162,9 +162,14 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
+    auto start_time_all = steady_clock::now();
     size_t i = 0;
     for (;i < b_sz.size(); ++i) {
         call_all_algs(m_info, numruns, b_sz[i], qr_tall, all_data, state_constant, output_filename);
     }
+    auto stop_time_all = steady_clock::now();
+    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
+    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
+    file.flush();   
 }
 #endif
