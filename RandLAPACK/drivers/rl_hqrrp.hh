@@ -1170,7 +1170,11 @@ int64_t hqrrp(
         timing_temp[7] = (T) other_t_dur;
         timing_temp[8] = (T) total_t_dur;
         blas::copy(9, timing_QRCP, 1, &timing_temp[9], 1);
-        blas::copy(9, timing_QR,   1, &timing_temp[17], 1);
+        blas::copy(9, timing_QR,   1, &timing_temp[18], 1);
+
+        for (int k = 0; k < 9; ++k) {
+            printf("%f\n", timing_QRCP[k]);
+        }
 
         delete[] timing_QRCP;
         delete[] timing_QR;

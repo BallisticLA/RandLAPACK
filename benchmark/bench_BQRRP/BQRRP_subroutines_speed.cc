@@ -391,7 +391,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.B.data(), state_B);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_subroutines_speed" 
+    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "_BQRRP_subroutines_speed" 
                                                                  + "_num_info_lines_" + std::to_string(10) +
                                                                    ".txt";
     std::ofstream file(output_filename, std::ios::out | std::ios::app);

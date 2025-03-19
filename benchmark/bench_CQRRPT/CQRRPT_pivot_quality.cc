@@ -95,10 +95,18 @@ static void R_norm_ratio(
     std::vector<T> R_norms_CQRRPT = get_norms(n, all_data.R, n);
 
     // Declare a data file
-    std::fstream file1("QR_R_norm_ratios_rows_"        + std::to_string(m)
-                                    + "_cols_"         + std::to_string(n)
-                                    + "_d_factor_"     + std::to_string(d_factor)
-                                    + ".dat", std::fstream::app);
+    std::ofstream file1(RandLAPACK::util::getCurrentDateTime<T>() + "_CQRRPT_pivot_quality_metric_1"
+                                                          + "_num_info_lines_" + std::to_string(5) +
+                                                            ".txt", std::ios::out | std::ios::trunc);
+
+    // Writing important data into file
+    file1 << "Description: Results of the CQRRPT pivot quality benchmark for the metric of ratios of the norms of R factors output by QP3 and CQRRPT."
+              "\nFile format: File output is one-line."
+              "\nInput type:"       + std::to_string(m_info.m_type) +
+              "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+              "\nAdditional parameters: CQRRPT d factor: "        + std::to_string(d_factor) +
+              "\n";
+    file1.flush();
 
     // Write the 1st metric info into a file.
     for (int i = 0; i < n; ++i)
@@ -129,10 +137,18 @@ static void sv_ratio(
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
 
-    std::fstream file2("QR_sv_ratios_rows_"            + std::to_string(m)
-                                    + "_cols_"         + std::to_string(n)
-                                    + "_d_factor_"     + std::to_string(d_factor)
-                                    + ".dat", std::fstream::app);
+    std::ofstream file2(RandLAPACK::util::getCurrentDateTime<T>() + "_CQRRPT_pivot_quality_metric_2"
+                                                          + "_num_info_lines_" + std::to_string(6) +
+                                                            ".txt", std::ios::out | std::ios::trunc);
+    // Writing important data into file
+    file2 << "Description: Results of the CQRRPT pivot quality benchmark for the metric of ratios of the diagonal R entries to true singular values."
+              "\nFile format: Line one contains CQRRPT retults, line 2 contains GEQP3 retults."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
+              "\nInput type:"        + std::to_string(m_info.m_type) +
+              "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+              "\nAdditional parameters: CQRRPT d factor: "   + std::to_string(d_factor) +
+              "\n";
+    file2.flush();
 
     T* R_dat = all_data.A.data();
     T* S_dat = all_data.S.data();
@@ -170,10 +186,16 @@ static void sv_ratio(
     data_regen(m_info, all_data, state_gen);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    if (argc != 3) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <num_rows> <num_columns>..." << std::endl;
+        return 1;
+    }
+
     // Declare parameters
-    int64_t m           = std::pow(2, 17);
-    int64_t n           = 2000;
+    int64_t m           = std::stol(argv[1]);
+    int64_t n           = std::stol(argv[2]);
     double  d_factor    = 1.25;
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();

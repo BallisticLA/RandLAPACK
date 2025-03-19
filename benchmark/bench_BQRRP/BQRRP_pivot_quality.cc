@@ -141,7 +141,7 @@ static void sv_ratio(
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
-    std::ofstream file2(RandLAPACK::util::getCurrentDateTime<T>() + "BQRRP_pivot_quality_metric_2"
+    std::ofstream file2(RandLAPACK::util::getCurrentDateTime<T>() + "_BQRRP_pivot_quality_metric_2"
                                                           + "_num_info_lines_" + std::to_string(6) +
                                                             ".txt", std::ios::out | std::ios::trunc);
     // Writing important data into file
@@ -193,7 +193,7 @@ static void sv_ratio(
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <num_rows> <num_cols> <block_size>..." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <num_rows> <num_cols> <block_size>" << std::endl;
         return 1;
     }
 
@@ -220,12 +220,6 @@ int main(int argc, char *argv[]) {
     //m_info.exponent = 2.0;
     //m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    std::ofstream file(RandLAPACK::util::getCurrentDateTime<double>() + "Pivot_quality_benchmark_generated_matrix" 
-                                              + "_mat_type_"     + std::to_string(m_info.m_type)
-                                              + "_numrows_"      + std::to_string(m)
-                                              + "_numcols_"      + std::to_string(n)
-                                              + ".txt", std::ios::out | std::ios::trunc);
 
     R_norm_ratio(m_info, b_sz, all_data, state_constant1);
     printf("Pivot quality metric 1 done\n");
