@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "_BQRRP_runtime_breakdown" 
+    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "_CQRRPT_runtime_breakdown" 
                                                                  + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 
