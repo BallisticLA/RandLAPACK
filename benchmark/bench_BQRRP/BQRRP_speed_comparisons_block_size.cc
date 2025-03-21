@@ -187,19 +187,19 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 4) {
+    if (argc < 5) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
         return 1;
     }
 
     // Declare parameters
-    int64_t m          = std::stol(argv[2]);
-    int64_t n          = std::stol(argv[3]);
+    int64_t m          = std::stol(argv[3]);
+    int64_t n          = std::stol(argv[4]);
     double d_factor    = 1.0;
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < argc-4; ++i)
-        b_sz.push_back(std::stoi(argv[i + 4]));
+    for (int i = 0; i < argc-5; ++i)
+        b_sz.push_back(std::stoi(argv[i + 5]));
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : b_sz)
@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = std::stol(argv[1]);
+    int64_t numruns = std::stol(argv[2]);
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, d_factor);
@@ -224,7 +224,11 @@ int main(int argc, char *argv[]) {
                                                                  + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+    std::string path;
+    if (argv[1] != ".")
+        path == argv[1] + output_filename;
+                                                               
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."

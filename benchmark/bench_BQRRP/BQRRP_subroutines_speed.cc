@@ -352,19 +352,19 @@ static void call_apply_q(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 3) {
+    if (argc < 4) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <num_runs> <num_rows> <num_cols(multiple, increasing order)> ..." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols(multiple, increasing order)> ..." << std::endl;
         return 1;
     }
 
     size_t i = 0;
     // Declare parameters
-    int64_t m       = std::stol(argv[2]);
+    int64_t m = std::stol(argv[3]);
     // Fill the n size vector
     std::vector<int64_t> n_sz;
-    for (int i = 0; i < argc-3; ++i)
-        n_sz.push_back(std::stoi(argv[i + 3]));
+    for (int i = 0; i < argc-4; ++i)
+        n_sz.push_back(std::stoi(argv[i + 4]));
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : n_sz)
@@ -380,7 +380,7 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = std::stol(argv[1]);
+    int64_t numruns = std::stol(argv[2]);
 
     // Allocate basic workspace
     int64_t n_max = *std::max_element(n_sz.begin(), n_sz.end());
@@ -394,7 +394,12 @@ int main(int argc, char *argv[]) {
     std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "_BQRRP_subroutines_speed" 
                                                                  + "_num_info_lines_" + std::to_string(10) +
                                                                    ".txt";
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+
+    std::string path;
+    if (std::string(argv[1]) != ".")
+        path = std::string(argv[1]) + "/" + output_filename;
+
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP subroutines benchmark, recording time for the alternative options of the three main BQRRP subroutines: wide_qrcp, tall qr and application of transpose orthonormal matrix."

@@ -59,14 +59,16 @@ template <typename T, typename RNG>
 static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t numruns,
-    int64_t dim,
+    int64_t rows,
+    int64_t cols,
+    int64_t block_sz,
     QR_speed_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
 
-    auto m        = dim;
-    auto n        = dim;
-    auto b_sz     = all_data.b_sz;
+    auto m        = rows;
+    auto n        = cols;
+    auto b_sz     = block_sz;
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
@@ -88,7 +90,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, DIM %ld\n", i, dim);
+        printf("ITERATION %d, ROWS %ld\n", i, m);
         
         // Testing GEQRF
         auto start_geqrf = steady_clock::now();
@@ -190,17 +192,17 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 3) {
+    if (argc < 5) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <num_runs> <block_size> <square_matrix_dim (multiple)>..." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <column_size_ratio> <block_size_ratio> <square_matrix_dim (multiple)>..." << std::endl;
         return 1;
     }
 
     // Declare parameters
     // Fill the block size vector
     std::vector<int64_t> m_sz;
-    for (int i = 0; i < argc-3; ++i)
-        m_sz.push_back(std::stoi(argv[i + 3]));
+    for (int i = 0; i < argc-5; ++i)
+        m_sz.push_back(std::stoi(argv[i + 5]));
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : m_sz)
@@ -208,17 +210,16 @@ int main(int argc, char *argv[]) {
     std::string m_sz_string = oss.str();
 
     double d_factor     = 1.0;
-    int64_t b_sz        = std::stol(argv[2]);
     auto state          = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = std::stol(argv[1]);
+    int64_t numruns = std::stol(argv[2]);
 
     // Allocate basic workspace
     int64_t m_max = *std::max_element(m_sz.begin(), m_sz.end());
-    QR_speed_benchmark_data<double> all_data(m_max, m_max, b_sz, d_factor);
+    QR_speed_benchmark_data<double> all_data(m_max, m_max, m_max * std::stol(argv[4]), d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m_max, m_max, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
@@ -228,7 +229,11 @@ int main(int argc, char *argv[]) {
                                                                  + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+    std::string path;
+    if (std::string(argv[1]) != ".")
+        path = std::string(argv[1]) + "/" + output_filename;
+
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
@@ -236,15 +241,19 @@ int main(int argc, char *argv[]) {
               "               rows correspond to BQRRP runs with varying mat sizes, with numruns repititions of each mat size."
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
-              "\nInput size:"       + " dim start: " + m_sz_string +
-              "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
+              "\nInput row sizes:"  + m_sz_string + ", input row/column ratio: " + argv[3] +
+              "\nAdditional parameters: BQRRP columns to block size ratio: " + argv[4] + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 
     auto start_time_all = steady_clock::now();
     size_t i = 0;
+    int64_t columns;
+    int64_t b_sz;
     for (;i < m_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, m_sz[i], all_data, state_constant, output_filename);
+        columns = m_sz[i] * std::stol(argv[3]);
+        b_sz = columns * std::stol(argv[4]);
+        call_all_algs(m_info, numruns, m_sz[i], columns, b_sz, all_data, state_constant, output_filename);
     }
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
