@@ -59,12 +59,17 @@ static void call_all_algs(
     int64_t numruns,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
+    std::string operation_mode,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
 
-    auto m        = all_data.row;
-    auto n        = all_data.col;
-    auto d_factor = all_data.sampling_factor;
+    auto m          = all_data.row;
+    auto n          = all_data.col;
+    auto d_factor   = all_data.sampling_factor;
+    auto hqrrp_b_sz = b_sz;
+    if (operation_mode == "hqrrp_const" || operation_mode == "default_hqrrp_const") {
+        hqrrp_b_sz = 128;
+    }
 
     // Additional params setup.
     RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(false, b_sz);
@@ -99,39 +104,41 @@ static void call_all_algs(
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen);
         
-        // Testing BQRRP - QRF
-        BQRRP.qr_tall = Subroutines::QRTall::geqrf;
-        BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
-        auto start_bqrrp_qrf = steady_clock::now();
-        BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-        auto stop_bqrrp_qrf = steady_clock::now();
-        dur_bqrrp_qrf = duration_cast<microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
-        printf("TOTAL TIME FOR BQRRP_QRF %ld\n", dur_bqrrp_qrf);
+        if (operation_mode != "hqrrp" && operation_mode != "hqrrp_cost") {
+            // Testing BQRRP - QRF
+            BQRRP.qr_tall = Subroutines::QRTall::geqrf;
+            BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
+            auto start_bqrrp_qrf = steady_clock::now();
+            BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+            auto stop_bqrrp_qrf = steady_clock::now();
+            dur_bqrrp_qrf = duration_cast<microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
+            printf("TOTAL TIME FOR BQRRP_QRF %ld\n", dur_bqrrp_qrf);
 
-        // Making sure the states are unchanged
-        state_gen = state;
-        state_alg = state;
-        // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen);
+            // Making sure the states are unchanged
+            state_gen = state;
+            state_alg = state;
+            // Clear and re-generate data
+            data_regen(m_info, all_data, state_gen);
 
-        // Testing BQRRP - CholQR
-        BQRRP.qr_tall = Subroutines::QRTall::cholqr;
-        BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
-        auto start_bqrrp_cholqr = steady_clock::now();
-        BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-        auto stop_bqrrp_cholqr = steady_clock::now();
-        dur_bqrrp_cholqr = duration_cast<microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
-        printf("TOTAL TIME FOR BQRRP_CHOLQR %ld\n", dur_bqrrp_cholqr);
+            // Testing BQRRP - CholQR
+            BQRRP.qr_tall = Subroutines::QRTall::cholqr;
+            BQRRP.apply_trans_q = Subroutines::ApplyTransQ::ormqr;
+            auto start_bqrrp_cholqr = steady_clock::now();
+            BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+            auto stop_bqrrp_cholqr = steady_clock::now();
+            dur_bqrrp_cholqr = duration_cast<microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
+            printf("TOTAL TIME FOR BQRRP_CHOLQR %ld\n", dur_bqrrp_cholqr);
 
-        // Making sure the states are unchanged
-        state_gen = state;
-        state_alg = state;
-        // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen);
+            // Making sure the states are unchanged
+            state_gen = state;
+            state_alg = state;
+            // Clear and re-generate data
+            data_regen(m_info, all_data, state_gen);
+        }
         
         // Testing HQRRP DEFAULT
         auto start_hqrrp = steady_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz, (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
         auto stop_hqrrp = steady_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
         printf("TOTAL TIME FOR HQRRP %ld\n", dur_hqrrp);
@@ -142,31 +149,33 @@ static void call_all_algs(
         // Clear and re-generate data
         data_regen(m_info, all_data, state_gen);
         
-        // Testing HQRRP with GEQRF
-        auto start_hqrrp_geqrf = steady_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg, (T**) nullptr);
-        auto stop_hqrrp_geqrf = steady_clock::now();
-        dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
-        printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
+        if (operation_mode == "full") {
+            // Testing HQRRP with GEQRF
+            auto start_hqrrp_geqrf = steady_clock::now();
+            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 1, state_alg, (T**) nullptr);
+            auto stop_hqrrp_geqrf = steady_clock::now();
+            dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
+            printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
 
-        // Making sure the states are unchanged
-        state_gen = state;
-        state_alg = state;
-        // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen);
+            // Making sure the states are unchanged
+            state_gen = state;
+            state_alg = state;
+            // Clear and re-generate data
+            data_regen(m_info, all_data, state_gen);
 
-        // Testing HQRRP with CholQR
-        auto start_hqrrp_cholqr = steady_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 2, state_alg, (T**) nullptr);
-        auto stop_hqrrp_cholqr = steady_clock::now();
-        dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
-        printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
+            // Testing HQRRP with CholQR
+            auto start_hqrrp_cholqr = steady_clock::now();
+            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 2, state_alg, (T**) nullptr);
+            auto stop_hqrrp_cholqr = steady_clock::now();
+            dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
+            printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
 
-        // Making sure the states are unchanged
-        state_gen = state;
-        state_alg = state;
-        // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen);
+            // Making sure the states are unchanged
+            state_gen = state;
+            state_alg = state;
+            // Clear and re-generate data
+            data_regen(m_info, all_data, state_gen);
+        }
 
         if ((i <= 2) && (b_sz == 256)) {
             // Testing GEQP3
@@ -187,19 +196,19 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 5) {
+    if (argc < 6) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <operation_mode> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
         return 1;
     }
 
     // Declare parameters
-    int64_t m          = std::stol(argv[3]);
-    int64_t n          = std::stol(argv[4]);
+    int64_t m          = std::stol(argv[4]);
+    int64_t n          = std::stol(argv[5]);
     double d_factor    = 1.0;
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < argc-5; ++i)
-        b_sz.push_back(std::stoi(argv[i + 5]));
+    for (int i = 0; i < argc-6; ++i)
+        b_sz.push_back(std::stoi(argv[i + 6]));
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : b_sz)
@@ -211,7 +220,7 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = std::stol(argv[2]);
+    int64_t numruns = std::stol(argv[3]);
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, d_factor);
@@ -220,9 +229,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "_BQRRP_speed_comparisons_block_size" 
-                                                                 + "_num_info_lines_" + std::to_string(7) +
-                                                                   ".txt";
+    std::string output_filename = "_BQRRP_speed_comparisons_block_size_num_info_lines_" + std::to_string(7) + ".txt";
 
     std::string path;
     if (argv[1] != ".")
@@ -244,7 +251,7 @@ int main(int argc, char *argv[]) {
     auto start_time_all = steady_clock::now();
     size_t i = 0;
     for (;i < b_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, output_filename);
+        call_all_algs(m_info, numruns, b_sz[i], all_data, argv[2], state_constant, output_filename);
     }
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();

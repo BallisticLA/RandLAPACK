@@ -145,13 +145,11 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "_BQRRP_runtime_breakdown" 
-                                                                 + "_num_info_lines_" + std::to_string(7) +
-                                                                   ".txt";
+    std::string output_filename = "_BQRRP_runtime_breakdown_num_info_lines_" + std::to_string(7) + ".txt";
 
     std::string path;
     if (std::string(argv[1]) != ".")
-        path = std::string(argv[1]) + "/" + output_filename;
+        path = std::string(argv[1]) + output_filename;
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 

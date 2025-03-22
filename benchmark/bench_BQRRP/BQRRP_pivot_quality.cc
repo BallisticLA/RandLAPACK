@@ -100,12 +100,10 @@ static void R_norm_ratio(
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<T>() + "BQRRP_pivot_quality_metric_1"
-    + "_num_info_lines_" + std::to_string(5) +
-      ".txt";
+    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(5) + ".txt";
 
     if (path != ".")
-        path += "/" + output_filename;
+        path += output_filename;
     else
         path = output_filename;
                                                                 
@@ -151,12 +149,10 @@ static void sv_ratio(
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<T>() + "BQRRP_pivot_quality_metric_1"
-    + "_num_info_lines_" + std::to_string(5) +
-      ".txt";
+    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(5) + ".txt";
 
     if (path != ".")
-        path += "/" + output_filename;
+        path += output_filename;
     else
         path = output_filename;
                                                                 
