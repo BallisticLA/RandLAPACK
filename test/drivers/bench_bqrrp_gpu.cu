@@ -271,18 +271,12 @@ class BenchBQRRP : public ::testing::Test
         std::string* file_name_1 = nullptr;
         std::string* file_name_2 = nullptr;
         if (profile_runtime) {
-            file_name_1 = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_runtime_breakdown_qrf"       
-                                + "_num_info_lines_" + std::to_string(6) +
-                                ".txt");
+            file_name_1 = new std::string("BQRRP_GPU_runtime_breakdown_qrf_num_info_lines_" + std::to_string(6) + ".txt");
 
-            file_name_2 = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_runtime_breakdown_cholqr"  
-                                + "_num_info_lines_" + std::to_string(6) +
-                                ".txt");
+            file_name_2 = new std::string("BQRRP_GPU_runtime_breakdown_cholqr_num_info_lines_" + std::to_string(6) + ".txt");
         }
 
-        std::string* file_name_3 = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_speed_comparisons_block_size"  
-                            + "_num_info_lines_" + std::to_string(6) +
-                              ".txt");
+        std::string* file_name_3 = new std::string("BQRRP_GPU_speed_comparisons_block_size_num_info_lines_" + std::to_string(6) + ".txt");
 
         std::ofstream file1(*file_name_1, std::ios::out | std::ios::app);
         std::ofstream file2(*file_name_2, std::ios::out | std::ios::app);
@@ -345,9 +339,7 @@ class BenchBQRRP : public ::testing::Test
         RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
         cudaMemcpy(all_data.A_device, all_data.A.data(), m_max * m_max * sizeof(double), cudaMemcpyHostToDevice);
 
-        std::string* file_name = new std::string(RandLAPACK::util::getCurrentDateTime<double>() + "BQRRP_GPU_speed_comparisons_mat_size"  
-                            + "_num_info_lines_" + std::to_string(6) +
-                              ".txt");
+        std::string* file_name = new std::string("BQRRP_GPU_speed_comparisons_mat_size_num_info_lines_" + std::to_string(6) + ".txt");
 
         std::ofstream file(*file_name, std::ios::out | std::ios::app);
         file << "Description: Results from the BQRRP GPU speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
