@@ -104,7 +104,6 @@ else
     # We want to make sure that RANDNLA_PROJECT_DIR variable is in the 
     # user's bashrc so that it can be used by our other bash scripts.
     RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
-    echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
     echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
     echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
     RELOAD_SHELL=1
@@ -210,5 +209,6 @@ make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
 
 if [ $RELOAD_SHELL -eq 1 ]; then
     # Source from bash and spawn a new shell so that the variable change takes place
+    echo "Writing variables into bashrc"
     bash -c "source ~/.bashrc && exec bash"
 fi
