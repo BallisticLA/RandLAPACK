@@ -26,7 +26,8 @@ if [[ "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
     fi
 fi
 
-GPU_AVAIL="none"
+RELOAD_SHELL=0
+RANDNLA_PROJECT_GPU_AVAIL="none"
 # Detect NVIDIA GPU
 echo "Detecting a GPU..." | tee -a $LOG_FILE
 if command -v nvidia-smi &> /dev/null; then
@@ -34,26 +35,34 @@ if command -v nvidia-smi &> /dev/null; then
     read -p "NVIDIA GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
     if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
         echo "Building libraries without GPU support."
-        GPU_AVAIL="none"
+        RANDNLA_PROJECT_GPU_AVAIL="none"
     else
         echo "Building libraries with GPU support."
-        GPU_AVAIL="auto"
+        RANDNLA_PROJECT_GPU_AVAIL="auto"
+        # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
+        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto" >> ~/.bashrc
+        RELOAD_SHELL=1
     fi
 elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
     # AND GPU found. Ask user if they want to proceed with GPU support or not.
     read -p "AMD GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
     if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
         echo "Building libraries without GPU support."
-        GPU_AVAIL="none"
+        RANDNLA_PROJECT_GPU_AVAIL="none"
     else
         echo "Building libraries with GPU support."
-        GPU_AVAIL="auto"
+        RANDNLA_PROJECT_GPU_AVAIL="auto"
+        # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
+        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto" >> ~/.bashrc
+        RELOAD_SHELL=1
     fi
 else
     echo "No NVIDIA GPU detected." | tee -a $LOG_FILE
 fi
 
-if [[ "$GPU_AVAIL" == "auto" ]]; then
+if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
     # Check for NVCC version
     PREFERRED_NVCC_VERSION="12.4.1"
     CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
@@ -95,9 +104,7 @@ else
     # We want to make sure that RANDNLA_PROJECT_DIR variable is in the 
     # user's bashrc so that it can be used by our other bash scripts.
     RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
-    echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
-    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-    echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
+    RELOAD_SHELL=1
 fi
 
 # Create the project directory and its subdirectories
@@ -175,7 +182,7 @@ echo "All libraries placed in: $RANDNLA_PROJECT_DIR/lib"
 
 # Configure, build, and install BLAS++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ -Dgpu_backend=$GPU_AVAIL  -DCMAKE_BUILD_TYPE=Release -Dblas_int=int64 -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ 
+cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL  -DCMAKE_BUILD_TYPE=Release -Dblas_int=int64 -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ 
 make  -C $RANDNLA_PROJECT_DIR/build/blaspp-build/ -j20 install
 
 # Check if lib or lib64 folder name will be in use
@@ -188,7 +195,7 @@ fi
 
 # Configure, build, and install LAPACK++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install
+cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install
 make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
 # Configure, build, and install RandLAPACK
 echo $LIB_VAR
@@ -200,3 +207,9 @@ make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
 
 # Source from bash and spawn a new shell so that the variable change takes place
 bash -c "source ~/.bashrc && exec bash"
+
+if [ $RELOAD_SHELL -eq 1 ]; then
+    echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
+    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+    echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
+fi
