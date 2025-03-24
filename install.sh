@@ -94,7 +94,7 @@ else
     RANDNLA_PROJECT_DIR="$PARENT_DIR/RandNLA-project"
     # We want to make sure that RANDNLA_PROJECT_DIR variable is in the 
     # user's bashrc so that it can be used by our other bash scripts.
-    RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$MY_DIR")
+    RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
     echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
     echo "export $RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
 fi
