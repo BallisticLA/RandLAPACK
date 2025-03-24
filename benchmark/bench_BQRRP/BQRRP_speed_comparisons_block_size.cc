@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
 
     std::string path;
     if (argv[1] != ".")
-        path == argv[1] + output_filename;
+        path = argv[1] + output_filename;
                                                                
     std::ofstream file(path, std::ios::out | std::ios::app);
 
