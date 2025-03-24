@@ -27,6 +27,7 @@ if [[ "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
 fi
 
 RELOAD_SHELL=0
+RANDLAPACK_CUDA="OFF"
 RANDNLA_PROJECT_GPU_AVAIL="none"
 # Detect NVIDIA GPU
 echo "Detecting a GPU..." | tee -a $LOG_FILE
