@@ -1,11 +1,11 @@
 # Make sure to enable the script via "chmod +x install.sh"
 #
 # This script automatically installs RandLAPACK library with all of its dependencies, as well as builds the RandLAPACK benchmark files (done separately).
-# The project layout will be as such: the directory where the RandLAPACK project was originally located will contain the top-level "RandNLA-project" priject direcort with three subdirectories: 
+# The project layout will be as such: the directory where the RandLAPACK project was originally located will contain the top-level "RandNLA-project" project direcory with three subdirectories: 
 # lib: contains library files for RandLAPACK, blaspp, and lapackpp; 
 # install: will contain the installed RandLAPACK-install, blaspp-install, lapackpp-install and random123;
 # build: will contain builds for RandLAPACK-build, benchmark-build, blaspp-build, lapackpp-build.
-# Prerequisits for installation can be seen in the INSTALL.md file.
+# Prerequisites for installation can be seen in the INSTALL.md file.
 #!/bin/bash
 # Stop execution on error
 set -e
@@ -40,12 +40,10 @@ if command -v nvidia-smi &> /dev/null; then
         echo "Building libraries with GPU support."
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto" >> ~/.bashrc
         RELOAD_SHELL=1
     fi
 elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
-    # AND GPU found. Ask user if they want to proceed with GPU support or not.
+    # AMD GPU found. Ask user if they want to proceed with GPU support or not.
     read -p "AMD GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
     if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
         echo "Building libraries without GPU support."
@@ -54,8 +52,6 @@ elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
         echo "Building libraries with GPU support."
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto" >> ~/.bashrc
         RELOAD_SHELL=1
     fi
 else
@@ -212,4 +208,6 @@ if [ $RELOAD_SHELL -eq 1 ]; then
     echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
     echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
     echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
+    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+    echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
 fi
