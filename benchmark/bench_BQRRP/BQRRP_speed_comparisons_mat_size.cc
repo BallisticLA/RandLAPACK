@@ -143,7 +143,7 @@ static void call_all_algs(
         
         // Testing HQRRP DEFAULT
         auto start_hqrrp = steady_clock::now();
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
         auto stop_hqrrp = steady_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
         printf("TOTAL TIME FOR HQRRP %ld\n", dur_hqrrp);
@@ -157,7 +157,7 @@ static void call_all_algs(
         if (operation_mode == "full") {
             // Testing HQRRP with GEQRF
             auto start_hqrrp_geqrf = steady_clock::now();
-            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 1, state_alg, (T**) nullptr);
+            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 1, state_alg, (T**) nullptr);
             auto stop_hqrrp_geqrf = steady_clock::now();
             dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
             printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
@@ -170,7 +170,7 @@ static void call_all_algs(
 
             // Testing HQRRP with CholQR
             auto start_hqrrp_cholqr = steady_clock::now();
-            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz,  (d_factor - 1) * b_sz, panel_pivoting, 2, state_alg, (T**) nullptr);
+            RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 2, state_alg, (T**) nullptr);
             auto stop_hqrrp_cholqr = steady_clock::now();
             dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
             printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);

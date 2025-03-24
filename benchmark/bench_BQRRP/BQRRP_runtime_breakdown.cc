@@ -153,7 +153,6 @@ int main(int argc, char *argv[]) {
         path = std::string(argv[1]) + output_filename;
 
     std::ofstream file(path, std::ios::out | std::ios::app);
-    std::cout << str << std::endl;
 
     // Writing important data into file
     file << "Description: Results from the BQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
