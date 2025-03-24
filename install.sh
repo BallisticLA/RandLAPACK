@@ -96,7 +96,7 @@ else
     # user's bashrc so that it can be used by our other bash scripts.
     RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
     echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
-    echo "export $RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
+    echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
 fi
 
 # Create the project directory and its subdirectories
