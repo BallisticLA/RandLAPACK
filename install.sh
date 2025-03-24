@@ -39,7 +39,7 @@ if command -v nvidia-smi &> /dev/null; then
         echo "Building libraries with GPU support."
         GPU_AVAIL="auto"
     fi
-else if lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
+elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
     # AND GPU found. Ask user if they want to proceed with GPU support or not.
     read -p "AMD GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
     if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
