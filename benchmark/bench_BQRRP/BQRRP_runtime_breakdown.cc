@@ -98,7 +98,6 @@ static void call_all_algs(
         // Update timing vector
         inner_timing = BQRRP.times;
         std::ofstream file(output_filename, std::ios::out | std::ios::app);
-        std::cout << str << std::endl;
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
         file << "\n";
 
