@@ -40,6 +40,8 @@ if command -v nvidia-smi &> /dev/null; then
         echo "Building libraries with GPU support."
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
+        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
         RELOAD_SHELL=1
     fi
 elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
@@ -52,6 +54,8 @@ elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
         echo "Building libraries with GPU support."
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
+        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
         RELOAD_SHELL=1
     fi
 else
@@ -100,6 +104,9 @@ else
     # We want to make sure that RANDNLA_PROJECT_DIR variable is in the 
     # user's bashrc so that it can be used by our other bash scripts.
     RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
+    echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
+    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+    echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
     RELOAD_SHELL=1
 fi
 
@@ -201,13 +208,7 @@ make  -C $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -j20 install
 cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
 make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
 
-# Source from bash and spawn a new shell so that the variable change takes place
-bash -c "source ~/.bashrc && exec bash"
-
 if [ $RELOAD_SHELL -eq 1 ]; then
-    echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
-    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-    echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
-    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-    echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
+    # Source from bash and spawn a new shell so that the variable change takes place
+    bash -c "source ~/.bashrc && exec bash"
 fi
