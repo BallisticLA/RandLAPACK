@@ -39,6 +39,7 @@ if command -v nvidia-smi &> /dev/null; then
     else
         echo "Building libraries with GPU support."
         RANDNLA_PROJECT_GPU_AVAIL="auto"
+        RANDLAPACK_CUDA="ON"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
         echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
         echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
@@ -52,6 +53,7 @@ elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
         RANDNLA_PROJECT_GPU_AVAIL="none"
     else
         echo "Building libraries with GPU support."
+        RANDLAPACK_CUDA="ON"
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
         echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
@@ -201,7 +203,7 @@ cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapac
 make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
 # Configure, build, and install RandLAPACK
 echo $LIB_VAR
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release  -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install
 make  -C $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -j20 install
 # Configure and build RandLAPACK-benchmark
 cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
