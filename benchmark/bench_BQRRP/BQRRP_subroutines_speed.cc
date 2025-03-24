@@ -176,7 +176,7 @@ static void call_wide_qrcp(
         dur_luqr = duration_cast<microseconds>(stop_luqr - start_luqr).count();
         data_regen(m_info, all_data, state, state, 1);
     
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         file << dur_geqp3 << ",  " << dur_luqr << ",\n";
     }
 }
@@ -216,7 +216,7 @@ static void call_tsqr(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, S, n, all_data.A.data(), m, 0.0, A_sk, n);
     lapack::geqp3(n, n, A_sk, n, J, tau);
 
-    std::ofstream file(output_filename, std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     int64_t nb = 0;
     int i = 0;
@@ -307,7 +307,7 @@ static void call_apply_q(
     long dur_ormqr  = 0;
     long dur_gemqrt = 0;
 
-    std::ofstream file(output_filename, std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     int i, j   = 0;
     int64_t nb = 0;
@@ -415,13 +415,13 @@ int main(int argc, char *argv[]) {
 
     auto start_time_all = steady_clock::now();
     for (i = 0 ;i < n_sz.size(); ++i) 
-        call_wide_qrcp(m_info, numruns, n_sz[i], all_data, state, output_filename);
+        call_wide_qrcp(m_info, numruns, n_sz[i], all_data, state, path);
 
     for (i = 0 ;i < n_sz.size(); ++i) 
-        call_tsqr(m_info, numruns, n_sz[i], nb_start, all_data, state, output_filename);
+        call_tsqr(m_info, numruns, n_sz[i], nb_start, all_data, state, path);
 
     for (i = 0 ;i < n_sz.size(); ++i) 
-        call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, output_filename);
+        call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, path);
 
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();

@@ -194,7 +194,7 @@ static void call_all_algs(
             data_regen(m_info, all_data, state_gen);
         }
         
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         file << dur_bqrrp_cholqr << ",  " << dur_bqrrp_qrf << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
     }
 }
@@ -227,7 +227,10 @@ int main(int argc, char *argv[]) {
     int64_t numruns = std::stol(argv[3]);
 
     // Allocate basic workspace
+    double column_size_ratio = std::stof(argv[4]);
     int64_t m_max = *std::max_element(m_sz.begin(), m_sz.end());
+    if (column_size_ratio < 1) 
+        m_max = m_max / column_size_ratio;
     QR_speed_benchmark_data<double> all_data(m_max, m_max, m_max / std::stol(argv[5]), d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m_max, m_max, RandLAPACK::gen::gaussian);
@@ -258,9 +261,9 @@ int main(int argc, char *argv[]) {
     int64_t columns;
     int64_t b_sz;
     for (;i < m_sz.size(); ++i) {
-        columns = m_sz[i] / std::stol(argv[4]);
-        b_sz = columns / std::stol(argv[5]);
-        call_all_algs(m_info, numruns, m_sz[i], columns, b_sz, all_data, argv[2], state_constant, output_filename);
+        columns = m_sz[i] / column_size_ratio;
+        b_sz = columns / std::stof(argv[5]);
+        call_all_algs(m_info, numruns, m_sz[i], columns, b_sz, all_data, argv[2], state_constant, path);
     }
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();

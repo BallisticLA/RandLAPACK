@@ -97,7 +97,8 @@ static void call_all_algs(
 
         // Update timing vector
         inner_timing = BQRRP.times;
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
+        std::cout << str << std::endl;
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
         file << "\n";
 
@@ -152,6 +153,7 @@ int main(int argc, char *argv[]) {
         path = std::string(argv[1]) + output_filename;
 
     std::ofstream file(path, std::ios::out | std::ios::app);
+    std::cout << str << std::endl;
 
     // Writing important data into file
     file << "Description: Results from the BQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
@@ -167,7 +169,7 @@ int main(int argc, char *argv[]) {
     auto start_time_all = steady_clock::now();
     size_t i = 0;
     for (;i < b_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, b_sz[i], qr_tall, all_data, state_constant, output_filename);
+        call_all_algs(m_info, numruns, b_sz[i], qr_tall, all_data, state_constant, path);
     }
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();

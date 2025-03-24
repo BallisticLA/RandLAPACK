@@ -81,7 +81,7 @@ static void call_all_algs(
         // No CholQR
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times_ptr);
 
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         std::copy(times, times + 27, std::ostream_iterator<T>(file, ", "));
         file << "\n";
 
@@ -152,7 +152,7 @@ int main(int argc, char *argv[]) {
     auto start_time_all = steady_clock::now();
     size_t i = 0;
     for (;i < b_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, output_filename);
+        call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, path);
     }
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();

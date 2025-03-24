@@ -107,7 +107,7 @@ static void R_norm_ratio(
     else
         path = output_filename;
                                                                 
-    std::ofstream file(path, std::ios::out | std::ios::trunc);
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the norms of R factors output by QP3 and BQRRP."
@@ -156,7 +156,7 @@ static void sv_ratio(
     else
         path = output_filename;
                                                                 
-    std::ofstream file(path, std::ios::out | std::ios::trunc);
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the diagonal R entries to true singular values."

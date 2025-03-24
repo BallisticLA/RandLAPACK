@@ -189,7 +189,7 @@ static void call_all_algs(
             data_regen(m_info, all_data, state_gen);
         }
         
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         file << dur_bqrrp_cholqr << ",  " << dur_bqrrp_qrf << ",  " << dur_hqrrp << ",  " << dur_hqrrp_geqrf << ",  " << dur_hqrrp_cholqr << ",  " << dur_geqrf << ",  " << dur_geqp3 << ",\n";
     }
 }
@@ -251,7 +251,7 @@ int main(int argc, char *argv[]) {
     auto start_time_all = steady_clock::now();
     size_t i = 0;
     for (;i < b_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, b_sz[i], all_data, argv[2], state_constant, output_filename);
+        call_all_algs(m_info, numruns, b_sz[i], all_data, argv[2], state_constant, path);
     }
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();

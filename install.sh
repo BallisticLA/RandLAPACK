@@ -98,8 +98,6 @@ else
     echo "Adding variable $RANDNLA_PROJECT_DIR to ~/.bashrc."
     echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
     echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
-    # Reload bashrc to make the new variable visible
-    bash -c "source ~/.bashrc && exec bash"
 fi
 
 # Create the project directory and its subdirectories
@@ -199,3 +197,6 @@ make  -C $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -j20 install
 # Configure and build RandLAPACK-benchmark
 cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
 make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
+
+# Source from bash and spawn a new shell so that the variable change takes place
+bash -c "source ~/.bashrc && exec bash"
