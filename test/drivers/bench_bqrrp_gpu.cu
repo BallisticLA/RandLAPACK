@@ -262,7 +262,8 @@ class BenchBQRRP : public ::testing::Test
                                     });
 
         auto state           = RandBLAS::RNGState();
-
+        std::cout << b_sz_string << std::endl;
+        
         BQRRPBenchData<double> all_data(m, n);
         RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
         RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
@@ -272,33 +273,32 @@ class BenchBQRRP : public ::testing::Test
         std::string* file_name_2 = nullptr;
         if (profile_runtime) {
             file_name_1 = new std::string("BQRRP_GPU_runtime_breakdown_qrf_num_info_lines_" + std::to_string(6) + ".txt");
-
             file_name_2 = new std::string("BQRRP_GPU_runtime_breakdown_cholqr_num_info_lines_" + std::to_string(6) + ".txt");
+        
+            std::ofstream file1(*file_name_1, std::ios::out | std::ios::app);
+            std::ofstream file2(*file_name_2, std::ios::out | std::ios::app);
+
+            file1 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
+                    "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
+                    "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
+                    "\nInput type:"       + std::to_string(m_info.m_type) +
+                    "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+                    "\nAdditional parameters: Tall QR subroutine cholqr BQRRP block sizes: " + b_sz_string +
+                    "\n";
+            file1.flush();
+            
+            file2 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
+                    "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
+                    "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
+                    "\nInput type:"       + std::to_string(m_info.m_type) +
+                    "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+                    "\nAdditional parameters: Tall QR subroutine geqrf BQRRP block sizes: " + b_sz_string +
+                    "\n";
+            file2.flush();
         }
-
+        
         std::string* file_name_3 = new std::string("BQRRP_GPU_speed_comparisons_block_size_num_info_lines_" + std::to_string(6) + ".txt");
-
-        std::ofstream file1(*file_name_1, std::ios::out | std::ios::app);
-        std::ofstream file2(*file_name_2, std::ios::out | std::ios::app);
         std::ofstream file3(*file_name_3, std::ios::out | std::ios::app);
-
-        file1 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
-                "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
-                "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
-                "\nInput type:"       + std::to_string(m_info.m_type) +
-                "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-                "\nAdditional parameters: Tall QR subroutine cholqr BQRRP block sizes: " + b_sz_string +
-                "\n";
-        file1.flush();
-
-        file2 << "Description: Results from the BQRRP GPU runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
-                "\nFile format: 15 data columns, each corresponding to a given BQRRP subroutine: preallocation_t_dur, qrcp_main_t_dur, copy_A_sk_t_dur, qrcp_piv_t_dur, copy_A_t_dur, piv_A_t_dur, copy_J_t_dur, updating_J_t_dur, preconditioning_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_rest, total_t_dur"
-                "               rows correspond to BQRRP runs with block sizes varying in a way unique for a particular run."
-                "\nInput type:"       + std::to_string(m_info.m_type) +
-                "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-                "\nAdditional parameters: Tall QR subroutine geqrf BQRRP block sizes: " + b_sz_string +
-                "\n";
-        file2.flush();
 
         file3 << "Description: Results from the BQRRP GPU speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
                 "\nFile format: 3 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, QRF;"
@@ -308,7 +308,7 @@ class BenchBQRRP : public ::testing::Test
                 "\nAdditional parameters: BQRRP block sizes: " + b_sz_string +
                 "\n";
         file3.flush();
-
+        
         auto start_time_all = steady_clock::now();
         for(size_t i = 0; i < b_sz.size(); ++i) {
             bench_BQRRP(profile_runtime, run_qrf, m_info, m, n, b_sz[i], all_data, state, file_name_1, file_name_2, file_name_3);
@@ -316,7 +316,7 @@ class BenchBQRRP : public ::testing::Test
         auto stop_time_all = steady_clock::now();
         long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
         file3 << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
-        file3.flush();   
+        file3.flush();
     }
 
     static void setup_bqrrp_speed_comparisons_mat_size(
