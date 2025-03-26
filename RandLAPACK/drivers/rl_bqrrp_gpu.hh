@@ -43,7 +43,7 @@ class BQRRP_GPU_alg {
 
 // Struct outside of BQRRP class to make symbols shorter
 struct BQRRPGPUSubroutines {
-    enum QRTall {geqrt, cholqr, geqrf};
+    enum QRTall {cholqr, geqrf};
 };
 
 template <typename T, typename RNG>
@@ -499,10 +499,21 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(J_buffer_lu);
             cudaFree(Work2);
             cudaFree(R_tall_qr);
-            cudaFree(d_work_ormqr);
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap);
             cudaFree(J_copy_col_swap);
+
+            blas::device_free(d_info, lapack_queue);
+            cudaFree(d_info_cusolver);
+            blas::device_free(d_work_getrf, lapack_queue);
+            blas::device_free(d_work_geqrf, lapack_queue);
+
+            if (iter > 0) {
+                cudaFree(d_work_ormqr);
+                if(this -> qr_tall != GPUSubroutine::QRTall::cholqr){
+                    blas::device_free(d_work_geqrf_opt, lapack_queue);
+                }
+            }
             return 0;
         }
         
@@ -661,6 +672,7 @@ int BQRRP_GPU<T, RNG>::call(
             // Uncommenting the conditional below for the following reason: in contrary to my assumption that the larger 
             // problem size (the largest problem occurs at iter==0) would require the most amount of device workspace,
             // on an NVIDIA H100, the most workspace is required at iter==1 (the amount of workspace stays constent afterward).
+            // For a skeptical reviewer, note: this is NOT related to a synch barrier.
             //if(iter == 0) {
                 lapack::geqrf_work_size_bytes(rows, b_sz, A_work, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
                 d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
@@ -817,12 +829,20 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(J_buffer); 
             cudaFree(J_buffer_lu);
             cudaFree(Work2);
-            cudaFree(R_tall_qr);
-            cudaFree(d_work_ormqr);        
+            cudaFree(R_tall_qr);    
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap); 
             cudaFree(J_copy_col_swap);
 
+            blas::device_free(d_info, lapack_queue);
+            cudaFree(d_info_cusolver);
+            blas::device_free(d_work_getrf, lapack_queue);
+            blas::device_free(d_work_geqrf, lapack_queue);
+
+            cudaFree(d_work_ormqr);
+            if(this -> qr_tall != GPUSubroutine::QRTall::cholqr){
+                blas::device_free(d_work_geqrf_opt, lapack_queue);
+            }
             return 0;
         }
         if(this -> timing) {

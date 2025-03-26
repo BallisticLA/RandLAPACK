@@ -361,5 +361,6 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_input) {
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
+
 #endif
 #endif

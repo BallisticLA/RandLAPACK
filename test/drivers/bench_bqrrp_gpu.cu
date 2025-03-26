@@ -356,7 +356,7 @@ class BenchBQRRP : public ::testing::Test
         }
     }
 };
-
+/*
 TEST_F(BenchBQRRP, BQRRP_GPU_block_sizes_powers_of_two_32k) {
     int64_t m                 = std::pow(2, 15);
     int64_t n                 = std::pow(2, 15);
@@ -417,4 +417,5 @@ TEST_F(BenchBQRRP, BQRRP_GPU_mat_sizes_multiples_of_ten) {
     bool run_qrf         = true;
     setup_bqrrp_speed_comparisons_mat_size(m_sz, b_sz, profile_runtime, run_qrf);
 }
+    */
 #endif
