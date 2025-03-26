@@ -262,7 +262,6 @@ class BenchBQRRP : public ::testing::Test
                                     });
 
         auto state           = RandBLAS::RNGState();
-        std::cout << b_sz_string << std::endl;
         
         BQRRPBenchData<double> all_data(m, n);
         RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
