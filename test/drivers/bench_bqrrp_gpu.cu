@@ -271,8 +271,8 @@ class BenchBQRRP : public ::testing::Test
         std::string* file_name_1 = nullptr;
         std::string* file_name_2 = nullptr;
         if (profile_runtime) {
-            file_name_1 = new std::string("BQRRP_GPU_runtime_breakdown_qrf_num_info_lines_" + std::to_string(6) + ".txt");
-            file_name_2 = new std::string("BQRRP_GPU_runtime_breakdown_cholqr_num_info_lines_" + std::to_string(6) + ".txt");
+            file_name_1 = new std::string("_BQRRP_GPU_runtime_breakdown_qrf_num_info_lines_" + std::to_string(6) + ".txt");
+            file_name_2 = new std::string("_BQRRP_GPU_runtime_breakdown_cholqr_num_info_lines_" + std::to_string(6) + ".txt");
         
             std::ofstream file1(*file_name_1, std::ios::out | std::ios::app);
             std::ofstream file2(*file_name_2, std::ios::out | std::ios::app);
@@ -296,7 +296,7 @@ class BenchBQRRP : public ::testing::Test
             file2.flush();
         }
         
-        std::string* file_name_3 = new std::string("BQRRP_GPU_speed_comparisons_block_size_num_info_lines_" + std::to_string(6) + ".txt");
+        std::string* file_name_3 = new std::string("_BQRRP_GPU_speed_comparisons_block_size_num_info_lines_" + std::to_string(6) + ".txt");
         std::ofstream file3(*file_name_3, std::ios::out | std::ios::app);
 
         file3 << "Description: Results from the BQRRP GPU speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
