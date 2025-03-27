@@ -206,7 +206,7 @@ static void sv_ratio(
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
+    if (argc != 5) {
         // Expected input into this benchmark.
         std::cerr << "Usage: " << argv[0] << " <directory_path> <num_rows> <num_cols> <block_size>" << std::endl;
         return 1;

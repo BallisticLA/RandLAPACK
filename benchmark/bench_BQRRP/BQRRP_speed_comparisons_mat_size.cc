@@ -201,7 +201,7 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 6) {
+    if (argc < 7) {
         // Expected input into this benchmark.
         std::cerr << "Usage: " << argv[0] << " <directory_path> <operation_mode> <num_runs> <column_size_ratio> <block_size_ratio> <square_matrix_dim (multiple)>..." << std::endl;
         return 1;

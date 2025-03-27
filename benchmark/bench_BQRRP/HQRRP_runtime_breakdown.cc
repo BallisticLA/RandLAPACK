@@ -96,7 +96,7 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 5) {
+    if (argc < 6) {
         // Expected input into this benchmark.
         std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
         return 1;

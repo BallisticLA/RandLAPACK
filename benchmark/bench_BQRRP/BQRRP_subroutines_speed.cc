@@ -352,7 +352,7 @@ static void call_apply_q(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 4) {
+    if (argc < 5) {
         // Expected input into this benchmark.
         std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols(multiple, increasing order)> ..." << std::endl;
         return 1;
