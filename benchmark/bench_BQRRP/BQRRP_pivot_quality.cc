@@ -150,7 +150,7 @@ static void sv_ratio(
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     // Declare a data file
-    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(6) + ".txt";
+    std::string output_filename = "_BQRRP_pivot_quality_metric_2_num_info_lines_" + std::to_string(6) + ".txt";
 
     if (path != ".")
         path += output_filename;
@@ -186,7 +186,7 @@ static void sv_ratio(
     for (int i = 0; i < n; ++i){
         file << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
     }
-    file  << ",\n";
+    file  << "\n";
 
     // Clear and re-generate data
     state_gen = state;
@@ -197,8 +197,10 @@ static void sv_ratio(
     BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
 
     // Write the 2nd metric info into a file.
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < n; ++i) {
         file << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
+    }
+    file  << "\n";
 
     // Clear and re-generate data
     state_gen = state;
