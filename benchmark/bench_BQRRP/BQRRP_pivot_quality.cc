@@ -100,7 +100,7 @@ static void R_norm_ratio(
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 
     // Declare a data file
-    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(5) + ".txt";
+    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(6) + ".txt";
 
     if (path != ".")
         path += output_filename;
@@ -112,6 +112,7 @@ static void R_norm_ratio(
     // Writing important data into file
     file << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the norms of R factors output by QP3 and BQRRP."
               "\nFile format: File output is one-line."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"        + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
               "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + " BQRRP d factor: "   + std::to_string(d_factor) +
@@ -149,7 +150,7 @@ static void sv_ratio(
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
     // Declare a data file
-    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(5) + ".txt";
+    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(6) + ".txt";
 
     if (path != ".")
         path += output_filename;
@@ -205,7 +206,7 @@ static void sv_ratio(
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 4) {
+    if (argc != 3) {
         // Expected input into this benchmark.
         std::cerr << "Usage: " << argv[0] << " <directory_path> <num_rows> <num_cols> <block_size>" << std::endl;
         return 1;
