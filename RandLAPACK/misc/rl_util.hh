@@ -476,7 +476,7 @@ void rl_orhr_col(
 
 template <typename T>
 // Function returns current date and time
-std::string getCurrentDateTime() {
+std::string get_current_date_time() {
     // Get the current time
     std::time_t now = std::time(nullptr);
     // Convert to local time

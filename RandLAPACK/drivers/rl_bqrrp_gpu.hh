@@ -356,11 +356,7 @@ int BQRRP_GPU<T, RNG>::call(
         // Probing workspace size - performed only once.
         if(iter == 0) {
             lapack::getrf_work_size_bytes(cols, sampling_dimension, A_sk_trans, n, &d_size_getrf, &h_size_getrf, lapack_queue);
-
             d_work_getrf = blas::device_malloc< char >( d_size_getrf, lapack_queue );
-            // Below shoudl not be necessary
-            //std::vector<char> h_work_getrf_vector( h_size_getrf );
-            //h_work_getrf = h_work_getrf_vector.data();
         }
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
@@ -398,9 +394,6 @@ int BQRRP_GPU<T, RNG>::call(
         if(iter == 0) {
             lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
             d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
-            // Below shoudl not be necessary
-            //std::vector<char> h_work_geqrf_vector( h_size_geqrf );
-            //h_work_geqrf = h_work_geqrf_vector.data();
         }
         lapack::geqrf(sampling_dimension, cols, A_sk_work, d, Work2, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
         
@@ -503,11 +496,13 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(A_sk_copy_col_swap);
             cudaFree(J_copy_col_swap);
 
+            // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
             cudaFree(d_info_cusolver);
             blas::device_free(d_work_getrf, lapack_queue);
             blas::device_free(d_work_geqrf, lapack_queue);
 
+            // At iteration 0, below allocations have not yet taken place
             if (iter > 0) {
                 cudaFree(d_work_ormqr);
                 if(this -> qr_tall != GPUSubroutine::QRTall::cholqr){
@@ -834,6 +829,7 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(A_sk_copy_col_swap); 
             cudaFree(J_copy_col_swap);
 
+            // Freeing workspace info variables
             blas::device_free(d_info, lapack_queue);
             cudaFree(d_info_cusolver);
             blas::device_free(d_work_getrf, lapack_queue);

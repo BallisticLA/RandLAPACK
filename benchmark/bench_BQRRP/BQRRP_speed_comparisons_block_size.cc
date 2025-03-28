@@ -198,6 +198,7 @@ int main(int argc, char *argv[]) {
 
     if (argc < 7) {
         // Expected input into this benchmark.
+        // "Operation mode" options: default, default_hqrrp_const, hqrrp, hqrrp_const, full
         std::cerr << "Usage: " << argv[0] << " <directory_path> <operation_mode> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
         return 1;
     }
