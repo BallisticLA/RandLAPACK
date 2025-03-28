@@ -361,5 +361,51 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_input) {
     norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
+
+TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
+    int64_t m   = 16384;
+    int64_t k   = 1024;
+    int64_t lda = 16384;
+    auto state = RandBLAS::RNGState();
+
+    double* A   = new double[m * m]();
+    double* tau = new double[m]();
+    double* A_device;
+    double* tau_device;
+    cudaMalloc(&A_device, m * m * sizeof(double));
+    cudaMalloc(&tau_device, m * sizeof(double));
+
+    RandBLAS::DenseDist D1(m, m);
+    RandBLAS::DenseDist D2(1, m);
+    state = RandBLAS::fill_dense(D1, A, state);
+    state = RandBLAS::fill_dense(D2, tau, state);
+    cudaMemcpy(A_device, A, m * m * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(tau_device, tau, m * sizeof(double), cudaMemcpyHostToDevice);
+
+    // All things necessary to launch ORMQR from cusolver
+    lapack::Queue lapack_queue(0);
+    cudaStream_t strm = lapack_queue.stream();
+    using lapack::device_info_int;
+    device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
+    cusolverDnHandle_t cusolverH = nullptr;
+    char* d_work_geqrf_opt;
+    char* h_work_geqrf_opt;
+    size_t d_size_geqrf_opt, h_size_geqrf_opt;
+    cudaStreamSynchronize(strm);
+
+        lapack::geqrf_work_size_bytes(m, k, A_device, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
+        d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
+
+    int64_t curr_sz = 0;
+    for(int iter = 0; iter < 2; ++iter) {
+        //lapack::geqrf_work_size_bytes(m, k, A_device, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
+        //d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
+        lapack::geqrf(m, k, A_device, lda, &tau_device[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
+        m       -= k;
+        curr_sz += k;
+        A_device = &A_device[k * lda + k];
+        cudaStreamSynchronize(strm);
+    }
+}
 #endif
 #endif

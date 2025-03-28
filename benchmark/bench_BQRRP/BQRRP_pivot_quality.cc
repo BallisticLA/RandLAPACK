@@ -69,7 +69,8 @@ static void R_norm_ratio(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state) {
+    RandBLAS::RNGState<RNG> &state,
+    std::string path) {
 
     auto m        = all_data.row;
     auto n        = all_data.col;
@@ -99,22 +100,28 @@ static void R_norm_ratio(
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 
     // Declare a data file
-    std::ofstream file1(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_1"
-                                                          + "_num_info_lines_" + std::to_string(5) +
-                                                            ".txt", std::ios::out | std::ios::trunc);
+    std::string output_filename = "_BQRRP_pivot_quality_metric_1_num_info_lines_" + std::to_string(6) + ".txt";
+
+    if (path != ".")
+        path += output_filename;
+    else
+        path = output_filename;
+                                                                
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
-    file1 << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the norms of R factors output by QP3 and BQRRP."
+    file << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the norms of R factors output by QP3 and BQRRP."
               "\nFile format: File output is one-line."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"        + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
               "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
-    file1.flush();
+    file.flush();
 
     // Write the 1st metric info into a file.
     for (int i = 0; i < n; ++i)
-        file1 << R_norms_HQRRP[i] / R_norms_BQRRP[i] << ",  ";
+        file << R_norms_HQRRP[i] / R_norms_BQRRP[i] << ",  ";
 
     // Clear and re-generate data
     state_gen = state;
@@ -126,7 +133,8 @@ static void sv_ratio(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t b_sz,
     QR_speed_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state) {
+    RandBLAS::RNGState<RNG> &state,
+    std::string path) {
 
     auto m        = all_data.row;
     auto n        = all_data.col;
@@ -141,17 +149,25 @@ static void sv_ratio(
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
     BQRRP.qr_tall = Subroutines::QRTall::cholqr;
 
-    std::ofstream file2(RandLAPACK::util::getCurrentDate<T>() + "BQRRP_pivot_quality_metric_2"
-                                                          + "_num_info_lines_" + std::to_string(5) +
-                                                            ".txt", std::ios::out | std::ios::trunc);
+    // Declare a data file
+    std::string output_filename = "_BQRRP_pivot_quality_metric_2_num_info_lines_" + std::to_string(6) + ".txt";
+
+    if (path != ".")
+        path += output_filename;
+    else
+        path = output_filename;
+                                                                
+    std::ofstream file(path, std::ios::out | std::ios::app);
+
     // Writing important data into file
-    file2 << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the diagonal R entries to true singular values."
+    file << "Description: Results of the BQRRP pivot quality benchmark for the metric of ratios of the diagonal R entries to true singular values."
               "\nFile format: Line one contains BQRRP retults, line 2 contains GEQP3 retults."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"        + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
               "\nAdditional parameters: BQRRP block size: " + std::to_string(b_sz) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
-    file2.flush();
+    file.flush();
 
     T* R_dat = all_data.A.data();
     T* S_dat = all_data.S.data();
@@ -168,9 +184,9 @@ static void sv_ratio(
 
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i){
-        file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
+        file << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
     }
-    file2  << ",\n";
+    file  << "\n";
 
     // Clear and re-generate data
     state_gen = state;
@@ -181,8 +197,10 @@ static void sv_ratio(
     BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
 
     // Write the 2nd metric info into a file.
-    for (int i = 0; i < n; ++i)
-        file2 << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
+    for (int i = 0; i < n; ++i) {
+        file << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
+    }
+    file  << "\n";
 
     // Clear and re-generate data
     state_gen = state;
@@ -190,18 +208,18 @@ static void sv_ratio(
 }
 
 int main(int argc, char *argv[]) {
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc != 5) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_rows> <num_cols> <block_size>" << std::endl;
+        return 1;
     }
-    auto size = argv[1];
 
     // Declare parameters
-    int64_t m          = std::stol(size);
-    int64_t n          = std::stol(size);
+    std::string path   = argv[1];
+    int64_t m          = std::stol(argv[2]);
+    int64_t n          = std::stol(argv[3]);
     double d_factor    = 1.0;
-    int64_t b_sz       = 4096;
+    int64_t b_sz       = std::stol(argv[4]);;
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant1 = state;
     auto state_constant2 = state;
@@ -221,15 +239,9 @@ int main(int argc, char *argv[]) {
     //m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    std::ofstream file(RandLAPACK::util::getCurrentDate<double>() + "Pivot_quality_benchmark_generated_matrix" 
-                                              + "_mat_type_"     + std::to_string(m_info.m_type)
-                                              + "_numrows_"      + std::to_string(m)
-                                              + "_numcols_"      + std::to_string(n)
-                                              + ".txt", std::ios::out | std::ios::trunc);
-
-    R_norm_ratio(m_info, b_sz, all_data, state_constant1);
+    R_norm_ratio(m_info, b_sz, all_data, state_constant1, path);
     printf("Pivot quality metric 1 done\n");
-    sv_ratio(m_info, b_sz, all_data, state_constant2);
+    sv_ratio(m_info, b_sz, all_data, state_constant2, path);
     printf("Pivot quality metric 2 done\n\n");
 }
 #endif

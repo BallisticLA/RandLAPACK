@@ -176,7 +176,7 @@ static void call_wide_qrcp(
         dur_luqr = duration_cast<microseconds>(stop_luqr - start_luqr).count();
         data_regen(m_info, all_data, state, state, 1);
     
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         file << dur_geqp3 << ",  " << dur_luqr << ",\n";
     }
 }
@@ -216,7 +216,7 @@ static void call_tsqr(
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, S, n, all_data.A.data(), m, 0.0, A_sk, n);
     lapack::geqp3(n, n, A_sk, n, J, tau);
 
-    std::ofstream file(output_filename, std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     int64_t nb = 0;
     int i = 0;
@@ -307,7 +307,7 @@ static void call_apply_q(
     long dur_ormqr  = 0;
     long dur_gemqrt = 0;
 
-    std::ofstream file(output_filename, std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     int i, j   = 0;
     int64_t nb = 0;
@@ -352,14 +352,27 @@ static void call_apply_q(
 
 int main(int argc, char *argv[]) {
 
-    auto size = argv[1];
+    if (argc < 5) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols(multiple, increasing order)> ..." << std::endl;
+        return 1;
+    }
 
-    int64_t i = 0;
+    size_t i = 0;
     // Declare parameters
-    int64_t m             = std::stol(size);
-    int64_t n_start       = 256;
-    int64_t n_stop        = 2048;
-    int64_t nb_start      = 256;
+    int64_t m = std::stol(argv[3]);
+    // Fill the n size vector
+    std::vector<int64_t> n_sz;
+    for (int i = 0; i < argc-4; ++i)
+        n_sz.push_back(std::stoi(argv[i + 4]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss;
+    for (const auto &val : n_sz)
+        oss << val << ", ";
+    std::string n_sz_string = oss.str();
+
+    // Internal block size for ORMQR, will increase by 2 at every iteration
+    int64_t nb_start      = n_sz[0];
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();
     auto state_constant   = state;
@@ -367,41 +380,52 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 3;
+    int64_t numruns = std::stol(argv[2]);
 
     // Allocate basic workspace
-    benchmark_data<double> all_data(m, n_stop);
+    int64_t n_max = *std::max_element(n_sz.begin(), n_sz.end());
+    benchmark_data<double> all_data(m, n_max);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_max, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     RandLAPACK::gen::mat_gen(m_info, all_data.B.data(), state_B);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_subroutines_speed" 
-                                                                 + "_num_info_lines_" + std::to_string(9) +
-                                                                   ".txt";
-    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
+    std::string output_filename = "_BQRRP_subroutines_speed_num_info_lines_" + std::to_string(10) + ".txt";
+
+    std::string path;
+    if (std::string(argv[1]) != ".")
+        path = std::string(argv[1]) + output_filename;
+
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP subroutines benchmark, recording time for the alternative options of the three main BQRRP subroutines: wide_qrcp, tall qr and application of transpose orthonormal matrix."
               "\nFile format: the format varies for each subroutine"
-              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
               "               \n qr_tall:   six columns with timing for different tall QR candidates and their related parts: GEQRF, GEQR, CHOLQR, CHOLQR_PREPROCESSING, CHOLQR_HOUSEHOLDER_RESTORATION, CHOLQR_UNTO_PRECONDITIONING."
               "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR"
-              "               \n In all cases, rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n In all cases, rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:" + std::to_string(m_info.m_type) +
-              "\nInput size:" + std::to_string(m) + " by "  + std::to_string(n_start) + " to " + std::to_string(n_stop) +
+              "\nInput size:" + std::to_string(m) + " by "  + n_sz_string +
               "\nAdditional parameters num runs per size " + std::to_string(numruns) + " nb_start "   + std::to_string(nb_start) +
               "\n";
     file.flush();
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_wide_qrcp(m_info, numruns, i, all_data, state, output_filename);
+    auto start_time_all = steady_clock::now();
+    for (i = 0 ;i < n_sz.size(); ++i) 
+        call_wide_qrcp(m_info, numruns, n_sz[i], all_data, state, path);
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_tsqr(m_info, numruns, i, nb_start, all_data, state, output_filename);
+    for (i = 0 ;i < n_sz.size(); ++i) 
+        call_tsqr(m_info, numruns, n_sz[i], nb_start, all_data, state, path);
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_apply_q(m_info, numruns, i, nb_start, all_data, state, state_B, output_filename);
+    for (i = 0 ;i < n_sz.size(); ++i) 
+        call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, path);
+
+    auto stop_time_all = steady_clock::now();
+    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
+    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
+    file.flush();   
 }
 #endif

@@ -825,7 +825,7 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t qr_type, RandBLAS::RNGState<RNG> &state, T* timing) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t qr_type, RandBLAS::RNGState<RNG> &state, T** timing) {
 
     //-------TIMING VARS--------/
     steady_clock::time_point preallocation_t_stop;
@@ -1154,46 +1154,47 @@ int64_t hqrrp(
     if(timing != nullptr) {
 
         // Make sure that timing points to a sufficient amount of space.
-        timing = ( T * ) realloc(timing, 29 * sizeof( T ) );
+        T* timing_temp = ( T * ) realloc(*timing, 26 * sizeof( T ) );
 
         total_t_stop = steady_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long other_t_dur  = total_t_dur - (preallocation_t_dur + sketching_t_dur + downdating_t_dur + qrcp_t_dur + qr_t_dur + updating_A_t_dur + updating_Sketch_t_dur);
 
-        timing[1]  = (T) preallocation_t_dur;
-        timing[2]  = (T) sketching_t_dur;
-        timing[3]  = (T) downdating_t_dur;
-        timing[4]  = (T) qrcp_t_dur;
-        timing[5]  = (T) qr_t_dur;
-        timing[6]  = (T) updating_A_t_dur;
-        timing[7]  = (T) updating_Sketch_t_dur;
-        timing[8]  = (T) other_t_dur;
-        timing[9] = (T) total_t_dur;
-        blas::copy(9, timing_QRCP, 1, &timing[10], 1);
-        blas::copy(9, timing_QR,   1, &timing[18], 1);
+        timing_temp[0] = (T) preallocation_t_dur;
+        timing_temp[1] = (T) sketching_t_dur;
+        timing_temp[2] = (T) downdating_t_dur;
+        timing_temp[3] = (T) qrcp_t_dur;
+        timing_temp[4] = (T) qr_t_dur;
+        timing_temp[5] = (T) updating_A_t_dur;
+        timing_temp[6] = (T) updating_Sketch_t_dur;
+        timing_temp[7] = (T) other_t_dur;
+        timing_temp[8] = (T) total_t_dur;
+        blas::copy(9, timing_QRCP, 1, &timing_temp[9], 1);
+        blas::copy(9, timing_QR,   1, &timing_temp[18], 1);
 
         delete[] timing_QRCP;
         delete[] timing_QR;
-        
-        printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
-        printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-        printf("Sketching time: %34ld μs,\n",                      sketching_t_dur);
-        printf("Downdating A time: %34ld μs,\n",                   downdating_t_dur);
-        printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
-        printf("QR time: %32ld μs,\n",                             qr_t_dur);
-        printf("Updating A time: %23ld μs,\n",                     updating_A_t_dur);
-        printf("Updating Sketch time: %23ld μs,\n",                updating_Sketch_t_dur);
-        printf("Other routines time: %24ld μs,\n",                 other_t_dur);
-        printf("Total time: %35ld μs.\n",                          total_t_dur);
+        *timing = timing_temp;
 
-        printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-        printf("Sketch generation and application takes %2.2f%% of runtime.\n", 100 * ((T) sketching_t_dur       / (T) total_t_dur));
-        printf("Downdating takes %32.2f%% of runtime.\n",                       100 * ((T) downdating_t_dur      / (T) total_t_dur));
-        printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
-        printf("QR takes %32.2f%% of runtime.\n",                               100 * ((T) qr_t_dur              / (T) total_t_dur));
-        printf("Updating A takes %14.2f%% of runtime.\n",                       100 * ((T) updating_A_t_dur      / (T) total_t_dur));
-        printf("Updating Sketch takes %14.2f%% of runtime.\n",                  100 * ((T) updating_Sketch_t_dur / (T) total_t_dur));
-        printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) other_t_dur           / (T) total_t_dur));
+        printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
+        printf("Preallocation time:   %ld μs,\n",   preallocation_t_dur);
+        printf("Sketching time:       %ld μs,\n",       sketching_t_dur);
+        printf("Downdating A time:    %ld μs,\n",      downdating_t_dur);
+        printf("QRCP time:            %ld μs,\n",            qrcp_t_dur);
+        printf("QR time:              %ld μs,\n",              qr_t_dur);
+        printf("Updating A time:      %ld μs,\n",      updating_A_t_dur);
+        printf("Updating Sketch time: %ld μs,\n", updating_Sketch_t_dur);
+        printf("Other routines time:  %ld μs,\n",           other_t_dur);
+        printf("Total time:           %ld μs.\n",           total_t_dur);
+
+        printf("\nPreallocation takes                     %f of runtime.\n", 100 * ((T) preallocation_t_dur   / (T) total_t_dur));
+        printf("Sketch generation and application takes %f of runtime.\n", 100 * ((T) sketching_t_dur       / (T) total_t_dur));
+        printf("Downdating takes                        %f of runtime.\n", 100 * ((T) downdating_t_dur      / (T) total_t_dur));
+        printf("QRCP takes                              %f of runtime.\n", 100 * ((T) qrcp_t_dur            / (T) total_t_dur));
+        printf("QR takes                                %f of runtime.\n", 100 * ((T) qr_t_dur              / (T) total_t_dur));
+        printf("Updating A takes                        %f of runtime.\n", 100 * ((T) updating_A_t_dur      / (T) total_t_dur));
+        printf("Updating Sketch takes                   %f of runtime.\n", 100 * ((T) updating_Sketch_t_dur / (T) total_t_dur));
+        printf("Everything else takes                   %f of runtime.\n", 100 * ((T) other_t_dur           / (T) total_t_dur));
         printf("/-------------HQRRP TIMING RESULTS END-------------/\n\n");
     }
 

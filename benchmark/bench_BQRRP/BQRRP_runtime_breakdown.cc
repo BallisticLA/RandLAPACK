@@ -97,7 +97,7 @@ static void call_all_algs(
 
         // Update timing vector
         inner_timing = BQRRP.times;
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
         file << "\n";
 
@@ -110,24 +110,32 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc < 7) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <qr_fname> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
+        return 1;
     }
-    auto size = argv[1];
 
     // Declare parameters
-    int64_t m          = std::stol(size);
-    int64_t n          = std::stol(size);
+    int64_t m          = std::stol(argv[4]);
+    int64_t n          = std::stol(argv[5]);
     double  d_factor   = 1.0;
-    std::vector<int64_t> b_sz = {250, 500, 1000, 2000, 4000, 8000};
-    //std::vector<int64_t> b_sz = {256, 512, 1024, 2048, 4096, 8192};
+    // Fill the block size vector
+    std::vector<int64_t> b_sz;
+    for (int i = 0; i < argc-6; ++i)
+        b_sz.push_back(std::stoi(argv[i + 6]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss;
+    for (const auto &val : b_sz)
+        oss << val << ", ";
+    std::string b_sz_string = oss.str();
+
     auto state         = RandBLAS::RNGState<r123::Philox4x32>();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns     = 3;
+    int64_t numruns     = std::stol(argv[3]);
     std::string qr_tall = argv[2];
 
     // Allocate basic workspace
@@ -137,25 +145,33 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_runtime_breakdown" 
-                                                                 + "_num_info_lines_" + std::to_string(6) +
-                                                                   ".txt";
+    std::string output_filename = "_BQRRP_runtime_breakdown_num_info_lines_" + std::to_string(7) + ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+    std::string path;
+    if (std::string(argv[1]) != ".")
+        path = std::string(argv[1]) + output_filename;
+
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
               "\nFile format: 10 data columns, each corresponding to a given BQRRP subroutine: skop_t_dur, preallocation_t_dur, qrcp_wide_t_dur, panel_preprocessing_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_other, total_t_dur"
               "               rows correspond to BQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-              "\nAdditional parameters: Tall QR subroutine " + argv[2] + " BQRRP block size start: " + std::to_string(b_sz.front()) + " BQRRP block size end: " + std::to_string(b_sz.back()) + " num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
+              "\nAdditional parameters: Tall QR subroutine " + argv[1] + " BQRRP block sizes: " + b_sz_string + "num runs per size " + std::to_string(numruns) + " BQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
 
-    int i = 0;
+    auto start_time_all = steady_clock::now();
+    size_t i = 0;
     for (;i < b_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, b_sz[i], qr_tall, all_data, state_constant, output_filename);
+        call_all_algs(m_info, numruns, b_sz[i], qr_tall, all_data, state_constant, path);
     }
+    auto stop_time_all = steady_clock::now();
+    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
+    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
+    file.flush();   
 }
 #endif

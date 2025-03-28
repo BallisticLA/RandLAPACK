@@ -43,7 +43,7 @@ class BQRRP_GPU_alg {
 
 // Struct outside of BQRRP class to make symbols shorter
 struct BQRRPGPUSubroutines {
-    enum QRTall {geqrt, cholqr, geqrf};
+    enum QRTall {cholqr, geqrf};
 };
 
 template <typename T, typename RNG>
@@ -356,10 +356,7 @@ int BQRRP_GPU<T, RNG>::call(
         // Probing workspace size - performed only once.
         if(iter == 0) {
             lapack::getrf_work_size_bytes(cols, sampling_dimension, A_sk_trans, n, &d_size_getrf, &h_size_getrf, lapack_queue);
-
             d_work_getrf = blas::device_malloc< char >( d_size_getrf, lapack_queue );
-            std::vector<char> h_work_getrf_vector( h_size_getrf );
-            h_work_getrf = h_work_getrf_vector.data();
         }
         lapack::getrf(cols, sampling_dimension, A_sk_trans, n, J_buffer_lu, d_work_getrf, d_size_getrf, h_work_getrf, h_size_getrf, d_info, lapack_queue);
         // Fill the pivot vector, apply swaps found via lu on A_sk'.
@@ -397,8 +394,6 @@ int BQRRP_GPU<T, RNG>::call(
         if(iter == 0) {
             lapack::geqrf_work_size_bytes(sampling_dimension, cols, A_sk_work, d, &d_size_geqrf, &h_size_geqrf, lapack_queue);
             d_work_geqrf = blas::device_malloc< char >( d_size_geqrf, lapack_queue );
-            std::vector<char> h_work_geqrf_vector( h_size_geqrf );
-            h_work_geqrf = h_work_geqrf_vector.data();
         }
         lapack::geqrf(sampling_dimension, cols, A_sk_work, d, Work2, d_work_geqrf, d_size_geqrf, h_work_geqrf, h_size_geqrf, d_info, lapack_queue);
         
@@ -497,10 +492,23 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(J_buffer_lu);
             cudaFree(Work2);
             cudaFree(R_tall_qr);
-            cudaFree(d_work_ormqr);
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap);
             cudaFree(J_copy_col_swap);
+
+            // Freeing workspace info variables
+            blas::device_free(d_info, lapack_queue);
+            cudaFree(d_info_cusolver);
+            blas::device_free(d_work_getrf, lapack_queue);
+            blas::device_free(d_work_geqrf, lapack_queue);
+
+            // At iteration 0, below allocations have not yet taken place
+            if (iter > 0) {
+                cudaFree(d_work_ormqr);
+                if(this -> qr_tall != GPUSubroutine::QRTall::cholqr){
+                    blas::device_free(d_work_geqrf_opt, lapack_queue);
+                }
+            }
             return 0;
         }
         
@@ -656,12 +664,17 @@ int BQRRP_GPU<T, RNG>::call(
                 qr_tall_t_start = steady_clock::now();
             }
             // Perform an unpivoted QR instead of CholQR
-            if(iter == 0) {
+            // Uncommenting the conditional below for the following reason: in contrary to my assumption that the larger 
+            // problem size (the largest problem occurs at iter==0) would require the most amount of device workspace,
+            // on an NVIDIA H100, the most workspace is required at iter==1 (the amount of workspace stays constent afterward).
+            // For a skeptical reviewer, note: this is NOT related to a synch barrier.
+            //if(iter == 0) {
                 lapack::geqrf_work_size_bytes(rows, b_sz, A_work, lda, &d_size_geqrf_opt, &h_size_geqrf_opt, lapack_queue);
                 d_work_geqrf_opt = blas::device_malloc< char >( d_size_geqrf_opt, lapack_queue );
-                std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
-                h_work_geqrf_opt = h_work_geqrf_vector_opt.data();
-            }
+                // Below shoudl not be necessary
+                //std::vector<char> h_work_geqrf_vector_opt( h_size_geqrf_opt );
+                //h_work_geqrf_opt = h_work_geqrf_vector_opt.data();
+            //}
             lapack::geqrf(rows, b_sz, A_work, lda, &tau[curr_sz], d_work_geqrf_opt, d_size_geqrf_opt, h_work_geqrf_opt, h_size_geqrf_opt, d_info, lapack_queue);
             if(this -> timing) {
                 cudaStreamSynchronize(strm);
@@ -811,12 +824,21 @@ int BQRRP_GPU<T, RNG>::call(
             cudaFree(J_buffer); 
             cudaFree(J_buffer_lu);
             cudaFree(Work2);
-            cudaFree(R_tall_qr);
-            cudaFree(d_work_ormqr);        
+            cudaFree(R_tall_qr);    
             cudaFree(A_copy_col_swap);
             cudaFree(A_sk_copy_col_swap); 
             cudaFree(J_copy_col_swap);
 
+            // Freeing workspace info variables
+            blas::device_free(d_info, lapack_queue);
+            cudaFree(d_info_cusolver);
+            blas::device_free(d_work_getrf, lapack_queue);
+            blas::device_free(d_work_geqrf, lapack_queue);
+
+            cudaFree(d_work_ormqr);
+            if(this -> qr_tall != GPUSubroutine::QRTall::cholqr){
+                blas::device_free(d_work_geqrf_opt, lapack_queue);
+            }
             return 0;
         }
         if(this -> timing) {

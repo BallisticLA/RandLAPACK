@@ -96,7 +96,7 @@ set(
 # Performance profiling through GEMM
 add_benchmark(NAME GEMM_flop_count  CXX_SOURCES bench_general/GEMM_flop_count.cc       LINK_LIBS ${Benchmark_libs})
 # Performance profiling through GEQRF
-add_benchmark(NAME GEQRF_flop_count CXX_SOURCES bench_general/GEQRF_flop_count.cc      LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME LAPACK_flop_count CXX_SOURCES bench_general/LAPACK_flop_count.cc    LINK_LIBS ${Benchmark_libs})
 # Lapack functionality benchmark
 add_benchmark(NAME Chol_check       CXX_SOURCES bench_general/Chol_check.cc            LINK_LIBS ${Benchmark_libs})
 # Data conversion helper script
