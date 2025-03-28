@@ -95,7 +95,7 @@ static void R_norm_ratio(
     std::vector<T> R_norms_CQRRPT = get_norms(n, all_data.R, n);
 
     // Declare a data file
-    std::ofstream file1(RandLAPACK::util::getCurrentDateTime<T>() + "_CQRRPT_pivot_quality_metric_1"
+    std::ofstream file1(RandLAPACK::util::get_current_date_time<T>() + "_CQRRPT_pivot_quality_metric_1"
                                                           + "_num_info_lines_" + std::to_string(5) +
                                                             ".txt", std::ios::out | std::ios::trunc);
 
@@ -137,7 +137,7 @@ static void sv_ratio(
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
 
-    std::ofstream file2(RandLAPACK::util::getCurrentDateTime<T>() + "_CQRRPT_pivot_quality_metric_2"
+    std::ofstream file2(RandLAPACK::util::get_current_date_time<T>() + "_CQRRPT_pivot_quality_metric_2"
                                                           + "_num_info_lines_" + std::to_string(6) +
                                                             ".txt", std::ios::out | std::ios::trunc);
     // Writing important data into file

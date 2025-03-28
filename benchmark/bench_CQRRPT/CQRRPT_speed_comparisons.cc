@@ -209,7 +209,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "_CQRRPT_speed_comparisons_" 
+    std::string output_filename = RandLAPACK::util::get_current_date_time<double>() + "_CQRRPT_speed_comparisons_" 
                                                                  + "_num_info_lines_" + std::to_string(7) +
                                                                    ".txt";
 

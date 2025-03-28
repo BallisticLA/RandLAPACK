@@ -429,7 +429,7 @@ int main(int argc, char *argv[]) {
 
     printf("Finished data preparation\n");
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDateTime<double>() + "RBKI_speed_comparisons" 
+    std::string output_filename = RandLAPACK::util::get_current_date_time<double>() + "RBKI_speed_comparisons" 
                                                                 + "_num_info_lines_" + std::to_string(6) +
                                                                 ".txt";
     std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
