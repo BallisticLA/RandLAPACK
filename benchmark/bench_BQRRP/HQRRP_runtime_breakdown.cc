@@ -133,15 +133,18 @@ int main(int argc, char *argv[]) {
     std::string output_filename = "_HQRRP_runtime_breakdown_num_info_lines_" + std::to_string(7) + ".txt";
 
     std::string path;
-    if (std::string(argv[1]) != ".")
+    if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the HQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in HQRRP."
               "\nFile format: 26 data columns, each corresponding to a given HQRRP subroutine (please see /RandLAPACK/drivers/rl_hqrrp.hh for details)"
-              "\nrows correspond to HQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nrows correspond to HQRRP runs with block sizes varying as specified, with numruns repititions of each block size"
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +

@@ -98,14 +98,13 @@ residual_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank) {
 template <typename T, typename RNG>
 static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
-    int64_t numruns,
+    int64_t num_runs,
     int64_t b_sz,
     int64_t num_matmuls,
     int64_t custom_rank,
     RBKI_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
-    std::string output_filename, 
-    long dur_svd) {
+    std::string output_filename) {
     printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);
 
     int i;
@@ -134,7 +133,7 @@ static void call_all_algs(
     auto state_gen = state;
     auto state_alg = state;
 
-    for (i = 0; i < numruns; ++i) {
+    for (i = 0; i < num_runs; ++i) {
         printf("Iteration %d start.\n", i);
         
         // Testing RBKI
@@ -151,7 +150,7 @@ static void call_all_algs(
         printf("sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(traget_rank): %.16e\n", residual_err_target);
         
         std::ofstream file(output_filename, std::ios::app);
-        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",  " << dur_svd << ",\n";
+        file << b_sz << ",  " << RBKI.max_krylov_iters <<  ",  " << target_rank << ",  " << custom_rank << ",  " << residual_err_target << ",  " << residual_err_custom <<  ",  " << dur_rbki  << ",\n";
         state_gen = state;
         state_alg = state;
         data_regen(m_info, all_data, state_gen, 0);
@@ -160,31 +159,39 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    printf("Function begin\n");
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc < 11) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        return 1;
     }
 
-    int64_t m                      = 0;
-    int64_t n                      = 0;
-    int64_t b_sz_start             = 0;
-    int64_t b_sz_stop              = 0;
-    int64_t num_matmuls_start      = 2;
-    int64_t num_matmuls_curr       = num_matmuls_start;
-    int64_t num_matmuls_stop       = 50;
-    int64_t custom_rank            = 10;
-    double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state                     = RandBLAS::RNGState<r123::Philox4x32>();
-    auto state_constant            = state;
-    int numruns                    = 3;
-    long dur_svd = 0;
-    std::vector<long> res;
+    int num_runs        = std::stol(argv[3]);
+    int64_t m           = std::stol(argv[4]);
+    int64_t n           = std::stol(argv[5]);
+    int64_t custom_rank = std::stol(argv[6]);
+    std::vector<int64_t> b_sz;
+    for (int i = 0; i < std::stol(argv[7]); ++i)
+        b_sz.push_back(std::stoi(argv[i + 9]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss1;
+    for (const auto &val : b_sz)
+        oss1 << val << ", ";
+    std::string b_sz_string = oss1.str();
+    std::vector<int64_t> matmuls;
+    for (int i = 0; i < std::stol(argv[8]); ++i)
+        matmuls.push_back(std::stoi(argv[i + 9 + std::stol(argv[7])]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss2;
+    for (const auto &val : matmuls)
+        oss2 << val << ", ";
+    std::string matmuls_string = oss2.str();
+    double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state          = RandBLAS::RNGState();
+    auto state_constant = state;
 
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[1];
+    m_info.filename = argv[2];
     m_info.workspace_query_mod = 1;
     // Workspace query;
     RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
@@ -192,8 +199,6 @@ int main(int argc, char *argv[]) {
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
@@ -202,20 +207,34 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     printf("Finished data preparation\n");
-
     // Declare a data file
-    std::string output_filename = "RBKI_speed_comp_m_"             + std::to_string(m)
-                                      + "_n_"                      + std::to_string(n)
-                                      + "_b_sz_start_"             + std::to_string(b_sz_start)
-                                      + "_b_sz_stop_"              + std::to_string(b_sz_stop)
-                                      + "_num_matmuls_start_" + std::to_string(num_matmuls_start)
-                                      + "_num_matmuls_stop_"  + std::to_string(num_matmuls_stop)
-                                      + ".dat"; 
+    std::string output_filename = "_ABRIK_speed_num_info_lines_" + std::to_string(6) + ".txt";
+    std::string path;
+    if (std::string(argv[1]) != ".") {
+        path = argv[1] + output_filename;
+    } else {
+        path = output_filename;
+    }
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
-    for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
-        for (;num_matmuls_curr <= num_matmuls_stop; ++num_matmuls_curr) {
-            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_data, state_constant, output_filename, dur_svd);
+    // Writing important data into file
+    file << "Description: Results from the ABRIK speed benchmark, recording the time it takes to perform ABRIK."
+              "\nFile format: 6 columns, showing krylov block size, nummber of matmuls permitted, and num svals and svecs to approximate, followed by the residual error, standard lowrank error and execution time for RBKI."
+              "\n Rows correspond to algorithm runs with Krylov block sizes varying as specified, and numbers of matmuls varying as specified per eah block size, with num_runs repititions of each number of matmuls."
+              "\nInput type:"       + std::string(argv[2]) +
+              "\nInput size:"       + std::to_string(m) + " by "             + std::to_string(n) +
+              "\nAdditional parameters: Krylov block sizes "                 + b_sz_string +
+                                        " matmuls: "                         + matmuls_string +
+                                        " num runs per size "                + std::to_string(num_runs) +
+                                        " num singular values and vectors approximated " + std::to_string(custom_rank) +
+              "\n";
+    file.flush();
+
+    size_t i, j = 0;
+    for (;i < b_sz.size(); ++i) {
+        for (;j < matmuls.size(); ++j) {
+            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], custom_rank, all_data, state_constant, path);
         }
-        num_matmuls_curr = num_matmuls_start;
+        j = 0;
     }
 }

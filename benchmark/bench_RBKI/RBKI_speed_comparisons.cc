@@ -375,7 +375,6 @@ int main(int argc, char *argv[]) {
     int64_t n                 = std::stol(argv[6]);
     int64_t custom_rank       = std::stol(argv[7]);
     std::vector<int64_t> b_sz;
-
     for (int i = 0; i < std::stol(argv[8]); ++i)
         b_sz.push_back(std::stoi(argv[i + 10]));
     // Save elements in string for logging purposes
@@ -386,7 +385,6 @@ int main(int argc, char *argv[]) {
     std::vector<int64_t> matmuls;
     for (int i = 0; i < std::stol(argv[9]); ++i)
         matmuls.push_back(std::stoi(argv[i + 10 + std::stol(argv[8])]));
-
     // Save elements in string for logging purposes
     std::ostringstream oss2;
     for (const auto &val : matmuls)
@@ -396,7 +394,6 @@ int main(int argc, char *argv[]) {
     auto state                = RandBLAS::RNGState();
     auto state_constant       = state;
     double norm_A_lowrank     = 0;
-    std::vector<long> res;
 
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
@@ -439,7 +436,7 @@ int main(int argc, char *argv[]) {
 
     printf("Finished data preparation\n");
     // Declare a data file
-    std::string output_filename = "_RBKI_speed_comparisons_num_info_lines_" + std::to_string(6) + ".txt";
+    std::string output_filename = "_ABRIK_speed_comparisons_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;
     if (std::string(argv[1]) != ".") {
         path = argv[1] + output_filename;
@@ -449,9 +446,9 @@ int main(int argc, char *argv[]) {
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
-    file << "Description: Results from the RBKI speed comparison benchmark, recording the time it takes to perform RBKI and alternative methods for low-rank SVD."
-              "\nFile format: 15 columns, showing krylov block size, nummber of matmuls permitted, and num svals and svecs to approximate, followed by the residual error, standard lowrank error and execution time for all algorithms (RBKI, RSVD, SVDS, SVD)"
-              "               rows correspond to algorithm runs with Krylov block sizes varying in powers of 2, and numbers of matmuls varying in powers of two per eah block size, with num_runs repititions of each number of matmuls."
+    file << "Description: Results from the ABRIK speed comparison benchmark, recording the time it takes to perform RBKI and alternative methods for low-rank SVD."
+              "\nFile format: 15 columns, showing krylov block size, nummber of matmuls permitted, and num svals and svecs to approximate, followed by the residual error, standard lowrank error and execution time for all algorithms (ABRIK, RSVD, SVDS, SVD)"
+              "\n Rows correspond to algorithm runs with Krylov block sizes varying as specified, and numbers of matmuls varying as specified per eah block size, with num_runs repititions of each number of matmuls."
               "\nInput type:"       + std::string(argv[2]) +
               "\nInput size:"       + std::to_string(m) + " by "             + std::to_string(n) +
               "\nAdditional parameters: Krylov block sizes "                 + b_sz_string +
@@ -464,7 +461,7 @@ int main(int argc, char *argv[]) {
     size_t i, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], custom_rank, all_algs, all_data, state_constant, output_filename, norm_A_lowrank);
+            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], custom_rank, all_algs, all_data, state_constant, path, norm_A_lowrank);
         }
         j = 0;
     }

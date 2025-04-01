@@ -241,8 +241,11 @@ int main(int argc, char *argv[]) {
     std::string output_filename = "_BQRRP_speed_comparisons_mat_size_num_info_lines_" + std::to_string(7) + ".txt";
 
     std::string path;
-    if (std::string(argv[1]) != ".")
+    if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
