@@ -205,7 +205,7 @@ approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank, T norm_
 template <typename T, typename RNG>
 static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
-    int64_t numruns,
+    int64_t num_runs,
     int64_t b_sz,
     int64_t num_matmuls,
     int64_t custom_rank,
@@ -253,7 +253,7 @@ static void call_all_algs(
     T lowrank_err_RSVD = 0;
     T lowrank_err_SVDS = 0;
 
-    for (i = 0; i < numruns; ++i) {
+    for (i = 0; i < num_runs; ++i) {
         printf("Iteration %d start.\n", i);
         
         // There is no reason to run SVD many times, as it always outputs the same result.
@@ -364,39 +364,49 @@ static void call_all_algs(
 
 int main(int argc, char *argv[]) {
 
-    printf("Function begin\n");
-
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc < 12) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <output_directory_path> <input_matrix_path> <lowrank_matrix_path> <num_runs> <num_rows> <num_cols> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        return 1;
     }
 
-    int64_t m                      = 0;
-    int64_t n                      = 0;
-    int64_t b_sz_start             = 0;
-    int64_t b_sz_stop              = 0;
-    int64_t num_matmuls_start      = 2;
-    int64_t num_matmuls_curr       = num_matmuls_start;
-    int64_t num_matmuls_stop       = 30;
-    int64_t custom_rank            = 10;
-    double tol                     = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state                     = RandBLAS::RNGState();
-    auto state_constant            = state;
-    int numruns                    = 2;
-    double norm_A_lowrank          = 0;
+    int num_runs              = std::stol(argv[4]);
+    int64_t m                 = std::stol(argv[5]);
+    int64_t n                 = std::stol(argv[6]);
+    int64_t custom_rank       = std::stol(argv[7]);
+    std::vector<int64_t> b_sz;
+
+    for (int i = 0; i < std::stol(argv[8]); ++i)
+        b_sz.push_back(std::stoi(argv[i + 10]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss1;
+    for (const auto &val : b_sz)
+        oss1 << val << ", ";
+    std::string b_sz_string = oss1.str();
+    std::vector<int64_t> matmuls;
+    for (int i = 0; i < std::stol(argv[9]); ++i)
+        matmuls.push_back(std::stoi(argv[i + 10 + std::stol(argv[8])]));
+
+    // Save elements in string for logging purposes
+    std::ostringstream oss2;
+    for (const auto &val : matmuls)
+        oss2 << val << ", ";
+    std::string matmuls_string = oss2.str();
+    double tol                = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state                = RandBLAS::RNGState();
+    auto state_constant       = state;
+    double norm_A_lowrank     = 0;
     std::vector<long> res;
 
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[1];
+    m_info.filename = argv[2];
     m_info.workspace_query_mod = 1;
     // Workspace query;
     RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
-    b_sz_start = 16;//std::max((int64_t) 1, n / 10);
-    b_sz_stop  = 128;//std::max((int64_t) 1, n / 10);
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
     // Fill the data matrix;
@@ -413,8 +423,8 @@ int main(int argc, char *argv[]) {
     Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
 
     // Optional pass of lowrank SVD matrix into the benchmark
-    if (argc > 2) {
-        printf("Name passed\n");
+    if (std::string(argv[2]) != ".") {
+        printf("Lowrank A input.\n");
         RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
         m_info_A_svd.filename            = argv[2];
         m_info_A_svd.workspace_query_mod = 0;
@@ -429,31 +439,33 @@ int main(int argc, char *argv[]) {
 
     printf("Finished data preparation\n");
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::get_current_date_time<double>() + "RBKI_speed_comparisons" 
-                                                                + "_num_info_lines_" + std::to_string(6) +
-                                                                ".txt";
-    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
-    std::string input_name_and_path(argv[1]);
+    std::string output_filename = "_RBKI_speed_comparisons_num_info_lines_" + std::to_string(6) + ".txt";
+    std::string path;
+    if (std::string(argv[1]) != ".") {
+        path = argv[1] + output_filename;
+    } else {
+        path = output_filename;
+    }
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the RBKI speed comparison benchmark, recording the time it takes to perform RBKI and alternative methods for low-rank SVD."
               "\nFile format: 15 columns, showing krylov block size, nummber of matmuls permitted, and num svals and svecs to approximate, followed by the residual error, standard lowrank error and execution time for all algorithms (RBKI, RSVD, SVDS, SVD)"
-              "               rows correspond to algorithm runs with Krylov block sizes varying in powers of 2, and numbers of matmuls varying in powers of two per eah block size, with numruns repititions of each number of matmuls."
-              "\nInput type:"       + input_name_and_path +
+              "               rows correspond to algorithm runs with Krylov block sizes varying in powers of 2, and numbers of matmuls varying in powers of two per eah block size, with num_runs repititions of each number of matmuls."
+              "\nInput type:"       + std::string(argv[2]) +
               "\nInput size:"       + std::to_string(m) + " by "             + std::to_string(n) +
-              "\nAdditional parameters: Krylov block size start: "           + std::to_string(b_sz_start) + 
-                                        " Krylov block size end: "           + std::to_string(b_sz_stop) + 
-                                        " num matmuls start: "               + std::to_string(num_matmuls_start) + 
-                                        " num matmuls end: "                 + std::to_string(num_matmuls_stop) + 
-                                        " num runs per size "                + std::to_string(numruns) +
-                                        " num svals and svecs approximated " + std::to_string(custom_rank) +
+              "\nAdditional parameters: Krylov block sizes "                 + b_sz_string +
+                                        " matmuls: "                         + matmuls_string +
+                                        " num runs per size "                + std::to_string(num_runs) +
+                                        " num singular values and vectors approximated " + std::to_string(custom_rank) +
               "\n";
     file.flush();
 
-    for (;b_sz_start <= b_sz_stop; b_sz_start *=2) {
-        for (;num_matmuls_curr <= num_matmuls_stop; num_matmuls_curr*=2) {
-            call_all_algs(m_info, numruns, b_sz_start, num_matmuls_curr, custom_rank, all_algs, all_data, state_constant, output_filename, norm_A_lowrank);
+    size_t i, j = 0;
+    for (;i < b_sz.size(); ++i) {
+        for (;j < matmuls.size(); ++j) {
+            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], custom_rank, all_algs, all_data, state_constant, output_filename, norm_A_lowrank);
         }
-        num_matmuls_curr = num_matmuls_start;
+        j = 0;
     }
 }
