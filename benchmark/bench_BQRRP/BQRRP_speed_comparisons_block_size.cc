@@ -233,15 +233,18 @@ int main(int argc, char *argv[]) {
     std::string output_filename = "_BQRRP_speed_comparisons_block_size_num_info_lines_" + std::to_string(7) + ".txt";
 
     std::string path;
-    if (std::string(argv[1]) != ".")
-        path = argv[1] + output_filename;
+    if (std::string(argv[1]) != ".") {
+        path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
                                                                
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP speed comparison benchmark, recording the time it takes to perform BQRRP and alternative QR and QRCP factorizations."
               "\nFile format: 7 columns, containing time for each algorithm: BQRRP+CholQR, BQRRP+QRF, HQRRP, HQRRP+QRF, HQRRP+CholQR, QRF, QP3;"
-              "               rows correspond to BQRRP runs with block sizes varying in powers of 2 or multiples of 10, with numruns repititions of each block size"
+              "               rows correspond to BQRRP runs with block sizes varying as specified or multiples of 10, with numruns repititions of each block size"
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
