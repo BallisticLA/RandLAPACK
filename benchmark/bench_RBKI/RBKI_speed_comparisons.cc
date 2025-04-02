@@ -371,8 +371,8 @@ int main(int argc, char *argv[]) {
     }
 
     int num_runs              = std::stol(argv[4]);
-    int64_t m                 = std::stol(argv[5]);
-    int64_t n                 = std::stol(argv[6]);
+    int64_t m_expected        = std::stol(argv[5]);
+    int64_t n_expected        = std::stol(argv[6]);
     int64_t custom_rank       = std::stol(argv[7]);
     std::vector<int64_t> b_sz;
     for (int i = 0; i < std::stol(argv[8]); ++i)
@@ -394,6 +394,7 @@ int main(int argc, char *argv[]) {
     auto state                = RandBLAS::RNGState();
     auto state_constant       = state;
     double norm_A_lowrank     = 0;
+    int64_t m = 0, n = 0;
 
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
@@ -401,9 +402,15 @@ int main(int argc, char *argv[]) {
     m_info.workspace_query_mod = 1;
     // Workspace query;
     RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
+
     // Update basic params.
     m = m_info.rows;
     n = m_info.cols;
+    if (m_expected != m || n_expected != n) {
+        std::cerr << "Expected input size did not matrch actual input size. Aborting." << std::endl;
+        return 1;
+    }
+
     // Allocate basic workspace.
     RBKI_benchmark_data<double> all_data(m, n, tol);
     // Fill the data matrix;
