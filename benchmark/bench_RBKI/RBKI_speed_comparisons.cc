@@ -458,7 +458,7 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
-    size_t i, j = 0;
+    size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
             call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], custom_rank, all_algs, all_data, state_constant, path, norm_A_lowrank);
