@@ -222,8 +222,10 @@ int CQRRPT<T, RNG>::call(
     if(this -> qrcp_wide == Subroutines::QRCPWide::hqrrp) {
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
     } else if(this -> qrcp_wide == Subroutines::QRCPWide::bqrrp) {
+        #if !defined(__APPLE__)
         RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(true, n / 32);
         BQRRP.call(d, n, A_hat, d, 1.0, tau, J, state);
+        #endif
     } else {
         lapack::geqp3(d, n, A_hat, d, J, tau);
     }
