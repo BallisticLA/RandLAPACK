@@ -7,6 +7,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+using Subroutines = RandLAPACK::CQRRPTSubroutines;
 
 class TestCQRRPT : public ::testing::Test
 {
@@ -141,7 +142,7 @@ TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
     CQRRPTTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 2;
-    CQRRPT.no_hqrrp = 1;
+    CQRRPT.qrcp_wide = Subroutines::QRCPWide::geqp3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -165,7 +166,31 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
     CQRRPTTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 2;
-    CQRRPT.no_hqrrp = 0;
+    CQRRPT.qrcp_wide = Subroutines::QRCPWide::hqrrp;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+}
+
+TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
+    int64_t m = 10000;
+    int64_t n = 200;
+    int64_t k = 100;
+    double d_factor = 2;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    CQRRPT.nnz = 2;
+    CQRRPT.qrcp_wide = Subroutines::QRCPWide::bqrrp;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
@@ -191,7 +216,7 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     CQRRPTTestData<double> all_data(m, n, k);
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
     CQRRPT.nnz = 2;
-    CQRRPT.no_hqrrp = 1;
+    CQRRPT.qrcp_wide = Subroutines::QRCPWide::geqp3;
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::adverserial);
     m_info.scaling = 1e7;

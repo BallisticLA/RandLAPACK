@@ -241,13 +241,14 @@ int BQRRP_GPU<T, RNG>::call(
 
     /******************************WORKSPACE PARAMETERS*********************************/
     char* d_work_getrf, * d_work_geqrf;
-    char* h_work_getrf, * h_work_geqrf;
+    char* h_work_getrf = nullptr;
+    char* h_work_geqrf = nullptr;
     int lwork_ormqr = 0;
     T *d_work_ormqr = nullptr;
     size_t d_size_getrf, h_size_getrf, d_size_geqrf, h_size_geqrf;
 
-    char* d_work_geqrf_opt;
-    char* h_work_geqrf_opt;
+    char* d_work_geqrf_opt = nullptr;
+    char* h_work_geqrf_opt = nullptr;
     size_t d_size_geqrf_opt, h_size_geqrf_opt;
 
     //*********************************POINTERS TO INPUT DATA BEGIN*********************************
@@ -312,7 +313,6 @@ int BQRRP_GPU<T, RNG>::call(
     // This strategy would still require using buffers of size of the original data.
     T* A_copy_col_swap;
     cudaMallocAsync(&A_copy_col_swap, sizeof(T) * m * n, strm);
-    T* A_copy_col_swap_work = A_copy_col_swap;
 
     T* A_sk_copy_col_swap;
     cudaMallocAsync(&A_sk_copy_col_swap, sizeof(T) * d * n, strm);
@@ -437,7 +437,6 @@ int BQRRP_GPU<T, RNG>::call(
         // Additional thing to remember is that the final copy needs to be performed in terms of b_sz_const, not b_sz.
         std::swap(A_copy_col_swap, A);
         A_work = &A[lda * curr_sz + curr_sz];
-        A_copy_col_swap_work = &A_copy_col_swap[lda * curr_sz + curr_sz];
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, cols, cols, &A[lda * curr_sz], lda, &A_copy_col_swap[lda * curr_sz], lda, J_buffer);
         
         // Checking for the zero matrix post-pivoting is the best idea, 

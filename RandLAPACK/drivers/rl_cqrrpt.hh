@@ -4,6 +4,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_hqrrp.hh"
+#include "rl_bqrrp.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -34,13 +35,19 @@ class CQRRPTalg {
         ) = 0;
 };
 
+// Struct outside of CQRRPT class to make symbols shorter
+struct CQRRPTSubroutines {
+    enum QRCPWide {hqrrp, bqrrp, geqp3};
+};
+
 template <typename T, typename RNG>
 class CQRRPT : public CQRRPTalg<T, RNG> {
     public:
 
+        using Subroutines = CQRRPTSubroutines;
+
         /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
-        /// or through a custom HQRRP function. This decision is controlled through 'no_hqrrp' parameter,
-        /// which defaults to 1.
+        /// or through a custom HQRRP function, or through BQRRP function. GEQP3 is the default option.
         ///
         /// The algorithm allows for choosing the rank estimation scheme either naively, through looking at the
         /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_x.
@@ -59,7 +66,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ) {
             timing = time_subroutines;
             eps = ep;
-            no_hqrrp = 1;
+            qrcp_wide = Subroutines::QRCPWide::geqp3;
             nb_alg = 64;
             oversampling = 10;
             use_cholqr = 0;
@@ -130,8 +137,8 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         // tuning SASOS
         int64_t nnz;
 
-        // HQRRP-related
-        int no_hqrrp;
+        // Wide QRCP-related
+        Subroutines::QRCPWide qrcp_wide;
         int64_t nb_alg;
         int64_t oversampling;
         int64_t panel_pivoting;
@@ -212,10 +219,13 @@ int CQRRPT<T, RNG>::call(
     }
 
     /// Performing QRCP on a sketch
-    if(this->no_hqrrp) {
-        lapack::geqp3(d, n, A_hat, d, J, tau);
-    } else {
+    if(this -> qrcp_wide == Subroutines::QRCPWide::hqrrp) {
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
+    } else if(this -> qrcp_wide == Subroutines::QRCPWide::bqrrp) {
+        RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(true, n / 32);
+        BQRRP.call(d, n, A_hat, d, 1.0, tau, J, state);
+    } else {
+        lapack::geqp3(d, n, A_hat, d, J, tau);
     }
 
     if(this -> timing) {
