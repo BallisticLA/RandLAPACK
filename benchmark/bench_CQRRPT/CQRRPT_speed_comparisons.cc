@@ -131,7 +131,7 @@ static void call_all_algs(
         auto start_cqrrp_hqrrp = steady_clock::now();
         CQRRPT_hqrrp.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         auto stop_cqrrp_hqrrp = steady_clock::now();
-        dur_cqrrpt_default = duration_cast<microseconds>(stop_cqrrp_hqrrp - start_cqrrp_hqrrp).count();
+        dur_cqrrpt_hqrrp = duration_cast<microseconds>(stop_cqrrp_hqrrp - start_cqrrp_hqrrp).count();
         printf("TOTAL TIME FOR CQRRPT hqrrp %ld\n", dur_cqrrpt_hqrrp);
 
         state_gen = state;
@@ -142,7 +142,7 @@ static void call_all_algs(
         auto start_cqrrp_bqrrp = steady_clock::now();
         CQRRPT_bqrrp.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         auto stop_cqrrp_bqrrp = steady_clock::now();
-        dur_cqrrpt_default = duration_cast<microseconds>(stop_cqrrp_bqrrp - start_cqrrp_bqrrp).count();
+        dur_cqrrpt_bqrrp = duration_cast<microseconds>(stop_cqrrp_bqrrp - start_cqrrp_bqrrp).count();
         printf("TOTAL TIME FOR CQRRPT bqrrp %ld\n", dur_cqrrpt_bqrrp);
 
         state_gen = state;
