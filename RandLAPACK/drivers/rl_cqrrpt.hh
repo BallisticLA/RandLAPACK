@@ -67,6 +67,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             qrcp_wide = Subroutines::QRCPWide::geqp3;
+            bqrrp_block_ratio = 1;
             nb_alg = 64;
             oversampling = 10;
             use_cholqr = 0;
@@ -139,6 +140,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
 
         // Wide QRCP-related
         Subroutines::QRCPWide qrcp_wide;
+        double bqrrp_block_ratio;
         int64_t nb_alg;
         int64_t oversampling;
         int64_t panel_pivoting;
@@ -223,7 +225,7 @@ int CQRRPT<T, RNG>::call(
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
     } else if(this -> qrcp_wide == Subroutines::QRCPWide::bqrrp) {
         #if !defined(__APPLE__)
-        RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(true, n / 32);
+        RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(false, n * this->bqrrp_block_ratio);
         BQRRP.call(d, n, A_hat, d, 1.0, tau, J, state);
         #endif
     } else {
