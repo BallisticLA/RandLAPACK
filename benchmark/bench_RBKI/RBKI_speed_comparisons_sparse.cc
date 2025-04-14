@@ -147,7 +147,6 @@ residual_error_comp(SpMat &A, RBKI_benchmark_data<T, SpMat> &all_data, int64_t c
         blas::scal(m, all_data.Sigma[i], &all_data.U_cpy[m * i], 1);
 
     // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-    //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A, m, all_data.VT, n, -1.0, all_data.U_cpy, m);
     all_data.A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.VT, n, -1.0, all_data.U_cpy, m);
 
     // A'U - VS
@@ -158,7 +157,6 @@ residual_error_comp(SpMat &A, RBKI_benchmark_data<T, SpMat> &all_data, int64_t c
         blas::scal(n, all_data.Sigma[i], &all_data.VT_cpy[i], n);
     // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
     // We will actually have to perform U' * A - Sigma * VT.
-    //blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A, m, -1.0, all_data.VT_cpy, n);
     all_data.A_linop(Side::Right, Layout::ColMajor, Op::NoTrans, Op::Trans, custom_rank, n, m, 1.0, all_data.U, m, -1.0, all_data.VT_cpy, n);
 
     T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, all_data.U_cpy, m);
