@@ -24,6 +24,8 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(custom_rank
 #include <Spectra/contrib/PartialSVDSolver.h>
 
 using SpMatrix = Eigen::SparseMatrix<double>;
+using Matrix = Eigen::MatrixXd;
+using Vector = Eigen::VectorXd;
 
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct RBKI_benchmark_data {
@@ -245,24 +247,23 @@ static void call_all_algs(
         data_regen(all_data, state_gen);
 
         // There is no reason to run SVDS many times, as it always outputs the same result.
-        /*
         if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
             auto start_svds = steady_clock::now();
-            Spectra::SparseSVD<Eigen::SparseMatrix<T>> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
+            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
             svds.compute();
             auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
             printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
             // Copy data from Spectra (Eigen) format to the nomal C++.
-            Eigen::MatrixXd U_spectra = svds.matrixU().leftCols(custom_rank);
-            Eigen::MatrixXd V_spectra = svds.matrixV().leftCols(custom_rank);
-            Eigen::VectorXd S_spectra = svds.singularValues().head(custom_rank);
+            Matrix U_spectra = svds.matrix_U(custom_rank);
+            Matrix V_spectra = svds.matrix_V(custom_rank);
+            Vector S_spectra = svds.singular_values();
 
-            Eigen::Map<Eigen::MatrixXd>(all_data.U, m, custom_rank)  = U_spectra;
-            Eigen::Map<Eigen::MatrixXd>(all_data.V, n, custom_rank)  = V_spectra;
-            Eigen::Map<Eigen::VectorXd>(all_data.Sigma, custom_rank) = S_spectra;
+            Eigen::Map<Matrix>(all_data.U, m, custom_rank)  = U_spectra;
+            Eigen::Map<Matrix>(all_data.V, n, custom_rank)  = V_spectra;
+            Eigen::Map<Matrix>(all_data.Sigma, custom_rank) = S_spectra;
 
             RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
@@ -273,7 +274,6 @@ static void call_all_algs(
             state_gen = state;
             data_regen(all_data, state_gen);
         }
-        */
 
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 

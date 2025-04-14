@@ -325,7 +325,7 @@ static void call_all_algs(
         if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
             auto start_svds = steady_clock::now();
-            Spectra::PartialSVDSolver<Eigen::MatrixXd> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
+            Spectra::PartialSVDSolver<Matrix> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
             svds.compute();
             auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
@@ -336,9 +336,9 @@ static void call_all_algs(
             Matrix V_spectra = svds.matrix_V(custom_rank);
             Vector S_spectra = svds.singular_values();
 
-            Eigen::Map<Eigen::MatrixXd>(all_data.U, m, custom_rank)  = U_spectra;
-            Eigen::Map<Eigen::MatrixXd>(all_data.V, n, custom_rank)  = V_spectra;
-            Eigen::Map<Eigen::VectorXd>(all_data.Sigma, custom_rank) = S_spectra;
+            Eigen::Map<Matrix>(all_data.U, m, custom_rank)  = U_spectra;
+            Eigen::Map<Matrix>(all_data.V, n, custom_rank)  = V_spectra;
+            Eigen::Map<Matrix>(all_data.Sigma, custom_rank) = S_spectra;
 
             RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
