@@ -387,9 +387,8 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     cudaStream_t strm = lapack_queue.stream();
     using lapack::device_info_int;
     device_info_int* d_info = blas::device_malloc< device_info_int >( 1, lapack_queue );
-    cusolverDnHandle_t cusolverH = nullptr;
     char* d_work_geqrf_opt;
-    char* h_work_geqrf_opt;
+    char* h_work_geqrf_opt = nullptr;
     size_t d_size_geqrf_opt, h_size_geqrf_opt;
     cudaStreamSynchronize(strm);
 
@@ -406,6 +405,12 @@ TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
         A_device = &A_device[k * lda + k];
         cudaStreamSynchronize(strm);
     }
+
+    free(A);
+    free(tau);
+    cudaFree(A_device);
+    cudaFree(tau_device);
+    blas::device_free(d_work_geqrf_opt, lapack_queue);
 }
 #endif
 #endif

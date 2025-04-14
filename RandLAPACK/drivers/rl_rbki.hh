@@ -133,7 +133,7 @@ class RBKI {
             T* Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
-            linops::SpLinOp<T, SpMat> A_linop(m, n, A, lda, Layout::ColMajor);
+            linops::SpLinOp<T, SpMat> A_linop(m, n, A, Layout::ColMajor);
             return this->call(A_linop, k, U, VT, Sigma, state);
         }
 
@@ -267,7 +267,7 @@ class RBKI {
                 }
 
                 // [X_ev, ~] = qr(A * Y_i, 0)
-                A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
+                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                 if(this -> timing) {
                     gemm_A_t_stop = steady_clock::now();
@@ -307,7 +307,7 @@ class RBKI {
                         if(this -> timing)
                             gemm_A_t_start = steady_clock::now();
                         // Y_i = A' * X_i 
-                        A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, X_i, m, 0.0, Y_i, n);
+                        A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, X_i, m, 0.0, Y_i, n);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
@@ -402,7 +402,7 @@ class RBKI {
                             gemm_A_t_start = steady_clock::now();
 
                         // X_i = A * Y_i
-                        A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
+                        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
