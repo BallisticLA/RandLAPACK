@@ -133,7 +133,7 @@ class RBKI {
             T* Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
-            linops::SpLinOp<T, SpMat> A_linop(m, n, A, lda, Layout::ColMajor);
+            linops::SpLinOp<T, SpMat> A_linop(m, n, A, Layout::ColMajor);
             return this->call(A_linop, k, U, VT, Sigma, state);
         }
 

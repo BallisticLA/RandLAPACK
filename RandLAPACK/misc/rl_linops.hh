@@ -35,16 +35,14 @@ struct SpLinOp {
     const int64_t n_rows;
     const int64_t n_cols;
     SpMat &A_sp;
-    const int64_t lda;
     const Layout buff_layout;
 
     SpLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
         SpMat &A_sp,
-        int64_t lda,
         Layout buff_layout
-    ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp), lda(lda), buff_layout(buff_layout) {
+    ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp), buff_layout(buff_layout) {
         randblas_require(buff_layout == Layout::ColMajor);
     }
 

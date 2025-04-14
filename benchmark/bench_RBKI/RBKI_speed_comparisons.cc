@@ -427,10 +427,10 @@ int main(int argc, char *argv[]) {
     Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
 
     // Optional pass of lowrank SVD matrix into the benchmark
-    if (std::string(argv[2]) != ".") {
+    if (std::string(argv[3]) != ".") {
         printf("Lowrank A input.\n");
         RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
-        m_info_A_svd.filename            = argv[2];
+        m_info_A_svd.filename            = argv[3];
         m_info_A_svd.workspace_query_mod = 0;
         all_data.A_lowrank_svd       = new double[m * n]();
         all_data.A_lowrank_svd_const = new double[m * n]();

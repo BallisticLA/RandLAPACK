@@ -138,7 +138,7 @@ static void call_all_algs(
         state_alg = state;
         data_regen(m_info, all_data, state_gen);
 
-        // Testing CQRRPT hqrrp
+        // Testing CQRRPT bqrrp
         auto start_cqrrp_bqrrp = steady_clock::now();
         CQRRPT_bqrrp.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         auto stop_cqrrp_bqrrp = steady_clock::now();
