@@ -338,7 +338,7 @@ static void call_all_algs(
 
             Eigen::Map<Matrix>(all_data.U, m, custom_rank)  = U_spectra;
             Eigen::Map<Matrix>(all_data.V, n, custom_rank)  = V_spectra;
-            Eigen::Map<Matrix>(all_data.Sigma, custom_rank) = S_spectra;
+            Eigen::Map<Vector>(all_data.Sigma, custom_rank) = S_spectra;
 
             RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
