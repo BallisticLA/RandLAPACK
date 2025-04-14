@@ -20,10 +20,10 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(custom_rank
 #include <fast_matrix_market/fast_matrix_market.hpp>
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
+#include <Eigen/SparseCore>
 #include <Spectra/contrib/PartialSVDSolver.h>
-//#include <Spectra/SparseSVD.h>
-//using SpMatrix = Eigen::SparseMatrix;
-//using SpVector = Eigen::VectorXd;
+
+using SpMatrix = Eigen::SparseMatrix<double>;
 
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct RBKI_benchmark_data {
@@ -43,22 +43,24 @@ struct RBKI_benchmark_data {
     T* Sigma_cpy;
     T* U_cpy;
     T* VT_cpy;
+    SpMatrix A_spectra;
 
     RBKI_benchmark_data(SpMat& input_mat_coo, int64_t m, int64_t n, T tol) :
+    A_spectra(m, n),
     A_linop(m, n, input_mat_coo, Layout::ColMajor)
     {
-        U          = new T[m * n]();
-        VT         = new T[n * n]();
-        V          = new T[n * n]();
-        Sigma      = new T[m]();
-        Buffer     = new T[m * n]();
-        Sigma_cpy  = new T[n * n]();
-        U_cpy      = new T[m * n]();
-        VT_cpy     = new T[n * n]();
+        U         = new T[m * n]();
+        VT        = new T[n * n]();
+        V         = new T[n * n]();
+        Sigma     = new T[m]();
+        Buffer    = new T[m * n]();
+        Sigma_cpy = new T[n * n]();
+        U_cpy     = new T[m * n]();
+        VT_cpy    = new T[n * n]();
 
-        row                 = m;
-        col                 = n;
-        tolerance           = tol;
+        row       = m;
+        col       = n;
+        tolerance = tol;
     }
 
     ~RBKI_benchmark_data() {
@@ -111,6 +113,26 @@ RandBLAS::sparse_data::coo::COOMatrix<T> from_matrix_market(std::string fn) {
     return out;
 }
 
+template <typename T>
+void from_matrix_market(std::string fn, SpMatrix& A) {
+
+    int64_t n_rows, n_cols = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<T> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n_rows, n_cols, rows,  cols, vals
+    );
+
+    std::vector<Eigen::Triplet<T>> tripletList;
+    for (int i = 0; i < vals.size(); ++i) 
+        tripletList.push_back(Eigen::Triplet<T>(rows[i], cols[i], vals[i]));
+
+    A.setFromTriplets(tripletList.begin(), tripletList.end());
+}
+
 // Re-generate and clear data
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data, 
@@ -134,7 +156,7 @@ static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data,
 // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 static T
-residual_error_comp(SpMat &A, RBKI_benchmark_data<T, SpMat> &all_data, int64_t custom_rank) {
+residual_error_comp(RBKI_benchmark_data<T, SpMat> &all_data, int64_t custom_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
@@ -215,7 +237,7 @@ static void call_all_algs(
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
 
-        residual_err_custom_RBKI = residual_error_comp<T>(A, all_data, custom_rank);
+        residual_err_custom_RBKI = residual_error_comp<T>(all_data, custom_rank);
         printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
 
         state_alg = state;
@@ -300,12 +322,11 @@ int main(int argc, char *argv[]) {
     // Allocate basic workspace.
     RBKI_benchmark_data<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(input_mat_coo, m, n, tol);
     all_data.A_input = &input_mat_coo;
+    // Read matrix into spectra format
+    from_matrix_market<double>(std::string(argv[2]), all_data.A_spectra);
 
     // Declare RBKI object
     RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, tol);
-
-    // Copying input data into a Spectra (Eigen) matrix object
-    //Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
 
     printf("Finished data preparation\n");
     // Declare a data file
