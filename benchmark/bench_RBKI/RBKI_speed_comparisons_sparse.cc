@@ -74,7 +74,6 @@ struct RBKI_benchmark_data {
         delete[] Sigma_cpy;
         delete[] U_cpy;
         delete[] VT_cpy;
-        free(A_input);
     }
 };
 
@@ -247,7 +246,7 @@ static void call_all_algs(
         data_regen(all_data, state_gen);
 
         // There is no reason to run SVDS many times, as it always outputs the same result.
-        if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
+        //if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
             auto start_svds = steady_clock::now();
             Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
@@ -273,12 +272,14 @@ static void call_all_algs(
             state_alg = state;
             state_gen = state;
             data_regen(all_data, state_gen);
-        }
+        //}
 
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 
-        << residual_err_custom_RBKI << ",  " <<  ",  " << dur_rbki    << ",  " 
-        << residual_err_custom_SVDS << ",  " <<  ",  " << dur_svds    << ",\n";
+        << residual_err_custom_RBKI <<  ",  " << dur_rbki    << ",  " 
+        << residual_err_custom_SVDS <<  ",  " << dur_svds    << ",\n";
+
+        printf("Done\n");
     }
 }
 
@@ -314,10 +315,10 @@ int main(int argc, char *argv[]) {
     double norm_A_lowrank      = 0;
 
     // Read the input fast matrix market data
+    // The idea is that input_mat_coo will be automatically freed at the end of function execution
     auto input_mat_coo = from_matrix_market<double>(std::string(argv[2]));
     auto m = input_mat_coo.n_rows;
     auto n = input_mat_coo.n_cols;
-    //linops::SpLinOp<T, SpMat> A_linop(m, n, input_mat_coo, Layout::ColMajor);
 
     // Allocate basic workspace.
     RBKI_benchmark_data<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(input_mat_coo, m, n, tol);

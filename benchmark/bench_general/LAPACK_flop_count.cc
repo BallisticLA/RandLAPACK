@@ -164,3 +164,30 @@ int main(int argc, char *argv[]) {
     }
     return 0;
 }
+
+/*
+int main(int argc, char *argv[]) {
+
+    int64_t m = 16384;
+    int64_t n = 16384;
+    // Generate the input matrix - gaussian suffices for performance tests.
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::kahan);
+    m_info.theta   = 1.2;
+    m_info.perturb = 1e3;
+
+    double* A = new double[m * n]();
+    double* U = new double[m * n]();
+    double* VT = new double[m * n]();
+    double* Sigma = new double[m]();
+    auto state = RandBLAS::RNGState<r123::Philox4x32>();
+    RandLAPACK::gen::mat_gen(m_info, A, state);
+
+    lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, A, m, Sigma, U, m, VT, n);
+
+    std::ofstream file("Kahan_spectrum.txt", std::ios::out | std::ios::app);
+    for (int i = 0; i < n; ++i){
+        file << Sigma[i] << ",  ";
+    }
+    file  << "\n";
+}
+*/
