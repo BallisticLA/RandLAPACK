@@ -170,8 +170,8 @@ int main(int argc, char *argv[]) {
 
 template <typename T>
 void _LAPACK_gejsv(
-    lapack::Job joba, lapack::Job jobu, lapack::Job jobv, lapack::Job jobr,
-    lapack::Job jobt, lapack::Job jobp,
+    char joba, char jobu, char jobv, char jobr,
+    char jobt, char jobp,
     int64_t m, int64_t n,
     T *A, int64_t lda,
     T *S,
@@ -182,12 +182,12 @@ void _LAPACK_gejsv(
     int64_t* info
 ){
 
-    char joba_ = lapack::to_char( joba );
-    char jobu_ = lapack::to_char( jobu );
-    char jobv_ = lapack::to_char( jobv );
-    char jobr_ = lapack::to_char( jobr );
-    char jobt_ = lapack::to_char( jobt );;
-    char jobp_ = lapack::to_char( jobp );
+    char joba_ = joba; //lapack::to_char( joba );
+    char jobu_ = jobu; //lapack::to_char( jobu );
+    char jobv_ = jobv; //lapack::to_char( jobv );
+    char jobr_ = jobr; //lapack::to_char( jobr );
+    char jobt_ = jobt; //lapack::to_char( jobt );;
+    char jobp_ = jobp; //lapack::to_char( jobp );
 
     lapack_int m_   = (lapack_int) m;
     lapack_int n_   = (lapack_int) n;
@@ -236,32 +236,22 @@ int main(int argc, char *argv[]) {
 
     //lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, A, m, Sigma, U, m, VT, n);
 
-    int64_t info[1];
-    double work_query[1];
-    int64_t lwork[1];
-    int64_t iwork_qry[1];
-    lwork[0] = -1;
-
-    _LAPACK_gejsv(
-        Job::AllVec, Job::AllVec, Job::AllVec, Job::AllVec,
-        Job::AllVec, Job::AllVec,
-        m, n,
-        A, m,
-        Sigma,
-        U, m,
-        VT, m,
-        work_query, lwork,
-        iwork_qry,
-        info
-    );
-
-    lwork[0] = std::max((int64_t) blas::real(work_query[0]), n);
-    double* buff_workspace  = new double[lwork[0]]();
+    char joba = 'C'; 
+    char jobu = 'U';
+    char jobv = 'V';
+    char jobr = 'N';
+    char jobt = 'N';
+    char jobp = 'N';
+    
+    double* buff_workspace  = new double[8 * m * n]();
+    int64_t lwork[1]; 
+    lwork[0] = 8 * m * n;
     int64_t iwork[8 * std::min(m,n)];
+    int64_t info[1];
 
     _LAPACK_gejsv(
-        Job::AllVec, Job::AllVec, Job::AllVec, Job::AllVec,
-        Job::AllVec, Job::AllVec,
+        joba, jobu, jobv, jobr,
+        jobt, jobp,
         m, n,
         A, m,
         Sigma,
