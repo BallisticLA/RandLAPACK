@@ -171,8 +171,8 @@ static void sv_ratio(
               "\n";
     file.flush();
 
-    T* R_dat = all_data.A.data();
     T* S_dat = all_data.S.data();
+    T* R_dat = nullptr;
 
     // Running SVD
     lapack::gesdd(Job::NoVec, m, n, all_data.A.data(), m, all_data.S.data(), (T*) nullptr, m, (T*) nullptr, n);
@@ -184,6 +184,7 @@ static void sv_ratio(
     // Running GEQP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
 
+    R_dat = all_data.A.data();
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i){
         file << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
@@ -198,6 +199,7 @@ static void sv_ratio(
     state_alg = state;
     BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
 
+    R_dat = all_data.A.data();
     // Write the 2nd metric info into a file.
     for (int i = 0; i < n; ++i) {
         file << std::abs(R_dat[(m + 1) * i] / S_dat[i]) << ",  ";
