@@ -96,7 +96,7 @@ static void R_norm_ratio(
     // Running BQRRP
     state_alg = state;
     BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
-    printf("%ld\n", BQRRP.rank);
+
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 
     // Declare a data file
@@ -120,8 +120,10 @@ static void R_norm_ratio(
     file.flush();
 
     // Write the 1st metric info into a file.
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < n; ++i) {
         file << R_norms_HQRRP[i] / R_norms_BQRRP[i] << ",  ";
+    }
+    file  << "\n";
 
     // Clear and re-generate data
     state_gen = state;
