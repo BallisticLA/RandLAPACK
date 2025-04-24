@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
         info
     );
 
-    std::string output_filename = "Kahan_Spectrum" + std::to_string(7) + ".txt";
+    std::string output_filename = "_Kahan_Spectrum_num_info_lines_" + std::to_string(4) + ".txt";
     std::string path;
     if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
