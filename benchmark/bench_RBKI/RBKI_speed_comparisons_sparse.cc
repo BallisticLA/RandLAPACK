@@ -38,11 +38,6 @@ struct RBKI_benchmark_data {
     T* VT; // RBKI returns V'
     T* V;  // RSVD returns V
     T* Sigma;
-    T* U_RSVD;
-    T* V_RSVD;
-    T* Sigma_RSVD;
-    T* Buffer;
-    T* Sigma_cpy;
     T* U_cpy;
     T* VT_cpy;
     SpMatrix A_spectra;
@@ -55,8 +50,6 @@ struct RBKI_benchmark_data {
         VT        = new T[n * n]();
         V         = new T[n * n]();
         Sigma     = new T[m]();
-        Buffer    = new T[m * n]();
-        Sigma_cpy = new T[n * n]();
         U_cpy     = new T[m * n]();
         VT_cpy    = new T[n * n]();
 
@@ -71,7 +64,6 @@ struct RBKI_benchmark_data {
         delete[] V;
         delete[] Sigma;
         delete[] Buffer;
-        delete[] Sigma_cpy;
         delete[] U_cpy;
         delete[] VT_cpy;
     }
@@ -146,9 +138,6 @@ static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data,
     std::fill(all_data.VT,        &all_data.VT[n * n],        0.0);
     std::fill(all_data.V,         &all_data.V[n * n],         0.0);
     std::fill(all_data.Sigma,     &all_data.Sigma[n],         0.0);
-
-    std::fill(all_data.Buffer,    &all_data.Buffer[m * n],    0.0);
-    std::fill(all_data.Sigma_cpy, &all_data.Sigma_cpy[n * n], 0.0);
     std::fill(all_data.U_cpy,     &all_data.U_cpy[m * n],     0.0);
     std::fill(all_data.VT_cpy,    &all_data.VT_cpy[n * n],    0.0);
 }

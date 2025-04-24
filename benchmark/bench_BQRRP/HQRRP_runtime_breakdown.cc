@@ -71,7 +71,7 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    T* times  = ( T * ) calloc( 27, sizeof( T ) );
+    T* times = new T[27]();
     T** times_ptr = &times;
 
     for (int i = 0; i < numruns; ++i) {
@@ -91,7 +91,7 @@ static void call_all_algs(
         state_alg = state;
     }
 
-    free(times);
+    delete[] times;
 }
 
 int main(int argc, char *argv[]) {

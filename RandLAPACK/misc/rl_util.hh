@@ -450,10 +450,6 @@ void rl_orhr_col(
         blas::scal(m - (i + 1), 1 / A[i * (lda + 1)], &A[(lda + 1) * i + 1], 1);
         // Perform Schur compliment update
         // A(i+1:m, i+1:n) = A(i+1:m, i+1:n) - (A(i+1:m, i) * A(i, i+1:n))
-        
-        char name [] = "In";
-        RandLAPACK::util::print_colmaj(m, n, A, m, name);
-
         blas::ger(Layout::ColMajor, m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], m, &A[(lda + 1) * (i + 1)], lda);	
     }
 

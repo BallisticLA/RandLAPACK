@@ -24,32 +24,32 @@ class TestRBKI : public ::testing::Test
         T* A;
         T* A_buff;
         T* U;
-        T* VT; // RBKI returns V'
+        T* V; 
         T* Sigma;
         T* U_cpy;
-        T* VT_cpy;
+        T* V_cpy;
 
         RBKITestData(int64_t m, int64_t n)
         {
             A      = new T[m * n]();
             A_buff = new T[m * n]();
-            U      = new T[m * n]();
-            VT     = new T[n * n]();
-            Sigma  = new T[n]();
-            U_cpy  = new T[m * n]();
-            VT_cpy = new T[n * n]();
-            row   = m;
-            col   = n;
+            U      = nullptr;
+            V      = nullptr;
+            Sigma  = nullptr;
+            U_cpy  = nullptr;
+            V_cpy  = nullptr;
+            row    = m;
+            col    = n;
         }
 
         ~RBKITestData() {
             delete[] A;
             delete[] A_buff;
             delete[] U;
-            delete[] VT;
+            delete[] V;
             delete[] Sigma;
             delete[] U_cpy;
-            delete[] VT_cpy;
+            delete[] V_cpy;
         }
     };
 
@@ -60,20 +60,20 @@ class TestRBKI : public ::testing::Test
         SpMat A;
         T*  A_buff;
         T*  U;
-        T*  VT; // RBKI returns V'
+        T*  V; // RBKI returns V'
         T*  Sigma;
         T*  U_cpy;
-        T*  VT_cpy;
+        T*  V_cpy;
 
         RBKITestDataSparse(int64_t m, int64_t n) :
         A(m, n)
         {
             A_buff = new T[m * n]();
-            U      = new T[m * n]();
-            VT     = new T[n * n]();
-            Sigma  = new T[n]();
-            U_cpy  = new T[m * n]();
-            VT_cpy = new T[n * n]();
+            U      = nullptr;
+            V      = nullptr;
+            Sigma  = nullptr;
+            U_cpy  = nullptr;
+            V_cpy  = nullptr;
             row    = m;
             col    = n;
         }
@@ -81,10 +81,10 @@ class TestRBKI : public ::testing::Test
         ~RBKITestDataSparse() {
             delete[] A_buff;
             delete[] U;
-            delete[] VT;
+            delete[] V;
             delete[] Sigma;
             delete[] U_cpy;
-            delete[] VT_cpy;
+            delete[] V_cpy;
         }
     };
 
@@ -96,33 +96,30 @@ class TestRBKI : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        T* U_cpy_dat = all_data.U_cpy;
-        T* VT_cpy_dat = all_data.VT_cpy;
+        all_data.U_cpy = new T[m * custom_rank]();
+        all_data.V_cpy = new T[n * custom_rank]();
 
-        lapack::lacpy(MatrixType::General, m, n, all_data.U, m, U_cpy_dat, m);
-        lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, VT_cpy_dat, n);
+        lapack::lacpy(MatrixType::General, m, custom_rank, all_data.U, m, all_data.U_cpy, m);
+        lapack::lacpy(MatrixType::General, n, custom_rank, all_data.V, n, all_data.V_cpy, n);
 
         // AV - US
         // Scale columns of U by S
         for (int i = 0; i < custom_rank; ++i)
-            blas::scal(m, all_data.Sigma[i], &U_cpy_dat[m * i], 1);
+            blas::scal(m, all_data.Sigma[i], &all_data.U_cpy[m * i], 1);
 
         // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.A_buff, m, all_data.VT, n, -1.0, U_cpy_dat, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, custom_rank, n, 1.0, all_data.A_buff, m, all_data.V, n, -1.0, all_data.U_cpy, m);
 
 
         // A'U - VS
         // Scale columns of V by S
-        // Since we have VT, we will be scaling its rows
-        // The data is, however, stored in a column-major format, so it is a bit weird.
         for (int i = 0; i < custom_rank; ++i)
-            blas::scal(n, all_data.Sigma[i], &VT_cpy_dat[i], n);
+            blas::scal(n, all_data.Sigma[i], &all_data.V_cpy[i * n], 1);
         // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
-        // We will actually have to perform U' * A - Sigma * VT.
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, custom_rank, n, m, 1.0, all_data.U, m, all_data.A_buff, m, -1.0, VT_cpy_dat, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, custom_rank, m, 1.0, all_data.A_buff, m, all_data.U, m, -1.0, all_data.V_cpy, n);
 
-        T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, U_cpy_dat, m);
-        T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, VT_cpy_dat, n);
+        T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, all_data.U_cpy, m);
+        T nrm2 = lapack::lange(Norm::Fro, n, custom_rank, all_data.V_cpy, n);
 
         return std::hypot(nrm1, nrm2);
     }
@@ -141,14 +138,35 @@ class TestRBKI : public ::testing::Test
         auto n = all_data.col;
         RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
 
-        RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state);
-        // Compute singular values via a deterministic method
+        RBKI.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state);
 
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
         printf("residual_err_custom %e\n", residual_err_custom);
         ASSERT_LE(residual_err_custom, 10 * std::pow(std::numeric_limits<T>::epsilon(), 0.825));
     }
 };
+
+
+TEST_F(TestRBKI, RBKI_basic1) {
+    int64_t m           = 10;
+    int64_t n           = 5;
+    int64_t b_sz        = 1;
+    int64_t target_rank = 5;
+    int64_t custom_rank = 3;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    RBKITestData<double> all_data(m, n);
+    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, false, tol);
+    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
+    RBKI.num_threads_min = 1;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A, m, all_data.A_buff, m);
+
+    test_RBKI_general<double>(b_sz, target_rank, custom_rank, all_data, RBKI, state);
+}
 
 TEST_F(TestRBKI, RBKI_basic) {
     int64_t m           = 400;

@@ -81,13 +81,13 @@ class RBKI {
         ///     Sampling dimension of a sketching operator, m >= (k * n) >= n.
         ///
         /// @param[in] U
-        ///     On output, an empty matrix.
+        ///     On input, a nullptr
         ///
-        /// @param[in] VT
-        ///     On output, an empty matrix.
+        /// @param[in] V
+        ///     On input, a nullptr
         ///
         /// @param[in] Sigma
-        ///     On output, an empty matrix.
+        ///     On input, a nullptr
         ///
         /// @param[in] state
         ///     RNG state parameter, required for sketching operator generation.
@@ -95,8 +95,8 @@ class RBKI {
         /// @param[out] U
         ///     Stores m by ((num_iters / 2) * k) orthonormal matrix of left singular vectors.
         ///
-        /// @param[out] VT
-        ///     Stores ((num_iters / 2) * k) * n orthonormal matrix of right singular vectors.
+        /// @param[out] V
+        ///     Stores n by ((num_iters / 2) * k) orthonormal matrix of right singular vectors.
         ///
         /// @param[out] Sigma
         ///     Stores ((num_iters / 2) * k) singular values. 
@@ -111,13 +111,13 @@ class RBKI {
             T* A,
             int64_t lda,
             int64_t k,
-            T* U,
-            T* VT,
-            T* Sigma,
+            T* &U,
+            T* &V,
+            T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
             linops::GenLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
-            return this->call(A_linop, k, U, VT, Sigma, state);
+            return this->call(A_linop, k, U, V, Sigma, state);
         }
 
         // RBKI call that accepts sparse matrix.
@@ -128,22 +128,22 @@ class RBKI {
             SpMat &A,
             int64_t lda,
             int64_t k,
-            T* U,
-            T* VT,
-            T* Sigma,
+            T* &U,
+            T* &V,
+            T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
             linops::SpLinOp<T, SpMat> A_linop(m, n, A, Layout::ColMajor);
-            return this->call(A_linop, k, U, VT, Sigma, state);
+            return this->call(A_linop, k, U, V, Sigma, state);
         }
 
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
             int64_t k,
-            T* U,
-            T* VT,
-            T* Sigma,
+            T* &U,
+            T* &V,
+            T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ){
                 steady_clock::time_point allocation_t_start;
@@ -532,6 +532,11 @@ class RBKI {
                     get_factors_t_start  = steady_clock::now();
                 }
 
+
+                Sigma = new T[n]();
+                U     = new T[m * n]();
+                V    = new T[n * n]();
+
                 if (iter % 2 != 0) {
                     // [U_hat, Sigma, V_hat] = svd(R')
                     lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
@@ -543,8 +548,7 @@ class RBKI {
                 // U = X_ev * U_hat
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
                 // V = Y_od * V_hat
-                // We actually perform VT = V_hat' * Y_odd'
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols, 1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
 
                 if(this -> timing) {
                     get_factors_t_stop  = steady_clock::now();
