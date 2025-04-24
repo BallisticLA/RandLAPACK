@@ -63,7 +63,6 @@ struct RBKI_benchmark_data {
         delete[] VT;
         delete[] V;
         delete[] Sigma;
-        delete[] Buffer;
         delete[] U_cpy;
         delete[] VT_cpy;
     }

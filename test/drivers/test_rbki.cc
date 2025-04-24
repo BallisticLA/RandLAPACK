@@ -60,7 +60,7 @@ class TestRBKI : public ::testing::Test
         SpMat A;
         T*  A_buff;
         T*  U;
-        T*  V; // RBKI returns V'
+        T*  V; 
         T*  Sigma;
         T*  U_cpy;
         T*  V_cpy;
@@ -109,7 +109,6 @@ class TestRBKI : public ::testing::Test
 
         // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, custom_rank, n, 1.0, all_data.A_buff, m, all_data.V, n, -1.0, all_data.U_cpy, m);
-
 
         // A'U - VS
         // Scale columns of V by S

@@ -533,9 +533,9 @@ class RBKI {
                 }
 
 
-                Sigma = new T[n]();
-                U     = new T[m * n]();
-                V    = new T[n * n]();
+                Sigma = new T[std::min(end_cols, end_rows)]();
+                U     = new T[m * end_cols]();
+                V     = new T[n * end_cols]();
 
                 if (iter % 2 != 0) {
                     // [U_hat, Sigma, V_hat] = svd(R')
