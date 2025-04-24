@@ -80,7 +80,6 @@ int main(int argc, char *argv[]) {
     double* U     = new double[m * n]();
     double* VT    = new double[m * n]();
     double* Sigma = new double[m]();
-    double* work  = new double[m * n]();
     auto state    = RandBLAS::RNGState<r123::Philox4x32>();
     RandLAPACK::gen::mat_gen(m_info, A, state);
 
