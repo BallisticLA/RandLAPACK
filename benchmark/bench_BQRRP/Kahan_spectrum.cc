@@ -85,8 +85,8 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, A, state);
 
     char joba = 'C'; 
-    char jobu = 'U';
-    char jobv = 'V';
+    char jobu = 'N';
+    char jobv = 'N';
     char jobr = 'N';
     char jobt = 'N';
     char jobp = 'N';
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
         info
     );
 
-    std::string output_filename = "_BQRRP_runtime_breakdown_num_info_lines_" + std::to_string(7) + ".txt";
+    std::string output_filename = "Kahan_Spectrum" + std::to_string(7) + ".txt";
     std::string path;
     if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
