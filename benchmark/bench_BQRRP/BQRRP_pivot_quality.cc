@@ -322,7 +322,7 @@ int main(int argc, char *argv[]) {
     //m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    //R_norm_ratio(m_info, b_sz, all_data, state_constant1, path);
+    R_norm_ratio(m_info, b_sz, all_data, state_constant1, path);
     printf("Pivot quality metric 1 done\n");
     sv_ratio(m_info, b_sz, all_data, state_constant2, path);
     printf("Pivot quality metric 2 done\n\n");
