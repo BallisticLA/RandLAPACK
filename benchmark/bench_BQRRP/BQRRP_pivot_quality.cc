@@ -51,12 +51,12 @@ void _LAPACK_gejsv(
     int64_t* info
 ){
 
-    char joba_ = joba; //lapack::to_char( joba );
-    char jobu_ = jobu; //lapack::to_char( jobu );
-    char jobv_ = jobv; //lapack::to_char( jobv );
-    char jobr_ = jobr; //lapack::to_char( jobr );
-    char jobt_ = jobt; //lapack::to_char( jobt );;
-    char jobp_ = jobp; //lapack::to_char( jobp );
+    char joba_ = joba; 
+    char jobu_ = jobu; 
+    char jobv_ = jobv; 
+    char jobr_ = jobr; 
+    char jobt_ = jobt; 
+    char jobp_ = jobp; 
 
     lapack_int m_   = (lapack_int) m;
     lapack_int n_   = (lapack_int) n;
