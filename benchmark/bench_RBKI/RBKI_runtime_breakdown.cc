@@ -58,8 +58,9 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     auto m = all_data.row;
     auto n = all_data. col;
 
-    if (overwrite_A)
+    if (overwrite_A) {
         RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    }
     delete[] all_data.U;
     delete[] all_data.V;
     delete[] all_data.Sigma;

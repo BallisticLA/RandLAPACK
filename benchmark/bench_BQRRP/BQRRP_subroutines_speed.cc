@@ -103,6 +103,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     auto state   = state_const;
     auto state_B = state_const_B;
+    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     
     if(bench_type == 1) {

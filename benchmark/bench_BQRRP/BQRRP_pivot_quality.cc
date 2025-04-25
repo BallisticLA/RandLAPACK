@@ -91,7 +91,8 @@ template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
-
+    
+    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
@@ -238,7 +239,7 @@ static void sv_ratio(
     lwork[0] = 8 * m * n;
     int64_t iwork[8 * std::min(m,n)];
     int64_t info[1];
-
+    
     _LAPACK_gejsv(
         joba, jobu, jobv, jobr,
         jobt, jobp,
@@ -251,7 +252,7 @@ static void sv_ratio(
         iwork,
         info
     );
-
+        
     // Clear and re-generate data
     state_gen = state;
     data_regen(m_info, all_data, state_gen);
@@ -310,6 +311,7 @@ int main(int argc, char *argv[]) {
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, d_factor);
+    
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::kahan);
     m_info.theta   = 1.2;
@@ -320,7 +322,7 @@ int main(int argc, char *argv[]) {
     //m_info.scaling = std::pow(10, 10);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
-    R_norm_ratio(m_info, b_sz, all_data, state_constant1, path);
+    //R_norm_ratio(m_info, b_sz, all_data, state_constant1, path);
     printf("Pivot quality metric 1 done\n");
     sv_ratio(m_info, b_sz, all_data, state_constant2, path);
     printf("Pivot quality metric 2 done\n\n");
