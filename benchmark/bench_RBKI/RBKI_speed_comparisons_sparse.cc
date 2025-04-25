@@ -35,23 +35,21 @@ struct RBKI_benchmark_data {
     SpMat* A_input;
     RandLAPACK::linops::SpLinOp<T, SpMat> A_linop;
     T* U;
-    T* VT; // RBKI returns V'
-    T* V;  // RSVD returns V
+    T* V; 
     T* Sigma;
     T* U_cpy;
-    T* VT_cpy;
+    T* V_cpy;
     SpMatrix A_spectra;
 
     RBKI_benchmark_data(SpMat& input_mat_coo, int64_t m, int64_t n, T tol) :
     A_spectra(m, n),
     A_linop(m, n, input_mat_coo, Layout::ColMajor)
     {
-        U         = new T[m * n]();
-        VT        = new T[n * n]();
-        V         = new T[n * n]();
-        Sigma     = new T[m]();
-        U_cpy     = new T[m * n]();
-        VT_cpy    = new T[n * n]();
+        U     = new T[m * n]();
+        V     = nullptr;
+        Sigma = nullptr;
+        U_cpy = nullptr;
+        V_cpy = nullptr;
 
         row       = m;
         col       = n;
@@ -60,11 +58,10 @@ struct RBKI_benchmark_data {
 
     ~RBKI_benchmark_data() {
         delete[] U;
-        delete[] VT;
         delete[] V;
         delete[] Sigma;
         delete[] U_cpy;
-        delete[] VT_cpy;
+        delete[] V_cpy;
     }
 };
 
@@ -133,45 +130,49 @@ static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data,
     auto m = all_data.row;
     auto n = all_data.col;
 
-    std::fill(all_data.U,      &all_data.U[m * n],      0.0);
-    std::fill(all_data.VT,     &all_data.VT[n * n],     0.0);
-    std::fill(all_data.V,      &all_data.V[n * n],      0.0);
-    std::fill(all_data.Sigma,  &all_data.Sigma[n],      0.0);
-    std::fill(all_data.U_cpy,  &all_data.U_cpy[m * n],  0.0);
-    std::fill(all_data.VT_cpy, &all_data.VT_cpy[n * n], 0.0);
+    delete[] all_data.U;
+    delete[] all_data.V;
+    delete[] all_data.Sigma;
+    delete[] all_data.U_cpy;
+    delete[] all_data.V_cpy;
+    all_data.U     = nullptr;
+    all_data.V     = nullptr;
+    all_data.Sigma = nullptr;
+    all_data.U_cpy = nullptr;
+    all_data.V_cpy = nullptr;
 }
 
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
 // in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
-template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
+template <typename T, typename TestData>
 static T
-residual_error_comp(RBKI_benchmark_data<T, SpMat> &all_data, int64_t custom_rank) {
+residual_error_comp(TestData &all_data, int64_t custom_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
-    lapack::lacpy(MatrixType::General, m, n, all_data.U, m, all_data.U_cpy, m);
-    lapack::lacpy(MatrixType::General, n, n, all_data.VT, n, all_data.VT_cpy, n);
-    
+    all_data.U_cpy = new T[m * custom_rank]();
+    all_data.V_cpy = new T[n * custom_rank]();
+
+    lapack::lacpy(MatrixType::General, m, custom_rank, all_data.U, m, all_data.U_cpy, m);
+    lapack::lacpy(MatrixType::General, n, custom_rank, all_data.V, n, all_data.V_cpy, n);
+
     // AV - US
     // Scale columns of U by S
     for (int i = 0; i < custom_rank; ++i)
         blas::scal(m, all_data.Sigma[i], &all_data.U_cpy[m * i], 1);
 
     // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-    all_data.A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::Trans, m, custom_rank, n, 1.0, all_data.VT, n, -1.0, all_data.U_cpy, m);
+    all_data.A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, custom_rank, n, 1.0, all_data.V, n, -1.0, all_data.U_cpy, m);
 
     // A'U - VS
     // Scale columns of V by S
-    // Since we have VT, we will be scaling its rows
-    // The data is, however, stored in a column-major format, so it is a bit weird.
     for (int i = 0; i < custom_rank; ++i)
-        blas::scal(n, all_data.Sigma[i], &all_data.VT_cpy[i], n);
+        blas::scal(n, all_data.Sigma[i], &all_data.V_cpy[i * n], 1);
     // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
-    // We will actually have to perform U' * A - Sigma * VT.
-    all_data.A_linop(Side::Right, Layout::ColMajor, Op::NoTrans, Op::Trans, custom_rank, n, m, 1.0, all_data.U, m, -1.0, all_data.VT_cpy, n);
+    all_data.A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, custom_rank, m, 1.0, all_data.U, m, -1.0, all_data.V_cpy, n);
 
     T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, all_data.U_cpy, m);
-    T nrm2 = lapack::lange(Norm::Fro, custom_rank, n, all_data.VT_cpy, n);
+    T nrm2 = lapack::lange(Norm::Fro, n, custom_rank, all_data.V_cpy, n);
 
     return std::hypot(nrm1, nrm2);
 }
@@ -221,7 +222,7 @@ static void call_all_algs(
     
         // Running RBKI
         auto start_rbki = steady_clock::now();
-        all_algs.RBKI.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.VT, all_data.Sigma, state_alg);
+        all_algs.RBKI.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
         auto stop_rbki = steady_clock::now();
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
@@ -251,8 +252,6 @@ static void call_all_algs(
             Eigen::Map<Matrix>(all_data.U, m, custom_rank)  = U_spectra;
             Eigen::Map<Matrix>(all_data.V, n, custom_rank)  = V_spectra;
             Eigen::Map<Vector>(all_data.Sigma, custom_rank) = S_spectra;
-
-            RandLAPACK::util::transposition(n, n, all_data.V, n, all_data.VT, n, 0);
 
             residual_err_custom_SVDS = residual_error_comp<T>(all_data, custom_rank);
             printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);

@@ -60,13 +60,12 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     if (overwrite_A)
         RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
-    //delete[] all_data.U     = nullptr;
-    //delete[] all_data.V     = nullptr;
-    //delete[] all_data.Sigma = nullptr;
-
-    all_data.U;
-    all_data.V;
-    all_data.Sigma;
+    delete[] all_data.U;
+    delete[] all_data.V;
+    delete[] all_data.Sigma;
+    all_data.U     = nullptr;
+    all_data.V     = nullptr;
+    all_data.Sigma = nullptr;
 }
 
 template <typename T, typename RNG>
@@ -127,8 +126,8 @@ int main(int argc, char *argv[]) {
     }
 
     int num_runs        = std::stol(argv[3]);
-    int64_t m_expected        = std::stol(argv[5]);
-    int64_t n_expected        = std::stol(argv[6]);
+    int64_t m_expected  = std::stol(argv[5]);
+    int64_t n_expected  = std::stol(argv[6]);
     int64_t custom_rank = std::stol(argv[6]);
     std::vector<int64_t> b_sz;
     for (int i = 0; i < std::stol(argv[7]); ++i)
