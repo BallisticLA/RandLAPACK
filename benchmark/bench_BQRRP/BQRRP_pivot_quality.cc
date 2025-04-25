@@ -224,7 +224,7 @@ static void sv_ratio(
     T* R_dat = nullptr;
 
     // Running SVD
-    lapack::gesdd(Job::NoVec, m, n, all_data.A.data(), m, all_data.S.data(), (T*) nullptr, m, (T*) nullptr, n);
+    //lapack::gesdd(Job::NoVec, m, n, all_data.A.data(), m, all_data.S.data(), (T*) nullptr, m, (T*) nullptr, n);
 
     char joba = 'C'; 
     char jobu = 'N';
