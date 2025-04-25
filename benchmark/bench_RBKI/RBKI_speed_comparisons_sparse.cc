@@ -133,12 +133,12 @@ static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data,
     auto m = all_data.row;
     auto n = all_data.col;
 
-    std::fill(all_data.U,         &all_data.U[m * n],         0.0);
-    std::fill(all_data.VT,        &all_data.VT[n * n],        0.0);
-    std::fill(all_data.V,         &all_data.V[n * n],         0.0);
-    std::fill(all_data.Sigma,     &all_data.Sigma[n],         0.0);
-    std::fill(all_data.U_cpy,     &all_data.U_cpy[m * n],     0.0);
-    std::fill(all_data.VT_cpy,    &all_data.VT_cpy[n * n],    0.0);
+    std::fill(all_data.U,      &all_data.U[m * n],      0.0);
+    std::fill(all_data.VT,     &all_data.VT[n * n],     0.0);
+    std::fill(all_data.V,      &all_data.V[n * n],      0.0);
+    std::fill(all_data.Sigma,  &all_data.Sigma[n],      0.0);
+    std::fill(all_data.U_cpy,  &all_data.U_cpy[m * n],  0.0);
+    std::fill(all_data.VT_cpy, &all_data.VT_cpy[n * n], 0.0);
 }
 
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
