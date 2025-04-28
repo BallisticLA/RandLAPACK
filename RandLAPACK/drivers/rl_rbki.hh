@@ -48,7 +48,7 @@ class RBKI {
         int num_threads_min;
         // Number of threads used in the rest of the code.
         int num_threads_max;
-        int singular_triplets_found;
+        int64_t singular_triplets_found;
 
         RBKI(
             bool verb,
