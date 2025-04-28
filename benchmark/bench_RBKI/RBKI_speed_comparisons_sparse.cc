@@ -227,6 +227,10 @@ static void call_all_algs(
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
 
+        // Updating custom rank for this iteration in case the number of singular triplets found is smaller than it
+        custom_rank = std::min(custom_rank, RBKI.singular_triplets_found);
+
+
         residual_err_custom_RBKI = residual_error_comp<T>(all_data, custom_rank);
         printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
 

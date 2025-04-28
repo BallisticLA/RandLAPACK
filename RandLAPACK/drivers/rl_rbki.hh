@@ -48,6 +48,7 @@ class RBKI {
         int num_threads_min;
         // Number of threads used in the rest of the code.
         int num_threads_max;
+        int singular_triplets_found;
 
         RBKI(
             bool verb,
@@ -60,6 +61,7 @@ class RBKI {
             max_krylov_iters = INT_MAX;
             num_threads_min = util::get_omp_threads();
             num_threads_max = util::get_omp_threads();
+            singular_triplets_found = 0;
         }
 
         /// Computes an SVD of the form:
@@ -549,6 +551,8 @@ class RBKI {
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
                 // V = Y_od * V_hat
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols, 1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
+
+                this->singular_triplets_found = end_cols;
 
                 if(this -> timing) {
                     get_factors_t_stop  = steady_clock::now();
