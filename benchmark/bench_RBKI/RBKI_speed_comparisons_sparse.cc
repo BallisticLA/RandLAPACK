@@ -45,7 +45,7 @@ struct RBKI_benchmark_data {
     A_spectra(m, n),
     A_linop(m, n, input_mat_coo, Layout::ColMajor)
     {
-        U     = new T[m * n]();
+        U     = nullptr;
         V     = nullptr;
         Sigma = nullptr;
         U_cpy = nullptr;
