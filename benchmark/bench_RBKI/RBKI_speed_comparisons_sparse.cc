@@ -249,6 +249,10 @@ static void call_all_algs(
             Matrix V_spectra = svds.matrix_V(custom_rank);
             Vector S_spectra = svds.singular_values();
 
+            all_data.U     = new T[m * custom_rank]();
+            all_data.V     = new T[n * custom_rank]();
+            all_data.Sigma = new T[m * custom_rank]();
+
             Eigen::Map<Matrix>(all_data.U, m, custom_rank)  = U_spectra;
             Eigen::Map<Matrix>(all_data.V, n, custom_rank)  = V_spectra;
             Eigen::Map<Vector>(all_data.Sigma, custom_rank) = S_spectra;
@@ -265,8 +269,6 @@ static void call_all_algs(
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 
         << residual_err_custom_RBKI <<  ",  " << dur_rbki    << ",  " 
         << residual_err_custom_SVDS <<  ",  " << dur_svds    << ",\n";
-
-        printf("Done\n");
     }
 }
 
