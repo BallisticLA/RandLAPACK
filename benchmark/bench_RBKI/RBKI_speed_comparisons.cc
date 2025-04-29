@@ -203,8 +203,12 @@ approx_error_comp(RBKI_benchmark_data<T> &all_data, int64_t custom_rank, T norm_
 
     // U * S = Buffer
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, custom_rank, 1.0, all_data.U_cpy, m, all_data.Sigma_cpy, n, 0.0, all_data.Buffer, m);
-    // Buffer * V - A_cpy ~= 0?
+    //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, custom_rank, 1.0, all_data.U_cpy, m, all_data.Sigma_cpy, n, 0.0, all_data.Buffer, m);
+    
+    // Buffer * V' - A_cpy ~= 0?
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, custom_rank, 1.0, all_data.Buffer, m, all_data.V_cpy, n, -1.0, all_data.A_lowrank_svd, m);
+    //blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, custom_rank, 1.0, all_data.Buffer, m, all_data.VT_cpy, n, -1.0, all_data.A_lowrank_svd, m);
+
 
     T nrm = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
     printf("||A_hat_cursom_rank - A_svd_custom_rank||_F / ||A_svd_custom_rank||_F: %e\n", nrm / norm_A_lowrank);
@@ -273,6 +277,7 @@ static void call_all_algs(
             all_data.U     = new T[m * n]();
             all_data.Sigma = new T[n]();
             all_data.VT    = new T[n * n]();
+            all_data.V     = new T[n * n]();
             lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
             auto stop_svd = steady_clock::now();
             dur_svd = duration_cast<microseconds>(stop_svd - start_svd).count();
@@ -319,9 +324,13 @@ static void call_all_algs(
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
-        lapack::lacpy(MatrixType::General, m, threshold_RSVD, all_data.U_RSVD, m, all_data.U, m);
-        lapack::lacpy(MatrixType::General, n, threshold_RSVD, all_data.V_RSVD, n, all_data.V, n);
-        blas::copy(threshold_RSVD, all_data.Sigma_RSVD, 1, all_data.Sigma, 1);
+        all_data.U     = new T[m * custom_rank]();
+        all_data.V     = new T[n * custom_rank]();
+        all_data.Sigma = new T[m * custom_rank]();
+
+        lapack::lacpy(MatrixType::General, m, custom_rank, all_data.U_RSVD, m, all_data.U, m);
+        lapack::lacpy(MatrixType::General, n, custom_rank, all_data.V_RSVD, n, all_data.V, n);
+        blas::copy(custom_rank, all_data.Sigma_RSVD, 1, all_data.Sigma, 1);
         
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, custom_rank);
         printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RSVD);
@@ -421,7 +430,7 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     if (m_expected != m || n_expected != n) {
-        std::cerr << "Expected input size did not matrch actual input size. Aborting." << std::endl;
+        std::cerr << "Expected input size (" << m_expected << ", " << n_expected << ") did not matrch actual input size (" << m << ", " << n << "). Aborting." << std::endl;
         return 1;
     }
 
