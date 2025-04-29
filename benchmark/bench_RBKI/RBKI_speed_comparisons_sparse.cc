@@ -3,7 +3,7 @@ Additional RBKI speed comparison benchmark - runs RBKI, RSVD and SVDS from Spect
 The user is required to provide a matrix file to be read, set min and max numbers of large gemms (Krylov iterations) that the algorithm is allowed to perform min and max block sizes that RBKI is to use; 
 furthermore, the user is to provide a 'custom rank' parameter (number of singular vectors to approximate by RBKI). 
 The benchmark outputs the basic data of a given run, as well as the RBKI runtime and singular vector residual error, 
-which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(custom_rank)" (for "custom rank" singular vectors and values).
+which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(target_rank)" (for "custom rank" singular vectors and values).
 */
 
 #include "RandLAPACK.hh"
@@ -143,36 +143,36 @@ static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data,
 }
 
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
-// in exact precision. Target_rank defines size of U, V as returned by RBKI; custom_rank <= target_rank.
+// in exact precision. Target_rank defines size of U, V as returned by RBKI; target_rank <= target_rank.
 template <typename T, typename TestData>
 static T
-residual_error_comp(TestData &all_data, int64_t custom_rank) {
+residual_error_comp(TestData &all_data, int64_t target_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
-    all_data.U_cpy = new T[m * custom_rank]();
-    all_data.V_cpy = new T[n * custom_rank]();
+    all_data.U_cpy = new T[m * target_rank]();
+    all_data.V_cpy = new T[n * target_rank]();
 
-    lapack::lacpy(MatrixType::General, m, custom_rank, all_data.U, m, all_data.U_cpy, m);
-    lapack::lacpy(MatrixType::General, n, custom_rank, all_data.V, n, all_data.V_cpy, n);
+    lapack::lacpy(MatrixType::General, m, target_rank, all_data.U, m, all_data.U_cpy, m);
+    lapack::lacpy(MatrixType::General, n, target_rank, all_data.V, n, all_data.V_cpy, n);
 
     // AV - US
     // Scale columns of U by S
-    for (int i = 0; i < custom_rank; ++i)
+    for (int i = 0; i < target_rank; ++i)
         blas::scal(m, all_data.Sigma[i], &all_data.U_cpy[m * i], 1);
 
-    // Compute AV(:, 1:custom_rank) - SU(1:custom_rank)
-    all_data.A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, custom_rank, n, 1.0, all_data.V, n, -1.0, all_data.U_cpy, m);
+    // Compute AV(:, 1:target_rank) - SU(1:target_rank)
+    all_data.A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, target_rank, n, 1.0, all_data.V, n, -1.0, all_data.U_cpy, m);
 
     // A'U - VS
     // Scale columns of V by S
-    for (int i = 0; i < custom_rank; ++i)
+    for (int i = 0; i < target_rank; ++i)
         blas::scal(n, all_data.Sigma[i], &all_data.V_cpy[i * n], 1);
-    // Compute A'U(:, 1:custom_rank) - VS(1:custom_rank).
-    all_data.A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, custom_rank, m, 1.0, all_data.U, m, -1.0, all_data.V_cpy, n);
+    // Compute A'U(:, 1:target_rank) - VS(1:target_rank).
+    all_data.A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, target_rank, m, 1.0, all_data.U, m, -1.0, all_data.V_cpy, n);
 
-    T nrm1 = lapack::lange(Norm::Fro, m, custom_rank, all_data.U_cpy, m);
-    T nrm2 = lapack::lange(Norm::Fro, n, custom_rank, all_data.V_cpy, n);
+    T nrm1 = lapack::lange(Norm::Fro, m, target_rank, all_data.U_cpy, m);
+    T nrm2 = lapack::lange(Norm::Fro, n, target_rank, all_data.V_cpy, n);
 
     return std::hypot(nrm1, nrm2);
 }
@@ -182,13 +182,12 @@ static void call_all_algs(
     int64_t num_runs,
     int64_t b_sz,
     int64_t num_matmuls,
-    int64_t custom_rank,
+    int64_t target_rank,
     RBKI_algorithm_objects<T, RNG> &all_algs,
     RBKI_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename, 
     std::string input_path) {
-    printf("\nBlock size %ld, num matmuls %ld\n", b_sz, num_matmuls);
 
     int i;
     auto m   = all_data.row;
@@ -217,8 +216,11 @@ static void call_all_algs(
     T residual_err_custom_SVDS = 0;
     T residual_err_custom_RBKI = 0;
 
+    int64_t singular_triplets_found_RBKI = 0;
+    int64_t singular_triplets_found_SVDS = 0;
+
     for (i = 0; i < num_runs; ++i) {
-        printf("Iteration %d start.\n", i);
+        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
     
         // Running RBKI
         auto start_rbki = steady_clock::now();
@@ -228,10 +230,10 @@ static void call_all_algs(
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
 
         // Updating custom rank for this iteration in case the number of singular triplets found is smaller than it
-        custom_rank = std::min(custom_rank, all_algs.RBKI.singular_triplets_found);
+        singular_triplets_found_RBKI = std::min(target_rank, all_algs.RBKI.singular_triplets_found);
 
-        residual_err_custom_RBKI = residual_error_comp<T>(all_data, custom_rank);
-        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_RBKI);
+        residual_err_custom_RBKI = residual_error_comp<T>(all_data, singular_triplets_found_RBKI);
+        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_RBKI);
 
         state_alg = state;
         state_gen = state;
@@ -241,27 +243,28 @@ static void call_all_algs(
         //if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
             auto start_svds = steady_clock::now();
-            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, std::min(custom_rank, n-2), std::min(2 * custom_rank, n-1));
+            singular_triplets_found_SVDS = std::min(target_rank, n-2);
+            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * target_rank, n-1));
             svds.compute();
             auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
             printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
             // Copy data from Spectra (Eigen) format to the nomal C++.
-            Matrix U_spectra = svds.matrix_U(custom_rank);
-            Matrix V_spectra = svds.matrix_V(custom_rank);
+            Matrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
+            Matrix V_spectra = svds.matrix_V(singular_triplets_found_SVDS);
             Vector S_spectra = svds.singular_values();
 
-            all_data.U     = new T[m * custom_rank]();
-            all_data.V     = new T[n * custom_rank]();
-            all_data.Sigma = new T[m * custom_rank]();
+            all_data.U     = new T[m * singular_triplets_found_SVDS]();
+            all_data.V     = new T[n * singular_triplets_found_SVDS]();
+            all_data.Sigma = new T[m * singular_triplets_found_SVDS]();
 
-            Eigen::Map<Matrix>(all_data.U, m, custom_rank)  = U_spectra;
-            Eigen::Map<Matrix>(all_data.V, n, custom_rank)  = V_spectra;
-            Eigen::Map<Vector>(all_data.Sigma, custom_rank) = S_spectra;
+            Eigen::Map<Matrix>(all_data.U, m, singular_triplets_found_SVDS)  = U_spectra;
+            Eigen::Map<Matrix>(all_data.V, n, singular_triplets_found_SVDS)  = V_spectra;
+            Eigen::Map<Vector>(all_data.Sigma, singular_triplets_found_SVDS) = S_spectra;
 
-            residual_err_custom_SVDS = residual_error_comp<T>(all_data, custom_rank);
-            printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(custom_rank): %.16e\n", residual_err_custom_SVDS);
+            residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_found_SVDS);
+            printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
             
             state_alg = state;
             state_gen = state;
@@ -269,7 +272,7 @@ static void call_all_algs(
         //}
 
         std::ofstream file(output_filename, std::ios::app);
-        file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << custom_rank << ",  " 
+        file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << target_rank << ",  " 
         << residual_err_custom_RBKI <<  ",  " << dur_rbki    << ",  " 
         << residual_err_custom_SVDS <<  ",  " << dur_svds    << ",\n";
     }
@@ -279,12 +282,12 @@ int main(int argc, char *argv[]) {
 
     if (argc < 9) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <output_directory_path> <input_matrix_path> <num_runs> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <output_directory_path> <input_matrix_path> <num_runs> <target_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
         return 1;
     }
 
     int num_runs              = std::stol(argv[3]);
-    int64_t custom_rank       = std::stol(argv[4]);
+    int64_t target_rank       = std::stol(argv[4]);
     std::vector<int64_t> b_sz;
     for (int i = 0; i < std::stol(argv[5]); ++i)
         b_sz.push_back(std::stoi(argv[i + 7]));
@@ -341,14 +344,14 @@ int main(int argc, char *argv[]) {
               "\nAdditional parameters: Krylov block sizes "                 + b_sz_string +
                                         " matmuls: "                         + matmuls_string +
                                         " num runs per size "                + std::to_string(num_runs) +
-                                        " num singular values and vectors approximated " + std::to_string(custom_rank) +
+                                        " num singular values and vectors approximated " + std::to_string(target_rank) +
               "\n";
     file.flush();
 
     size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            call_all_algs(num_runs, b_sz[i], matmuls[j], custom_rank, all_algs, all_data, state_constant, path, std::string(argv[2]));
+            call_all_algs(num_runs, b_sz[i], matmuls[j], target_rank, all_algs, all_data, state_constant, path, std::string(argv[2]));
         }
         j = 0;
     }
