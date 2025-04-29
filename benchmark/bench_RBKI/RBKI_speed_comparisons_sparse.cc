@@ -216,8 +216,8 @@ static void call_all_algs(
     T residual_err_custom_SVDS = 0;
     T residual_err_custom_RBKI = 0;
 
-    int64_t singular_triplets_found_RBKI = 0;
-    int64_t singular_triplets_found_SVDS = 0;
+    int64_t singular_triplets_target_RBKI = 0;
+    int64_t singular_triplets_target_SVDS = 0;
 
     for (i = 0; i < num_runs; ++i) {
         printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
@@ -229,11 +229,11 @@ static void call_all_algs(
         dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
         printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
 
-        // Updating custom rank for this iteration in case the number of singular triplets found is smaller than it
-        singular_triplets_found_RBKI = std::min(target_rank, all_algs.RBKI.singular_triplets_found);
+        // This is in case the number of singular triplets is smaller than the target rank
+        singular_triplets_target_RBKI = std::min(target_rank, all_algs.RBKI.singular_triplets_found);
 
-        residual_err_custom_RBKI = residual_error_comp<T>(all_data, singular_triplets_found_RBKI);
-        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_RBKI);
+        residual_err_custom_RBKI = residual_error_comp<T>(all_data, singular_triplets_target_RBKI);
+        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", singular_triplets_target_RBKI);
 
         state_alg = state;
         state_gen = state;
@@ -243,27 +243,29 @@ static void call_all_algs(
         //if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
             auto start_svds = steady_clock::now();
-            singular_triplets_found_SVDS = std::min(target_rank, n-2);
-            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * target_rank, n-1));
+            // This is in case the number of singular triplets is smaller than the target rank
+            singular_triplets_target_SVDS = std::min(target_rank, n-2);
+
+            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_target_SVDS, std::min(2 * target_rank, n-1));
             svds.compute();
             auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
             printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
             // Copy data from Spectra (Eigen) format to the nomal C++.
-            Matrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
-            Matrix V_spectra = svds.matrix_V(singular_triplets_found_SVDS);
+            Matrix U_spectra = svds.matrix_U(singular_triplets_target_SVDS);
+            Matrix V_spectra = svds.matrix_V(singular_triplets_target_SVDS);
             Vector S_spectra = svds.singular_values();
 
-            all_data.U     = new T[m * singular_triplets_found_SVDS]();
-            all_data.V     = new T[n * singular_triplets_found_SVDS]();
-            all_data.Sigma = new T[m * singular_triplets_found_SVDS]();
+            all_data.U     = new T[m * singular_triplets_target_SVDS]();
+            all_data.V     = new T[n * singular_triplets_target_SVDS]();
+            all_data.Sigma = new T[m * singular_triplets_target_SVDS]();
 
-            Eigen::Map<Matrix>(all_data.U, m, singular_triplets_found_SVDS)  = U_spectra;
-            Eigen::Map<Matrix>(all_data.V, n, singular_triplets_found_SVDS)  = V_spectra;
-            Eigen::Map<Vector>(all_data.Sigma, singular_triplets_found_SVDS) = S_spectra;
+            Eigen::Map<Matrix>(all_data.U, m, singular_triplets_target_SVDS)  = U_spectra;
+            Eigen::Map<Matrix>(all_data.V, n, singular_triplets_target_SVDS)  = V_spectra;
+            Eigen::Map<Vector>(all_data.Sigma, singular_triplets_target_SVDS) = S_spectra;
 
-            residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_found_SVDS);
+            residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
             printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
             
             state_alg = state;
