@@ -296,7 +296,7 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 1);
         
         // There is no reason to run SVDS many times, as it always outputs the same result.
-        //if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
+        if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVDS
             auto start_svds = steady_clock::now();
             // This is in case the number of singular triplets is smaller than the target rank
@@ -330,10 +330,10 @@ static void call_all_algs(
             state_alg = state;
             state_gen = state;
             data_regen(m_info, all_data, state_gen, 1);
-        //}
+        }
         
         // There is no reason to run SVD many times, as it always outputs the same result.
-        //if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
+        if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
             // Running SVD
             auto start_svd = steady_clock::now();
             all_data.U     = new T[m * n]();
@@ -344,17 +344,6 @@ static void call_all_algs(
             auto stop_svd = steady_clock::now();
             dur_svd = duration_cast<microseconds>(stop_svd - start_svd).count();
             printf("TOTAL TIME FOR SVD %ld\n", dur_svd);
-
-            /*
-            char name[] = "A";
-            char name1[] = "U";
-            char name2[] = "VT";
-            char name3[] = "S";
-            RandLAPACK::util::print_colmaj(m, n, all_data.A, m, name);
-            RandLAPACK::util::print_colmaj(m, n, all_data.U, m, name1);
-            RandLAPACK::util::print_colmaj(n, n, all_data.VT, n, name2);
-            RandLAPACK::util::print_colmaj(n, 1, all_data.Sigma, n, name3);
-            */
 
             // Standard SVD destorys matrix A, need to re-read it before running accuracy tests.
             state_gen = state;
@@ -370,7 +359,7 @@ static void call_all_algs(
             state_alg = state;
             state_gen = state;
             data_regen(m_info, all_data, state_gen, 1);
-        //}
+        }
 
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << target_rank << ",  " 
