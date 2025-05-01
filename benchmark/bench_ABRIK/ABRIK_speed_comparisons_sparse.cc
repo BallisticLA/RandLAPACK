@@ -1,8 +1,8 @@
 /*
-Additional RBKI speed comparison benchmark - runs RBKI, RSVD and SVDS from Spectra library.
-The user is required to provide a matrix file to be read, set min and max numbers of large gemms (Krylov iterations) that the algorithm is allowed to perform min and max block sizes that RBKI is to use; 
-furthermore, the user is to provide a 'custom rank' parameter (number of singular vectors to approximate by RBKI). 
-The benchmark outputs the basic data of a given run, as well as the RBKI runtime and singular vector residual error, 
+Additional ABRIK speed comparison benchmark - runs ABRIK, RSVD and SVDS from Spectra library.
+The user is required to provide a matrix file to be read, set min and max numbers of large gemms (Krylov iterations) that the algorithm is allowed to perform min and max block sizes that ABRIK is to use; 
+furthermore, the user is to provide a 'custom rank' parameter (number of singular vectors to approximate by ABRIK). 
+The benchmark outputs the basic data of a given run, as well as the ABRIK runtime and singular vector residual error, 
 which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(target_rank)" (for "custom rank" singular vectors and values).
 */
 
@@ -28,7 +28,7 @@ using Matrix = Eigen::MatrixXd;
 using Vector = Eigen::VectorXd;
 
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
-struct RBKI_benchmark_data {
+struct ABRIK_benchmark_data {
     int64_t row;
     int64_t col;
     T tolerance;
@@ -41,7 +41,7 @@ struct RBKI_benchmark_data {
     T* V_cpy;
     SpMatrix A_spectra;
 
-    RBKI_benchmark_data(SpMat& input_mat_coo, int64_t m, int64_t n, T tol) :
+    ABRIK_benchmark_data(SpMat& input_mat_coo, int64_t m, int64_t n, T tol) :
     A_spectra(m, n),
     A_linop(m, n, input_mat_coo, Layout::ColMajor)
     {
@@ -56,7 +56,7 @@ struct RBKI_benchmark_data {
         tolerance = tol;
     }
 
-    ~RBKI_benchmark_data() {
+    ~ABRIK_benchmark_data() {
         delete[] U;
         delete[] V;
         delete[] Sigma;
@@ -66,15 +66,15 @@ struct RBKI_benchmark_data {
 };
 
 template <typename T, typename RNG>
-struct RBKI_algorithm_objects {
-    RandLAPACK::RBKI<T, RNG> RBKI;
+struct ABRIK_algorithm_objects {
+    RandLAPACK::ABRIK<T, RNG> ABRIK;
 
-    RBKI_algorithm_objects(
+    ABRIK_algorithm_objects(
         bool verbosity, 
         bool time_subroutines, 
         T tol
     ) :
-        RBKI(verbosity, time_subroutines, tol)
+        ABRIK(verbosity, time_subroutines, tol)
         {}
 };
 
@@ -124,7 +124,7 @@ void from_matrix_market(std::string fn, SpMatrix& A) {
 
 // Re-generate and clear data
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
-static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data, 
+static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data, 
                         RandBLAS::RNGState<RNG> &state) {
 
     auto m = all_data.row;
@@ -143,7 +143,7 @@ static void data_regen(RBKI_benchmark_data<T, SpMat> &all_data,
 }
 
 // This routine computes the residual norm error, consisting of two parts (one of which) vanishes
-// in exact precision. Target_rank defines size of U, V as returned by RBKI; target_rank <= target_rank.
+// in exact precision. Target_rank defines size of U, V as returned by ABRIK; target_rank <= target_rank.
 template <typename T, typename TestData>
 static T
 residual_error_comp(TestData &all_data, int64_t target_rank) {
@@ -183,8 +183,8 @@ static void call_all_algs(
     int64_t b_sz,
     int64_t num_matmuls,
     int64_t target_rank,
-    RBKI_algorithm_objects<T, RNG> &all_algs,
-    RBKI_benchmark_data<T, SpMat> &all_data,
+    ABRIK_algorithm_objects<T, RNG> &all_algs,
+    ABRIK_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename, 
     std::string input_path) {
@@ -195,18 +195,18 @@ static void call_all_algs(
     auto tol = all_data.tolerance;
 
     // Additional params setup.
-    // Matrices R or S that give us the singular value spectrum returned by RBKI will be of size b_sz * num_krylov_iters / 2.
+    // Matrices R or S that give us the singular value spectrum returned by ABRIK will be of size b_sz * num_krylov_iters / 2.
     // These matrices will be full-rank.
     // Hence, target_rank = b_sz * num_krylov_iters / 2 
-    // RBKI.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
+    // ABRIK.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
     // 
     // Instead of the above approach, we now pre-specify the maximum number of Krylov iters that we allow for in num_matmuls.
-    all_algs.RBKI.max_krylov_iters = (int) num_matmuls;
-    all_algs.RBKI.num_threads_min = 4;
-    all_algs.RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
+    all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
+    all_algs.ABRIK.num_threads_min = 4;
+    all_algs.ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
     
     // timing vars
-    long dur_rbki = 0;
+    long dur_ABRIK = 0;
     long dur_svds = 0;
 
     // Making sure the states are unchanged
@@ -214,26 +214,26 @@ static void call_all_algs(
     auto state_alg = state;
 
     T residual_err_custom_SVDS = 0;
-    T residual_err_custom_RBKI = 0;
+    T residual_err_custom_ABRIK = 0;
 
-    int64_t singular_triplets_target_RBKI = 0;
+    int64_t singular_triplets_target_ABRIK = 0;
     int64_t singular_triplets_target_SVDS = 0;
 
     for (i = 0; i < num_runs; ++i) {
         printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
     
-        // Running RBKI
-        auto start_rbki = steady_clock::now();
-        all_algs.RBKI.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
-        auto stop_rbki = steady_clock::now();
-        dur_rbki = duration_cast<microseconds>(stop_rbki - start_rbki).count();
-        printf("TOTAL TIME FOR RBKI %ld\n", dur_rbki);
+        // Running ABRIK
+        auto start_ABRIK = steady_clock::now();
+        all_algs.ABRIK.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
+        auto stop_ABRIK = steady_clock::now();
+        dur_ABRIK = duration_cast<microseconds>(stop_ABRIK - start_ABRIK).count();
+        printf("TOTAL TIME FOR ABRIK %ld\n", dur_ABRIK);
 
         // This is in case the number of singular triplets is smaller than the target rank
-        singular_triplets_target_RBKI = std::min(target_rank, all_algs.RBKI.singular_triplets_found);
+        singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
 
-        residual_err_custom_RBKI = residual_error_comp<T>(all_data, singular_triplets_target_RBKI);
-        printf("RBKI sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", singular_triplets_target_RBKI);
+        residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
+        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", singular_triplets_target_ABRIK);
 
         state_alg = state;
         state_gen = state;
@@ -274,8 +274,8 @@ static void call_all_algs(
         //}
 
         std::ofstream file(output_filename, std::ios::app);
-        file << b_sz << ",  " << all_algs.RBKI.max_krylov_iters  <<  ",  " << target_rank << ",  " 
-        << residual_err_custom_RBKI <<  ",  " << dur_rbki    << ",  " 
+        file << b_sz << ",  " << all_algs.ABRIK.max_krylov_iters  <<  ",  " << target_rank << ",  " 
+        << residual_err_custom_ABRIK <<  ",  " << dur_ABRIK    << ",  " 
         << residual_err_custom_SVDS <<  ",  " << dur_svds    << ",\n";
     }
 }
@@ -318,13 +318,13 @@ int main(int argc, char *argv[]) {
     auto n = input_mat_coo.n_cols;
 
     // Allocate basic workspace.
-    RBKI_benchmark_data<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(input_mat_coo, m, n, tol);
+    ABRIK_benchmark_data<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(input_mat_coo, m, n, tol);
     all_data.A_input = &input_mat_coo;
     // Read matrix into spectra format
     from_matrix_market<double>(std::string(argv[2]), all_data.A_spectra);
 
-    // Declare RBKI object
-    RBKI_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, tol);
+    // Declare ABRIK object
+    ABRIK_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, tol);
 
     printf("Finished data preparation\n");
     // Declare a data file
@@ -338,7 +338,7 @@ int main(int argc, char *argv[]) {
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
-    file << "Description: Results from the ABRIK speed comparison benchmark, recording the time it takes to perform RBKI and alternative methods for low-rank SVD, specifically on sparse matrices."
+    file << "Description: Results from the ABRIK speed comparison benchmark, recording the time it takes to perform ABRIK and alternative methods for low-rank SVD, specifically on sparse matrices."
               "\nFile format: 15 columns, showing krylov block size, nummber of matmuls permitted, and num svals and svecs to approximate, followed by the residual error, standard lowrank error and execution time for all algorithms (ABRIK, SVDS)"
               "\n Rows correspond to algorithm runs with Krylov block sizes varying as specified, and numbers of matmuls varying as specified per eah block size, with num_runs repititions of each number of matmuls."
               "\nInput type:"       + std::string(argv[2]) +

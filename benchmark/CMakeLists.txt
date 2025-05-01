@@ -82,7 +82,7 @@ set(
     RandLAPACK
 )
 
-# Declaring a full set of libs needed for one of RBKI benchmarks.
+# Declaring a full set of libs needed for one of ABRIK benchmarks.
 set(
     Benchmark_libs_external
     RandLAPACK
@@ -118,7 +118,7 @@ add_benchmark(NAME BQRRP_pivot_quality                CXX_SOURCES bench_BQRRP/BQ
 add_benchmark(NAME HQRRP_runtime_breakdown            CXX_SOURCES bench_BQRRP/HQRRP_runtime_breakdown.cc            LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQRRP_subroutines_speed.cc            LINK_LIBS ${Benchmark_libs})
 
-# RBKI benchmarks
-add_benchmark(NAME RBKI_runtime_breakdown        CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME RBKI_speed_comparisons        CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME RBKI_speed_comparisons_sparse CXX_SOURCES bench_RBKI/RBKI_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+# ABRIK benchmarks
+add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})

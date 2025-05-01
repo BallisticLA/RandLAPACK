@@ -18,7 +18,7 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-        /// RBKI algorithm is a method for finding truncated SVD based on block Krylov iterations.
+        /// ABRIK algorithm is a method for finding truncated SVD based on block Krylov iterations.
         /// This algorithm is a version of Algroithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
         /// 
         /// The main difference is in the fact that an economy SVD is performed only once at the very end 
@@ -33,7 +33,7 @@ namespace RandLAPACK {
         /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
 
 template <typename T, typename RNG>
-class RBKI {
+class ABRIK {
     public:
         bool verbose;
         bool timing;
@@ -50,7 +50,7 @@ class RBKI {
         int num_threads_max;
         int64_t singular_triplets_found;
 
-        RBKI(
+        ABRIK(
             bool verb,
             bool time_subroutines,
             T ep
@@ -106,7 +106,7 @@ class RBKI {
         /// @return = 0: successful exit
         ///
 
-        // RBKI call that accepts a general dense matrix.
+        // ABRIK call that accepts a general dense matrix.
         int call(
             int64_t m,
             int64_t n,
@@ -122,7 +122,7 @@ class RBKI {
             return this->call(A_linop, k, U, V, Sigma, state);
         }
 
-        // RBKI call that accepts sparse matrix.
+        // ABRIK call that accepts sparse matrix.
         template <RandBLAS::sparse_data::SparseMatrix SpMat>
         int call(
             int64_t m,
@@ -582,7 +582,7 @@ class RBKI {
                     this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
 
                     if (this -> verbose) {
-                        printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
+                        printf("\n\n/------------ABRIK TIMING RESULTS BEGIN------------/\n");
                         printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
 
                         printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
@@ -609,7 +609,7 @@ class RBKI {
                         printf("Rest takes       %22.2f%% of runtime.\n",                  100 * ((T) t_rest            / (T) total_t_dur));
                         
                         printf("\nMain loop takes  %22.2f%% of runtime.\n",                  100 * ((T) main_loop_t_dur   / (T) total_t_dur));
-                        printf("/-------------RBKI TIMING RESULTS END-------------/\n\n");
+                        printf("/-------------ABRIK TIMING RESULTS END-------------/\n\n");
                     }
                 }
                 return 0;

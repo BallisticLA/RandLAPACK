@@ -1,5 +1,5 @@
 /*
-RBKI runtime breakdown benchmark - assesses the time taken by each subcomponent of RBKI.
+ABRIK runtime breakdown benchmark - assesses the time taken by each subcomponent of ABRIK.
 Records all, data, not just the best.
 There are 10 things that we time:
                 1.Allocate and free time.
@@ -22,7 +22,7 @@ There are 10 things that we time:
 #include <fstream>
 
 template <typename T>
-struct RBKI_benchmark_data {
+struct ABRIK_benchmark_data {
     int64_t row;
     int64_t col;
     T tolerance;
@@ -31,7 +31,7 @@ struct RBKI_benchmark_data {
     T* V;
     T* Sigma;
 
-    RBKI_benchmark_data(int64_t m, int64_t n, T tol)
+    ABRIK_benchmark_data(int64_t m, int64_t n, T tol)
     {
         row       = m;
         col       = n;
@@ -42,7 +42,7 @@ struct RBKI_benchmark_data {
         Sigma     = nullptr;
     }
 
-    ~RBKI_benchmark_data(){
+    ~ABRIK_benchmark_data(){
         delete[] A;
         delete[] U;
         delete[] V;
@@ -53,7 +53,7 @@ struct RBKI_benchmark_data {
 // Re-generate and clear data
 template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
-                                        RBKI_benchmark_data<T> &all_data, 
+                                        ABRIK_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state, int overwrite_A) {
     auto m = all_data.row;
     auto n = all_data. col;
@@ -75,7 +75,7 @@ static void call_all_algs(
     int64_t num_runs,
     int64_t k,
     int64_t num_krylov_iters,
-    RBKI_benchmark_data<T> &all_data,
+    ABRIK_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
 
@@ -85,10 +85,10 @@ static void call_all_algs(
     bool time_subroutines = true;
 
     // Additional params setup.
-    RandLAPACK::RBKI<double, r123::Philox4x32> RBKI(false, time_subroutines, tol);
-    RBKI.max_krylov_iters = num_krylov_iters;
-    RBKI.num_threads_min = 4;
-    RBKI.num_threads_max = RandLAPACK::util::get_omp_threads();
+    RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
+    ABRIK.max_krylov_iters = num_krylov_iters;
+    ABRIK.num_threads_min = 4;
+    ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -99,10 +99,10 @@ static void call_all_algs(
 
     for (int i = 0; i < num_runs; ++i) {
         printf("Iteration %d start.\n", i);
-        RBKI.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
+        ABRIK.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
-        inner_timing = RBKI.times;
+        inner_timing = ABRIK.times;
         // Add info about the run
         inner_timing.insert (inner_timing.begin(), k);
         inner_timing.insert (inner_timing.begin(), num_krylov_iters);
@@ -167,14 +167,14 @@ int main(int argc, char *argv[]) {
     }
 
     // Allocate basic workspace.
-    RBKI_benchmark_data<double> all_data(m, n, tol);
+    ABRIK_benchmark_data<double> all_data(m, n, tol);
   
     // Fill the data matrix;
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     printf("Finished data preparation\n");
     // Declare a data file
-    std::string output_filename = "_RBKI_runtime_breakdown_num_info_lines_" + std::to_string(6) + ".txt";
+    std::string output_filename = "_ABRIK_runtime_breakdown_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;
     if (std::string(argv[1]) != ".") {
         path = argv[1] + output_filename;
