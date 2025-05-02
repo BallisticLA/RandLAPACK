@@ -246,7 +246,7 @@ static void call_all_algs(
             // This is in case the number of singular triplets is smaller than the target rank
             singular_triplets_target_SVDS = std::min(target_rank, n-2);
 
-            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_target_SVDS, std::min(2 * target_rank, n-1));
+            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_target_SVDS, std::min(2 * singular_triplets_target_SVDS, n-1));
             svds.compute();
             auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
