@@ -120,5 +120,6 @@ add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQ
 
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})

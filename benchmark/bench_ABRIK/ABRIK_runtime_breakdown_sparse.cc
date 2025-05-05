@@ -21,12 +21,14 @@ There are 10 things that we time:
 #include <RandBLAS.hh>
 #include <fstream>
 
-template <typename T>
+#include <fast_matrix_market/fast_matrix_market.hpp>
+
+template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct ABRIK_benchmark_data {
     int64_t row;
     int64_t col;
     T tolerance;
-    T* A;
+    SpMat* A_input;
     T* U;
     T* V;
     T* Sigma;
@@ -36,31 +38,45 @@ struct ABRIK_benchmark_data {
         row       = m;
         col       = n;
         tolerance = tol;
-        A         = new T[m * n]();
         U         = nullptr;
         V         = nullptr;
         Sigma     = nullptr;
     }
 
     ~ABRIK_benchmark_data(){
-        delete[] A;
         delete[] U;
         delete[] V;
         delete[] Sigma;
     }
 };
 
-// Re-generate and clear data
-template <typename T, typename RNG>
-static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
-                                        ABRIK_benchmark_data<T> &all_data, 
-                                        RandBLAS::RNGState<RNG> &state, int overwrite_A) {
-    auto m = all_data.row;
-    auto n = all_data. col;
+template <typename T>
+RandBLAS::sparse_data::coo::COOMatrix<T> from_matrix_market(std::string fn) {
 
-    if (overwrite_A) {
-        RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    int64_t n_rows, n_cols = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<T> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n_rows, n_cols, rows,  cols, vals
+    );
+
+    RandBLAS::sparse_data::coo::COOMatrix<T> out(n_rows, n_cols);
+    reserve_coo(vals.size(),out);
+    for (int i = 0; i < out.nnz; ++i) {
+        out.rows[i] = rows[i];
+        out.cols[i] = cols[i];
+        out.vals[i] = vals[i];
     }
+
+    return out;
+}
+
+// Re-generate and clear data
+template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
+static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data) {
     delete[] all_data.U;
     delete[] all_data.V;
     delete[] all_data.Sigma;
@@ -69,13 +85,12 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
     all_data.Sigma = nullptr;
 }
 
-template <typename T, typename RNG>
+template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void call_all_algs(
-    RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t num_runs,
     int64_t k,
     int64_t num_krylov_iters,
-    ABRIK_benchmark_data<T> &all_data,
+    ABRIK_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
 
@@ -91,7 +106,6 @@ static void call_all_algs(
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // Making sure the states are unchanged
-    auto state_gen = state;
     auto state_alg = state;
 
     // Timing vars
@@ -99,7 +113,7 @@ static void call_all_algs(
 
     for (int i = 0; i < num_runs; ++i) {
         printf("Iteration %d start.\n", i);
-        ABRIK.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
+        ABRIK.call(m, n, *all_data.A_input, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
         inner_timing = ABRIK.times;
@@ -112,8 +126,7 @@ static void call_all_algs(
         file << "\n";
 
         // Clear and re-generate data
-        data_regen(m_info, all_data, state_gen, 0);
-        state_gen = state;
+        data_regen(all_data);
         state_alg = state;
     }
 }
@@ -127,12 +140,10 @@ int main(int argc, char *argv[]) {
     }
 
     int num_runs        = std::stol(argv[3]);
-    int64_t m_expected  = std::stol(argv[5]);
-    int64_t n_expected  = std::stol(argv[6]);
-    int64_t custom_rank = std::stol(argv[6]);
+    int64_t custom_rank = std::stol(argv[4]);
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < std::stol(argv[7]); ++i)
-        b_sz.push_back(std::stoi(argv[i + 9]));
+    for (int i = 0; i < std::stol(argv[5]); ++i)
+        b_sz.push_back(std::stoi(argv[i + 7]));
     // Save elements in string for logging purposes
     std::ostringstream oss1;
     for (const auto &val : b_sz)
@@ -140,7 +151,7 @@ int main(int argc, char *argv[]) {
     std::string b_sz_string = oss1.str();
     std::vector<int64_t> matmuls;
     for (int i = 0; i < std::stol(argv[8]); ++i)
-        matmuls.push_back(std::stoi(argv[i + 9 + std::stol(argv[7])]));
+        matmuls.push_back(std::stoi(argv[i + 7 + std::stol(argv[5])]));
     // Save elements in string for logging purposes
     std::ostringstream oss2;
     for (const auto &val : matmuls)
@@ -149,32 +160,20 @@ int main(int argc, char *argv[]) {
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState();
     auto state_constant = state;
-    int64_t m = 0, n = 0;
 
-    // Generate the input matrix.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[1];
-    m_info.workspace_query_mod = 1;
-    // Workspace query;
-    RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
-
-    // Update basic params.
-    m = m_info.rows;
-    n = m_info.cols;
-    if (m_expected != m || n_expected != n) {
-        std::cerr << "Expected input size did not matrch actual input size. Aborting." << std::endl;
-        return 1;
-    }
+    // Read the input fast matrix market data
+    // The idea is that input_mat_coo will be automatically freed at the end of function execution
+    auto input_mat_coo = from_matrix_market<double>(std::string(argv[2]));
+    auto m = input_mat_coo.n_rows;
+    auto n = input_mat_coo.n_cols;
 
     // Allocate basic workspace.
-    ABRIK_benchmark_data<double> all_data(m, n, tol);
-  
-    // Fill the data matrix;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    ABRIK_benchmark_data<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n, tol);
+    all_data.A_input = &input_mat_coo;
 
     printf("Finished data preparation\n");
     // Declare a data file
-    std::string output_filename = "_ABRIK_runtime_breakdown_num_info_lines_" + std::to_string(6) + ".txt";
+    std::string output_filename = "_ABRIK_runtime_breakdown_sparse_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;
     if (std::string(argv[1]) != ".") {
         path = argv[1] + output_filename;
@@ -184,7 +183,7 @@ int main(int argc, char *argv[]) {
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
-    file << "Description: Results from the ABRIK runtime breakdown benchmark, recording the time it takes to perform every subroutine in ABRIK."
+    file << "Description: Results from the saprse ABRIK runtime breakdown benchmark, recording the time it takes to perform every subroutine in ABRIK."
               "\nFile format: 13 data columns, each corresponding to a given ABRIK subroutine: allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur"
               "               rows correspond to ABRIK runs with block sizes varying as specified, with numruns repititions of each block size"
               "\nInput type:"       + std::string(argv[2]) +
@@ -199,7 +198,7 @@ int main(int argc, char *argv[]) {
     size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
+            call_all_algs(num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
         }
         j = 0;
     }

@@ -231,9 +231,10 @@ static void call_all_algs(
 
         // This is in case the number of singular triplets is smaller than the target rank
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
+        printf("Singular triplets: %d\n", singular_triplets_target_ABRIK);
 
         residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
-        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", singular_triplets_target_ABRIK);
+        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_ABRIK);
 
         state_alg = state;
         state_gen = state;
@@ -340,7 +341,7 @@ int main(int argc, char *argv[]) {
     // Writing important data into file
     file << "Description: Results from the ABRIK speed comparison benchmark, recording the time it takes to perform ABRIK and alternative methods for low-rank SVD, specifically on sparse matrices."
               "\nFile format: 15 columns, showing krylov block size, nummber of matmuls permitted, and num svals and svecs to approximate, followed by the residual error, standard lowrank error and execution time for all algorithms (ABRIK, SVDS)"
-              "\n Rows correspond to algorithm runs with Krylov block sizes varying as specified, and numbers of matmuls varying as specified per eah block size, with num_runs repititions of each number of matmuls."
+              "\n Rows correspond to algorithm runs with Krylov block sizes varying as specified, and numbers of matmuls varying as specified per each block size, with num_runs repititions of each number of matmuls."
               "\nInput type:"       + std::string(argv[2]) +
               "\nInput size:"       + std::to_string(m) + " by "             + std::to_string(n) +
               "\nAdditional parameters: Krylov block sizes "                 + b_sz_string +
