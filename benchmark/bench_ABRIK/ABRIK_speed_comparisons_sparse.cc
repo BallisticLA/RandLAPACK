@@ -41,9 +41,9 @@ struct ABRIK_benchmark_data {
     T* V_cpy;
     SpMatrix A_spectra;
 
-    ABRIK_benchmark_data(SpMat& input_mat_coo, int64_t m, int64_t n, T tol) :
+    ABRIK_benchmark_data(SpMat& input_mat, int64_t m, int64_t n, T tol) :
     A_spectra(m, n),
-    A_linop(m, n, input_mat_coo, Layout::ColMajor)
+    A_linop(m, n, input_mat, Layout::ColMajor)
     {
         U     = nullptr;
         V     = nullptr;
@@ -126,9 +126,6 @@ void from_matrix_market(std::string fn, SpMatrix& A) {
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data, 
                         RandBLAS::RNGState<RNG> &state) {
-
-    auto m = all_data.row;
-    auto n = all_data.col;
 
     delete[] all_data.U;
     delete[] all_data.V;
@@ -318,9 +315,13 @@ int main(int argc, char *argv[]) {
     auto m = input_mat_coo.n_rows;
     auto n = input_mat_coo.n_cols;
 
+    // Convert the sparse matrix format for performance
+    RandBLAS::CSCMatrix<double> input_mat_csc(m, n);
+    RandBLAS::conversions::coo_to_csc(input_mat_coo, input_mat_csc);
+
     // Allocate basic workspace.
-    ABRIK_benchmark_data<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(input_mat_coo, m, n, tol);
-    all_data.A_input = &input_mat_coo;
+    ABRIK_benchmark_data<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(input_mat_csc, m, n, tol);
+    all_data.A_input = &input_mat_csc;
     // Read matrix into spectra format
     from_matrix_market<double>(std::string(argv[2]), all_data.A_spectra);
 

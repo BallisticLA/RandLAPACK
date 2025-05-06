@@ -167,9 +167,13 @@ int main(int argc, char *argv[]) {
     auto m = input_mat_coo.n_rows;
     auto n = input_mat_coo.n_cols;
 
+    // Convert the sparse matrix format for performance
+    RandBLAS::CSCMatrix<double> input_mat_csc(m, n);
+    RandBLAS::conversions::coo_to_csc(input_mat_coo, input_mat_csc);
+
     // Allocate basic workspace.
-    ABRIK_benchmark_data<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n, tol);
-    all_data.A_input = &input_mat_coo;
+    ABRIK_benchmark_data<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(m, n, tol);
+    all_data.A_input = &input_mat_csc;
 
     printf("Finished data preparation\n");
     // Declare a data file
