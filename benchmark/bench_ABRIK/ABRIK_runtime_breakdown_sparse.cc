@@ -132,13 +132,13 @@ static void call_all_algs(
 }
 
 int main(int argc, char *argv[]) {
-
+/*
     if (argc < 9) {
         // Expected input into this benchmark.
         std::cerr << "Usage: " << argv[0] << " <output_directory_path> <input_matrix_path> <num_runs> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
         return 1;
     }
-
+*/
     int num_runs        = std::stol(argv[3]);
     int64_t custom_rank = std::stol(argv[4]);
     std::vector<int64_t> b_sz;
@@ -150,13 +150,14 @@ int main(int argc, char *argv[]) {
         oss1 << val << ", ";
     std::string b_sz_string = oss1.str();
     std::vector<int64_t> matmuls;
-    for (int i = 0; i < std::stol(argv[8]); ++i)
+    for (int i = 0; i < std::stol(argv[6]); ++i)
         matmuls.push_back(std::stoi(argv[i + 7 + std::stol(argv[5])]));
     // Save elements in string for logging purposes
     std::ostringstream oss2;
     for (const auto &val : matmuls)
         oss2 << val << ", ";
     std::string matmuls_string = oss2.str();
+
     double tol          = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state          = RandBLAS::RNGState();
     auto state_constant = state;
