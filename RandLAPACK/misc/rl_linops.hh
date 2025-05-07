@@ -21,10 +21,10 @@ template<typename LinOp, typename T = LinOp::scalar_t>
 concept LinearOperator = requires(LinOp A) {
     { A.n_rows }  -> std::same_as<const int64_t&>;
     { A.n_cols }  -> std::same_as<const int64_t&>;
-} && requires(LinOp A, Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+} && requires(LinOp A, Side side, Layout layout, Op trans_A, Op trans_B, int64_t m, int64_t n, int64_t k, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
     // A Matmul-like function that updates C := alpha A*B + beta C, where
     // B and C have n columns and are stored in layout order with strides (ldb, ldc).
-    { A(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
+    { A(side, layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc) } -> std::same_as<void>;
 };
 
 // Sparse linear operator struct, supplied with a sparse-with-dense matrix multiplication operator 
@@ -35,16 +35,14 @@ struct SpLinOp {
     const int64_t n_rows;
     const int64_t n_cols;
     SpMat &A_sp;
-    const int64_t lda;
     const Layout buff_layout;
 
     SpLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
         SpMat &A_sp,
-        int64_t lda,
         Layout buff_layout
-    ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp), lda(lda), buff_layout(buff_layout) {
+    ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp), buff_layout(buff_layout) {
         randblas_require(buff_layout == Layout::ColMajor);
     }
 
@@ -58,6 +56,7 @@ struct SpLinOp {
     // parameters to RandBLAS::left_spmm to reconcile the different layouts of
     // A vs (B, C).
     void operator()(
+        Side side,
         Layout layout, 
         Op trans_A, 
         Op trans_B, 
@@ -71,15 +70,30 @@ struct SpLinOp {
         T* C, 
         int64_t ldc
     ) {
-        randblas_require(layout == buff_layout);
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
-        randblas_require(ldb >= rows_B);
-        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
-        randblas_require(rows_submat_A <= n_rows);
-        randblas_require(cols_submat_A <= n_cols);
-        randblas_require(ldc >= m);
+        if (side == Side::Left) {
+            randblas_require(layout == buff_layout);
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
+            randblas_require(ldb >= rows_B);
+            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
+            randblas_require(rows_submat_A <= n_rows);
+            randblas_require(cols_submat_A <= n_cols);
+            randblas_require(ldc >= m);
 
-        RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+            RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+        } else {
+            randblas_require(layout == buff_layout);
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, n, trans_B);
+            randblas_require(ldb >= rows_B);
+            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(n, k, trans_A);
+            randblas_require(rows_submat_A <= n_rows);
+            randblas_require(cols_submat_A <= n_cols);
+            randblas_require(ldc >= m);
+
+            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
+            left_spmm(trans_layout, trans_trans_A, trans_B, k, m, n, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+        }
+
     }
 };
 
@@ -114,6 +128,7 @@ struct GenLinOp {
     // parameters to blas::gemm to reconcile the different layouts of
     // A vs (B, C).
     void operator()(
+        Side side,
         Layout layout, 
         Op trans_A, 
         Op trans_B, 
@@ -127,15 +142,29 @@ struct GenLinOp {
         T* C, 
         int64_t ldc
     ) {
-        randblas_require(layout == buff_layout);
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
-        randblas_require(ldb >= rows_B);
-        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
-        randblas_require(rows_submat_A <= n_rows);
-        randblas_require(cols_submat_A <= n_cols);
-        randblas_require(ldc >= m);
+        if (side == Side::Left) {
+            randblas_require(layout == buff_layout);
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
+            randblas_require(ldb >= rows_B);
+            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
+            randblas_require(rows_submat_A <= n_rows);
+            randblas_require(cols_submat_A <= n_cols);
+            randblas_require(ldc >= m);
 
-        blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+            blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+        } else {
+            randblas_require(layout == buff_layout);
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, n, trans_B);
+            randblas_require(ldb >= rows_B);
+            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(n, k, trans_A);
+            randblas_require(rows_submat_A <= n_rows);
+            randblas_require(cols_submat_A <= n_cols);
+            randblas_require(ldc >= m);
+
+            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
+            blas::gemm(trans_layout, trans_trans_A, trans_B, k, m, n, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+        }
     }
 };
 

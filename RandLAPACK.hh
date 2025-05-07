@@ -28,7 +28,7 @@
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"
 #include "RandLAPACK/drivers/rl_revd2.hh"
-#include "RandLAPACK/drivers/rl_rbki.hh"
+#include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
 
 // Cuda functions - issues with linking/visibility when present if the below is uncommented.
