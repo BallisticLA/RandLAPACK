@@ -135,7 +135,7 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
-            linops::SpLinOp<T, SpMat> A_linop(m, n, A, Layout::ColMajor);
+            linops::SpLinOp<SpMat> A_linop(m, n, A);
             return this->call(A_linop, k, U, V, Sigma, state);
         }
 

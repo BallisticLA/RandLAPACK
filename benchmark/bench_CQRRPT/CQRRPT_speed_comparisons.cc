@@ -74,11 +74,11 @@ static void call_all_algs(
 
     RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT_hqrrp(true, tol);
     CQRRPT_hqrrp.nnz = 4;
-    CQRRPT_hqrrp.qrcp_wide = Subroutines::QRCPWide::hqrrp;
+    CQRRPT_hqrrp.qrcp = Subroutines::QRCP::hqrrp;
 
     RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT_bqrrp(true, tol);
     CQRRPT_bqrrp.nnz = 4;
-    CQRRPT_bqrrp.qrcp_wide = Subroutines::QRCPWide::bqrrp;
+    CQRRPT_bqrrp.qrcp = Subroutines::QRCP::bqrrp;
 
     // timing vars
     long dur_cqrrpt_default = 0;

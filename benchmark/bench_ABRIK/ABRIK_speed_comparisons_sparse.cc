@@ -33,7 +33,7 @@ struct ABRIK_benchmark_data {
     int64_t col;
     T tolerance;
     SpMat* A_input;
-    RandLAPACK::linops::SpLinOp<T, SpMat> A_linop;
+    RandLAPACK::linops::SpLinOp<SpMat> A_linop;
     T* U;
     T* V; 
     T* Sigma;
@@ -43,7 +43,7 @@ struct ABRIK_benchmark_data {
 
     ABRIK_benchmark_data(SpMat& input_mat, int64_t m, int64_t n, T tol) :
     A_spectra(m, n),
-    A_linop(m, n, input_mat, Layout::ColMajor)
+    A_linop(m, n, input_mat)
     {
         U     = nullptr;
         V     = nullptr;

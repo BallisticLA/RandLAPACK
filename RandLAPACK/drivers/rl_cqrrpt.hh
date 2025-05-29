@@ -37,10 +37,10 @@ class CQRRPTalg {
 
 // Struct outside of CQRRPT class to make symbols shorter
 struct CQRRPTSubroutines {
-    enum QRCPWide {hqrrp, bqrrp, geqp3};
+    enum QRCP {hqrrp, bqrrp, geqp3};
 };
 
-template <typename T, typename RNG>
+template <typename T, typename RNG = RandBLAS::DefaultRNG>
 class CQRRPT : public CQRRPTalg<T, RNG> {
     public:
 
@@ -66,7 +66,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ) {
             timing = time_subroutines;
             eps = ep;
-            qrcp_wide = Subroutines::QRCPWide::geqp3;
+            qrcp = Subroutines::QRCP::geqp3;
             bqrrp_block_ratio = 1;
             nb_alg = 64;
             oversampling = 10;
@@ -138,8 +138,10 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         // tuning SASOS
         int64_t nnz;
 
-        // Wide QRCP-related
-        Subroutines::QRCPWide qrcp_wide;
+        // QRCP-related
+        Subroutines::QRCP qrcp;
+        // Ratio of BQRRP block size to the number of columns n; 
+        // used to set the BQRRP block size.
         double bqrrp_block_ratio;
         int64_t nb_alg;
         int64_t oversampling;
@@ -221,11 +223,11 @@ int CQRRPT<T, RNG>::call(
     }
 
     /// Performing QRCP on a sketch
-    if(this -> qrcp_wide == Subroutines::QRCPWide::hqrrp) {
+    if(this -> qrcp == Subroutines::QRCP::hqrrp) {
         hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
-    } else if(this -> qrcp_wide == Subroutines::QRCPWide::bqrrp) {
+    } else if(this -> qrcp == Subroutines::QRCP::bqrrp) {
         #if !defined(__APPLE__)
-        RandLAPACK::BQRRP<T, r123::Philox4x32> BQRRP(false, n * this->bqrrp_block_ratio);
+        RandLAPACK::BQRRP<T, RNG> BQRRP(false, n * this->bqrrp_block_ratio);
         BQRRP.call(d, n, A_hat, d, 1.0, tau, J, state);
         #endif
     } else {

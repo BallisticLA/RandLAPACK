@@ -61,7 +61,7 @@ static void call_all_algs(
     int64_t n,
     QR_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
-    std::string qrcp_wide,
+    std::string qrcp,
     std::string output_filename) {
 
     auto m        = all_data.row;
@@ -71,10 +71,10 @@ static void call_all_algs(
     // Additional params setup.
     RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT(true, tol);
     CQRRPT.nnz = 4;
-    if (qrcp_wide == "hqrrp"){
-        CQRRPT.qrcp_wide = Subroutines::QRCPWide::hqrrp;
-    } else if (qrcp_wide == "bqrrp") {
-        CQRRPT.qrcp_wide = Subroutines::QRCPWide::bqrrp;
+    if (qrcp == "hqrrp"){
+        CQRRPT.qrcp = Subroutines::QRCP::hqrrp;
+    } else if (qrcp == "bqrrp") {
+        CQRRPT.qrcp = Subroutines::QRCP::bqrrp;
     }
     
     // Making sure the states are unchanged
@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
 
     if (argc < 4) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <qrcp_wide_type> <num_runs> <num_rows> <column_sizes>..." << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <qrcp_type> <num_runs> <num_rows> <column_sizes>..." << std::endl;
         return 1;
     }
 
@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
     int64_t numruns = std::stol(argv[2]);
-    std::string qrcp_wide = argv[1];
+    std::string qrcp = argv[1];
 
     // Allocate basic workspace at its max size.
     int64_t n_max = *std::max_element(n_sz.begin(), n_sz.end());
@@ -150,14 +150,14 @@ int main(int argc, char *argv[]) {
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + n_sz_string +
-              "\nAdditional parameters: qrcp_wide: " + qrcp_wide + "num runs per size " + std::to_string(numruns) + " CQRRPT d factor: " + std::to_string(d_factor) +
+              "\nAdditional parameters: qrcp: " + qrcp + "num runs per size " + std::to_string(numruns) + " CQRRPT d factor: " + std::to_string(d_factor) +
               "\n";
     file.flush();
 
     auto start_time_all = steady_clock::now();
     size_t i = 0;
     for (;i < n_sz.size(); ++i) {
-        call_all_algs(m_info, numruns, n_sz[i], all_data, state_constant, qrcp_wide, output_filename);
+        call_all_algs(m_info, numruns, n_sz[i], all_data, state_constant, qrcp, output_filename);
     }
     auto stop_time_all = steady_clock::now();
     long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
