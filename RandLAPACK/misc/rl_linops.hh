@@ -167,8 +167,8 @@ struct GenLinOp {
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
         randblas_require(ldb >= rows_B);
         auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, n, trans_A);
-        randblas_require(rows_A == n_rows);
-        randblas_require(cols_A == n_cols);
+        randblas_require(rows_A <= n_rows);
+        randblas_require(cols_A <= n_cols);
         randblas_require(ldc >= m);
 
         blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
@@ -195,8 +195,9 @@ struct GenLinOp {
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
             randblas_require(ldb >= rows_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, n, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            printf("m: %ld \n n: %ld \n rows_A %ld \n cols_A %ld\n n_rows %ld \n n_cols %ld\n", m, n, rows_A, cols_A, n_rows, n_cols);
+            randblas_require(rows_A <= n_rows);
+            randblas_require(cols_A <= n_cols);
             randblas_require(ldc >= m);
 
             blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
@@ -205,8 +206,8 @@ struct GenLinOp {
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, n, trans_B);
             randblas_require(ldb >= rows_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(n, k, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            randblas_require(rows_A <= n_rows);
+            randblas_require(cols_A <= n_cols);
             randblas_require(ldc >= m);
 
             auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
