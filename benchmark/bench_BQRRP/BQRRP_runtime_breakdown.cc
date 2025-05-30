@@ -52,6 +52,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
+    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
@@ -148,15 +149,18 @@ int main(int argc, char *argv[]) {
     std::string output_filename = "_BQRRP_runtime_breakdown_num_info_lines_" + std::to_string(7) + ".txt";
 
     std::string path;
-    if (std::string(argv[1]) != ".")
+    if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in BQRRP."
               "\nFile format: 10 data columns, each corresponding to a given BQRRP subroutine: skop_t_dur, preallocation_t_dur, qrcp_wide_t_dur, panel_preprocessing_t_dur, qr_tall_t_dur, q_reconstruction_t_dur, apply_transq_t_dur, sample_update_t_dur, t_other, total_t_dur"
-              "               rows correspond to BQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "               rows correspond to BQRRP runs with block sizes varying as specified, with numruns repititions of each block size"
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +

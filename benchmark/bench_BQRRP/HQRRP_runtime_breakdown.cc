@@ -47,6 +47,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
+    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
@@ -71,7 +72,7 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    T* times  = ( T * ) calloc( 27, sizeof( T ) );
+    T* times = new T[27]();
     T** times_ptr = &times;
 
     for (int i = 0; i < numruns; ++i) {
@@ -91,7 +92,7 @@ static void call_all_algs(
         state_alg = state;
     }
 
-    free(times);
+    delete[] times;
 }
 
 int main(int argc, char *argv[]) {
@@ -133,15 +134,18 @@ int main(int argc, char *argv[]) {
     std::string output_filename = "_HQRRP_runtime_breakdown_num_info_lines_" + std::to_string(7) + ".txt";
 
     std::string path;
-    if (std::string(argv[1]) != ".")
+    if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the HQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in HQRRP."
               "\nFile format: 26 data columns, each corresponding to a given HQRRP subroutine (please see /RandLAPACK/drivers/rl_hqrrp.hh for details)"
-              "\nrows correspond to HQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nrows correspond to HQRRP runs with block sizes varying as specified, with numruns repititions of each block size"
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +

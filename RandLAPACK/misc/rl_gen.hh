@@ -391,11 +391,14 @@ void gen_kahan_mat(
     T* S = new T[m * m]();
     T* C = new T[m * m]();
 
+    T sin_theta = std::sin(theta);
+    T cos_theta = std::cos(theta);
+
     for (int i = 0; i < n; ++i) {
         A[(m + 1) * i] = perturb * std::numeric_limits<double>::epsilon() * (m - i);
-        S[(m + 1) * i] = std::pow(std::sin(i), i);
+        S[(m + 1) * i] = std::pow(sin_theta, i);
         for(int j = 0; j < i; ++ j)
-            C[(m * i) + j] = -std::cos(theta); 
+            C[(m * i) + j] = -cos_theta; 
         C[m * i + i] = 1.0;
     }
 

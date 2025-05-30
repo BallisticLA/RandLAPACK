@@ -103,6 +103,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     auto state   = state_const;
     auto state_B = state_const_B;
+    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     
     if(bench_type == 1) {
@@ -394,15 +395,18 @@ int main(int argc, char *argv[]) {
     std::string output_filename = "_BQRRP_subroutines_speed_num_info_lines_" + std::to_string(10) + ".txt";
 
     std::string path;
-    if (std::string(argv[1]) != ".")
+    if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP subroutines benchmark, recording time for the alternative options of the three main BQRRP subroutines: wide_qrcp, tall qr and application of transpose orthonormal matrix."
               "\nFile format: the format varies for each subroutine"
-              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
+              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n as specified). Rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
               "               \n qr_tall:   six columns with timing for different tall QR candidates and their related parts: GEQRF, GEQR, CHOLQR, CHOLQR_PREPROCESSING, CHOLQR_HOUSEHOLDER_RESTORATION, CHOLQR_UNTO_PRECONDITIONING."
               "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR"
               "               \n In all cases, rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."

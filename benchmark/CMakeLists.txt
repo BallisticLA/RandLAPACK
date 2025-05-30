@@ -1,8 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
 
-# cmake -DCMAKE_BUILD_TYPE=Release -DRandom123_DIR=`pwd`/../../install/random123-install/include/  -Dblaspp_DIR=`pwd`/../../install/blaspp_GPU-install/lib64/blaspp/  -DRandLAPACK_DIR=`pwd`/../../install/RandLAPACK-install/lib64/cmake/ -Dlapackpp_DIR=`pwd`/../../install/lapackpp-install/lib64/lapackpp/  -DCMAKE_BINARY_DIR=`pwd`     ../../randlibs/RandLAPACK/benchmark/
-# ^ Example CMake configuration line with "install," "build" and "randlibs" folders.
-
 project(benchmark)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -85,12 +82,13 @@ set(
     RandLAPACK
 )
 
-# Declaring a full set of libs needed for one of RBKI benchmarks.
+# Declaring a full set of libs needed for one of ABRIK benchmarks.
 set(
     Benchmark_libs_external
     RandLAPACK
     Eigen3::Eigen
     Spectra
+    fast_matrix_market
 )
 
 # Performance profiling through GEMM
@@ -112,6 +110,7 @@ add_benchmark(NAME CQRRPT_runtime_breakdown CXX_SOURCES bench_CQRRPT/CQRRPT_runt
 add_benchmark(NAME CQRRPT_pivot_quality     CXX_SOURCES bench_CQRRPT/CQRRPT_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
 
 # BQRRP benchmarks
+add_benchmark(NAME Kahan_spectrum                     CXX_SOURCES bench_BQRRP/Kahan_spectrum.cc                      LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_speed_comparisons_block_size CXX_SOURCES bench_BQRRP/BQRRP_speed_comparisons_block_size.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_speed_comparisons_mat_size   CXX_SOURCES bench_BQRRP/BQRRP_speed_comparisons_mat_size.cc   LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_runtime_breakdown            CXX_SOURCES bench_BQRRP/BQRRP_runtime_breakdown.cc            LINK_LIBS ${Benchmark_libs})
@@ -119,7 +118,8 @@ add_benchmark(NAME BQRRP_pivot_quality                CXX_SOURCES bench_BQRRP/BQ
 add_benchmark(NAME HQRRP_runtime_breakdown            CXX_SOURCES bench_BQRRP/HQRRP_runtime_breakdown.cc            LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQRRP_subroutines_speed.cc            LINK_LIBS ${Benchmark_libs})
 
-# RBKI benchmarks
-add_benchmark(NAME RBKI_runtime_breakdown        CXX_SOURCES bench_RBKI/RBKI_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME RBKI_speed_comparisons        CXX_SOURCES bench_RBKI/RBKI_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME RBKI_speed                    CXX_SOURCES bench_RBKI/RBKI_speed.cc                    LINK_LIBS ${Benchmark_libs_external})
+# ABRIK benchmarks
+add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})

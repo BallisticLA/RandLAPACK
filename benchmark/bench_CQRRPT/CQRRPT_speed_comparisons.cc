@@ -17,6 +17,8 @@ Records the best timing, saves that into a file.
 #include <RandBLAS.hh>
 #include <fstream>
 
+using Subroutines = RandLAPACK::CQRRPTSubroutines;
+
 template <typename T>
 struct QR_benchmark_data {
     int64_t row;
@@ -67,16 +69,26 @@ static void call_all_algs(
     auto d_factor = all_data.sampling_factor;
 
     // Additional params setup.
-    RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT(true, tol);
-    CQRRPT.nnz = 4;
+    RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT_default(true, tol);
+    CQRRPT_default.nnz = 4;
+
+    RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT_hqrrp(true, tol);
+    CQRRPT_hqrrp.nnz = 4;
+    CQRRPT_hqrrp.qrcp = Subroutines::QRCP::hqrrp;
+
+    RandLAPACK::CQRRPT<T, r123::Philox4x32> CQRRPT_bqrrp(true, tol);
+    CQRRPT_bqrrp.nnz = 4;
+    CQRRPT_bqrrp.qrcp = Subroutines::QRCP::bqrrp;
 
     // timing vars
-    long dur_cqrrpt     = 0;
-    long dur_geqp3      = 0;
-    long dur_geqr       = 0;
-    long dur_geqpt      = 0;
-    long dur_geqrf      = 0;
-    long dur_scholqr    = 0;
+    long dur_cqrrpt_default = 0;
+    long dur_cqrrpt_hqrrp   = 0;
+    long dur_cqrrpt_bqrrp   = 0;
+    long dur_geqp3          = 0;
+    long dur_geqr           = 0;
+    long dur_geqpt          = 0;
+    long dur_geqrf          = 0;
+    long dur_scholqr        = 0;
     
     // Making sure the states are unchanged
     auto state_gen = state;
@@ -104,13 +116,34 @@ static void call_all_algs(
         state_gen = state;
         data_regen(m_info, all_data, state_gen);
 
-        // Testing CQRRPT
-        auto start_cqrrp = steady_clock::now();
-        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
-        auto stop_cqrrp = steady_clock::now();
-        dur_cqrrpt = duration_cast<microseconds>(stop_cqrrp - start_cqrrp).count();
-        printf("TOTAL TIME FOR CQRRPT %ld\n", dur_cqrrpt);
+        // Testing CQRRPT default
+        auto start_cqrrp_default = steady_clock::now();
+        CQRRPT_default.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+        auto stop_cqrrp_default = steady_clock::now();
+        dur_cqrrpt_default = duration_cast<microseconds>(stop_cqrrp_default - start_cqrrp_default).count();
+        printf("TOTAL TIME FOR CQRRPT default %ld\n", dur_cqrrpt_default);
 
+        state_gen = state;
+        state_alg = state;
+        data_regen(m_info, all_data, state_gen);
+
+        // Testing CQRRPT hqrrp
+        auto start_cqrrp_hqrrp = steady_clock::now();
+        CQRRPT_hqrrp.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+        auto stop_cqrrp_hqrrp = steady_clock::now();
+        dur_cqrrpt_hqrrp = duration_cast<microseconds>(stop_cqrrp_hqrrp - start_cqrrp_hqrrp).count();
+        printf("TOTAL TIME FOR CQRRPT hqrrp %ld\n", dur_cqrrpt_hqrrp);
+
+        state_gen = state;
+        state_alg = state;
+        data_regen(m_info, all_data, state_gen);
+
+        // Testing CQRRPT bqrrp
+        auto start_cqrrp_bqrrp = steady_clock::now();
+        CQRRPT_bqrrp.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+        auto stop_cqrrp_bqrrp = steady_clock::now();
+        dur_cqrrpt_bqrrp = duration_cast<microseconds>(stop_cqrrp_bqrrp - start_cqrrp_bqrrp).count();
+        printf("TOTAL TIME FOR CQRRPT bqrrp %ld\n", dur_cqrrpt_bqrrp);
 
         state_gen = state;
         state_alg = state;
@@ -168,8 +201,8 @@ static void call_all_algs(
 #endif
 
         std::ofstream file(output_filename, std::ios::app);
-        file << dur_cqrrpt << ",  " << dur_geqpt <<  ",  " << dur_geqrf   << ",  " 
-             << dur_geqr   << ",  " << dur_geqp3 <<  ",  " << dur_scholqr << ",\n";
+        file << dur_cqrrpt_default << ",  " << dur_cqrrpt_hqrrp << ",  " << dur_cqrrpt_bqrrp << ",  " << dur_geqpt <<  ",  " 
+        << dur_geqrf   << ",  "  << dur_geqr   << ",  " << dur_geqp3 <<  ",  " << dur_scholqr << ",\n";
     }
 }
 

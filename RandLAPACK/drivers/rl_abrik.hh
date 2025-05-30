@@ -18,7 +18,7 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-        /// RBKI algorithm is a method for finding truncated SVD based on block Krylov iterations.
+        /// ABRIK algorithm is a method for finding truncated SVD based on block Krylov iterations.
         /// This algorithm is a version of Algroithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
         /// 
         /// The main difference is in the fact that an economy SVD is performed only once at the very end 
@@ -33,7 +33,7 @@ namespace RandLAPACK {
         /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
 
 template <typename T, typename RNG>
-class RBKI {
+class ABRIK {
     public:
         bool verbose;
         bool timing;
@@ -48,8 +48,9 @@ class RBKI {
         int num_threads_min;
         // Number of threads used in the rest of the code.
         int num_threads_max;
+        int64_t singular_triplets_found;
 
-        RBKI(
+        ABRIK(
             bool verb,
             bool time_subroutines,
             T ep
@@ -60,6 +61,7 @@ class RBKI {
             max_krylov_iters = INT_MAX;
             num_threads_min = util::get_omp_threads();
             num_threads_max = util::get_omp_threads();
+            singular_triplets_found = 0;
         }
 
         /// Computes an SVD of the form:
@@ -81,13 +83,13 @@ class RBKI {
         ///     Sampling dimension of a sketching operator, m >= (k * n) >= n.
         ///
         /// @param[in] U
-        ///     On output, an empty matrix.
+        ///     On input, a nullptr
         ///
-        /// @param[in] VT
-        ///     On output, an empty matrix.
+        /// @param[in] V
+        ///     On input, a nullptr
         ///
         /// @param[in] Sigma
-        ///     On output, an empty matrix.
+        ///     On input, a nullptr
         ///
         /// @param[in] state
         ///     RNG state parameter, required for sketching operator generation.
@@ -95,8 +97,8 @@ class RBKI {
         /// @param[out] U
         ///     Stores m by ((num_iters / 2) * k) orthonormal matrix of left singular vectors.
         ///
-        /// @param[out] VT
-        ///     Stores ((num_iters / 2) * k) * n orthonormal matrix of right singular vectors.
+        /// @param[out] V
+        ///     Stores n by ((num_iters / 2) * k) orthonormal matrix of right singular vectors.
         ///
         /// @param[out] Sigma
         ///     Stores ((num_iters / 2) * k) singular values. 
@@ -104,23 +106,23 @@ class RBKI {
         /// @return = 0: successful exit
         ///
 
-        // RBKI call that accepts a general dense matrix.
+        // ABRIK call that accepts a general dense matrix.
         int call(
             int64_t m,
             int64_t n,
             T* A,
             int64_t lda,
             int64_t k,
-            T* U,
-            T* VT,
-            T* Sigma,
+            T* &U,
+            T* &V,
+            T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
             linops::GenLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
-            return this->call(A_linop, k, U, VT, Sigma, state);
+            return this->call(A_linop, k, U, V, Sigma, state);
         }
 
-        // RBKI call that accepts sparse matrix.
+        // ABRIK call that accepts sparse matrix.
         template <RandBLAS::sparse_data::SparseMatrix SpMat>
         int call(
             int64_t m,
@@ -128,22 +130,22 @@ class RBKI {
             SpMat &A,
             int64_t lda,
             int64_t k,
-            T* U,
-            T* VT,
-            T* Sigma,
+            T* &U,
+            T* &V,
+            T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
-            linops::SpLinOp<T, SpMat> A_linop(m, n, A, lda, Layout::ColMajor);
-            return this->call(A_linop, k, U, VT, Sigma, state);
+            linops::SpLinOp<SpMat> A_linop(m, n, A);
+            return this->call(A_linop, k, U, V, Sigma, state);
         }
 
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
             int64_t k,
-            T* U,
-            T* VT,
-            T* Sigma,
+            T* &U,
+            T* &V,
+            T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ){
                 steady_clock::time_point allocation_t_start;
@@ -267,7 +269,7 @@ class RBKI {
                 }
 
                 // [X_ev, ~] = qr(A * Y_i, 0)
-                A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
+                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                 if(this -> timing) {
                     gemm_A_t_stop = steady_clock::now();
@@ -307,7 +309,7 @@ class RBKI {
                         if(this -> timing)
                             gemm_A_t_start = steady_clock::now();
                         // Y_i = A' * X_i 
-                        A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, X_i, m, 0.0, Y_i, n);
+                        A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, X_i, m, 0.0, Y_i, n);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
@@ -402,7 +404,7 @@ class RBKI {
                             gemm_A_t_start = steady_clock::now();
 
                         // X_i = A * Y_i
-                        A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
+                        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
@@ -532,6 +534,11 @@ class RBKI {
                     get_factors_t_start  = steady_clock::now();
                 }
 
+
+                Sigma = new T[std::min(end_cols, end_rows)]();
+                U     = new T[m * end_cols]();
+                V     = new T[n * end_cols]();
+
                 if (iter % 2 != 0) {
                     // [U_hat, Sigma, V_hat] = svd(R')
                     lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
@@ -543,8 +550,9 @@ class RBKI {
                 // U = X_ev * U_hat
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
                 // V = Y_od * V_hat
-                // We actually perform VT = V_hat' * Y_odd'
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, end_cols, n, end_cols, 1.0, VT_hat, end_cols, Y_od, n, 0.0, VT, n);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols, 1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
+
+                this->singular_triplets_found = end_cols;
 
                 if(this -> timing) {
                     get_factors_t_stop  = steady_clock::now();
@@ -574,7 +582,7 @@ class RBKI {
                     this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
 
                     if (this -> verbose) {
-                        printf("\n\n/------------RBKI TIMING RESULTS BEGIN------------/\n");
+                        printf("\n\n/------------ABRIK TIMING RESULTS BEGIN------------/\n");
                         printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
 
                         printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
@@ -601,7 +609,7 @@ class RBKI {
                         printf("Rest takes       %22.2f%% of runtime.\n",                  100 * ((T) t_rest            / (T) total_t_dur));
                         
                         printf("\nMain loop takes  %22.2f%% of runtime.\n",                  100 * ((T) main_loop_t_dur   / (T) total_t_dur));
-                        printf("/-------------RBKI TIMING RESULTS END-------------/\n\n");
+                        printf("/-------------ABRIK TIMING RESULTS END-------------/\n\n");
                     }
                 }
                 return 0;
