@@ -122,6 +122,9 @@ struct SparseVec {
 
     inline comp_t leading_component() { return data[0]; }
 
+    template <typename ind_t>
+    inline void reserve(ind_t s) { data.reserve(s); }
+
 };
 
 
@@ -225,12 +228,16 @@ typename spvec_t::ordinal_t abstract_cholesky(
     callable_t1 &downdate,
     callable_t2 &should_stop,
     typename spvec_t::scalar_t zero_threshold,
-    bool handle_trailing_zero
+    bool handle_trailing_zero,
+    int64_t reserve = -1
 ) {
     using ordinal_t = typename spvec_t::ordinal_t;
     auto n = static_cast<ordinal_t>( M.size() );
     C.clear();
     C.resize(n);
+    if (reserve > 0) {
+        for (auto &c : C) c.reserve(reserve);
+    }
     ordinal_t k = 0;
     while (k < n) {
         spvec_t &v = M[k];
@@ -254,15 +261,17 @@ typename spvec_t::ordinal_t abstract_cholesky(
 
 namespace downdaters {
 
+using std::vector;
+
 template <typename spvec_t>
-void full(spvec_t &v, std::vector<spvec_t> &M) { 
+void full(spvec_t &v, vector<spvec_t> &M) { 
     /**
      *   v is coallesced, v[:k] == 0, and v[k] > 0.
      *   Compute M -= outer(v, v)/v[k].
      */
     using comp_t    = typename spvec_t::comp_t;  
     using scalar_t  = typename spvec_t::scalar_t;
-    using std::vector; using std::sqrt;
+    using std::sqrt;
     
     vector<comp_t> v_data_copy(v.data);
     scalar_t sqrt_vk = sqrt(v_data_copy[0].val);
@@ -287,19 +296,17 @@ inline void scal(int64_t n, scalar_t alpha, scalar_t *x, int64_t incx) {
 }
 
 
-template <typename spvec_t, typename state_t> 
-void sample_clique_clb21(spvec_t &v, std::vector<spvec_t> &M, typename spvec_t::scalar_t p_sum_tol, bool diag_adjust, state_t &state) {
+template <typename scalar_t, typename ordinal_t, typename state_t> 
+void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<scalar_t, ordinal_t>> &M, bool diag_adjust, state_t &state) {
     /**
      *   v is coallesced, v[:k] == 0, and v[k] > 0.
      *   Compute M -= D, where E[D] = outer(v, v)/v[k].
      *   
      */
-    using comp_t    = typename spvec_t::comp_t;
-    using scalar_t  = typename spvec_t::scalar_t;
-    using ordinal_t = typename spvec_t::ordinal_t; 
-    using std::vector; using std::unordered_map;
-    using std::min;    using std::max;
+    using comp_t = VectorComponent<scalar_t, ordinal_t>;
+    using std::min; using std::max;
     ordinal_t ell;
+    auto zero = static_cast<scalar_t>(0.0);
 
     // split into the elimination index and trailing indices (neighbors)
     const auto [vk, k] = v.leading_component();
@@ -313,43 +320,45 @@ void sample_clique_clb21(spvec_t &v, std::vector<spvec_t> &M, typename spvec_t::
     // sort neighbors in ascending order of edge weight; split into index and weight vectors.
     auto ascending_val = [](const comp_t &ca, const comp_t &cb){ return ca.val < cb.val; };
     std::sort(neighbors.begin(), neighbors.end(), ascending_val);
-    vector<scalar_t>  neighbor_weights(num_neighbors);
-    vector<ordinal_t> neighbor_indices(num_neighbors);
-    unordered_map<ordinal_t, ordinal_t> ind_map;
+    vector<ordinal_t> indices(num_neighbors);
+    vector<scalar_t>  cdf_vec(num_neighbors);
+    auto w_sum = zero;
     ell = 0;
     for (const comp_t &comp : neighbors) {
         auto &[val, ind] = comp;
         assert(val > 0);
         assert(ind > k);
-        neighbor_weights[ell] = val;
-        neighbor_indices[ell] = ind;
-        ind_map[ind] = ell;
+        w_sum += val;
+        cdf_vec[ell] = w_sum;
+        indices[ell] = ind;
         ++ell;
     }
 
     // add the sampled spanning tree that approximates the clique in expectation
-    auto num_neighbors_64t = static_cast<int64_t>(num_neighbors);
-    int64_t sample_ind;
-    vector<scalar_t> p;
-    scalar_t trailing_weight = std::reduce(neighbor_weights.begin(), neighbor_weights.end());
-    for (const auto &[abs_vi, i] : neighbors) {
-        neighbor_weights[ind_map[i]] = static_cast<scalar_t>(0.0);
-        p = neighbor_weights;
-        scalar_t* p_buf = p.data();
-        scalar_t  p_sum  = std::reduce(p_buf, p_buf + num_neighbors);
-        if (p_sum <= p_sum_tol)
-            break; // we should always hit this when i = neighbors.back().ind
-        RandBLAS::weights_to_cdf(num_neighbors, p_buf);
-        state = RandBLAS::sample_indices_iid(num_neighbors_64t, p_buf, 1, &sample_ind, state);
-        ordinal_t j = neighbor_indices[sample_ind];
-        scalar_t  w = (p_sum * abs_vi) / vk;
-        M[i].push_back(i, w);
-        M[min(i, j)].push_back(max(i, j), -w);
-        M[j].push_back(j, w);
+    if (num_neighbors > 1) {
+        auto w_sum_work  = w_sum;
+        auto cdf = cdf_vec.data();
+        scal(num_neighbors, 1.0/w_sum, cdf, 1);
+        ell = 0;
+        int64_t sample_ind;
+        auto num_neighbors_64t = static_cast<int64_t>(num_neighbors);
+        for (const auto &[abs_vi, i] : neighbors) {
+            cdf[ell] = zero;
+            state = RandBLAS::sample_indices_iid(num_neighbors_64t, cdf, 1, &sample_ind, state);
+            if (sample_ind == num_neighbors) break;
+            auto j = indices[sample_ind];
+            w_sum_work = std::max(w_sum_work - abs_vi, zero);
+            if (w_sum_work == zero) break;
+            auto w = (w_sum_work * abs_vi) / vk;
+            M[i].push_back(i, w);
+            M[min(i, j)].push_back(max(i, j), -w);
+            M[j].push_back(j, w);
+            ++ell;
+        }
     }
 
     // subtract off the star centered at j.
-    scalar_t scale = (diag_adjust) ? trailing_weight / vk : static_cast<scalar_t>(1);  
+    scalar_t scale = (diag_adjust) ? w_sum / vk : static_cast<scalar_t>(1);  
     for (auto it = neighbors.begin(); it != neighbors.end(); ++it) {
         auto &[vi, i] = (*it);
         M[i].push_back(i, scale * vi);
@@ -391,11 +400,18 @@ typename spvec_t::ordinal_t clb21_rand_cholesky(
         ordinal_t processable_cols = (diag_adjust) ? n : n - 1;
         return (vk < zero_threshold) || (k == processable_cols); 
     };
-    scalar_t p_sum_tol = epsilon<typename spvec_t::scalar_t>();
-    auto downdater = [p_sum_tol, diag_adjust, &state](spvec_t &v, std::vector<spvec_t> &M_work) { 
-        downdaters::sample_clique_clb21(v, M_work, p_sum_tol, diag_adjust, state);
+    auto downdater = [diag_adjust, &state](spvec_t &v, std::vector<spvec_t> &M_work) { 
+        downdaters::sample_clique_clb21(v, M_work, diag_adjust, state);
     };
-    ordinal_t k = abstract_cholesky(M, C, downdater, stopper, zero_threshold, true);
+
+    int64_t default_capacity = 0;
+    for (const auto &row : M) 
+        default_capacity += row.size();
+    default_capacity -= n;
+    // ^ after that, default_capacity = number of edges
+    default_capacity = (int64_t) 2*std::ceil((double) default_capacity / (double) n);
+
+    ordinal_t k = abstract_cholesky(M, C, downdater, stopper, zero_threshold, true, default_capacity);
     return k;
 }
 

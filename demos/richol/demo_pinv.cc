@@ -21,11 +21,11 @@ using namespace richol::linops;
 int main(int argc, char** argv) {
     using T = double;
 
-    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx");
+    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG4.mtx");
     auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
     int64_t n = L.n_rows;
 
-    bool use_amd_perm = true;
+    bool use_amd_perm = false;
     std::vector<int64_t> perm(n);
     for (int64_t i = 0; i < n; ++i)
         perm[i] = i;

@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
     omp_set_num_threads(threads);
     bool use_amd_perm = true;
     int64_t k = 8;
-    int64_t syps_passes = 2;
+    int64_t syps_passes = 3;
     RandLAPACK::SYPS<T, DefaultRNG>  SYPS(syps_passes, 1, false, false);
     RandLAPACK::HQRQ<T>              Orth(false, false); 
     RandLAPACK::SYRF<T, DefaultRNG>  SYRF(SYPS, Orth, false, false);
@@ -116,7 +116,6 @@ int main(int argc, char** argv) {
 
     std::vector<std::string> filenames = {
         "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG3.mtx",
         "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG3.mtx",
         "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG4.mtx",
         "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG5.mtx",
@@ -128,10 +127,10 @@ int main(int argc, char** argv) {
     };
 
     std::stringstream logfilename;
-    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/";
+    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/round2";
     logfilename << "sG2tosG10_k_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
     std::ofstream logfile(logfilename.str());
-    logfile << "n, m, reorder_time, sparse_chol_time, nnz_pre, spmm_time, sptrsm_time, pcg_time, pcg_iters, nys_time\n";
+    logfile << "n         , m         , perm_time , chol_time , nnz_pre   , spmm_time , trsm_time , pcg_time  , pcg_iters , nys_time\n";
     logfile.flush();
 
     for (auto fn : filenames) {
