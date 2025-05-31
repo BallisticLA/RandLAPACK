@@ -4,11 +4,9 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
-#define MKL_INT int64_t
 #include <fstream>
 #include <omp.h>
 #include <iomanip>
-#include <mkl_spblas.h>
 
 
 using RandLAPACK::linops::SymmetricLinearOperator;
@@ -55,61 +53,6 @@ void project_out_vec(int64_t m, int64_t n, T* X, int64_t ldx, T* v, T* work_n) {
     //  --> X = X - v Y'
     blas::gemv(Layout::ColMajor, blas::Op::Trans, m, n, (T) 1.0, X, ldx, v, 1, (T) 0.0, work_n, 1);
     blas::ger(Layout::ColMajor, m, n,  (T)  -1.0, v, 1, work_n, 1, X, ldx);
-    return;
-}
-
-// /* status from MKL sparse matrix routines */
-// typedef enum
-// {
-//     SPARSE_STATUS_SUCCESS           = 0,    /* the operation was successful */
-//     SPARSE_STATUS_NOT_INITIALIZED   = 1,    /* empty handle or matrix arrays */
-//     SPARSE_STATUS_ALLOC_FAILED      = 2,    /* internal error: memory allocation failed */
-//     SPARSE_STATUS_INVALID_VALUE     = 3,    /* invalid input value */
-//     SPARSE_STATUS_EXECUTION_FAILED  = 4,    /* e.g. 0-diagonal element for triangular solver, etc. */
-//     SPARSE_STATUS_INTERNAL_ERROR    = 5,    /* internal error */
-//     SPARSE_STATUS_NOT_SUPPORTED     = 6     /* e.g. operation for double precision doesn't support other types */
-// } sparse_status_t;
-
-template <RandBLAS::SignedInteger sint_t>
-void sparse_matrix_t_from_randblas_csr(const CSRMatrix<double,sint_t> &A, sparse_matrix_t &mat) {
-    // Expected mode of calling:
-    //
-    //      sparse_matrix_t mat;
-    //      sparse_matrix_t_from_randblas_csr(A, mat);
-    //      /* do stuff */
-    //      mkl_sparse_destroy(mat);
-    //
-    auto N = A.n_rows;
-    auto cpt = A.rowptr;
-    auto rpt = A.colidxs;
-    auto datapt = A.vals;
-    sint_t *pointerB = new sint_t[N + 1]();
-    //sint_t *pointerB = (sint_t *)calloc(N+1, sizeof(sint_t));
-    sint_t *pointerE = new sint_t[N + 1]();
-    //sint_t *pointerE = (sint_t *)calloc(N+1, sizeof(sint_t));
-    sint_t *update_intend_rpt = new sint_t[cpt[N]]();
-    //sint_t *update_intend_rpt = (sint_t *)calloc(cpt[N], sizeof(sint_t));
-    double *update_intend_datapt = new double[cpt[N]]();
-    //double *update_intend_datapt = (double *)calloc(cpt[N], sizeof(double));
-    for(sint_t i = 0; i < N; i++) {
-        auto start = static_cast<sint_t>(cpt[i]);
-        auto last  = static_cast<sint_t>(cpt[i + 1]);
-        pointerB[i] = start;
-        for (auto j = start; j < last; j++) {
-            update_intend_datapt[j] = datapt[j];
-            update_intend_rpt[j]    = rpt[j];
-        }
-        pointerE[i] = last;    
-    }
-    // auto status = 
-    mkl_sparse_d_create_csr(&mat, SPARSE_INDEX_BASE_ZERO, N, N, pointerB, pointerE, update_intend_rpt, update_intend_datapt);
-    // The AddressSanitizer says that this function has a memory leak.
-    // An obvious potential cause is that mkl_sparse_d_create_csr might not take ownership of the buffers we pass it.
-    //
-    // However, we get a segfault later on if we delete pointerB, pointerE, update_intend_rpt, and update_intend_datapt before returning.
-    //
-    // See here for a potentially useful thread:
-    //   community.intel.com/t5/Intel-oneAPI-Math-Kernel-Library/mkl-sparse-d-create-csr-possibility-of-memory-leak/m-p/1313882#M32031
     return;
 }
 
@@ -262,10 +205,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         times(4, 0.0),
         call_pcg_tol(pcg_tol),
         max_iters((int64_t) maxit)
-    {
-        mkl_sparse_optimize(L.A);
-        mkl_sparse_optimize(N.G);
-    }; 
+    { }; 
 
     /*  C =: alpha * pinv(L) * B + beta * C, where C and B have "n" columns. */
     void operator()(
