@@ -17,6 +17,19 @@ using RandBLAS::COOMatrix;
 
 using RandBLAS::sparse_data::right_spmm;
 using RandBLAS::sparse_data::left_spmm;
+using RandBLAS::sparse_data::trsm;
+// void trsm(
+//      blas::Layout layout, blas::Op opA, T alpha,
+//      const SpMat &A, blas::Uplo uplo, blas::Diag diag,
+//      int64_t n, T *B, int64_t ldb,
+//      int validation_mode = 1
+// )
+using RandBLAS::sparse_data::trsm_matrix_validation;
+// inline void trsm_matrix_validation(
+//      const SpMat &A, blas::Uplo uplo,
+//      blas::Diag diag, int mode 
+// )
+
 
 //#define FINE_GRAINED
 
@@ -198,9 +211,9 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     LaplacianPinv(CallableSpMat &L, CallableChoSolve &N, double pcg_tol, int maxit,
         bool verbose = false
     ) :
-        SymmetricLinearOperator<double>(L.m),
-        L_callable{L.A, L.m},
-        N_callable{N.G, N.m},
+        SymmetricLinearOperator<double>(L.dim),
+        L_callable{L.A, L.dim},
+        N_callable{N.G, N.dim},
         verbose_pcg(verbose),
         times(4, 0.0),
         call_pcg_tol(pcg_tol),
@@ -215,13 +228,13 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     ) {
         randblas_require(layout == Layout::ColMajor);
         randblas_require(beta == (double) 0.0);
-        randblas_require(ldb == m);
-        randblas_require(ldc == m);
-        int64_t mn = m*n;
-        work_B.resize(mn);
-        work_C.resize(mn);
-        work_seminorm.resize(mn);
-        unit_ones.resize(mn, std::pow((double)m, -0.5));
+        randblas_require(ldb == dim);
+        randblas_require(ldc == dim);
+        int64_t n_x_dim = dim*n;
+        work_B.resize(n_x_dim);
+        work_C.resize(n_x_dim);
+        work_seminorm.resize(n_x_dim);
+        unit_ones.resize(n_x_dim, std::pow((double)dim, -0.5));
         proj_work_n.resize(n);
         double *ones = unit_ones.data();
         double *work_n = proj_work_n.data();
@@ -239,14 +252,14 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
             return out;
         };
 
-        for (int64_t i = 0; i < mn; ++i)
+        for (int64_t i = 0; i < n_x_dim; ++i)
             work_B[i] = alpha * B[i];
         //std::cout << "n = " << n << std::endl;
-        project_out_vec(m, n, work_B.data(), m, ones, work_n);
+        project_out_vec(dim, n, work_B.data(), dim, ones, work_n);
         // logging
         std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
         // work
-        RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
+        RandBLAS::util::safe_scal(n_x_dim, 0.0, work_C.data(), 1);
         auto t0 = std_clock::now();
         RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
         auto t1 = std_clock::now();
@@ -263,8 +276,8 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         std::cout << std::left 
         << std::setw(10) << sn_log.size()
         << std::setw(15) << sn_log[sn_log.size()-1] / sn_log[0] << std::endl;
-        project_out_vec(m, n, work_C.data(), m, ones, work_n);
-        blas::copy(mn, work_C.data(), 1, C, 1);
+        project_out_vec(dim, n, work_C.data(), dim, ones, work_n);
+        blas::copy(n_x_dim, work_C.data(), 1, C, 1);
     }
 
     double operator()(int64_t i, int64_t j) {
