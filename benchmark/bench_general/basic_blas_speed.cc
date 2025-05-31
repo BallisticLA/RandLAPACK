@@ -84,27 +84,27 @@ static void call_all_algs(
     for (int i = 0; i < numruns; ++i) {
         printf("ITERATION %d, DIM %ld\n", i, n);
         // Testing BLAS3
-        auto start_blas3 = high_resolution_clock::now();
+        auto start_blas3 = steady_clock::now();
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, n, 1.0, all_data.A.data(), n, all_data.B.data(), n, 0.0, all_data.C.data(), n);
-        auto stop_blas3 = high_resolution_clock::now();
+        auto stop_blas3 = steady_clock::now();
         dur_blas3 = duration_cast<microseconds>(stop_blas3 - start_blas3).count();
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 3);
 
         // Testing BLAS2
-        auto start_blas2 = high_resolution_clock::now();
+        auto start_blas2 = steady_clock::now();
         blas::gemv(Layout::ColMajor, Op::NoTrans, n, n, 1.0, all_data.A.data(), n, all_data.a.data(), 1, 1.0, all_data.b.data(), 1);
-        auto stop_blas2 = high_resolution_clock::now();
+        auto stop_blas2 = steady_clock::now();
         dur_blas2 = duration_cast<microseconds>(stop_blas2 - start_blas2).count();
     
         state_gen = state;
         data_regen(m_info, all_data, state_gen, 2);
 
         // Testing BLAS1
-        auto start_blas1 = high_resolution_clock::now();
+        auto start_blas1 = steady_clock::now();
         blas::axpy(n, -1.0, all_data.a.data(), 1, all_data.b.data(), 1);
-        auto stop_blas1 = high_resolution_clock::now();
+        auto stop_blas1 = steady_clock::now();
         dur_blas1 = duration_cast<microseconds>(stop_blas1 - start_blas1).count();
 
         state_gen = state;

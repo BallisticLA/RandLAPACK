@@ -45,7 +45,7 @@ class QB : public QBalg<T, RNG> {
             RandLAPACK::Stabilization<T> &orth_obj,
             bool verb,
             bool orth
-        ) : RF_Obj(rf_obj), Orth_Obj(orth_obj) {
+        ) : rf(rf_obj), orth(orth_obj) {
             verbose = verb;
             orth_check = orth;
         }
@@ -123,8 +123,8 @@ class QB : public QBalg<T, RNG> {
         ) override;
 
     public:
-        RandLAPACK::RangeFinder<T, RNG> &RF_Obj;
-        RandLAPACK::Stabilization<T> &Orth_Obj;
+        RandLAPACK::RangeFinder<T, RNG> &rf;
+        RandLAPACK::Stabilization<T> &orth;
         bool verbose;
         bool orth_check;
 };
@@ -188,7 +188,7 @@ int QB<T, RNG>::call(
         BT_i = &BT[n * curr_sz];
 
         // Calling RangeFinder
-        if(this->RF_Obj.call(m, n, A_cpy, b_sz, Q_i, state)) {
+        if(this->rf.call(m, n, A_cpy, b_sz, Q_i, state)) {
             // RF failed
             k = curr_sz;
             free(A_cpy);
@@ -211,7 +211,7 @@ int QB<T, RNG>::call(
             // Q_i = orth(Q_i - Q(Q'Q_i))
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, 1.0, Q, m, Q_i, m, 0.0, QtQi, next_sz);
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, -1.0, Q, m, QtQi, next_sz, 1.0, Q_i, m);
-            this->Orth_Obj.call(m, b_sz, Q_i);
+            this->orth.call(m, b_sz, Q_i);
         }
 
         //B_i' = A' * Q_i'

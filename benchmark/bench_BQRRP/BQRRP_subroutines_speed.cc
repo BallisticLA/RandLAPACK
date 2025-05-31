@@ -103,6 +103,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     auto state   = state_const;
     auto state_B = state_const_B;
+    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     
     if(bench_type == 1) {
@@ -136,31 +137,26 @@ static void call_wide_qrcp(
     std::string output_filename) {
 
     auto m = all_data.row;  
-    auto tol = all_data.tolerance;
-
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 4;
 
     // timing vars
     long dur_geqp3  = 0;
     long dur_luqr   = 0;
-    long dur_cqrrpt = 0;
  
     // Making sure the states are unchanged
     auto state_alg = state;
 
     int i, j = 0;
     for (i = 0; i < numruns; ++i) {
-        printf("Wide QRCP iteration %d; m==%d start.\n", i, n);
+        printf("Wide QRCP iteration %d; m==%ld start.\n", i, n);
         // Testing GEQP3
-        auto start_geqp3 = high_resolution_clock::now();
+        auto start_geqp3 = steady_clock::now();
         lapack::geqp3(n, m, all_data.A.data(), n, all_data.J.data(), all_data.tau.data());
-        auto stop_geqp3 = high_resolution_clock::now();
+        auto stop_geqp3 = steady_clock::now();
         dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
         data_regen(m_info, all_data, state, state, 1);
 
         // Testing LUQR
-        auto start_luqr = high_resolution_clock::now();
+        auto start_luqr = steady_clock::now();
         // Perform pivoted LU on A_sk', follow it up by unpivoted QR on a permuted A_sk.
         // Get a transpose of A_sk 
         RandLAPACK::util::transposition(n, m, all_data.A.data(), n, all_data.A_trans.data(), m, 0);
@@ -177,11 +173,11 @@ static void call_wide_qrcp(
         RandLAPACK::util::col_swap(n, m, m, all_data.A.data(), n, all_data.J);
         // Perform an unpivoted QR on A_sk
         lapack::geqrf(n, m, all_data.A.data(), n, all_data.tau.data());
-        auto stop_luqr = high_resolution_clock::now();
+        auto stop_luqr = steady_clock::now();
         dur_luqr = duration_cast<microseconds>(stop_luqr - start_luqr).count();
         data_regen(m_info, all_data, state, state, 1);
     
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         file << dur_geqp3 << ",  " << dur_luqr << ",\n";
     }
 }
@@ -198,7 +194,6 @@ static void call_tsqr(
     std::string output_filename) {
 
     auto m   = all_data.row;
-    auto tol = all_data.tolerance;
     int64_t tsize = 0;
 
     // timing vars
@@ -211,17 +206,18 @@ static void call_tsqr(
     long dur_cholqr_r_restore  = 0;
 
     // Imitating the QRCP on a sketch stage of BQRRP - needed to get a preconditioner
-    T* S       = ( T * )       calloc( n * m, sizeof( T ) );
-    T* A_sk    = ( T * )       calloc( n * n, sizeof( T ) );
-    int64_t* J = ( int64_t * ) calloc( n,     sizeof( int64_t ) );
-    T* tau     = ( T * )       calloc( n,     sizeof( T ) );
+    T* S       = new T[n * m]();
+    T* A_sk    = new T[n * n]();
+    int64_t* J = new int64_t[n]();
+    T* tau     = new T[n]();
+    
     RandBLAS::DenseDist D(n, m);
     auto state_const = state;
     RandBLAS::fill_dense(D, S, state_const);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, 1.0, S, n, all_data.A.data(), m, 0.0, A_sk, n);
     lapack::geqp3(n, n, A_sk, n, J, tau);
 
-    std::ofstream file(output_filename, std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     int64_t nb = 0;
     int i = 0;
@@ -229,45 +225,45 @@ static void call_tsqr(
         for(nb = geqrt_nb_start; nb <= n; nb *=2) {
             printf("TSQR iteration %d; n==%ld start.\n", i, n);
 
-            auto start_geqrt = high_resolution_clock::now();
+            auto start_geqrt = steady_clock::now();
             lapack::geqrt( m, n, nb, all_data.A.data(), m, all_data.T_mat.data(), n );
-            auto stop_geqrt = high_resolution_clock::now();
+            auto stop_geqrt = steady_clock::now();
             dur_geqrt = duration_cast<microseconds>(stop_geqrt - start_geqrt).count();
 
             if(nb == geqrt_nb_start) {
                 // Testing GEQRF
-                auto start_geqrf = high_resolution_clock::now();
+                auto start_geqrf = steady_clock::now();
                 lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
-                auto stop_geqrf = high_resolution_clock::now();
+                auto stop_geqrf = steady_clock::now();
                 dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
                 data_regen(m_info, all_data, state, state, 2);
 
                 // Testing GEQR
-                auto start_geqr = high_resolution_clock::now();
+                auto start_geqr = steady_clock::now();
                 lapack::geqr(m, n, all_data.A.data(), m,  all_data.tau.data(), -1);
                 tsize = (int64_t) all_data.tau[0]; 
                 all_data.tau.resize(tsize);
                 lapack::geqr(m, n, all_data.A.data(), m, all_data.tau.data(), tsize);
-                auto stop_geqr = high_resolution_clock::now();
+                auto stop_geqr = steady_clock::now();
                 dur_geqr = duration_cast<microseconds>(stop_geqr - start_geqr).count();
                 data_regen(m_info, all_data, state, state, 2);
 
                 // Testing CholQR
-                auto start_precond = high_resolution_clock::now();
+                auto start_precond = steady_clock::now();
                 blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, A_sk, n, all_data.A.data(), m);
-                auto stop_precond = high_resolution_clock::now();
+                auto stop_precond = steady_clock::now();
                 dur_cholqr_precond = duration_cast<microseconds>(stop_precond - start_precond).count();
-                auto start_cholqr = high_resolution_clock::now();
+                auto start_cholqr = steady_clock::now();
                 blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
                 lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
                 blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, all_data.R.data(), n, all_data.A.data(), m);
-                auto stop_cholqr = high_resolution_clock::now();
+                auto stop_cholqr = steady_clock::now();
                 dur_cholqr = duration_cast<microseconds>(stop_cholqr - start_cholqr).count();
-                auto start_orhr_col = high_resolution_clock::now();
+                auto start_orhr_col = steady_clock::now();
                 lapack::orhr_col(m, n, n, all_data.A.data(), m, all_data.T_mat.data(), n, all_data.D.data());
-                auto stop_cholqr_orhr = high_resolution_clock::now();
+                auto stop_cholqr_orhr = steady_clock::now();
                 dur_cholqr_house_rest = duration_cast<microseconds>(stop_cholqr_orhr - start_orhr_col).count();
-                auto start_r_restore = high_resolution_clock::now();
+                auto start_r_restore = steady_clock::now();
                 // Construct the proper R-factor
                 for(int i = 0; i < n; ++i) {
                     for(int j = 0; j < (i + 1); ++j) {
@@ -276,7 +272,7 @@ static void call_tsqr(
                 }
                 blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T) 1.0, A_sk, n, all_data.R.data(), n);
                 lapack::lacpy(MatrixType::Upper, n, n, all_data.R.data(), n, all_data.A.data(), m);
-                auto stop_r_restore = high_resolution_clock::now();
+                auto stop_r_restore = steady_clock::now();
                 dur_cholqr_r_restore = duration_cast<microseconds>(stop_r_restore - start_r_restore).count();
                 data_regen(m_info, all_data, state, state, 2);
             
@@ -289,10 +285,10 @@ static void call_tsqr(
         file << "\n";
     }
 
-    free(A_sk);
-    free(S);
-    free(J);
-    free(tau);
+    delete[] A_sk;
+    delete[] S;
+    delete[] J;
+    delete[] tau;
 }
 
 template <typename T, typename RNG>
@@ -311,15 +307,14 @@ static void call_apply_q(
     // timing vars
     long dur_ormqr  = 0;
     long dur_gemqrt = 0;
-    long dur_gemm   = 0;
 
-    std::ofstream file(output_filename, std::ios::app);
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
     int i, j   = 0;
     int64_t nb = 0;
     for (i = 0; i < numruns; ++i) {
         for(nb = gemqrt_nb_start; nb <= n; nb *=2) {
-            printf("Apply Q iteration %d; n==%d start.\n", i, n);
+            printf("Apply Q iteration %d; n==%ld start.\n", i, n);
             // Performing CholQR
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
             lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);
@@ -328,9 +323,9 @@ static void call_apply_q(
             lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_gemqrt.data(), m);
             lapack::orhr_col(m, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.D.data());
             
-            auto start_gemqrt = high_resolution_clock::now();
+            auto start_gemqrt = steady_clock::now();
             lapack::gemqrt(Side::Left, Op::Trans, m, m - n, n, nb, all_data.A_gemqrt.data(), m, all_data.T_gemqrt.data(), n, all_data.B1.data(), m);
-            auto stop_gemqrt = high_resolution_clock::now();
+            auto stop_gemqrt = steady_clock::now();
             dur_gemqrt = duration_cast<microseconds>(stop_gemqrt - start_gemqrt).count();
 
             // We do not re-run ormqr and gemm for different nbs
@@ -341,9 +336,9 @@ static void call_apply_q(
                 for(j = 0; j < n; ++j)
                     all_data.tau[j] = all_data.T_mat[(n + 1) * j];
 
-                auto start_ormqr = high_resolution_clock::now();
+                auto start_ormqr = steady_clock::now();
                 lapack::ormqr(Side::Left, Op::Trans, m, m - n, n, all_data.A.data(), m, all_data.tau.data(), all_data.B.data(), m);
-                auto stop_ormqr = high_resolution_clock::now();
+                auto stop_ormqr = steady_clock::now();
                 dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
             
                 file << dur_ormqr << ",  ";                
@@ -358,14 +353,27 @@ static void call_apply_q(
 
 int main(int argc, char *argv[]) {
 
-    auto size = argv[1];
+    if (argc < 5) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols(multiple, increasing order)> ..." << std::endl;
+        return 1;
+    }
 
-    int64_t i = 0;
+    size_t i = 0;
     // Declare parameters
-    int64_t m             = std::stol(size);
-    int64_t n_start       = 256;
-    int64_t n_stop        = 2048;
-    int64_t nb_start      = 256;
+    int64_t m = std::stol(argv[3]);
+    // Fill the n size vector
+    std::vector<int64_t> n_sz;
+    for (int i = 0; i < argc-4; ++i)
+        n_sz.push_back(std::stoi(argv[i + 4]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss;
+    for (const auto &val : n_sz)
+        oss << val << ", ";
+    std::string n_sz_string = oss.str();
+
+    // Internal block size for ORMQR, will increase by 2 at every iteration
+    int64_t nb_start      = n_sz[0];
     auto state            = RandBLAS::RNGState();
     auto state_B          = RandBLAS::RNGState();
     auto state_constant   = state;
@@ -373,41 +381,55 @@ int main(int argc, char *argv[]) {
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs. We only record best times.
-    int64_t numruns = 3;
+    int64_t numruns = std::stol(argv[2]);
 
     // Allocate basic workspace
-    benchmark_data<double> all_data(m, n_stop);
+    int64_t n_max = *std::max_element(n_sz.begin(), n_sz.end());
+    benchmark_data<double> all_data(m, n_max);
     // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_stop, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n_max, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     RandLAPACK::gen::mat_gen(m_info, all_data.B.data(), state_B);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "BQRRP_subroutines_speed" 
-                                                                 + "_num_info_lines_" + std::to_string(9) +
-                                                                   ".txt";
-    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
+    std::string output_filename = "_BQRRP_subroutines_speed_num_info_lines_" + std::to_string(10) + ".txt";
+
+    std::string path;
+    if (std::string(argv[1]) != ".") {
+        path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
+
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the BQRRP subroutines benchmark, recording time for the alternative options of the three main BQRRP subroutines: wide_qrcp, tall qr and application of transpose orthonormal matrix."
               "\nFile format: the format varies for each subroutine"
-              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n in powers of 2). Rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n qrcp_wide: the first two columns show ORMQR and GEMM time, the third and any subsequent columns show time for GEMQRT with a given block size (from nb_start to n as specified). Rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
               "               \n qr_tall:   six columns with timing for different tall QR candidates and their related parts: GEQRF, GEQR, CHOLQR, CHOLQR_PREPROCESSING, CHOLQR_HOUSEHOLDER_RESTORATION, CHOLQR_UNTO_PRECONDITIONING."
               "               \n apply_Q:   three columns with tall QRCP candidates: GEQP3, LUQR"
-              "               \n In all cases, rows vary from n_start to n_stop in powers of two (with numruns runs per size)."
+              "               \n In all cases, rows vary from n_sz smallest to largest element in powers of two (with numruns runs per size)."
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:" + std::to_string(m_info.m_type) +
-              "\nInput size:" + std::to_string(m) + " by "  + std::to_string(n_start) + " to " + std::to_string(n_stop) +
+              "\nInput size:" + std::to_string(m) + " by "  + n_sz_string +
               "\nAdditional parameters num runs per size " + std::to_string(numruns) + " nb_start "   + std::to_string(nb_start) +
               "\n";
     file.flush();
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_wide_qrcp(m_info, numruns, i, all_data, state, output_filename);
+    auto start_time_all = steady_clock::now();
+    for (i = 0 ;i < n_sz.size(); ++i) 
+        call_wide_qrcp(m_info, numruns, n_sz[i], all_data, state, path);
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_tsqr(m_info, numruns, i, nb_start, all_data, state, output_filename);
+    for (i = 0 ;i < n_sz.size(); ++i) 
+        call_tsqr(m_info, numruns, n_sz[i], nb_start, all_data, state, path);
 
-    for (i = n_start; i <= n_stop; i *= 2)
-        call_apply_q(m_info, numruns, i, nb_start, all_data, state, state_B, output_filename);
+    for (i = 0 ;i < n_sz.size(); ++i) 
+        call_apply_q(m_info, numruns, n_sz[i], nb_start, all_data, state, state_B, path);
+
+    auto stop_time_all = steady_clock::now();
+    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
+    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
+    file.flush();   
 }
 #endif

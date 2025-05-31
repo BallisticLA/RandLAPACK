@@ -53,7 +53,7 @@ class TestHQRRP : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy1.data(), m);
         lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, all_data.A_cpy2.data(), m);
         norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-        std::iota(all_data.J.begin(), all_data.J.end(), 1);
+        std::fill(all_data.J.begin(), all_data.J.end(), 0);
     }
 
 
@@ -122,7 +122,7 @@ class TestHQRRP : public ::testing::Test
         auto m = all_data.row;
         auto n = all_data.col;
 
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state, (T*) nullptr);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (int64_t) (d_factor * b_sz), panel_pivoting, use_cholqr, state, (T**) nullptr);
 
         RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
         lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);

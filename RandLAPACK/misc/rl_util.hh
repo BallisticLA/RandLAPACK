@@ -14,6 +14,19 @@
 
 namespace RandLAPACK::util {
 
+
+inline int get_omp_threads(
+) {
+    int num_threads = 1;
+    #ifdef RandBLAS_HAS_OpenMP
+    #pragma omp parallel
+    {
+        num_threads = omp_get_num_threads();
+    }
+    #endif
+    return num_threads;
+}
+
 template <typename T>
 void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[])
 {
@@ -188,8 +201,8 @@ T cond_num_check(
     const T* A,
     bool verbose
 ) {
-    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
-    T* s     = ( T * ) calloc( n, sizeof( T ) );
+    T* A_cpy = new T[m * n]();
+    T* s     = new T[n]();
 
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
@@ -199,8 +212,8 @@ T cond_num_check(
     if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
 
-    free(A_cpy);
-    free(s);
+    delete[] A_cpy;
+    delete[] s;
 
     return cond_num;
 }
@@ -212,8 +225,8 @@ int64_t rank_check(
     int64_t n,
     const T* A
 ) {
-    T* A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
-    T* s     = ( T * ) calloc( n, sizeof( T ) );
+    T* A_cpy = new T[m * n]();
+    T* s     = new T[n]();
 
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
@@ -223,8 +236,8 @@ int64_t rank_check(
             return i - 1;
     }
 
-    free(A_cpy);
-    free(s);
+    delete[] A_cpy;
+    delete[] s;
 
     return n;
 }
@@ -238,7 +251,7 @@ bool orthogonality_check(
     bool verbose
 ) {
 
-    T* A_gram  = ( T * ) calloc( k * k, sizeof( T ) );
+    T* A_gram  = new T[k * k]();
 
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
 
@@ -252,11 +265,11 @@ bool orthogonality_check(
     }
 
     if (orth_err > 1.0e-10) {
-        free(A_gram);
+        delete[] A_gram;
         return true;
     }
 
-    free(A_gram);
+    delete[] A_gram;
     return false;
 }
 
@@ -437,10 +450,6 @@ void rl_orhr_col(
         blas::scal(m - (i + 1), 1 / A[i * (lda + 1)], &A[(lda + 1) * i + 1], 1);
         // Perform Schur compliment update
         // A(i+1:m, i+1:n) = A(i+1:m, i+1:n) - (A(i+1:m, i) * A(i, i+1:n))
-        
-        char name [] = "In";
-        RandLAPACK::util::print_colmaj(m, n, A, m, name);
-
         blas::ger(Layout::ColMajor, m - (i + 1), n - (i + 1), (T) -1.0, &A[(lda + 1) * i + 1], 1, &A[lda * (i + 1) + i], m, &A[(lda + 1) * (i + 1)], lda);	
     }
 
@@ -462,20 +471,23 @@ void rl_orhr_col(
 }
 
 template <typename T>
-// Function returns current date
-std::string getCurrentDate() {
+// Function returns current date and time
+std::string get_current_date_time() {
     // Get the current time
     std::time_t now = std::time(nullptr);
     // Convert to local time
     std::tm* localTime = std::localtime(&now);
 
-    // Create a string stream to format the date
-    std::ostringstream dateStream;
-    dateStream << std::setw(4) << std::setfill('0') << (1900 + localTime->tm_year) << "_"  // Year
-               << std::setw(2) << std::setfill('0') << (localTime->tm_mon + 1) << "_"      // Month
-               << std::setw(2) << std::setfill('0') << localTime->tm_mday << "_";          // Day
+    // Create a string stream to format the date and time
+    std::ostringstream dateTimeStream;
+    dateTimeStream << std::setw(4) << std::setfill('0') << (1900 + localTime->tm_year) << "_"  // Year
+                   << std::setw(2) << std::setfill('0') << (localTime->tm_mon + 1) << "_"      // Month
+                   << std::setw(2) << std::setfill('0') << localTime->tm_mday << "_"           // Day
+                   << std::setw(2) << std::setfill('0') << localTime->tm_hour << "_"           // Hour
+                   << std::setw(2) << std::setfill('0') << localTime->tm_min << "_"            // Minute
+                   << std::setw(2) << std::setfill('0') << localTime->tm_sec;                  // Second
 
-    return dateStream.str();
+    return dateTimeStream.str();
 }
 
 } // end namespace util

@@ -67,6 +67,10 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 make -j2 install
 ```
 
+If you wish for BLAS++ tester to be built, make sure that the CPATH is set properly,
+i.e. pointing at the BLAS vendor library's /include/ folder.
+This will ensure that CBLAS is properly encountered by CMake.
+
 One can compile and install LAPACK++ from
 [source](https://bitbucket.org/icl/lapackpp/src/master/) using CMake by running
 ```shell

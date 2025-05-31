@@ -41,6 +41,7 @@ WITHOUT ANY WARRANTY EXPRESSED OR IMPLIED.
 #include <math.h>
 #include <algorithm>
 #include <typeinfo>
+#include <numeric>
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -195,7 +196,7 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) calloc( m_B * n_U, sizeof( T ) );
+    buff_W  = new T[m_B * n_U]();
     ldim_W = std::max<int64_t>( 1, m_B );
 
     // Apply the block transformation. 
@@ -206,7 +207,7 @@ int64_t NoFLA_Apply_Q_WY_rnfc_blk_var4(
     );
 
     // Remove auxiliary object.
-    free( buff_W );
+    delete[] buff_W;
 
     return 0;
 }
@@ -238,7 +239,7 @@ int64_t NoFLA_Downdate_Y(
     int64_t    ldim_B      = m_G1;
 
     // Create object B.
-    buff_B = ( T * ) calloc( m_B * n_B, sizeof( T ) );
+    buff_B  = new T[m_B * n_B]();
 
     // B = G1.
     lapack::lacpy( MatrixType::General,
@@ -300,7 +301,7 @@ int64_t NoFLA_Downdate_Y(
         n_G1 + n_G2, buff_G1, ldim_G1 );
 
     // Remove object B.
-    free( buff_B );
+    delete[] buff_B;
 
     return 0;
 }
@@ -323,7 +324,7 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
 
     // Create auxiliary object.
     //// FLA_Obj_create_conf_to( FLA_NO_TRANSPOSE, B1, & W );
-    buff_W = ( T * ) calloc( n_B * n_U, sizeof( T ) );
+    buff_W  = new T[n_B * n_U]();
     ldim_W = std::max<int64_t>( 1, n_B );
 
     // Apply the block transformation.
@@ -337,7 +338,7 @@ int64_t NoFLA_Apply_Q_WY_lhfc_blk_var4(
     );
 
     // Remove auxiliary object.
-    free( buff_W );
+    delete[] buff_W;
 
     return 0;
 }
@@ -496,7 +497,7 @@ static int64_t GEQRF_mod_WY(
     lwork[0] = -1;
     _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, work_query, lwork, info);
     lwork[0] = std::max((int64_t) blas::real(work_query[0]), n_A);
-    T *buff_workspace = ( T * ) calloc( lwork[0], sizeof( T ) );
+    T* buff_workspace  = new T[lwork[0]]();
     _LAPACK_geqrf(m_A, n_A, buff_A, ldim_A, buff_t, buff_workspace, lwork, info);
 
     // Build T.
@@ -507,7 +508,7 @@ static int64_t GEQRF_mod_WY(
     );
 
     // Remove auxiliary vectors.
-    free( buff_workspace );
+    delete[] buff_workspace;
 
     return 0;
 }
@@ -597,22 +598,22 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         return CHOLQR_mod_WY(num_stages, m_A, n_A, buff_A, ldim_A, buff_t, buff_T, ldim_T, buff_R, ldim_R, buff_D);
     }
 
-    high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point preallocation_t_stop;
-    high_resolution_clock::time_point norms_t_start;
-    high_resolution_clock::time_point norms_t_stop;
-    high_resolution_clock::time_point pivoting_t_start;
-    high_resolution_clock::time_point pivoting_t_stop;
-    high_resolution_clock::time_point gen_reflector_1_t_start;
-    high_resolution_clock::time_point gen_reflector_1_t_stop;
-    high_resolution_clock::time_point gen_reflector_2_t_start;
-    high_resolution_clock::time_point gen_reflector_2_t_stop;
-    high_resolution_clock::time_point downdating_t_start;
-    high_resolution_clock::time_point downdating_t_stop;
-    high_resolution_clock::time_point gen_T_t_start;
-    high_resolution_clock::time_point gen_T_t_stop;
-    high_resolution_clock::time_point total_t_start;
-    high_resolution_clock::time_point total_t_stop;
+    steady_clock::time_point preallocation_t_start;
+    steady_clock::time_point preallocation_t_stop;
+    steady_clock::time_point norms_t_start;
+    steady_clock::time_point norms_t_stop;
+    steady_clock::time_point pivoting_t_start;
+    steady_clock::time_point pivoting_t_stop;
+    steady_clock::time_point gen_reflector_1_t_start;
+    steady_clock::time_point gen_reflector_1_t_stop;
+    steady_clock::time_point gen_reflector_2_t_start;
+    steady_clock::time_point gen_reflector_2_t_stop;
+    steady_clock::time_point downdating_t_start;
+    steady_clock::time_point downdating_t_stop;
+    steady_clock::time_point gen_T_t_start;
+    steady_clock::time_point gen_T_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
     long preallocation_t_dur   = 0;
     long norms_t_dur           = 0;
     long pivoting_t_dur        = 0;
@@ -623,8 +624,8 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     long total_t_dur           = 0;
 
     if(timing != nullptr) {
-        total_t_start = high_resolution_clock::now();
-        preallocation_t_start = high_resolution_clock::now();
+        total_t_start = steady_clock::now();
+        preallocation_t_start = steady_clock::now();
     }
 
     int64_t j, mn_A, m_a21, m_A22, n_A22, n_dB, idx_max_col, 
@@ -640,21 +641,21 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     }
 
     // Create auxiliary vectors.
-    buff_d         = ( T * ) calloc( n_A, sizeof( T ) );
-    buff_e         = ( T * ) calloc( n_A, sizeof( T ) );
-    buff_workspace = ( T * ) calloc( n_A, sizeof( T ) );
+    buff_d         = new T[n_A]();
+    buff_e         = new T[n_A]();
+    buff_workspace = new T[n_A]();
 
     if(timing != nullptr) {
-        preallocation_t_stop = high_resolution_clock::now();
+        preallocation_t_stop = steady_clock::now();
         preallocation_t_dur  = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
-        norms_t_start        = high_resolution_clock::now();
+        norms_t_start        = steady_clock::now();
     }
     if( pivoting == 1 ) {
         // Compute initial norms of A int64_to d and e.
         NoFLA_QRP_compute_norms( m_A, n_A, buff_A, ldim_A, buff_d, buff_e );
     }
     if(timing != nullptr) {
-        norms_t_stop = high_resolution_clock::now();
+        norms_t_stop = steady_clock::now();
         norms_t_dur  = duration_cast<microseconds>(norms_t_stop - norms_t_start).count();
     }
 
@@ -667,7 +668,7 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         n_A22 = n_A - j - 1;
 
         if(timing != nullptr) {
-            pivoting_t_start = high_resolution_clock::now();
+            pivoting_t_start = steady_clock::now();
         }
         if( pivoting == 1 ) {
             // Obtain the index of the column with largest 2-norm.
@@ -684,9 +685,9 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         }
 
         if(timing != nullptr) {
-            pivoting_t_stop       = high_resolution_clock::now();
+            pivoting_t_stop       = steady_clock::now();
             pivoting_t_dur        += duration_cast<microseconds>(pivoting_t_stop - pivoting_t_start).count();
-            gen_reflector_1_t_start = high_resolution_clock::now();
+            gen_reflector_1_t_start = steady_clock::now();
         }
 
         // Compute tau1 and u21 from alpha11 and a21 such that tau1 and u21
@@ -702,9 +703,9 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         );
 
         if(timing != nullptr) {
-            gen_reflector_1_t_stop = high_resolution_clock::now();
+            gen_reflector_1_t_stop = steady_clock::now();
             gen_reflector_1_t_dur  += duration_cast<microseconds>(gen_reflector_1_t_stop - gen_reflector_1_t_start).count();
-            gen_reflector_2_t_start = high_resolution_clock::now();
+            gen_reflector_2_t_start = steady_clock::now();
         }
 
         // | a12t | =  H | a12t |
@@ -723,9 +724,9 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
         buff_A[ j + j * ldim_A ] = diag;
 
         if(timing != nullptr) {
-            gen_reflector_2_t_stop = high_resolution_clock::now();
+            gen_reflector_2_t_stop = steady_clock::now();
             gen_reflector_2_t_dur  += duration_cast<microseconds>(gen_reflector_2_t_stop - gen_reflector_2_t_start).count();
-            downdating_t_start   = high_resolution_clock::now();
+            downdating_t_start   = steady_clock::now();
         }
         if( pivoting == 1 ) {
             // Update partial column norms.
@@ -736,13 +737,13 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
                 & buff_A[ ( j+1 ) + std::min( n_A-1, ( j+1 ) ) * ldim_A ], ldim_A );
         }
         if(timing != nullptr) {
-            downdating_t_stop = high_resolution_clock::now();
+            downdating_t_stop = steady_clock::now();
             downdating_t_dur  += duration_cast<microseconds>(downdating_t_stop - downdating_t_start).count();
         }
     }
 
     if(timing != nullptr) {
-        gen_T_t_start   = high_resolution_clock::now();
+        gen_T_t_start   = steady_clock::now();
     }
 
     // Build T.
@@ -754,23 +755,23 @@ int64_t NoFLA_QRPmod_WY_unb_var4(
     }
 
     if(timing != nullptr) {
-        gen_T_t_stop = high_resolution_clock::now();
+        gen_T_t_stop = steady_clock::now();
         gen_T_t_dur  = duration_cast<microseconds>(gen_T_t_stop - gen_T_t_start).count();
-        preallocation_t_start = high_resolution_clock::now();
+        preallocation_t_start = steady_clock::now();
     }
 
     // Remove auxiliary vectors.
-    free( buff_d );
-    free( buff_e );
-    free( buff_workspace );
+    delete[] buff_d;
+    delete[] buff_e;
+    delete[] buff_workspace;
 
     if(timing != nullptr) {
-        preallocation_t_stop = high_resolution_clock::now();
+        preallocation_t_stop = steady_clock::now();
         preallocation_t_dur  += duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
     }
 
     if(timing != nullptr) {
-        total_t_stop     = high_resolution_clock::now();
+        total_t_stop     = steady_clock::now();
         total_t_dur      = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long other_t_dur = total_t_dur - (preallocation_t_dur + norms_t_dur + pivoting_t_dur + gen_reflector_1_t_dur + gen_reflector_2_t_dur + downdating_t_dur + gen_T_t_dur);
 
@@ -824,25 +825,25 @@ template <typename T, typename RNG>
 int64_t hqrrp( 
     int64_t m_A, int64_t n_A, T * buff_A, int64_t ldim_A,
     int64_t * buff_jpvt, T * buff_tau,
-    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t qr_type, RandBLAS::RNGState<RNG> &state, T* timing) {
+    int64_t nb_alg, int64_t pp, int64_t panel_pivoting, int64_t qr_type, RandBLAS::RNGState<RNG> &state, T** timing) {
 
     //-------TIMING VARS--------/
-    high_resolution_clock::time_point preallocation_t_stop;
-    high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point sketching_t_stop;
-    high_resolution_clock::time_point sketching_t_start;
-    high_resolution_clock::time_point downdating_t_stop;
-    high_resolution_clock::time_point downdating_t_start;
-    high_resolution_clock::time_point qrcp_t_start;
-    high_resolution_clock::time_point qrcp_t_stop;
-    high_resolution_clock::time_point qr_t_start;
-    high_resolution_clock::time_point qr_t_stop;
-    high_resolution_clock::time_point updating_A_t_start;
-    high_resolution_clock::time_point updating_A_t_stop;
-    high_resolution_clock::time_point updating_Sketch_t_start;
-    high_resolution_clock::time_point updating_Sketch_t_stop;
-    high_resolution_clock::time_point total_t_start;
-    high_resolution_clock::time_point total_t_stop;
+    steady_clock::time_point preallocation_t_stop;
+    steady_clock::time_point preallocation_t_start;
+    steady_clock::time_point sketching_t_stop;
+    steady_clock::time_point sketching_t_start;
+    steady_clock::time_point downdating_t_stop;
+    steady_clock::time_point downdating_t_start;
+    steady_clock::time_point qrcp_t_start;
+    steady_clock::time_point qrcp_t_stop;
+    steady_clock::time_point qr_t_start;
+    steady_clock::time_point qr_t_stop;
+    steady_clock::time_point updating_A_t_start;
+    steady_clock::time_point updating_A_t_stop;
+    steady_clock::time_point updating_Sketch_t_start;
+    steady_clock::time_point updating_Sketch_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
     long preallocation_t_dur   = 0;
     long sketching_t_dur       = 0;
     long downdating_t_dur      = 0;
@@ -858,13 +859,13 @@ int64_t hqrrp(
     T* timing_QR   = nullptr;
 
     if(timing != nullptr) {
-        timing_QRCP = ( T * ) calloc( 10, sizeof( T ) );
-        timing_QR   = ( T * ) calloc( 10, sizeof( T ) );
+        timing_QRCP  = new T[10]();
+        timing_QR    = new T[10]();
     }
 
     if(timing != nullptr) {
-        total_t_start = high_resolution_clock::now();
-        preallocation_t_start = high_resolution_clock::now();
+        total_t_start = steady_clock::now();
+        preallocation_t_start = steady_clock::now();
     }
 
     int64_t b, j, last_iter, mn_A, m_Y, n_Y, ldim_Y, m_V, n_V, ldim_V, 
@@ -904,33 +905,37 @@ int64_t hqrrp(
     // Create auxiliary objects.
     m_Y     = nb_alg + pp;
     n_Y     = n_A;
-    buff_Y  = ( T * ) calloc( m_Y * n_Y, sizeof( T ) );
+    buff_Y  = new T[m_Y * n_Y]();
     ldim_Y  = m_Y;
 
     m_V     = nb_alg + pp;
     n_V     = n_A;
-    buff_V  = ( T * ) calloc( m_V * n_V, sizeof( T ) );
+    buff_V  = new T[m_V * n_V]();
     ldim_V  = m_V;
 
     m_W     = nb_alg;
     n_W     = n_A;
-    buff_W  = ( T * ) calloc( m_W * n_W, sizeof( T ) );
+    buff_W  = new T[m_W * n_W]();
     ldim_W  = m_W;
 
     m_G     = nb_alg + pp;
     n_G     = m_A;
-    buff_G  = ( T * ) calloc( m_G * n_G, sizeof( T ) );
+    buff_G  = new T[m_G * n_G]();
     ldim_G  = m_G;
 
     // Required for CHolesky QR
     ldim_R = nb_alg;
-    buff_R  = ( T * ) calloc( nb_alg * nb_alg, sizeof( T ) );
-    buff_D  = ( T * ) calloc( nb_alg, sizeof( T ) );
+    buff_R  = new T[nb_alg * nb_alg]();
+    buff_D  = new T[nb_alg]();
+
+    // Required for how HQRRP is setup
+    // Adding this line ensures that the input fromat of HQRRP is identical to that of GEQP3.
+    std::iota(buff_jpvt, &buff_jpvt[n_A], 1);
 
     if(timing != nullptr) {
-        preallocation_t_stop = high_resolution_clock::now();
+        preallocation_t_stop = steady_clock::now();
         preallocation_t_dur  = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
-        sketching_t_start    = high_resolution_clock::now();
+        sketching_t_start    = steady_clock::now();
     }
 
     // Initialize matrices G and Y.
@@ -943,7 +948,7 @@ int64_t hqrrp(
                 d_zero, buff_Y, ldim_Y );
     
     if(timing != nullptr) {
-        sketching_t_stop  = high_resolution_clock::now();
+        sketching_t_stop  = steady_clock::now();
         sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
     }
 
@@ -994,7 +999,7 @@ int64_t hqrrp(
 
 
         if(timing != nullptr)
-            downdating_t_start = high_resolution_clock::now();
+            downdating_t_start = steady_clock::now();
 
 #ifdef CHECK_DOWNDATING_OF_Y
         // Check downdating of matrix Y: Compare downdated matrix Y with 
@@ -1006,7 +1011,7 @@ int64_t hqrrp(
         n_cyr    = n_Y - j;
         ldim_cyr = m_cyr;
         m_ABR    = m_A - j;
-        buff_cyr = ( T * ) calloc( m_cyr * n_cyr, sizeof( T ) );
+        buff_buff_cyrD  = new T[m_cyr * n_cyr]();
 
         //// FLA_Gemm( FLA_NO_TRANSPOSE, FLA_NO_TRANSPOSE, 
         ////           FLA_ONE, GR, ABR, FLA_ZERO, CYR ); 
@@ -1027,10 +1032,10 @@ int64_t hqrrp(
         sum = sqrt( sum );
         printf( "%%  diff between Y and downdated Y: %le\n", sum );
 
-        free( buff_cyr );
+        delete[] buff_cyr;
 #endif
         if(timing != nullptr) {
-            downdating_t_stop = high_resolution_clock::now();
+            downdating_t_stop = steady_clock::now();
             downdating_t_dur  += duration_cast<microseconds>(downdating_t_stop - downdating_t_start).count();
         }
 
@@ -1053,7 +1058,7 @@ int64_t hqrrp(
                             buff_VR, ldim_V);
 
             if(timing != nullptr)
-                qrcp_t_start    = high_resolution_clock::now();
+                qrcp_t_start    = steady_clock::now();
 
             NoFLA_QRPmod_WY_unb_var4(0, 1, b,
                 m_V, n_VR,
@@ -1066,7 +1071,7 @@ int64_t hqrrp(
             );
 
             if(timing != nullptr) {
-                qrcp_t_stop = high_resolution_clock::now();
+                qrcp_t_stop = steady_clock::now();
                 qrcp_t_dur  += duration_cast<microseconds>(qrcp_t_stop - qrcp_t_start).count();
             }
 
@@ -1091,7 +1096,7 @@ int64_t hqrrp(
         //
 
         if(timing != nullptr)
-            qr_t_start = high_resolution_clock::now();
+            qr_t_start = steady_clock::now();
 
         NoFLA_QRPmod_WY_unb_var4(qr_type, panel_pivoting, -1,
             m_AB1, n_AB1, buff_AB1, ldim_A, buff_p1, buff_s1,
@@ -1100,9 +1105,9 @@ int64_t hqrrp(
             1, buff_T1_T, ldim_W, buff_R, ldim_R, buff_D, timing_QR);
 
         if(timing != nullptr) {
-            qr_t_stop = high_resolution_clock::now();
+            qr_t_stop = steady_clock::now();
             qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-            updating_A_t_start = high_resolution_clock::now();
+            updating_A_t_start = steady_clock::now();
         }
 
         //
@@ -1121,9 +1126,9 @@ int64_t hqrrp(
         }
 
         if(timing != nullptr) {
-            updating_A_t_stop = high_resolution_clock::now();
+            updating_A_t_stop = steady_clock::now();
             updating_A_t_dur  += duration_cast<microseconds>(updating_A_t_stop - updating_A_t_start).count();
-            updating_Sketch_t_start = high_resolution_clock::now();
+            updating_Sketch_t_start = steady_clock::now();
         }
 
         //
@@ -1141,7 +1146,7 @@ int64_t hqrrp(
         }
 
         if(timing != nullptr) {
-            updating_Sketch_t_stop = high_resolution_clock::now();
+            updating_Sketch_t_stop = steady_clock::now();
             updating_Sketch_t_dur  += duration_cast<microseconds>(updating_Sketch_t_stop - updating_Sketch_t_start).count();
         }
     }
@@ -1149,56 +1154,57 @@ int64_t hqrrp(
     if(timing != nullptr) {
 
         // Make sure that timing points to a sufficient amount of space.
-        timing = ( T * ) realloc(timing, 29 * sizeof( T ) );
+        T* timing_temp = ( T * ) realloc(*timing, 26 * sizeof( T ) );
 
-        total_t_stop = high_resolution_clock::now();
+        total_t_stop = steady_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long other_t_dur  = total_t_dur - (preallocation_t_dur + sketching_t_dur + downdating_t_dur + qrcp_t_dur + qr_t_dur + updating_A_t_dur + updating_Sketch_t_dur);
 
-        timing[1]  = (T) preallocation_t_dur;
-        timing[2]  = (T) sketching_t_dur;
-        timing[3]  = (T) downdating_t_dur;
-        timing[4]  = (T) qrcp_t_dur;
-        timing[5]  = (T) qr_t_dur;
-        timing[6]  = (T) updating_A_t_dur;
-        timing[7]  = (T) updating_Sketch_t_dur;
-        timing[8]  = (T) other_t_dur;
-        timing[9] = (T) total_t_dur;
-        blas::copy(9, timing_QRCP, 1, &timing[10], 1);
-        blas::copy(9, timing_QR,   1, &timing[18], 1);
+        timing_temp[0] = (T) preallocation_t_dur;
+        timing_temp[1] = (T) sketching_t_dur;
+        timing_temp[2] = (T) downdating_t_dur;
+        timing_temp[3] = (T) qrcp_t_dur;
+        timing_temp[4] = (T) qr_t_dur;
+        timing_temp[5] = (T) updating_A_t_dur;
+        timing_temp[6] = (T) updating_Sketch_t_dur;
+        timing_temp[7] = (T) other_t_dur;
+        timing_temp[8] = (T) total_t_dur;
+        blas::copy(9, timing_QRCP, 1, &timing_temp[9], 1);
+        blas::copy(9, timing_QR,   1, &timing_temp[18], 1);
 
-        free( timing_QRCP );
-        free( timing_QR );
-        
+        delete[] timing_QRCP;
+        delete[] timing_QR;
+        *timing = timing_temp;
+
         printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
-        printf("Preallocation time: %25ld μs,\n",                  preallocation_t_dur);
-        printf("Sketching time: %34ld μs,\n",                      sketching_t_dur);
-        printf("Downdating A time: %34ld μs,\n",                   downdating_t_dur);
-        printf("QRCP time: %36ld μs,\n",                           qrcp_t_dur);
-        printf("QR time: %32ld μs,\n",                             qr_t_dur);
-        printf("Updating A time: %23ld μs,\n",                     updating_A_t_dur);
-        printf("Updating Sketch time: %23ld μs,\n",                updating_Sketch_t_dur);
-        printf("Other routines time: %24ld μs,\n",                 other_t_dur);
-        printf("Total time: %35ld μs.\n",                          total_t_dur);
+        printf("Preallocation time:   %ld μs,\n",   preallocation_t_dur);
+        printf("Sketching time:       %ld μs,\n",       sketching_t_dur);
+        printf("Downdating A time:    %ld μs,\n",      downdating_t_dur);
+        printf("QRCP time:            %ld μs,\n",            qrcp_t_dur);
+        printf("QR time:              %ld μs,\n",              qr_t_dur);
+        printf("Updating A time:      %ld μs,\n",      updating_A_t_dur);
+        printf("Updating Sketch time: %ld μs,\n", updating_Sketch_t_dur);
+        printf("Other routines time:  %ld μs,\n",           other_t_dur);
+        printf("Total time:           %ld μs.\n",           total_t_dur);
 
-        printf("\nPreallocation takes %22.2f%% of runtime.\n",                  100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-        printf("Sketch generation and application takes %2.2f%% of runtime.\n", 100 * ((T) sketching_t_dur       / (T) total_t_dur));
-        printf("Downdating takes %32.2f%% of runtime.\n",                       100 * ((T) downdating_t_dur      / (T) total_t_dur));
-        printf("QRCP takes %32.2f%% of runtime.\n",                             100 * ((T) qrcp_t_dur            / (T) total_t_dur));
-        printf("QR takes %32.2f%% of runtime.\n",                               100 * ((T) qr_t_dur              / (T) total_t_dur));
-        printf("Updating A takes %14.2f%% of runtime.\n",                       100 * ((T) updating_A_t_dur      / (T) total_t_dur));
-        printf("Updating Sketch takes %14.2f%% of runtime.\n",                  100 * ((T) updating_Sketch_t_dur / (T) total_t_dur));
-        printf("Everything else takes %20.2f%% of runtime.\n",                  100 * ((T) other_t_dur           / (T) total_t_dur));
+        printf("\nPreallocation takes                     %f of runtime.\n", 100 * ((T) preallocation_t_dur   / (T) total_t_dur));
+        printf("Sketch generation and application takes %f of runtime.\n", 100 * ((T) sketching_t_dur       / (T) total_t_dur));
+        printf("Downdating takes                        %f of runtime.\n", 100 * ((T) downdating_t_dur      / (T) total_t_dur));
+        printf("QRCP takes                              %f of runtime.\n", 100 * ((T) qrcp_t_dur            / (T) total_t_dur));
+        printf("QR takes                                %f of runtime.\n", 100 * ((T) qr_t_dur              / (T) total_t_dur));
+        printf("Updating A takes                        %f of runtime.\n", 100 * ((T) updating_A_t_dur      / (T) total_t_dur));
+        printf("Updating Sketch takes                   %f of runtime.\n", 100 * ((T) updating_Sketch_t_dur / (T) total_t_dur));
+        printf("Everything else takes                   %f of runtime.\n", 100 * ((T) other_t_dur           / (T) total_t_dur));
         printf("/-------------HQRRP TIMING RESULTS END-------------/\n\n");
     }
 
     // Remove auxiliary objects.
-    free( buff_G );
-    free( buff_Y );
-    free( buff_V );
-    free( buff_W );
-    free( buff_R );
-    free( buff_D );
+    delete[] buff_G;
+    delete[] buff_Y;
+    delete[] buff_V;
+    delete[] buff_W;
+    delete[] buff_R;
+    delete[] buff_D;
 
     return 0;
 }
