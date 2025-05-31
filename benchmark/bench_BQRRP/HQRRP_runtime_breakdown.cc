@@ -47,9 +47,10 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         QR_speed_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
+    std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
-    std::iota(all_data.J.begin(), all_data.J.end(), 1);
+    std::fill(all_data.J.begin(), all_data.J.end(), 0);
 }
 
 template <typename T, typename RNG>
@@ -71,16 +72,17 @@ static void call_all_algs(
     int panel_pivoting = 0;
 
     // Timing vars
-    T* times = ( T * ) calloc(27, sizeof( T ) );
+    T* times = new T[27]();
+    T** times_ptr = &times;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, NUMCOLS %ld\n", i, n);
+        printf("ITERATION %d, B_SZ %ld\n", i, b_sz);
 
         // Testing HQRRP
         // No CholQR
-        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times);
+        RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), b_sz, (d_factor - 1) * b_sz, panel_pivoting, 0, state_alg, times_ptr);
 
-        std::ofstream file(output_filename, std::ios::app);
+        std::ofstream file(output_filename, std::ios::out | std::ios::app);
         std::copy(times, times + 27, std::ostream_iterator<T>(file, ", "));
         file << "\n";
 
@@ -90,29 +92,37 @@ static void call_all_algs(
         state_alg = state;
     }
 
-    free(times);
+    delete[] times;
 }
 
 int main(int argc, char *argv[]) {
 
-    if(argc <= 1) {
-        printf("No input provided\n");
-        return 0;
+    if (argc < 6) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_runs> <num_rows> <num_cols> <block_sizes>..." << std::endl;
+        return 1;
     }
-    auto size = argv[1];
 
     // Declare parameters
-    int64_t m          = std::stol(size);
-    int64_t n          = std::stol(size);
+    int64_t m          = std::stol(argv[3]);
+    int64_t n          = std::stol(argv[4]);
     double  d_factor   = 1.0;
-    int64_t b_sz_start = 32;
-    int64_t b_sz_end   = 2048;
+    // Fill the block size vector
+    std::vector<int64_t> b_sz;
+    for (int i = 0; i < argc-5; ++i)
+        b_sz.push_back(std::stoi(argv[i + 5]));
+    // Save elements in string for logging purposes
+    std::ostringstream oss;
+    for (const auto &val : b_sz)
+        oss << val << ", ";
+    std::string b_sz_string = oss.str();
+
     auto state         = RandBLAS::RNGState();
     auto state_constant = state;
     // Timing results
     std::vector<long> res;
     // Number of algorithm runs.
-    int64_t numruns = 3;
+    int64_t numruns = std::stol(argv[2]);
 
     // Allocate basic workspace
     QR_speed_benchmark_data<double> all_data(m, n, d_factor);
@@ -121,25 +131,36 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     // Declare a data file
-    std::string output_filename = RandLAPACK::util::getCurrentDate<double>() + "HQRRP_runtime_breakdown" 
-                                                                 + "_num_info_lines_" + std::to_string(6) +
-                                                                   ".txt";
+    std::string output_filename = "_HQRRP_runtime_breakdown_num_info_lines_" + std::to_string(7) + ".txt";
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::trunc);
+    std::string path;
+    if (std::string(argv[1]) != ".") {
+        path = std::string(argv[1]) + output_filename;
+    } else {
+        path = output_filename;
+    }
+
+    std::ofstream file(path, std::ios::out | std::ios::app);
 
     // Writing important data into file
     file << "Description: Results from the HQRRP runtime breakdown benchmark, recording the time it takes to perform every subroutine in HQRRP."
-              "\nFile format: 27 data columns, each corresponding to a given HQRRP subroutine (please see /RandLAPACK/drivers/rl_hqrrp.hh for details) "
-              "               rows correspond to HQRRP runs with block sizes varying in powers of 2, with numruns repititions of each block size"
+              "\nFile format: 26 data columns, each corresponding to a given HQRRP subroutine (please see /RandLAPACK/drivers/rl_hqrrp.hh for details)"
+              "\nrows correspond to HQRRP runs with block sizes varying as specified, with numruns repititions of each block size"
+              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput type:"       + std::to_string(m_info.m_type) +
               "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-              "\nAdditional parameters: HQRRP block size start: " + std::to_string(b_sz_start) + " HQRRP block size end: " + std::to_string(b_sz_end) + " num runs per size " + std::to_string(numruns) + " HQRRP d factor: "   + std::to_string(d_factor) +
+              "\nAdditional parameters: HQRRP block sizes: " + b_sz_string + "num runs per size " + std::to_string(numruns) + " HQRRP d factor: "   + std::to_string(d_factor) +
               "\n";
     file.flush();
     
-
-    for (;b_sz_start <= b_sz_end; b_sz_start *= 2) {
-        call_all_algs(m_info, numruns, b_sz_start, all_data, state_constant, output_filename);
+    auto start_time_all = steady_clock::now();
+    size_t i = 0;
+    for (;i < b_sz.size(); ++i) {
+        call_all_algs(m_info, numruns, b_sz[i], all_data, state_constant, path);
     }
+    auto stop_time_all = steady_clock::now();
+    long dur_time_all = duration_cast<microseconds>(stop_time_all - start_time_all).count();
+    file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
+    file.flush();   
 }
 #endif

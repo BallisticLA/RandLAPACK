@@ -39,7 +39,7 @@ class RF : public RangeFinder<T, RNG> {
             RandLAPACK::Stabilization<T> &orth_obj,
             bool verb,
             bool cond
-        ) : RS_Obj(rs_obj), Orth_Obj(orth_obj) {
+        ) : rs(rs_obj), orth(orth_obj) {
             verbose = verb;
             cond_check = cond;
         }
@@ -93,8 +93,8 @@ class RF : public RangeFinder<T, RNG> {
 
     public:
        // Instantiated in the constructor
-       RandLAPACK::RowSketcher<T, RNG> &RS_Obj;
-       RandLAPACK::Stabilization<T> &Orth_Obj;
+       RandLAPACK::RowSketcher<T, RNG> &rs;
+       RandLAPACK::Stabilization<T> &orth;
        bool verbose;
        bool cond_check;
 
@@ -113,10 +113,9 @@ int RF<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
 
-    T* Omega  = ( T * ) calloc( n * k, sizeof( T ) );
+    T* Omega  = new T[n * k]();
 
-    if(this->RS_Obj.call(m, n, A, k, Omega, state)) {
-        free(Omega);
+    if(this->rs.call(m, n, A, k, Omega, state)) {
         return 1;
     }
 
@@ -127,11 +126,13 @@ int RF<T, RNG>::call(
         // Writes into this->cond_nums
         this->cond_nums.push_back(util::cond_num_check(m, k, Q, this->verbose));
 
-    if(this->Orth_Obj.call(m, k, Q))
+    if(this->orth.call(m, k, Q)) {
+        delete[] Omega;
         return 2; // Orthogonalization failed
+    }
 
     // Normal termination
-    free(Omega);
+    delete[] Omega;
     return 0;
 }
 

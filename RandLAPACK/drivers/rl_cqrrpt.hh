@@ -4,6 +4,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_hqrrp.hh"
+#include "rl_bqrrp.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -34,13 +35,19 @@ class CQRRPTalg {
         ) = 0;
 };
 
-template <typename T, typename RNG>
+// Struct outside of CQRRPT class to make symbols shorter
+struct CQRRPTSubroutines {
+    enum QRCP {hqrrp, bqrrp, geqp3};
+};
+
+template <typename T, typename RNG = RandBLAS::DefaultRNG>
 class CQRRPT : public CQRRPTalg<T, RNG> {
     public:
 
+        using Subroutines = CQRRPTSubroutines;
+
         /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
-        /// or through a custom HQRRP function. This decision is controlled through 'no_hqrrp' parameter,
-        /// which defaults to 1.
+        /// or through a custom HQRRP function, or through BQRRP function. GEQP3 is the default option.
         ///
         /// The algorithm allows for choosing the rank estimation scheme either naively, through looking at the
         /// diagonal entries of an R-factor from QRCP or via finding the smallest k such that ||A[k:, k:]||_F <= tau_trunk * ||A||_x.
@@ -59,7 +66,8 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ) {
             timing = time_subroutines;
             eps = ep;
-            no_hqrrp = 1;
+            qrcp = Subroutines::QRCP::geqp3;
+            bqrrp_block_ratio = 1;
             nb_alg = 64;
             oversampling = 10;
             use_cholqr = 0;
@@ -130,8 +138,11 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         // tuning SASOS
         int64_t nnz;
 
-        // HQRRP-related
-        int no_hqrrp;
+        // QRCP-related
+        Subroutines::QRCP qrcp;
+        // Ratio of BQRRP block size to the number of columns n; 
+        // used to set the BQRRP block size.
+        double bqrrp_block_ratio;
         int64_t nb_alg;
         int64_t oversampling;
         int64_t panel_pivoting;
@@ -152,20 +163,20 @@ int CQRRPT<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
     ///--------------------TIMING VARS--------------------/
-    high_resolution_clock::time_point saso_t_stop;
-    high_resolution_clock::time_point saso_t_start;
-    high_resolution_clock::time_point qrcp_t_start;
-    high_resolution_clock::time_point qrcp_t_stop;
-    high_resolution_clock::time_point rank_reveal_t_start;
-    high_resolution_clock::time_point rank_reveal_t_stop;
-    high_resolution_clock::time_point cholqr_t_start;
-    high_resolution_clock::time_point cholqr_t_stop;
-    high_resolution_clock::time_point a_mod_piv_t_start;
-    high_resolution_clock::time_point a_mod_piv_t_stop;
-    high_resolution_clock::time_point a_mod_trsm_t_start;
-    high_resolution_clock::time_point a_mod_trsm_t_stop;
-    high_resolution_clock::time_point total_t_start;
-    high_resolution_clock::time_point total_t_stop;
+    steady_clock::time_point saso_t_stop;
+    steady_clock::time_point saso_t_start;
+    steady_clock::time_point qrcp_t_start;
+    steady_clock::time_point qrcp_t_stop;
+    steady_clock::time_point rank_reveal_t_start;
+    steady_clock::time_point rank_reveal_t_stop;
+    steady_clock::time_point cholqr_t_start;
+    steady_clock::time_point cholqr_t_stop;
+    steady_clock::time_point a_mod_piv_t_start;
+    steady_clock::time_point a_mod_piv_t_stop;
+    steady_clock::time_point a_mod_trsm_t_start;
+    steady_clock::time_point a_mod_trsm_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
     long saso_t_dur        = 0;
     long qrcp_t_dur        = 0;
     long rank_reveal_t_dur = 0;
@@ -175,7 +186,7 @@ int CQRRPT<T, RNG>::call(
     long total_t_dur       = 0;
 
     if(this -> timing)
-        total_t_start = high_resolution_clock::now();
+        total_t_start = steady_clock::now();
 
     int i;
     int64_t k = n;
@@ -186,13 +197,13 @@ int CQRRPT<T, RNG>::call(
     int64_t new_rank;
     T running_max, running_min, curr_entry;
 
-    T* A_hat = ( T * ) calloc( d * n, sizeof( T ) );
-    T* tau   = ( T * ) calloc( n, sizeof( T ) );
+    T* A_hat = new T[d * n]();
+    T* tau   = new T[n]();
     // Buffer for column pivoting.
     std::vector<int64_t> J_buf(n, 0);
 
     if(this -> timing)
-        saso_t_start = high_resolution_clock::now();
+        saso_t_start = steady_clock::now();
     
     /// Generating a SASO
     RandBLAS::SparseDist DS(d, m, this->nnz);
@@ -207,21 +218,25 @@ int CQRRPT<T, RNG>::call(
     );
 
     if(this -> timing) {
-        saso_t_stop = high_resolution_clock::now();
-        qrcp_t_start = high_resolution_clock::now();
+        saso_t_stop = steady_clock::now();
+        qrcp_t_start = steady_clock::now();
     }
 
     /// Performing QRCP on a sketch
-    if(this->no_hqrrp) {
-        lapack::geqp3(d, n, A_hat, d, J, tau);
+    if(this -> qrcp == Subroutines::QRCP::hqrrp) {
+        hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
+    } else if(this -> qrcp == Subroutines::QRCP::bqrrp) {
+        #if !defined(__APPLE__)
+        RandLAPACK::BQRRP<T, RNG> BQRRP(false, n * this->bqrrp_block_ratio);
+        BQRRP.call(d, n, A_hat, d, 1.0, tau, J, state);
+        #endif
     } else {
-        std::iota(J, &J[n], 1);
-        hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T*) nullptr);
+        lapack::geqp3(d, n, A_hat, d, J, tau);
     }
 
     if(this -> timing) {
-        qrcp_t_stop = high_resolution_clock::now();
-        rank_reveal_t_start = high_resolution_clock::now();
+        qrcp_t_stop = steady_clock::now();
+        rank_reveal_t_start = steady_clock::now();
     }
 
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
@@ -237,30 +252,30 @@ int CQRRPT<T, RNG>::call(
     this->rank = k;
 
     if(this -> timing)
-        rank_reveal_t_stop = high_resolution_clock::now();
+        rank_reveal_t_stop = steady_clock::now();
 
     /// Extracting a k by k R representation
     T* R_sp  = R;
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, ldr);
 
     if(this -> timing)
-        a_mod_piv_t_start = high_resolution_clock::now();
+        a_mod_piv_t_start = steady_clock::now();
 
     // Swap k columns of A with pivots from J
     blas::copy(n, J, 1, J_buf.data(), 1);
     util::col_swap(m, n, k, A, lda, J_buf);
 
     if(this -> timing) {
-        a_mod_piv_t_stop = high_resolution_clock::now();
-        a_mod_trsm_t_start = high_resolution_clock::now();
+        a_mod_piv_t_stop = steady_clock::now();
+        a_mod_trsm_t_start = steady_clock::now();
     }
 
     // A_pre * R_sp = AP
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing) {
-        a_mod_trsm_t_stop = high_resolution_clock::now();
-        cholqr_t_start = high_resolution_clock::now();
+        a_mod_trsm_t_stop = steady_clock::now();
+        cholqr_t_start = steady_clock::now();
     }
 
     // Do Cholesky QR
@@ -289,7 +304,7 @@ int CQRRPT<T, RNG>::call(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing)
-        cholqr_t_stop = high_resolution_clock::now();
+        cholqr_t_stop = steady_clock::now();
 
     // Get the final R-factor -- undoing the preconditioning
     blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr); 
@@ -305,7 +320,7 @@ int CQRRPT<T, RNG>::call(
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
         cholqr_t_dur      = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
 
-        total_t_stop = high_resolution_clock::now();
+        total_t_stop = steady_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur);
 
@@ -313,8 +328,8 @@ int CQRRPT<T, RNG>::call(
         this -> times = {saso_t_dur, qrcp_t_dur, rank_reveal_t_dur, cholqr_t_dur, a_mod_piv_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
     }
 
-    free(A_hat);
-    free(tau);
+    delete[] A_hat;
+    delete[] tau;
 
     return 0;
 }

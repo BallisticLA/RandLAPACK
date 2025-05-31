@@ -8,6 +8,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+
 class TestSYRF : public ::testing::Test
 {
     protected:
@@ -45,9 +46,12 @@ class TestSYRF : public ::testing::Test
 
     template <typename T, typename RNG>
     struct algorithm_objects {
-        RandLAPACK::SYPS<T, RNG> SYPS;
-        RandLAPACK::HQRQ<T> Orth_RF; 
-        RandLAPACK::SYRF<T, RNG> SYRF;
+        using SYPS_t = RandLAPACK::SYPS<T, RNG>;
+        using Orth_t = RandLAPACK::HQRQ<T>;
+        using SYRF_t = RandLAPACK::SYRF<SYPS_t, Orth_t>;
+        SYPS_t syps;
+        Orth_t orth; 
+        SYRF_t syrf;
 
         algorithm_objects(
             bool verbose, 
@@ -55,9 +59,9 @@ class TestSYRF : public ::testing::Test
             int64_t p, 
             int64_t passes_per_iteration
         ) :
-            SYPS(p, passes_per_iteration, verbose, cond_check),
-            Orth_RF(cond_check, verbose),
-            SYRF(SYPS, Orth_RF, verbose, cond_check)
+            syps(p, passes_per_iteration, verbose, cond_check),
+            orth(cond_check, verbose),
+            syrf(syps, orth, verbose, cond_check)
             {}
     };
 
@@ -95,7 +99,7 @@ class TestSYRF : public ::testing::Test
         auto m = all_data.row;
         auto k = all_data.rank;
 
-        all_algs.SYRF.call(Uplo::Upper, m, all_data.A.data(), k, all_data.Q, state, NULL);
+        all_algs.syrf.call(Uplo::Upper, m, all_data.A.data(), k, all_data.Q, state, NULL);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();

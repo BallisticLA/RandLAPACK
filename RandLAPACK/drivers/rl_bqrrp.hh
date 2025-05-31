@@ -161,24 +161,24 @@ int BQRRP<T, RNG>::call(
     throw std::runtime_error("BQRRP is not supported when BLAS is linked against Apple Accelerate.");
     #else
     //-------TIMING VARS--------/
-    high_resolution_clock::time_point preallocation_t_start;
-    high_resolution_clock::time_point preallocation_t_stop;
-    high_resolution_clock::time_point skop_t_start;
-    high_resolution_clock::time_point skop_t_stop;
-    high_resolution_clock::time_point qrcp_wide_t_start;
-    high_resolution_clock::time_point qrcp_wide_t_stop;
-    high_resolution_clock::time_point panel_preprocessing_t_start;
-    high_resolution_clock::time_point panel_preprocessing_t_stop;
-    high_resolution_clock::time_point qr_tall_t_start;
-    high_resolution_clock::time_point qr_tall_t_stop;
-    high_resolution_clock::time_point q_reconstruction_t_start;
-    high_resolution_clock::time_point q_reconstruction_t_stop;
-    high_resolution_clock::time_point apply_transq_t_start;
-    high_resolution_clock::time_point apply_transq_t_stop;
-    high_resolution_clock::time_point sample_update_t_start;
-    high_resolution_clock::time_point sample_update_t_stop;
-    high_resolution_clock::time_point total_t_start;
-    high_resolution_clock::time_point total_t_stop;
+    steady_clock::time_point preallocation_t_start;
+    steady_clock::time_point preallocation_t_stop;
+    steady_clock::time_point skop_t_start;
+    steady_clock::time_point skop_t_stop;
+    steady_clock::time_point qrcp_wide_t_start;
+    steady_clock::time_point qrcp_wide_t_stop;
+    steady_clock::time_point panel_preprocessing_t_start;
+    steady_clock::time_point panel_preprocessing_t_stop;
+    steady_clock::time_point qr_tall_t_start;
+    steady_clock::time_point qr_tall_t_stop;
+    steady_clock::time_point q_reconstruction_t_start;
+    steady_clock::time_point q_reconstruction_t_stop;
+    steady_clock::time_point apply_transq_t_start;
+    steady_clock::time_point apply_transq_t_stop;
+    steady_clock::time_point sample_update_t_start;
+    steady_clock::time_point sample_update_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
     long preallocation_t_dur       = 0;
     long skop_t_dur                = 0;
     long qrcp_wide_t_dur           = 0;
@@ -190,8 +190,8 @@ int BQRRP<T, RNG>::call(
     long total_t_dur               = 0;
 
     if(this -> timing) {
-        total_t_start = high_resolution_clock::now();
-        preallocation_t_start = high_resolution_clock::now();
+        total_t_start = steady_clock::now();
+        preallocation_t_start = steady_clock::now();
     }
     int iter, i, j;
     int64_t tmp;
@@ -249,7 +249,7 @@ int BQRRP<T, RNG>::call(
     int64_t* J_buffer = J_buf.data();
     // Special pivoting buffer for LU factorization, capturing the swaps on A_sk'.
     // Needs to be converted in a proper format of length rows(A_sk')
-    int64_t* J_buffer_lu = ( int64_t * ) calloc( std::min(d, n), sizeof( int64_t ) );
+    int64_t* J_buffer_lu = new int64_t[std::min(d, n)]();
 
     // A_sk serves as a skething matrix, of size d by n, lda d
     // Below algorithm does not perform repeated sampling, hence A_sk
@@ -257,14 +257,15 @@ int BQRRP<T, RNG>::call(
     // Should remain unchanged throughout the algorithm,
     // As the algorithm needs to have access to the upper-triangular factor R
     // (stored in this matrix after geqp3) at all times. 
-    T* A_sk = ( T * ) calloc( d * n, sizeof( T ) );
+    T* A_sk = new T[d * n]();
+
     // Create a separate pointer to free when function terminates
     T* A_sk_const = A_sk;
     // Pointer to the b_sz by b_sz upper-triangular facor R stored in A_sk after GEQP3.
     T* R_sk = NULL;
     // View to the transpose of A_sk.
     // Is of size n * d, with an lda n.
-    T* A_sk_trans = ( T * ) calloc( n * d, sizeof( T ) );
+    T* A_sk_trans = new T[n * d]();
 
     // Buffer for the R-factor in tall QR, of size b_sz by b_sz, lda b_sz.
     // Also used to store the proper R11_full-factor after the 
@@ -272,31 +273,31 @@ int BQRRP<T, RNG>::call(
     // That is done by applying the sign vector D from orhr_col().
     // Eventually, will be used to store R11 (computed via trmm)
     // which is then copied into its appropriate space in the matrix A.
-    T* R_tall_qr = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
+    T* R_tall_qr = new T[b_sz_const * b_sz_const]();
     // Pointer to matrix T from orhr_col at currect iteration, will point to Work2 space.
-    T* T_dat    = ( T * ) calloc( b_sz_const * b_sz_const, sizeof( T ) );
+    T* T_dat = new T[b_sz_const * b_sz_const]();
 
     // Buffer for Tau in GEQP3 and D in orhr_col, of size n.
-    T* Work2    = ( T * ) calloc( n, sizeof( T ) );
+    T* Work2 = new T[n]();
     //*******************POINTERS TO DATA REQUIRING ADDITIONAL STORAGE END*******************
 
     if(this -> timing) {
-        preallocation_t_stop  = high_resolution_clock::now();
+        preallocation_t_stop  = steady_clock::now();
         preallocation_t_dur   = duration_cast<microseconds>(preallocation_t_stop - preallocation_t_start).count();
-        skop_t_start = high_resolution_clock::now();
+        skop_t_start = steady_clock::now();
     }
 
     // Using Gaussian matrix as a sketching operator.
     // Using a sparse sketching operator may be dangerous if LU-based QRCP is in use,
     // as LU is not intended to be used with rank-deficient matrices.
-    T* S  = ( T * ) calloc( d * m, sizeof( T ) );
+    T* S = new T[d * m]();
     RandBLAS::DenseDist D(d, m);
     state = RandBLAS::fill_dense(D, S, state);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
-    free(S);
+    delete[] S;
 
     if(this -> timing) {
-        skop_t_stop  = high_resolution_clock::now();
+        skop_t_stop  = steady_clock::now();
         skop_t_dur   = duration_cast<microseconds>(skop_t_stop - skop_t_start).count();
     }
 
@@ -312,7 +313,7 @@ int BQRRP<T, RNG>::call(
         std::fill(&Work2[0], &Work2[n], (T) 0.0);
 
         if(this -> timing)
-            qrcp_wide_t_start = high_resolution_clock::now();
+            qrcp_wide_t_start = steady_clock::now();
             
         // Performing qrcp_wide below
         if (this -> qrcp_wide == Subroutines::QRCPWide::geqp3) {
@@ -340,9 +341,9 @@ int BQRRP<T, RNG>::call(
         }
 
         if(this -> timing) {
-            qrcp_wide_t_stop = high_resolution_clock::now();
+            qrcp_wide_t_stop = steady_clock::now();
             qrcp_wide_t_dur += duration_cast<microseconds>(qrcp_wide_t_stop - qrcp_wide_t_start).count();
-            panel_preprocessing_t_start = high_resolution_clock::now();
+            panel_preprocessing_t_start = steady_clock::now();
         }
 
         // Need to premute trailing columns of the full R-factor.
@@ -371,12 +372,12 @@ int BQRRP<T, RNG>::call(
                 RandLAPACK::util::col_swap<T>(cols, cols, &J[curr_sz], J_buf);
             }
 
-            free(J_buffer_lu);
-            free(A_sk_const);
-            free(A_sk_trans);
-            free(R_tall_qr);
-            free(T_dat);
-            free(Work2);
+            delete[] J_buffer_lu;
+            delete[] A_sk_const;
+            delete[] A_sk_trans;
+            delete[] R_tall_qr;
+            delete[] T_dat;
+            delete[] Work2;
             return 0;
         }
 
@@ -409,9 +410,9 @@ int BQRRP<T, RNG>::call(
         }
         
         if(this -> timing) {
-            panel_preprocessing_t_stop  = high_resolution_clock::now();
+            panel_preprocessing_t_stop  = steady_clock::now();
             panel_preprocessing_t_dur  += duration_cast<microseconds>(panel_preprocessing_t_stop - panel_preprocessing_t_start).count();
-            qr_tall_t_start = high_resolution_clock::now();
+            qr_tall_t_start = steady_clock::now();
         }
 
         // Define a pointer to the current subportion of tau vector.
@@ -428,9 +429,9 @@ int BQRRP<T, RNG>::call(
             R11 = A_work;
 
             if(this -> timing) {
-                qr_tall_t_stop  = high_resolution_clock::now();
+                qr_tall_t_stop  = steady_clock::now();
                 qr_tall_t_dur  += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
-                apply_transq_t_start = high_resolution_clock::now();
+                apply_transq_t_start = steady_clock::now();
             }
         } else if (this -> qr_tall == Subroutines::QRTall::cholqr) {
 
@@ -445,9 +446,9 @@ int BQRRP<T, RNG>::call(
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_tall_qr, b_sz_const, A_work, lda);
 
             if(this -> timing) {
-                qr_tall_t_stop  = high_resolution_clock::now();
+                qr_tall_t_stop  = steady_clock::now();
                 qr_tall_t_dur  += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
-                q_reconstruction_t_start = high_resolution_clock::now();
+                q_reconstruction_t_start = steady_clock::now();
             }
 
             // Find Q (stored in A) using Householder reconstruction. 
@@ -485,9 +486,9 @@ int BQRRP<T, RNG>::call(
             lapack::lacpy(MatrixType::Upper, block_rank, b_sz, R_tall_qr, b_sz_const, A_work, lda);
 
             if(this -> timing) {
-                q_reconstruction_t_stop  = high_resolution_clock::now();
+                q_reconstruction_t_stop  = steady_clock::now();
                 q_reconstruction_t_dur  += duration_cast<microseconds>(q_reconstruction_t_stop - q_reconstruction_t_start).count();
-                apply_transq_t_start = high_resolution_clock::now();
+                apply_transq_t_start = steady_clock::now();
             }
         } else {
             // Perform QRF by default
@@ -497,9 +498,9 @@ int BQRRP<T, RNG>::call(
             // R11 is computed and placed in the appropriate space
             R11 = A_work;
             if(this -> timing) {
-                qr_tall_t_stop  = high_resolution_clock::now();
+                qr_tall_t_stop  = steady_clock::now();
                 qr_tall_t_dur  += duration_cast<microseconds>(qr_tall_t_stop - qr_tall_t_start).count();
-                apply_transq_t_start = high_resolution_clock::now();
+                apply_transq_t_start = steady_clock::now();
             }
         }
 
@@ -528,7 +529,7 @@ int BQRRP<T, RNG>::call(
         }
         
         if(this -> timing) {
-            apply_transq_t_stop  = high_resolution_clock::now();
+            apply_transq_t_stop  = steady_clock::now();
             apply_transq_t_dur  += duration_cast<microseconds>(apply_transq_t_stop - apply_transq_t_start).count();
         }
 
@@ -550,7 +551,7 @@ int BQRRP<T, RNG>::call(
             this -> rank = curr_sz;
 
             if(this -> timing) {
-                total_t_stop = high_resolution_clock::now();
+                total_t_stop = steady_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 long t_other  = total_t_dur - (skop_t_dur + preallocation_t_dur + qrcp_wide_t_dur + panel_preprocessing_t_dur + qr_tall_t_dur + q_reconstruction_t_dur + apply_transq_t_dur + sample_update_t_dur);
                 this -> times.resize(10);
@@ -579,19 +580,18 @@ int BQRRP<T, RNG>::call(
                 printf("Everything else takes                     %6.2f%% of runtime.\n",  100 * ((T) t_other                   / (T) total_t_dur));
                 printf("/-------------BQRRP TIMING RESULTS END-------------/\n\n");
             }
-
-            free(J_buffer_lu);
-            free(A_sk_const);
-            free(A_sk_trans);
-            free(R_tall_qr);
-            free(T_dat);
-            free(Work2);
+            delete[] J_buffer_lu;
+            delete[] A_sk_const;
+            delete[] A_sk_trans;
+            delete[] R_tall_qr;
+            delete[] T_dat;
+            delete[] Work2;
 
             return 0;
         }
 
         if(this -> timing)
-            sample_update_t_start = high_resolution_clock::now();
+            sample_update_t_start = steady_clock::now();
 
         // Updating the pointer to "Current A."
         // In a global sense, below is identical to:
@@ -624,7 +624,7 @@ int BQRRP<T, RNG>::call(
         A_sk = &A_sk[d * b_sz];
 
         if(this -> timing) {
-            sample_update_t_stop  = high_resolution_clock::now();
+            sample_update_t_stop  = steady_clock::now();
             sample_update_t_dur  += duration_cast<microseconds>(sample_update_t_stop - sample_update_t_start).count();
         }
 
