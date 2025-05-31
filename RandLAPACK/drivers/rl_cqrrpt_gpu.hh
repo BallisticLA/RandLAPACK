@@ -159,20 +159,20 @@ int CQRRPT_GPU<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
     ///--------------------TIMING VARS--------------------/
-    high_resolution_clock::time_point saso_t_stop;
-    high_resolution_clock::time_point saso_t_start;
-    high_resolution_clock::time_point qrcp_t_start;
-    high_resolution_clock::time_point qrcp_t_stop;
-    high_resolution_clock::time_point rank_reveal_t_start;
-    high_resolution_clock::time_point rank_reveal_t_stop;
-    high_resolution_clock::time_point cholqr_t_start;
-    high_resolution_clock::time_point cholqr_t_stop;
-    high_resolution_clock::time_point a_mod_piv_t_start;
-    high_resolution_clock::time_point a_mod_piv_t_stop;
-    high_resolution_clock::time_point a_mod_trsm_t_start;
-    high_resolution_clock::time_point a_mod_trsm_t_stop;
-    high_resolution_clock::time_point total_t_start;
-    high_resolution_clock::time_point total_t_stop;
+    steady_clock::time_point saso_t_stop;
+    steady_clock::time_point saso_t_start;
+    steady_clock::time_point qrcp_t_start;
+    steady_clock::time_point qrcp_t_stop;
+    steady_clock::time_point rank_reveal_t_start;
+    steady_clock::time_point rank_reveal_t_stop;
+    steady_clock::time_point cholqr_t_start;
+    steady_clock::time_point cholqr_t_stop;
+    steady_clock::time_point a_mod_piv_t_start;
+    steady_clock::time_point a_mod_piv_t_stop;
+    steady_clock::time_point a_mod_trsm_t_start;
+    steady_clock::time_point a_mod_trsm_t_stop;
+    steady_clock::time_point total_t_start;
+    steady_clock::time_point total_t_stop;
     long saso_t_dur        = 0;
     long qrcp_t_dur        = 0;
     long rank_reveal_t_dur = 0;
@@ -182,7 +182,7 @@ int CQRRPT_GPU<T, RNG>::call(
     long total_t_dur       = 0;
 
     if(this -> timing)
-        total_t_start = high_resolution_clock::now();
+        total_t_start = steady_clock::now();
 
     int i;
     int64_t k = n;
@@ -190,20 +190,21 @@ int CQRRPT_GPU<T, RNG>::call(
     // A constant for initial rank estimation.
     T eps_initial_rank_estimation = 2 * std::pow(std::numeric_limits<T>::epsilon(), 0.95);
 
-    T* A_hat = ( T * ) calloc( d * n, sizeof( T ) );
-    T* tau   = ( T * ) calloc( n, sizeof( T ) );
+    T* A_hat = new T[d * n]();
+    T* tau   = new T[n]();
     // Buffer for column pivoting.
     std::vector<int64_t> J_buf(n, 0);
 
     if(this -> timing)
-        saso_t_start = high_resolution_clock::now();
+        saso_t_start = steady_clock::now();
     /***********************************************************************************/
     // I will avoid performing skething on a GPU for now
 
     /// Generating a SASO
-    RandBLAS::SparseDist DS = {.n_rows = d, .n_cols = m, .vec_nnz = this->nnz};
+    RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    state = RandBLAS::fill_sparse(S);
+    RandBLAS::fill_sparse(S);
+    state = S.next_state;
 
     /// Applying a SASO
     RandBLAS::sketch_general(
@@ -212,21 +213,20 @@ int CQRRPT_GPU<T, RNG>::call(
     );
 
     if(this -> timing) {
-        saso_t_stop = high_resolution_clock::now();
-        qrcp_t_start = high_resolution_clock::now();
+        saso_t_stop = steady_clock::now();
+        qrcp_t_start = steady_clock::now();
     }
 
     /// Performing QRCP on a sketch
     if(this->no_hqrrp) {
         lapack::geqp3(d, n, A_hat, d, J, tau);
     } else {
-        std::iota(J, &J[n], 1);
-        hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T*) nullptr);
+        hqrrp(d, n, A_hat, d, J, tau, this->nb_alg, this->oversampling, this->panel_pivoting, this->use_cholqr, state, (T**) nullptr);
     }
 
     if(this -> timing) {
-        qrcp_t_stop = high_resolution_clock::now();
-        rank_reveal_t_start = high_resolution_clock::now();
+        qrcp_t_stop = steady_clock::now();
+        rank_reveal_t_start = steady_clock::now();
     }
 
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
@@ -242,10 +242,10 @@ int CQRRPT_GPU<T, RNG>::call(
     this->rank = k;
 
     if(this -> timing)
-        rank_reveal_t_stop = high_resolution_clock::now();
+        rank_reveal_t_stop = steady_clock::now();
 
     // Allocating space for a preconditioner buffer.
-    T* R_sp  = ( T * ) calloc( k * k, sizeof( T ) );
+    T* R_sp = new T[k * k]();
     /// Extracting a k by k upper-triangular R.
     lapack::lacpy(MatrixType::Upper, k, k, A_hat, d, R_sp, k);
     /// Extracting a k by n R representation (k by k upper-triangular, rest - general)
@@ -253,15 +253,15 @@ int CQRRPT_GPU<T, RNG>::call(
     lapack::lacpy(MatrixType::General, k, n - k, &A_hat[d * k], d, &R[n * k], ldr);
 
     if(this -> timing)
-        a_mod_piv_t_start = high_resolution_clock::now();
+        a_mod_piv_t_start = steady_clock::now();
 
     // Swap k columns of A with pivots from J
     blas::copy(n, J, 1, J_buf.data(), 1);
     util::col_swap(m, n, k, A, lda, J_buf);
 
     if(this -> timing) {
-        a_mod_piv_t_stop = high_resolution_clock::now();
-        a_mod_trsm_t_start = high_resolution_clock::now();
+        a_mod_piv_t_stop = steady_clock::now();
+        a_mod_trsm_t_start = steady_clock::now();
     }
 
     /******************************GPU REGION BEGIN*********************************/
@@ -303,8 +303,8 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing) {
-        a_mod_trsm_t_stop = high_resolution_clock::now();
-        cholqr_t_start = high_resolution_clock::now();
+        a_mod_trsm_t_stop = steady_clock::now();
+        cholqr_t_start = steady_clock::now();
     }
 
     // Do Cholesky QR
@@ -327,7 +327,7 @@ int CQRRPT_GPU<T, RNG>::call(
     //                                                                         want the "vector" to start with a diagonal element.
     // width   (5th argument) - number of columns in data transfer           - sizeof(T), since we transfer one element per column.
     // heighth (6th argument) - numer of rows in data transfer               - k, since we will be transferring k elements total.
-    T* R_sp_diag = ( T * ) calloc( k, sizeof( T ) );
+    T* R_sp_diag = new T[k]();
     cudaMemcpy2D(R_sp_diag, sizeof(T), R_sp_device, (k + 1) * sizeof(T), sizeof(T), k, cudaMemcpyDeviceToHost);
 
     new_rank = k;
@@ -347,7 +347,7 @@ int CQRRPT_GPU<T, RNG>::call(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing)
-        cholqr_t_stop = high_resolution_clock::now();
+        cholqr_t_stop = steady_clock::now();
 
     // Get the final R-factor.
     blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp_device, k, R_device, ldr, blas_queue);
@@ -363,7 +363,7 @@ int CQRRPT_GPU<T, RNG>::call(
         a_mod_trsm_t_dur  = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
         cholqr_t_dur      = duration_cast<microseconds>(cholqr_t_stop - cholqr_t_start).count();
 
-        total_t_stop = high_resolution_clock::now();
+        total_t_stop = steady_clock::now();
         total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
         long t_rest  = total_t_dur - (saso_t_dur + qrcp_t_dur + rank_reveal_t_dur + cholqr_t_dur + a_mod_piv_t_dur + a_mod_trsm_t_dur);
 
@@ -377,10 +377,10 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaFree(A_device);
     cudaFree(R_device);
     cudaFree(R_sp_device);
-    free(A_hat);
-    free(R_sp);
-    free(tau);
-    free(R_sp_diag);
+    delete[] A_hat;
+    delete[] R_sp;
+    delete[] tau;    
+    delete[] R_sp_diag;
 
     return 0;
 }

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+
 class TestREVD2 : public ::testing::Test
 {
     protected:
@@ -75,12 +76,13 @@ class TestREVD2 : public ::testing::Test
 
     template <typename T, typename RNG>
     struct algorithm_objects {
-        RandLAPACK::SYPS<T, RNG> SYPS;
-        RandLAPACK::HQRQ<T> Orth_RF; 
-        RandLAPACK::SYRF<T, RNG> SYRF;
-        //  ^ Needs a symmetric power skether and an orthogonalizer
-        RandLAPACK::REVD2<T, RNG> REVD2;
-        //  ^ Needs a symmetric rangefinder.
+        using SYPS_t = RandLAPACK::SYPS<T, RNG>;
+        using Orth_t = RandLAPACK::HQRQ<T>;
+        using SYRF_t = RandLAPACK::SYRF<SYPS_t, Orth_t>;
+        SYPS_t syps;
+        Orth_t orth; 
+        SYRF_t syrf;
+        RandLAPACK::REVD2<SYRF_t> revd2;
 
 
         algorithm_objects(
@@ -90,10 +92,10 @@ class TestREVD2 : public ::testing::Test
             int64_t passes_per_syps_stabilization, 
             int64_t num_steps_power_iter_error_est
         ) : 
-            SYPS(num_syps_passes, passes_per_syps_stabilization, verbose, cond_check),
-            Orth_RF(cond_check, verbose),
-            SYRF(SYPS, Orth_RF, verbose, cond_check),
-            REVD2(SYRF, num_steps_power_iter_error_est, verbose)
+            syps(num_syps_passes, passes_per_syps_stabilization, verbose, cond_check),
+            orth(cond_check, verbose),
+            syrf(syps, orth, verbose, cond_check),
+            revd2(syrf, num_steps_power_iter_error_est, verbose)
             {}
     };
 
@@ -150,7 +152,7 @@ class TestREVD2 : public ::testing::Test
         auto m = all_data.dim;
 
         int64_t k = k_start;
-        all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A.data(), k, tol, all_data.V, all_data.eigvals, state);
+        all_algs.revd2.call(blas::Uplo::Upper, m, all_data.A.data(), k, tol, all_data.V, all_data.eigvals, state);
 
         T* E_dat = RandLAPACK::util::upsize(k * k, all_data.E);
         T* Buf_dat = RandLAPACK::util::upsize(m * k, all_data.Buf);
@@ -188,8 +190,8 @@ class TestREVD2 : public ::testing::Test
         auto m = all_data.dim;
 
         int64_t k = k_start;
-        all_algs.REVD2.call(blas::Uplo::Upper, m, all_data.A_u.data(), k, tol, all_data.V_u, all_data.eigvals_u, state);
-        all_algs.REVD2.call(blas::Uplo::Lower, m, all_data.A_l.data(), k, tol, all_data.V_l, all_data.eigvals_l, state);
+        all_algs.revd2.call(blas::Uplo::Upper, m, all_data.A_u.data(), k, tol, all_data.V_u, all_data.eigvals_u, state);
+        all_algs.revd2.call(blas::Uplo::Lower, m, all_data.A_l.data(), k, tol, all_data.V_l, all_data.eigvals_l, state);
 
         T* E_u_dat = RandLAPACK::util::upsize(k * k, all_data.E_u);
         T* E_l_dat = RandLAPACK::util::upsize(k * k, all_data.E_l);

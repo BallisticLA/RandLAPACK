@@ -46,15 +46,15 @@ test_speed(int64_t m,
         // Get the implicit Q-factor in A_dat
         lapack::geqrf(m, n, A_dat, m, tau_dat);
 
-        auto start_ormqr = high_resolution_clock::now();
+        auto start_ormqr = steady_clock::now();
         lapack::ormqr(Side::Left, Op::Trans, m, n, n, A_dat, m, tau_dat, B1_dat, m);
-        auto stop_ormqr = high_resolution_clock::now();
+        auto stop_ormqr = steady_clock::now();
         long dur_ormqr = duration_cast<microseconds>(stop_ormqr - start_ormqr).count();
 
-        auto start_gemm = high_resolution_clock::now();
+        auto start_gemm = steady_clock::now();
         lapack::ungqr(m, n, n, A_dat, m, tau_dat);
         gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, 1.0, A_dat, m, B2_dat, m, 0.0, Product_dat, n);
-        auto stop_gemm = high_resolution_clock::now();
+        auto stop_gemm = steady_clock::now();
         long dur_gemm = duration_cast<microseconds>(stop_gemm - start_gemm).count();
 
         T gflop_count_gemm     = (2 * std::pow(n, 2) * m) / std::pow(10, 9);

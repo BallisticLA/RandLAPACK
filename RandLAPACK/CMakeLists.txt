@@ -1,6 +1,6 @@
 
 set(RandLAPACK_cxx_sources
-    rl_rbki.hh
+    rl_abrik.hh
     rl_lapackpp.hh
     rl_cqrrpt.hh
     rl_bqrrp.hh
@@ -14,9 +14,11 @@ set(RandLAPACK_cxx_sources
     rl_rf.hh
     rl_syps.hh
     rl_syrf.hh
+    rl_rpchol.hh
     rl_gen.hh
     rl_blaspp.hh
     rl_linops.hh
+    rl_pdkernels.hh
 
     rl_cusolver.hh
     rl_cuda_kernels.cuh
@@ -34,7 +36,7 @@ target_link_libraries(RandLAPACK INTERFACE
     Random123
 )
 
-if (RandLAPACK_HAS_OpenMP)
+if (RandBLAS_HAS_OpenMP)
     target_link_libraries(RandLAPACK INTERFACE OpenMP::OpenMP_CXX)
 endif()
 
