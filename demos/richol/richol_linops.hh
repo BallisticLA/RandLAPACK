@@ -1,6 +1,8 @@
 #pragma once
 
 #include "RandLAPACK.hh"
+#include "RandBLAS/sparse_data/trsm_dispatch.hh"
+#include "RandLAPACK/comps/rl_determiter.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
@@ -15,8 +17,7 @@ using RandBLAS::CSRMatrix;
 using RandBLAS::CSCMatrix;
 using RandBLAS::COOMatrix;
 
-using RandBLAS::sparse_data::right_spmm;
-using RandBLAS::sparse_data::left_spmm;
+using RandBLAS::spmm;
 using RandBLAS::sparse_data::trsm;
 // void trsm(
 //      blas::Layout layout, blas::Op opA, T alpha,
@@ -72,7 +73,7 @@ void project_out_vec(int64_t m, int64_t n, T* X, int64_t ldx, T* v, T* work_n) {
 template <SparseMatrix SpMat>
 struct CallableSpMat {
     SpMat *A;
-    int64_t m;
+    int64_t dim;
     double* work = nullptr;
     std::vector<double> work_stdvec{};
     int64_t n_work = 0;
@@ -82,6 +83,7 @@ struct CallableSpMat {
     double* work_n = nullptr;
     std::vector<double> work_n_stdvec{};
     std::vector<double> times{};
+    const int64_t num_ops = 1;
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -90,34 +92,34 @@ struct CallableSpMat {
         double beta,  double* C, int64_t ldc
     ) {
         if (work == nullptr) {
-            work_stdvec.resize(m*n);
-            unit_ones_stdvec.resize(m);
+            work_stdvec.resize(dim*n);
+            unit_ones_stdvec.resize(dim);
             work_n_stdvec.resize(n);
             work = work_stdvec.data();
             unit_ones = unit_ones_stdvec.data();
-            double val = std::pow((double)m, -0.5);
-            for (int64_t i = 0; i < m; ++i)
+            double val = std::pow((double)dim, -0.5);
+            for (int64_t i = 0; i < dim; ++i)
                 unit_ones[i] = val;
             work_n = work_n_stdvec.data();
             n_work = n;
         } else {
             randblas_require(n_work >= n);
         }
-        randblas_require(ldb == m);
-        blas::copy(m*n, B, 1, work, 1);
-        project_out_vec(m, n, work, m, unit_ones, work_n);
+        randblas_require(ldb == dim);
+        blas::copy(dim*n, B, 1, work, 1);
+        project_out_vec(dim, n, work, dim, unit_ones, work_n);
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
         auto t0 = std_clock::now();
         omp_set_dynamic(1);
         //TIMED_LINE(
-        left_spmm(layout, Op::NoTrans, Op::NoTrans, m, n, m,  *A, alpha, B, ldb, beta, C, ldc);
+        spmm(layout, Op::NoTrans, Op::NoTrans, dim, n, dim, alpha, *A, B, ldb, beta, C, ldc);
         //, "SPMM A   : ");
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        project_out_vec(m, n, C, ldc, unit_ones, work_n);
+        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
     }
 };
 
@@ -125,7 +127,7 @@ struct CallableSpMat {
 template <SparseMatrix SpMat>
 struct CallableChoSolve {
     SpMat *G;
-    int64_t m;
+    int64_t dim;
     int64_t n_work = 0;
     double* unit_ones = nullptr;
     std::vector<double> unit_ones_stdvec{};
@@ -140,10 +142,10 @@ struct CallableChoSolve {
         double beta, double* C, int64_t ldc
     ) {
         if (work_n == nullptr) {
-            unit_ones_stdvec.resize(m);
+            unit_ones_stdvec.resize(dim);
             unit_ones = unit_ones_stdvec.data();
-            double val = std::pow((double)m, -0.5);
-            for (int64_t i = 0; i < m; ++i)
+            double val = std::pow((double)dim, -0.5);
+            for (int64_t i = 0; i < dim; ++i)
                unit_ones[i] = val;
             work_n_stdvec.resize(n);
             work_n = work_n_stdvec.data();
@@ -152,10 +154,10 @@ struct CallableChoSolve {
             randblas_require(n_work >= n);
         }
         randblas_require(beta == (double) 0.0);
-        randblas_require(ldb == m);
-        randblas_require(ldc == m);
-        blas::copy(m*n, B, 1, C, 1);
-        project_out_vec(m, n, C, m, unit_ones, work_n);
+        randblas_require(ldb == dim);
+        randblas_require(ldc == dim);
+        blas::copy(dim*n, B, 1, C, 1);
+        project_out_vec(dim, n, C, dim, unit_ones, work_n);
         // TRSM, then transposed TRSM.
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
@@ -169,16 +171,16 @@ struct CallableChoSolve {
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        project_out_vec(m, n, C, ldc, unit_ones, work_n);
+        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
     }
 
 };
 
 
 template <SparseMatrix SpMat>
-struct LaplacianPinv : public SymmetricLinearOperator<double> {
+struct LaplacianPinv {
     public:
-    // inherited --> const int64_t m;
+    const int64_t dim;
     CallableSpMat<SpMat>    L_callable;
     CallableChoSolve<SpMat> N_callable;
     bool verbose_pcg;
@@ -190,11 +192,13 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     std::vector<double> times{};
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
+    using scalar_t = typename SpMat::scalar_t;
+    const int64_t num_ops = 1;
 
     LaplacianPinv(CallableSpMat<SpMat> &L, CallableChoSolve<SpMat> &N, double pcg_tol, int maxit,
         bool verbose = false
     ) :
-        SymmetricLinearOperator<double>(L.dim),
+        dim(L.dim),
         L_callable{&L.A, L.dim},
         N_callable{&N.G, N.dim},
         verbose_pcg(verbose),
@@ -244,7 +248,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         // work
         RandBLAS::util::safe_scal(n_x_dim, 0.0, work_C.data(), 1);
         auto t0 = std_clock::now();
-        RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
+        RandLAPACK::pcg(L_callable, work_B.data(), n, seminorm, call_pcg_tol, max_iters, N_callable, work_C.data(), verbose_pcg);
         auto t1 = std_clock::now();
         auto total_spmm   = std::reduce(L_callable.times.begin(), L_callable.times.end());
         auto total_sptrsm = std::reduce(N_callable.times.begin(), N_callable.times.end());

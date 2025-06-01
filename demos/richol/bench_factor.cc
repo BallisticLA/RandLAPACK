@@ -2,7 +2,7 @@
 
 #define FINE_GRAINED
 #include "richol_core.hh"
-#include "richol_mkl.hh"
+#include "richol_linops.hh"
 
 #include <iomanip>
 #include <iostream>
@@ -39,9 +39,15 @@ auto parse_args(int argc, char** argv) {
 
 double run_nys_approx(
     int k, std::vector<double> &V, std::vector<double> &eigvals,
-    LaplacianPinv &Lpinv,
-    RandLAPACK::REVD2<double, DefaultRNG> &NystromAlg) {
-    int64_t n = Lpinv.m;
+    LaplacianPinv<CSRMatrix<double>> &Lpinv,
+    RandLAPACK::REVD2<
+        RandLAPACK::SYRF<
+            RandLAPACK::SYPS<double, DefaultRNG>,
+            RandLAPACK::HQRQ<double>
+        >
+    > &NystromAlg
+) {
+    int64_t n = Lpinv.dim;
     V.resize(n*k); eigvals.resize(k);
     for (int64_t i = 0; i < n*k; ++i)
         V[i] = 0.0;
