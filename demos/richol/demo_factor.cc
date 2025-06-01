@@ -77,7 +77,7 @@ void small_3dlap() {
 int main(int argc, char** argv) {
     using T = double;
 
-    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/uk/uk.mtx");
+    std::string fn("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G0.1.mtx");
     auto csr = richol::laplacian_from_matrix_market(fn, (T)1e-8);
     int64_t n = csr.n_rows;
     std::vector<int64_t> perm(n);

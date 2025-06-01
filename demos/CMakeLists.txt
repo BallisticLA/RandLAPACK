@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.10)
 # cmake -DCMAKE_BUILD_TYPE=Release -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib64/cmake/ -DCMAKE_BINARY_DIR=`pwd`  ..
 # cmake -DCMAKE_BUILD_TYPE=Debug -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib64/cmake/ -DCMAKE_CXX_FLAGS="-Xarch_host -fsanitize=address"  -DCMAKE_BINARY_DIR=`pwd`  ..
 
+# cmake -DCMAKE_BUILD_TYPE=Debug -DRandLAPACK_DIR=`pwd`/../../../RandLAPACK-install/lib/cmake/ -DCMAKE_CXX_FLAGS="-Xarch_host -fsanitize=address" -DAMD_DIR=`pwd`/../../../SuiteSparse/lib/cmake/AMD -DSuiteSparse_config_DIR=`pwd`/../../../SuiteSparse/lib/cmake/SuiteSparse_config  -DCMAKE_BINARY_DIR=`pwd`  ..
+
 project(demos)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -46,7 +48,7 @@ function(add_demo)
     set(MVO CXX_SOURCES LINK_LIBS)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
-    target_compile_options(${TGT_NAME} PRIVATE "-O3")
+    target_compile_options(${TGT_NAME} PRIVATE "-g")
     target_include_directories(${TGT_NAME} PUBLIC ${Benchmark_include_dirs} ${RChol_INCLUDE_DIRS})
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
@@ -73,7 +75,7 @@ set(richol_headers
     richol/richol_linops.hh
 )
 
-add_demo(NAME demo_factor CXX_SOURCES richol/richol_core.hh                      richol/demo_factor.cc    LINK_LIBS ${main_libs} )
-# add_demo(NAME demo_pinv   CXX_SOURCES ${richol_headers} richol/demo_pinv.cc      LINK_LIBS ${main_libs} )
+add_demo(NAME demo_factor CXX_SOURCES richol/richol_core.hh  richol/demo_factor.cc    LINK_LIBS ${main_libs} )
+add_demo(NAME demo_pinv   CXX_SOURCES ${richol_headers} richol/demo_pinv.cc      LINK_LIBS ${main_libs} )
 # add_demo(NAME bench_pinv  CXX_SOURCES ${richol_headers} richol/bench_pinv.cc     LINK_LIBS ${main_libs} )
 add_demo(NAME bench_fact  CXX_SOURCES ${richol_headers} richol/bench_factor.cc   LINK_LIBS ${main_libs} )

@@ -2,7 +2,7 @@
 
 #define FINE_GRAINED
 #include "richol_core.hh"
-#include "richol_mkl.hh"
+#include "richol_linops.hh"
 
 #include <iomanip>
 #include <iostream>
@@ -21,7 +21,7 @@ using namespace richol::linops;
 int main(int argc, char** argv) {
     using T = double;
 
-    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG4.mtx");
+    std::string fn("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G0.1.mtx");
     auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
     int64_t n = L.n_rows;
 
@@ -49,18 +49,16 @@ int main(int argc, char** argv) {
     reserve_csr(nnz_G ,G);
     csr_from_csrlike(C, G.rowptr, G.colidxs, G.vals);
 
-    sparse_matrix_t Lperm_mkl, G_mkl;
-    sparse_matrix_t_from_randblas_csr(Lperm, Lperm_mkl);
-    sparse_matrix_t_from_randblas_csr(G, G_mkl);
-    CallableSpMat Aperm_callable{Lperm_mkl, n};
-    CallableChoSolve N_callable{G_mkl, n};
+    CallableSpMat<decltype(Lperm)> Aperm_callable{&Lperm, n};
+    trsm_matrix_validation(G, Uplo::Lower, Diag::NonUnit, 3);
+    CallableChoSolve<decltype(G)>  N_callable{&G, n};
     LaplacianPinv Lpinv(Aperm_callable, N_callable, 1e-10, 200, true);
 
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
     RandLAPACK::SYPS<T, DefaultRNG>  SYPS(3, 1, false, false);
-    RandLAPACK::HQRQ<T>              Orth(false, false); 
-    RandLAPACK::SYRF<T, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<T, DefaultRNG> NystromAlg(SYRF, 1, false);
+    RandLAPACK::HQRQ<T> Orth(false, false); 
+    RandLAPACK::SYRF  SYRF(SYPS, Orth, false, false);
+    RandLAPACK::REVD2 NystromAlg(SYRF, 1, false);
     T silly_tol = 1e4;
     int64_t k = 8;
     // ^ ensures we break after one iteration
@@ -70,9 +68,5 @@ int main(int argc, char** argv) {
     int64_t k_ = k;
     TIMED_LINE(
     NystromAlg.call(Lpinv, k_, silly_tol, V, eigvals, state_nys), "NystromAlg.call -  rchol_pcg : ");
-
-
-    mkl_sparse_destroy(Lperm_mkl);
-    mkl_sparse_destroy(G_mkl);
     return 0;
 }

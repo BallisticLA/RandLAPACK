@@ -113,7 +113,7 @@ struct CallableSpMat {
         auto t0 = std_clock::now();
         omp_set_dynamic(1);
         //TIMED_LINE(
-        spmm(layout, Op::NoTrans, Op::NoTrans, dim, n, dim, alpha, *A, B, ldb, beta, C, ldc);
+        spmm(layout, Op::NoTrans, Op::NoTrans, dim, n, dim, alpha, *A, work, dim, beta, C, ldc);
         //, "SPMM A   : ");
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
@@ -147,6 +147,7 @@ struct CallableChoSolve {
             double val = std::pow((double)dim, -0.5);
             for (int64_t i = 0; i < dim; ++i)
                unit_ones[i] = val;
+            // for (int64_t i = = 0; )
             work_n_stdvec.resize(n);
             work_n = work_n_stdvec.data();
             n_work = n;
@@ -157,16 +158,16 @@ struct CallableChoSolve {
         randblas_require(ldb == dim);
         randblas_require(ldc == dim);
         blas::copy(dim*n, B, 1, C, 1);
-        project_out_vec(dim, n, C, dim, unit_ones, work_n);
+        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
         // TRSM, then transposed TRSM.
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
         omp_set_dynamic(1);
         auto t0 = std_clock::now();
         //TIMED_LINE(
-        trsm(layout, Op::NoTrans,       alpha, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 0); //, "TRSM G : ");
+        trsm(layout, Op::NoTrans,       alpha, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 2); //, "TRSM G : ");
         //TIMED_LINE(
-        trsm(layout,   Op::Trans, (double)1.0, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 0); //, "TRSM G^T : ");
+        trsm(layout,   Op::Trans, (double)1.0, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 2); //, "TRSM G^T : ");
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
@@ -199,8 +200,8 @@ struct LaplacianPinv {
         bool verbose = false
     ) :
         dim(L.dim),
-        L_callable{&L.A, L.dim},
-        N_callable{&N.G, N.dim},
+        L_callable{L.A, L.dim},
+        N_callable{N.G, N.dim},
         verbose_pcg(verbose),
         times(4, 0.0),
         call_pcg_tol(pcg_tol),

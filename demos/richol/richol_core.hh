@@ -521,7 +521,7 @@ void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
     amd_l_defaults (Control) ;
     amd_l_control  (Control) ;
     result = amd_l_order (A.n_rows, A.rowptr, A.colidxs, perm.data(), Control, Info) ;
-    printf ("return value from amd_order: %ld (should be %d)\n", result, AMD_OK) ;
+    printf ("return value from amd_order: %lld (should be %d)\n", result, AMD_OK) ;
     if (result != AMD_OK) {
         printf ("AMD failed\n") ;
         exit (1) ;
