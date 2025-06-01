@@ -29,7 +29,7 @@ using RandBLAS::sparse_data::trsm_matrix_validation;
 //      const SpMat &A, blas::Uplo uplo,
 //      blas::Diag diag, int mode 
 // )
-
+using RandBLAS::sparse_data::SparseMatrix;
 
 //#define FINE_GRAINED
 
@@ -69,16 +69,13 @@ void project_out_vec(int64_t m, int64_t n, T* X, int64_t ldx, T* v, T* work_n) {
     return;
 }
 
-
+template <SparseMatrix SpMat>
 struct CallableSpMat {
-    sparse_matrix_t A;
+    SpMat *A;
     int64_t m;
     double* work = nullptr;
     std::vector<double> work_stdvec{};
     int64_t n_work = 0;
-    matrix_descr des{SPARSE_MATRIX_TYPE_GENERAL, SPARSE_FILL_MODE_UPPER, SPARSE_DIAG_NON_UNIT};
-    // ^ The latter two entries of des are not actually used. I'm only specifying them 
-    //   to avoid compiler warings.
     std::vector<double> regs{0.0};
     double* unit_ones = nullptr;
     std::vector<double> unit_ones_stdvec{};
@@ -113,11 +110,9 @@ struct CallableSpMat {
         //omp_set_num_threads(1);
         auto t0 = std_clock::now();
         omp_set_dynamic(1);
-        auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         //TIMED_LINE(
-        mkl_sparse_d_mm(
-            SPARSE_OPERATION_NON_TRANSPOSE, alpha, A, des, mkl_layout, work, n, ldb, beta, C, ldc
-        );//, "SPMM A   : ");
+        left_spmm(layout, Op::NoTrans, Op::NoTrans, m, n, m,  *A, alpha, B, ldb, beta, C, ldc);
+        //, "SPMM A   : ");
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
@@ -127,12 +122,10 @@ struct CallableSpMat {
 };
 
 
+template <SparseMatrix SpMat>
 struct CallableChoSolve {
-    sparse_matrix_t G;
+    SpMat *G;
     int64_t m;
-    matrix_descr des = {SPARSE_MATRIX_TYPE_TRIANGULAR, SPARSE_FILL_MODE_LOWER, SPARSE_DIAG_NON_UNIT};
-    double* work = nullptr;
-    std::vector<double> work_stdvec{};
     int64_t n_work = 0;
     double* unit_ones = nullptr;
     std::vector<double> unit_ones_stdvec{};
@@ -146,9 +139,7 @@ struct CallableChoSolve {
         double alpha, const double* B, int64_t ldb,
         double beta, double* C, int64_t ldc
     ) {
-        if (work == nullptr) {
-            work_stdvec.resize(2*m*n);
-            work = work_stdvec.data();    
+        if (work_n == nullptr) {
             unit_ones_stdvec.resize(m);
             unit_ones = unit_ones_stdvec.data();
             double val = std::pow((double)m, -0.5);
@@ -161,28 +152,19 @@ struct CallableChoSolve {
             randblas_require(n_work >= n);
         }
         randblas_require(beta == (double) 0.0);
-        blas::copy(m*n, B, 1, work+m*n, 1);
-        project_out_vec(m, n, work+m*n, m, unit_ones, work_n);
         randblas_require(ldb == m);
+        randblas_require(ldc == m);
+        blas::copy(m*n, B, 1, C, 1);
+        project_out_vec(m, n, C, m, unit_ones, work_n);
         // TRSM, then transposed TRSM.
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
-        sparse_status_t status;
         omp_set_dynamic(1);
-        auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         auto t0 = std_clock::now();
         //TIMED_LINE(
-        status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
-        if (status != SPARSE_STATUS_SUCCESS) {
-            std::cout << "TRSM failed with error code " << status << std::endl;
-            throw std::runtime_error("TRSM failure.");
-        }
+        trsm(layout, Op::NoTrans,       alpha, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 0); //, "TRSM G : ");
         //TIMED_LINE(
-        status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
-        if (status != SPARSE_STATUS_SUCCESS) {
-            std::cout << "TRSM failed with error code " << status << std::endl;
-            throw std::runtime_error("TRSM failure.");
-        }
+        trsm(layout,   Op::Trans, (double)1.0, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 0); //, "TRSM G^T : ");
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
@@ -193,11 +175,12 @@ struct CallableChoSolve {
 };
 
 
+template <SparseMatrix SpMat>
 struct LaplacianPinv : public SymmetricLinearOperator<double> {
     public:
     // inherited --> const int64_t m;
-    CallableSpMat    L_callable;
-    CallableChoSolve N_callable;
+    CallableSpMat<SpMat>    L_callable;
+    CallableChoSolve<SpMat> N_callable;
     bool verbose_pcg;
     std::vector<double> work_B{};
     std::vector<double> work_C{};
@@ -208,12 +191,12 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
 
-    LaplacianPinv(CallableSpMat &L, CallableChoSolve &N, double pcg_tol, int maxit,
+    LaplacianPinv(CallableSpMat<SpMat> &L, CallableChoSolve<SpMat> &N, double pcg_tol, int maxit,
         bool verbose = false
     ) :
         SymmetricLinearOperator<double>(L.dim),
-        L_callable{L.A, L.dim},
-        N_callable{N.G, N.dim},
+        L_callable{&L.A, L.dim},
+        N_callable{&N.G, N.dim},
         verbose_pcg(verbose),
         times(4, 0.0),
         call_pcg_tol(pcg_tol),

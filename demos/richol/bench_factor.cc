@@ -60,14 +60,13 @@ double run_nys_approx(
 
 
 template <typename T>
-std::vector<double> richol_pipeline(CSRMatrix<T,int64_t> &L,  sparse_matrix_t &Lperm_mkl, sparse_matrix_t &G_mkl, bool use_amd_perm) {
+std::vector<double> richol_pipeline(CSRMatrix<T,int64_t> &L,  CSRMatrix<T,int64_t> &Lperm, CSRMatrix<T,int64_t> &G, bool use_amd_perm) {
     int64_t n = L.n_rows;
     std::vector<double> out{};
     timepoint_t tp0, tp1;
     std::vector<int64_t> perm(n);
     for (int64_t i = 0; i < n; ++i)
         perm[i] = i;
-    CSRMatrix<T, int64_t> Lperm(n, n);
     tp0 = std_clock::now();
     TIMED_LINE(
     if (use_amd_perm) richol::amd_permutation(L, perm);
@@ -89,13 +88,9 @@ std::vector<double> richol_pipeline(CSRMatrix<T,int64_t> &L,  sparse_matrix_t &L
     std::cout << "Exited with C of rank k = " << rank << std::endl;
     int64_t nnz_G = 0;
     for (const auto &row : C) nnz_G += static_cast<int64_t>(row.size());
-    CSRMatrix<T,int64_t> G(n, n);
     reserve_csr(nnz_G, G);
     TIMED_LINE(
     csr_from_csrlike(C, G.rowptr, G.colidxs, G.vals), "From csrlike to CSR    : ");
-
-    sparse_matrix_t_from_randblas_csr(Lperm, Lperm_mkl);
-    sparse_matrix_t_from_randblas_csr(G, G_mkl);
     tp1 = std_clock::now();
     out.push_back(seconds_elapsed(tp0, tp1));
     out.push_back((double) nnz_G);
@@ -131,18 +126,17 @@ int main(int argc, char** argv) {
 
     for (auto fn : filenames) {
         auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
-        sparse_matrix_t Lperm_mkl, G_mkl;
         int64_t n = L.n_rows;
         int64_t m = (L.nnz - n) / 2;
+        CSRMatrix<T> Lperm(n, n);
+        CSRMatrix<T> G(n, n);
         logfile << std::left << std::setw(10) << n << ", ";
         logfile << std::left << std::setw(10) << m << ", ";
-        auto factimes = richol_pipeline(L, Lperm_mkl, G_mkl, use_amd_perm);
+        auto factimes = richol_pipeline(L, Lperm, G, use_amd_perm);
         logfile << std::left << std::setw(10) << factimes[0] << ", ";
         logfile << std::left << std::setw(10) << factimes[1] << ", ";
         logfile << std::left << std::setw(10) << (int64_t) factimes[2] << ", ";
         logfile.flush();
-        mkl_sparse_destroy(Lperm_mkl);
-        mkl_sparse_destroy(G_mkl);
         logfile << "\n";
         logfile.flush();
     }
