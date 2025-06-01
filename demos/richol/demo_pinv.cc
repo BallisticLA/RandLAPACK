@@ -22,7 +22,7 @@ int main(int argc, char** argv) {
     using T = double;
 
     std::string fn("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G0.1.mtx");
-    auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
+    auto L = richol::laplacian_from_matrix_market(fn, (T)1e-6);
     int64_t n = L.n_rows;
 
     bool use_amd_perm = false;
