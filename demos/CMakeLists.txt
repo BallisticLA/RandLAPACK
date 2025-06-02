@@ -62,6 +62,7 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(fast_matrix_market)
+#add_subdirectory(build/_deps/fast_matrix_market-src)
 
 set(
     main_libs
@@ -77,5 +78,5 @@ set(richol_headers
 
 add_demo(NAME demo_factor CXX_SOURCES richol/richol_core.hh  richol/demo_factor.cc    LINK_LIBS ${main_libs} )
 add_demo(NAME demo_pinv   CXX_SOURCES ${richol_headers} richol/demo_pinv.cc      LINK_LIBS ${main_libs} )
-# add_demo(NAME bench_pinv  CXX_SOURCES ${richol_headers} richol/bench_pinv.cc     LINK_LIBS ${main_libs} )
+add_demo(NAME bench_pinv  CXX_SOURCES ${richol_headers} richol/bench_pinv.cc     LINK_LIBS ${main_libs} )
 add_demo(NAME bench_fact  CXX_SOURCES ${richol_headers} richol/bench_factor.cc   LINK_LIBS ${main_libs} )
