@@ -2,7 +2,7 @@
 
 #define FINE_GRAINED
 #include "richol_core.hh"
-#include "richol_mkl.hh"
+#include "richol_linops.hh"
 
 #include <iomanip>
 #include <iostream>
@@ -37,11 +37,12 @@ auto parse_args(int argc, char** argv) {
 }
 
 
+template <typename NYS_ALG>
 double run_nys_approx(
     int k, std::vector<double> &V, std::vector<double> &eigvals,
-    LaplacianPinv &Lpinv,
-    RandLAPACK::REVD2<double, DefaultRNG> &NystromAlg) {
-    int64_t n = Lpinv.m;
+    LaplacianPinv<CSRMatrix<double>> &Lpinv,
+    NYS_ALG &NystromAlg) {
+    int64_t n = Lpinv.dim;
     V.resize(n*k); eigvals.resize(k);
     for (int64_t i = 0; i < n*k; ++i)
         V[i] = 0.0;
@@ -60,14 +61,13 @@ double run_nys_approx(
 
 
 template <typename T>
-std::vector<double> richol_pipeline(CSRMatrix<T,int64_t> &L,  sparse_matrix_t &Lperm_mkl, sparse_matrix_t &G_mkl, bool use_amd_perm) {
+std::vector<double> richol_pipeline(CSRMatrix<T,int64_t> &L,  CSRMatrix<T> &Lperm, CSRMatrix<T> &G, bool use_amd_perm) {
     int64_t n = L.n_rows;
     std::vector<double> out{};
     timepoint_t tp0, tp1;
     std::vector<int64_t> perm(n);
     for (int64_t i = 0; i < n; ++i)
         perm[i] = i;
-    CSRMatrix<T, int64_t> Lperm(n, n);
     tp0 = std_clock::now();
     TIMED_LINE(
     if (use_amd_perm) richol::amd_permutation(L, perm);
@@ -88,12 +88,8 @@ std::vector<double> richol_pipeline(CSRMatrix<T,int64_t> &L,  sparse_matrix_t &L
     int64_t nnz_G = 0;
     for (const auto &row : C) 
         nnz_G += static_cast<int64_t>(row.size());
-    CSRMatrix<T,int64_t> G(n, n);
     reserve_csr(nnz_G ,G);
     csr_from_csrlike(C, G.rowptr, G.colidxs, G.vals);
-
-    sparse_matrix_t_from_randblas_csr(Lperm, Lperm_mkl);
-    sparse_matrix_t_from_randblas_csr(G, G_mkl);
     tp1 = std_clock::now();
     out.push_back(seconds_elapsed(tp0, tp1));
     out.push_back((double) nnz_G);
@@ -111,42 +107,54 @@ int main(int argc, char** argv) {
     int64_t syps_passes = 3;
     RandLAPACK::SYPS<T, DefaultRNG>  SYPS(syps_passes, 1, false, false);
     RandLAPACK::HQRQ<T>              Orth(false, false); 
-    RandLAPACK::SYRF<T, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<T, DefaultRNG> NystromAlg(SYRF, 1, false);
+    RandLAPACK::SYRF  SYRF(SYPS, Orth, false, false);
+    RandLAPACK::REVD2 NystromAlg(SYRF, 1, false);
 
     std::vector<std::string> filenames = {
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG3.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG4.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG5.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG6.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG7.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG8.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG9.mtx",
-        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG10.mtx"
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_2.mtx",
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_3.mtx",
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_4.mtx",
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_5.mtx",
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_6.mtx",
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_7.mtx",
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_8.mtx",
+        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_9.mtx",
     };
+    // std::vector<std::string> filenames = {
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG3.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG4.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG5.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG6.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG7.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG8.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG9.mtx",
+    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG10.mtx"
+    // };
 
     std::stringstream logfilename;
-    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/round2";
-    logfilename << "sG2tosG10_k_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
+    logfilename << "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/richol/EY_logs/";
+    logfilename << "G10k2_to_G10k9_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
     std::ofstream logfile(logfilename.str());
     logfile << "n         , m         , perm_time , chol_time , nnz_pre   , spmm_time , trsm_time , pcg_time  , pcg_iters , nys_time\n";
     logfile.flush();
 
     for (auto fn : filenames) {
-        auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
-        sparse_matrix_t Lperm_mkl, G_mkl;
+        auto L = richol::laplacian_from_matrix_market(fn, (T)1e-8);
         int64_t n = L.n_rows;
         int64_t m = (L.nnz - n) / 2;
         logfile << std::left << std::setw(10) << n << ", ";
         logfile << std::left << std::setw(10) << m << ", ";
-        auto factimes = richol_pipeline(L, Lperm_mkl, G_mkl, use_amd_perm);
+        CSRMatrix<T> Lperm(n, n);
+        CSRMatrix<T> G(n, n);
+        auto factimes = richol_pipeline(L, Lperm, G, use_amd_perm);
         logfile << std::left << std::setw(10) << factimes[0] << ", ";
         logfile << std::left << std::setw(10) << factimes[1] << ", ";
         logfile << std::left << std::setw(10) << (int64_t) factimes[2] << ", ";
         logfile.flush();
-        CallableSpMat Aperm_callable{Lperm_mkl, n};
-        CallableChoSolve N_callable{G_mkl, n};
+        CallableSpMat<decltype(Lperm)> Aperm_callable{&Lperm, n};
+        trsm_matrix_validation(G, Uplo::Lower, Diag::NonUnit, 3);
+        CallableChoSolve<decltype(G)> N_callable{&G, n};
         LaplacianPinv Lpinv(Aperm_callable, N_callable, 1e-8, 200, true);
         std::vector<T> V(n*k, 0.0);
         std::vector<T> eigvals(k, 0.0);
@@ -156,8 +164,6 @@ int main(int argc, char** argv) {
         logfile << std::left << std::setw(10) << Lpinv.times[2] << ", ";
         logfile << std::left << std::setw(10) << (int64_t) Lpinv.times[3] << ", ";
         logfile << std::left << std::setw(10) << nys_time;
-        mkl_sparse_destroy(Lperm_mkl);
-        mkl_sparse_destroy(G_mkl);
         logfile << "\n";
         logfile.flush();
     }

@@ -128,6 +128,7 @@ template <SparseMatrix SpMat>
 struct CallableChoSolve {
     SpMat *G;
     int64_t dim;
+    int64_t trsm_validation = 0;
     int64_t n_work = 0;
     double* unit_ones = nullptr;
     std::vector<double> unit_ones_stdvec{};
@@ -165,9 +166,9 @@ struct CallableChoSolve {
         omp_set_dynamic(1);
         auto t0 = std_clock::now();
         //TIMED_LINE(
-        trsm(layout, Op::NoTrans,       alpha, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 2); //, "TRSM G : ");
+        trsm(layout, Op::NoTrans,       alpha, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, trsm_validation); //, "TRSM G : ");
         //TIMED_LINE(
-        trsm(layout,   Op::Trans, (double)1.0, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, 2); //, "TRSM G^T : ");
+        trsm(layout,   Op::Trans, (double)1.0, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, trsm_validation); //, "TRSM G^T : ");
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
