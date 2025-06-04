@@ -110,31 +110,32 @@ int main(int argc, char** argv) {
     RandLAPACK::SYRF  SYRF(SYPS, Orth, false, false);
     RandLAPACK::REVD2 NystromAlg(SYRF, 1, false);
 
-    std::vector<std::string> filenames = {
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_2.mtx",
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_3.mtx",
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_4.mtx",
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_5.mtx",
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_6.mtx",
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_7.mtx",
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_8.mtx",
-        "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_9.mtx",
-    };
     // std::vector<std::string> filenames = {
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG3.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG4.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG5.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG6.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG7.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG8.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG9.mtx",
-    //     "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG10.mtx"
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_2.mtx",
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_3.mtx",
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_4.mtx",
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_5.mtx",
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_6.mtx",
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_7.mtx",
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_8.mtx",
+    //     "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_9.mtx",
     // };
+    std::vector<std::string> filenames = {
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG3.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG4.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG5.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG6.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG7.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG8.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG9.mtx",
+        "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/sG10.mtx"
+    };
 
     std::stringstream logfilename;
-    logfilename << "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/richol/EY_logs/";
-    logfilename << "G10k2_to_G10k9_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
+    // logfilename << "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/richol/EY_logs/";
+    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/";
+    logfilename << "G1m2_to_G1m10_rank_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
     std::ofstream logfile(logfilename.str());
     logfile << "n         , m         , perm_time , chol_time , nnz_pre   , spmm_time , trsm_time , pcg_time  , pcg_iters , nys_time\n";
     logfile.flush();
