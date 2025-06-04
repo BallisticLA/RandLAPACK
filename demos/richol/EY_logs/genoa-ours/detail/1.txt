@@ -646,3 +646,6 @@ AMD version 3.3.3, June 20, 2024: approximate minimum degree ordering
 
 return value from amd_order: 0 (should be 0)
 AMD reordering      : 74.975927
+SparseCholesky: 84.822795
+Exited with C of rank k = 1000000
+iters     relres         
