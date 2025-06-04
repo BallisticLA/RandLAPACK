@@ -59,8 +59,8 @@ int main(int argc, char** argv) {
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.
     RandLAPACK::SYPS<T, DefaultRNG>  SYPS(3, 1, false, false);
     RandLAPACK::HQRQ<T>              Orth(false, false); 
-    RandLAPACK::SYRF<T, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<T, DefaultRNG> NystromAlg(SYRF, 1, false);
+    RandLAPACK::SYRF  SYRF(SYPS, Orth, false, false);
+    RandLAPACK::REVD2 NystromAlg(SYRF, 1, false);
     T silly_tol = 1e4;
     int64_t k = 8;
     // ^ ensures we break after one iteration

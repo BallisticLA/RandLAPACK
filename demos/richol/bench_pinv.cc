@@ -37,11 +37,13 @@ auto parse_args(int argc, char** argv) {
 }
 
 
+template <typename NYS_ALG>
 double run_nys_approx(
     int k, std::vector<double> &V, std::vector<double> &eigvals,
     LaplacianPinv &Lpinv,
-    RandLAPACK::REVD2<double, DefaultRNG> &NystromAlg) {
-    int64_t n = Lpinv.m;
+    NYS_ALG &NystromAlg
+) {
+    int64_t n = Lpinv.dim;
     V.resize(n*k); eigvals.resize(k);
     for (int64_t i = 0; i < n*k; ++i)
         V[i] = 0.0;
@@ -111,8 +113,8 @@ int main(int argc, char** argv) {
     int64_t syps_passes = 3;
     RandLAPACK::SYPS<T, DefaultRNG>  SYPS(syps_passes, 1, false, false);
     RandLAPACK::HQRQ<T>              Orth(false, false); 
-    RandLAPACK::SYRF<T, DefaultRNG>  SYRF(SYPS, Orth, false, false);
-    RandLAPACK::REVD2<T, DefaultRNG> NystromAlg(SYRF, 1, false);
+    RandLAPACK::SYRF  SYRF(SYPS, Orth, false, false);
+    RandLAPACK::REVD2 NystromAlg(SYRF, 1, false);
 
     std::vector<std::string> filenames = {
         "/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/EY/smaller/G2/sG2.mtx",
@@ -127,14 +129,14 @@ int main(int argc, char** argv) {
     };
 
     std::stringstream logfilename;
-    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/round2";
-    logfilename << "sG2tosG10_k_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
+    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/broadwell-mkl/";
+    logfilename << "G1m2_to_G1m10_rank_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
     std::ofstream logfile(logfilename.str());
     logfile << "n         , m         , perm_time , chol_time , nnz_pre   , spmm_time , trsm_time , pcg_time  , pcg_iters , nys_time\n";
     logfile.flush();
 
     for (auto fn : filenames) {
-        auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
+        auto L = richol::laplacian_from_matrix_market(fn, (T)1e-8);
         sparse_matrix_t Lperm_mkl, G_mkl;
         int64_t n = L.n_rows;
         int64_t m = (L.nnz - n) / 2;

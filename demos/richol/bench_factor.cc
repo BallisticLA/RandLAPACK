@@ -37,11 +37,12 @@ auto parse_args(int argc, char** argv) {
 }
 
 
+template <typename NYS_ALG>
 double run_nys_approx(
     int k, std::vector<double> &V, std::vector<double> &eigvals,
     LaplacianPinv &Lpinv,
-    RandLAPACK::REVD2<double, DefaultRNG> &NystromAlg) {
-    int64_t n = Lpinv.m;
+    NYS_ALG &NystromAlg) {
+    int64_t n = Lpinv.dim;
     V.resize(n*k); eigvals.resize(k);
     for (int64_t i = 0; i < n*k; ++i)
         V[i] = 0.0;
@@ -126,16 +127,16 @@ int main(int argc, char** argv) {
     logfilename << "/home/rjmurr/laps2/RLPside/demos/richol/EY_logs/";
     logfilename << "sG2tosG10" << "_threads_" << threads << "_amd_" << use_amd_perm << ".txt";
     std::ofstream logfile(logfilename.str());
-    logfile << "n, m, reorder_time, sparse_chol_time, nnz_pre\n";
+    logfile << "n, dim, reorder_time, sparse_chol_time, nnz_pre\n";
     logfile.flush();
 
     for (auto fn : filenames) {
         auto L = richol::laplacian_from_matrix_market(fn, (T)0.0);
         sparse_matrix_t Lperm_mkl, G_mkl;
         int64_t n = L.n_rows;
-        int64_t m = (L.nnz - n) / 2;
+        int64_t dim = (L.nnz - n) / 2;
         logfile << std::left << std::setw(10) << n << ", ";
-        logfile << std::left << std::setw(10) << m << ", ";
+        logfile << std::left << std::setw(10) << dim << ", ";
         auto factimes = richol_pipeline(L, Lperm_mkl, G_mkl, use_amd_perm);
         logfile << std::left << std::setw(10) << factimes[0] << ", ";
         logfile << std::left << std::setw(10) << factimes[1] << ", ";

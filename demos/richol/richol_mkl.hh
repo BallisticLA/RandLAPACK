@@ -49,12 +49,12 @@ double seconds_elapsed(timepoint_t tp0, timepoint_t tp1) {
 namespace richol::linops {
 
 template <typename T>
-void project_out_vec(int64_t m, int64_t n, T* X, int64_t ldx, T* v, T* work_n) {
+void project_out_vec(int64_t dim, int64_t n, T* X, int64_t ldx, T* v, T* work_n) {
     // X = (I - vv') X
     //  --> Y = X' v
     //  --> X = X - v Y'
-    blas::gemv(Layout::ColMajor, blas::Op::Trans, m, n, (T) 1.0, X, ldx, v, 1, (T) 0.0, work_n, 1);
-    blas::ger(Layout::ColMajor, m, n,  (T)  -1.0, v, 1, work_n, 1, X, ldx);
+    blas::gemv(Layout::ColMajor, blas::Op::Trans, dim, n, (T) 1.0, X, ldx, v, 1, (T) 0.0, work_n, 1);
+    blas::ger(Layout::ColMajor, dim, n,  (T)  -1.0, v, 1, work_n, 1, X, ldx);
     return;
 }
 
@@ -109,19 +109,19 @@ void sparse_matrix_t_from_randblas_csr(const CSRMatrix<double,sint_t> &A, sparse
     // However, we get a segfault later on if we delete pointerB, pointerE, update_intend_rpt, and update_intend_datapt before returning.
     //
     // See here for a potentially useful thread:
-    //   community.intel.com/t5/Intel-oneAPI-Math-Kernel-Library/mkl-sparse-d-create-csr-possibility-of-memory-leak/m-p/1313882#M32031
+    //   community.intel.com/t5/Intel-oneAPI-Math-Kernel-Library/mkl-sparse-d-create-csr-possibility-of-memory-leak/dim-p/1313882#M32031
     return;
 }
 
 
 struct CallableSpMat {
     sparse_matrix_t A;
-    int64_t m;
+    int64_t dim;
     double* work = nullptr;
     std::vector<double> work_stdvec{};
     int64_t n_work = 0;
     matrix_descr des{SPARSE_MATRIX_TYPE_GENERAL, SPARSE_FILL_MODE_UPPER, SPARSE_DIAG_NON_UNIT};
-    // ^ The latter two entries of des are not actually used. I'm only specifying them 
+    // ^ The latter two entries of des are not actually used. I'dim only specifying them 
     //   to avoid compiler warings.
     std::vector<double> regs{0.0};
     double* unit_ones = nullptr;
@@ -129,6 +129,7 @@ struct CallableSpMat {
     double* work_n = nullptr;
     std::vector<double> work_n_stdvec{};
     std::vector<double> times{};
+    const int64_t num_ops = 1;
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -137,22 +138,22 @@ struct CallableSpMat {
         double beta,  double* C, int64_t ldc
     ) {
         if (work == nullptr) {
-            work_stdvec.resize(m*n);
-            unit_ones_stdvec.resize(m);
+            work_stdvec.resize(dim*n);
+            unit_ones_stdvec.resize(dim);
             work_n_stdvec.resize(n);
             work = work_stdvec.data();
             unit_ones = unit_ones_stdvec.data();
-            double val = std::pow((double)m, -0.5);
-            for (int64_t i = 0; i < m; ++i)
+            double val = std::pow((double)dim, -0.5);
+            for (int64_t i = 0; i < dim; ++i)
                 unit_ones[i] = val;
             work_n = work_n_stdvec.data();
             n_work = n;
         } else {
             randblas_require(n_work >= n);
         }
-        randblas_require(ldb == m);
-        blas::copy(m*n, B, 1, work, 1);
-        project_out_vec(m, n, work, m, unit_ones, work_n);
+        randblas_require(ldb == dim);
+        blas::copy(dim*n, B, 1, work, 1);
+        project_out_vec(dim, n, work, dim, unit_ones, work_n);
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
         auto t0 = std_clock::now();
@@ -166,14 +167,14 @@ struct CallableSpMat {
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        project_out_vec(m, n, C, ldc, unit_ones, work_n);
+        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
     }
 };
 
 
 struct CallableChoSolve {
     sparse_matrix_t G;
-    int64_t m;
+    int64_t dim;
     matrix_descr des = {SPARSE_MATRIX_TYPE_TRIANGULAR, SPARSE_FILL_MODE_LOWER, SPARSE_DIAG_NON_UNIT};
     double* work = nullptr;
     std::vector<double> work_stdvec{};
@@ -183,6 +184,7 @@ struct CallableChoSolve {
     double* work_n = nullptr;
     std::vector<double> work_n_stdvec{};
     std::vector<double> times{};
+    const int64_t num_ops = 1;
 
     /*  C =: alpha * inv(G G') * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -191,12 +193,12 @@ struct CallableChoSolve {
         double beta, double* C, int64_t ldc
     ) {
         if (work == nullptr) {
-            work_stdvec.resize(2*m*n);
+            work_stdvec.resize(2*dim*n);
             work = work_stdvec.data();    
-            unit_ones_stdvec.resize(m);
+            unit_ones_stdvec.resize(dim);
             unit_ones = unit_ones_stdvec.data();
-            double val = std::pow((double)m, -0.5);
-            for (int64_t i = 0; i < m; ++i)
+            double val = std::pow((double)dim, -0.5);
+            for (int64_t i = 0; i < dim; ++i)
                unit_ones[i] = val;
             work_n_stdvec.resize(n);
             work_n = work_n_stdvec.data();
@@ -205,9 +207,9 @@ struct CallableChoSolve {
             randblas_require(n_work >= n);
         }
         randblas_require(beta == (double) 0.0);
-        blas::copy(m*n, B, 1, work+m*n, 1);
-        project_out_vec(m, n, work+m*n, m, unit_ones, work_n);
-        randblas_require(ldb == m);
+        blas::copy(dim*n, B, 1, work+dim*n, 1);
+        project_out_vec(dim, n, work+dim*n, dim, unit_ones, work_n);
+        randblas_require(ldb == dim);
         // TRSM, then transposed TRSM.
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
@@ -216,13 +218,13 @@ struct CallableChoSolve {
         auto mkl_layout = (layout == Layout::ColMajor) ? SPARSE_LAYOUT_COLUMN_MAJOR : SPARSE_LAYOUT_ROW_MAJOR;
         auto t0 = std_clock::now();
         //TIMED_LINE(
-        status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE    , alpha, G, des, mkl_layout, work+m*n, n, ldb, work, m); //, "TRSM G   : ");
+        status = mkl_sparse_d_trsm(SPARSE_OPERATION_NON_TRANSPOSE    , alpha, G, des, mkl_layout, work+dim*n, n, ldb, work, dim); //, "TRSM G   : ");
         if (status != SPARSE_STATUS_SUCCESS) {
             std::cout << "TRSM failed with error code " << status << std::endl;
             throw std::runtime_error("TRSM failure.");
         }
         //TIMED_LINE(
-        status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, m, C, ldc); //, "TRSM G^T : ");
+        status = mkl_sparse_d_trsm(SPARSE_OPERATION_TRANSPOSE,   1.0, G, des, mkl_layout, work, n, dim, C, ldc); //, "TRSM G^T : ");
         if (status != SPARSE_STATUS_SUCCESS) {
             std::cout << "TRSM failed with error code " << status << std::endl;
             throw std::runtime_error("TRSM failure.");
@@ -231,15 +233,16 @@ struct CallableChoSolve {
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        project_out_vec(m, n, C, ldc, unit_ones, work_n);
+        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
     }
 
 };
 
 
-struct LaplacianPinv : public SymmetricLinearOperator<double> {
+struct LaplacianPinv {
     public:
-    // inherited --> const int64_t m;
+    using scalar_t = double;
+    const int64_t dim;
     CallableSpMat    L_callable;
     CallableChoSolve N_callable;
     bool verbose_pcg;
@@ -255,9 +258,9 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     LaplacianPinv(CallableSpMat &L, CallableChoSolve &N, double pcg_tol, int maxit,
         bool verbose = false
     ) :
-        SymmetricLinearOperator<double>(L.m),
-        L_callable{L.A, L.m},
-        N_callable{N.G, N.m},
+        dim(L.dim),
+        L_callable{L.A, L.dim},
+        N_callable{N.G, N.dim},
         verbose_pcg(verbose),
         times(4, 0.0),
         call_pcg_tol(pcg_tol),
@@ -275,13 +278,13 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
     ) {
         randblas_require(layout == Layout::ColMajor);
         randblas_require(beta == (double) 0.0);
-        randblas_require(ldb == m);
-        randblas_require(ldc == m);
-        int64_t mn = m*n;
+        randblas_require(ldb == dim);
+        randblas_require(ldc == dim);
+        int64_t mn = dim*n;
         work_B.resize(mn);
         work_C.resize(mn);
         work_seminorm.resize(mn);
-        unit_ones.resize(mn, std::pow((double)m, -0.5));
+        unit_ones.resize(mn, std::pow((double)dim, -0.5));
         proj_work_n.resize(n);
         double *ones = unit_ones.data();
         double *work_n = proj_work_n.data();
@@ -302,13 +305,13 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         for (int64_t i = 0; i < mn; ++i)
             work_B[i] = alpha * B[i];
         //std::cout << "n = " << n << std::endl;
-        project_out_vec(m, n, work_B.data(), m, ones, work_n);
+        project_out_vec(dim, n, work_B.data(), dim, ones, work_n);
         // logging
         std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
         // work
         RandBLAS::util::safe_scal(mn, 0.0, work_C.data(), 1);
         auto t0 = std_clock::now();
-        RandLAPACK::lockorblock_pcg(L_callable, work_B, call_pcg_tol, max_iters, N_callable, seminorm, work_C, verbose_pcg);
+        RandLAPACK::pcg(L_callable, work_B.data(), n, seminorm, call_pcg_tol, max_iters, N_callable, work_C.data(), verbose_pcg);
         auto t1 = std_clock::now();
         auto total_spmm   = std::reduce(L_callable.times.begin(), L_callable.times.end());
         auto total_sptrsm = std::reduce(N_callable.times.begin(), N_callable.times.end());
@@ -323,7 +326,7 @@ struct LaplacianPinv : public SymmetricLinearOperator<double> {
         std::cout << std::left 
         << std::setw(10) << sn_log.size()
         << std::setw(15) << sn_log[sn_log.size()-1] / sn_log[0] << std::endl;
-        project_out_vec(m, n, work_C.data(), m, ones, work_n);
+        project_out_vec(dim, n, work_C.data(), dim, ones, work_n);
         blas::copy(mn, work_C.data(), 1, C, 1);
     }
 
