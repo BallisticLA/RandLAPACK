@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
 
     std::stringstream logfilename;
     // logfilename << "/Users/rjmurr/Documents/randnla/RandLAPACK/demos/richol/EY_logs/";
-    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/";
+    logfilename << "/home/rjmurr/laps2/RandLAPACK/demos/richol/EY_logs/broadwell-ours/";
     logfilename << "G1m2_to_G1m10_rank_" << k << "_threads_" << threads << "_amd_" << use_amd_perm << "_sypspasses_" << syps_passes << ".txt";
     std::ofstream logfile(logfilename.str());
     logfile << "n         , m         , perm_time , chol_time , nnz_pre   , spmm_time , trsm_time , pcg_time  , pcg_iters , nys_time\n";
