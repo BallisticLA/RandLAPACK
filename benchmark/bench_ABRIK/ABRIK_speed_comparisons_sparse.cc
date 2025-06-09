@@ -237,39 +237,42 @@ static void call_all_algs(
         state_gen = state;
         data_regen(all_data, state_gen);
 
-        // There is no reason to run SVDS many times, as it always outputs the same result.
-        //if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
-            // Running SVDS
-            auto start_svds = steady_clock::now();
-            // This is in case the number of singular triplets is smaller than the target rank
-            singular_triplets_target_SVDS = std::min(target_rank, n-2);
 
-            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_target_SVDS, std::min(2 * singular_triplets_target_SVDS, n-1));
-            svds.compute();
-            auto stop_svds = steady_clock::now();
-            dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
-            printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
+        // Running SVDS
+        auto start_svds = steady_clock::now();
 
-            // Copy data from Spectra (Eigen) format to the nomal C++.
-            Matrix U_spectra = svds.matrix_U(singular_triplets_target_SVDS);
-            Matrix V_spectra = svds.matrix_V(singular_triplets_target_SVDS);
-            Vector S_spectra = svds.singular_values();
+        // Despite my earlier expectations, estimating a larger number of 
+        // singular triplets via SVDS does improve the quality of the first singular triplets.
+        // As such, aiming for just the "target rank" would be unfair.
 
-            all_data.U     = new T[m * singular_triplets_target_SVDS]();
-            all_data.V     = new T[n * singular_triplets_target_SVDS]();
-            all_data.Sigma = new T[m * singular_triplets_target_SVDS]();
+        // Below line also accounts for the case when number of singular triplets is smaller than the target rank.
+        singular_triplets_target_SVDS = std::min((int64_t ) (b_sz * num_matmuls / 2), n-2);
 
-            Eigen::Map<Matrix>(all_data.U, m, singular_triplets_target_SVDS)  = U_spectra;
-            Eigen::Map<Matrix>(all_data.V, n, singular_triplets_target_SVDS)  = V_spectra;
-            Eigen::Map<Vector>(all_data.Sigma, singular_triplets_target_SVDS) = S_spectra;
+        Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_target_SVDS, std::min(2 * singular_triplets_target_SVDS, n-1));
+        svds.compute();
+        auto stop_svds = steady_clock::now();
+        dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
+        printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
-            residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
-            printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
-            
-            state_alg = state;
-            state_gen = state;
-            data_regen(all_data, state_gen);
-        //}
+        // Copy data from Spectra (Eigen) format to the nomal C++.
+        Matrix U_spectra = svds.matrix_U(singular_triplets_target_SVDS);
+        Matrix V_spectra = svds.matrix_V(singular_triplets_target_SVDS);
+        Vector S_spectra = svds.singular_values();
+
+        all_data.U     = new T[m * singular_triplets_target_SVDS]();
+        all_data.V     = new T[n * singular_triplets_target_SVDS]();
+        all_data.Sigma = new T[m * singular_triplets_target_SVDS]();
+
+        Eigen::Map<Matrix>(all_data.U, m, singular_triplets_target_SVDS)  = U_spectra;
+        Eigen::Map<Matrix>(all_data.V, n, singular_triplets_target_SVDS)  = V_spectra;
+        Eigen::Map<Vector>(all_data.Sigma, singular_triplets_target_SVDS) = S_spectra;
+
+        residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
+        
+        state_alg = state;
+        state_gen = state;
+        data_regen(all_data, state_gen);
 
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.ABRIK.max_krylov_iters  <<  ",  " << target_rank << ",  " 
