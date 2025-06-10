@@ -115,14 +115,6 @@ class TestCQRRT : public ::testing::Test
 
         CQRRT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, d_factor, state);
 
-
-        char name [] = "Q";
-        char name1 [] = "R";
-        char name2 [] = "A";
-        RandLAPACK::util::print_colmaj(m, n, all_data.A.data(), m, name);
-        RandLAPACK::util::print_colmaj(n, n, all_data.R.data(), n, name1);
-        RandLAPACK::util::print_colmaj(m, n, all_data.A_cpy1.data(), m, name2);
-
         all_data.rank = CQRRT.rank;
         printf("RANK AS RETURNED BY CQRRT %ld\n", all_data.rank);
 
@@ -151,13 +143,6 @@ TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-/*
-    char name [] = "A";
-    RandLAPACK::util::print_colmaj(m, n, all_data.A.data(), m, name);
-    char name1 [] = "A1";
-    RandLAPACK::util::print_colmaj(m, n, all_data.A_cpy1.data(), m, name1);
-    char name2 [] = "A2";
-    RandLAPACK::util::print_colmaj(m, n, all_data.A_cpy2.data(), m, name2);
-*/
+
     test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
 }

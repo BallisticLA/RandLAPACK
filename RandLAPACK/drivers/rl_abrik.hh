@@ -259,9 +259,12 @@ class ABRIK {
                 T threshold =  std::sqrt(1 - sq_tol) * norm_A;
 
                 // Creating the CQRRT object in case it is to be used for explicit QR.
-                if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                    int GET_RID_OF_ME=1;
-                }
+                //if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
+                    CQRRT.nnz = 2;
+                    T d_factor = 1.25;
+                    T* R_11_trans = ( T * ) calloc( k * k, sizeof( T ) );
+                //}
 
                 if(this -> timing)
                     sketching_t_start  = steady_clock::now();
@@ -361,7 +364,9 @@ class ABRIK {
 
                         // Perform explicit QR via a method of choice
                         if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                            int GET_RID_OF_ME2=1;
+                            CQRRT.call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
+                            // Copy R_ii over to R's (in transposed format).
+                            util::transposition(0, k, R_11_trans, k, R_ii, n, 1);
                         } else {
                             // [Y_i, R_ii] = qr(Y_i, 0)
                             std::fill(&tau[0], &tau[k], 0.0);
@@ -459,7 +464,7 @@ class ABRIK {
 
                         // Perform explicit QR via a method of choice
                         if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                            int GET_RID_OF_ME=1;
+                            CQRRT.call(m, k, X_i, m, S_ii, n + k, d_factor, state);
                         } else {
                             // [X_i, S_ii] = qr(X_i, 0);
                             std::fill(&tau[0], &tau[k], 0.0);
