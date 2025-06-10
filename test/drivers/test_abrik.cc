@@ -86,7 +86,6 @@ class TestABRIK : public ::testing::Test
             delete[] Sigma;
             delete[] U_cpy;
             delete[] V_cpy;
-            delete[] A;
         }
     };
 
