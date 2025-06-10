@@ -17,6 +17,7 @@ if (GTest_FOUND)
         drivers/test_krill.cc
         drivers/test_rsvd.cc
         drivers/test_cqrrpt.cc
+        drivers/test_cqrrt.cc
         drivers/test_bqrrp.cc
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
