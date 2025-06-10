@@ -18,23 +18,32 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-        /// ABRIK algorithm is a method for finding truncated SVD based on block Krylov iterations.
-        /// This algorithm is a version of Algroithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
-        /// 
-        /// The main difference is in the fact that an economy SVD is performed only once at the very end 
-        /// of the algorithm run and that the termination criteria is not based on singular vectir residual evaluation.
-        /// Instead, the scheme terminates if:
-        ///     1. ||R||_F > sqrt(1 - eps^2) ||A||_F, which ensures that we've exhausted all vectors and doing more 
-        ///        iterations would bring no benefit or that ||A - hat(A)||_F < eps * ||A||_F.
-        ///     2. Stop if the bottom right entry of R or S is numerically close to zero (up to square root of machine eps).
-        /// 
-        /// The main cos of this algorithm comes from large GEMMs with the input matrix A.
-        ///
-        /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
+    /// ABRIK algorithm is a method for finding truncated SVD based on block Krylov iterations.
+    /// This algorithm is a version of Algroithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
+    /// 
+    /// The main difference is in the fact that an economy SVD is performed only once at the very end 
+    /// of the algorithm run and that the termination criteria is not based on singular vectir residual evaluation.
+    /// Instead, the scheme terminates if:
+    ///     1. ||R||_F > sqrt(1 - eps^2) ||A||_F, which ensures that we've exhausted all vectors and doing more 
+    ///        iterations would bring no benefit or that ||A - hat(A)||_F < eps * ||A||_F.
+    ///     2. Stop if the bottom right entry of R or S is numerically close to zero (up to square root of machine eps).
+    /// 
+    /// The main cos of this algorithm comes from large GEMMs with the input matrix A.
+    ///
+    /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
+
+// Struct outside of ABRIK class to make symbols shorter
+struct ABRIKSubroutines {
+    enum QR_explicit {geqrf_ungqr, cqrrt};
+};
 
 template <typename T, typename RNG>
 class ABRIK {
     public:
+        // Subroutine used for explicit orthogonalization process.
+        using Subroutines = ABRIKSubroutines;
+        Subroutines::QR_explicit qr_exp;
+
         bool verbose;
         bool timing;
         T tol;
@@ -55,6 +64,7 @@ class ABRIK {
             bool time_subroutines,
             T ep
         ) {
+            qr_exp = Subroutines::QR_explicit::geqrf_ungqr;
             verbose = verb;
             timing = time_subroutines;
             tol = ep;
@@ -248,6 +258,11 @@ class ABRIK {
                 T sq_tol = std::pow(this->tol, 2);
                 T threshold =  std::sqrt(1 - sq_tol) * norm_A;
 
+                // Creating the CQRRT object in case it is to be used for explicit QR.
+                if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                    int GET_RID_OF_ME=1;
+                }
+
                 if(this -> timing)
                     sketching_t_start  = steady_clock::now();
 
@@ -344,40 +359,45 @@ class ABRIK {
                             }
                         }
 
-                        // [Y_i, R_ii] = qr(Y_i, 0)
-                        std::fill(&tau[0], &tau[k], 0.0);
+                        // Perform explicit QR via a method of choice
+                        if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                            int GET_RID_OF_ME2=1;
+                        } else {
+                            // [Y_i, R_ii] = qr(Y_i, 0)
+                            std::fill(&tau[0], &tau[k], 0.0);
 
-                        if(this -> timing)
-                            qr_t_start = steady_clock::now();
-                        lapack::geqrf(n, k, Y_i, n, tau);
+                            if(this -> timing)
+                                qr_t_start = steady_clock::now();
+                            lapack::geqrf(n, k, Y_i, n, tau);
 
-                        if(this -> timing) {
-                            qr_t_stop = steady_clock::now();
-                            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                            r_cpy_t_start = steady_clock::now();
-                        }
+                            if(this -> timing) {
+                                qr_t_stop = steady_clock::now();
+                                qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                                r_cpy_t_start = steady_clock::now();
+                            }
 
-                        // Copy R_ii over to R's (in transposed format).
-                        #ifdef RandBLAS_HAS_OpenMP
-                                    omp_set_num_threads(this->num_threads_min);
-                        #endif
-                        util::transposition(0, k, Y_i, n, R_ii, n, 1);
-                        #ifdef RandBLAS_HAS_OpenMP
-                                    omp_set_num_threads(this->num_threads_max);
-                        #endif
+                            // Copy R_ii over to R's (in transposed format).
+                            #ifdef RandBLAS_HAS_OpenMP
+                                        omp_set_num_threads(this->num_threads_min);
+                            #endif
+                            util::transposition(0, k, Y_i, n, R_ii, n, 1);
+                            #ifdef RandBLAS_HAS_OpenMP
+                                        omp_set_num_threads(this->num_threads_max);
+                            #endif
 
-                        if(this -> timing) {
-                            r_cpy_t_stop  = steady_clock::now();
-                            r_cpy_t_dur  += duration_cast<microseconds>(r_cpy_t_stop - r_cpy_t_start).count();
-                            ungqr_t_start = steady_clock::now();
-                        }
+                            if(this -> timing) {
+                                r_cpy_t_stop  = steady_clock::now();
+                                r_cpy_t_dur  += duration_cast<microseconds>(r_cpy_t_stop - r_cpy_t_start).count();
+                                ungqr_t_start = steady_clock::now();
+                            }
 
-                        // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
-                        lapack::ungqr(n, k, k, Y_i, n, tau);
-                        
-                        if(this -> timing) {
-                            ungqr_t_stop  = steady_clock::now();
-                            ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                            // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
+                            lapack::ungqr(n, k, k, Y_i, n, tau);
+                            
+                            if(this -> timing) {
+                                ungqr_t_stop  = steady_clock::now();
+                                ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                            }
                         }
 
                         // Early termination
@@ -437,35 +457,40 @@ class ABRIK {
                             reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
                         }
 
-                        // [X_i, S_ii] = qr(X_i, 0);
-                        std::fill(&tau[0], &tau[k], 0.0);
+                        // Perform explicit QR via a method of choice
+                        if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                            int GET_RID_OF_ME=1;
+                        } else {
+                            // [X_i, S_ii] = qr(X_i, 0);
+                            std::fill(&tau[0], &tau[k], 0.0);
+                         
+                            if(this -> timing)
+                                qr_t_start = steady_clock::now();
+                            
+                            lapack::geqrf(m, k, X_i, m, tau);
 
-                        if(this -> timing)
-                            qr_t_start = steady_clock::now();
-                        
-                        lapack::geqrf(m, k, X_i, m, tau);
+                            if(this -> timing) {
+                                qr_t_stop = steady_clock::now();
+                                qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                                s_cpy_t_start = steady_clock::now();
+                            }
 
-                        if(this -> timing) {
-                            qr_t_stop = steady_clock::now();
-                            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                            s_cpy_t_start = steady_clock::now();
-                        }
+                            // Copy S_ii over to S's space under S_i (offset down by iter_od * k)
+                            lapack::lacpy(MatrixType::Upper, k, k, X_i, m, S_ii, n + k);
 
-                        // Copy S_ii over to S's space under S_i (offset down by iter_od * k)
-                        lapack::lacpy(MatrixType::Upper, k, k, X_i, m, S_ii, n + k);
+                            if(this -> timing) {
+                                s_cpy_t_stop  = steady_clock::now();
+                                s_cpy_t_dur  += duration_cast<microseconds>(s_cpy_t_stop - s_cpy_t_start).count();
+                                ungqr_t_start = steady_clock::now();
+                            }
 
-                        if(this -> timing) {
-                            s_cpy_t_stop  = steady_clock::now();
-                            s_cpy_t_dur  += duration_cast<microseconds>(s_cpy_t_stop - s_cpy_t_start).count();
-                            ungqr_t_start = steady_clock::now();
-                        }
+                            // Convert X_i into an explicit form. It is now stored in X_ev as it should be
+                            lapack::ungqr(m, k, k, X_i, m, tau);
 
-                        // Convert X_i into an explicit form. It is now stored in X_ev as it should be
-                        lapack::ungqr(m, k, k, X_i, m, tau);
-
-                        if(this -> timing) {
-                            ungqr_t_stop  = steady_clock::now();
-                            ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                            if(this -> timing) {
+                                ungqr_t_stop  = steady_clock::now();
+                                ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                            }
                         }
 
                         // Early termination
@@ -486,7 +511,6 @@ class ABRIK {
 
                         // Advance odd iteration count;
                         ++iter_od;
-
                     }
 
                     if(this -> timing)
