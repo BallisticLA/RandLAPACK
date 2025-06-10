@@ -294,23 +294,36 @@ class ABRIK {
                     gemm_A_t_dur  = duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
                 }
 
-                if(this -> timing)
-                    qr_t_start = steady_clock::now();
+                if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                    if(this -> timing)
+                        qr_t_start = steady_clock::now();
 
-                lapack::geqrf(m, k, X_i, m, tau);
+                    CQRRT.call(m, k, X_i, m, R_11_trans, k, d_factor, state);
 
-                if(this -> timing) {
-                    qr_t_stop = steady_clock::now();
-                    qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                    ungqr_t_start  = steady_clock::now();
-                }
+                    if(this -> timing) {
+                        qr_t_stop = steady_clock::now();
+                        qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                    }
+                } else {
 
-                // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
-                lapack::ungqr(m, k, k, X_i, m, tau);
+                    if(this -> timing)
+                        qr_t_start = steady_clock::now();
 
-                if(this -> timing) {
-                    ungqr_t_stop  = steady_clock::now();
-                    ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                    lapack::geqrf(m, k, X_i, m, tau);
+
+                    if(this -> timing) {
+                        qr_t_stop = steady_clock::now();
+                        qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                        ungqr_t_start  = steady_clock::now();
+                    }
+
+                    // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
+                    lapack::ungqr(m, k, k, X_i, m, tau);
+
+                    if(this -> timing) {
+                        ungqr_t_stop  = steady_clock::now();
+                        ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                    }
                 }
 
                 // Advance odd iteration count.
@@ -364,9 +377,16 @@ class ABRIK {
 
                         // Perform explicit QR via a method of choice
                         if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                            if(this -> timing)
+                                qr_t_start = steady_clock::now();
+
                             CQRRT.call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
                             // Copy R_ii over to R's (in transposed format).
                             util::transposition(0, k, R_11_trans, k, R_ii, n, 1);
+                            if(this -> timing) {
+                                qr_t_stop = steady_clock::now();
+                                qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                            }
                         } else {
                             // [Y_i, R_ii] = qr(Y_i, 0)
                             std::fill(&tau[0], &tau[k], 0.0);
@@ -464,7 +484,14 @@ class ABRIK {
 
                         // Perform explicit QR via a method of choice
                         if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                            if(this -> timing)
+                                qr_t_start = steady_clock::now();
+
                             CQRRT.call(m, k, X_i, m, S_ii, n + k, d_factor, state);
+
+                                qr_t_stop = steady_clock::now();
+                                qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+
                         } else {
                             // [X_i, S_ii] = qr(X_i, 0);
                             std::fill(&tau[0], &tau[k], 0.0);
@@ -597,6 +624,7 @@ class ABRIK {
                 free(VT_hat);
                 free(Y_orth_buf);
                 free(X_orth_buf);
+                free(R_11_trans);
 
                 if(this -> timing) {
                     allocation_t_stop  = steady_clock::now();
