@@ -104,8 +104,8 @@ static void call_all_algs(
         // Update timing vector
         inner_timing = ABRIK.times;
         // Add info about the run
-        inner_timing.insert (inner_timing.begin(), k);
         inner_timing.insert (inner_timing.begin(), num_matmuls);
+        inner_timing.insert (inner_timing.begin(), k);
 
         std::ofstream file(output_filename, std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
@@ -201,8 +201,7 @@ int main(int argc, char *argv[]) {
     size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            //call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
-            printf("Block size: %ld, matmul: %ld\n", b_sz[i], matmuls[j]);
+            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
         }
         j = 0;
     }
