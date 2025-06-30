@@ -345,6 +345,7 @@ class ABRIK {
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
                             gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
+                            allocation_t_start  = steady_clock::now();
                         }
 
                         // Allocate more spece for Y_od
@@ -353,14 +354,16 @@ class ABRIK {
                         // Move the X_i pointer;
                         X_i = &X_ev[m * (curr_X_cols - k)];
 
-                        //X_i = &X_i[m * k];
+
+                        if(this -> timing) {
+                            allocation_t_stop  = steady_clock::now();
+                            allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                            reorth_t_start  = steady_clock::now();   
+                        }  
 
                         if (iter != 1) {
                             // R_i' = Y_i' * Y_od
-                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);
-                            
-                            if(this -> timing)
-                                reorth_t_start  = steady_clock::now();                
+                            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);            
                             
                             // Y_i = Y_i - Y_od * R_i
                             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
@@ -368,11 +371,11 @@ class ABRIK {
                             // Reorthogonalization
                             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, Y_orth_buf, k);
                             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, Y_orth_buf, k, 1.0, Y_i, n);
+                        }
 
-                            if(this -> timing) {
-                                reorth_t_stop  = steady_clock::now();
-                                reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
-                            }
+                        if(this -> timing) {
+                            reorth_t_stop  = steady_clock::now();
+                            reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
                         }
 
                         // Perform explicit QR via a method of choice
@@ -382,6 +385,7 @@ class ABRIK {
 
                             CQRRT.call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
                             // Copy R_ii over to R's (in transposed format).
+                            
                             util::transposition(0, k, R_11_trans, k, R_ii, n, 1);
                             if(this -> timing) {
                                 qr_t_stop = steady_clock::now();
@@ -454,6 +458,7 @@ class ABRIK {
                         if(this -> timing) {
                             gemm_A_t_stop = steady_clock::now();
                             gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
+                            allocation_t_start  = steady_clock::now();
                         }
 
                         // Allocate more spece for Y_od
@@ -462,13 +467,14 @@ class ABRIK {
                         // Move the X_i pointer;
                         Y_i = &Y_od[n * (curr_Y_cols - k)];
 
-                        //Y_i = &Y_i[n * k];
+                        if(this -> timing) {
+                            allocation_t_stop  = steady_clock::now();
+                            allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                            reorth_t_start  = steady_clock::now();
+                        }
 
                         // S_i = X_ev' * X_i 
                         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
-                        
-                        if(this -> timing)
-                            reorth_t_start  = steady_clock::now();
                         
                         //X_i = X_i - X_ev * S_i;
                         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
@@ -489,8 +495,10 @@ class ABRIK {
 
                             CQRRT.call(m, k, X_i, m, S_ii, n + k, d_factor, state);
 
+                            if(this -> timing) {
                                 qr_t_stop = steady_clock::now();
                                 qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                            }
 
                         } else {
                             // [X_i, S_ii] = qr(X_i, 0);
@@ -532,6 +540,10 @@ class ABRIK {
                             break;
                         }
 
+                        if(this -> timing) {
+                            allocation_t_start  = steady_clock::now();
+                        }
+
                         // Allocate more space for S
                         S = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
                         // Need to make sure the newly-allocated space is empty
@@ -543,6 +555,11 @@ class ABRIK {
 
                         // Advance odd iteration count;
                         ++iter_od;
+
+                        if(this -> timing) {
+                            allocation_t_stop  = steady_clock::now();
+                            allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                        }
                     }
 
                     if(this -> timing)
@@ -615,6 +632,7 @@ class ABRIK {
                     get_factors_t_dur   = duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
                     allocation_t_start  = steady_clock::now();
                 }
+
                 free(Y_od);
                 free(X_ev);
                 free(tau);
