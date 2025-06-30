@@ -89,7 +89,7 @@ template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void call_all_algs(
     int64_t num_runs,
     int64_t k,
-    int64_t num_krylov_iters,
+    int64_t num_matmuls,
     ABRIK_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
@@ -101,7 +101,7 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
-    ABRIK.max_krylov_iters = num_krylov_iters;
+    ABRIK.max_krylov_iters = num_matmuls;
     ABRIK.num_threads_min = 4;
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
@@ -112,14 +112,14 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < num_runs; ++i) {
-        printf("Iteration %d start.\n", i);
+        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
         ABRIK.call(m, n, *all_data.A_input, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
         inner_timing = ABRIK.times;
         // Add info about the run
         inner_timing.insert (inner_timing.begin(), k);
-        inner_timing.insert (inner_timing.begin(), num_krylov_iters);
+        inner_timing.insert (inner_timing.begin(), num_matmuls);
 
         std::ofstream file(output_filename, std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));

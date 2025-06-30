@@ -218,7 +218,7 @@ static void call_all_algs(
 
     for (i = 0; i < num_runs; ++i) {
         printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
-    
+
         // Running ABRIK
         auto start_ABRIK = steady_clock::now();
         all_algs.ABRIK.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);

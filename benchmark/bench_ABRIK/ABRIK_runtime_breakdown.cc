@@ -74,7 +74,7 @@ static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t num_runs,
     int64_t k,
-    int64_t num_krylov_iters,
+    int64_t num_matmuls,
     ABRIK_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
@@ -86,7 +86,7 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
-    ABRIK.max_krylov_iters = num_krylov_iters;
+    ABRIK.max_krylov_iters = num_matmuls;
     ABRIK.num_threads_min = 4;
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
@@ -98,14 +98,14 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < num_runs; ++i) {
-        printf("Iteration %d start.\n", i);
+        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
         ABRIK.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
         inner_timing = ABRIK.times;
         // Add info about the run
         inner_timing.insert (inner_timing.begin(), k);
-        inner_timing.insert (inner_timing.begin(), num_krylov_iters);
+        inner_timing.insert (inner_timing.begin(), num_matmuls);
 
         std::ofstream file(output_filename, std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
@@ -201,7 +201,8 @@ int main(int argc, char *argv[]) {
     size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
+            //call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
+            printf("Block size: %ld, matmul: %ld\n", b_sz[i], matmuls[j]);
         }
         j = 0;
     }
