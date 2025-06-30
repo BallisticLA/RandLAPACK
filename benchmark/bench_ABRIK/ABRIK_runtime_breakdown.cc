@@ -21,6 +21,8 @@ There are 10 things that we time:
 #include <RandBLAS.hh>
 #include <fstream>
 
+using Subroutines = RandLAPACK::ABRIKSubroutines;
+
 template <typename T>
 struct ABRIK_benchmark_data {
     int64_t row;
