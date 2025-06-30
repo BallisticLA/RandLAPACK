@@ -162,6 +162,8 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     if (m_expected != m || n_expected != n) {
+        printf("Expected m: %ld, actual m: %ld\n", m_expected, m);
+        printf("Expected n: %ld, actual n: %ld\n", n_expected, n);
         std::cerr << "Expected input size did not matrch actual input size. Aborting." << std::endl;
         return 1;
     }
