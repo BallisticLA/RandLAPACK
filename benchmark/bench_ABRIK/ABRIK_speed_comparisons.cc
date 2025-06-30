@@ -337,7 +337,7 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen, 1);
         
         // There is no reason to run SVD many times, as it always outputs the same result.
-        if ((b_sz == 16) && (num_matmuls == 2) && ((i == 0) || (i == 1))) {
+        if ((b_sz == 16) && (num_matmuls == 4) && ((i == 0) || (i == 1))) {
             // Running SVD
             auto start_svd = steady_clock::now();
             all_data.U     = new T[m * n]();

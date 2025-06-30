@@ -127,8 +127,8 @@ int main(int argc, char *argv[]) {
     }
 
     int num_runs        = std::stol(argv[3]);
-    int64_t m_expected  = std::stol(argv[5]);
-    int64_t n_expected  = std::stol(argv[6]);
+    int64_t m_expected  = std::stol(argv[4]);
+    int64_t n_expected  = std::stol(argv[5]);
     int64_t custom_rank = std::stol(argv[6]);
     std::vector<int64_t> b_sz;
     for (int i = 0; i < std::stol(argv[7]); ++i)
