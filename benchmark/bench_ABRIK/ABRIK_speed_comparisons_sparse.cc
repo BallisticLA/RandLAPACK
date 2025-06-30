@@ -27,6 +27,8 @@ using SpMatrix = Eigen::SparseMatrix<double>;
 using Matrix = Eigen::MatrixXd;
 using Vector = Eigen::VectorXd;
 
+using Subroutines = RandLAPACK::ABRIKSubroutines;
+
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct ABRIK_benchmark_data {
     int64_t row;
@@ -201,6 +203,8 @@ static void call_all_algs(
     all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
     all_algs.ABRIK.num_threads_min = 4;
     all_algs.ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
+    // Useful for all sparse matrices except 0.
+    all_algs.ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     
     // timing vars
     long dur_ABRIK = 0;
