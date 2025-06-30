@@ -23,6 +23,8 @@ There are 10 things that we time:
 
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
+using Subroutines = RandLAPACK::ABRIKSubroutines;
+
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct ABRIK_benchmark_data {
     int64_t row;
@@ -92,7 +94,8 @@ static void call_all_algs(
     int64_t num_matmuls,
     ABRIK_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
-    std::string output_filename) {
+    std::string output_filename,
+    int use_cqrrt) {
 
     auto m   = all_data.row;
     auto n   = all_data. col;
@@ -103,6 +106,8 @@ static void call_all_algs(
     RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
     ABRIK.max_krylov_iters = num_matmuls;
     ABRIK.num_threads_min = 4;
+    if use_cqrrt
+        ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // Making sure the states are unchanged
@@ -200,10 +205,11 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
+    int use_cqrrt = 1;
     size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            call_all_algs(num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
+            call_all_algs(num_runs, b_sz[i], matmuls[j], all_data, state_constant, path, use_cqrrt);
         }
         j = 0;
     }
