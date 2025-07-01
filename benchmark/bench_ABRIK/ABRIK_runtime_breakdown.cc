@@ -21,6 +21,8 @@ There are 10 things that we time:
 #include <RandBLAS.hh>
 #include <fstream>
 
+using Subroutines = RandLAPACK::ABRIKSubroutines;
+
 template <typename T>
 struct ABRIK_benchmark_data {
     int64_t row;
@@ -74,7 +76,7 @@ static void call_all_algs(
     RandLAPACK::gen::mat_gen_info<T> m_info,
     int64_t num_runs,
     int64_t k,
-    int64_t num_krylov_iters,
+    int64_t num_matmuls,
     ABRIK_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
@@ -86,8 +88,9 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
-    ABRIK.max_krylov_iters = num_krylov_iters;
+    ABRIK.max_krylov_iters = num_matmuls;
     ABRIK.num_threads_min = 4;
+    //ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // Making sure the states are unchanged
@@ -98,14 +101,14 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < num_runs; ++i) {
-        printf("Iteration %d start.\n", i);
+        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
         ABRIK.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
         inner_timing = ABRIK.times;
         // Add info about the run
+        inner_timing.insert (inner_timing.begin(), num_matmuls);
         inner_timing.insert (inner_timing.begin(), k);
-        inner_timing.insert (inner_timing.begin(), num_krylov_iters);
 
         std::ofstream file(output_filename, std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
@@ -127,8 +130,8 @@ int main(int argc, char *argv[]) {
     }
 
     int num_runs        = std::stol(argv[3]);
-    int64_t m_expected  = std::stol(argv[5]);
-    int64_t n_expected  = std::stol(argv[6]);
+    int64_t m_expected  = std::stol(argv[4]);
+    int64_t n_expected  = std::stol(argv[5]);
     int64_t custom_rank = std::stol(argv[6]);
     std::vector<int64_t> b_sz;
     for (int i = 0; i < std::stol(argv[7]); ++i)
@@ -153,7 +156,7 @@ int main(int argc, char *argv[]) {
 
     // Generate the input matrix.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[1];
+    m_info.filename = argv[2];
     m_info.workspace_query_mod = 1;
     // Workspace query;
     RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
@@ -162,6 +165,8 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     if (m_expected != m || n_expected != n) {
+        printf("Expected m: %ld, actual m: %ld\n", m_expected, m);
+        printf("Expected n: %ld, actual n: %ld\n", n_expected, n);
         std::cerr << "Expected input size did not matrch actual input size. Aborting." << std::endl;
         return 1;
     }
