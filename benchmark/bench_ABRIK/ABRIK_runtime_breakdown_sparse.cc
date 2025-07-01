@@ -123,8 +123,8 @@ static void call_all_algs(
         // Update timing vector
         inner_timing = ABRIK.times;
         // Add info about the run
-        inner_timing.insert (inner_timing.begin(), k);
         inner_timing.insert (inner_timing.begin(), num_matmuls);
+        inner_timing.insert (inner_timing.begin(), k);
 
         std::ofstream file(output_filename, std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
