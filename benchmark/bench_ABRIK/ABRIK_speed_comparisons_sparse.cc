@@ -218,7 +218,8 @@ static void call_all_algs(
     T residual_err_custom_ABRIK = 0;
 
     int64_t singular_triplets_target_ABRIK = 0;
-    int64_t singular_triplets_target_SVDS = 0;
+    int64_t singular_triplets_found_SVDS   = 0;
+    int64_t singular_triplets_target_SVDS  = 0;
 
     for (i = 0; i < num_runs; ++i) {
         printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
@@ -232,7 +233,7 @@ static void call_all_algs(
 
         // This is in case the number of singular triplets is smaller than the target rank
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
-        printf("Singular triplets: %d\n", singular_triplets_target_ABRIK);
+        printf("Singular triplets: %ld\n", singular_triplets_target_ABRIK);
 
         residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
         printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_ABRIK);
@@ -250,26 +251,28 @@ static void call_all_algs(
         // As such, aiming for just the "target rank" would be unfair.
 
         // Below line also accounts for the case when number of singular triplets is smaller than the target rank.
-        singular_triplets_target_SVDS = std::min((int64_t ) (b_sz * num_matmuls / 2), n-2);
+        singular_triplets_found_SVDS = std::min((int64_t ) (b_sz * num_matmuls / 2), n-2);
 
-        Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_target_SVDS, std::min(2 * singular_triplets_target_SVDS, n-1));
+        Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n-1));
         svds.compute();
         auto stop_svds = steady_clock::now();
         dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
         printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
         // Copy data from Spectra (Eigen) format to the nomal C++.
-        Matrix U_spectra = svds.matrix_U(singular_triplets_target_SVDS);
-        Matrix V_spectra = svds.matrix_V(singular_triplets_target_SVDS);
+        Matrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
+        Matrix V_spectra = svds.matrix_V(singular_triplets_found_SVDS);
         Vector S_spectra = svds.singular_values();
 
-        all_data.U     = new T[m * singular_triplets_target_SVDS]();
-        all_data.V     = new T[n * singular_triplets_target_SVDS]();
-        all_data.Sigma = new T[m * singular_triplets_target_SVDS]();
+        all_data.U     = new T[m * singular_triplets_found_SVDS]();
+        all_data.V     = new T[n * singular_triplets_found_SVDS]();
+        all_data.Sigma = new T[m * singular_triplets_found_SVDS]();
 
-        Eigen::Map<Matrix>(all_data.U, m, singular_triplets_target_SVDS)  = U_spectra;
-        Eigen::Map<Matrix>(all_data.V, n, singular_triplets_target_SVDS)  = V_spectra;
-        Eigen::Map<Vector>(all_data.Sigma, singular_triplets_target_SVDS) = S_spectra;
+        Eigen::Map<Matrix>(all_data.U, m, singular_triplets_found_SVDS)  = U_spectra;
+        Eigen::Map<Matrix>(all_data.V, n, singular_triplets_found_SVDS)  = V_spectra;
+        Eigen::Map<Vector>(all_data.Sigma, singular_triplets_found_SVDS) = S_spectra;
+
+        singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
 
         residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
         printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
@@ -314,7 +317,6 @@ int main(int argc, char *argv[]) {
     double tol                 = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                 = RandBLAS::RNGState();
     auto state_constant        = state;
-    double norm_A_lowrank      = 0;
 
     // Read the input fast matrix market data
     // The idea is that input_mat_coo will be automatically freed at the end of function execution
