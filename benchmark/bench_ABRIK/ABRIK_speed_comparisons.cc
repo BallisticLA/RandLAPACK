@@ -18,8 +18,8 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(target_rank
 // External libs includes
 #include <Eigen/Dense>
 #include <Spectra/contrib/PartialSVDSolver.h>
-using Matrix = Eigen::MatrixXd;
-using Vector = Eigen::VectorXd;
+using Matrix = Eigen::MatrixXf;
+using Vector = Eigen::VectorXf;
 
 template <typename T>
 struct ABRIK_benchmark_data {
@@ -113,7 +113,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     if (overwrite_A) {
         RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
-        Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
+        Eigen::Map<Eigen::MatrixXf>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXf>(all_data.A, m, n);
         if (all_data.A_lowrank_svd != nullptr)
             lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     }
@@ -554,7 +554,7 @@ int main(int argc, char *argv[]) {
     ABRIK_algorithm_objects<float, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
 
     // Copying input data into a Spectra (Eigen) matrix object
-    Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
+    Eigen::Map<Eigen::MatrixXf>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXf>(all_data.A, m, n);
 
     // Optional pass of lowrank SVD matrix into the benchmark
     if (std::string(argv[3]) != ".") {
