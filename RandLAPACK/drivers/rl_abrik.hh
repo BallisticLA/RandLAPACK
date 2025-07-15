@@ -260,7 +260,7 @@ class ABRIK {
 
                 // Creating the CQRRT object in case it is to be used for explicit QR.
                 //if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
+                    RandLAPACK::CQRRT<T, r123::Philox4x32> CQRRT(false, tol);
                     CQRRT.nnz = 2;
                     T d_factor = 1.25;
                     T* R_11_trans = ( T * ) calloc( k * k, sizeof( T ) );
@@ -534,7 +534,7 @@ class ABRIK {
                         }
 
                         // Early termination
-                        // if (abs(S(end)) <= sqrt(eps('double')))
+                        // if (abs(S(end)) <= sqrt(eps('T')))
                         if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
                             //printf("TERMINATION 2 at iteration %ld\n", iter);
                             break;
