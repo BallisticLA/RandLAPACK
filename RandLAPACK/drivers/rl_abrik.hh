@@ -247,6 +247,9 @@ class ABRIK {
                 // tau space for QR
                 T* tau = ( T * ) calloc( k, sizeof( T ) );
 
+                char name2 [] = "S";
+                char name1 [] = "R";
+
                 if(this -> timing) {
                     allocation_t_stop  = steady_clock::now();
                     allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
@@ -445,6 +448,8 @@ class ABRIK {
                         R_i = &R[(iter_ev + 1) * k];
                         R_ii = &R[(n * k * (iter_ev + 1)) + k + (k * (iter_ev))];
 
+                        RandLAPACK::util::print_colmaj(n, curr_X_cols, R, n, name1);
+
                         // Advance even iteration count;
                         ++iter_ev;
                     }
@@ -552,6 +557,8 @@ class ABRIK {
                         // Advance S pointers
                         S_i  = &S[(n + k) * k * iter_od];
                         S_ii = &S[(n + k) * k * iter_od + k + (iter_od * k)];
+
+                        RandLAPACK::util::print_colmaj(n + k, curr_X_cols, S, n + k, name2);
 
                         // Advance odd iteration count;
                         ++iter_od;

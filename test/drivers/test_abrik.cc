@@ -139,7 +139,7 @@ class TestABRIK : public ::testing::Test
         ABRIK.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
 
         ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state);
-
+        
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
         printf("residual_err_custom %e\n", residual_err_custom);
         ASSERT_LE(residual_err_custom, 10 * std::pow(std::numeric_limits<T>::epsilon(), 0.825));

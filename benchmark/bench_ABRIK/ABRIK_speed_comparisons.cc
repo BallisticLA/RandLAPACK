@@ -547,7 +547,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
     // Declare objects for RSVD and ABRIK
-    int64_t p = 5;
+    int64_t p = 2;
     int64_t passes_per_iteration = 1;
     // Block size will need to be altered.
     int64_t block_sz = 0;
