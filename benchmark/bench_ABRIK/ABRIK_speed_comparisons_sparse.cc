@@ -331,7 +331,17 @@ int main(int argc, char *argv[]) {
 
     // Grab the leading principal submatrix of the size of half the input
     RandBLAS::COOMatrix<double> input_mat_transformed(m, n);
-    //reserve_coo(nnz_sub, input_mat_transformed);
+
+    // check how many nonzeros are in the left principal submatrix
+    int64_t nnz_sub = 0;
+    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
+        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
+            ++nnz_sub;
+        }
+    }
+
+    // Allocate
+    reserve_coo(nnz_sub, input_mat_transformed);
 
     int64_t ell = 0;
     for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
