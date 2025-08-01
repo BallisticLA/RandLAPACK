@@ -214,21 +214,13 @@ class TestUtil : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, n, A, m, A1, m);
         lapack::lacpy(MatrixType::General, m, n, B, m, B1, m);
 
-        char name1 [] = "In";
-        RandLAPACK::util::print_colmaj(m, n, all_data.A.data(), m, name1);
-
         // built-in orhr_col
         lapack::orhr_col(m, n, n, A, m, T_mat, n, D);
         // own orhr_col
         RandLAPACK::util::rl_orhr_col(m, n, A1, m, tau1, D1, 1);
 
-        char name [] = "A";
-        RandLAPACK::util::print_colmaj(m, n, all_data.A.data(), m, name);
-        RandLAPACK::util::print_colmaj(m, n, all_data.A1.data(), m, name);
-
         for(i = 0; i < n; ++i)
             tau[i] = T_mat[(n + 1) * i];
-
 
         auto start_std = steady_clock::now();
         lapack::ormqr(Side::Left, Op::Trans, m, n, n, A,  m, tau,  B,  m);
