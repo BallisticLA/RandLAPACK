@@ -124,6 +124,33 @@ void from_matrix_market(std::string fn, SpMatrix& A) {
     A.setFromTriplets(tripletList.begin(), tripletList.end());
 }
 
+template <typename T>
+void from_matrix_market_leading_submatrix(std::string fn, SpMatrix& A) {
+    int64_t n_rows, n_cols = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<T> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n_rows, n_cols, rows, cols, vals
+    );
+
+    // Use half-size for the leading principal submatrix
+    int64_t m = n_rows / 2;
+    int64_t n = n_cols / 2;
+
+    // Create triplets only for entries within the submatrix
+    std::vector<Eigen::Triplet<T>> tripletList;
+    for (size_t i = 0; i < vals.size(); ++i) {
+        if (rows[i] < m && cols[i] < n) {
+            tripletList.emplace_back(rows[i], cols[i], vals[i]);
+        }
+    }
+
+    A.setFromTriplets(tripletList.begin(), tripletList.end());
+}
+
 // Re-generate and clear data
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data, 
@@ -362,7 +389,8 @@ int main(int argc, char *argv[]) {
     ABRIK_benchmark_data<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(input_mat_csc, m, n, tol);
     all_data.A_input = &input_mat_csc;
     // Read matrix into spectra format
-    from_matrix_market<double>(std::string(argv[2]), all_data.A_spectra);
+    //from_matrix_market<double>(std::string(argv[2]), all_data.A_spectra);
+    from_matrix_market_leading_submatrix<double>(std::string(argv[2]), all_data.A_spectra);
 
     // Declare ABRIK object
     ABRIK_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, tol);
