@@ -351,7 +351,6 @@ int main(int argc, char *argv[]) {
     //auto m = input_mat_coo.n_rows;
     //auto n = input_mat_coo.n_cols;
 
-
     // For benchmarking
     auto m = input_mat_coo.n_rows / 2;
     auto n = input_mat_coo.n_cols /2;
