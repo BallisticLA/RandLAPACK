@@ -59,11 +59,11 @@ struct QRBBRP {
     /// @param[in] lda
     ///     Leading dimension of A.
     ///
-    /// @param[out] tau
-    ///     On output, similar in format to that in GEQP3.
-    ///
     /// @param[out] J
     ///     Stores GEQP3-compatible pivot vector indices.
+    ///
+    /// @param[out] tau
+    ///     On output, similar in format to that in GEQP3.
     ///
     /// @param[in] state
     ///     RNGState used in sketching operator generation.
@@ -75,8 +75,8 @@ struct QRBBRP {
         int64_t n,
         T* A,
         int64_t lda,
-        T* tau,
         int64_t* J,
+        T* tau,
         state_t &state
     );
 
@@ -90,8 +90,8 @@ RandBLAS::RNGState<RNG> QRBBRP<T, qrcp_wide_t, RNG>::call(
     int64_t n,
     T* A,
     int64_t lda,
-    T* tau,
     int64_t* J,
+    T* tau,
     RandBLAS::RNGState<RNG> &state
 ){
     using namespace std::chrono;

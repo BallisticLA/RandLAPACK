@@ -116,7 +116,7 @@ class TestQRBBRP : public ::testing::Test {
         auto n = all_data.col;
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
 
-        QRBBRP.call(m, n, all_data.A.data(), m, all_data.tau.data(), all_data.J.data(), state);
+        QRBBRP.call(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), state);
 
         int64_t small_dim = std::min(m, n);
         all_data.rank = small_dim;
