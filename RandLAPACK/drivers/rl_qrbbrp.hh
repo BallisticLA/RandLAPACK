@@ -276,13 +276,8 @@ RandBLAS::RNGState<RNG> QRBBRP<T, qrcp_wide_t, RNG>::call(
         // Size of the factors is updated;
         curr_sz += b_sz;
 
-        // Termination criteria is reached when:
-        // 1. All iterations are exhausted.
-        // 2. b_sz has been altered, which happens
-        // when the estimated rank of the R-factor 
-        // from QRCP at this iteration is not full,
-        // meaning that the rest of the matrix is zero.
-        if ((curr_sz >= n) || (b_sz != b_sz_const)) {
+        // Termination criteria is reached when all iterations have been exhausted
+        if (iter + 1 == maxiter) {
 
             if(this -> timing) {
                 total_t_stop = steady_clock::now();
