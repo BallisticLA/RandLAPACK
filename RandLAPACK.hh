@@ -27,15 +27,9 @@
 #include "RandLAPACK/drivers/rl_rsvd.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"
+#include "RandLAPACK/drivers/rl_qrbbrp.hh"
 #include "RandLAPACK/drivers/rl_revd2.hh"
 #include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
-
-// Cuda functions - issues with linking/visibility when present if the below is uncommented.
-// A temporary fix is to add the below directly in the test/benchmark files.
-// Ideally, we would like below to be uncommented so that we could simply include RandLAPACK.hh everywhere.
-//#include "RandLAPACK/drivers/rl_cqrrpt_gpu.hh"
-//#include "RandLAPACK/drivers/rl_cqrrp_gpu.hh"
-//#include "RandLAPACK/gpu_functions/rl_cuda_kernels.cuh"
 
 #endif
