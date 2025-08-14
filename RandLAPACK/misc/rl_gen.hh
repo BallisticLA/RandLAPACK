@@ -51,7 +51,7 @@ struct mat_gen_info {
         rows = m;
         cols = n;
         m_type = t;
-        rank = n; // < default
+        rank = std::min(m, n); // < default
     }
 };
 
