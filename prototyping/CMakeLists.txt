@@ -49,3 +49,9 @@ add_benchmark(
     CXX_SOURCES qrbbrp_qp3_demo.cc
     LINK_LIBS ${Benchmark_libs}
 )
+
+add_benchmark(
+    NAME set_block_pivot_vector
+    CXX_SOURCES set_block_pivot_vector.cc
+    LINK_LIBS ${Benchmark_libs}
+)
