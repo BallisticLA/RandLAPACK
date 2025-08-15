@@ -36,11 +36,10 @@ struct setup_work {
     void free() { return; }
     void operator()(int64_t rows, int64_t cols, T* A, int64_t _lda, int64_t* J) {
 	   
-    int cols_per_block = cols / num_blocks;
 
-    T* diagsR = new T[cols_per_block]();
+    T* diagsR = new T[block_size]();
     T* v      = new T[num_blocks]{0.0};
-    T* tau    = new T[cols_per_block]();
+    T* tau    = new T[block_size]();
 
     T* extra_arr = new T[cols](); //for geqrf
 
@@ -61,7 +60,7 @@ struct setup_work {
 
        //then set the bottom idenity
        //rem+1
-       indx_work += (i % cols_per_block) + 1;
+       indx_work += (i % block_size) + 1;
        work_matrix[indx_work] = 1.0;
     }	
           
@@ -69,16 +68,16 @@ struct setup_work {
     //3. use mitchell's code to compute pivot scores of blocks
     for (int i = 0; i < num_blocks; ++i) {
        // Call the QR function for each block
-       T* A_block = &A[i * cols_per_block * rows];
-       lapack::geqrf(rows, cols_per_block, A_block, rows, tau);
+       T* A_block = &A[i * block_size * rows];
+       lapack::geqrf(rows, block_size, A_block, rows, tau);
 
        // Extract the diagonal elements of R
-       for (int j = 0; j < cols_per_block; ++j) {
+       for (int j = 0; j < block_size; ++j) {
          diagsR[j] = A_block[j  * (rows + 1)];
        } 
 
        // Store the sum log |diagsR[j] | for each block in v[j]
-       for (int j = 0; j < cols_per_block; ++j) {
+       for (int j = 0; j < block_size; ++j) {
            v[i] += std::log(std::abs(diagsR[j]));
        }
 
@@ -96,7 +95,7 @@ struct setup_work {
        }
     }
 
-    swap_cols(rows, cols, A, rows, cols_per_block, idx_of_max);
+    swap_cols(rows, cols, A, rows, block_size, idx_of_max);
 
     //6. unpivoted QR on A matrix
     //original matrix, not the augmented
