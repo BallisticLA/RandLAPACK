@@ -43,11 +43,21 @@ function(add_benchmark)
 endfunction()
 
 set(Benchmark_libs RandLAPACK)
+include(FetchContent)
+FetchContent_Declare(
+    fast_matrix_market
+    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
+    GIT_TAG main
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(
+    fast_matrix_market
+)
 
 add_benchmark(
     NAME qrbbrp_qp3
     CXX_SOURCES qrbbrp_qp3_demo.cc
-    LINK_LIBS ${Benchmark_libs}
+    LINK_LIBS ${Benchmark_libs} fast_matrix_market::fast_matrix_market
 )
 
 add_benchmark(

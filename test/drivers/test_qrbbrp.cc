@@ -166,3 +166,35 @@ TEST_F(TestQRBBRP, QRBBRP_full_rank_basic) {
     test_QRBBRP_general(d_factor, norm_A, all_data, QRBBRP, state);
 }
 
+TEST_F(TestQRBBRP, QRBBRP_small) {
+    int64_t m = 4;
+    int64_t n = 8;
+    int64_t k = 4;
+    double d_factor = 1;
+    int64_t b_sz = 2;
+    double norm_A = 0;
+    RandBLAS::RNGState state(0);
+
+    QRBBRPTestData<double> all_data(m, n, k);
+
+    struct qrcp_wide_qp3 {
+        std::vector<double> tau_vec;
+        void reserve(int64_t _m, int64_t _n) { tau_vec.resize(_n, 0.0); }
+        void free() { return; }
+        void operator()(int64_t _m, int64_t _n, double* A, int64_t _lda, int64_t* J) {
+            randblas_require( static_cast<int64_t>(tau_vec.size()) >= _n);
+            double* tau = tau_vec.data();
+            lapack::geqp3(_m, _n, A, _lda, J, tau);
+        }
+    };
+
+    qrcp_wide_qp3 qp3{};
+    RandLAPACK::QRBBRP<double, qrcp_wide_qp3> QRBBRP(qp3, true, b_sz, d_factor);
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_QRBBRP_general(d_factor, norm_A, all_data, QRBBRP, state);
+}
+
