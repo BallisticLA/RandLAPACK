@@ -34,7 +34,7 @@ template <typename T>
 struct mat_gen_info {
     int64_t rows;
     int64_t cols;
-    int64_t rank;
+    int64_t rank = std::min(rows, cols);
     mat_type m_type;
     T cond_num = 1.0;
     T scaling = 1.0;

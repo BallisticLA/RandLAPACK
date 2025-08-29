@@ -23,7 +23,7 @@ Records the best timing, saves that into a file.
 using Subroutines = RandLAPACK::BQRRPSubroutines;
 
 template <typename T>
-struct QR_speed_benchmark_data {
+struct QR_benchmark_data {
     int64_t row;
     int64_t col;
     int64_t b_sz;
@@ -32,7 +32,7 @@ struct QR_speed_benchmark_data {
     std::vector<T> tau;
     std::vector<int64_t> J;
 
-    QR_speed_benchmark_data(int64_t m, int64_t n, int64_t block_size, T d_factor) :
+    QR_benchmark_data(int64_t m, int64_t n, int64_t block_size, T d_factor) :
     A(m * n, 0.0),
     tau(n, 0.0),
     J(n, 0)
@@ -47,7 +47,7 @@ struct QR_speed_benchmark_data {
 // Re-generate and clear data
 template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
-                                        QR_speed_benchmark_data<T> &all_data, 
+                                        QR_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
     std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
@@ -63,7 +63,7 @@ static void call_all_algs(
     int64_t rows,
     int64_t cols,
     int64_t block_sz,
-    QR_speed_benchmark_data<T> &all_data,
+    QR_benchmark_data<T> &all_data,
     std::string operation_mode,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
@@ -233,7 +233,7 @@ int main(int argc, char *argv[]) {
     int64_t m_max = *std::max_element(m_sz.begin(), m_sz.end());
     if (column_size_ratio < 1) 
         m_max = m_max / column_size_ratio;
-    QR_speed_benchmark_data<double> all_data(m_max, m_max, m_max / std::stol(argv[5]), d_factor);
+    QR_benchmark_data<double> all_data(m_max, m_max, m_max / std::stol(argv[5]), d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m_max, m_max, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
