@@ -27,7 +27,7 @@ struct QR_benchmark_data {
     std::vector<T> A_cpy2;
     std::vector<T> I_ref;
 
-    QR_benchmark_data(int64_t m, int64_t n, T d_factor) :
+    QR_benchmark_data(int64_t m, int64_t n) :
     A(m * n, 0.0),
     R(n * n, 0.0),
     tau(n, 0.0),
@@ -48,11 +48,13 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
                                         RandBLAS::RNGState<RNG> &state) {
     
     std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
+    std::fill(all_data.R.begin(), all_data.R.end(), 0.0);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
     lapack::lacpy(MatrixType::General, all_data.row, all_data.col, all_data.A.data(), all_data.row, all_data.A_cpy1.data(), all_data.row);
     lapack::lacpy(MatrixType::General, all_data.row, all_data.col, all_data.A.data(), all_data.row, all_data.A_cpy2.data(), all_data.row);
     std::fill(all_data.tau.begin(), all_data.tau.end(), 0.0);
     std::fill(all_data.J.begin(), all_data.J.end(), 0);
+    std::fill(all_data.I_ref.begin(), all_data.I_ref.end(), 0.0);
 }
 
 
@@ -184,7 +186,6 @@ int main(int argc, char *argv[]) {
     std::string alg_to_run = argv[2];
     int64_t m              = std::stol(argv[3]);
     int64_t n              = std::stol(argv[4]);
-    double d_factor        = 1.0;
     std::vector<int64_t> b_sz;
     for (int i = 0; i < argc-5; ++i)
         b_sz.push_back(std::stoi(argv[i + 5]));
@@ -198,7 +199,7 @@ int main(int argc, char *argv[]) {
     double atol         = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
 
     // Allocate basic workspace
-    QR_benchmark_data<double> all_data(m, n, d_factor);
+    QR_benchmark_data<double> all_data(m, n);
     
     // Set the input matrices
     // Polynomial matrix
