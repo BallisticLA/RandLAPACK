@@ -141,7 +141,7 @@ static void CQRRPT_benchmark_run(
     CQRRPT.nnz = 2;
     CQRRPT.qrcp = Subroutines::QRCP::geqp3;
     double d_factor = all_data.d_factor;
-    
+
     // Parse through all the needed matrix types
     for (int i = 0; i < tests_info.size(); ++i) {
         // Clear and re-generate data
@@ -220,7 +220,7 @@ int main(int argc, char *argv[]) {
     }
     std::ofstream file(path, std::ios::out | std::ios::app);
     // Writing important data into file
-    file << "Description: Results from the CQRRPT error analysis; putput rows capture results per given matrix type, columns capture results per error type"
+    file << "Description: Results from the " + alg_to_run +" error analysis; putput rows capture results per given matrix type, columns capture results per error type"
               "               At the moment, i test polynomial, staircase and spiked matrices with reconstructiuon error, max column norm error and orthogonality loss."
               "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
               "\nInput size:"       + std::to_string(m) + " by " + col_sz_string +
