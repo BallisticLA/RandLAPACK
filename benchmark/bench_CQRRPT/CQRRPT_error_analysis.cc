@@ -212,7 +212,7 @@ int main(int argc, char *argv[]) {
     std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = {m_info_poly, m_info_stair, m_info_spiked};
 
     // Declare a data file
-    std::string output_filename = "_BQRRP_error_analysis_num_info_lines_" + std::to_string(7) + ".txt";
+    std::string output_filename = "_CQRRPT_error_analysis_num_info_lines_" + std::to_string(4) + ".txt";
     if (std::string(argv[1]) != ".") {
         path = std::string(argv[1]) + output_filename;
     } else {
