@@ -166,7 +166,7 @@ static void BQRRP_benchmark_run(
 
         if(alg_to_run == "bqrrp") {
             printf("BQRRP run %d with columns_size %ld\n", i, n);
-            state_alg = state;
+            // State_alg changes at every iteration, consequently, we have different sketches 
             BQRRP.call(m, n, all_data.A.data(), m, 1.0, all_data.tau.data(), all_data.J.data(), state_alg);
         } else {
             printf("GEQP3\n");
