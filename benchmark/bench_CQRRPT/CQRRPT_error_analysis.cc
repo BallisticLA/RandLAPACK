@@ -130,11 +130,10 @@ static void CQRRPT_benchmark_run(
     T atol,
     int64_t col_sz,
     std::string alg_to_run,
+    int num_runs,
     QR_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
-
-    int num_runs = 5;
 
     auto m = all_data.row;
     auto n = col_sz;
@@ -187,20 +186,21 @@ static void CQRRPT_benchmark_run(
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 5) {
+    if (argc < 6) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <directory_path> <alg_to_run> <num_rows> <column_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <alg_to_run> <num_runs> <num_rows> <column_sizes>" << std::endl;
         return 1;
     }
 
     // Declare parameters
     std::string path       = argv[1];
     std::string alg_to_run = argv[2];
-    int64_t m              = std::stol(argv[3]);
+    int num_runs           = std::stol(argv[3]);
+    int64_t m              = std::stol(argv[4]);
     double d_factor        = 1.25;
     std::vector<int64_t> col_sz;
-    for (int i = 0; i < argc-4; ++i)
-        col_sz.push_back(std::stoi(argv[i + 4]));
+    for (int i = 0; i < argc-5; ++i)
+        col_sz.push_back(std::stoi(argv[i + 5]));
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : col_sz)
@@ -237,11 +237,11 @@ int main(int argc, char *argv[]) {
     }
     std::ofstream file(path, std::ios::out | std::ios::app);
     // Writing important data into file
-    file << "Description: Results from the " + alg_to_run +" error analysis; putput rows capture results per given matrix type, columns capture results per error type"
-              "               At the moment, i test polynomial, staircase and spiked matrices with reconstructiuon error, max column norm error and orthogonality loss."
-              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
-              "\nInput size:"       + std::to_string(m) + " by " + col_sz_string +
-              "\n";
+    file << "Description: Results from the " + alg_to_run +" error analysis; putput rows capture results per given matrix type, columns capture results per error type."
+            "\nAt the moment, i test polynomial, staircase and spiked matrices with reconstructiuon error, max column norm error and orthogonality loss."
+            "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
+            "\nInput size:"       + std::to_string(m) + " by " + col_sz_string +
+            "\n";
     file.flush();
 
     // Call the benchmark
@@ -252,7 +252,7 @@ int main(int argc, char *argv[]) {
         // Go through all matrix types
         for (; j < tests_info.size(); ++j) {
             printf("CQRRPT ON MAT TYPE %ld\n", j);
-            CQRRPT_benchmark_run(tests_info[j], atol, col_sz[i], alg_to_run, all_data, state_constant, output_filename);
+            CQRRPT_benchmark_run(tests_info[j], atol, col_sz[i], alg_to_run, num_runs, all_data, state_constant, output_filename);
         }
         j = 0;
     }

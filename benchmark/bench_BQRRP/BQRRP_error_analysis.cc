@@ -225,12 +225,12 @@ int main(int argc, char *argv[]) {
     }
     std::ofstream file(path, std::ios::out | std::ios::app);
     // Writing important data into file
-    file << "Description: Results from the " + alg_to_run + " error analysis; putput rows capture results per given matrix type, columns capture results per error type"
-              "               At the moment, i test polynomial, staircase and spiked matrices with reconstructiuon error, max column norm error and orthogonality loss."
-              "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
-              "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
-              "\nAdditional parameters: BQRRP block sizes: " + b_sz_string +
-              "\n";
+    file << "Description: Results from the " + alg_to_run + " error analysis; putput rows capture results per given matrix type, columns capture results per error type."
+            "\nAt the moment, i test polynomial, staircase and spiked matrices with reconstructiuon error, max column norm error and orthogonality loss."
+            "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
+            "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
+            "\nAdditional parameters: BQRRP block sizes: " + b_sz_string +
+            "\n";
     file.flush();
 
     // Call the benchmark
