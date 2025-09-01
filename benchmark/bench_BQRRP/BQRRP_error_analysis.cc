@@ -62,7 +62,7 @@ template <typename T>
 static void
 error_check(QR_benchmark_data<T> &all_data, 
             T atol, 
-            std::string output_filename) {
+            std::vector<T> &error_output) {
 
     auto m = all_data.row;
     auto n = all_data.col;
@@ -110,16 +110,24 @@ error_check(QR_benchmark_data<T> &all_data,
     printf("MAX COL NORM METRIC:    %14e\n",   max_col_norm_error);
     printf("FRO NORM OF (Q'Q - I):  %14e\n\n", orth_loss);
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
-    file << reconstruction_error << ",  " << max_col_norm_error << ",  " << orth_loss << ",\n";
+    // For computing average reconstruction error across all runs
+    error_output[0] += reconstruction_error;
+    // For capturing maximal reconstruction error across all runs
+    if (reconstruction_error > error_output[1]) { error_output[1] = reconstruction_error;}
+
+    // For computing average orth error across all runs
+    error_output[2] += orth_loss;
+    // For capturing maximal orth error across all runs
+    if (orth_loss > error_output[3]) { error_output[3] = orth_loss;}
 }
 
 template <typename T, typename RNG>
 static void BQRRP_benchmark_run(
-    std::vector<RandLAPACK::gen::mat_gen_info<T>> tests_info,
+    RandLAPACK::gen::mat_gen_info<T> mat_info,
     T atol,
     int64_t b_sz,
     std::string alg_to_run,
+    int num_runs,
     std::string qr_tall,
     QR_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
@@ -133,6 +141,9 @@ static void BQRRP_benchmark_run(
 
     T reconstruction_error = 0;
     T orthogonality_loss   = 0;
+
+    // Output error vector
+    std::vector<T> error_output(4, 0.0);
 
     // Additional params setup.
     RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(false, b_sz);
@@ -148,10 +159,10 @@ static void BQRRP_benchmark_run(
     }
 
     // Parse through all the needed matrix types
-    for (int i = 0; i < tests_info.size(); ++i) {
+    for (int i = 0; i < num_runs; ++i) {
         // Clear and re-generate data
         state_gen = state;
-        data_regen(tests_info[i], all_data, state_gen);
+        data_regen(mat_info, all_data, state_gen);
 
         if(alg_to_run == "bqrrp") {
             printf("BQRRP on mat type %d with b_sz %ld\n", i, b_sz);
@@ -170,25 +181,31 @@ static void BQRRP_benchmark_run(
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
         
-        error_check<T>(all_data, atol, output_filename);
+        error_check<T>(all_data, atol, error_output);
     }
+
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+    T avg_reconstruction_error = error_output[0] / num_runs;
+    T avg_orthogonality_loss   = error_output[0] / num_runs;
+    file << avg_reconstruction_error << ",  " << error_output[1] - avg_reconstruction_error << ",  " << avg_reconstruction_error << ",  " << error_output[3] - avg_orthogonality_loss <<  ",\n";
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 6) {
+    if (argc < 7) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <directory_path> <alg_to_run> <num_rows> <num_cols> <block_size>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <alg_to_run> <num_runs> <num_rows> <num_cols> <block_size>" << std::endl;
         return 1;
     }
 
     // Declare parameters
     std::string path       = argv[1];
     std::string alg_to_run = argv[2];
-    int64_t m              = std::stol(argv[3]);
-    int64_t n              = std::stol(argv[4]);
+    int num_runs           = std::stol(argv[3]);
+    int64_t m              = std::stol(argv[4]);
+    int64_t n              = std::stol(argv[5]);
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < argc-5; ++i)
-        b_sz.push_back(std::stoi(argv[i + 5]));
+    for (int i = 0; i < argc-6; ++i)
+        b_sz.push_back(std::stoi(argv[i + 6]));
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : b_sz)
@@ -236,8 +253,14 @@ int main(int argc, char *argv[]) {
     // Call the benchmark
     int max_iters = 0;
     alg_to_run == "bqrrp" ? max_iters = b_sz.size() : max_iters = 1;
-    for (int i = 0; i < max_iters; ++i) {
-        BQRRP_benchmark_run(tests_info, atol, b_sz[i], alg_to_run, "geqrf", all_data, state_constant, output_filename);
+    int i = 0, j = 0; 
+    for (; i < b_sz.size(); ++i) {
+        // Go through all matrix types
+        for (; j < tests_info.size(); ++j) {
+            printf("BQRRP ON MAT TYPE %ld\n", j);
+            BQRRP_benchmark_run(tests_info[j], atol, b_sz[i], alg_to_run, num_runs, "cholqr", all_data, state_constant, output_filename);
+        }
+        j = 0;
     }
 }
 #endif

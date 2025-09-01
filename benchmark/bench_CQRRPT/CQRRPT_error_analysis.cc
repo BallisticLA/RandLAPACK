@@ -246,8 +246,7 @@ int main(int argc, char *argv[]) {
 
     // Call the benchmark
     int max_iters = 0;
-    // Go through all block sizes
-    int i, j = 0;
+    int i = 0, j = 0; 
     for (; i < col_sz.size(); ++i) {
         // Go through all matrix types
         for (; j < tests_info.size(); ++j) {
