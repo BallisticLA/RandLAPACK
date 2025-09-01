@@ -165,7 +165,7 @@ static void BQRRP_benchmark_run(
         data_regen(mat_info, all_data, state_gen);
 
         if(alg_to_run == "bqrrp") {
-            printf("BQRRP on mat type %d with b_sz %ld\n", i, b_sz);
+            printf("BQRRP run %d with columns_size %ld\n", i, n);
             state_alg = state;
             BQRRP.call(m, n, all_data.A.data(), m, 1.0, all_data.tau.data(), all_data.J.data(), state_alg);
         } else {
