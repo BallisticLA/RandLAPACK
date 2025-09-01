@@ -64,8 +64,8 @@ template <typename T>
 static void
 error_check(QR_benchmark_data<T> &all_data, 
             int64_t col_sz,
-            T atol, 
-            std::string output_filename) {
+            T atol,
+            std::vector<T> &error_output) {
 
     auto m = all_data.row;
     auto n = col_sz;
@@ -113,19 +113,28 @@ error_check(QR_benchmark_data<T> &all_data,
     printf("MAX COL NORM METRIC:    %14e\n",   max_col_norm_error);
     printf("FRO NORM OF (Q'Q - I):  %14e\n\n", orth_loss);
 
-    std::ofstream file(output_filename, std::ios::out | std::ios::app);
-    file << reconstruction_error << ",  " << max_col_norm_error << ",  " << orth_loss << ",\n";
+    // For computing average reconstruction error across all runs
+    error_output[0] += reconstruction_error;
+    // For capturing maximal reconstruction error across all runs
+    if (reconstruction_error > error_output[1]) { error_output[1] = reconstruction_error;}
+
+    // For computing average orth error across all runs
+    error_output[2] += orth_loss;
+    // For capturing maximal orth error across all runs
+    if (orth_loss > error_output[3]) { error_output[3] = orth_loss;}
 }
 
 template <typename T, typename RNG>
 static void CQRRPT_benchmark_run(
-    std::vector<RandLAPACK::gen::mat_gen_info<T>> tests_info,
+    RandLAPACK::gen::mat_gen_info<T> mat_info,
     T atol,
     int64_t col_sz,
     std::string alg_to_run,
     QR_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
+
+    int num_runs = 5;
 
     auto m = all_data.row;
     auto n = col_sz;
@@ -136,20 +145,23 @@ static void CQRRPT_benchmark_run(
     T reconstruction_error = 0;
     T orthogonality_loss   = 0;
 
+    // Output error vector
+    std::vector<T> error_output(4, 0.0);
+
     // Additional params setup.
     RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, atol);
-    CQRRPT.nnz = 2;
+    CQRRPT.nnz = 4;
     CQRRPT.qrcp = Subroutines::QRCP::geqp3;
     double d_factor = all_data.d_factor;
 
     // Parse through all the needed matrix types
-    for (int i = 0; i < tests_info.size(); ++i) {
+    for (int i = 0; i < num_runs; ++i) {
         // Clear and re-generate data
         state_gen = state;
-        data_regen(tests_info[i], all_data, state_gen);
+        data_regen(mat_info, all_data, state_gen);
 
         if(alg_to_run == "cqrrpt") {
-            printf("CQRRPT on mat type %d with columns_size %ld\n", i, n);
+            printf("CQRRPT run %d with columns_size %ld\n", i, n);
             state_alg = state;
             CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         } else {
@@ -165,8 +177,13 @@ static void CQRRPT_benchmark_run(
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
     
-        error_check<T>(all_data, col_sz, atol, output_filename);
+        error_check<T>(all_data, col_sz, atol, error_output);
     }
+
+    std::ofstream file(output_filename, std::ios::out | std::ios::app);
+    T avg_reconstruction_error = error_output[0] / num_runs;
+    T avg_orthogonality_loss   = error_output[0] / num_runs;
+    file << avg_reconstruction_error << ",  " << error_output[1] - avg_reconstruction_error << ",  " << avg_reconstruction_error << ",  " << error_output[3] - avg_orthogonality_loss <<  ",\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -229,8 +246,15 @@ int main(int argc, char *argv[]) {
 
     // Call the benchmark
     int max_iters = 0;
-    for (int i = 0; i < col_sz.size(); ++i) {
-        CQRRPT_benchmark_run(tests_info, atol, col_sz[i], alg_to_run, all_data, state_constant, output_filename);
+    // Go through all block sizes
+    int i, j = 0;
+    for (; i < col_sz.size(); ++i) {
+        // Go through all matrix types
+        for (; j < tests_info.size(); ++j) {
+            printf("CQRRPT ON MAT TYPE %ld\n", j);
+            CQRRPT_benchmark_run(tests_info[j], atol, col_sz[i], alg_to_run, all_data, state_constant, output_filename);
+        }
+        j = 0;
     }
 }
 #endif
