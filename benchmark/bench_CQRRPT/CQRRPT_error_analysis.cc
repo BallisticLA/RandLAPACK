@@ -164,7 +164,7 @@ static void CQRRPT_benchmark_run(
             // State_alg changes at every iteration, consequently, we have different sketches 
             CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         } else {
-            printf("GEQP3\n");
+            printf("GEQP3 run with columns_size %ld\n", n);
             lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
             // Copying the matrix R into the buffer
             lapack::lacpy(MatrixType::Upper, n, n, all_data.A.data(), m, all_data.R.data(), n);
