@@ -161,7 +161,7 @@ static void CQRRPT_benchmark_run(
 
         if(alg_to_run == "cqrrpt") {
             printf("CQRRPT run %d with columns_size %ld\n", i, n);
-            state_alg = state;
+            // State_alg changes at every iteration, consequently, we have different sketches 
             CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         } else {
             printf("GEQP3\n");
@@ -250,7 +250,7 @@ int main(int argc, char *argv[]) {
     for (; i < col_sz.size(); ++i) {
         // Go through all matrix types
         for (; j < tests_info.size(); ++j) {
-            printf("CQRRPT ON MAT TYPE %ld\n", j);
+            printf("/--------------------------------------RUNS ON MAT TYPE %ld--------------------------------------/\n", j);
             CQRRPT_benchmark_run(tests_info[j], atol, col_sz[i], alg_to_run, num_runs, all_data, state_constant, output_filename);
         }
         j = 0;

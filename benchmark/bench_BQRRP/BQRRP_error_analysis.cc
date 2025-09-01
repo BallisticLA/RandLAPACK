@@ -257,7 +257,7 @@ int main(int argc, char *argv[]) {
     for (; i < b_sz.size(); ++i) {
         // Go through all matrix types
         for (; j < tests_info.size(); ++j) {
-            printf("BQRRP ON MAT TYPE %ld\n", j);
+            printf("/--------------------------------------RUNS ON MAT TYPE %ld--------------------------------------/\n", j);
             BQRRP_benchmark_run(tests_info[j], atol, b_sz[i], alg_to_run, num_runs, "cholqr", all_data, state_constant, output_filename);
         }
         j = 0;
