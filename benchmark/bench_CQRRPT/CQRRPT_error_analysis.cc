@@ -202,7 +202,7 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < argc-5; ++i)
         col_sz.push_back(std::stoi(argv[i + 5]));
     // Maximum value from the vector will serve as n
-    int64_t n = std::max_element(col_sz.begin(), col_sz.end());;
+    int64_t n = *std::max_element(col_sz.begin(), col_sz.end());;
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : col_sz)
