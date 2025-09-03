@@ -201,6 +201,8 @@ int main(int argc, char *argv[]) {
     std::vector<int64_t> col_sz;
     for (int i = 0; i < argc-5; ++i)
         col_sz.push_back(std::stoi(argv[i + 5]));
+    // Maximum value from the vector will serve as n
+    int64_t n = std::max_element(col_sz.begin(), col_sz.end());;
     // Save elements in string for logging purposes
     std::ostringstream oss;
     for (const auto &val : col_sz)
@@ -215,14 +217,14 @@ int main(int argc, char *argv[]) {
     
     // Set the input matrices
     // Polynomial matrix
-    RandLAPACK::gen::mat_gen_info<double> m_info_poly(m, m, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info_poly(m, n, RandLAPACK::gen::spiked);
     m_info_poly.cond_num = std::pow(10, 10);
     m_info_poly.exponent = 2.0;
     // Matrix with staircase spectrum
-    RandLAPACK::gen::mat_gen_info<double> m_info_stair(m, m, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info_stair(m, n, RandLAPACK::gen::spiked);
     m_info_stair.cond_num = std::pow(10, 10);
     // Matrix with spiked spectrum
-    RandLAPACK::gen::mat_gen_info<double> m_info_spiked(m, m, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info_spiked(m, n, RandLAPACK::gen::spiked);
     m_info_spiked.scaling = std::pow(10, 10);
 
     // Put all matrices info into an array
