@@ -64,7 +64,7 @@ void small_3dlap() {
     to the version computed above with Rob's diagonal trick?
     */
     state = backup_state;
-    auto sym_lift = richol::lift2lap(sym);
+    auto sym_lift = richol::lift_sddm2lap(sym);
     k = richol::clb21_rand_cholesky(sym_lift, C_approx, state, false);
     std::cout << "Exited with C_approx of rank k = " << k << std::endl;
     std::ofstream flc("C_lifted.mtx");
@@ -77,7 +77,7 @@ void small_3dlap() {
 int main(int argc, char** argv) {
     using T = double;
 
-    std::string fn("/home/rjmurr/laps2/RandLAPACK/demos/sparse_data_matrices/uk/uk.mtx");
+    std::string fn("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/EY/G_10k_4.mtx");
     auto csr = richol::laplacian_from_matrix_market(fn, (T)1e-8);
     int64_t n = csr.n_rows;
     std::vector<int64_t> perm(n);

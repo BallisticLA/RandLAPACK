@@ -415,17 +415,48 @@ typename spvec_t::ordinal_t clb21_rand_cholesky(
     return k;
 }
 
+/* MARK: Terminology
+
+A symmetric diagonally dominant (SDD) matrix is called an "SDDM matrix" if all of
+its off-diagonal entries are <= 0.
+
+The added "M" in "SDDM" is a reference to the class of "M-matrices;" these are the
+real matrices whose eigenvalues have nonnegative real parts and whose off-diagonal
+entries are <= 0.
+
+A Laplacian matrix is an SDDM matrix with the vector of all ones in its kernel.
+*/
 
 template <typename spvec_t>
-std::vector<spvec_t> lift2lap(const std::vector<spvec_t> &sym) {
-    std::vector<spvec_t> sym_lift(sym);
+std::vector<spvec_t> lift_sddm2lap(const std::vector<spvec_t> &S) {
+    /**
+    The mathematics of this function:
+
+        S represents an SDDM matrix of order n. Given S, we set d = S@[the vector of n 1's].
+        The SDDM property ensures that d is elementwise nonnegative.
+        
+        This function builds a Laplacian matrix of order n+1:
+
+            L = [  S   ,   -d   ]
+                [ -d.T , sum(d) ].
+
+        The dimension of L's kernel is 1 + [the dimension of S's kernel].
+
+    Representation of this function's input and output:
+
+        S and L are stored only as their upper triangles in a CSR-like format;
+        S[i] represents the part of S's i^th row that comes after the i^th diagonal.
+        
+        spvec_t is some template instantiation of SparseVec.
+    */
+    std::vector<spvec_t> L(S);
     using scalar_t  = typename spvec_t::scalar_t;
     using ordinal_t = typename spvec_t::ordinal_t;
-    auto n = static_cast<ordinal_t>(sym.size());
-    // set d = sym * vector-of-ones.
+    auto n = static_cast<ordinal_t>(S.size());
+    // compute d = S * [the vector of n 1's].
     std::vector<scalar_t> d(n, 0);
     for (ordinal_t i = 0; i < n; ++i) {
-        auto &vec = sym_lift[i];
+        auto &vec = L[i];
         vec.coallesce((scalar_t) 0);
         for (const auto &[val, ind] : vec.data) {
             d[i] += val;
@@ -434,16 +465,137 @@ std::vector<spvec_t> lift2lap(const std::vector<spvec_t> &sym) {
             }
         }
     }
-    // extend sym_lift = [sym  ,   -d ]
-    //                   [ -d' , sum(d) ]
+    // extend L =   [  S  ,   -d   ]
+    //              [ -d' , sum(d) ]
     for (ordinal_t i = 0; i < n; ++i) {
-        auto &vec = sym_lift[i];
+        auto &vec = L[i];
         vec.push_back(n, -d[i]);
     }
     scalar_t sum_d = std::reduce(d.begin(), d.end());
-    sym_lift.resize(n+1);
-    sym_lift[n].push_back(sum_d, n);
-    return sym_lift;
+    L.resize(n+1);
+    L[n].push_back(sum_d, n);
+    return L;
+}
+
+template <typename spvec_t>
+auto split_and_sym_sdd(const std::vector<spvec_t> &S) {
+    /**
+    The mathematics of this function: 
+
+        S represents an SDD matrix of order n that can be written as S = M + P,
+        where M is an SDDM matrix and P is symmetric and elementwise nonnegative.
+
+        This function builds M and P. It's useful for computing matrix-vector 
+        products with the Gremban expansion of S.
+        
+    Representation of input and output:
+
+        S is stored only as its upper triangle in a CSR-like format; S[i] represents
+        the part of S's i^th row starting from the i^th diagonal entry.
+
+        M and P are stored as general sparse matrices, still in a CSR-like format.
+        
+        spvec_t is some template instantiation of SparseVec.
+    */
+    using ordinal_t = typename spvec_t::ordinal_t;
+    auto n = static_cast<ordinal_t>(S.size());
+    std::vector<spvec_t> M(n);
+    std::vector<spvec_t> P(n);
+
+    for (ordinal_t i = 0; i < n; ++i) {
+        const auto &vec = S[i];
+        // Process the current row
+        for (const auto &[val, ind] : vec.data) {
+            if (ind == i || val <= 0) {
+                // Diagonal entries and non-positive entries go to M
+                M[i].push_back(ind, val);
+                if (i != ind)
+                    M[ind].push_back(i, val);
+            } else {
+                // Positive off-diagonal entries go to P
+                P[i].push_back(ind, val);
+                P[ind].push_back(i, val);
+            }
+        }
+    }
+    return std::pair(M, P);
+}
+
+template <typename spvec_t>
+std::vector<spvec_t> lift_sdd2sddm(const std::vector<spvec_t> &S, bool explicit_sym) {
+    /**
+    The mathematics of this function: 
+
+        S represents an SDD matrix of order n that can be written as S = M + P,
+        where M is an SDDM matrix and P is elementwise nonnegative.
+
+        This function builds an SDDM matrix of order 2*n known as the Gremban 
+        expansion of S:
+
+            G = [  M  -P ]
+                [ -P   M ].
+        
+    Representation of input and output:
+
+        S is stored only as its upper triangle in a CSR-like format; S[i] represents
+        the part of S's i^th row starting from the i^th diagonal entry.
+
+        G can be stored in one of two CSR-like formats. If explicit_sym=True, then
+        G contains both its upper and lower triangles. If explicit_sym=False, then 
+        G only contains its upper triangle. 
+        
+        spvec_t is some template instantiation of SparseVec.
+    */
+    using ordinal_t = typename spvec_t::ordinal_t;
+    auto n = static_cast<ordinal_t>(S.size());
+
+    std::vector<spvec_t> G(2 * n);
+
+    for (ordinal_t i = 0; i < n; ++i) {
+        const auto &vec = S[i];
+        // Process the current row
+        for (const auto &[val, ind] : vec.data) {
+            if (ind == i || val <= 0) {
+                // Diagonal entries and non-positive entries go to the two copies of M.
+                G[i  ].push_back(ind,     val);
+                G[i+n].push_back(ind + n, val);
+                if (explicit_sym && i != ind) {
+                    G[ind  ].push_back(i,     val);
+                    G[ind+n].push_back(i + n, val);
+                }
+            } else {
+                // Positive off-diagonal entries go to -P
+                G[i].push_back(ind + n, -val);
+                if (explicit_sym) {
+                    G[ind+n].push_back(i, -val);
+                }
+            }
+        }
+    }
+    return G;
+}
+
+template <typename T>
+COOMatrix<T> from_matrix_market(std::string fn) {
+
+    int64_t n_rows, n_cols = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<T> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n_rows, n_cols, rows,  cols, vals
+    );
+
+    COOMatrix<T> out(n_rows, n_cols);
+    reserve_coo(vals.size(),out);
+    for (int i = 0; i < out.nnz; ++i) {
+        out.rows[i] = rows[i];
+        out.cols[i] = cols[i];
+        out.vals[i] = vals[i];
+    }
+    return out;
 }
 
 
