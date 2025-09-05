@@ -182,7 +182,7 @@ static void CQRRPT_benchmark_run(
     std::ofstream file(output_filename, std::ios::out | std::ios::app);
     T avg_reconstruction_error = error_output[0] / num_runs;
     T avg_orthogonality_loss   = error_output[2] / num_runs;
-    file << avg_reconstruction_error << ",  " << error_output[1] - avg_reconstruction_error << ",  " << avg_reconstruction_error << ",  " << error_output[3] - avg_orthogonality_loss <<  ",\n";
+    file << avg_reconstruction_error << ",  " << error_output[1] - avg_reconstruction_error << ",  " << avg_orthogonality_loss << ",  " << error_output[3] - avg_orthogonality_loss <<  ",\n";
 }
 
 int main(int argc, char *argv[]) {
