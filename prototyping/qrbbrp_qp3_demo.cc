@@ -184,15 +184,17 @@ int main(int argc, char** argv) {
 
     // call the setup_work function
     setup_work<float> qrcp_wide{};
-    qrcp_wide.block_size = 4;
+    qrcp_wide.block_size = 6;
     qrcp_wide.num_blocks = nn/qrcp_wide.block_size;
 
     RandLAPACK::QRBBRP<float, setup_work<float>> alg(qrcp_wide, true, qrcp_wide.block_size, 2.0); 
 
-    // J is just array int 64 of all 0s num cols
-    T* tau = new T[nn]{};
-    int64_t* J = new int64_t[nn]{};
-    RandBLAS::RNGState alg_state(99);
-    auto out_alg_state = alg.call(mm, nn, Avec.data(), mm, J, tau, alg_state);
-    RandBLAS::print_buff_to_stream(std::cout, 1, 64, J, nn, 1, "J", 2);
+    auto b = qrcp_wide.block_size;
+    for (int _nn = 500*b; _nn <= nn; _nn += 500*b) {
+        std::vector<T> tau_vec(_nn);
+        std::vector<int64_t> J_vec(_nn, 0);
+        RandBLAS::RNGState alg_state(99);
+        std::vector<T> Avec_run(Avec);
+        auto out_alg_state = alg.call(mm, _nn, Avec_run.data(), mm, J_vec.data(), tau_vec.data(), alg_state);
+    }
 }
