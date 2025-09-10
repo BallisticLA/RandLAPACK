@@ -61,25 +61,18 @@ void _LAPACK_gejsv(
     return;
 }
 
-int main(int argc, char *argv[]) {
-
-    if (argc < 3) {
-        // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_rows> <num_cols>" << std::endl;
-        return 1;
-    }
-
-    int64_t m = std::stol(argv[2]);
-    int64_t n = std::stol(argv[3]);
-    // Generate the input matrix - gaussian suffices for performance tests.
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::kahan);
-    m_info.theta   = 1.2;
-    m_info.perturb = 1e3;
-
+template <typename T>
+void get_spectrum( 
+    int64_t m,
+    int64_t n,
+    RandLAPACK::gen::mat_gen_info<T> m_info,
+    std::string path       
+) {
     double* A     = new double[m * n]();
     double* U     = new double[m * n]();
     double* VT    = new double[m * n]();
     double* Sigma = new double[m]();
+    
     auto state    = RandBLAS::RNGState<r123::Philox4x32>();
     RandLAPACK::gen::mat_gen(m_info, A, state);
 
@@ -109,24 +102,78 @@ int main(int argc, char *argv[]) {
         info
     );
 
-    std::string output_filename = "_Kahan_Spectrum_num_info_lines_" + std::to_string(4) + ".txt";
-    std::string path;
-    if (std::string(argv[1]) != ".") {
-        path = std::string(argv[1]) + output_filename;
-    } else {
-        path = output_filename;
-    }
     std::ofstream file(path, std::ios::out | std::ios::app);
 
-    file << "Description: Spectrum of the Kahan matrix (generated in RandLAPACK) found via Jacobi SVD"
+    /*
+    file << "Description: Spectrum of the matrix of a given type generated in RandLAPACK found via Jacobi SVD"
     "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
     "\nInput type:"       + std::to_string(m_info.m_type) +
     "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
     "\n";
     file.flush();
+    */
 
     for (int i = 0; i < n; ++i){
         file << Sigma[i] << ",  ";
     }
     file  << "\n";
+
+    free(A);
+    free(U);
+    free(VT);
+    free(Sigma);
+}
+
+int main(int argc, char *argv[]) {
+
+    if (argc < 3) {
+        // Expected input into this benchmark.
+        std::cerr << "Usage: " << argv[0] << " <directory_path> <num_rows> <num_cols>" << std::endl;
+        return 1;
+    }
+
+    int64_t m = std::stol(argv[2]);
+    int64_t n = std::stol(argv[3]);
+
+    // Set the input matrices
+    // Polynomial matrix
+    RandLAPACK::gen::mat_gen_info<double> m_info_poly(m, n, RandLAPACK::gen::spiked);
+    m_info_poly.cond_num = std::pow(10, 10);
+    m_info_poly.exponent = 2.0;
+    // Matrix with staircase spectrum
+    RandLAPACK::gen::mat_gen_info<double> m_info_stair(m, n, RandLAPACK::gen::spiked);
+    m_info_stair.cond_num = std::pow(10, 10);
+    // Matrix with spiked spectrum
+    RandLAPACK::gen::mat_gen_info<double> m_info_spiked(m, n, RandLAPACK::gen::spiked);
+    m_info_spiked.scaling = std::pow(10, 10);
+    // Kahan matrix 
+    RandLAPACK::gen::mat_gen_info<double> m_info_kahan(m, n, RandLAPACK::gen::spiked);
+    m_info_kahan.theta   = 1.2;
+    m_info_kahan.perturb = 1e3;
+
+    std::string output_filename1 = "_poly_spectrum_num_info_lines_" + std::to_string(4) + ".txt";
+    std::string output_filename2 = "_stair_spectrum_num_info_lines_" + std::to_string(4) + ".txt";
+    std::string output_filename3 = "_spike_spectrum_num_info_lines_" + std::to_string(4) + ".txt";
+    std::string output_filename4 = "_kahan_spectrum_num_info_lines_" + std::to_string(4) + ".txt";
+
+    std::string path1;
+    std::string path2;
+    std::string path3;
+    std::string path4;
+    if (std::string(argv[1]) != ".") {
+        path1 = std::string(argv[1]) + output_filename1;
+        path2 = std::string(argv[1]) + output_filename2;
+        path3 = std::string(argv[1]) + output_filename3;
+        path4 = std::string(argv[1]) + output_filename4;
+    } else {
+        path1 = output_filename1;
+        path2 = output_filename2;
+        path3 = output_filename3;
+        path4 = output_filename4;
+    }
+
+    get_spectrum(m, n, m_info_poly,   path1); 
+    get_spectrum(m, n, m_info_stair,  path2); 
+    get_spectrum(m, n, m_info_spiked, path3); 
+    get_spectrum(m, n, m_info_kahan,  path4); 
 }

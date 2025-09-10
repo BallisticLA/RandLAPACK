@@ -229,9 +229,13 @@ int main(int argc, char *argv[]) {
     // Matrix with spiked spectrum
     RandLAPACK::gen::mat_gen_info<double> m_info_spiked(m, n, RandLAPACK::gen::spiked);
     m_info_spiked.scaling = std::pow(10, 10);
+    // Kahan matrix 
+    RandLAPACK::gen::mat_gen_info<double> m_info_kahan(m, n, RandLAPACK::gen::spiked);
+    m_info_kahan.theta   = 1.2;
+    m_info_kahan.perturb = 1e3;
 
     // Put all matrices info into an array
-    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = {m_info_poly, m_info_stair, m_info_spiked};
+    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = {m_info_poly, m_info_stair, m_info_spiked, m_info_kahan};
 
     // Declare a data file
     std::string output_filename = "_BQRRP_error_analysis_num_info_lines_" + std::to_string(5) + ".txt";
