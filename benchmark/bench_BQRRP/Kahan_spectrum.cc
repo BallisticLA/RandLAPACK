@@ -173,7 +173,11 @@ int main(int argc, char *argv[]) {
     }
 
     get_spectrum(m, n, m_info_poly,   path1); 
+    printf("Done with the polynomial matrix\n");
     get_spectrum(m, n, m_info_stair,  path2); 
+    printf("Done with the staircase matrix\n");
     get_spectrum(m, n, m_info_spiked, path3); 
+    printf("Done with the spiked matrix\n");
     get_spectrum(m, n, m_info_kahan,  path4); 
+    printf("Done with the kahan matrix\n");
 }
