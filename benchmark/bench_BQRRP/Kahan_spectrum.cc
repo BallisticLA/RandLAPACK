@@ -76,6 +76,9 @@ void get_spectrum(
     auto state    = RandBLAS::RNGState<r123::Philox4x32>();
     RandLAPACK::gen::mat_gen(m_info, A, state);
 
+    char name [] = "A";
+    RandLAPACK::util::print_colmaj(m, n, A, m, name);
+
     char joba = 'C'; 
     char jobu = 'N';
     char jobv = 'N';

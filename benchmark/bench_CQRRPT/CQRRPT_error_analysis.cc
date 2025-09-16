@@ -217,17 +217,17 @@ int main(int argc, char *argv[]) {
     
     // Set the input matrices
     // Polynomial matrix
-    RandLAPACK::gen::mat_gen_info<double> m_info_poly(m, n, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info_poly(m, n, RandLAPACK::gen::polynomial);
     m_info_poly.cond_num = std::pow(10, 10);
     m_info_poly.exponent = 2.0;
     // Matrix with staircase spectrum
-    RandLAPACK::gen::mat_gen_info<double> m_info_stair(m, n, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info_stair(m, n, RandLAPACK::gen::step);
     m_info_stair.cond_num = std::pow(10, 10);
     // Matrix with spiked spectrum
     RandLAPACK::gen::mat_gen_info<double> m_info_spiked(m, n, RandLAPACK::gen::spiked);
     m_info_spiked.scaling = std::pow(10, 10);
     // Kahan matrix 
-    RandLAPACK::gen::mat_gen_info<double> m_info_kahan(m, n, RandLAPACK::gen::spiked);
+    RandLAPACK::gen::mat_gen_info<double> m_info_kahan(m, n, RandLAPACK::gen::kahan);
     m_info_kahan.theta   = 1.2;
     m_info_kahan.perturb = 1e3;
 
