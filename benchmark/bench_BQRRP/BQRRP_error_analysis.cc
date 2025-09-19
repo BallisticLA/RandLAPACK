@@ -224,7 +224,7 @@ int main(int argc, char *argv[]) {
     m_info_kahan.perturb = 1e3;
 
     // Put all matrices info into an array
-    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = { m_info_kahan};
+    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = {m_info_poly, m_info_stair, m_info_spiked, m_info_kahan};
 
     // Declare a data file
     std::string output_filename = "_BQRRP_error_analysis_num_info_lines_" + std::to_string(5) + ".txt";
