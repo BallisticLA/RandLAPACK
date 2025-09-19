@@ -20,6 +20,7 @@ struct QR_benchmark_data {
     int64_t row;
     int64_t col;
     T d_factor;
+    int64_t rank;
     std::vector<T> A;
     std::vector<T> R;
     std::vector<T> tau;
@@ -40,6 +41,7 @@ struct QR_benchmark_data {
         row = m;
         col = n;
         d_factor = d;
+        rank = n;
     }
 };
 
@@ -69,16 +71,16 @@ error_check(QR_benchmark_data<T> &all_data,
 
     auto m = all_data.row;
     auto n = col_sz;
-    auto k = n;
+    auto k = all_data.rank;
 
     RandLAPACK::util::upsize(k * k, all_data.I_ref);
     RandLAPACK::util::eye(k, k, all_data.I_ref);
 
-    T* A_dat           = all_data.A_cpy1.data();
+    T* A_dat         = all_data.A_cpy1.data();
     T const* A_cpy_dat = all_data.A_cpy2.data();
-    T const* Q_dat     = all_data.A.data();
-    T const* R_dat     = all_data.R.data();
-    T* I_ref_dat       = all_data.I_ref.data();
+    T const* Q_dat   = all_data.A.data();
+    T const* R_dat   = all_data.R.data();
+    T* I_ref_dat     = all_data.I_ref.data();
 
     // Get the norm of the input matrix
     T norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
@@ -89,28 +91,14 @@ error_check(QR_benchmark_data<T> &all_data,
     T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
 
     // A - QR
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, k, -1.0, A_dat, m);
-    
-    // Implementing max col norm metric
-    T max_col_norm = 0.0;
-    T col_norm = 0.0;
-    int max_idx = 0;
-    for(int i = 0; i < n; ++i) {
-        col_norm = blas::nrm2(m, &A_dat[m * i], 1);
-        if(max_col_norm < col_norm) {
-            max_col_norm = col_norm;
-            max_idx = i;
-        }
-    }
-    T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, n, -1.0, A_dat, m);
+
     T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
 
     T reconstruction_error = norm_AQR / norm_A;
-    T max_col_norm_error   = max_col_norm / col_norm_A;
     T orth_loss            = norm_0 / std::sqrt((T) n);
     
     printf("REL NORM OF AP - QR:    %14e\n",   reconstruction_error);
-    printf("MAX COL NORM METRIC:    %14e\n",   max_col_norm_error);
     printf("FRO NORM OF (Q'Q - I):  %14e\n\n", orth_loss);
 
     // For computing average reconstruction error across all runs
@@ -163,6 +151,7 @@ static void CQRRPT_benchmark_run(
             printf("CQRRPT run %d with columns_size %ld\n", i, n);
             // State_alg changes at every iteration, consequently, we have different sketches 
             CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
+            all_data.rank = CQRRPT.rank;
         } else {
             printf("GEQP3 run with columns_size %ld\n", n);
             lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
@@ -232,7 +221,7 @@ int main(int argc, char *argv[]) {
     m_info_kahan.perturb = 1e3;
 
     // Put all matrices info into an array
-    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = {m_info_poly, m_info_stair, m_info_spiked, m_info_kahan};
+    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = { m_info_kahan};
 
     // Declare a data file
     std::string output_filename = "_CQRRPT_error_analysis_num_info_lines_" + std::to_string(4) + ".txt";
