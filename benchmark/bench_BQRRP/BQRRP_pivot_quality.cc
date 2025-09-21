@@ -146,6 +146,7 @@ static void R_norm_ratio(
     // Running BQRRP
     state_alg = state;
     BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+    printf("BQRRP rank %ld\n", BQRRP.rank);
 
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 
@@ -324,7 +325,7 @@ int main(int argc, char *argv[]) {
 
     R_norm_ratio(m_info, b_sz, all_data, state_constant1, path);
     printf("Pivot quality metric 1 done\n");
-    sv_ratio(m_info, b_sz, all_data, state_constant2, path);
-    printf("Pivot quality metric 2 done\n\n");
+    //sv_ratio(m_info, b_sz, all_data, state_constant2, path);
+    //printf("Pivot quality metric 2 done\n\n");
 }
 #endif

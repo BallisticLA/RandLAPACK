@@ -246,7 +246,7 @@ int main(int argc, char *argv[]) {
         // Go through all matrix types
         for (; j < tests_info.size(); ++j) {
             printf("/--------------------------------------RUNS ON MAT TYPE %ld--------------------------------------/\n", j);
-            CQRRPT_benchmark_run(tests_info[j], atol, col_sz[i], alg_to_run, num_runs, all_data, state_constant, output_filename);
+            CQRRPT_benchmark_run(tests_info[j], atol, col_sz[i], alg_to_run, num_runs, all_data, state_constant, path);
         }
         j = 0;
     }
