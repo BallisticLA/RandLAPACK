@@ -239,6 +239,11 @@ int CQRRPT<T, RNG>::call(
         rank_reveal_t_start = steady_clock::now();
     }
 
+    // Check if the input is all zeros
+    if (!A_hat[0]) {
+        return 0;
+    }
+
     /// Using naive rank estimation to ensure that R used for preconditioning is invertible.
     /// The actual rank estimate k will be computed a posteriori. 
     /// Using R[i,i] to approximate the i-th singular value of A_hat. 
