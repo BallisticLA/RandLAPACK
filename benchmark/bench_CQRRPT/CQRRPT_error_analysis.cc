@@ -158,7 +158,7 @@ static void CQRRPT_benchmark_run(
             lapack::lacpy(MatrixType::Upper, n, n, all_data.A.data(), m, all_data.R.data(), n);
             // Extracting an explicit Q-factor 
             lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
-            all_data.rank = CQRRPT.n;
+            all_data.rank = n;
         }
 
         // Permuting the columns of the copies of the original matrix A
