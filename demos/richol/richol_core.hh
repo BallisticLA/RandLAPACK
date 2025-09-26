@@ -41,8 +41,8 @@ struct VectorComponent {
     ordinal_t ind = 0;
 
     VectorComponent() = default;
-    VectorComponent(scalar_t s, ordinal_t o) : val(s), ind(o){ assert(ind >= 0); };
-    VectorComponent(const self_t  &vc) : val(vc.val), ind(vc.ind) { assert(ind >= 0); };
+    VectorComponent(scalar_t s, ordinal_t o) : val(s), ind(o){ randblas_require(ind >= 0); };
+    VectorComponent(const self_t  &vc) : val(vc.val), ind(vc.ind) { randblas_require(ind >= 0); };
     VectorComponent(self_t &&vc) : val(vc.val), ind(vc.ind) { vc.ind = 0; vc.val = 0; };
 
     self_t& operator=(const self_t &vc) { 
@@ -113,6 +113,13 @@ struct SparseVec {
         }
         return ind;
     }
+
+    SparseVec<scalar_t, ordinal_t>& operator=(const SparseVec<scalar_t, ordinal_t> &other) {
+        if (this != &other) {
+            this->data = other.data;
+        }
+        return *this;
+    } 
 
     inline size_t size() const { return data.size(); }
 
@@ -326,8 +333,8 @@ void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<sca
     ell = 0;
     for (const comp_t &comp : neighbors) {
         auto &[val, ind] = comp;
-        assert(val > 0);
-        assert(ind > k);
+        randblas_require(val >= 0);
+        randblas_require(ind > k);
         w_sum += val;
         cdf_vec[ell] = w_sum;
         indices[ell] = ind;

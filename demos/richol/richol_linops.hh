@@ -84,6 +84,7 @@ struct CallableSpMat {
     std::vector<double> work_n_stdvec{};
     std::vector<double> times{};
     const int64_t num_ops = 1;
+    bool project_out = true;
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -107,7 +108,8 @@ struct CallableSpMat {
         }
         randblas_require(ldb == dim);
         blas::copy(dim*n, B, 1, work, 1);
-        project_out_vec(dim, n, work, dim, unit_ones, work_n);
+        if (project_out)
+            project_out_vec(dim, n, work, dim, unit_ones, work_n);
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
         auto t0 = std_clock::now();
@@ -119,7 +121,8 @@ struct CallableSpMat {
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
+        if (project_out)
+            project_out_vec(dim, n, C, ldc, unit_ones, work_n);
     }
 };
 
@@ -135,6 +138,7 @@ struct CallableChoSolve {
     double* work_n = nullptr;
     std::vector<double> work_n_stdvec{};
     std::vector<double> times{};
+    bool project_out = true;
 
     /*  C =: alpha * inv(G G') * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -159,7 +163,8 @@ struct CallableChoSolve {
         randblas_require(ldb == dim);
         randblas_require(ldc == dim);
         blas::copy(dim*n, B, 1, C, 1);
-        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
+        if (project_out)
+            project_out_vec(dim, n, C, ldc, unit_ones, work_n);
         // TRSM, then transposed TRSM.
         //int t = omp_get_max_threads();
         //omp_set_num_threads(1);
@@ -173,7 +178,8 @@ struct CallableChoSolve {
         times.push_back(seconds_elapsed(t0, t1));
         //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        project_out_vec(dim, n, C, ldc, unit_ones, work_n);
+        if (project_out)
+            project_out_vec(dim, n, C, ldc, unit_ones, work_n);
     }
 
 };

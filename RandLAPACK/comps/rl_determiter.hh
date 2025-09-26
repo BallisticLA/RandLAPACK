@@ -195,7 +195,7 @@ int64_t psd_sqrt_pinv(
     }
     int ker = n;
     while(ker > 0) {
-        if (work[ker - 1] > abs_tol) {
+        if (work[ker - 1] > 0) {
             blas::scal(n, 1/std::sqrt(work[ker - 1]), &A[(ker - 1) * n], 1);
             ker = ker - 1;
         } else {
