@@ -40,7 +40,8 @@ int main(int argc, char** argv) {
     int64_t rank;
     TIMED_LINE(
     richol::sym_as_upper_tri_from_csr(Lperm.n_rows, Lperm.rowptr, Lperm.colidxs, Lperm.vals, sym);
-    rank = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "SparseCholesky: ");
+    bool allow_strict_sdd = true;
+    rank = richol::clb21_rand_cholesky(sym, C, state, allow_strict_sdd, (T)0.0), "SparseCholesky: ");
     std::cout << "Exited with C of rank k = " << rank << std::endl;
     int64_t nnz_G = 0;
     for (const auto &row : C) 
