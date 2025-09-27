@@ -256,6 +256,8 @@ int CQRRPT<T, RNG>::call(
     }
     this->rank = k;
 
+    printf("estimated rank 1 %ld\n", k);
+
     if(this -> timing)
         rank_reveal_t_stop = steady_clock::now();
 
@@ -305,6 +307,8 @@ int CQRRPT<T, RNG>::call(
             break;
         }
     }
+
+    printf("estimated rank 1 %ld\n", new_rank);
 
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = new_rank;
