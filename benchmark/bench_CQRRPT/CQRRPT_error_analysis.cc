@@ -96,9 +96,6 @@ error_check(QR_benchmark_data<T> &all_data,
 
     T reconstruction_error = norm_AQR / norm_A;
     T orth_loss            = norm_0 / std::sqrt((T) n);
-
-    printf("ABSOLUTE ERROR AP-QR: %14e\n",   norm_AQR);
-    printf("NORM A:               %14e\n\n",   norm_A);   
     
     printf("REL NORM OF AP - QR:    %14e\n",   reconstruction_error);
     printf("FRO NORM OF (Q'Q - I):  %14e\n\n", orth_loss);
