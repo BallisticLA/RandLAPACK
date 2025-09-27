@@ -75,14 +75,14 @@ error_check(QR_benchmark_data<T> &all_data,
     RandLAPACK::util::upsize(k * k, all_data.I_ref);
     RandLAPACK::util::eye(k, k, all_data.I_ref);
 
-    T* A_dat         = all_data.A_cpy1.data();
+    T* A_dat           = all_data.A_cpy1.data();
     T const* A_cpy_dat = all_data.A_cpy2.data();
-    T const* Q_dat   = all_data.A.data();
-    T const* R_dat   = all_data.R.data();
-    T* I_ref_dat     = all_data.I_ref.data();
+    T const* Q_dat     = all_data.A.data();
+    T const* R_dat     = all_data.R.data();
+    T* I_ref_dat       = all_data.I_ref.data();
 
     // Get the norm of the input matrix
-    T norm_A = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
+    T norm_A = lapack::lange(Norm::Fro, m, n, A_dat, m);
 
     // Check orthogonality of Q
     // Q' * Q  - I = 0
@@ -96,6 +96,9 @@ error_check(QR_benchmark_data<T> &all_data,
 
     T reconstruction_error = norm_AQR / norm_A;
     T orth_loss            = norm_0 / std::sqrt((T) n);
+
+    printf("ABSOLUTE ERROR AP-QR: %14e\n",   norm_AQR);
+    printf("NORM A:               %14e\n\n",   norm_A);   
     
     printf("REL NORM OF AP - QR:    %14e\n",   reconstruction_error);
     printf("FRO NORM OF (Q'Q - I):  %14e\n\n", orth_loss);
@@ -221,7 +224,7 @@ int main(int argc, char *argv[]) {
     m_info_kahan.perturb = 1e3;
 
     // Put all matrices info into an array
-    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = {m_info_spiked};
+    std::vector<RandLAPACK::gen::mat_gen_info<double>> tests_info = {m_info_poly, m_info_stair, m_info_spiked, m_info_kahan};
 
     // Declare a data file
     std::string output_filename = "_CQRRPT_error_analysis_num_info_lines_" + std::to_string(4) + ".txt";
