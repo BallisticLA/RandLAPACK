@@ -50,7 +50,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
 
         /// Computes an unpivoted QR factorization of the form:
         ///     A= QR,
-        /// where Q and R are of size m-by-k and k-by-n, with rank(A) = k.
+        /// where Q and R are of size m-by-n and n-by-n.
         /// Detailed description of this algorithm may be found in https://arxiv.org/pdf/2111.11148. 
         ///
         /// @param[in] m
@@ -73,11 +73,11 @@ class CQRRT : public CQRRTalg<T, RNG> {
         ///     RNG state parameter, required for sketching operator generation.
         ///
         /// @param[out] A
-        ///     Overwritten by an m-by-k orthogonal Q factor.
+        ///     Overwritten by an m-by-n orthogonal Q factor.
         ///     Matrix is stored explicitly.
         ///
         /// @param[out] R
-        ///     Stores k-by-n matrix with upper-triangular R factor.
+        ///     Stores n-by-n matrix with upper-triangular R factor.
         ///     Zero entries are not compressed.
         ///
         /// @return = 0: successful exit
@@ -231,7 +231,9 @@ int CQRRT<T, RNG>::call(
         // Get the final R-factor -- undoing the preconditioning
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sk, ldr); 
     } 
-    else if (new_rank != n) {
+
+    // Function always full econ Q
+    if (new_rank != n) {
         // Complete the orthonormal set
         // Generate Gaussian matrix G of size (m, n - new_rank) in trailing columns of A
         int64_t cols_to_fill = n - new_rank;

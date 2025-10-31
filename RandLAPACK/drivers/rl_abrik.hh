@@ -273,6 +273,9 @@ class ABRIK {
                     sketching_t_start  = steady_clock::now();
 
                 // Generate a dense Gaussian random matrix.
+                // We are using the plain dense operator instead of DenseSkOp here since
+                // the space in which teh dense operator is stored will be reused later, and
+                // also needs to be used together with the input's abstract linear operator form.
                 // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
                 #ifdef RandBLAS_HAS_OpenMP
                     omp_set_num_threads(this->num_threads_min);
