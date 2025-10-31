@@ -200,7 +200,6 @@ int CQRRPT<T, RNG>::call(
     /// Generating a SASO
     RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-    RandBLAS::fill_sparse(S);
     state = S.next_state;
 
     /// Applying a SASO
@@ -321,13 +320,28 @@ int CQRRPT<T, RNG>::call(
         // Get the final R-factor -- undoing the preconditioning
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr); 
     } 
-    /*
     else if (new_rank != n) {
         // Complete the orthonormal set
-        // Need to write gram-schmidt - fill in later.
+        // Generate Gaussian matrix G of size (m, n - new_rank) in trailing columns of A
+        int64_t cols_to_fill = n - new_rank;
+        RandBLAS::DenseDist D(m, cols_to_fill);
+        RandBLAS::fill_dense(D, &A[new_rank * lda], state);
+        
+        // Project out G = (I - QQ^T)G
+        // First compute QQ^T * G and store temporarily
+        T* temp = new T[m * cols_to_fill]();
+        // temp = Q^T * G
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, cols_to_fill, m, 1.0, A, lda, &A[new_rank * lda], lda, 0.0, temp, new_rank);
+        // G := G - Q * temp (i.e., G = G - QQ^T * G)
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cols_to_fill, new_rank, -1.0, A, lda, temp, new_rank, 1.0, &A[new_rank * lda], lda);
+        delete[] temp;
+        
+        // Orthogonalize G using QRF + ORGQR
+        T* tau_orth = new T[cols_to_fill]();
+        lapack::geqrf(m, cols_to_fill, &A[new_rank * lda], lda, tau_orth);
+        lapack::orgqr(m, cols_to_fill, cols_to_fill, &A[new_rank * lda], lda, tau_orth);
+        delete[] tau_orth;
     } 
-    */
-
 
     if(this -> timing) {
         saso_t_dur        = duration_cast<microseconds>(saso_t_stop - saso_t_start).count();

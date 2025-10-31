@@ -325,7 +325,7 @@ int main(int argc, char *argv[]) {
 
     R_norm_ratio(m_info, b_sz, all_data, state_constant1, path);
     printf("Pivot quality metric 1 done\n");
-    //sv_ratio(m_info, b_sz, all_data, state_constant2, path);
-    //printf("Pivot quality metric 2 done\n\n");
+    sv_ratio(m_info, b_sz, all_data, state_constant2, path);
+    printf("Pivot quality metric 2 done\n\n");
 }
 #endif

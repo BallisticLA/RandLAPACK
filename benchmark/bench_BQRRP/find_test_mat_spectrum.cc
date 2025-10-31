@@ -76,9 +76,6 @@ void get_spectrum(
     auto state    = RandBLAS::RNGState<r123::Philox4x32>();
     RandLAPACK::gen::mat_gen(m_info, A, state);
 
-    //char name [] = "A";
-    //RandLAPACK::util::print_colmaj(m, n, A, m, name);
-
     char joba = 'C'; 
     char jobu = 'N';
     char jobv = 'N';
@@ -107,14 +104,12 @@ void get_spectrum(
 
     std::ofstream file(path, std::ios::out | std::ios::app);
 
-    /*
     file << "Description: Spectrum of the matrix of a given type generated in RandLAPACK found via Jacobi SVD"
     "\nNum OMP threads:"  + std::to_string(RandLAPACK::util::get_omp_threads()) +
     "\nInput type:"       + std::to_string(m_info.m_type) +
     "\nInput size:"       + std::to_string(m) + " by "  + std::to_string(n) +
     "\n";
     file.flush();
-    */
 
     for (int i = 0; i < n; ++i){
         file << Sigma[i] << ",  ";

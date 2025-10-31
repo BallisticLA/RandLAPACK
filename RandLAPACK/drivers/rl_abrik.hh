@@ -28,7 +28,7 @@ namespace RandLAPACK {
     ///        iterations would bring no benefit or that ||A - hat(A)||_F < eps * ||A||_F.
     ///     2. Stop if the bottom right entry of R or S is numerically close to zero (up to square root of machine eps).
     /// 
-    /// The main cos of this algorithm comes from large GEMMs with the input matrix A.
+    /// The main cost of this algorithm comes from large GEMMs with the input matrix A.
     ///
     /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
 
@@ -459,7 +459,8 @@ class ABRIK {
                         }
                         // Need to make sure the newly-allocated space is empty
                         R = R_new;
-                        memset(&R[n * (curr_X_cols - k)], 0, n * k * sizeof( T ));
+                        T* temp_r = &R[n * (curr_X_cols - k)];
+                        std::fill(temp_r, temp_r + n*k, 0.0);
 
                         // Advance R pointers
                         R_i = &R[(iter_ev + 1) * k];
@@ -584,7 +585,8 @@ class ABRIK {
                         }
                         // Need to make sure the newly-allocated space is empty
                         S = S_new;
-                        memset(&S[(n + k)* (curr_Y_cols - k)], 0, (n + k) * k * sizeof( T ));
+                        T* temp_s = &S[(n + k)* (curr_Y_cols - k)];
+                        std::fill(temp_s, temp_s + (n + k) * k, 0.0);
 
                         // Advance S pointers
                         S_i  = &S[(n + k) * k * iter_od];

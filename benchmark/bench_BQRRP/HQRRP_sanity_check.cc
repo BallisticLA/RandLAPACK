@@ -4,8 +4,9 @@
 int main() {return 0;}
 #else
 
-// Making sure that HQRRP's instability is specific to HQRRP and not related to the flaws in behcnmarking logic
+// Making sure that HQRRP's performance instability is specific to HQRRP and not related to the flaws in behcnmarking logic
 // by comparing HQRRP and GEMM side-by-side.
+// This benchmark is to be ran on multiple systems.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
