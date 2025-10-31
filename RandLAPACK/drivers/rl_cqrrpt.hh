@@ -61,6 +61,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
             use_cholqr = 0;
             panel_pivoting = 1;
             orthogonalization = false;
+            nnz = 2;
         }
 
         /// Computes a QR factorization with column pivots of the form:
@@ -136,7 +137,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
 
         // Mode of operation that allows to use CQRRPT for orthogonalization of the input matrix.
         // In this case, we do not compute the R-factor and if the input is rank-deficient, the algorithm would
-        // apppend orthonormal columns at the end.
+        // append orthonormal columns at the end.
         bool orthogonalization;
 };
 
@@ -256,8 +257,6 @@ int CQRRPT<T, RNG>::call(
     }
     this->rank = k;
 
-    printf("estimated rank 1 %ld\n", k);
-
     if(this -> timing)
         rank_reveal_t_stop = steady_clock::now();
 
@@ -291,26 +290,25 @@ int CQRRPT<T, RNG>::call(
 
     // Re-estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
-    // This also automatically takes care of any potentical failures in Cholesky factorization.
+    // This also automatically takes care of any potential failures in Cholesky factorization.
     // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
     new_rank = k;
     running_max = R_sp[0];
     running_min = R_sp[0];
+    T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
 
     for(i = 0; i < k; ++i) {
         curr_entry = std::abs(R_sp[i * ldr + i]);
         running_max = std::max(running_max, curr_entry);
         running_min = std::min(running_min, curr_entry);
-        if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
+        if((running_min * cond_threshold < running_max) && i > 1) {
             new_rank = i - 1;
             break;
         }
     }
 
-    printf("estimated rank 1 %ld\n", new_rank);
-
-    // Set the rank parameter to the value comuted a posteriori.
+    // Set the rank parameter to the value computed a posteriori.
     this->rank = new_rank;
 
     // Obtain the output Q-factor

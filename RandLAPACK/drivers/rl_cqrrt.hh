@@ -45,6 +45,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             orthogonalization = false;
+            nnz = 2;
         }
 
         /// Computes an unpivoted QR factorization of the form:
@@ -106,7 +107,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
 
         // Mode of operation that allows to use CQRRT for orthogonalization of the input matrix.
         // In this case, we do not compute the R-factor and if the input is rank-deficient, the algorithm would
-        // apppend orthonormal columns at the end.
+        // append orthonormal columns at the end.
         bool orthogonalization;
 };
 
@@ -200,24 +201,25 @@ int CQRRT<T, RNG>::call(
 
     // Estimate rank after we have the R-factor form Cholesky QR.
     // The strategy here is the same as in naive rank estimation.
-    // This also automatically takes care of any potentical failures in Cholesky factorization.
+    // This also automatically takes care of any potential failures in Cholesky factorization.
     // Note that the diagonal of R_sk may not be sorted, so we need to keep the running max/min
     // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sk)^2, where u is the unit roundoff for the numerical type T.
     new_rank = n;
     running_max = R_sk[0];
     running_min = R_sk[0];
+    T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
 
     for(i = 0; i < n; ++i) {
         curr_entry = std::abs(R_sk[i * ldr + i]);
         running_max = std::max(running_max, curr_entry);
         running_min = std::min(running_min, curr_entry);
-        if(running_max / running_min >= std::sqrt(this->eps / std::numeric_limits<T>::epsilon())) {
+        if((running_min * cond_threshold < running_max) && i > 1) {
             new_rank = i - 1;
             break;
         }
     }
 
-    // Set the rank parameter to the value comuted a posteriori.
+    // Set the rank parameter to the value computed a posteriori.
     this->rank = new_rank;
 
     // Obtain the output Q-factor

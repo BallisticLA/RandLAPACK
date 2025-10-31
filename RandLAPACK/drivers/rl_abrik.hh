@@ -247,32 +247,32 @@ class ABRIK {
                 // tau space for QR
                 T* tau = ( T * ) calloc( k, sizeof( T ) );
 
-                char name2 [] = "S";
-                char name1 [] = "R";
-
                 if(this -> timing) {
                     allocation_t_stop  = steady_clock::now();
                     allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
                 }
 
-                // Pre-conpute Fro norm of an input matrix.
+                // Pre-compute Fro norm of an input matrix.
                 //T norm_A = lapack::lange(Norm::Fro, m, n, A.A_buff, lda);
                 T norm_A = A.fro_nrm();
                 T sq_tol = std::pow(this->tol, 2);
                 T threshold =  std::sqrt(1 - sq_tol) * norm_A;
 
                 // Creating the CQRRT object in case it is to be used for explicit QR.
-                //if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                    RandLAPACK::CQRRT<T, r123::Philox4x32> CQRRT(false, tol);
-                    CQRRT.nnz = 2;
-                    T d_factor = 1.25;
-                    T* R_11_trans = ( T * ) calloc( k * k, sizeof( T ) );
-                //}
+                std::optional<RandLAPACK::CQRRT<T, RNG>> CQRRT;
+                T* R_11_trans = nullptr;
+                T d_factor = 1.25;
+                // Conditional initialization
+                if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                    CQRRT.emplace(false, tol);
+                    CQRRT->nnz = 2;
+                    R_11_trans = ( T * ) calloc( k * k, sizeof( T ) );
+                }
 
                 if(this -> timing)
                     sketching_t_start  = steady_clock::now();
 
-                // Generate a dense Gaussian random matrx.
+                // Generate a dense Gaussian random matrix.
                 // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
                 #ifdef RandBLAS_HAS_OpenMP
                     omp_set_num_threads(this->num_threads_min);
@@ -301,7 +301,7 @@ class ABRIK {
                     if(this -> timing)
                         qr_t_start = steady_clock::now();
 
-                    CQRRT.call(m, k, X_i, m, R_11_trans, k, d_factor, state);
+                    CQRRT -> call(m, k, X_i, m, R_11_trans, k, d_factor, state);
 
                     if(this -> timing) {
                         qr_t_stop = steady_clock::now();
@@ -351,7 +351,7 @@ class ABRIK {
                             allocation_t_start  = steady_clock::now();
                         }
 
-                        // Allocate more spece for Y_od
+                        // Allocate more space for Y_od
                         curr_X_cols += k;
                         X_ev = ( T * ) realloc(X_ev, m * curr_X_cols * sizeof( T ));
                         // Move the X_i pointer;
@@ -386,7 +386,7 @@ class ABRIK {
                             if(this -> timing)
                                 qr_t_start = steady_clock::now();
 
-                            CQRRT.call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
+                            CQRRT -> call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
                             // Copy R_ii over to R's (in transposed format).
                             
                             util::transposition(0, k, R_11_trans, k, R_ii, n, 1);
@@ -440,9 +440,26 @@ class ABRIK {
                         }
 
                         // Allocate more space for R
-                        R = ( T * ) realloc(R, n * curr_X_cols * sizeof( T ));
+                        T* R_new = ( T * ) realloc(R, n * curr_X_cols * sizeof( T ));
+                        if (!R_new) {
+                            // Handle realloc failure.
+                            free(Y_od);
+                            free(X_ev);
+                            free(tau);
+                            free(R);
+                            free(S);
+                            free(U_hat);
+                            free(VT_hat);
+                            free(Y_orth_buf);
+                            free(X_orth_buf);
+                            if(R_11_trans != nullptr) {
+                                free(R_11_trans);
+                            }
+                            return -1;
+                        }
                         // Need to make sure the newly-allocated space is empty
-                        memset(&R[n * (curr_X_cols - k)], 0.0, n * k * sizeof( T ));
+                        R = R_new;
+                        memset(&R[n * (curr_X_cols - k)], 0, n * k * sizeof( T ));
 
                         // Advance R pointers
                         R_i = &R[(iter_ev + 1) * k];
@@ -496,7 +513,7 @@ class ABRIK {
                             if(this -> timing)
                                 qr_t_start = steady_clock::now();
 
-                            CQRRT.call(m, k, X_i, m, S_ii, n + k, d_factor, state);
+                            CQRRT -> call(m, k, X_i, m, S_ii, n + k, d_factor, state);
 
                             if(this -> timing) {
                                 qr_t_stop = steady_clock::now();
@@ -548,9 +565,26 @@ class ABRIK {
                         }
 
                         // Allocate more space for S
-                        S = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
+                        T* S_new = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
+                        if (!S_new) {
+                            // Handle realloc failure.
+                            free(Y_od);
+                            free(X_ev);
+                            free(tau);
+                            free(R);
+                            free(S);
+                            free(U_hat);
+                            free(VT_hat);
+                            free(Y_orth_buf);
+                            free(X_orth_buf);
+                            if(R_11_trans != nullptr) {
+                                free(R_11_trans);
+                            }
+                            return -1;
+                        }
                         // Need to make sure the newly-allocated space is empty
-                        memset(&S[(n + k)* (curr_Y_cols - k)], 0.0, (n + k) * k * sizeof( T ));
+                        S = S_new;
+                        memset(&S[(n + k)* (curr_Y_cols - k)], 0, (n + k) * k * sizeof( T ));
 
                         // Advance S pointers
                         S_i  = &S[(n + k) * k * iter_od];
@@ -645,7 +679,9 @@ class ABRIK {
                 free(VT_hat);
                 free(Y_orth_buf);
                 free(X_orth_buf);
-                free(R_11_trans);
+                if(R_11_trans != nullptr) {
+                    free(R_11_trans);
+                }
 
                 if(this -> timing) {
                     allocation_t_stop  = steady_clock::now();
