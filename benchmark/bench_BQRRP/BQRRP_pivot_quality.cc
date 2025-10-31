@@ -146,6 +146,7 @@ static void R_norm_ratio(
     // Running BQRRP
     state_alg = state;
     BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
+    printf("BQRRP rank %ld\n", BQRRP.rank);
 
     std::vector<T> R_norms_BQRRP = get_norms(all_data);
 

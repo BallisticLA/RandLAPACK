@@ -108,7 +108,7 @@ class TestCQRRPT : public ::testing::Test
     /// Computes QR factorzation, and computes A[:, J] - QR.
     template <typename T, typename RNG, typename alg_type>
     static void test_CQRRPT_general(
-        T d_factor, 
+        T d_factor,
         T norm_A,
         CQRRPTTestData<T> &all_data,
         alg_type &CQRRPT,
@@ -125,7 +125,59 @@ class TestCQRRPT : public ::testing::Test
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
 
-        error_check(norm_A, all_data); 
+        error_check(norm_A, all_data);
+    }
+
+    /// Test for CQRRPT in orthogonalization mode:
+    /// Verifies that when input is low-rank and orthogonalization mode is enabled,
+    /// CQRRPT completes the orthonormal basis by filling remaining columns.
+    /// Checks that all n columns form an orthonormal set (Q'Q = I).
+    template <typename T, typename RNG, typename alg_type>
+    static void test_CQRRPT_orthogonalization(
+        T d_factor,
+        T norm_A,
+        CQRRPTTestData<T> &all_data,
+        alg_type &CQRRPT,
+        RandBLAS::RNGState<RNG> &state) {
+
+        auto m = all_data.row;
+        auto n = all_data.col;
+        auto k_expected = all_data.rank;  // Expected rank from matrix generation
+
+        CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
+
+        int64_t detected_rank = CQRRPT.rank;
+        printf("DETECTED RANK: %ld (expected ~%ld)\n", detected_rank, k_expected);
+        printf("COLUMNS COMPLETED: %ld\n", n - detected_rank);
+
+        // Verify that all n columns of A form an orthonormal set
+        // Compute Q'Q where Q is all n columns of A
+        std::vector<T> QtQ(n * n, 0.0);
+        std::vector<T> I_ref(n * n, 0.0);
+        RandLAPACK::util::eye(n, n, I_ref);
+
+        // QtQ = A' * A
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+                   n, n, m,
+                   1.0, all_data.A.data(), m,
+                   all_data.A.data(), m,
+                   0.0, QtQ.data(), n);
+
+        // QtQ = QtQ - I
+        blas::axpy(n * n, -1.0, I_ref.data(), 1, QtQ.data(), 1);
+
+        // Check || Q'Q - I ||_F
+        T orth_error = lapack::lange(Norm::Fro, n, n, QtQ.data(), n);
+        printf("ORTHOGONALITY ERROR ||Q'Q - I||_F: %e\n", orth_error);
+        printf("NORMALIZED ORTH ERROR: %e\n\n", orth_error / std::sqrt((T) n));
+
+        // Test should pass if orthogonality is maintained
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
+        ASSERT_LE(orth_error, atol * std::sqrt((T) n));
+
+        // Verify rank detection was reasonable (within some tolerance)
+        ASSERT_GE(detected_rank, k_expected - 5);  // Allow some slack in rank detection
+        ASSERT_LE(detected_rank, k_expected + 5);
     }
 };
 
@@ -202,8 +254,8 @@ TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
 }
 #endif
-// Using L2 norm rank estimation here is similar to using raive estimation. 
-// Fro norm underestimates rank even worse. 
+// Using L2 norm rank estimation here is similar to using raive estimation.
+// Fro norm underestimates rank even worse.
 TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
     int64_t m = 10e4;
     int64_t n = 300;
@@ -224,4 +276,30 @@ TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
 
     norm_and_copy_computational_helper(norm_A, all_data);
     test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+}
+
+TEST_F(TestCQRRPT, CQRRPT_orthogonalization_mode_low_rank) {
+    int64_t m = 1000;
+    int64_t n = 100;
+    int64_t k = 60;  // True rank < n
+    double d_factor = 2;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRPTTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
+    CQRRPT.nnz = 2;
+    CQRRPT.qrcp = Subroutines::QRCP::geqp3;
+    CQRRPT.orthogonalization = true;  // Enable orthogonalization mode
+
+    // Generate a low-rank matrix (rank k < n)
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 100;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_CQRRPT_orthogonalization(d_factor, norm_A, all_data, CQRRPT, state);
 }

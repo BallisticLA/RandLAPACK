@@ -23,6 +23,8 @@ There are 10 things that we time:
 
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
+using Subroutines = RandLAPACK::ABRIKSubroutines;
+
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct ABRIK_benchmark_data {
     int64_t row;
@@ -74,6 +76,41 @@ RandBLAS::sparse_data::coo::COOMatrix<T> from_matrix_market(std::string fn) {
     return out;
 }
 
+template <typename T>
+RandBLAS::CSCMatrix<T> format_conversion(int64_t m, int64_t n, RandBLAS::COOMatrix<T>& input_mat_coo)
+{
+    // Grab the leading principal submatrix of the size of half the input
+    RandBLAS::COOMatrix<double> input_mat_transformed(m, n);
+
+    // check how many nonzeros are in the left principal submatrix
+    int64_t nnz_sub = 0;
+    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
+        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
+            ++nnz_sub;
+        }
+    }
+
+    // Allocate
+    reserve_coo(nnz_sub, input_mat_transformed);
+
+    int64_t ell = 0;
+    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
+        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
+            input_mat_transformed.rows[ell] = input_mat_coo.rows[i];
+            input_mat_transformed.cols[ell] = input_mat_coo.cols[i];
+            input_mat_transformed.vals[ell] = input_mat_coo.vals[i];
+            ++ell;
+        }
+    }
+
+    // Convert the sparse matrix format for performance
+    RandBLAS::CSCMatrix<double> input_mat_csc(m, n);
+    //RandBLAS::conversions::coo_to_csc(input_mat_coo, input_mat_csc);
+    RandBLAS::conversions::coo_to_csc(input_mat_transformed, input_mat_csc);
+
+    return input_mat_csc;
+}
+
 // Re-generate and clear data
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data) {
@@ -89,10 +126,11 @@ template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void call_all_algs(
     int64_t num_runs,
     int64_t k,
-    int64_t num_krylov_iters,
+    int64_t num_matmuls,
     ABRIK_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
-    std::string output_filename) {
+    std::string output_filename,
+    int use_cqrrt) {
 
     auto m   = all_data.row;
     auto n   = all_data. col;
@@ -101,8 +139,10 @@ static void call_all_algs(
 
     // Additional params setup.
     RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
-    ABRIK.max_krylov_iters = num_krylov_iters;
+    ABRIK.max_krylov_iters = num_matmuls;
     ABRIK.num_threads_min = 4;
+    if (use_cqrrt)
+        ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // Making sure the states are unchanged
@@ -112,14 +152,14 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < num_runs; ++i) {
-        printf("Iteration %d start.\n", i);
+        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
         ABRIK.call(m, n, *all_data.A_input, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
         inner_timing = ABRIK.times;
         // Add info about the run
+        inner_timing.insert (inner_timing.begin(), num_matmuls);
         inner_timing.insert (inner_timing.begin(), k);
-        inner_timing.insert (inner_timing.begin(), num_krylov_iters);
 
         std::ofstream file(output_filename, std::ios::app);
         std::copy(inner_timing.begin(), inner_timing.end(), std::ostream_iterator<long>(file, ", "));
@@ -139,6 +179,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 */
+
+    double submatrix_dim_ratio = 0.5;
+
     int num_runs        = std::stol(argv[3]);
     int64_t custom_rank = std::stol(argv[4]);
     std::vector<int64_t> b_sz;
@@ -165,12 +208,12 @@ int main(int argc, char *argv[]) {
     // Read the input fast matrix market data
     // The idea is that input_mat_coo will be automatically freed at the end of function execution
     auto input_mat_coo = from_matrix_market<double>(std::string(argv[2]));
-    auto m = input_mat_coo.n_rows;
-    auto n = input_mat_coo.n_cols;
+    auto m = input_mat_coo.n_rows * submatrix_dim_ratio;
+    auto n = input_mat_coo.n_cols * submatrix_dim_ratio;
 
-    // Convert the sparse matrix format for performance
-    RandBLAS::CSCMatrix<double> input_mat_csc(m, n);
-    RandBLAS::conversions::coo_to_csc(input_mat_coo, input_mat_csc);
+    // Convert coo into csc matrix - this will grab the leading principal submatrix
+    // depending on what m and n were set to.
+    auto input_mat_csc = format_conversion<double>(m, n, input_mat_coo);
 
     // Allocate basic workspace.
     ABRIK_benchmark_data<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(m, n, tol);
@@ -200,10 +243,11 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
+    int use_cqrrt = 1;
     size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            call_all_algs(num_runs, b_sz[i], matmuls[j], all_data, state_constant, path);
+            call_all_algs(num_runs, b_sz[i], matmuls[j], all_data, state_constant, path, use_cqrrt);
         }
         j = 0;
     }

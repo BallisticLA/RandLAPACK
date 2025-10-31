@@ -108,15 +108,18 @@ add_benchmark(NAME basic_blas_speed   CXX_SOURCES bench_general/basic_blas_speed
 add_benchmark(NAME CQRRPT_speed_comparisons CXX_SOURCES bench_CQRRPT/CQRRPT_speed_comparisons.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRPT_runtime_breakdown CXX_SOURCES bench_CQRRPT/CQRRPT_runtime_breakdown.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME CQRRPT_pivot_quality     CXX_SOURCES bench_CQRRPT/CQRRPT_pivot_quality.cc     LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRPT_error_analysis    CXX_SOURCES bench_CQRRPT/CQRRPT_error_analysis.cc     LINK_LIBS ${Benchmark_libs})
 
 # BQRRP benchmarks
-add_benchmark(NAME Kahan_spectrum                     CXX_SOURCES bench_BQRRP/Kahan_spectrum.cc                      LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME find_test_mat_spectrum             CXX_SOURCES bench_BQRRP/find_test_mat_spectrum.cc             LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_speed_comparisons_block_size CXX_SOURCES bench_BQRRP/BQRRP_speed_comparisons_block_size.cc LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_speed_comparisons_mat_size   CXX_SOURCES bench_BQRRP/BQRRP_speed_comparisons_mat_size.cc   LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_runtime_breakdown            CXX_SOURCES bench_BQRRP/BQRRP_runtime_breakdown.cc            LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_pivot_quality                CXX_SOURCES bench_BQRRP/BQRRP_pivot_quality.cc                LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME HQRRP_runtime_breakdown            CXX_SOURCES bench_BQRRP/HQRRP_runtime_breakdown.cc            LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQRRP_subroutines_speed.cc            LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME BQRRP_error_analysis               CXX_SOURCES bench_BQRRP/BQRRP_error_analysis.cc               LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME HQRRP_sanity_check                 CXX_SOURCES bench_BQRRP/HQRRP_sanity_check.cc                 LINK_LIBS ${Benchmark_libs})
 
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})

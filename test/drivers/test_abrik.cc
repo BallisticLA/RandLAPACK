@@ -8,6 +8,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+using Subroutines = RandLAPACK::ABRIKSubroutines;
 
 class TestABRIK : public ::testing::Test
 {
@@ -138,7 +139,7 @@ class TestABRIK : public ::testing::Test
         ABRIK.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
 
         ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state);
-
+        
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
         printf("residual_err_custom %e\n", residual_err_custom);
         ASSERT_LE(residual_err_custom, 10 * std::pow(std::numeric_limits<T>::epsilon(), 0.825));
@@ -242,6 +243,28 @@ TEST_F(TestABRIK, ABRIK_sparse_coo) {
     ABRIKTestDataSparse<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n);
     RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
     ABRIK.num_threads_min = 1;
+    ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::sparse_data::coo::dense_to_coo<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
+
+    test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
+}
+
+TEST_F(TestABRIK, ABRIK_sparse_coo_cqrrt) {
+    int64_t m           = 400;
+    int64_t n           = 200;
+    int64_t b_sz        = 10;
+    int64_t target_rank = 200;
+    int64_t custom_rank = 100;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    ABRIKTestDataSparse<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n);
+    RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
+    ABRIK.num_threads_min = 1;
+    ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);

@@ -27,7 +27,7 @@ There are 10 things that we time:
 using Subroutines = RandLAPACK::BQRRPSubroutines;
 
 template <typename T>
-struct QR_speed_benchmark_data {
+struct QR_benchmark_data {
     int64_t row;
     int64_t col;
     T       sampling_factor;
@@ -35,7 +35,7 @@ struct QR_speed_benchmark_data {
     std::vector<T> tau;
     std::vector<int64_t> J;
 
-    QR_speed_benchmark_data(int64_t m, int64_t n, T d_factor) :
+    QR_benchmark_data(int64_t m, int64_t n, T d_factor) :
     A(m * n, 0.0),
     tau(n, 0.0),
     J(n, 0)
@@ -49,7 +49,7 @@ struct QR_speed_benchmark_data {
 // Re-generate and clear data
 template <typename T, typename RNG>
 static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info, 
-                                        QR_speed_benchmark_data<T> &all_data, 
+                                        QR_benchmark_data<T> &all_data, 
                                         RandBLAS::RNGState<RNG> &state) {
 
     std::fill(all_data.A.begin(), all_data.A.end(), 0.0);
@@ -64,7 +64,7 @@ static void call_all_algs(
     int64_t numruns,
     int64_t b_sz,
     std::string qr_tall,
-    QR_speed_benchmark_data<T> &all_data,
+    QR_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::string output_filename) {
 
@@ -140,7 +140,7 @@ int main(int argc, char *argv[]) {
     std::string qr_tall = argv[2];
 
     // Allocate basic workspace
-    QR_speed_benchmark_data<double> all_data(m, n, d_factor);
+    QR_benchmark_data<double> all_data(m, n, d_factor);
     // Generate the input matrix - gaussian suffices for performance tests.
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);

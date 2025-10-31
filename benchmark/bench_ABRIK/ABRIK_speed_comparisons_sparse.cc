@@ -27,6 +27,8 @@ using SpMatrix = Eigen::SparseMatrix<double>;
 using Matrix = Eigen::MatrixXd;
 using Vector = Eigen::VectorXd;
 
+using Subroutines = RandLAPACK::ABRIKSubroutines;
+
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct ABRIK_benchmark_data {
     int64_t row;
@@ -122,6 +124,69 @@ void from_matrix_market(std::string fn, SpMatrix& A) {
     A.setFromTriplets(tripletList.begin(), tripletList.end());
 }
 
+template <typename T>
+void from_matrix_market_leading_submatrix(std::string fn, SpMatrix& A, T submatrix_dim_ratio) {
+    int64_t n_rows, n_cols = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<T> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n_rows, n_cols, rows, cols, vals
+    );
+
+    // Use half-size for the leading principal submatrix
+    int64_t m = n_rows * submatrix_dim_ratio;
+    int64_t n = n_cols * submatrix_dim_ratio;
+
+    // Create triplets only for entries within the submatrix
+    std::vector<Eigen::Triplet<T>> tripletList;
+    for (size_t i = 0; i < vals.size(); ++i) {
+        if (rows[i] < m && cols[i] < n) {
+            tripletList.emplace_back(rows[i], cols[i], vals[i]);
+        }
+    }
+
+    A.setFromTriplets(tripletList.begin(), tripletList.end());
+}
+
+template <typename T>
+RandBLAS::CSCMatrix<T> format_conversion(int64_t m, int64_t n, RandBLAS::COOMatrix<T>& input_mat_coo)
+{
+    // Grab the leading principal submatrix of the size of half the input
+    RandBLAS::COOMatrix<double> input_mat_transformed(m, n);
+
+    // check how many nonzeros are in the left principal submatrix
+    int64_t nnz_sub = 0;
+    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
+        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
+            ++nnz_sub;
+        }
+    }
+
+    // Allocate
+    reserve_coo(nnz_sub, input_mat_transformed);
+
+    int64_t ell = 0;
+    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
+        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
+            input_mat_transformed.rows[ell] = input_mat_coo.rows[i];
+            input_mat_transformed.cols[ell] = input_mat_coo.cols[i];
+            input_mat_transformed.vals[ell] = input_mat_coo.vals[i];
+            ++ell;
+        }
+    }
+
+    // Convert the sparse matrix format for performance
+    RandBLAS::CSCMatrix<double> input_mat_csc(m, n);
+    //RandBLAS::conversions::coo_to_csc(input_mat_coo, input_mat_csc);
+    RandBLAS::conversions::coo_to_csc(input_mat_transformed, input_mat_csc);
+
+    return input_mat_csc;
+}
+
+
 // Re-generate and clear data
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data, 
@@ -201,6 +266,8 @@ static void call_all_algs(
     all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
     all_algs.ABRIK.num_threads_min = 4;
     all_algs.ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
+    // Useful for all sparse matrices except 0.
+    all_algs.ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     
     // timing vars
     long dur_ABRIK = 0;
@@ -214,11 +281,12 @@ static void call_all_algs(
     T residual_err_custom_ABRIK = 0;
 
     int64_t singular_triplets_target_ABRIK = 0;
-    int64_t singular_triplets_target_SVDS = 0;
+    int64_t singular_triplets_found_SVDS   = 0;
+    int64_t singular_triplets_target_SVDS  = 0;
 
     for (i = 0; i < num_runs; ++i) {
         printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
-    
+
         // Running ABRIK
         auto start_ABRIK = steady_clock::now();
         all_algs.ABRIK.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
@@ -228,7 +296,7 @@ static void call_all_algs(
 
         // This is in case the number of singular triplets is smaller than the target rank
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
-        printf("Singular triplets: %d\n", singular_triplets_target_ABRIK);
+        printf("Singular triplets: %ld\n", singular_triplets_target_ABRIK);
 
         residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
         printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_ABRIK);
@@ -237,39 +305,44 @@ static void call_all_algs(
         state_gen = state;
         data_regen(all_data, state_gen);
 
-        // There is no reason to run SVDS many times, as it always outputs the same result.
-        //if ((num_matmuls == 2) && ((i == 0) || (i == 1))) {
-            // Running SVDS
-            auto start_svds = steady_clock::now();
-            // This is in case the number of singular triplets is smaller than the target rank
-            singular_triplets_target_SVDS = std::min(target_rank, n-2);
 
-            Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_target_SVDS, std::min(2 * singular_triplets_target_SVDS, n-1));
-            svds.compute();
-            auto stop_svds = steady_clock::now();
-            dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
-            printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
+        // Running SVDS
+        auto start_svds = steady_clock::now();
 
-            // Copy data from Spectra (Eigen) format to the nomal C++.
-            Matrix U_spectra = svds.matrix_U(singular_triplets_target_SVDS);
-            Matrix V_spectra = svds.matrix_V(singular_triplets_target_SVDS);
-            Vector S_spectra = svds.singular_values();
+        // Despite my earlier expectations, estimating a larger number of 
+        // singular triplets via SVDS does improve the quality of the first singular triplets.
+        // As such, aiming for just the "target rank" would be unfair.
 
-            all_data.U     = new T[m * singular_triplets_target_SVDS]();
-            all_data.V     = new T[n * singular_triplets_target_SVDS]();
-            all_data.Sigma = new T[m * singular_triplets_target_SVDS]();
+        // Below line also accounts for the case when number of singular triplets is smaller than the target rank.
+        singular_triplets_found_SVDS = std::min((int64_t ) (b_sz * num_matmuls / 2), n-2);
 
-            Eigen::Map<Matrix>(all_data.U, m, singular_triplets_target_SVDS)  = U_spectra;
-            Eigen::Map<Matrix>(all_data.V, n, singular_triplets_target_SVDS)  = V_spectra;
-            Eigen::Map<Vector>(all_data.Sigma, singular_triplets_target_SVDS) = S_spectra;
+        Spectra::PartialSVDSolver<SpMatrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n-1));
+        svds.compute();
+        auto stop_svds = steady_clock::now();
+        dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
+        printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
 
-            residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
-            printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
-            
-            state_alg = state;
-            state_gen = state;
-            data_regen(all_data, state_gen);
-        //}
+        // Copy data from Spectra (Eigen) format to the nomal C++.
+        Matrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
+        Matrix V_spectra = svds.matrix_V(singular_triplets_found_SVDS);
+        Vector S_spectra = svds.singular_values();
+
+        all_data.U     = new T[m * singular_triplets_found_SVDS]();
+        all_data.V     = new T[n * singular_triplets_found_SVDS]();
+        all_data.Sigma = new T[m * singular_triplets_found_SVDS]();
+
+        Eigen::Map<Matrix>(all_data.U, m, singular_triplets_found_SVDS)  = U_spectra;
+        Eigen::Map<Matrix>(all_data.V, n, singular_triplets_found_SVDS)  = V_spectra;
+        Eigen::Map<Vector>(all_data.Sigma, singular_triplets_found_SVDS) = S_spectra;
+
+        singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
+
+        residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
+        
+        state_alg = state;
+        state_gen = state;
+        data_regen(all_data, state_gen);
 
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.ABRIK.max_krylov_iters  <<  ",  " << target_rank << ",  " 
@@ -282,9 +355,11 @@ int main(int argc, char *argv[]) {
 
     if (argc < 9) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << " <output_directory_path> <input_matrix_path> <num_runs> <target_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << "<output_directory_path> <input_matrix_path> <num_runs> <target_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
         return 1;
     }
+
+    double submatrix_dim_ratio = 0.5;
 
     int num_runs              = std::stol(argv[3]);
     int64_t target_rank       = std::stol(argv[4]);
@@ -307,23 +382,23 @@ int main(int argc, char *argv[]) {
     double tol                 = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                 = RandBLAS::RNGState();
     auto state_constant        = state;
-    double norm_A_lowrank      = 0;
 
     // Read the input fast matrix market data
     // The idea is that input_mat_coo will be automatically freed at the end of function execution
     auto input_mat_coo = from_matrix_market<double>(std::string(argv[2]));
-    auto m = input_mat_coo.n_rows;
-    auto n = input_mat_coo.n_cols;
+    auto m = input_mat_coo.n_rows * submatrix_dim_ratio;
+    auto n = input_mat_coo.n_cols * submatrix_dim_ratio;
 
-    // Convert the sparse matrix format for performance
-    RandBLAS::CSCMatrix<double> input_mat_csc(m, n);
-    RandBLAS::conversions::coo_to_csc(input_mat_coo, input_mat_csc);
+    // Convert coo into csc matrix - this will grab the leading principal submatrix
+    // depending on what m and n were set to.
+    auto input_mat_csc = format_conversion<double>(m, n, input_mat_coo);
 
     // Allocate basic workspace.
     ABRIK_benchmark_data<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(input_mat_csc, m, n, tol);
     all_data.A_input = &input_mat_csc;
     // Read matrix into spectra format
-    from_matrix_market<double>(std::string(argv[2]), all_data.A_spectra);
+    //from_matrix_market<double>(std::string(argv[2]), all_data.A_spectra);
+    from_matrix_market_leading_submatrix<double>(std::string(argv[2]), all_data.A_spectra, submatrix_dim_ratio);
 
     // Declare ABRIK object
     ABRIK_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, tol);
