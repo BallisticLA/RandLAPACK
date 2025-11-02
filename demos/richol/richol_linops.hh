@@ -140,6 +140,11 @@ struct CallableChoSolve {
     std::vector<double> times{};
     bool project_out = true;
 
+    void validate() {
+        trsm_matrix_validation(*G, Uplo::Lower, Diag::NonUnit, 3);
+        return;
+    }
+
     /*  C =: alpha * inv(G G') * B + beta * C, where C and B have "n" columns. */
     void operator()(
         Layout layout, int64_t n, 
@@ -269,7 +274,7 @@ struct LaplacianPinv {
 
         // logging
         std::cout << std::left 
-        << std::setw(10) << sn_log.size()
+        << std::setw(10) << sn_log.size()/2
         << std::setw(15) << sn_log[sn_log.size()-1] / sn_log[0] << std::endl;
         project_out_vec(dim, n, work_C.data(), dim, ones, work_n);
         blas::copy(n_x_dim, work_C.data(), 1, C, 1);
@@ -280,6 +285,21 @@ struct LaplacianPinv {
         randblas_require(false);
         return 0.0;
     }
+};
+
+
+template <typename T>
+struct IdentityMatrix {
+    int64_t num_ops = 1;
+    const int64_t dim;
+    std::vector<double> times{};
+    IdentityMatrix(int64_t _n) : dim(_n), times(4,(T)0.0) { }
+    void operator()(blas::Layout ell, int64_t _n, T alpha, T* const _B, int64_t _ldb, T beta, T* _C, int64_t _ldc) {
+        randblas_require(ell == blas::Layout::ColMajor);
+        UNUSED(_ldb); UNUSED(_ldc);
+        blas::scal(dim*_n, beta, _C, 1);
+        blas::axpy(dim*_n, alpha, _B, 1, _C, 1);
+    };
 };
 
 

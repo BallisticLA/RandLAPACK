@@ -147,7 +147,7 @@ int main(int argc, char** argv) {
     auto A_unperm_csr = A_coo.as_owning_csr();
     vector<int64_t> perm(n0, 0);
     std::iota(perm.data(), perm.data() + n0, 0);
-    // richol::amd_permutation(A_unperm_csr, perm);
+    richol::amd_permutation(A_unperm_csr, perm);
     A_coo.symperm_inplace(perm.data());
     auto A_csr = A_coo.as_owning_csr();
 
@@ -185,8 +185,8 @@ int main(int argc, char** argv) {
     CSRMatrix<T> C_lower(n, n);
     C_lower.reserve(nnz_C);
     csr_from_csrlike(C_csrlike_lower, C_lower.rowptr, C_lower.colidxs, C_lower.vals);
-    trsm_matrix_validation(C_lower, Uplo::Lower, Diag::NonUnit, 3);
     CallableChoSolve<decltype(C_lower)> invCCt_callable{&C_lower, n};
+    invCCt_callable.validate();
     invCCt_callable.project_out = false;
 
 
@@ -253,21 +253,9 @@ int main(int argc, char** argv) {
         x[perm[i]] = x0[i];
     }
 
-    struct trivial_precond {
-        int64_t num_ops = 1;
-        const int64_t dim;
-        vector<double> times{};
-        trivial_precond(int64_t _n) : dim(_n), times(4,(T)0.0) { }
-        void operator()(blas::Layout ell, int64_t _n, T alpha, T* const _B, int64_t _ldb, T beta, T* _C, int64_t _ldc) {
-            randblas_require(ell == blas::Layout::ColMajor);
-            UNUSED(_ldb); UNUSED(_ldc);
-            blas::scal(dim*_n, beta, _C, 1);
-            blas::axpy(dim*_n, alpha, _B, 1, _C, 1);
-        };
-    };
-    trivial_precond tp(n);
+    IdentityMatrix<T> I(n);
     int64_t max_iters = 264;
-    LaplacianPinv2 Lpinv(G_callable, invCCt_callable, 1e-10, max_iters, true);
+    LaplacianPinv2 Lpinv(G_callable, I, 1e-10, max_iters, true);
 
     // Step 8. Run PCG.
     TIMED_LINE(
