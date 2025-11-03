@@ -135,6 +135,15 @@ struct SparseVec {
 };
 
 
+template <typename spvec_t>
+int64_t nnz(std::vector<spvec_t> &M) {
+    int64_t nnz_M = 0;
+    for (const auto &v : M)
+        nnz_M += static_cast<int64_t>(v.size());
+    return nnz_M;
+}
+
+
 template <typename ordinal_t1, typename ordinal_t2, typename vals_t, typename spvec_t>
 void sym_as_upper_tri_from_csr( int64_t n, const ordinal_t1* rowptr, const ordinal_t2* colinds, const vals_t* vals, std::vector<spvec_t> &sym ) {
     using ordinal_t = typename spvec_t::ordinal_t;
@@ -686,6 +695,131 @@ void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
         exit (1) ;
     }
     return;
+}
+
+template<typename T, typename sint_t>
+void filter_triangle(COOMatrix<T, sint_t> &A, blas::Uplo uplo) {
+    int64_t new_nnz = 0;
+    // compact the entries we want to keep
+    for (int64_t k = 0; k < A.nnz; ++k) {
+        auto r = A.rows[k];
+        auto c = A.cols[k];
+        bool keep;
+        if (uplo == blas::Uplo::Upper) {
+            keep = (r <= c);
+        } else { // blas::Uplo::Lower
+            keep = (r >= c);
+        }
+        if (keep) {
+            if (new_nnz != k) {
+                A.rows[new_nnz] = r;
+                A.cols[new_nnz] = c;
+                A.vals[new_nnz] = A.vals[k];
+            }
+            ++new_nnz;
+        }
+    }
+    // update the structural nonzero count
+    A.nnz = new_nnz;
+    return;
+}
+
+
+template<
+    template<typename,typename> class SpMat, 
+    typename T, typename sint_t
+>
+SpMat<T,sint_t> dichol(const COOMatrix<T,sint_t> &orig, blas::Uplo uplo) {
+    // 0) static check:
+    using Mat = SpMat<T,sint_t>;
+    static_assert(
+      std::is_same_v<Mat, CSRMatrix<T,sint_t>> ||
+      std::is_same_v<Mat, CSCMatrix<T,sint_t>>,
+      "filter_convert_and_normalize: SpMat<T,sint_t> must be CSRMatrix or CSCMatrix"
+    );
+
+    // 1) make a writable copy of the COO and keep only the requested triangle
+    COOMatrix<T,sint_t> tmp = orig.deepcopy();
+    filter_triangle(tmp, uplo);
+
+    // 2) convert to compressed format
+    Mat A = [&]{
+      if constexpr(std::is_same_v<Mat,CSRMatrix<T,sint_t>>) {
+        return tmp.as_owning_csr();
+      } else {
+        return tmp.as_owning_csc();
+      }
+    }();
+
+    // 3) extract the diagonal and check positivity
+    int64_t n = A.n_rows;
+    std::vector<T> d(n);
+    if constexpr(std::is_same_v<Mat,CSRMatrix<T,sint_t>>) {
+      auto const &ptr = A.rowptr;
+      auto const &idx = A.colidxs;
+      for(int64_t i = 0; i < n; ++i) {
+        // in CSR the diagonal in row i is either first (upper) or last (lower)
+        int64_t p = (uplo == blas::Uplo::Lower
+                     ? ptr[i+1] - 1
+                     : ptr[i]);
+        randblas_require(idx[p] == i);
+        T di = A.vals[p];
+        randblas_require(di > T(0));
+        d[i] = di;
+      }
+    } else {
+      auto const &ptr = A.colptr;
+      auto const &idx = A.rowidxs;
+      for(int64_t i = 0; i < n; ++i) {
+        // in CSC the diagonal in column i is either first (lower) or last (upper)
+        int64_t p = (uplo == blas::Uplo::Lower
+                     ? ptr[i]
+                     : ptr[i+1] - 1);
+        randblas_require(idx[p] == i);
+        T di = A.vals[p];
+        randblas_require(di > T(0));
+        d[i] = di;
+      }
+    }
+
+    // 4) build and apply 1/sqrt(d[i]) scalings
+    if constexpr(std::is_same_v<Mat,CSRMatrix<T,sint_t>>) {
+      // CSR
+      if (uplo == blas::Uplo::Lower) {
+        // scale each column j by 1/sqrt(d[j])
+        for (int64_t p = 0; p < A.nnz; ++p) {
+          int64_t j = A.colidxs[p];
+          A.vals[p] *= T(1)/std::sqrt(d[j]);
+        }
+      } else {
+        // scale each row i by 1/sqrt(d[i])
+        for (int64_t i = 0; i < n; ++i) {
+          T w = T(1)/std::sqrt(d[i]);
+          for (int64_t p = A.rowptr[i]; p < A.rowptr[i+1]; ++p)
+            A.vals[p] *= w;
+        }
+      }
+    } else {
+      // CSC
+      if (uplo == blas::Uplo::Lower) {
+        // scale each column j by 1/sqrt(d[j])
+        for (int64_t j = 0; j < n; ++j) {
+          T w = T(1)/std::sqrt(d[j]);
+          for (int64_t p = A.colptr[j]; p < A.colptr[j+1]; ++p)
+            A.vals[p] *= w;
+        }
+      } else {
+        // scale each row i by 1/sqrt(d[i])
+        for (int64_t j = 0; j < n; ++j) {
+          for (int64_t p = A.colptr[j]; p < A.colptr[j+1]; ++p) {
+            int64_t i = A.rowidxs[p];
+            A.vals[p] *= T(1)/std::sqrt(d[i]);
+          }
+        }
+      }
+    }
+
+    return A;
 }
 
 

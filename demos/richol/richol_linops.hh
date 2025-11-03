@@ -108,21 +108,14 @@ struct CallableSpMat {
         }
         randblas_require(ldb == dim);
         blas::copy(dim*n, B, 1, work, 1);
-        if (project_out)
-            project_out_vec(dim, n, work, dim, unit_ones, work_n);
-        //int t = omp_get_max_threads();
-        //omp_set_num_threads(1);
+        if (project_out) { project_out_vec(dim, n, work, dim, unit_ones, work_n); }
         auto t0 = std_clock::now();
         omp_set_dynamic(1);
-        //TIMED_LINE(
         spmm(layout, Op::NoTrans, Op::NoTrans, dim, n, dim, alpha, *A, work, dim, beta, C, ldc);
-        //, "SPMM A   : ");
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
-        //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        if (project_out)
-            project_out_vec(dim, n, C, ldc, unit_ones, work_n);
+        if (project_out) { project_out_vec(dim, n, C, ldc, unit_ones, work_n); }
     }
 };
 

@@ -179,13 +179,13 @@ int main(int argc, char** argv) {
     // Step 5. Get a callable linear operator representation of inv(CC').
     std::ofstream C_filename("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/build/C.mtx");
     richol::write_square_matrix_market(C_csrlike_lower, C_filename, fast_matrix_market::general, "Approximate Cholesky factor");
-    int64_t nnz_C = 0;
-    for (const auto &row : C_csrlike_lower)
-        nnz_C += static_cast<int64_t>(row.size());
     CSRMatrix<T> C_lower(n, n);
-    C_lower.reserve(nnz_C);
+    C_lower.reserve(nnz(C_csrlike_lower));
     csr_from_csrlike(C_csrlike_lower, C_lower.rowptr, C_lower.colidxs, C_lower.vals);
-    CallableChoSolve<decltype(C_lower)> invCCt_callable{&C_lower, n};
+
+    auto dichol_C_lower = richol::dichol<CSRMatrix>(A_coo, blas::Uplo::Lower);
+
+    CallableChoSolve<decltype(C_lower)> invCCt_callable{&dichol_C_lower, n};
     invCCt_callable.validate();
     invCCt_callable.project_out = false;
 
@@ -217,11 +217,8 @@ int main(int argc, char** argv) {
     } else {
         G_csrlike = richol::lift_sdd2sddm(A_csrlike_triu, true);
     }
-    int64_t nnz_G = 0;
-    for (const auto &row : G_csrlike)
-        nnz_G += static_cast<int64_t>(row.size());
     CSRMatrix<T> G(n, n);
-    G.reserve(nnz_G);
+    G.reserve(nnz(G_csrlike));
     csr_from_csrlike(G_csrlike, G.rowptr, G.colidxs, G.vals);
     CallableSpMat<decltype(G)> G_callable{&G, n};
     G_callable.project_out = false;
@@ -255,7 +252,7 @@ int main(int argc, char** argv) {
 
     IdentityMatrix<T> I(n);
     int64_t max_iters = 264;
-    LaplacianPinv2 Lpinv(G_callable, I, 1e-10, max_iters, true);
+    LaplacianPinv2 Lpinv(G_callable, invCCt_callable, 1e-10, max_iters, true);
 
     // Step 8. Run PCG.
     TIMED_LINE(
