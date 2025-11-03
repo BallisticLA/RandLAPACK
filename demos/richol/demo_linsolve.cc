@@ -135,27 +135,13 @@ int main(int argc, char** argv) {
 
 
     // Step 7. Setup PCG.
-    // vector<T> b(n);
-    // RandBLAS::RNGState state2(1997);
-    // RandBLAS::DenseDist D(n, 1);
-    // RandBLAS::fill_dense(D, b.data(), state2);
     int64_t block_size = 1;
     vector<T> b0 = vector_from_matrix_market<T>(datadir + "/p_rgh_source_b.mtx");
     vector<T> b(n);
-    for (int64_t i = 0; i < n; ++i) {
-        b[perm[i]] = -b0[i];
-    }
-    // b.resize(block_size * n);
-    // RandBLAS::RNGState state2(1997);
-    // RandBLAS::DenseDist D(n, block_size);
-    // RandBLAS::fill_dense(D, b.data(), state2);
-    // blas::scal(n*block_size, (T)1.0 / blas::nrm2(n, b.data(), 1), b.data(), 1);
-    // vector<T> x(block_size * n, (T)0.0);
+    for (int64_t i = 0; i < n; ++i) { b[perm[i]] = -b0[i]; }
     vector<T> x0 = vector_from_matrix_market<T>(datadir + "/p_rgh_psi_initial_x^{n}.mtx");
     vector<T> x(n);
-    for (int64_t i = 0; i < n; ++i) {
-        x[perm[i]] = x0[i];
-    }
+    for (int64_t i = 0; i < n; ++i) { x[perm[i]] = x0[i]; }
 
     IdentityMatrix<T> I(n);
     int64_t max_iters = 264;
