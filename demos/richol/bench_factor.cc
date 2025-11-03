@@ -37,9 +37,10 @@ auto parse_args(int argc, char** argv) {
 }
 
 
+template <typename LPINV_t>
 double run_nys_approx(
     int k, std::vector<double> &V, std::vector<double> &eigvals,
-    LaplacianPinv<CSRMatrix<double>> &Lpinv,
+    LPINV_t &Lpinv,
     RandLAPACK::REVD2<
         RandLAPACK::SYRF<
             RandLAPACK::SYPS<double, DefaultRNG>,

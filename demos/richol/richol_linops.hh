@@ -31,6 +31,7 @@ using RandBLAS::sparse_data::trsm_matrix_validation;
 //      blas::Diag diag, int mode 
 // )
 using RandBLAS::sparse_data::SparseMatrix;
+using std::vector;
 
 //#define FINE_GRAINED
 
@@ -75,14 +76,14 @@ struct CallableSpMat {
     SpMat *A;
     int64_t dim;
     double* work = nullptr;
-    std::vector<double> work_stdvec{};
+    vector<double> work_stdvec{};
     int64_t n_work = 0;
-    std::vector<double> regs{0.0};
+    vector<double> regs{0.0};
     double* unit_ones = nullptr;
-    std::vector<double> unit_ones_stdvec{};
+    vector<double> unit_ones_stdvec{};
     double* work_n = nullptr;
-    std::vector<double> work_n_stdvec{};
-    std::vector<double> times{};
+    vector<double> work_n_stdvec{};
+    vector<double> times{};
     const int64_t num_ops = 1;
     bool project_out = true;
 
@@ -127,10 +128,10 @@ struct CallableChoSolve {
     int64_t trsm_validation = 0;
     int64_t n_work = 0;
     double* unit_ones = nullptr;
-    std::vector<double> unit_ones_stdvec{};
+    vector<double> unit_ones_stdvec{};
     double* work_n = nullptr;
-    std::vector<double> work_n_stdvec{};
-    std::vector<double> times{};
+    vector<double> work_n_stdvec{};
+    vector<double> times{};
     bool project_out = true;
 
     void validate() {
@@ -183,37 +184,40 @@ struct CallableChoSolve {
 };
 
 
-template <SparseMatrix SpMat>
+template <SparseMatrix SpMat, typename PrecondCallable>
 struct LaplacianPinv {
-    public:
     const int64_t dim;
-    CallableSpMat<SpMat>    L_callable;
-    CallableChoSolve<SpMat> N_callable;
+    CallableSpMat<SpMat> &L_callable;
+    PrecondCallable      &N_callable;
     bool verbose_pcg;
-    std::vector<double> work_B{};
-    std::vector<double> work_C{};
-    std::vector<double> work_seminorm{};
-    std::vector<double> unit_ones{};
-    std::vector<double> proj_work_n{};
-    std::vector<double> times{};
+    vector<double> work_B{};
+    vector<double> work_C{};
+    vector<double> work_seminorm{};
+    vector<double> times{};
     double call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
     using scalar_t = typename SpMat::scalar_t;
     const int64_t num_ops = 1;
 
-    LaplacianPinv(CallableSpMat<SpMat> &L, CallableChoSolve<SpMat> &N, double pcg_tol, int maxit,
+    LaplacianPinv(CallableSpMat<SpMat> &L, PrecondCallable &N, double pcg_tol, int maxit,
         bool verbose = false
     ) :
         dim(L.dim),
-        L_callable{L.A, L.dim},
-        N_callable{N.G, N.dim},
+        L_callable(L),
+        N_callable(N),
         verbose_pcg(verbose),
         times(4, 0.0),
         call_pcg_tol(pcg_tol),
         max_iters((int64_t) maxit)
-    { }; 
+    {
+        L_callable.project_out = L.project_out;
+    }; 
 
-    /*  C =: alpha * pinv(L) * B + beta * C, where C and B have "n" columns. */
+    //  C =: alpha * inv(L) * B, where C and B have "n" columns,
+    //  and PCG for applying inv(L) is initialized at C.
+    //
+    //  This has the same function signature as RandLAPACK's LinearOperator 
+    //  interface, but the role of C is different.
     void operator()(
         Layout layout, int64_t n, 
         double alpha, double* const B, int64_t ldb,
@@ -227,35 +231,28 @@ struct LaplacianPinv {
         work_B.resize(n_x_dim);
         work_C.resize(n_x_dim);
         work_seminorm.resize(n_x_dim);
-        unit_ones.resize(n_x_dim, std::pow((double)dim, -0.5));
-        proj_work_n.resize(n);
-        double *ones = unit_ones.data();
-        double *work_n = proj_work_n.data();
         double *work_seminorm_ = work_seminorm.data();
         if (n < (int64_t) L_callable.regs.size()) {
             L_callable.regs.resize(n, 0.0);
         }
-
-        std::vector<double> sn_log{};
-        auto seminorm = [work_seminorm_, ones, work_n, &sn_log](int64_t __n, int64_t __s, double* NR) {
+        vector<double> sn_log{};
+        auto seminorm = [work_seminorm_, &sn_log](int64_t __n, int64_t __s, double* NR) {
             blas::copy(__n*__s, NR, 1, work_seminorm_, 1);
-            project_out_vec(__n, __s,  work_seminorm_, __n, ones, work_n);
             double out = blas::nrm2(__n*__s, work_seminorm_, 1);
             sn_log.push_back(out);
             return out;
         };
-
+        for (int64_t i = 0; i < n_x_dim; ++i)
+            work_C[i] = C[i]; // don't multiply by beta!
         for (int64_t i = 0; i < n_x_dim; ++i)
             work_B[i] = alpha * B[i];
-        //std::cout << "n = " << n << std::endl;
-        project_out_vec(dim, n, work_B.data(), dim, ones, work_n);
         // logging
         std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
         // work
-        RandBLAS::util::safe_scal(n_x_dim, 0.0, work_C.data(), 1);
         auto t0 = std_clock::now();
         RandLAPACK::pcg(L_callable, work_B.data(), n, seminorm, call_pcg_tol, max_iters, N_callable, work_C.data(), verbose_pcg);
         auto t1 = std_clock::now();
+        // logging
         auto total_spmm   = std::reduce(L_callable.times.begin(), L_callable.times.end());
         auto total_sptrsm = std::reduce(N_callable.times.begin(), N_callable.times.end());
         times[0] += total_spmm;
@@ -264,12 +261,9 @@ struct LaplacianPinv {
         N_callable.times.clear();
         times[2] += seconds_elapsed(t0, t1);
         times[3] += (double) sn_log.size()/2;
-
-        // logging
         std::cout << std::left 
-        << std::setw(10) << sn_log.size()/2
-        << std::setw(15) << sn_log[sn_log.size()-1] / sn_log[0] << std::endl;
-        project_out_vec(dim, n, work_C.data(), dim, ones, work_n);
+        << std::setw(10) << static_cast<int64_t>(sn_log.size()/2) - 1
+        << std::setw(15) << sn_log[sn_log.size()-2] / sn_log[0] << std::endl;
         blas::copy(n_x_dim, work_C.data(), 1, C, 1);
     }
 
@@ -285,7 +279,7 @@ template <typename T>
 struct IdentityMatrix {
     int64_t num_ops = 1;
     const int64_t dim;
-    std::vector<double> times{};
+    vector<double> times{};
     IdentityMatrix(int64_t _n) : dim(_n), times(4,(T)0.0) { }
     void operator()(blas::Layout ell, int64_t _n, T alpha, T* const _B, int64_t _ldb, T beta, T* _C, int64_t _ldc) {
         randblas_require(ell == blas::Layout::ColMajor);

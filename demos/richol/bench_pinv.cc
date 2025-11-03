@@ -37,11 +37,11 @@ auto parse_args(int argc, char** argv) {
 }
 
 
-template <typename NYS_ALG>
+template <typename NYS_ALG_t, typename LPINV_t>
 double run_nys_approx(
     int k, std::vector<double> &V, std::vector<double> &eigvals,
-    LaplacianPinv<CSRMatrix<double>> &Lpinv,
-    NYS_ALG &NystromAlg) {
+    LPINV_t &Lpinv, NYS_ALG_t &NystromAlg
+) {
     int64_t n = Lpinv.dim;
     V.resize(n*k); eigvals.resize(k);
     for (int64_t i = 0; i < n*k; ++i)

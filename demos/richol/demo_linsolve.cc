@@ -28,99 +28,6 @@ vector<T> vector_from_matrix_market(std::string fn) {
 }
 
 
-template <SparseMatrix SpMat, typename PrecondCallable>
-struct LaplacianPinv2 {
-    public:
-    const int64_t dim;
-    CallableSpMat<SpMat>    L_callable;
-    PrecondCallable &N_callable;
-    bool verbose_pcg;
-    vector<double> work_B{};
-    vector<double> work_C{};
-    vector<double> work_seminorm{};
-    vector<double> times{};
-    double call_pcg_tol = 1e-10;
-    int64_t max_iters = 100;
-    using scalar_t = typename SpMat::scalar_t;
-    const int64_t num_ops = 1;
-
-    LaplacianPinv2(CallableSpMat<SpMat> &L, PrecondCallable &N, double pcg_tol, int maxit,
-        bool verbose = false
-    ) :
-        dim(L.dim),
-        L_callable{L.A, L.dim},
-        N_callable(N),
-        verbose_pcg(verbose),
-        times(4, 0.0),
-        call_pcg_tol(pcg_tol),
-        max_iters((int64_t) maxit)
-    {
-        L_callable.project_out = L.project_out;
-    }; 
-
-    //  C =: alpha * inv(L) * B, where C and B have "n" columns,
-    //  and PCG for applying inv(L) is initialized at C.
-    //
-    //  This has the same function signature as RandLAPACK's LinearOperator 
-    //  interface, but the role of C is different.
-    void operator()(
-        Layout layout, int64_t n, 
-        double alpha, double* const B, int64_t ldb,
-        double beta, double* C, int64_t ldc
-    ) {
-        randblas_require(layout == Layout::ColMajor);
-        randblas_require(beta == (double) 0.0);
-        randblas_require(ldb == dim);
-        randblas_require(ldc == dim);
-        int64_t n_x_dim = dim*n;
-        work_B.resize(n_x_dim);
-        work_C.resize(n_x_dim);
-        work_seminorm.resize(n_x_dim);
-        double *work_seminorm_ = work_seminorm.data();
-        if (n < (int64_t) L_callable.regs.size()) {
-            L_callable.regs.resize(n, 0.0);
-        }
-        vector<double> sn_log{};
-        auto seminorm = [work_seminorm_, &sn_log](int64_t __n, int64_t __s, double* NR) {
-            blas::copy(__n*__s, NR, 1, work_seminorm_, 1);
-            double out = blas::nrm2(__n*__s, work_seminorm_, 1);
-            sn_log.push_back(out);
-            return out;
-        };
-        for (int64_t i = 0; i < n_x_dim; ++i)
-            work_C[i] = C[i]; // don't multiply by beta!
-        for (int64_t i = 0; i < n_x_dim; ++i)
-            work_B[i] = alpha * B[i];
-        // logging
-        std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
-        // work
-        auto t0 = std_clock::now();
-        RandLAPACK::pcg(L_callable, work_B.data(), n, seminorm, call_pcg_tol, max_iters, N_callable, work_C.data(), verbose_pcg);
-        auto t1 = std_clock::now();
-        // logging
-        auto total_spmm   = std::reduce(L_callable.times.begin(), L_callable.times.end());
-        auto total_sptrsm = std::reduce(N_callable.times.begin(), N_callable.times.end());
-        times[0] += total_spmm;
-        times[1] += total_sptrsm;
-        L_callable.times.clear();
-        N_callable.times.clear();
-        times[2] += seconds_elapsed(t0, t1);
-        times[3] += (double) sn_log.size()/2;
-        std::cout << std::left 
-        << std::setw(10) << static_cast<int64_t>(sn_log.size()/2) - 1
-        << std::setw(15) << sn_log[sn_log.size()-2] / sn_log[0] << std::endl;
-        blas::copy(n_x_dim, work_C.data(), 1, C, 1);
-    }
-
-    double operator()(int64_t i, int64_t j) {
-        UNUSED(i); UNUSED(j);
-        randblas_require(false);
-        return 0.0;
-    }
-};
-
-
-
 int main(int argc, char** argv) {
     using T = double;
     using spvec = richol::SparseVec<T, int64_t>;
@@ -252,7 +159,7 @@ int main(int argc, char** argv) {
 
     IdentityMatrix<T> I(n);
     int64_t max_iters = 264;
-    LaplacianPinv2 Lpinv(G_callable, invCCt_callable, 1e-10, max_iters, true);
+    LaplacianPinv Lpinv(G_callable, invCCt_callable, 1e-10, max_iters, true);
 
     // Step 8. Run PCG.
     TIMED_LINE(
