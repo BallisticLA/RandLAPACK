@@ -51,8 +51,10 @@ int main(int argc, char** argv) {
     csr_from_csrlike(C, G.rowptr, G.colidxs, G.vals);
 
     CallableSpMat<decltype(Lperm)> Aperm_callable{&Lperm, n};
+    Aperm_callable.project_out = true;
     trsm_matrix_validation(G, Uplo::Lower, Diag::NonUnit, 3);
     CallableChoSolve<decltype(G)>  N_callable{&G, n};
+    N_callable.project_out = true;
     LaplacianPinv Lpinv(Aperm_callable, N_callable, 1e-10, 200, true);
 
     //      NOTE: REVD2 isn't quite like QB2; it doesn't have a block size.

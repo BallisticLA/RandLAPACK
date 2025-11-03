@@ -154,8 +154,10 @@ int main(int argc, char** argv) {
         logfile << std::left << std::setw(10) << (int64_t) factimes[2] << ", ";
         logfile.flush();
         CallableSpMat<decltype(Lperm)> Aperm_callable{&Lperm, n};
+        Aperm_callable.project_out = true;
         trsm_matrix_validation(G, Uplo::Lower, Diag::NonUnit, 3);
         CallableChoSolve<decltype(G)> N_callable{&G, n};
+        N_callable.project_out = true;
         LaplacianPinv Lpinv(Aperm_callable, N_callable, 1e-8, 200, true);
         std::vector<T> V(n*k, 0.0);
         std::vector<T> eigvals(k, 0.0);

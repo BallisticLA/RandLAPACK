@@ -85,7 +85,7 @@ struct CallableSpMat {
     vector<T> work_n_stdvec{};
     vector<T> times{};
     const int64_t num_ops = 1;
-    bool project_out = true;
+    bool project_out = false;
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
@@ -131,7 +131,7 @@ struct CallableChoSolve {
     T* work_n = nullptr;
     vector<T> work_n_stdvec{};
     vector<double> times{};
-    bool project_out = true;
+    bool project_out = false;
 
     void validate() {
         trsm_matrix_validation(*G, Uplo::Lower, Diag::NonUnit, 3);
