@@ -71,27 +71,27 @@ void project_out_vec(int64_t m, int64_t n, T* X, int64_t ldx, T* v, T* work_n) {
     return;
 }
 
-template <SparseMatrix SpMat>
+template <SparseMatrix SpMat, typename T = SpMat::scalar_t>
 struct CallableSpMat {
     SpMat *A;
     int64_t dim;
-    double* work = nullptr;
-    vector<double> work_stdvec{};
+    T* work = nullptr;
+    vector<T> work_stdvec{};
     int64_t n_work = 0;
-    vector<double> regs{0.0};
-    double* unit_ones = nullptr;
-    vector<double> unit_ones_stdvec{};
-    double* work_n = nullptr;
-    vector<double> work_n_stdvec{};
-    vector<double> times{};
+    vector<T> regs{0.0};
+    T* unit_ones = nullptr;
+    vector<T> unit_ones_stdvec{};
+    T* work_n = nullptr;
+    vector<T> work_n_stdvec{};
+    vector<T> times{};
     const int64_t num_ops = 1;
     bool project_out = true;
 
     /*  C =: alpha * A * B + beta * C, where C and B have "n" columns. */
     void operator()(
         Layout layout, int64_t n, 
-        double alpha, const double* B, int64_t ldb,
-        double beta,  double* C, int64_t ldc
+        T alpha, const T* B, int64_t ldb,
+        T beta,  T* C, int64_t ldc
     ) {
         if (work == nullptr) {
             work_stdvec.resize(dim*n);
@@ -99,9 +99,8 @@ struct CallableSpMat {
             work_n_stdvec.resize(n);
             work = work_stdvec.data();
             unit_ones = unit_ones_stdvec.data();
-            double val = std::pow((double)dim, -0.5);
-            for (int64_t i = 0; i < dim; ++i)
-                unit_ones[i] = val;
+            T val = std::pow((T)dim, -0.5);
+            std::fill(unit_ones, unit_ones + dim, val);
             work_n = work_n_stdvec.data();
             n_work = n;
         } else {
@@ -121,16 +120,16 @@ struct CallableSpMat {
 };
 
 
-template <SparseMatrix SpMat>
+template <SparseMatrix SpMat, typename T = SpMat::scalar_t>
 struct CallableChoSolve {
     SpMat *G;
     int64_t dim;
     int64_t trsm_validation = 0;
     int64_t n_work = 0;
-    double* unit_ones = nullptr;
-    vector<double> unit_ones_stdvec{};
-    double* work_n = nullptr;
-    vector<double> work_n_stdvec{};
+    T* unit_ones = nullptr;
+    vector<T> unit_ones_stdvec{};
+    T* work_n = nullptr;
+    vector<T> work_n_stdvec{};
     vector<double> times{};
     bool project_out = true;
 
@@ -142,64 +141,56 @@ struct CallableChoSolve {
     /*  C =: alpha * inv(G G') * B + beta * C, where C and B have "n" columns. */
     void operator()(
         Layout layout, int64_t n, 
-        double alpha, const double* B, int64_t ldb,
-        double beta, double* C, int64_t ldc
+        T alpha, const T* B, int64_t ldb,
+        T beta, T* C, int64_t ldc
     ) {
         if (work_n == nullptr) {
             unit_ones_stdvec.resize(dim);
             unit_ones = unit_ones_stdvec.data();
-            double val = std::pow((double)dim, -0.5);
-            for (int64_t i = 0; i < dim; ++i)
-               unit_ones[i] = val;
-            // for (int64_t i = = 0; )
+            T val = std::pow((T)dim, -0.5);
+            std::fill(unit_ones, unit_ones + dim, val);
             work_n_stdvec.resize(n);
             work_n = work_n_stdvec.data();
             n_work = n;
         } else {
             randblas_require(n_work >= n);
         }
-        randblas_require(beta == (double) 0.0);
+        randblas_require(beta == (T) 0.0);
         randblas_require(ldb == dim);
         randblas_require(ldc == dim);
         blas::copy(dim*n, B, 1, C, 1);
-        if (project_out)
-            project_out_vec(dim, n, C, ldc, unit_ones, work_n);
-        // TRSM, then transposed TRSM.
-        //int t = omp_get_max_threads();
-        //omp_set_num_threads(1);
+        if (project_out) { project_out_vec(dim, n, C, ldc, unit_ones, work_n); }
+
         omp_set_dynamic(1);
         auto t0 = std_clock::now();
-        //TIMED_LINE(
-        trsm(layout, Op::NoTrans,       alpha, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, trsm_validation); //, "TRSM G : ");
-        //TIMED_LINE(
-        trsm(layout,   Op::Trans, (double)1.0, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, trsm_validation); //, "TRSM G^T : ");
+        trsm(layout, Op::NoTrans,  alpha, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, trsm_validation);
+        trsm(layout,   Op::Trans, (T)1.0, *G, Uplo::Lower, Diag::NonUnit, n, C, ldc, trsm_validation);
         auto t1 = std_clock::now();
         times.push_back(seconds_elapsed(t0, t1));
-        //omp_set_num_threads(t);
         omp_set_dynamic(0);
-        if (project_out)
-            project_out_vec(dim, n, C, ldc, unit_ones, work_n);
+
+        if (project_out) { project_out_vec(dim, n, C, ldc, unit_ones, work_n); }
     }
 
 };
 
 
-template <SparseMatrix SpMat, typename PrecondCallable>
+template <SparseMatrix SpMat, typename PrecondCallable, typename T = SpMat::scalar_t>
 struct LaplacianPinv {
     const int64_t dim;
     CallableSpMat<SpMat> &L_callable;
     PrecondCallable      &N_callable;
     bool verbose_pcg;
-    vector<double> work_B{};
-    vector<double> work_C{};
-    vector<double> work_seminorm{};
+    vector<T> work_B{};
+    vector<T> work_C{};
+    vector<T> work_seminorm{};
     vector<double> times{};
-    double call_pcg_tol = 1e-10;
+    T call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
     using scalar_t = typename SpMat::scalar_t;
     const int64_t num_ops = 1;
 
-    LaplacianPinv(CallableSpMat<SpMat> &L, PrecondCallable &N, double pcg_tol, int maxit,
+    LaplacianPinv(CallableSpMat<SpMat> &L, PrecondCallable &N, T pcg_tol, int maxit,
         bool verbose = false
     ) :
         dim(L.dim),
@@ -220,25 +211,25 @@ struct LaplacianPinv {
     //  interface, but the role of C is different.
     void operator()(
         Layout layout, int64_t n, 
-        double alpha, double* const B, int64_t ldb,
-        double beta, double* C, int64_t ldc
+        T alpha, T* const B, int64_t ldb,
+        T beta, T* C, int64_t ldc
     ) {
         randblas_require(layout == Layout::ColMajor);
-        randblas_require(beta == (double) 0.0);
+        randblas_require(beta == (T) 0.0);
         randblas_require(ldb == dim);
         randblas_require(ldc == dim);
         int64_t n_x_dim = dim*n;
         work_B.resize(n_x_dim);
         work_C.resize(n_x_dim);
         work_seminorm.resize(n_x_dim);
-        double *work_seminorm_ = work_seminorm.data();
+        T *work_seminorm_ = work_seminorm.data();
         if (n < (int64_t) L_callable.regs.size()) {
             L_callable.regs.resize(n, 0.0);
         }
-        vector<double> sn_log{};
-        auto seminorm = [work_seminorm_, &sn_log](int64_t __n, int64_t __s, double* NR) {
+        vector<T> sn_log{};
+        auto seminorm = [work_seminorm_, &sn_log](int64_t __n, int64_t __s, T* NR) {
             blas::copy(__n*__s, NR, 1, work_seminorm_, 1);
-            double out = blas::nrm2(__n*__s, work_seminorm_, 1);
+            T out = blas::nrm2(__n*__s, work_seminorm_, 1);
             sn_log.push_back(out);
             return out;
         };
@@ -260,14 +251,14 @@ struct LaplacianPinv {
         L_callable.times.clear();
         N_callable.times.clear();
         times[2] += seconds_elapsed(t0, t1);
-        times[3] += (double) sn_log.size()/2;
+        times[3] += (T) sn_log.size()/2;
         std::cout << std::left 
         << std::setw(10) << static_cast<int64_t>(sn_log.size()/2) - 1
         << std::setw(15) << sn_log[sn_log.size()-2] / sn_log[0] << std::endl;
         blas::copy(n_x_dim, work_C.data(), 1, C, 1);
     }
 
-    double operator()(int64_t i, int64_t j) {
+    T operator()(int64_t i, int64_t j) {
         UNUSED(i); UNUSED(j);
         randblas_require(false);
         return 0.0;
