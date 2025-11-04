@@ -183,8 +183,9 @@ struct LaplacianPinv {
     bool verbose_pcg;
     vector<T> work_B{};
     vector<T> work_C{};
-    vector<T> work_seminorm{};
     vector<double> times{};
+    vector<T> pcg_res_norms{};
+    vector<T> pcg_prec_res_norms{};
     T call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
     using scalar_t = typename SpMat::scalar_t;
@@ -204,37 +205,43 @@ struct LaplacianPinv {
         L_callable.project_out = L.project_out;
     }; 
 
-    //  C =: alpha * inv(L) * B, where C and B have "n" columns,
-    //  and PCG for applying inv(L) is initialized at C.
+    //  Use PCG to approximately compute C =: alpha * inv(L) * B, where C and B have "n" columns.
+    //  PCG is initialized at C's value on entry.
     //
     //  This has the same function signature as RandLAPACK's LinearOperator 
-    //  interface, but the role of C is different.
+    //  interface, but the role of C is different. This implementation is
+    //  still consistent with RandLAPACK's pcg(...) function.
     void operator()(
-        Layout layout, int64_t n, 
-        T alpha, T* const B, int64_t ldb,
-        T beta, T* C, int64_t ldc
+        Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc
     ) {
         randblas_require(layout == Layout::ColMajor);
         randblas_require(beta == (T) 0.0);
         randblas_require(ldb == dim);
         randblas_require(ldc == dim);
-        int64_t n_x_dim = dim*n;
+        int64_t n_x_dim = n * dim;
         work_B.resize(n_x_dim);
         work_C.resize(n_x_dim);
-        work_seminorm.resize(n_x_dim);
-        T *work_seminorm_ = work_seminorm.data();
         if (n < (int64_t) L_callable.regs.size()) {
             L_callable.regs.resize(n, 0.0);
         }
-        vector<T> sn_log{};
-        auto seminorm = [work_seminorm_, &sn_log](int64_t __n, int64_t __s, T* NR) {
-            blas::copy(__n*__s, NR, 1, work_seminorm_, 1);
-            T out = blas::nrm2(__n*__s, work_seminorm_, 1);
-            sn_log.push_back(out);
+        int64_t call_counter = 0;
+        pcg_res_norms.clear();
+        pcg_prec_res_norms.clear();
+        auto seminorm = [ this, &call_counter ]( int64_t __n, int64_t __s, T* arg ) {
+            // We call this twice at each iteration of PCG.
+            // Even calls (call 0, call 2, ...) input the raw residual, B - L(X).
+            // Odd calls  (call 1, call 3, ...) input the preconditioned residual, N(B - L(X)).
+            T out = blas::nrm2(__n*__s, arg, 1);
+            if (call_counter % 2 == 0) {
+                pcg_res_norms.push_back(out);
+            } else {
+                pcg_prec_res_norms.push_back(out);
+            }
+            call_counter += 1;
             return out;
         };
         for (int64_t i = 0; i < n_x_dim; ++i)
-            work_C[i] = C[i]; // don't multiply by beta!
+            work_C[i] = C[i];
         for (int64_t i = 0; i < n_x_dim; ++i)
             work_B[i] = alpha * B[i];
         // logging
@@ -250,11 +257,12 @@ struct LaplacianPinv {
         times[1] += total_sptrsm;
         L_callable.times.clear();
         N_callable.times.clear();
+        auto num_iters = static_cast<int64_t>(pcg_res_norms.size());
         times[2] += seconds_elapsed(t0, t1);
-        times[3] += (T) sn_log.size()/2;
+        times[3] += (T) num_iters;
         std::cout << std::left 
-        << std::setw(10) << static_cast<int64_t>(sn_log.size()/2) - 1
-        << std::setw(15) << sn_log[sn_log.size()-2] / sn_log[0] << std::endl;
+        << std::setw(10) << num_iters
+        << std::setw(15) << pcg_res_norms[num_iters - 1] / pcg_res_norms[0] << std::endl;
         blas::copy(n_x_dim, work_C.data(), 1, C, 1);
     }
 

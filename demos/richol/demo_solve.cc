@@ -94,6 +94,22 @@ auto callable_chosolve( CSRMatrix<T> &C_lower ) {
     return invCCt_callable;
 }
 
+template <typename LPINV_t>
+void log_residual_info(LPINV_t &Lpinv, std::ostream &stream) {
+    auto res_norms = Lpinv.pcg_res_norms;
+    auto pre_norms = Lpinv.pcg_prec_res_norms;
+    randblas_require(res_norms.size() == pre_norms.size());
+    auto actual_iters = static_cast<int64_t>(res_norms.size());
+    RandBLAS::print_buff_to_stream(
+        stream, blas::Layout::RowMajor, 1, actual_iters, res_norms.data(), actual_iters,
+        "norm_R", 8, RandBLAS::ArrayStyle::Python
+    );
+    RandBLAS::print_buff_to_stream(
+        stream, blas::Layout::RowMajor, 1, actual_iters, pre_norms.data(), actual_iters,
+        "norm_NR", 8, RandBLAS::ArrayStyle::Python
+    );
+}
+
 
 int main(int argc, char** argv) {
     using T = double;
@@ -129,6 +145,8 @@ int main(int argc, char** argv) {
 
     TIMED_LINE(
     Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
+    std::cout << std::endl;
+    log_residual_info(Lpinv, std::cout);
 
     return 0;
 }
