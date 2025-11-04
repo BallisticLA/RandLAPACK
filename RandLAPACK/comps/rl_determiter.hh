@@ -308,10 +308,10 @@ int64_t posm_square(
  *
  *              G.dim = the number of rows and columns in each G_i.
  *
- *              G(blas::Layout::ColMajor, s, alpha, B, ldb, beta, C, ldc) updates
- *                  c_i := alpha G_i * b_i + beta c_i
- *              where C = [c_1, ..., c_s] and B = [b_1, ..., b_s] are dim-by-s matrices stored
- *              in column-major order with strides ldc and ldb, respectively.
+ *              G(blas::Layout::ColMajor, s, alpha, B, ldb, 0.0, C, ldc) updates
+ *                  c_i := alpha G_i * b_i
+ *              where C = [c_1, ..., c_s] and B = [b_1, ..., b_s] are dim-by-s matrices
+ *              stored in column-major order with strides ldc and ldb, respectively.
  * 
  *      If G.num_ops == 1 then we solve (Eq. 1) using block PCG with block size s. If G.num_ops > 1
  *      then we run an algorithm which is equivalent to s embarassingly parallel single-vector
