@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <iostream>
 #include <chrono>
+#include <string>
 
 using RandBLAS::RNGState;
 using RandBLAS::CSRMatrix;
@@ -95,18 +96,20 @@ auto callable_chosolve( CSRMatrix<T> &C_lower ) {
 }
 
 template <typename LPINV_t>
-void log_residual_info(LPINV_t &Lpinv, std::ostream &stream) {
+void log_residual_info(LPINV_t &Lpinv, std::ostream &stream, const std::string &pc_name) {
     auto res_norms = Lpinv.pcg_res_norms;
     auto pre_norms = Lpinv.pcg_prec_res_norms;
     randblas_require(res_norms.size() == pre_norms.size());
     auto actual_iters = static_cast<int64_t>(res_norms.size());
+    std::string name_R  = "norm_R_"  + pc_name;
+    std::string name_NR = "norm_NR_" + pc_name;
     RandBLAS::print_buff_to_stream(
         stream, blas::Layout::RowMajor, 1, actual_iters, res_norms.data(), actual_iters,
-        "norm_R", 8, RandBLAS::ArrayStyle::Python
+        name_R, 8, RandBLAS::ArrayStyle::Python
     );
     RandBLAS::print_buff_to_stream(
         stream, blas::Layout::RowMajor, 1, actual_iters, pre_norms.data(), actual_iters,
-        "norm_NR", 8, RandBLAS::ArrayStyle::Python
+        name_NR, 8, RandBLAS::ArrayStyle::Python
     );
 }
 
@@ -132,18 +135,52 @@ int main(int argc, char** argv) {
     auto richol_C_lower = richol_pipeline(A_csr, {0});
     auto dichol_C_lower = richol::dichol<CSRMatrix>(A_coo, blas::Uplo::Lower);
     auto eyemat_C_lower = identity_as_csr<T>(n);
-    auto invCCt_callable = callable_chosolve( dichol_C_lower );
+    auto inv_richol    = callable_chosolve( richol_C_lower );
+    inv_richol.validate();
+    auto inv_dichol    = callable_chosolve( dichol_C_lower );
+    inv_dichol.validate();
+    auto inv_identity  = callable_chosolve( eyemat_C_lower );
+    inv_identity.validate();
 
-    
+
     int64_t max_iters = 150;
-    LaplacianPinv Lpinv(A_callable, invCCt_callable, 1e-10, max_iters, false);
-    
-    auto [x, b] = setup_pcg_vecs<T>(datadir, perm);
 
-    TIMED_LINE(
-    Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
-    std::cout << std::endl;
-    log_residual_info(Lpinv, std::cout);
+    auto [x0, b] = setup_pcg_vecs<T>(datadir, perm);
+    T pcg_tol = 0.0;
+
+    {
+        auto x = x0;
+        std::cout << "\n=== Preconditioner: richol ===\n";
+        LaplacianPinv Lpinv(A_callable, inv_richol, pcg_tol, max_iters, false);
+        
+        TIMED_LINE(
+        Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
+        std::cout << std::endl;
+        log_residual_info(Lpinv, std::cout, "richol");
+    }
+
+    {
+        auto x = x0;
+        std::cout << "\n=== Preconditioner: dichol ===\n";
+        LaplacianPinv Lpinv(A_callable, inv_dichol, pcg_tol, max_iters, false);
+        
+        TIMED_LINE(
+        Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
+        std::cout << std::endl;
+        log_residual_info(Lpinv, std::cout, "dichol");
+    }
+
+    {
+        auto x = x0;
+        std::cout << "\n=== Preconditioner: identity ===\n";
+        LaplacianPinv Lpinv(A_callable, inv_identity, pcg_tol, max_iters, false);
+        
+        TIMED_LINE(
+        Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
+        std::cout << std::endl;
+        log_residual_info(Lpinv, std::cout, "identity");
+    }
 
     return 0;
 }
+
