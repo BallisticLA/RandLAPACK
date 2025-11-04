@@ -280,6 +280,17 @@ int64_t posm_square(
 }
 
 
+template <typename T>
+inline void empty_callback(
+    int64_t n, int64_t s, T normR, T normNR, const T* X, const T* H, const T* R, const T* NR
+) {
+    // R := H - GX
+    UNUSED(n); UNUSED(s);  UNUSED(normR); UNUSED(normNR);
+    UNUSED(X); UNUSED(H);  UNUSED(R);     UNUSED(NR);
+    return;
+}
+
+
 // MARK: [L/B]PCG
 
 /**
@@ -366,7 +377,7 @@ int64_t posm_square(
  *      A boolean. If true, then logging information is printed to stdout.
  * 
  */
-template <typename T, typename FG, typename FSeminorm, typename FN>
+template <typename T, typename FG, typename FSeminorm, typename FN, typename callback_t>
 void pcg(
     FG &G,
     const T* H,
@@ -376,7 +387,8 @@ void pcg(
     int64_t max_iters,
     FN &N,
     T* X,
-    bool verbose
+    bool verbose,
+    callback_t &callback
 ) {
     int64_t n = G.dim;
     int64_t ns = n*s;
@@ -385,7 +397,7 @@ void pcg(
     if (treat_as_separable) randblas_require(s == G.num_ops);
 
     // All workspace gets zero-initialized; this is only
-    // overridden for "R".
+    // overwritten for "R".
     T* allwork = new T[4*ns + 5*ss]{};
     
     // block vector work; n-by-s matrices.
@@ -418,13 +430,26 @@ void pcg(
     std::copy(RNR, RNR + ss, alpha
     ); // alpha <- RNR
 
+    auto cout_logger = [&verbose](T _normNR, T _normR, int64_t _k, int64_t _subspacedim) {
+        if (verbose) {
+            std::cout << std::left
+            << "k : "  << std::setw(4) << _k 
+            << "  normNR : " << std::setw(6) << _normNR
+            << "\tnormR  : " << std::setw(6) << _normR
+            << "\tdim    : " << std::setw(6) << _subspacedim << std::endl;
+        }
+        return;
+    };
+
     int64_t k = 0;
+    int64_t subspace_dim = 0;
     T normR0  = seminorm(n, s, R);
     T normNR0 = seminorm(n, s, P);
     T stop_abstol = tol*(1.0 + normNR0);
-    int64_t subspace_dim = 0;
-    if (verbose)
-        std::cout << "normNR : " << normNR0 << "\tnormR : " << normR0 << "\tk: 0\tdim : 0\n";
+
+    cout_logger(normNR0, normR0, k, subspace_dim);
+    callback(n, s, normR0, normNR0, X, H, R, NR);
+
     while (subspace_dim < n && k < max_iters) {
         // 
         // Update X and R
@@ -461,10 +486,12 @@ void pcg(
         ); // NR <- N R
         prevnormNR = normNR;
         normNR = seminorm(n, s, NR);
-        if (verbose)
-            std::cout << "normNR : " << normNR << "\tnormR : " << normR << "\tk: " << k << "\tdim : " << subspace_dim << '\n';
-        if (normNR < stop_abstol)
-            break;
+
+        cout_logger(normNR, normR, k, subspace_dim);
+        callback(n, s, normR, normNR, X, H, R, NR);
+
+        if (normNR < stop_abstol) { break; }
+
         // 
         //  Update P, beta, and alpha
         //
@@ -489,6 +516,21 @@ void pcg(
 
     delete [] allwork;
     return;
+}
+
+template <typename T, typename FG, typename FSeminorm, typename FN>
+void pcg(
+    FG &G,
+    const T* H,
+    int64_t s,
+    FSeminorm &seminorm,
+    T tol,
+    int64_t max_iters,
+    FN &N,
+    T* X,
+    bool verbose
+) {
+    return pcg(G, H, s, seminorm, tol, max_iters, N, X, verbose, empty_callback<T>);
 }
 
 
