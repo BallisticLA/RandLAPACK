@@ -135,6 +135,7 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
+            UNUSED(lda);
             linops::SpLinOp<SpMat> A_linop(m, n, A);
             return this->call(A_linop, k, U, V, Sigma, state);
         }
@@ -248,18 +249,18 @@ class ABRIK {
                 T sq_tol = std::pow(this->tol, 2);
                 T threshold =  std::sqrt(1 - sq_tol) * norm_A;
 
-                if(this -> timing)
+                if(this -> timing) {
                     sketching_t_start  = steady_clock::now();
-
+                }
                 // Generate a dense Gaussian random matrx.
                 // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
                 #ifdef RandBLAS_HAS_OpenMP
-                    omp_set_num_threads(this->num_threads_min);
+                omp_set_num_threads(this->num_threads_min);
                 #endif
                 RandBLAS::DenseDist D(n, k);
                 state = RandBLAS::fill_dense(D, Y_i, state);
                 #ifdef RandBLAS_HAS_OpenMP
-                    omp_set_num_threads(this->num_threads_max);
+                omp_set_num_threads(this->num_threads_max);
                 #endif
 
                 if(this -> timing) {
