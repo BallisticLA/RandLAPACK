@@ -186,6 +186,8 @@ struct LaplacianPinv {
     vector<double> times{};
     vector<T> pcg_res_norms{};
     vector<T> pcg_prec_res_norms{};
+    vector<T> openfoam_norms{};
+
     T call_pcg_tol = 1e-10;
     int64_t max_iters = 100;
     using scalar_t = typename SpMat::scalar_t;
@@ -218,52 +220,93 @@ struct LaplacianPinv {
         randblas_require(beta == (T) 0.0);
         randblas_require(ldb == dim);
         randblas_require(ldc == dim);
-        int64_t n_x_dim = n * dim;
-        work_B.resize(n_x_dim);
-        work_C.resize(n_x_dim);
+        int64_t dim_x_n = dim * n;
+        work_B.resize(dim_x_n);
+        work_C.resize(dim_x_n);
         if (n < (int64_t) L_callable.regs.size()) {
             L_callable.regs.resize(n, 0.0);
         }
-        int64_t call_counter = 0;
+ 
+        auto seminorm = []( int64_t __dim, int64_t __n, T* arg ) {
+            return blas::nrm2(__dim*__n, arg, 1);
+        };
+
         pcg_res_norms.clear();
         pcg_prec_res_norms.clear();
-        auto seminorm = [ this, &call_counter ]( int64_t __n, int64_t __s, T* arg ) {
-            // We call this twice at each iteration of PCG.
-            // Even calls (call 0, call 2, ...) input the raw residual, B - L(X).
-            // Odd calls  (call 1, call 3, ...) input the preconditioned residual, N(B - L(X)).
-            T out = blas::nrm2(__n*__s, arg, 1);
-            if (call_counter % 2 == 0) {
-                pcg_res_norms.push_back(out);
-            } else {
-                pcg_prec_res_norms.push_back(out);
+        openfoam_norms.clear();
+
+        vector<T> openfoam_rw_vec(dim_x_n + 2*dim + n, 0.0);
+        T* rw_Z   = openfoam_rw_vec.data(); // shape (dim, n).
+        T* rw_1u  = rw_Z   + dim_x_n;       // shape (dim,).
+        T* rw_L1u = rw_1u  + dim;           // shape (dim,).
+        T* rw_1uX = rw_L1u + dim;           // shape (n,)
+
+        std::fill(rw_1u, rw_1u + dim, std::pow((T)dim, -0.5));
+        L_callable(Layout::ColMajor, 1, (T)1.0, rw_1u, dim, (T)0.0, rw_L1u, dim);
+
+
+        auto callback = [this, &n, &rw_Z, &rw_1u, &rw_L1u, &rw_1uX] (
+            int64_t __dim, int64_t __n, T normR, T normNR, const T* X, const T* H, const T* R, const T* NR
+        ) { 
+            UNUSED(__dim); UNUSED(__n); UNUSED(NR);
+            /**
+             * This callback records normR, normNR, and the OpenFOAM scalar residual.
+             * The last of these has a funny definition. To state it, ... 
+             *      let 1_{dim} denote the projector onto the span of the vector of all ones,
+             *      let |v|_1 denote the 1-norm of a vector v,
+             *      let Z = H - L * 1_{dim} * X.
+             * 
+             * When n == 1, we have
+             * 
+             *      r_openfoam = |R|_1 / ( |Z - R|_1 + | Z |_1 )
+             * 
+             * To evaluate L * 1_{dim} * X, let 1_{u} be the column vector where 1_{dim} = (1_u)*(1_u)', so 
+             * 
+             *     L * 1_{dim} * X == (L * 1_u) * (1_u' * X)
+             * 
+             */
+            blas::gemv(Layout::ColMajor, Op::Trans, dim, n, (T)1.0, X, dim, rw_1u, 1, (T)0.0, rw_1uX, 1
+            ); // rw_1uX = X' rw_1u
+            blas::copy(dim*n, H, 1, rw_Z, 1
+            ); // rw_Z = H
+            blas::ger(Layout::ColMajor, dim, n, (T) -1.0, rw_L1u, 1, rw_1uX, 1, rw_Z, dim
+            ); // rw_Z -= rw_L1u * rw_1uX'
+            T denominator = 0.0;
+            T numerator = 0.0;
+            for (int64_t i = 0; i < dim*n; ++i) {
+                denominator += std::abs(rw_Z[i]);
+                denominator += std::abs(rw_Z[i] - R[i]);
+                numerator   += std::abs(R[i]);
             }
-            call_counter += 1;
-            return out;
+            openfoam_norms.push_back(numerator / denominator);
+            pcg_res_norms.push_back(normR);
+            pcg_prec_res_norms.push_back(normNR);
+            return;
         };
-        for (int64_t i = 0; i < n_x_dim; ++i)
+
+        for (int64_t i = 0; i < dim_x_n; ++i)
             work_C[i] = C[i];
-        for (int64_t i = 0; i < n_x_dim; ++i)
+        for (int64_t i = 0; i < dim_x_n; ++i)
             work_B[i] = alpha * B[i];
-        // logging
-        std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
         // work
         auto t0 = std_clock::now();
-        RandLAPACK::pcg(L_callable, work_B.data(), n, seminorm, call_pcg_tol, max_iters, N_callable, work_C.data(), verbose_pcg);
+        RandLAPACK::pcg(L_callable, work_B.data(), n, seminorm, call_pcg_tol, max_iters, N_callable, work_C.data(), verbose_pcg, callback);
         auto t1 = std_clock::now();
         // logging
+        std::cout << std::left << std::setw(10) << "iters" << std::setw(15) << "relres" << std::endl;
         auto total_spmm   = std::reduce(L_callable.times.begin(), L_callable.times.end());
         auto total_sptrsm = std::reduce(N_callable.times.begin(), N_callable.times.end());
         times[0] += total_spmm;
         times[1] += total_sptrsm;
         L_callable.times.clear();
         N_callable.times.clear();
-        auto num_iters = static_cast<int64_t>(pcg_res_norms.size());
+        auto num_iters = static_cast<int64_t>(pcg_res_norms.size()) - 1;
         times[2] += seconds_elapsed(t0, t1);
         times[3] += (T) num_iters;
         std::cout << std::left 
         << std::setw(10) << num_iters
-        << std::setw(15) << pcg_res_norms[num_iters - 1] / pcg_res_norms[0] << std::endl;
-        blas::copy(n_x_dim, work_C.data(), 1, C, 1);
+        << std::setw(15) << pcg_res_norms[num_iters] / pcg_res_norms[0] << std::endl;
+        blas::copy(dim_x_n, work_C.data(), 1, C, 1);
     }
 
     T operator()(int64_t i, int64_t j) {

@@ -99,17 +99,23 @@ template <typename LPINV_t>
 void log_residual_info(LPINV_t &Lpinv, std::ostream &stream, const std::string &pc_name) {
     auto res_norms = Lpinv.pcg_res_norms;
     auto pre_norms = Lpinv.pcg_prec_res_norms;
+    auto openfoams = Lpinv.openfoam_norms;
     randblas_require(res_norms.size() == pre_norms.size());
     auto actual_iters = static_cast<int64_t>(res_norms.size());
     std::string name_R  = "norm_R_"  + pc_name;
     std::string name_NR = "norm_NR_" + pc_name;
+    std::string name_OF = "openfoam_" + pc_name;
+    // RandBLAS::print_buff_to_stream(
+    //     stream, blas::Layout::RowMajor, 1, actual_iters, res_norms.data(), actual_iters,
+    //     name_R, 8, RandBLAS::ArrayStyle::Python
+    // );
+    // RandBLAS::print_buff_to_stream(
+    //     stream, blas::Layout::RowMajor, 1, actual_iters, pre_norms.data(), actual_iters,
+    //     name_NR, 8, RandBLAS::ArrayStyle::Python
+    // );
     RandBLAS::print_buff_to_stream(
-        stream, blas::Layout::RowMajor, 1, actual_iters, res_norms.data(), actual_iters,
-        name_R, 8, RandBLAS::ArrayStyle::Python
-    );
-    RandBLAS::print_buff_to_stream(
-        stream, blas::Layout::RowMajor, 1, actual_iters, pre_norms.data(), actual_iters,
-        name_NR, 8, RandBLAS::ArrayStyle::Python
+        stream, blas::Layout::RowMajor, 1, actual_iters, openfoams.data(), actual_iters,
+        name_OF, 8, RandBLAS::ArrayStyle::Python
     );
 }
 
@@ -143,7 +149,7 @@ int main(int argc, char** argv) {
     inv_identity.validate();
 
 
-    int64_t max_iters = 150;
+    int64_t max_iters = 400;
 
     auto [x0, b] = setup_pcg_vecs<T>(datadir, perm);
     T pcg_tol = 0.0;
