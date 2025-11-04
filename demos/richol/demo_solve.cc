@@ -114,7 +114,6 @@ void log_residual_info(LPINV_t &Lpinv, std::ostream &stream) {
 int main(int argc, char** argv) {
     using T = double;
     
-    // Step 1. Read in the SDD matrix "A"
     std::string datadir = "./";
     if (argc > 1) {
         datadir = argv[1];
@@ -129,17 +128,15 @@ int main(int argc, char** argv) {
     A_coo.symperm_inplace(perm.data());
     auto A_csr = A_coo.as_owning_csr();
     CallableSpMat A_callable{ &A_csr, A_csr.n_rows };
-    A_callable.project_out = false;
 
     auto richol_C_lower = richol_pipeline(A_csr, {0});
     auto dichol_C_lower = richol::dichol<CSRMatrix>(A_coo, blas::Uplo::Lower);
     auto eyemat_C_lower = identity_as_csr<T>(n);
     auto invCCt_callable = callable_chosolve( dichol_C_lower );
-    invCCt_callable.project_out = false;
 
     
-    int64_t max_iters = 264;
-    LaplacianPinv Lpinv(A_callable, invCCt_callable, 1e-10, max_iters, true);
+    int64_t max_iters = 150;
+    LaplacianPinv Lpinv(A_callable, invCCt_callable, 1e-10, max_iters, false);
     
     auto [x, b] = setup_pcg_vecs<T>(datadir, perm);
 
