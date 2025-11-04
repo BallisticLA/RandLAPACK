@@ -239,6 +239,11 @@ int64_t posm_square(
     using blas::Side;
     using blas::Diag;
 
+    if (n == 1 && LHS[0] > 0) {
+        RHS[0] /= LHS[0];
+        return n;
+    }
+
     // Try Cholesky (store a backup of LHS into "work")
     std::copy(LHS, LHS + n*n, work);
     int chol_err = lapack::potrf(uplo, n, LHS, n);
@@ -388,13 +393,14 @@ void pcg(
     FN &N,
     T* X,
     bool verbose,
-    callback_t &callback
+    callback_t &callback,
+    int64_t recompute_interval = 25
 ) {
     int64_t n = G.dim;
     int64_t ns = n*s;
     int64_t ss = s*s;
-    bool treat_as_separable = G.num_ops > 1;
-    if (treat_as_separable) randblas_require(s == G.num_ops);
+    bool separable = G.num_ops > 1;
+    if (separable) randblas_require(s == G.num_ops);
 
     // All workspace gets zero-initialized; this is only
     // overwritten for "R".
@@ -417,15 +423,15 @@ void pcg(
     auto layout = blas::Layout::ColMajor;
     using blas::Op;
 
-    G(layout, s, 1.0, X, n, 0.0, GP, n
+    G(layout, s, (T) 1.0, X, n, (T) 0.0, GP, n
     ); // GP <- G X
-    blas::axpy(ns, -1.0, GP, 1, R, 1
+    blas::axpy(ns, (T) -1.0, GP, 1, R, 1
     ); // R <- R - GP
-    N(layout, s, 1.0, R, n, 0.0, P, n
+    N(layout, s, (T) 1.0, R, n, (T) 0.0, P, n
     ); // P <- N R
-    blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R, n, P, n, 0.0, RNR, s
+    blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, (T) 1.0, R, n, P, n, (T) 0.0, RNR, s
     ); // RNR <- R^T P = R^T N R
-    if (treat_as_separable) zero_off_diagonal(RNR, s);
+    if (separable) zero_off_diagonal(RNR, s);
 
     std::copy(RNR, RNR + ss, alpha
     ); // alpha <- RNR
@@ -445,7 +451,7 @@ void pcg(
     int64_t subspace_dim = 0;
     T normR0  = seminorm(n, s, R);
     T normNR0 = seminorm(n, s, P);
-    T stop_abstol = tol*(1.0 + normNR0);
+    T stop_abstol = tol*((T) 1.0 + normNR0);
 
     cout_logger(normNR0, normR0, k, subspace_dim);
     callback(n, s, normR0, normNR0, X, H, R, NR);
@@ -458,32 +464,43 @@ void pcg(
 
         G(layout, s, (T) 1.0, P, n, (T) 0.0, GP, n
         ); // ^ GP <- G P
-        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, P, n, GP, n, 0.0, ableft, s
+        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, (T) 1.0, P, n, GP, n, (T) 0.0, ableft, s
         ); // ableft <- P^T G P
-        if (treat_as_separable) zero_off_diagonal(ableft, s);
+        if (separable) zero_off_diagonal(ableft, s);
         int64_t subspace_incr = posm_square(s, ableft, alpha, scratch
         ); // alpha <- (ableft)^(-1) alpha
-        if (treat_as_separable && subspace_incr > 0)
+        if (separable && subspace_incr > 0)
             subspace_incr = 1;
 
         if (subspace_incr < - ((int64_t) s) )
             break;
         subspace_dim = subspace_dim + subspace_incr;
 
-        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P, n, alpha, s, 1.0, X, n
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, (T) 1.0, P, n, alpha, s, (T) 1.0, X, n
         ); // X <- X + P alpha
-        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, -1.0, GP, n, alpha, s, 1.0, R, n
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, (T) -1.0, GP, n, alpha, s, (T) 1.0, R, n
         ); // R <- R - GP alpha
 
-        //
-        //  Check termination criteria
-        //
-        //      TODO: change how we check termination criteria in the event that we're working
-        //            with treat_as_separable = true.
-        T normR = seminorm(n, s, R);
+        if (recompute_interval > 0 && k % recompute_interval == 0) {
+            G(layout, s, (T) 1.0, X, n, (T) 0.0, GP, n
+            ); // GP <- G X
+            std::copy(H, H + ns, R
+            ); // R <- H
+            blas::axpy(ns, (T) -1.0, GP, 1, R, 1
+            ); // R <- R - GP
+            N(layout, s, (T) 1.0, R, n, (T) 0.0, NR, n
+            ); // NR <- N R
+            blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, (T) 1.0, R, n, NR, n, (T) 0.0, RNR, s
+            ); // RNR <- R^T NR
+            if (separable) { zero_off_diagonal(RNR, s); }
+            std::copy(RNR, RNR + ss, alpha
+            ); // alpha <- RNR
+        } else {
+            N(layout, s, (T) 1.0, R, n, (T) 0.0, NR, n
+            ); // NR <- N R
+        }
 
-        N(layout, s, 1.0, R, n, 0.0, NR, n
-        ); // NR <- N R
+        T normR = seminorm(n, s, R);
         prevnormNR = normNR;
         normNR = seminorm(n, s, NR);
 
@@ -497,18 +514,17 @@ void pcg(
         //
         std::copy(RNR, RNR + ss, ableft
         ); // ableft <- RNR
-        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, 1.0, R, n, NR, n, 0.0, RNR, s
+        blas::gemm(layout, Op::Trans, Op::NoTrans, s, s, n, (T) 1.0, R, n, NR, n, (T) 0.0, RNR, s
         ); // RNR <- R^T NR
-        if (treat_as_separable) zero_off_diagonal(RNR, s);
+        if (separable) { zero_off_diagonal(RNR, s); }
         std::copy(RNR, RNR + ss, alpha
         ); // alpha <- RNR
         std::copy(alpha, alpha + ss, beta
         ); // beta <- alpha
         int err = posm_square( s, ableft, beta, scratch
         ); // beta <- (ableft)^-1 beta
-        if (err < - ((int64_t) s))
-            break;
-        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, 1.0, P, n, beta, s, 1.0, NR, n
+        if (err < - ((int64_t) s)) { break; }
+        blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, (T) 1.0, P, n, beta, s, (T) 1.0, NR, n
         ); // NR <- P beta
         std::copy(NR, NR + ns, P
         ); // P <- NR

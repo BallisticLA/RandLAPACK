@@ -127,14 +127,20 @@ int main(int argc, char** argv) {
     if (argc > 1) {
         datadir = argv[1];
     }
+    int use_amd = 0;
+    if (argc > 2) {
+        use_amd = atoi(argv[2]);
+    }
 
     auto A_coo = read_negative_M_matrix<T>(datadir);
     auto A_unperm_csr = A_coo.as_owning_csr();
     int64_t n = A_coo.n_rows;
     vector<int64_t> perm( n, 0 );
     std::iota( perm.data(), perm.data() + n, 0 );
-    richol::amd_permutation(A_unperm_csr, perm);
-    A_coo.symperm_inplace(perm.data());
+    if (use_amd) {
+        richol::amd_permutation(A_unperm_csr, perm);
+        A_coo.symperm_inplace(perm.data());
+    };
     auto A_csr = A_coo.as_owning_csr();
     CallableSpMat A_callable{ &A_csr, A_csr.n_rows };
 
