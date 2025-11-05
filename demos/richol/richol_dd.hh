@@ -4,9 +4,12 @@
 #include <ostream>
 #include <iomanip>
 #include <limits>
-#include <cmath>
+
 
 namespace richol {
+
+using std::abs;
+using std::sqrt;
 
 struct dd {
     double hi, lo;  
@@ -14,7 +17,21 @@ struct dd {
     // constructors
     dd()           : hi(0.0),         lo(0.0) {}
     dd( double a ) : hi(a),           lo(0.0) {}
-    dd( double a, double b ) : hi(a), lo(b) {}
+    dd( double a, double b ) {
+        if (abs(a) >= abs(b)) {
+          hi = a; lo = b;
+        } else {
+          hi = b; lo = a;
+        }
+    }
+    dd( const dd &other ) : hi(other.hi), lo(other.lo) {}
+    dd& operator=( const dd &other ) {
+      if (this != &other) {
+        hi = other.hi;
+        lo = other.lo;
+      }
+      return *this;
+    }
     template <typename T>
     dd( T a ) : hi((double)a), lo(0.0) {}
 
@@ -57,12 +74,6 @@ struct dd {
                   + a_lo * b_hi) 
                  + a_lo * b_lo;
         return res;
-    }
-
-    // construction from sum of hi‐ and lo-parts
-    static inline dd makeFromSum(double hi_part, double lo_part) {
-        // first do a fast two‐sum of hi_part + lo_part
-        return fastTwoSum(hi_part, lo_part);
     }
 
     // addition
@@ -172,56 +183,17 @@ inline dd imag( const dd &a ) { return 0.0; }
 inline dd real( const dd &a ) { return a;   }
 
 inline std::ostream & operator<<(std::ostream &os, dd const &a) {
-    // save state
-    std::ios_base::fmtflags  f = os.flags();
-    std::streamsize          p = os.precision();
-
-    // we print hi and lo each with max_digits10 so that
-    // a double→string→double round-trip is exact
-    constexpr int D = std::numeric_limits<double>::max_digits10;
-    os << "(" 
-       << std::setprecision(D) << a.hi 
-       << ", " 
-       << std::setprecision(D) << a.lo 
-       << ")";
-
-    // restore state
-    os.flags(f);
-    os.precision(p);
+    os << a.hi;
     return os;
 }
 
 }
-
-
-// inline bool operator==(const richol::dd &a, double b) noexcept { return (a.hi == b) && (a.lo == 0.0); }
-// inline bool operator==(double a, const richol::dd &b) noexcept { return (a == b.hi) && (b.lo == 0.0); }
-// inline bool operator!=(const richol::dd &a, double b) noexcept { return !(a == b); }
-// inline bool operator!=(double a, const richol::dd &b) noexcept { return !(a == b); }
-// inline bool operator<(const richol::dd &a, double b) noexcept { 
-//   if (a.hi < b) return true; 
-//   if (a.hi > b) return false; 
-//   return a.lo < 0.0; 
-// }
-// inline bool operator<(double a, const richol::dd &b) noexcept {
-//   if (a < b.hi) return true;
-//   if (a > b.hi) return false;
-//   return 0.0 < b.lo;
-// }
-// inline bool operator>(const richol::dd &a, double b) noexcept { return b < a; }
-// inline bool operator>(double a, const richol::dd &b) noexcept { return b < a; }
-// inline bool operator<=(const richol::dd &a, double b) noexcept { return !(b < a); }
-// inline bool operator<=(double a, const richol::dd &b) noexcept { return !(b < a); }
-// inline bool operator>=(const richol::dd &a, double b) noexcept { return !(a < b); }
-// inline bool operator>=(double a, const richol::dd &b) noexcept { return !(a < b); }
 
 using richol::dd;
 using richol::sqrt;
 using richol::abs;
 using richol::real;
 using richol::imag;
-using std::abs;
-using std::sqrt;
 
 namespace std {
 
@@ -262,22 +234,9 @@ public:
               std::numeric_limits<double>::max() * std::numeric_limits<double>::epsilon());
   }
 
-  // machine‐epsilon for dd:
-  //   the difference between 1.0 and the next representable dd > 1.0
-  //
-  //   in a normalized double‐double the smallest increment at 1.0
-  //   lives entirely in the low word, and is exactly
-  //      std::numeric_limits<double>::denorm_min()
   static dd epsilon() noexcept {
     return dd(0.0, std::numeric_limits<double>::denorm_min());
   }
-
-//   // you can fill in more if you need them:
-//   static dd round_error() noexcept { return dd(0.5); }
-//   static int   min_exponent       = std::numeric_limits<double>::min_exponent;
-//   static int   max_exponent       = std::numeric_limits<double>::max_exponent;
-//   static int   min_exponent10     = std::numeric_limits<double>::min_exponent10;
-//   static int   max_exponent10     = std::numeric_limits<double>::max_exponent10;
 
 };
 
