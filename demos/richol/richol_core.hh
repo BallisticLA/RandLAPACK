@@ -1,5 +1,6 @@
 #pragma once
 
+#include "richol_dd.hh"
 #include <RandLAPACK.hh>
 #include <blas.hh>
 #include <vector>
@@ -27,7 +28,7 @@ using RandBLAS::sparse_data::reserve_coo;
 using RandBLAS::CSCMatrix;
 using RandBLAS::COOMatrix;
 using RandBLAS::sparse_data::conversions::coo_to_csr;
-
+using std::sqrt;
 
 
 template <typename ScalarType, typename OrdinalType>
@@ -74,6 +75,7 @@ struct SparseVec {
     }
 
     void coallesce(scalar_t threshold = std::numeric_limits<scalar_t>::epsilon()) {
+        using std::abs;
         int64_t sz = static_cast<int64_t>(size());
         if (sz <= 1) return;
         auto ascending_ind = [](const comp_t &ca, const comp_t &cb){ return ca.ind < cb.ind; };
@@ -96,7 +98,7 @@ struct SparseVec {
         sz = 0;
         for (int i = 0; i < num_distinct_ind; ++i) {
             const auto &c = data[i];
-            if (std::abs(c.val) >= threshold) {
+            if (abs(c.val) >= threshold) {
                 data[sz] = c;
                 ++sz;
             }
@@ -248,6 +250,7 @@ typename spvec_t::ordinal_t abstract_cholesky(
     int64_t reserve = -1
 ) {
     using ordinal_t = typename spvec_t::ordinal_t;
+    using scalar_t  = typename spvec_t::scalar_t;
     auto n = static_cast<ordinal_t>( M.size() );
     C.clear();
     C.resize(n);
@@ -264,7 +267,7 @@ typename spvec_t::ordinal_t abstract_cholesky(
         assert( k == _k );
         if (should_stop( vk, k ))
             break;
-        xbapy( v, std::sqrt(vk), k, C );
+        xbapy( v, sqrt(vk), k, C );
         downdate( v, M );
         k += 1;
     }
@@ -354,7 +357,7 @@ void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<sca
     if (num_neighbors > 1) {
         auto w_sum_work  = w_sum;
         auto cdf = cdf_vec.data();
-        scal(num_neighbors, 1.0/w_sum, cdf, 1);
+        scal(num_neighbors, (scalar_t) 1.0 / w_sum, cdf, 1);
         ell = 0;
         int64_t sample_ind;
         auto num_neighbors_64t = static_cast<int64_t>(num_neighbors);
@@ -597,7 +600,7 @@ COOMatrix<T> from_matrix_market(std::string fn) {
     int64_t n_rows, n_cols = 0;
     std::vector<int64_t> rows{};
     std::vector<int64_t> cols{};
-    std::vector<T> vals{};
+    std::vector<double> vals{};
 
     std::ifstream file_stream(fn);
     fast_matrix_market::read_matrix_market_triplet(
@@ -609,7 +612,7 @@ COOMatrix<T> from_matrix_market(std::string fn) {
     for (int i = 0; i < out.nnz; ++i) {
         out.rows[i] = rows[i];
         out.cols[i] = cols[i];
-        out.vals[i] = vals[i];
+        out.vals[i] = (T) vals[i];
     }
     return out;
 }
@@ -681,7 +684,7 @@ void permuted(const CSRMatrix<scalar_t, sint_t> &A, const std::vector<sint_t> &p
 }
 
 
-template <typename CSR_t = CSRMatrix<double, int64_t>>
+template <typename CSR_t>
 void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
     perm.resize(A.n_rows);
     int64_t result;
@@ -696,6 +699,7 @@ void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
     }
     return;
 }
+
 
 template<typename T, typename sint_t>
 void filter_triangle(COOMatrix<T, sint_t> &A, blas::Uplo uplo) {
@@ -789,12 +793,12 @@ SpMat<T,sint_t> dichol(const COOMatrix<T,sint_t> &orig, blas::Uplo uplo) {
         // scale each column j by 1/sqrt(d[j])
         for (int64_t p = 0; p < A.nnz; ++p) {
           int64_t j = A.colidxs[p];
-          A.vals[p] *= T(1)/std::sqrt(d[j]);
+          A.vals[p] *= T(1)/sqrt(d[j]);
         }
       } else {
         // scale each row i by 1/sqrt(d[i])
         for (int64_t i = 0; i < n; ++i) {
-          T w = T(1)/std::sqrt(d[i]);
+          T w = T(1)/sqrt(d[i]);
           for (int64_t p = A.rowptr[i]; p < A.rowptr[i+1]; ++p)
             A.vals[p] *= w;
         }
@@ -804,7 +808,7 @@ SpMat<T,sint_t> dichol(const COOMatrix<T,sint_t> &orig, blas::Uplo uplo) {
       if (uplo == blas::Uplo::Lower) {
         // scale each column j by 1/sqrt(d[j])
         for (int64_t j = 0; j < n; ++j) {
-          T w = T(1)/std::sqrt(d[j]);
+          T w = T(1)/sqrt(d[j]);
           for (int64_t p = A.colptr[j]; p < A.colptr[j+1]; ++p)
             A.vals[p] *= w;
         }
@@ -813,7 +817,7 @@ SpMat<T,sint_t> dichol(const COOMatrix<T,sint_t> &orig, blas::Uplo uplo) {
         for (int64_t j = 0; j < n; ++j) {
           for (int64_t p = A.colptr[j]; p < A.colptr[j+1]; ++p) {
             int64_t i = A.rowidxs[p];
-            A.vals[p] *= T(1)/std::sqrt(d[i]);
+            A.vals[p] *= T(1)/sqrt(d[i]);
           }
         }
       }
