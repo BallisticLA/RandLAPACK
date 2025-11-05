@@ -244,44 +244,49 @@ int64_t posm_square(
         return n;
     }
 
-    // Try Cholesky (store a backup of LHS into "work")
-    std::copy(LHS, LHS + n*n, work);
-    int chol_err = lapack::potrf(uplo, n, LHS, n);
-    if (!chol_err) {
-        blas::trsm(
-            layout, Side::Left, uplo, Op::NoTrans,
-            Diag::NonUnit, n, n, 1.0, LHS, n, RHS, n
-        ); // L y = b
-        blas::trsm(
-            layout, Side::Left, uplo, Op::Trans,
-            Diag::NonUnit, n, n, 1.0, LHS, n, RHS, n
-        ); // L^T x = y
-        return n;
-    } 
-    // Cholesky failed.
-    //      apply pinv(LHS) * RHS by computing an eigendecomposition of LHS.
-    T* LHS_eigvecs = work;
-    T* LHS_eigvals = LHS;
-    int ker = psd_sqrt_pinv(n, LHS_eigvecs, n, LHS_eigvals);
-    if (ker < 0) {
-        return ker;
-    } else if (ker == n) {
-        for (int i = 0; i < n*n; ++i) {
-            RHS[i] = 0.0;
+    constexpr bool lapack_ok = std::is_same<T, float>::value || std::is_same<T, double>::value;
+    if constexpr (lapack_ok) {
+        // Try Cholesky (store a backup of LHS into "work")
+        std::copy(LHS, LHS + n*n, work);
+        int chol_err = lapack::potrf(uplo, n, LHS, n);
+        if (!chol_err) {
+            blas::trsm(
+                layout, Side::Left, uplo, Op::NoTrans,
+                Diag::NonUnit, n, n, (T) 1.0, LHS, n, RHS, n
+            ); // L y = b
+            blas::trsm(
+                layout, Side::Left, uplo, Op::Trans,
+                Diag::NonUnit, n, n, (T) 1.0, LHS, n, RHS, n
+            ); // L^T x = y
+            return n;
+        } 
+        // Cholesky failed. Whether we can meaningfully handle this case 
+        // depends on if LAPACK can handle the type T.
+        //  apply pinv(LHS) * RHS by computing an eigendecomposition of LHS.
+        T* LHS_eigvecs = work;
+        T* LHS_eigvals = LHS;
+        int ker = psd_sqrt_pinv(n, LHS_eigvecs, n, LHS_eigvals);
+        if (ker < 0) {
+            return ker;
         }
+        if (ker == n) {
+            std::fill(RHS, RHS + n*n, 0.0);
+            return 0;
+        }
+        int rank = n - ker;
+        T* pinv_sqrt = &LHS_eigvecs[ker * n];
+        // pinv_sqrt is n-by-rank, and pinv(LHS) = pinv_sqrt * (pinv_sqrt').
+        blas::gemm(
+            layout, Op::Trans, Op::NoTrans, rank, n, n, (T) 1.0, pinv_sqrt, n, RHS, n,  (T) 0.0, work, rank
+        ); // work <- pinv_sqrt' * RHS
+        blas::gemm(
+            layout, Op::NoTrans, Op::NoTrans, n, n, rank, (T) 1.0, pinv_sqrt, n, work, rank, (T) 0.0, RHS, n
+        ); // RHS <- pinv_sqrt * work
+        return rank;
+    } else {
+        std::fill(RHS, RHS + n*n, 0.0);
         return 0;
     }
-    int rank = n - ker;
-    T* pinv_sqrt = &LHS_eigvecs[ker * n];
-    
-    // pinv_sqrt is n-by-rank, and pinv(LHS) = pinv_sqrt * (pinv_sqrt').
-    blas::gemm(
-        layout, Op::Trans, Op::NoTrans, rank, n, n, 1.0, pinv_sqrt, n, RHS, n,  0.0, work, rank
-    ); // work <- pinv_sqrt' * RHS
-    blas::gemm(
-        layout, Op::NoTrans, Op::NoTrans, n, n, rank, 1.0, pinv_sqrt, n, work, rank, 0.0, RHS, n
-    ); // RHS <- pinv_sqrt * work
-    return rank;
 }
 
 
@@ -394,7 +399,7 @@ void pcg(
     T* X,
     bool verbose,
     callback_t &callback,
-    int64_t recompute_interval = 25
+    int64_t recompute_interval = 0
 ) {
     int64_t n = G.dim;
     int64_t ns = n*s;
@@ -481,7 +486,7 @@ void pcg(
         blas::gemm(layout, Op::NoTrans, Op::NoTrans, n, s, s, (T) -1.0, GP, n, alpha, s, (T) 1.0, R, n
         ); // R <- R - GP alpha
 
-        if (recompute_interval > 0 && k % recompute_interval == 0) {
+        if (recompute_interval > 0 && (k+1) % recompute_interval == 0) {
             G(layout, s, (T) 1.0, X, n, (T) 0.0, GP, n
             ); // GP <- G X
             std::copy(H, H + ns, R

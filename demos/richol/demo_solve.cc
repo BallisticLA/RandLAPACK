@@ -50,12 +50,16 @@ CSRMatrix<T> identity_as_csr(int64_t n) {
 template <typename T>
 vector<T> vector_from_matrix_market(std::string fn) {
     int64_t n_rows, n_cols = 0;
-    vector<T> vals{};
+    vector<double> vals{};
     std::ifstream file_stream(fn);
     fast_matrix_market::read_matrix_market_array(
         file_stream, n_rows, n_cols, vals, fast_matrix_market::col_major
     );
-    return vals;
+    vector<T> out_vals{};
+    for (auto &v : vals) {
+        out_vals.push_back((T)v);
+    }
+    return out_vals;
 }
 
 template <typename T>
@@ -73,7 +77,7 @@ std::pair<vector<T>,vector<T>> setup_pcg_vecs(std::string &datadir, vector<int64
 template <typename T>
 COOMatrix<T> read_negative_M_matrix(std::string &datadir) {
     auto A_coo = richol::from_matrix_market<T>(datadir + "/p_rgh_matrix_A.mtx");
-    blas::scal(A_coo.nnz, -1, A_coo.vals, 1);
+    std::for_each(A_coo.vals, A_coo.vals + A_coo.nnz, [](T &a) { a*= -1; return; } );
     T reg = 0.0;
     bool offdiag_of_A_is_nonpos = true;
     for (int64_t i = 0; i < A_coo.nnz; ++i) {
@@ -121,7 +125,7 @@ void log_residual_info(LPINV_t &Lpinv, std::ostream &stream, const std::string &
 
 
 int main(int argc, char** argv) {
-    using T = double;
+    using T = richol::dd;
     
     std::string datadir = "./";
     if (argc > 1) {
@@ -155,7 +159,7 @@ int main(int argc, char** argv) {
     inv_identity.validate();
 
 
-    int64_t max_iters = 400;
+    int64_t max_iters = 541;
 
     auto [x0, b] = setup_pcg_vecs<T>(datadir, perm);
     T pcg_tol = 0.0;
@@ -166,7 +170,7 @@ int main(int argc, char** argv) {
         LaplacianPinv Lpinv(A_callable, inv_richol, pcg_tol, max_iters, false);
         
         TIMED_LINE(
-        Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
+        Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
         std::cout << std::endl;
         log_residual_info(Lpinv, std::cout, "richol");
     }
@@ -177,7 +181,7 @@ int main(int argc, char** argv) {
         LaplacianPinv Lpinv(A_callable, inv_dichol, pcg_tol, max_iters, false);
         
         TIMED_LINE(
-        Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
+        Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
         std::cout << std::endl;
         log_residual_info(Lpinv, std::cout, "dichol");
     }
@@ -188,7 +192,7 @@ int main(int argc, char** argv) {
         LaplacianPinv Lpinv(A_callable, inv_identity, pcg_tol, max_iters, false);
         
         TIMED_LINE(
-        Lpinv(blas::Layout::ColMajor, 1, 1.0, b.data(), n, 0.0, x.data(), n), "Linear solve: ");
+        Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
         std::cout << std::endl;
         log_residual_info(Lpinv, std::cout, "identity");
     }

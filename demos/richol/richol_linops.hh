@@ -1,5 +1,6 @@
 #pragma once
 
+#include "richol_dd.hh"
 #include "RandLAPACK.hh"
 #include "RandBLAS/sparse_data/trsm_dispatch.hh"
 #include "RandLAPACK/comps/rl_determiter.hh"
@@ -32,6 +33,7 @@ using RandBLAS::sparse_data::trsm_matrix_validation;
 // )
 using RandBLAS::sparse_data::SparseMatrix;
 using std::vector;
+
 
 //#define FINE_GRAINED
 
@@ -83,7 +85,7 @@ struct CallableSpMat {
     vector<T> unit_ones_stdvec{};
     T* work_n = nullptr;
     vector<T> work_n_stdvec{};
-    vector<T> times{};
+    vector<double> times{};
     const int64_t num_ops = 1;
     bool project_out = false;
 
@@ -99,7 +101,7 @@ struct CallableSpMat {
             work_n_stdvec.resize(n);
             work = work_stdvec.data();
             unit_ones = unit_ones_stdvec.data();
-            T val = std::pow((T)dim, -0.5);
+            T val = (T)1.0 / sqrt<T>(dim);
             std::fill(unit_ones, unit_ones + dim, val);
             work_n = work_n_stdvec.data();
             n_work = n;
@@ -147,7 +149,7 @@ struct CallableChoSolve {
         if (work_n == nullptr) {
             unit_ones_stdvec.resize(dim);
             unit_ones = unit_ones_stdvec.data();
-            T val = std::pow((T)dim, -0.5);
+            T val = (T)1.0 / sqrt<T>(dim);
             std::fill(unit_ones, unit_ones + dim, val);
             work_n_stdvec.resize(n);
             work_n = work_n_stdvec.data();
@@ -200,11 +202,11 @@ struct LaplacianPinv {
         L_callable(L),
         N_callable(N),
         verbose_pcg(verbose),
-        times(4, 0.0),
+        times(4, (double)0.0),
         call_pcg_tol(pcg_tol),
         max_iters((int64_t) maxit)
     {
-        L_callable.project_out = L.project_out;
+        L_callable.project_out = false;
     }; 
 
     //  Use PCG to approximately compute C =: alpha * inv(L) * B, where C and B have "n" columns.
@@ -241,13 +243,14 @@ struct LaplacianPinv {
         T* rw_L1u = rw_1u  + dim;           // shape (dim,).
         T* rw_1uX = rw_L1u + dim;           // shape (n,)
 
-        std::fill(rw_1u, rw_1u + dim, std::pow((T)dim, -0.5));
+        std::fill(rw_1u, rw_1u + dim, (T)1.0 / sqrt<T>(dim));
         L_callable(Layout::ColMajor, 1, (T)1.0, rw_1u, dim, (T)0.0, rw_L1u, dim);
 
 
         auto callback = [this, &n, &rw_Z, &rw_1u, &rw_L1u, &rw_1uX] (
             int64_t __dim, int64_t __n, T normR, T normNR, const T* X, const T* H, const T* R, const T* NR
         ) { 
+            using std::abs;
             UNUSED(__dim); UNUSED(__n); UNUSED(NR);
             /**
              * This callback records normR, normNR, and the OpenFOAM scalar residual.
@@ -272,11 +275,11 @@ struct LaplacianPinv {
             blas::ger(Layout::ColMajor, dim, n, (T) -1.0, rw_L1u, 1, rw_1uX, 1, rw_Z, dim
             ); // rw_Z -= rw_L1u * rw_1uX'
             T denominator = 0.0;
-            T numerator = 0.0;
+            T numerator   = 0.0;
             for (int64_t i = 0; i < dim*n; ++i) {
-                denominator += std::abs(rw_Z[i]);
-                denominator += std::abs(rw_Z[i] - R[i]);
-                numerator   += std::abs(R[i]);
+                denominator += abs(rw_Z[i]);
+                denominator += abs(rw_Z[i] - R[i]);
+                numerator   += abs(R[i]);
             }
             openfoam_norms.push_back(numerator / denominator);
             pcg_res_norms.push_back(normR);
@@ -302,7 +305,7 @@ struct LaplacianPinv {
         N_callable.times.clear();
         auto num_iters = static_cast<int64_t>(pcg_res_norms.size()) - 1;
         times[2] += seconds_elapsed(t0, t1);
-        times[3] += (T) num_iters;
+        times[3] += (double) num_iters;
         std::cout << std::left 
         << std::setw(10) << num_iters
         << std::setw(15) << pcg_res_norms[num_iters] / pcg_res_norms[0] << std::endl;
@@ -322,7 +325,7 @@ struct IdentityMatrix {
     int64_t num_ops = 1;
     const int64_t dim;
     vector<double> times{};
-    IdentityMatrix(int64_t _n) : dim(_n), times(4,(T)0.0) { }
+    IdentityMatrix(int64_t _n) : dim(_n), times(4, (double)0.0) { }
     void operator()(blas::Layout ell, int64_t _n, T alpha, T* const _B, int64_t _ldb, T beta, T* _C, int64_t _ldc) {
         randblas_require(ell == blas::Layout::ColMajor);
         UNUSED(_ldb); UNUSED(_ldc);
