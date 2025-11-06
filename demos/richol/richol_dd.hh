@@ -1,6 +1,10 @@
 #pragma once
 
-#include <cmath> 
+#ifdef USE_BOOST
+#include <boost/multiprecision/cpp_bin_float.hpp>
+#endif
+
+#include <cmath>
 #include <ostream>
 #include <iomanip>
 #include <limits>
@@ -10,6 +14,20 @@ namespace richol {
 
 using std::abs;
 using std::sqrt;
+
+#ifdef USE_BOOST
+
+// alias dd to Boost’s pure-C++ quadruple-precision binary float
+using dd = boost::multiprecision::cpp_bin_float_quad;
+
+// import the usual math functions into our namespace:
+inline dd sqrt(dd const &x) { return boost::multiprecision::sqrt(x); }
+inline dd abs (dd const &x) { return boost::multiprecision::abs (x); }
+// for compatibility with complex interfaces:
+inline dd real(dd const &x) noexcept { return x; }
+inline dd imag(dd const &)    noexcept { return dd(0); }
+
+#else
 
 struct dd {
     double hi, lo;  
@@ -120,43 +138,27 @@ struct dd {
     double to_double() const { return hi + lo; }
 };
 
-//---------------------------------------------------------------------
-// Comparison operators for double-double (dd)
-//---------------------------------------------------------------------
-
-// equality
 inline bool operator==(const dd &a, const dd &b) noexcept {
   return (a.hi == b.hi) && (a.lo == b.lo);
 }
-
-// inequality
 inline bool operator!=(const dd &a, const dd &b) noexcept {
   return !(a == b);
 }
-
-// less-than
 inline bool operator<(const dd &a, const dd &b) noexcept {
   if      (a.hi <  b.hi) return true;
   else if (a.hi >  b.hi) return false;
   else                   return a.lo < b.lo;
 }
-
-// greater-than
 inline bool operator>(const dd &a, const dd &b) noexcept {
   return b < a;
 }
-
-// less-than or equal
 inline bool operator<=(const dd &a, const dd &b) noexcept {
   return !(b < a);
 }
-
-// greater-than or equal
 inline bool operator>=(const dd &a, const dd &b) noexcept {
   return !(a < b);
 }
 
-/// free‐function sqrt for dd (found by ADL)
 inline dd sqrt(const dd &a) {
     // domain checks
     if (a.hi < 0.0) {
@@ -179,7 +181,7 @@ inline dd abs( const dd &a ) noexcept {
     return a;
 }
 
-inline dd imag( const dd &a ) { return 0.0; }
+inline dd imag( const dd &  ) { return 0.0; }
 inline dd real( const dd &a ) { return a;   }
 
 inline std::ostream & operator<<(std::ostream &os, dd const &a) {
@@ -187,13 +189,17 @@ inline std::ostream & operator<<(std::ostream &os, dd const &a) {
     return os;
 }
 
-}
+#endif
+
+} // end namespace richol::
 
 using richol::dd;
 using richol::sqrt;
 using richol::abs;
 using richol::real;
 using richol::imag;
+
+#ifndef USE_BOOST
 
 namespace std {
 
@@ -241,3 +247,5 @@ public:
 };
 
 } // namespace std
+
+#endif

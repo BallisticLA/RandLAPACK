@@ -41,7 +41,6 @@ include_directories(${AMD_INCLUDE_DIRS})
 message(STATUS "AMD include directories: ${AMD_INCLUDE_DIRS}")
 message(STATUS "Done checking for SuiteSparse::AMD.")
 
-
 function(add_demo)
     set(OPTS)
     set(NVPO NAME)
@@ -49,7 +48,6 @@ function(add_demo)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
     target_compile_options(${TGT_NAME} PRIVATE "-O2")
-    target_include_directories(${TGT_NAME} PUBLIC ${Benchmark_include_dirs} ${RChol_INCLUDE_DIRS})
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
 endfunction()
@@ -70,6 +68,25 @@ set(
     fast_matrix_market::fast_matrix_market
     SuiteSparse::AMD
 )
+
+if (DEFINED USE_BOOST)
+FetchContent_Declare(
+  boost_config
+  GIT_REPOSITORY https://github.com/boostorg/config.git
+  GIT_TAG        boost-1.89.0
+  GIT_SHALLOW    TRUE
+)
+FetchContent_Declare(
+  boost_multiprecision
+  GIT_REPOSITORY https://github.com/boostorg/multiprecision.git
+  GIT_TAG        boost-1.89.0
+  GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(boost_config boost_multiprecision)
+set(
+    main_libs ${main_libs} boost_config boost_multiprecision
+)
+endif()
 
 set(richol_headers
     richol/richol_core.hh
