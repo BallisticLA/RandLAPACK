@@ -250,7 +250,6 @@ typename spvec_t::ordinal_t abstract_cholesky(
     int64_t reserve = -1
 ) {
     using ordinal_t = typename spvec_t::ordinal_t;
-    using scalar_t  = typename spvec_t::scalar_t;
     auto n = static_cast<ordinal_t>( M.size() );
     C.clear();
     C.resize(n);
