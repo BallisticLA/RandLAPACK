@@ -46,7 +46,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
 
         using Subroutines = CQRRPTSubroutines;
 
-        /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
+        /// The algorithm allows for choosing how QRCP is implemented: either through LAPACK's GEQP3
         /// or through a custom HQRRP function, or through BQRRP function. GEQP3 is the default option.
         CQRRPT(
             bool time_subroutines,
@@ -97,7 +97,7 @@ class CQRRPT : public CQRRPTalg<T, RNG> {
         ///     Zero entries are not compressed.
         ///
         /// @param[out] J
-        ///     Stores k integer type pivot index extries.
+        ///     Stores k integer type pivot index entries.
         ///
         /// @return = 0: successful exit
         ///

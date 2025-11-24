@@ -61,7 +61,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         /// Depending on the user's choice for the subroutines, this framework can define versions of the practical 
         ///
         /// The core subroutines in question are:
-        ///     1. qrcp_wide     - epresents a column-pivoted QR factorization method, suitable for wide matrices -- for now, no options other than the default LUQR is offered;
+        ///     1. qrcp_wide     - represents a column-pivoted QR factorization method, suitable for wide matrices -- for now, no options other than the default LUQR is offered;
         ///     2. rank_est      - aims to estimate the exact rank of the given matrix -- for now, no options other than the default naive is offered;
         ///     3. col_perm      - responsible for permuting the columns of a given matrix in accordance with the indices stored in a given vector;
         ///     4. qr_tall       - performs a tall unpivoted QR factorization;
@@ -115,7 +115,7 @@ class BQRRP_GPU : public BQRRP_GPU_alg<T, RNG> {
         ///     On output, similar in format to that in GEQP3.
         ///
         /// @param[out] J
-        ///     Stores k integer type pivot index extries.
+        ///     Stores k integer type pivot index entries.
         ///
         /// @return = 0: successful exit
         ///
@@ -222,9 +222,9 @@ int BQRRP_GPU<T, RNG>::call(
     int64_t sampling_dimension = d;
     // An indicator for whether all entries in a given block are zero.
     bool block_zero = true;
-    // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration, 
-    // since the rest of the matrx must be zero.
-    // Is equal to block size by default, needs to be upated if the block size has changed.
+    // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration,
+    // since the rest of the matrix must be zero.
+    // Is equal to block size by default, needs to be updated if the block size has changed.
     int64_t block_rank = b_sz;
 
     /******************************STREAM/QUEUE/HANDLE*********************************/
