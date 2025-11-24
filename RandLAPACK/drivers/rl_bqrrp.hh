@@ -49,7 +49,7 @@ class BQRRP : public BQRRPalg<T, RNG> {
         /// Depending on the user's choice for the subroutines, this framework can define versions of the practical 
         ///
         /// The core subroutines in question are:
-        ///     1. qrcp_wide     - epresents a column-pivoted QR factorization method, suitable for wide matrices;
+        ///     1. qrcp_wide     - represents a column-pivoted QR factorization method, suitable for wide matrices;
         ///     2. rank_est      - aims to estimate the exact rank of the given matrix -- for now, no Subroutines other than the default naive is offered;
         ///     3. col_perm      - responsible for permuting the columns of a given matrix in accordance with the indices stored in a given vector;
         ///     4. qr_tall       - performs a tall unpivoted QR factorization;
@@ -106,7 +106,7 @@ class BQRRP : public BQRRPalg<T, RNG> {
         ///     On output, similar in format to that in GEQP3.
         ///
         /// @param[out] J
-        ///     Stores k integer type pivot index extries.
+        ///     Stores k integer type pivot index entries.
         ///
         /// @return = 0: successful exit
         ///
@@ -211,9 +211,9 @@ int BQRRP<T, RNG>::call(
     int64_t sampling_dimension = d;
     // An indicator for whether all entries in a given block are zero.
     bool block_zero            = true;
-    // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration, 
-    // since the rest of the matrx must be zero.
-    // Is equal to block size by default, needs to be upated if the block size has changed.
+    // Rank of a block at a given iteration. If it changes, algorithm would iterate at the given iteration,
+    // since the rest of the matrix must be zero.
+    // Is equal to block size by default, needs to be updated if the block size has changed.
     int64_t block_rank         = b_sz;
     // Parameter to control number of blocks in orhr_col and gemqrt;
     int64_t internal_nb        = this -> internal_nb;
@@ -441,6 +441,7 @@ int BQRRP<T, RNG>::call(
 
             // Performing tall QR on a panel
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, block_rank, rows, (T) 1.0, A_work, lda, (T) 0.0, R_tall_qr, b_sz_const);
+            // NOTE: No error checking needed - algorithm handles potrf failure gracefully
             lapack::potrf(Uplo::Upper, block_rank, R_tall_qr, b_sz_const);
             // Compute Q_econ from tall QR
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, rows, block_rank, (T) 1.0, R_tall_qr, b_sz_const, A_work, lda);

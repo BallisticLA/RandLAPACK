@@ -218,7 +218,7 @@ T cond_num_check(
     return cond_num;
 }
 
-// Computes the numerical rank of a given matirx
+// Computes the numerical rank of a given matrix
 template <typename T>
 int64_t rank_check(
     int64_t m,

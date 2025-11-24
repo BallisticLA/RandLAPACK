@@ -43,7 +43,7 @@ template <typename T, typename RNG>
 class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
     public:
 
-        /// The algorithm allows for choosing how QRCP is emplemented: either thropught LAPACK's GEQP3
+        /// The algorithm allows for choosing how QRCP is implemented: either through LAPACK's GEQP3
         /// or through a custom HQRRP function. This decision is controlled through 'no_hqrrp' parameter,
         /// which defaults to 1.
         ///
@@ -105,7 +105,7 @@ class CQRRPT_GPU : public CQRRPT_GPU_alg<T, RNG> {
         ///     Zero entries are not compressed.
         ///
         /// @param[out] J
-        ///     Stores k integer type pivot index extries.
+        ///     Stores k integer type pivot index entries.
         ///
         /// @return = 0: successful exit
         ///
