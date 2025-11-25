@@ -1,4 +1,3 @@
-set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(BUILD_SHARED_LIBS OFF "Configure to build shared or static libraries")
