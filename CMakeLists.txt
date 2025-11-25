@@ -43,6 +43,8 @@ include(rl_version)
 
 # Find dependencies
 find_package(lapackpp REQUIRED)
+# Cache lapackpp location for downstream consumers
+set(RandLAPACK_lapackpp_DIR "${lapackpp_DIR}" CACHE INTERNAL "Location of lapackpp for RandLAPACK consumers")
 
 # Configure RandBLAS subproject
 add_subdirectory(RandBLAS)
