@@ -13,6 +13,9 @@ endif()
 find_dependency(RandBLAS)
 
 # lapack++
+if (NOT lapackpp_DIR)
+    set(lapackpp_DIR "@RandLAPACK_lapackpp_DIR@")
+endif()
 find_dependency(lapackpp)
 
 include(RandLAPACK)
