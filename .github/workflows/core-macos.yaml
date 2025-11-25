@@ -78,7 +78,7 @@ jobs:
           mkdir benchmark-build
           cd benchmark-build
           cmake -DCMAKE_BINARY_DIR=`pwd` \
-            -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake \
+            -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake/RandLAPACK \
             ../RandLAPACK/benchmark
           make -j2
 
