@@ -26,6 +26,9 @@ if (RequireCUDA)
         if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
             set(CMAKE_CUDA_ARCHITECTURES all-major)
         endif()
+
+        # Add required CUDA flags for RandLAPACK code
+        set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
     else()
         message(STATUS "CUDA not found. Continuing without CUDA support.")
     endif()

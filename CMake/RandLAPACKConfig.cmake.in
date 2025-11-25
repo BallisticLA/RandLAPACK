@@ -18,4 +18,4 @@ if (NOT lapackpp_DIR)
 endif()
 find_dependency(lapackpp)
 
-include(RandLAPACK)
+include("${CMAKE_CURRENT_LIST_DIR}/RandLAPACKTargets.cmake")
