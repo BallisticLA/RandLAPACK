@@ -3,6 +3,10 @@ cmake_minimum_required(VERSION 3.27)
 # Set project without CUDA language by default
 project(RandLAPACK LANGUAGES CXX)
 
+# Set C++ standard for entire project
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Set optional RequireCUDA flag (defaults to OFF)
 option(RequireCUDA "Require CUDA support" OFF)
 
