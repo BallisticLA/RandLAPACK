@@ -5,7 +5,6 @@ set(RandLAPACK_VERSION "@RandLAPACK_VERSION@")
 set(RandLAPACK_VERSION_MAJOR "@RandLAPACK_VERSION_MAJOR@")
 set(RandLAPACK_VERSION_MINOR "@RandLAPACK_VERSION_MINOR@")
 set(RandLAPACK_VERSION_PATCH "@RandLAPACK_VERSION_PATCH@")
-set(RandLAPACK_VERSION_DEVEL "@RandLAPACK_VERSION_DEVEL@")
 
 # randblas
 if (NOT RandBLAS_DIR)
@@ -14,9 +13,6 @@ endif()
 find_dependency(RandBLAS)
 
 # lapack++
-if (NOT lapackpp_DIR)
-    set(lapackpp_DIR @lapackpp_DIR@)
-endif()
 find_dependency(lapackpp)
 
 include(RandLAPACK)
