@@ -1,6 +1,6 @@
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(BUILD_SHARED_LIBS OFF "Configure to build shared or static libraries")
+option(BUILD_SHARED_LIBS "Configure to build shared or static libraries" OFF)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release"
@@ -18,7 +18,7 @@ if (OpenMP_CXX_FOUND)
     set(tmp TRUE)
 endif()
 
-set(RandBLAS_HAS_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
+set(RandBLAS_HAS_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP" FORCE)
 message(STATUS "Checking for OpenMP ... ${RandBLAS_HAS_OpenMP}")
 
 include(GNUInstallDirs)

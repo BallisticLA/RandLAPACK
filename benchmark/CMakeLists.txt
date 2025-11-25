@@ -1,10 +1,13 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.21)
 
 project(benchmark)
 
 # Benchmark is a standalone project, needs its own C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Include GNUInstallDirs for standard installation directories
+include(GNUInstallDirs)
 
 message(STATUS "Checking for OpenMP ... ")
 find_package(OpenMP COMPONENTS CXX)
@@ -53,7 +56,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(eigen_lib)
 # Exporting Eigen target.
-install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION lib/cmake/Eigen3)
+install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Eigen3)
 
 # SPECTRA dependency
 FetchContent_Declare(
