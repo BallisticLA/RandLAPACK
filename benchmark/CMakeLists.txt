@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.10)
 
 project(benchmark)
 
+# Benchmark is a standalone project, needs its own C++ standard
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 message(STATUS "Checking for OpenMP ... ")
 find_package(OpenMP COMPONENTS CXX)
 set(tmp FALSE)
