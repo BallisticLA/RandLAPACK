@@ -25,7 +25,6 @@ if (RequireCUDA)
 
         # Include CUDA-specific files or flags
         include(compiler_flags)
-        include(find_cuda)
     else()
         message(STATUS "CUDA not found. Continuing without CUDA support.")
     endif()
