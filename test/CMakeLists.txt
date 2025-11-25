@@ -4,6 +4,8 @@ find_package(GTest)
 set(tmp FALSE)
 if (GTest_FOUND)
     set(tmp TRUE)
+else()
+    message(WARNING "GTest not found - tests will be disabled. Install GTest to enable regression tests.")
 
     set(RandLAPACK_test_srcs
         moremats.hh

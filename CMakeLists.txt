@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.27)
+cmake_minimum_required(VERSION 3.21)
 
 # Set project without CUDA language by default
 project(RandLAPACK LANGUAGES CXX)
@@ -15,8 +15,7 @@ if (RequireCUDA)
     if (CUDAToolkit_FOUND)
         message(STATUS "CUDA found! Enabling CUDA support.")
         enable_language(CUDA)
-        
-        set(CUDA_VISIBILITY_PRESET hidden)
+
         set(CMAKE_CUDA_STANDARD 20)
         set(CMAKE_CUDA_STANDARD_REQUIRED ON)
         set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
@@ -27,22 +26,19 @@ if (RequireCUDA)
         if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
             set(CMAKE_CUDA_ARCHITECTURES all-major)
         endif()
-
-        # Add general CMake module paths
-        list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
-        list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
-
-        # Include CUDA-specific files or flags
-        include(compiler_flags)
     else()
         message(STATUS "CUDA not found. Continuing without CUDA support.")
     endif()
 else()
     message(STATUS "CUDA support not required.")
-    # Add general CMake module paths
-    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
-    list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 endif()
+
+# Add general CMake module paths (needed regardless of CUDA)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
+
+# Include compiler flags (needed for both CUDA and non-CUDA builds)
+include(compiler_flags)
 
 # Configure the build
 enable_testing()
