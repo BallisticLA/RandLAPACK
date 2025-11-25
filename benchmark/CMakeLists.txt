@@ -41,7 +41,7 @@ function(add_benchmark)
     cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
     add_executable(${TGT_NAME} ${TGT_CXX_SOURCES})
     target_compile_options(${TGT_NAME} PRIVATE "-g")
-    target_include_directories(${TGT_NAME} PUBLIC ${Benchmark_include_dirs})
+    # Include directories come from target_link_libraries, no need to set manually
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
 endfunction()
@@ -83,13 +83,13 @@ FetchContent_MakeAvailable(
 
 set(
     Benchmark_libs
-    RandLAPACK
+    RandLAPACK::RandLAPACK
 )
 
 # Declaring a full set of libs needed for one of ABRIK benchmarks.
 set(
     Benchmark_libs_external
-    RandLAPACK
+    RandLAPACK::RandLAPACK
     Eigen3::Eigen
     Spectra
     fast_matrix_market
