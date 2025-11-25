@@ -21,7 +21,12 @@ if (RequireCUDA)
         set(CMAKE_CUDA_STANDARD_REQUIRED ON)
         set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
         set(CMAKE_CUDA_VISIBILITY_PRESET hidden)
-        set(CMAKE_CUDA_ARCHITECTURES native)
+
+        # Set CUDA architectures (default to all-major for portability)
+        # Users can override by passing -DCMAKE_CUDA_ARCHITECTURES=... at configure time
+        if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+            set(CMAKE_CUDA_ARCHITECTURES all-major)
+        endif()
 
         # Add general CMake module paths
         list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMake")
