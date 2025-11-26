@@ -195,14 +195,6 @@ Total Test time (real) = 124.62 sec
 **Note:** Some test failures are known and acceptable in development branches.
 Consult the development team if you see unexpected failures.
 
-### Running Only Fast Tests
-
-Some tests are actually long-running benchmarks. To skip them:
-
-```shell
-ctest -E Bench
-```
-
 ### Running GPU Tests Only
 
 If you enabled GPU support, test GPU functionality specifically:
@@ -251,7 +243,83 @@ CMake projects. You'll need to specify:
 -DRandLAPACK_DIR=~/RandNLA/RandNLA-project/build/RandLAPACK-build
 ```
 
-**Last Updated:** 2025-11-24
+---
+
+## Building and Running GPU Benchmarks
+
+GPU benchmarks are in the `benchmark/` directory and must be built separately from the main RandLAPACK project.
+
+### Prerequisites
+
+- RandLAPACK must already be built and installed with CUDA support (`-DRequireCUDA=ON`)
+- CUDA Toolkit must be available on your system
+- GPU hardware must be available
+
+### Building GPU Benchmarks
+
+Navigate to the benchmark directory and build as a standalone project:
+
+```shell
+cd ~/RandNLA/RandNLA-project/lib/RandLAPACK/benchmark
+mkdir -p build
+cd build
+cmake \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=g++ \
+  -DRandLAPACK_DIR=~/RandNLA/RandNLA-project/install/RandLAPACK-install/lib/cmake/RandLAPACK \
+  ..
+make -j
+```
+
+**Note:** Adjust the `RandLAPACK_DIR` path to match your installation location.
+
+### Running GPU Benchmarks
+
+#### BQRRP GPU Benchmark
+
+The BQRRP GPU benchmark supports two modes:
+
+**Block size sweep** (default):
+```shell
+./BQRRP_GPU_benchmark block_size [matrix_size] [profile_runtime] [run_qrf]
+```
+
+Examples:
+```shell
+# Run with default settings (16384x16384 matrix)
+./BQRRP_GPU_benchmark block_size
+
+# Run with 32768x32768 matrix
+./BQRRP_GPU_benchmark block_size 32768
+
+# Run with profiling enabled and QRF comparison
+./BQRRP_GPU_benchmark block_size 16384 1 1
+```
+
+**Matrix size sweep**:
+```shell
+./BQRRP_GPU_benchmark mat_size [profile_runtime] [run_qrf]
+```
+
+Examples:
+```shell
+# Run with default settings
+./BQRRP_GPU_benchmark mat_size
+
+# Run with profiling disabled but QRF comparison enabled
+./BQRRP_GPU_benchmark mat_size 0 1
+```
+
+### Output Files
+
+The benchmarks generate text files with timing results in the current directory:
+
+- `_BQRRP_GPU_speed_comparisons_block_size_*.txt` - Speed comparison results for block size sweep
+- `BQRRP_GPU_speed_comparisons_mat_size_*.txt` - Speed comparison results for matrix size sweep
+- `_BQRRP_GPU_runtime_breakdown_qrf_*.txt` - Detailed profiling with QRF (if profiling enabled)
+- `_BQRRP_GPU_runtime_breakdown_cholqr_*.txt` - Detailed profiling with CholQR (if profiling enabled)
+
+**Last Updated:** 2025-11-26
 **Tested With:**
 - GCC 13.3.0
 - CMake 3.31.9

@@ -30,6 +30,18 @@ endif()
 set(HAVE_OpenMP ${tmp} CACHE BOOL "Set if we have a working OpenMP")
 message(STATUS "Checking for OpenMP ... ${HAVE_OpenMP}")
 
+message(STATUS "Checking for CUDA ... ")
+find_package(CUDAToolkit QUIET)
+set(tmp FALSE)
+if (CUDAToolkit_FOUND)
+    set(tmp TRUE)
+    enable_language(CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+endif()
+set(HAVE_CUDA ${tmp} CACHE BOOL "Set if we have a working CUDA")
+message(STATUS "Checking for CUDA ... ${HAVE_CUDA}")
+
 message(STATUS "Checking for RandLAPACK ... ")
 find_package(RandLAPACK REQUIRED)
 message(STATUS "Done checking for RandLAPACK.")
@@ -44,6 +56,18 @@ function(add_benchmark)
     # Include directories come from target_link_libraries, no need to set manually
     target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
     message(STATUS "RandLAPACK: added ${TGT_NAME} benchmark")
+endfunction()
+
+# Helper function for GPU benchmarks (.cu files)
+function(add_benchmark_gpu)
+    set(OPTS)
+    set(NVPO NAME)
+    set(MVO CU_SOURCES LINK_LIBS)
+    cmake_parse_arguments(PARSE_ARGV 0 TGT "${OPTS}" "${NVPO}" "${MVO}")
+    add_executable(${TGT_NAME} ${TGT_CU_SOURCES})
+    target_compile_options(${TGT_NAME} PRIVATE "-g")
+    target_link_libraries(${TGT_NAME} ${TGT_LINK_LIBS})
+    message(STATUS "RandLAPACK: added ${TGT_NAME} GPU benchmark")
 endfunction()
 
 # EIGEN dependency.
@@ -130,3 +154,17 @@ add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_
 add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+
+# GPU benchmarks (if CUDA is available)
+if (HAVE_CUDA)
+    message(STATUS "Building GPU benchmarks...")
+
+    # BQRRP GPU benchmark - single executable with command-line options
+    add_benchmark_gpu(
+        NAME BQRRP_GPU_benchmark
+        CU_SOURCES bench_BQRRP/BQRRP_GPU_benchmark.cu
+        LINK_LIBS ${Benchmark_libs} CUDA::cusolver
+    )
+else()
+    message(STATUS "Skipping GPU benchmarks (CUDA not available)")
+endif()

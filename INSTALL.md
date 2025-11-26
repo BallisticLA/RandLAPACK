@@ -120,11 +120,7 @@ You can run all tests with
 ```shell
 ctest
 ```
-Some of RandLAPACK's "tests" are really benchmarks, and can run for a long time.
-Exclude those tests by running the following command instead of plain "ctest":
-```shell
-ctest -E Bench
-```
+All tests should complete reasonably quickly. Benchmarks are kept separate in the `benchmark/` directory and are not run by `ctest`.
 
 Here are the conceptual meanings in the recipe's build flags:
 
