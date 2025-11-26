@@ -82,7 +82,7 @@ static void call_all_algs(
     auto state_gen = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("\nITERATION %d, N_SZ %ld\n", i, n);
+        std::cout << "\nITERATION " << i << ", N_SZ " << n << "\n";
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
         
         std::ofstream file(output_filename, std::ios::app);

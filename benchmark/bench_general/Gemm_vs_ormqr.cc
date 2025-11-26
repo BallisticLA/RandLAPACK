@@ -64,7 +64,7 @@ test_speed(int64_t m,
         }
     }
 
-    printf("%f  %f\n", mean_gflop_rate_gemm / (runs - 1), mean_gflop_rate_ormqr / (runs - 1));
+    std::cout << mean_gflop_rate_gemm / (runs - 1) << "  " << mean_gflop_rate_ormqr / (runs - 1) << "\n";
 }
 
 int main() {

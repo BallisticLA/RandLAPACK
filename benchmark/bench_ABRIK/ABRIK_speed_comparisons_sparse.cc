@@ -285,21 +285,21 @@ static void call_all_algs(
     int64_t singular_triplets_target_SVDS  = 0;
 
     for (i = 0; i < num_runs; ++i) {
-        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
+        std::cout << "\nBlock size " << b_sz << ", num matmuls " << num_matmuls << ". Iteration " << i << " start.\n";
 
         // Running ABRIK
         auto start_ABRIK = steady_clock::now();
         all_algs.ABRIK.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
         auto stop_ABRIK = steady_clock::now();
         dur_ABRIK = duration_cast<microseconds>(stop_ABRIK - start_ABRIK).count();
-        printf("TOTAL TIME FOR ABRIK %ld\n", dur_ABRIK);
+        std::cout << "TOTAL TIME FOR ABRIK " << dur_ABRIK << "\n";
 
         // This is in case the number of singular triplets is smaller than the target rank
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
-        printf("Singular triplets: %ld\n", singular_triplets_target_ABRIK);
+        std::cout << "Singular triplets: " << singular_triplets_target_ABRIK << "\n";
 
         residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
-        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_ABRIK);
+        std::cout << "ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): " << std::scientific << std::setprecision(16) << residual_err_custom_ABRIK << "\n";
 
         state_alg = state;
         state_gen = state;
@@ -320,7 +320,7 @@ static void call_all_algs(
         svds.compute();
         auto stop_svds = steady_clock::now();
         dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
-        printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
+        std::cout << "TOTAL TIME FOR SVDS " << dur_svds << "\n";
 
         // Copy data from Spectra (Eigen) format to the nomal C++.
         Matrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
@@ -338,7 +338,7 @@ static void call_all_algs(
         singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
 
         residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
+        std::cout << "SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): " << std::scientific << std::setprecision(16) << residual_err_custom_SVDS << "\n";
         
         state_alg = state;
         state_gen = state;
@@ -403,7 +403,7 @@ int main(int argc, char *argv[]) {
     // Declare ABRIK object
     ABRIK_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, tol);
 
-    printf("Finished data preparation\n");
+    std::cout << "Finished data preparation\n";
     // Declare a data file
     std::string output_filename = "_ABRIK_speed_comparisons_sparse_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;

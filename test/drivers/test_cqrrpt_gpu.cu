@@ -100,9 +100,9 @@ class TestCQRRPT : public ::testing::Test
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF AP - QR:    %15e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
+        std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
+        std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(15) << max_col_norm / col_norm_A << "\n";
+        std::cout << "FRO NORM OF (Q'Q - I)/sqrt(n): " << std::scientific << std::setw(2) << norm_0 / std::sqrt((T) n) << "\n\n";
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
@@ -126,7 +126,7 @@ class TestCQRRPT : public ::testing::Test
         CQRRPT_GPU.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
 
         all_data.rank = CQRRPT_GPU.rank;
-        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
+        std::cout << "RANK AS RETURNED BY CQRRPT " << all_data.rank << "\n";
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);

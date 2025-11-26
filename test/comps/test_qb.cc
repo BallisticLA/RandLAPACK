@@ -130,7 +130,7 @@ class TestQB : public ::testing::Test
         T* BT_dat = BT;
         T* BT_cpy_dat = all_data.BT_cpy.data();
 
-        printf("Inner dimension of QB: %-25ld\n", k);
+        std::cout << "Inner dimension of QB: " << std::left << std::setw(25) << k << "\n";
 
         std::vector<T> Ident(k * k, 0.0);
         T* Ident_dat = Ident.data();
@@ -158,15 +158,15 @@ class TestQB : public ::testing::Test
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
         T norm_test_1 = lapack::lange(Norm::Fro, m, n, A_dat, m);
-        printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
+        std::cout << "FRO NORM OF A - QB:    " << std::scientific << norm_test_1 << "\n";
         ASSERT_NEAR(norm_test_1, 0, test_tol);
         // Test 2 Output
         T norm_test_3 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, Ident_dat, k);
-        printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_3);
+        std::cout << "FRO NORM OF Q'Q - I:   " << std::scientific << norm_test_3 << "\n";
         ASSERT_NEAR(norm_test_3, 0, test_tol);
         // Test 3 Output
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
-        printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
+        std::cout << "FRO NORM OF A_k - QB:  " << std::scientific << norm_test_4 << "\n";
         ASSERT_NEAR(norm_test_4, 0, test_tol);
         free(Q);
         free(BT);
@@ -204,7 +204,7 @@ class TestQB : public ::testing::Test
         Q_dat  = Q;
         BT_dat = BT;
 
-        printf("Inner dimension of QB: %ld\n", k_est);
+        std::cout << "Inner dimension of QB: " << k_est << "\n";
 
         // A_hat = Q * B
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k_est, 1.0, Q_dat, m, BT_dat, n, 0.0, A_hat_dat, m);
@@ -215,13 +215,13 @@ class TestQB : public ::testing::Test
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         if(tol == 0.0) {
             // Test Zero Tol Output
-            printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
+            std::cout << "FRO NORM OF A - QB:    " << std::scientific << norm_test_1 << "\n";
             ASSERT_NEAR(norm_test_1, 0, test_tol);
         }
         else {
             // Test Nonzero Tol Output
-            printf("FRO NORM OF A - QB:    %e\n", norm_test_1);
-            printf("FRO NORM OF A:         %e\n", norm_A);
+            std::cout << "FRO NORM OF A - QB:    " << std::scientific << norm_test_1 << "\n";
+            std::cout << "FRO NORM OF A:         " << std::scientific << norm_A << "\n";
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
         free(Q);

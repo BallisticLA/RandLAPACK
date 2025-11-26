@@ -90,9 +90,9 @@ class TestCQRRT : public ::testing::Test
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF A - QR:    %15e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
+        std::cout << "REL NORM OF A - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
+        std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(15) << max_col_norm / col_norm_A << "\n";
+        std::cout << "FRO NORM OF (Q'Q - I)/sqrt(n): " << std::scientific << std::setw(2) << norm_0 / std::sqrt((T) n) << "\n\n";
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_LE(norm_AQR, atol * norm_A);
@@ -116,7 +116,7 @@ class TestCQRRT : public ::testing::Test
         CQRRT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, d_factor, state);
 
         all_data.rank = CQRRT.rank;
-        printf("RANK AS RETURNED BY CQRRT %ld\n", all_data.rank);
+        std::cout << "RANK AS RETURNED BY CQRRT " << all_data.rank << "\n";
 
         error_check(norm_A, all_data); 
     }

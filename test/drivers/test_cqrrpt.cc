@@ -94,9 +94,9 @@ class TestCQRRPT : public ::testing::Test
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF AP - QR:    %15e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
+        std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(15) << norm_AQR / norm_A << "\n";
+        std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(15) << max_col_norm / col_norm_A << "\n";
+        std::cout << "FRO NORM OF (Q'Q - I)/sqrt(n): " << std::scientific << std::setw(2) << norm_0 / std::sqrt((T) n) << "\n\n";
 
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
         ASSERT_LE(norm_AQR, atol * norm_A);
@@ -120,7 +120,7 @@ class TestCQRRPT : public ::testing::Test
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
 
         all_data.rank = CQRRPT.rank;
-        printf("RANK AS RETURNED BY CQRRPT %ld\n", all_data.rank);
+        std::cout << "RANK AS RETURNED BY CQRRPT " << all_data.rank << "\n";
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
@@ -147,8 +147,8 @@ class TestCQRRPT : public ::testing::Test
         CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state);
 
         int64_t detected_rank = CQRRPT.rank;
-        printf("DETECTED RANK: %ld (expected ~%ld)\n", detected_rank, k_expected);
-        printf("COLUMNS COMPLETED: %ld\n", n - detected_rank);
+        std::cout << "DETECTED RANK: " << detected_rank << " (expected ~" << k_expected << ")\n";
+        std::cout << "COLUMNS COMPLETED: " << n - detected_rank << "\n";
 
         // Verify that all n columns of A form an orthonormal set
         // Compute Q'Q where Q is all n columns of A
@@ -168,8 +168,8 @@ class TestCQRRPT : public ::testing::Test
 
         // Check || Q'Q - I ||_F
         T orth_error = lapack::lange(Norm::Fro, n, n, QtQ.data(), n);
-        printf("ORTHOGONALITY ERROR ||Q'Q - I||_F: %e\n", orth_error);
-        printf("NORMALIZED ORTH ERROR: %e\n\n", orth_error / std::sqrt((T) n));
+        std::cout << "ORTHOGONALITY ERROR ||Q'Q - I||_F: " << std::scientific << orth_error << "\n";
+        std::cout << "NORMALIZED ORTH ERROR: " << std::scientific << orth_error / std::sqrt((T) n) << "\n\n";
 
         // Test should pass if orthogonality is maintained
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
