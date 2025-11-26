@@ -20,10 +20,14 @@ available on your system:
 * **GoogleTest:** (Optional but recommended) For running RandLAPACK tests
 
 ### GPU Support Requirements (Optional)
-* **CUDA Toolkit:** Version 12.9.0 or higher
-  - **IMPORTANT:** CUDA 12.4.x has compatibility issues with GCC 13.3
-    (specifically with Intel AMX intrinsics parsing). Use CUDA 12.9.0 or later.
-  - Ensure compatible NVIDIA driver (v566.14+ for CUDA 12.9, v580+ recommended)
+* **CUDA Toolkit:** Version 12.4.1 or higher
+  - **Recommended:** CUDA 12.9.0 + GCC 13.3.0 (verified working as of 2025-11-26)
+  - **IMPORTANT:** CUDA versions have strict GCC compatibility requirements:
+    - CUDA 12.9.0: Compatible with GCC 13.x ✓
+    - CUDA 12.4.1: Compatible with GCC 13.x ✓
+    - CUDA 12.2.1: Requires GCC ≤ 12.x (GCC 13.x will fail with "unsupported GNU version")
+  - See `INSTALL.md` Section 0 for full compatibility matrix
+  - Ensure compatible NVIDIA driver (v580+ recommended for CUDA 12.9)
 * **CUDA Libraries:** cuBLAS and cuSOLVER (included with CUDA Toolkit)
 
 ### Installing Requirements with Spack
