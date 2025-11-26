@@ -80,7 +80,7 @@ int CholQRQ<T>::call(
     // Positive definite cholesky factorization
     if (lapack::potrf(Uplo::Upper, k, A_gram, k)) {
         if(this->verbose) {
-            printf("CHOLESKY QR FAILED\n");
+            std::cout << "CHOLESKY QR FAILED\n";
         }
         this->chol_fail = true; // scheme failure
         delete[] A_gram;
