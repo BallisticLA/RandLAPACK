@@ -11,7 +11,7 @@
 set -e
 
 # Check for GCC version
-PREFERRED_GCC_VERSION="13.2.0"
+PREFERRED_GCC_VERSION="13.3.0"
 CURRENT_GCC_VERSION=$(gcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
 
 if [[ "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
@@ -67,7 +67,7 @@ fi
 
 if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
     # Check for NVCC version
-    PREFERRED_NVCC_VERSION="12.4.1"
+    PREFERRED_NVCC_VERSION="12.9.0"
     CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
 
     if [[ "$CURRENT_NVCC_VERSION" != "$PREFERRED_NVCC_VERSION" ]]; then
