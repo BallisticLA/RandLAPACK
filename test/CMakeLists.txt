@@ -39,17 +39,13 @@ if (GTest_FOUND)
             drivers/test_cqrrpt_gpu.cu
             drivers/test_bqrrp_gpu.cu
         )
-        
+
         # Create CUDA test executables
         set_source_files_properties(${RandLAPACK_test_cu_srcs} PROPERTIES LANGUAGE CUDA)
         add_executable(RandLAPACK_tests_gpu ${RandLAPACK_test_cu_srcs})
         target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
 
-        add_executable(RandLAPACK_bench_gpu drivers/bench_bqrrp_gpu.cu)
-        target_link_libraries(RandLAPACK_bench_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
-
         # Discover CUDA tests
-        gtest_discover_tests(RandLAPACK_bench_gpu)
         gtest_discover_tests(RandLAPACK_tests_gpu)
     endif()
 
