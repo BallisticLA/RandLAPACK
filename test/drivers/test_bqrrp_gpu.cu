@@ -149,9 +149,9 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         T col_norm_A = blas::nrm2(n, &A_cpy_dat[m * max_idx], 1);
         T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
         
-        printf("REL NORM OF AP - QR:    %14e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %14e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF (Q'Q - I):  %14e\n\n", norm_0 / std::sqrt((T) n));
+        std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << norm_AQR / norm_A << "\n";
+        std::cout << "MAX COL NORM METRIC:    " << std::scientific << std::setw(14) << max_col_norm / col_norm_A << "\n";
+        std::cout << "FRO NORM OF (Q'Q - I):  " << std::scientific << std::setw(14) << norm_0 / std::sqrt((T) n) << "\n\n";
 
         ASSERT_NEAR(norm_AQR / norm_A,         0.0, atol);
         ASSERT_NEAR(max_col_norm / col_norm_A, 0.0, atol);
@@ -180,7 +180,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             }
         } else {
             all_data.rank = BQRRP_GPU.rank;
-            printf("RANK AS RETURNED BY BQRRP GPU %4ld\n", all_data.rank);
+            std::cout << "RANK AS RETURNED BY BQRRP GPU " << std::setw(4) << all_data.rank << "\n";
             
             cudaMemcpy(all_data.R_full.data(), all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);
             cudaMemcpy(all_data.Q.data(),      all_data.A_device,   m * n * sizeof(T),   cudaMemcpyDeviceToHost);

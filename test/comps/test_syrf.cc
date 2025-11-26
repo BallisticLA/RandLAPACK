@@ -133,14 +133,14 @@ class TestSYRF : public ::testing::Test
         T test_tol = std::pow(std::numeric_limits<T>::epsilon(), 0.625);
         // Test 1 Output
         T norm_test_1 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, Ident_dat, k);
-        printf("FRO NORM OF Q'Q - I:   %e\n", norm_test_1);
+        std::cout << "FRO NORM OF Q'Q - I:   " << std::scientific << norm_test_1 << "\n";
         ASSERT_NEAR(norm_test_1, 0, test_tol);
 
         // Test 1 Output
         T norm1_test_2 = lapack::lange(Norm::Fro, m, m, Q_hat_cpy_dat, m);
         T norm2_test_2 = lapack::lange(Norm::Fro, m, k, Q_cpy_dat, m);
-        printf("FRO NORM OF QQ' * Q_hat - Q_hat:   %e\n", norm1_test_2);
-        printf("FRO NORM OF Q_hat Q_hat' * Q = Q:   %e\n", norm2_test_2);
+        std::cout << "FRO NORM OF QQ' * Q_hat - Q_hat:   " << std::scientific << norm1_test_2 << "\n";
+        std::cout << "FRO NORM OF Q_hat Q_hat' * Q = Q:   " << std::scientific << norm2_test_2 << "\n";
         ASSERT_NEAR(std::min(norm1_test_2, norm2_test_2), 0, test_tol);
     }
 };

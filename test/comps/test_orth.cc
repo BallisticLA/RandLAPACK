@@ -94,7 +94,7 @@ class TestOrth : public ::testing::Test
         T norm_fro = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
 
 
-        printf("FRO NORM OF Q' * Q - I: %f\n", norm_fro);
+        std::cout << "FRO NORM OF Q' * Q - I: " << norm_fro << "\n";
         ASSERT_NEAR(norm_fro, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 };
