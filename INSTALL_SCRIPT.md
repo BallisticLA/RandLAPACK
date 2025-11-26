@@ -14,7 +14,7 @@ Before running the install script, ensure you have the following software
 available on your system:
 
 ### Essential Requirements
-* **C++ Compiler:** GNU GCC 13.1.0 or higher (required for C++20 features)
+* **C++ Compiler:** GNU GCC 13.3.0 or higher (required for C++20 features)
 * **CMake:** Version 3.27 or higher
 * **BLAS/LAPACK Library:** Intel MKL 2022 or higher recommended
 * **GoogleTest:** (Optional but recommended) For running RandLAPACK tests
@@ -23,7 +23,7 @@ available on your system:
 * **CUDA Toolkit:** Version 12.9.0 or higher
   - **IMPORTANT:** CUDA 12.4.x has compatibility issues with GCC 13.3
     (specifically with Intel AMX intrinsics parsing). Use CUDA 12.9.0 or later.
-  - Ensure compatible NVIDIA driver (v550+ recommended)
+  - Ensure compatible NVIDIA driver (v566.14+ for CUDA 12.9, v580+ recommended)
 * **CUDA Libraries:** cuBLAS and cuSOLVER (included with CUDA Toolkit)
 
 ### Installing Requirements with Spack
@@ -254,7 +254,7 @@ CMake projects. You'll need to specify:
 **Last Updated:** 2025-11-24
 **Tested With:**
 - GCC 13.3.0
-- CMake 3.27
+- CMake 3.31.9
 - CUDA 12.9.0
 - Intel MKL 2025.0.3
 - Ubuntu 22.04 / WSL2

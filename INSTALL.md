@@ -15,10 +15,10 @@ of the corresponding instructions in Section 1.
 ## 0. Software requirements
 
 RandLAPACK_GPU temporary requirements:
- * GNU 13.1.0
- * CMAKE 3.27
+ * GNU 13.3.0
+ * CMAKE 3.31.9
 
-If one required CUDA support, NVIDIA 12.4.1 is needed (make sure to use driver v 550) (Older versions will result in issues with the project).
+If one required CUDA support, NVIDIA 12.9.41 is needed (make sure to use driver v 581.80) (Older versions will result in issues with the project).
 All that is used to ensure we can compile with C++20 features with no issues.
 Note that in the CMake configuration lines, some systems will have directories labeled "lib" by default while on other systems those same directories end up being called "lib64."
 
