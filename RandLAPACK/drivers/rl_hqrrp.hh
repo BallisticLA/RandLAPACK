@@ -885,11 +885,11 @@ int64_t hqrrp(
 
     // Check arguments.
     if( m_A < 0 ) {
-        fprintf( stderr, "ERROR in hqrrp: m_A is < 0.\n" );
+        std::cerr << "ERROR in hqrrp: m_A is < 0.\n";
     } if( n_A < 0 ) {
-        fprintf( stderr, "ERROR in hqrrp: n_A is < 0.\n" );
+        std::cerr << "ERROR in hqrrp: n_A is < 0.\n";
     } if( ldim_A < std::max<int64_t>( 1, m_A ) ) {
-        fprintf( stderr, "ERROR in hqrrp: ldim_A is < std::max<int64_t>( 1, m_A ).\n" );
+        std::cerr << "ERROR in hqrrp: ldim_A is < std::max<int64_t>( 1, m_A ).\n";
     }
 
     // Some initializations.
@@ -1030,7 +1030,7 @@ int64_t hqrrp(
             }
         }
         sum = sqrt( sum );
-        printf( "%%  diff between Y and downdated Y: %le\n", sum );
+        std::cout << "%  diff between Y and downdated Y: " << std::scientific << sum << "\n";
 
         delete[] buff_cyr;
 #endif
@@ -1176,26 +1176,26 @@ int64_t hqrrp(
         delete[] timing_QR;
         *timing = timing_temp;
 
-        printf("\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n");
-        printf("Preallocation time:   %ld μs,\n",   preallocation_t_dur);
-        printf("Sketching time:       %ld μs,\n",       sketching_t_dur);
-        printf("Downdating A time:    %ld μs,\n",      downdating_t_dur);
-        printf("QRCP time:            %ld μs,\n",            qrcp_t_dur);
-        printf("QR time:              %ld μs,\n",              qr_t_dur);
-        printf("Updating A time:      %ld μs,\n",      updating_A_t_dur);
-        printf("Updating Sketch time: %ld μs,\n", updating_Sketch_t_dur);
-        printf("Other routines time:  %ld μs,\n",           other_t_dur);
-        printf("Total time:           %ld μs.\n",           total_t_dur);
+        std::cout << "\n\n/------------HQRRP TIMING RESULTS BEGIN------------/\n";
+        std::cout << "Preallocation time:   " << preallocation_t_dur << " μs,\n";
+        std::cout << "Sketching time:       " << sketching_t_dur << " μs,\n";
+        std::cout << "Downdating A time:    " << downdating_t_dur << " μs,\n";
+        std::cout << "QRCP time:            " << qrcp_t_dur << " μs,\n";
+        std::cout << "QR time:              " << qr_t_dur << " μs,\n";
+        std::cout << "Updating A time:      " << updating_A_t_dur << " μs,\n";
+        std::cout << "Updating Sketch time: " << updating_Sketch_t_dur << " μs,\n";
+        std::cout << "Other routines time:  " << other_t_dur << " μs,\n";
+        std::cout << "Total time:           " << total_t_dur << " μs.\n";
 
-        printf("\nPreallocation takes                     %f of runtime.\n", 100 * ((T) preallocation_t_dur   / (T) total_t_dur));
-        printf("Sketch generation and application takes %f of runtime.\n", 100 * ((T) sketching_t_dur       / (T) total_t_dur));
-        printf("Downdating takes                        %f of runtime.\n", 100 * ((T) downdating_t_dur      / (T) total_t_dur));
-        printf("QRCP takes                              %f of runtime.\n", 100 * ((T) qrcp_t_dur            / (T) total_t_dur));
-        printf("QR takes                                %f of runtime.\n", 100 * ((T) qr_t_dur              / (T) total_t_dur));
-        printf("Updating A takes                        %f of runtime.\n", 100 * ((T) updating_A_t_dur      / (T) total_t_dur));
-        printf("Updating Sketch takes                   %f of runtime.\n", 100 * ((T) updating_Sketch_t_dur / (T) total_t_dur));
-        printf("Everything else takes                   %f of runtime.\n", 100 * ((T) other_t_dur           / (T) total_t_dur));
-        printf("/-------------HQRRP TIMING RESULTS END-------------/\n\n");
+        std::cout << "\nPreallocation takes                     " << 100 * ((T) preallocation_t_dur   / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "Sketch generation and application takes " << 100 * ((T) sketching_t_dur       / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "Downdating takes                        " << 100 * ((T) downdating_t_dur      / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "QRCP takes                              " << 100 * ((T) qrcp_t_dur            / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "QR takes                                " << 100 * ((T) qr_t_dur              / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "Updating A takes                        " << 100 * ((T) updating_A_t_dur      / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "Updating Sketch takes                   " << 100 * ((T) updating_Sketch_t_dur / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "Everything else takes                   " << 100 * ((T) other_t_dur           / (T) total_t_dur) << " of runtime.\n";
+        std::cout << "/-------------HQRRP TIMING RESULTS END-------------/\n\n";
     }
 
     // Remove auxiliary objects.
