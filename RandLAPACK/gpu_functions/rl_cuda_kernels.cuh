@@ -507,12 +507,7 @@ void naive_rank_est(
     cudaMemcpy(&rank, rank_device, sizeof(int64_t), cudaMemcpyDeviceToHost);
     cudaStreamSynchronize(stream);
     cudaFree(rank_device);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch naive_rank_est. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch naive_rank_est.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -537,12 +532,7 @@ void all_of(
     cudaMemcpy(&all_greater, all_greater_device, sizeof(bool), cudaMemcpyDeviceToHost);
     cudaStreamSynchronize(stream);
     cudaFree(all_greater_device);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch all_greater. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch all_greater.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -566,13 +556,7 @@ void ger_gpu(
     constexpr int threadsPerBlock{128};
     int64_t num_blocks_ger{(m + threadsPerBlock - 1) / threadsPerBlock};
     ger_gpu<<<num_blocks_ger, threadsPerBlock, 0, stream>>>(m, n, alpha, x, incx, y, incy, A, lda);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch ger_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch ger_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -594,12 +578,7 @@ void copy_mat_gpu(
     dim3 numBlocks((n + threadsPerBlock.x - 1) / threadsPerBlock.x,
                    (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
     copy_mat_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, A_cpy, ldat, copy_upper_triangle);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch copy_mat_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch copy_mat_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -618,13 +597,7 @@ void col_swap_gpu(
 #ifdef USE_CUDA
     int64_t* idx_copy;
     cudaMallocAsync(&idx_copy, sizeof(int64_t) * n, stream);
-    
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to allocate for col_swap_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to allocate for col_swap_gpu.")
     constexpr int numThreads = 128;
     dim3 dimBlock(numThreads, 1, 1);
     static int upper_bound = [&] {
@@ -639,19 +612,9 @@ void col_swap_gpu(
     dim3 dimGrid(std::min(upper_bound, lower_bound), 1, 1);
     void* kernelArgs[] = {(void*)&m, (void*)&n, (void*)&k, (void*)&A, (void*)&lda, (void*)&idx, (void*)&idx_copy};
     cudaLaunchCooperativeKernel((void*)col_swap_gpu_kernel_sequential<T>, dimGrid, dimBlock, kernelArgs, 0, stream);
-    ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu sequential. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch col_swap_gpu sequential.")
     cudaFreeAsync(idx_copy, stream);
-    ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to deallocate for col_swap_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to deallocate for col_swap_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -677,13 +640,7 @@ void col_swap_gpu(
     dim3 blocksPerGrid((k + threadsPerBlock.x - 1) / threadsPerBlock.x,
                          (m + threadsPerBlock.y - 1) / threadsPerBlock.y);
     col_swap_gpu_kernel<<<blocksPerGrid, threadsPerBlock, 0, stream>>>(m, n, k, A, lda, A_cpy, ldac, idx);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu with parallel pivots. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch col_swap_gpu with parallel pivots.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -719,12 +676,7 @@ void col_swap_gpu(
     vec_ell_swap_gpu<T><<<1, 512, 0, stream>>>(m, k, J, idx, idx_copy);
 
     cudaFreeAsync(idx_copy, stream);
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch col_swap_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -743,13 +695,7 @@ void col_swap_gpu(
     constexpr int threadsPerBlock{128};
     int64_t num_blocks{(k + threadsPerBlock - 1) / threadsPerBlock};
     vec_ell_swap_gpu<T><<<num_blocks, threadsPerBlock, 0, stream>>>(m, k, J, J_cpy, idx);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch col_swap_gpu vector. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch col_swap_gpu vector.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -771,13 +717,7 @@ void transposition_gpu(
     constexpr int threadsPerBlock{128};
     int64_t num_blocks{(m + threadsPerBlock - 1) / threadsPerBlock};
     transposition_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, A, lda, AT, ldat, copy_upper_triangle);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch transposition_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch transposition_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -798,13 +738,7 @@ inline void LUQRCP_piv_process_gpu(
     constexpr int threadsPerBlock{128};
     Idx n{std::min(sampling_dim, cols)};
     LUQRCP_piv_process_gpu_global<<<1, threadsPerBlock, 0, stream>>>(cols, n, J_buffer, J_buffer_lu);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch piv_process_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch piv_process_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -839,13 +773,7 @@ void orhr_col_gpu(
     }
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     elementwise_product<<<num_blocks, threadsPerBlock, 0, stream>>>(n, T{-1}, A, lda + 1, D, 1, tau, 1);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch orhr_col_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch orhr_col_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -866,13 +794,7 @@ void R_cholqr_signs_gpu(
                    (b_sz + threadsPerBlock.y - 1) / threadsPerBlock.y);
 
     R_cholqr_signs_gpu<<<numBlocks, threadsPerBlock, 0, stream>>>(b_sz, b_sz_const, R, D);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch R_cholqr_signs_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch R_cholqr_signs_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -891,13 +813,7 @@ void copy_gpu(
     constexpr int threadsPerBlock{128};
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     copy_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, src, incr_src, dest, incr_dest);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch copy_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch copy_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -906,22 +822,16 @@ void copy_gpu(
 template <typename T>
 void fill_gpu(
     cudaStream_t stream,
-    int64_t n,  
+    int64_t n,
     T* x,
-    int64_t incx,  
+    int64_t incx,
     T alpha
     ) {
 #ifdef USE_CUDA
     constexpr int threadsPerBlock{128};
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     fill_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, x, incx, alpha);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch fill_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -930,22 +840,16 @@ void fill_gpu(
 template <typename T>
 void fill_gpu(
     cudaStream_t stream,
-    int64_t n,  
+    int64_t n,
     int64_t* x,
-    int64_t incx,  
+    int64_t incx,
     T alpha
     ) {
 #ifdef USE_CUDA
     constexpr int threadsPerBlock{128};
     int64_t num_blocks{(n + threadsPerBlock - 1) / threadsPerBlock};
     fill_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(n, x, incx, alpha);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch fill_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch fill_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
@@ -963,13 +867,7 @@ void get_U_gpu(
     constexpr int threadsPerBlock{128};
     int64_t num_blocks{std::max((n + threadsPerBlock - 1) / threadsPerBlock, (int64_t) 1)};
     get_U_gpu<<<num_blocks, threadsPerBlock, 0, stream>>>(m, n, A, lda);
-
-    cudaError_t ierr = cudaGetLastError();
-    if (ierr != cudaSuccess)
-    {
-        RandLAPACK_CUDA_ERROR("Failed to launch get_U_gpu. " << cudaGetErrorString(ierr))
-        abort();
-    }
+    check_cuda_error_nosync("Failed to launch get_U_gpu.")
 #else
     throw std::runtime_error("No CUDA support available.");
 #endif
