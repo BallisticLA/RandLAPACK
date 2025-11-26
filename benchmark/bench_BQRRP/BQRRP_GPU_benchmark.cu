@@ -14,10 +14,6 @@
 #include <chrono>
 #include <numeric>
 
-// Use cuda kernels.
-#ifndef USE_CUDA
-#define USE_CUDA
-#endif
 #include "RandLAPACK/drivers/rl_bqrrp_gpu.hh"
 
 using GPUSubroutines = RandLAPACK::BQRRPGPUSubroutines;
