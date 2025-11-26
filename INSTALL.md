@@ -23,22 +23,24 @@ of the corresponding instructions in Section 1.
 
 ### GPU Support (Optional)
 For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
-- **CUDA Toolkit**: 12.4.1 or higher
-- **NVIDIA Driver**: Compatible with your CUDA version
+- **CUDA Toolkit**: 12.9.0 recommended (minimum 12.4.1)
+- **NVIDIA Driver**: v580+ recommended for CUDA 12.9.0
 - **GCC Compatibility**: CUDA has strict GCC version requirements
 
 #### CUDA/GCC Compatibility Matrix
 
 | CUDA Version | GCC Support | Status | Notes |
 |--------------|-------------|---------|-------|
-| 12.9.0 | GCC 13.x ✓ | ✅ Verified | Tested with GCC 13.3.0 (2025-11-24) |
-| 12.4.1 | GCC 13.x ✓ | ✅ Recommended | Documented working configuration |
-| 12.2.1 | GCC 12.x ✓ | ✅ Works | Use GCC ≤ 12.3.0 |
-| 12.2.1 | GCC 13.x ✗ | ❌ Fails | NVCC error: "unsupported GNU version" |
+| **12.9.0** | **GCC 13.x ✓** | **✅ Recommended** | **Tested with GCC 13.3.0 + Driver v581.80** |
+| 12.4.1 | GCC 13.x ✓ | ✅ Supported | Minimum supported version |
+| 12.2.1 | GCC 12.x ✓ | ⚠️ Limited | Use GCC ≤ 12.3.0 only |
+| 12.2.1 | GCC 13.x ✗ | ❌ Incompatible | NVCC error: "unsupported GNU version" |
+
+**Recommendation**: Use **CUDA 12.9.0 with GCC 13.3.0** for best compatibility and to avoid known issues in earlier CUDA versions (e.g., CUDA 12.4.x had Intel AMX intrinsics parsing problems with GCC 13.x).
 
 **Important**: CUDA's `nvcc` compiler has strict GCC version limits that may differ from what's documented. Always check your CUDA Toolkit's release notes for compiler compatibility. If you encounter compiler version errors, try using an older GCC version.
 
-**Tested Configuration** (as of 2025-11-26):
+**Verified Working Configuration** (as of 2025-11-26):
 - CUDA 12.9.0 + GCC 13.3.0 + CMake 3.31.9 + Driver v581.80 ✅
 
 ### Note on Directory Names
