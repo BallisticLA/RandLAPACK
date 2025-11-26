@@ -42,9 +42,11 @@ if command -v nvidia-smi &> /dev/null; then
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         RANDLAPACK_CUDA="ON"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
-        RELOAD_SHELL=1
+        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" ~/.bashrc; then
+            echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
+            RELOAD_SHELL=1
+        fi
     fi
 elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
     # AMD GPU found. Ask user if they want to proceed with GPU support or not.
@@ -57,9 +59,11 @@ elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
         RANDLAPACK_CUDA="ON"
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
-        RELOAD_SHELL=1
+        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" ~/.bashrc; then
+            echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
+            RELOAD_SHELL=1
+        fi
     fi
 else
     echo "No NVIDIA GPU detected." | tee -a $LOG_FILE
@@ -104,12 +108,14 @@ if [[ "$PARENT_BASE" == "lib" ]]; then
 else
     # New project library to be created
     RANDNLA_PROJECT_DIR="$PARENT_DIR/RandNLA-project"
-    # We want to make sure that RANDNLA_PROJECT_DIR variable is in the 
+    # We want to make sure that RANDNLA_PROJECT_DIR variable is in the
     # user's bashrc so that it can be used by our other bash scripts.
     RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
-    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-    echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
-    RELOAD_SHELL=1
+    if ! grep -q "export RANDNLA_PROJECT_DIR=" ~/.bashrc; then
+        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+        echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
+        RELOAD_SHELL=1
+    fi
 fi
 
 # Create the project directory and its subdirectories
