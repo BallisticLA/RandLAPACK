@@ -182,7 +182,7 @@ class TestUtil_GPU : public ::testing::Test
             RandLAPACK_CUDA_ERROR("GPU ERROR. " << cudaGetErrorString(ierr))
             abort();
         }
-        printf("Passed the general error check\n");
+        std::cout << "Passed the general error check\n";
 
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
         cudaMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
@@ -194,7 +194,7 @@ class TestUtil_GPU : public ::testing::Test
             all_data.A[i] -= all_data.A_host_buffer[i];
 
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-        printf("\nNorm diff GPU CPU: %e\n", norm_test);
+        std::cout << "\nNorm diff GPU CPU: " << std::scientific << norm_test << "\n";
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     	ierr = cudaGetLastError();
     	if (ierr != cudaSuccess)
@@ -238,9 +238,9 @@ class TestUtil_GPU : public ::testing::Test
             all_data.A[i] -= all_data.A_host_buffer[i];
 
         T norm_test = lapack::lange(Norm::Fro, m, n, all_data.A.data(), m);
-        printf("\nNorm diff GPU CPU: %e\n", norm_test);
+        std::cout << "\nNorm diff GPU CPU: " << std::scientific << norm_test << "\n";
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
-    
+
     	cudaError_t ierr  = cudaGetLastError();
     	if (ierr != cudaSuccess)
     	{
@@ -276,7 +276,7 @@ class TestUtil_GPU : public ::testing::Test
         }
 
         T norm_test = blas::nrm2(m, all_data.J.data(), 1);
-        printf("\nNorm diff GPU CPU: %e\n", norm_test);
+        std::cout << "\nNorm diff GPU CPU: " << std::scientific << norm_test << "\n";
         EXPECT_NEAR(norm_test, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75));
    	 
     	cudaError_t ierr = cudaGetLastError();
@@ -315,7 +315,7 @@ class TestUtil_GPU : public ::testing::Test
             all_data.A_host_buffer[i] -= all_data.Ident[i];
 
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A_host_buffer.data(), m);
-        printf("||A_piv - QR||_F:  %e\n", norm);
+        std::cout << "||A_piv - QR||_F:  " << std::scientific << norm << "\n";
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     	
     	cudaError_t ierr = cudaGetLastError();
@@ -346,7 +346,7 @@ class TestUtil_GPU : public ::testing::Test
             all_data.A_T[i] -= all_data.A_T_buffer[i];
 
         T norm = lapack::lange(Norm::Fro, n, m, all_data.A_T.data(), n);
-        printf("||A_T_host - A_T_device||_F:  %e\n", norm);
+        std::cout << "||A_T_host - A_T_device||_F:  " << std::scientific << norm << "\n";
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     	
     	cudaError_t ierr = cudaGetLastError();
@@ -381,7 +381,7 @@ class TestUtil_GPU : public ::testing::Test
             all_data.A[i] -= all_data.A_buffer[i];
 
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A.data(), n);
-        printf("||A_host - A_device||_F:  %e\n", norm);
+        std::cout << "||A_host - A_device||_F:  " << std::scientific << norm << "\n";
         EXPECT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     	
     	cudaError_t ierr = cudaGetLastError();

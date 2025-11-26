@@ -152,7 +152,7 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < num_runs; ++i) {
-        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
+        std::cout << "\nBlock size " << k << ", num matmuls " << num_matmuls << ". Iteration " << i << " start.\n";
         ABRIK.call(m, n, *all_data.A_input, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
@@ -219,7 +219,7 @@ int main(int argc, char *argv[]) {
     ABRIK_benchmark_data<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(m, n, tol);
     all_data.A_input = &input_mat_csc;
 
-    printf("Finished data preparation\n");
+    std::cout << "Finished data preparation\n";
     // Declare a data file
     std::string output_filename = "_ABRIK_runtime_breakdown_sparse_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;

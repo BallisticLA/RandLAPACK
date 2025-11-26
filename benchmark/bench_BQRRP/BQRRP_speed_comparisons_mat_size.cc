@@ -96,14 +96,14 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, ROWS %ld\n", i, m);
-        
+        std::cout << "ITERATION " << i << ", ROWS " << m << "\n";
+
         // Testing GEQRF
         auto start_geqrf = steady_clock::now();
         lapack::geqrf(m, n, all_data.A.data(), m, all_data.tau.data());
         auto stop_geqrf = steady_clock::now();
         dur_geqrf = duration_cast<microseconds>(stop_geqrf - start_geqrf).count();
-        printf("TOTAL TIME FOR GEQRF %ld\n", dur_geqrf);
+        std::cout << "TOTAL TIME FOR GEQRF " << dur_geqrf << "\n";
 
         // Making sure the states are unchanged
         state_gen = state;
@@ -118,7 +118,7 @@ static void call_all_algs(
             BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
             auto stop_bqrrp_qrf = steady_clock::now();
             dur_bqrrp_qrf = duration_cast<microseconds>(stop_bqrrp_qrf - start_bqrrp_qrf).count();
-            printf("TOTAL TIME FOR BQRRP_QRF %ld\n", dur_bqrrp_qrf);
+            std::cout << "TOTAL TIME FOR BQRRP_QRF " << dur_bqrrp_qrf << "\n";
 
             // Making sure the states are unchanged
             state_gen = state;
@@ -133,7 +133,7 @@ static void call_all_algs(
             BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
             auto stop_bqrrp_cholqr = steady_clock::now();
             dur_bqrrp_cholqr = duration_cast<microseconds>(stop_bqrrp_cholqr - start_bqrrp_cholqr).count();
-            printf("TOTAL TIME FOR BQRRP_CHOLQR %ld\n", dur_bqrrp_cholqr);
+            std::cout << "TOTAL TIME FOR BQRRP_CHOLQR " << dur_bqrrp_cholqr << "\n";
 
             // Making sure the states are unchanged
             state_gen = state;
@@ -147,7 +147,7 @@ static void call_all_algs(
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
         auto stop_hqrrp = steady_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
-        printf("TOTAL TIME FOR HQRRP %ld\n", dur_hqrrp);
+        std::cout << "TOTAL TIME FOR HQRRP " << dur_hqrrp << "\n";
 
         // Making sure the states are unchanged
         state_gen = state;
@@ -161,7 +161,7 @@ static void call_all_algs(
             RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 1, state_alg, (T**) nullptr);
             auto stop_hqrrp_geqrf = steady_clock::now();
             dur_hqrrp_geqrf = duration_cast<microseconds>(stop_hqrrp_geqrf - start_hqrrp_geqrf).count();
-            printf("TOTAL TIME FOR HQRRP WITH GEQRF %ld\n", dur_hqrrp_geqrf);
+            std::cout << "TOTAL TIME FOR HQRRP WITH GEQRF " << dur_hqrrp_geqrf << "\n";
 
             // Making sure the states are unchanged
             state_gen = state;
@@ -174,7 +174,7 @@ static void call_all_algs(
             RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  (d_factor - 1) * hqrrp_b_sz, panel_pivoting, 2, state_alg, (T**) nullptr);
             auto stop_hqrrp_cholqr = steady_clock::now();
             dur_hqrrp_cholqr = duration_cast<microseconds>(stop_hqrrp_cholqr - start_hqrrp_cholqr).count();
-            printf("TOTAL TIME FOR HQRRP WITH CHOLQRQ %ld\n", dur_hqrrp_cholqr);
+            std::cout << "TOTAL TIME FOR HQRRP WITH CHOLQRQ " << dur_hqrrp_cholqr << "\n";
         }
 
         // Making sure the states are unchanged
@@ -189,7 +189,7 @@ static void call_all_algs(
             lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
             auto stop_geqp3 = steady_clock::now();
             dur_geqp3 = duration_cast<microseconds>(stop_geqp3 - start_geqp3).count();
-            printf("TOTAL TIME FOR GEQP3 %ld\n", dur_geqp3);
+            std::cout << "TOTAL TIME FOR GEQP3 " << dur_geqp3 << "\n";
 
             state_gen = state;
             data_regen(m_info, all_data, state_gen);
