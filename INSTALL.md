@@ -14,13 +14,35 @@ of the corresponding instructions in Section 1.
 
 ## 0. Software requirements
 
-RandLAPACK_GPU temporary requirements:
- * GNU 13.3.0
- * CMAKE 3.31.9
+### Minimum Requirements
+- **CMake**: 3.21 or higher (3.31.9 recommended)
+- **C++ Compiler**: C++20 support required
+  - GCC 11 or higher
+  - Clang 14 or higher (not extensively tested)
+  - Intel ICPX (has known issues, see GitHub issue #91)
 
-If one required CUDA support, NVIDIA 12.9.41 is needed (make sure to use driver v 581.80) (Older versions will result in issues with the project).
-All that is used to ensure we can compile with C++20 features with no issues.
-Note that in the CMake configuration lines, some systems will have directories labeled "lib" by default while on other systems those same directories end up being called "lib64."
+### GPU Support (Optional)
+For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
+- **CUDA Toolkit**: 12.4.1 or higher
+- **NVIDIA Driver**: Compatible with your CUDA version
+- **GCC Compatibility**: CUDA has strict GCC version requirements
+
+#### CUDA/GCC Compatibility Matrix
+
+| CUDA Version | GCC Support | Status | Notes |
+|--------------|-------------|---------|-------|
+| 12.9.0 | GCC 13.x ✓ | ✅ Verified | Tested with GCC 13.3.0 (2025-11-24) |
+| 12.4.1 | GCC 13.x ✓ | ✅ Recommended | Documented working configuration |
+| 12.2.1 | GCC 12.x ✓ | ✅ Works | Use GCC ≤ 12.3.0 |
+| 12.2.1 | GCC 13.x ✗ | ❌ Fails | NVCC error: "unsupported GNU version" |
+
+**Important**: CUDA's `nvcc` compiler has strict GCC version limits that may differ from what's documented. Always check your CUDA Toolkit's release notes for compiler compatibility. If you encounter compiler version errors, try using an older GCC version.
+
+**Tested Configuration** (as of 2025-11-26):
+- CUDA 12.9.0 + GCC 13.3.0 + CMake 3.31.9 + Driver v581.80 ✅
+
+### Note on Directory Names
+On some systems, library directories are called `lib` while on others they're called `lib64`. Adjust paths accordingly in the CMake configuration commands below.
 
 We recomment installing software (including googletest, if desired) using Spack:
 https://github.com/spack/spack.git
