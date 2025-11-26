@@ -71,8 +71,8 @@ fi
 
 if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
     # Check for NVCC version
-    PREFERRED_NVCC_VERSION="12.9.0"
-    CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
+    PREFERRED_NVCC_VERSION="12.9"
+    CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | grep "release" | awk '{print $5}' | cut -d',' -f1)
 
     if [[ "$CURRENT_NVCC_VERSION" != "$PREFERRED_NVCC_VERSION" ]]; then
         echo "Warning: NVCC $PREFERRED_NVCC_VERSION is preferred. Found NVCC $CURRENT_NVCC_VERSION."
