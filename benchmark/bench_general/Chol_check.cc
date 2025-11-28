@@ -37,8 +37,8 @@ chol_check(int64_t m,
 
     // Now, the k by k portion of A is summetric and the rest is random
 
-    if(lapack::potrf(Uplo::Upper, m, A_dat, m)) 
-        printf("Cholesky failed as expected.\n");
+    if(lapack::potrf(Uplo::Upper, m, A_dat, m))
+        std::cout << "Cholesky failed as expected.\n";
 
     // Copy the k by k portion of the R factor
     lapack::lacpy(MatrixType::Upper, k, k, A_dat, m, R_submat_dat, k);
@@ -47,7 +47,7 @@ chol_check(int64_t m,
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, k, 1.0, R_submat_dat, k, R_submat_dat, k, -1.0, A_leading_submat_symm_dat, k);
 
     T norm = lapack::lange(Norm::Fro, k, k, A_leading_submat_symm_dat, k);
-    printf("||R[:k, :k]'*R[:k, :k] - A[:k, :k]||_F:  %e\n", norm);
+    std::cout << "||R[:k, :k]'*R[:k, :k] - A[:k, :k]||_F:  " << std::scientific << norm << "\n";
 }
 
 int main() {

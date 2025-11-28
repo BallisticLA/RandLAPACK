@@ -80,14 +80,14 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, ROWS %ld\n", i, m);
-        
+        std::cout << "ITERATION " << i << ", ROWS " << m << "\n";
+
         // Testing HQRRP DEFAULT
         auto start_hqrrp = steady_clock::now();
         RandLAPACK::hqrrp(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data(), hqrrp_b_sz,  1.0 * hqrrp_b_sz, panel_pivoting, 0, state_alg, (T**) nullptr);
         auto stop_hqrrp = steady_clock::now();
         dur_hqrrp = duration_cast<microseconds>(stop_hqrrp - start_hqrrp).count();
-        printf("TOTAL TIME FOR HQRRP %ld\n", dur_hqrrp);
+        std::cout << "TOTAL TIME FOR HQRRP " << dur_hqrrp << "\n";
 
         // Making sure the states are unchanged
         state_gen = state;
@@ -100,7 +100,7 @@ static void call_all_algs(
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, m, n, 1.0, all_data.A.data(), m, all_data.B.data(), n, 0.0, all_data.C.data(), m);
         auto stop_gemm = steady_clock::now();
         dur_gemm = duration_cast<microseconds>(stop_gemm - start_gemm).count();
-        printf("TOTAL TIME FOR GEMM %ld\n", dur_gemm);
+        std::cout << "TOTAL TIME FOR GEMM " << dur_gemm << "\n";
 
         // Making sure the states are unchanged
         state_gen = state;
