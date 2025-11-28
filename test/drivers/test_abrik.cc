@@ -291,7 +291,7 @@ TEST_F(TestABRIK, ABRIK_catch_instability_prelim) {
     std::vector<double> buffer2 (k * k, 0.0);
     RandLAPACK::util::eye(k, k, buffer2.data());
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, X_i, m, X_i, m, -1.0, buffer2.data(), k);
-    printf("Norm 2: %e\n", lapack::lange(Norm::Fro, k, k, buffer2.data(), k) / sqrt(k));
+    std::cout << "Norm 2: " << std::scientific << lapack::lange(Norm::Fro, k, k, buffer2.data(), k) / sqrt(k) << "\n";
 }
 
 TEST_F(TestABRIK, ABRIK_catch_instability_good) {
