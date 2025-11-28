@@ -360,7 +360,6 @@ class ABRIK {
                         // Move the X_i pointer;
                         X_i = &X_ev[m * (curr_X_cols - k)];
 
-
                         if(this -> timing) {
                             allocation_t_stop  = steady_clock::now();
                             allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
@@ -506,7 +505,7 @@ class ABRIK {
                         // Reorthogonalization
                         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, X_orth_buf, n + k);
                         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, X_orth_buf, n + k, 1.0, X_i, m);
-                        
+
                         if(this -> timing) {
                             reorth_t_stop  = steady_clock::now();
                             reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
@@ -556,6 +555,12 @@ class ABRIK {
                                 ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
                             }
                         }
+
+                        // REMOVE ME
+                        std::vector<double> buffer2 (iter_ev * k * iter_ev * k, 0.0);
+                        RandLAPACK::util::eye(iter_ev * k, iter_ev * k, buffer2.data());
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_ev * k, iter_ev * k, m, 1.0, X_ev, m, X_ev, m, -1.0, buffer2.data(), iter_ev * k);
+                        printf("Norm 2: %e\n", lapack::lange(Norm::Fro, iter_ev * k, iter_ev * k, buffer2.data(), iter_ev * k) / sqrt(iter_ev * k));
 
                         // Early termination
                         // if (abs(S(end)) <= sqrt(eps('T')))
