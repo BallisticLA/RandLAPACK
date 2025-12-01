@@ -663,7 +663,7 @@ int BQRRP_GPU<T, RNG>::call(
                 qr_tall_t_start = steady_clock::now();
             }
             // Perform an unpivoted QR instead of CholQR
-            // Uncommenting the conditional below for the following reason: in contrary to my assumption that the larger 
+            // Commenting out the conditional below for the following reason: in contrary to my assumption that the larger 
             // problem size (the largest problem occurs at iter==0) would require the most amount of device workspace,
             // on an NVIDIA H100, the most workspace is required at iter==1 (the amount of workspace stays constent afterward).
             // For a skeptical reviewer, note: this is NOT related to a synch barrier.
