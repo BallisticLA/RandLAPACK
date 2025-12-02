@@ -53,10 +53,6 @@ if (SANITIZE_ADDRESS)
 endif()
 target_compile_options(RandLAPACK INTERFACE ${RandLAPACK_cxx_opts})
 
-#set_source_files_properties(${RandLAPACK_cxx_sources}
-#    PROPERTIES COMPILE_OPTIONS "${RandLAPACK_cxx_opts}"
-#)
-
 target_include_directories(
     RandLAPACK INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -76,12 +72,15 @@ target_include_directories(
 
 install(
     FILES "${CMAKE_CURRENT_SOURCE_DIR}/../RandLAPACK.hh"
-    DESTINATION include
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
 install(
     DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    DESTINATION include FILES_MATCHING PATTERN "*.hh"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING
+        PATTERN "*.hh"
+        PATTERN "*.cuh"
 )
 
 install(
@@ -94,6 +93,8 @@ install(
 
 install(
     EXPORT RandLAPACK
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake
+    NAMESPACE RandLAPACK::
+    FILE RandLAPACKTargets.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/RandLAPACK
     EXPORT_LINK_INTERFACE_LIBRARIES
 )

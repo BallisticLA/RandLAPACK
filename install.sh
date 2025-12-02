@@ -11,7 +11,7 @@
 set -e
 
 # Check for GCC version
-PREFERRED_GCC_VERSION="13.2.0"
+PREFERRED_GCC_VERSION="13.3.0"
 CURRENT_GCC_VERSION=$(gcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
 
 if [[ "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
@@ -42,9 +42,11 @@ if command -v nvidia-smi &> /dev/null; then
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         RANDLAPACK_CUDA="ON"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
-        RELOAD_SHELL=1
+        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" ~/.bashrc; then
+            echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
+            RELOAD_SHELL=1
+        fi
     fi
 elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
     # AMD GPU found. Ask user if they want to proceed with GPU support or not.
@@ -57,9 +59,11 @@ elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
         RANDLAPACK_CUDA="ON"
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-        echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
-        RELOAD_SHELL=1
+        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" ~/.bashrc; then
+            echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
+            RELOAD_SHELL=1
+        fi
     fi
 else
     echo "No NVIDIA GPU detected." | tee -a $LOG_FILE
@@ -67,8 +71,8 @@ fi
 
 if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
     # Check for NVCC version
-    PREFERRED_NVCC_VERSION="12.4.1"
-    CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
+    PREFERRED_NVCC_VERSION="12.9"
+    CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | grep "release" | awk '{print $5}' | cut -d',' -f1)
 
     if [[ "$CURRENT_NVCC_VERSION" != "$PREFERRED_NVCC_VERSION" ]]; then
         echo "Warning: NVCC $PREFERRED_NVCC_VERSION is preferred. Found NVCC $CURRENT_NVCC_VERSION."
@@ -104,12 +108,14 @@ if [[ "$PARENT_BASE" == "lib" ]]; then
 else
     # New project library to be created
     RANDNLA_PROJECT_DIR="$PARENT_DIR/RandNLA-project"
-    # We want to make sure that RANDNLA_PROJECT_DIR variable is in the 
+    # We want to make sure that RANDNLA_PROJECT_DIR variable is in the
     # user's bashrc so that it can be used by our other bash scripts.
     RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
-    echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-    echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
-    RELOAD_SHELL=1
+    if ! grep -q "export RANDNLA_PROJECT_DIR=" ~/.bashrc; then
+        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
+        echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
+        RELOAD_SHELL=1
+    fi
 fi
 
 # Create the project directory and its subdirectories
@@ -207,7 +213,7 @@ echo $LIB_VAR
 cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install
 make  -C $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -j20 install
 # Configure and build RandLAPACK-benchmark
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
 make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
 
 if [ $RELOAD_SHELL -eq 1 ]; then

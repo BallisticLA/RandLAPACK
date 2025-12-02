@@ -39,19 +39,13 @@ if (GTest_FOUND)
             drivers/test_cqrrpt_gpu.cu
             drivers/test_bqrrp_gpu.cu
         )
-        
+
         # Create CUDA test executables
         set_source_files_properties(${RandLAPACK_test_cu_srcs} PROPERTIES LANGUAGE CUDA)
         add_executable(RandLAPACK_tests_gpu ${RandLAPACK_test_cu_srcs})
         target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
-        set_property(TARGET RandLAPACK_tests_gpu PROPERTY CUDA_ARCHITECTURES native)
-
-        add_executable(RandLAPACK_bench_gpu drivers/bench_bqrrp_gpu.cu)
-        target_link_libraries(RandLAPACK_bench_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
-        set_property(TARGET RandLAPACK_bench_gpu PROPERTY CUDA_ARCHITECTURES native)
 
         # Discover CUDA tests
-        gtest_discover_tests(RandLAPACK_bench_gpu)
         gtest_discover_tests(RandLAPACK_tests_gpu)
     endif()
 
@@ -59,6 +53,8 @@ if (GTest_FOUND)
     add_executable(test_pcgls comps/test_pcgls.cc)
     target_link_libraries(test_pcgls RandLAPACK GTest::GTest)
     add_test(NAME test_pcgls COMMAND test_pcgls 15 100)
+else()
+    message(WARNING "GTest not found - tests will be disabled. Install GTest to enable regression tests.")
 endif()
 
 message(STATUS "Checking for regression tests ... ${tmp}")

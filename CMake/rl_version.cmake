@@ -3,7 +3,6 @@ set(tmp)
 # Find Git executable
 find_package(Git QUIET)
 if(GIT_FOUND)
-    message(STATUS "Git found: ${GIT_EXECUTABLE}")
     execute_process(
         COMMAND ${GIT_EXECUTABLE} --git-dir=${CMAKE_SOURCE_DIR}/.git describe --tags --match "[0-9]*.[0-9]*.[0-9]*"
         OUTPUT_VARIABLE tmp
@@ -11,10 +10,7 @@ if(GIT_FOUND)
         ERROR_VARIABLE git_error
         RESULT_VARIABLE git_result
     )
-    
-    # Print the result of the Git command
-    message(STATUS "Git command result: ${git_result}")
-    message(STATUS "Git command output: ${tmp}")
+
     if(NOT git_result EQUAL 0)
         message(WARNING "Git command failed with error: ${git_error}")
         set(tmp "0.0.0")
@@ -30,12 +26,8 @@ if(NOT tmp)
     set(tmp "0.0.0")
 endif()
 
-# Debugging: Print tmp before setting RandLAPACK_VERSION
-message(STATUS "tmp before setting RandLAPACK_VERSION: ${tmp}")
-
-# Set RandLAPACK_VERSION without CACHE option
+# Set RandLAPACK_VERSION
 set(RandLAPACK_VERSION "${tmp}")
-message(STATUS "RandLAPACK_VERSION after setting: ${RandLAPACK_VERSION}")
 
 # Ensure RandLAPACK_VERSION is not empty
 if(NOT RandLAPACK_VERSION)
