@@ -490,4 +490,36 @@ std::string get_current_date_time() {
     return dateTimeStream.str();
 }
 
+/// Convert a sparse matrix to dense format.
+/// Supports COO, CSR, and CSC sparse matrix formats.
+///
+/// @tparam SpMat - Sparse matrix type (COOMatrix, CSRMatrix, or CSCMatrix)
+/// @tparam T - Scalar type
+///
+/// @param[in] sp_mat - The sparse matrix to convert
+/// @param[in] layout - Memory layout for the output dense matrix (ColMajor or RowMajor)
+/// @param[out] dense_mat - Pre-allocated buffer to store the dense matrix
+///
+template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = SpMat::scalar_t>
+void sparse_to_dense(
+    const SpMat &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    using sint_t = typename SpMat::index_t;
+    constexpr bool is_coo = std::is_same_v<SpMat, RandBLAS::sparse_data::COOMatrix<T, sint_t>>;
+    constexpr bool is_csr = std::is_same_v<SpMat, RandBLAS::sparse_data::CSRMatrix<T, sint_t>>;
+    constexpr bool is_csc = std::is_same_v<SpMat, RandBLAS::sparse_data::CSCMatrix<T, sint_t>>;
+
+    if constexpr (is_coo) {
+        RandBLAS::sparse_data::coo::coo_to_dense(sp_mat, layout, dense_mat);
+    } else if constexpr (is_csr) {
+        RandBLAS::sparse_data::csr::csr_to_dense(sp_mat, layout, dense_mat);
+    } else if constexpr (is_csc) {
+        RandBLAS::sparse_data::csc::csc_to_dense(sp_mat, layout, dense_mat);
+    } else {
+        randblas_require(false); // Unsupported sparse matrix type
+    }
+}
+
 } // end namespace util
