@@ -125,7 +125,7 @@ class TestUtil : public ::testing::Test
         // Get an SVD -> first singular value == 2_norm
         lapack::gesdd(Job::NoVec, m, n, all_data.A_cpy.data(), m, all_data.s.data(), NULL, m, NULL, n);
 
-        printf("Computed norm:  %e\nComputed s_max: %e\n", norm, all_data.s[0]);
+        std::cout << "Computed norm:  " << std::scientific << norm << "\nComputed s_max: " << std::scientific << all_data.s[0] << "\n";
         ASSERT_NEAR(norm, all_data.s[0], std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
@@ -144,7 +144,7 @@ class TestUtil : public ::testing::Test
 
         // We expect this to be 1;
         T norm = blas::nrm2(m, all_data.A_norm.data(), 1);
-        printf("norm is%f\n", norm);
+        std::cout << "norm is" << std::fixed << norm << "\n";
         ASSERT_NEAR(norm, std::sqrt(m - 10), std::pow(std::numeric_limits<T>::epsilon(), 0.75));
     }
 
@@ -154,7 +154,7 @@ class TestUtil : public ::testing::Test
         
         int64_t k = RandLAPACK::util::rank_search_binary(0, m, 0, n, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.75), A.data());
 
-        printf("K IS %ld\n", k);
+        std::cout << "K IS " << k << "\n";
         ASSERT_EQ(k, 0);
     }
 
@@ -183,7 +183,7 @@ class TestUtil : public ::testing::Test
             all_data.A_cpy[i] -= all_data.Ident[i];
 
         T norm = lapack::lange(Norm::Fro, m, n, all_data.A_cpy.data(), m);
-        printf("||A_piv - QR||_F:  %e\n", norm);
+        std::cout << "||A_piv - QR||_F:  " << std::scientific << norm << "\n";
         ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
 
@@ -232,7 +232,7 @@ class TestUtil : public ::testing::Test
         auto stop_own = steady_clock::now();
         long dur_own = duration_cast<microseconds>(stop_own - start_own).count();
 
-        printf("Own is %fx faster than std.\n", (T) dur_std / dur_own);
+        std::cout << "Own is " << std::fixed << (T) dur_std / dur_own << "x faster than std.\n";
 
         // A_piv - A_cpy
         for(i = 0; i < m * n; ++i) {
@@ -242,8 +242,8 @@ class TestUtil : public ::testing::Test
 
         T norm1 = lapack::lange(Norm::Fro, m, n, A, m);
         T norm2 = lapack::lange(Norm::Fro, m, n, B, m);
-        printf("||Q_std - Q_own||_F:  %e\n", norm1);
-        printf("||B - B1||_F:         %e\n", norm2);
+        std::cout << "||Q_std - Q_own||_F:  " << std::scientific << norm1 << "\n";
+        std::cout << "||B - B1||_F:         " << std::scientific << norm2 << "\n";
         
         //ASSERT_NEAR(norm, 0.0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
     }
