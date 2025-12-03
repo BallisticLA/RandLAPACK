@@ -60,13 +60,13 @@ message(STATUS "Fetching Spectra library...")
 # Disable Spectra's installation to avoid export conflicts
 set(BUILD_TESTS OFF CACHE BOOL "Disable Spectra tests" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable Spectra examples" FORCE)
-set(SPECTRA_INSTALL OFF CACHE BOOL "Disable Spectra installation" FORCE)
 
 FetchContent_Declare(
     spectra_lib
     GIT_REPOSITORY https://github.com/yixuan/spectra/
     GIT_TAG master
     GIT_SHALLOW TRUE
+    PATCH_COMMAND sed -i.bak "/install(EXPORT Spectra-targets/,+3d" CMakeLists.txt
 )
 
 # Get Spectra's source and binary dirs without adding to project
