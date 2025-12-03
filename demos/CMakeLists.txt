@@ -64,6 +64,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(spectra_lib)
 
+# Link Spectra to Eigen (Spectra is header-only, uses INTERFACE)
+target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
+
 # fast_matrix_market - Matrix file I/O (optional)
 message(STATUS "Fetching fast_matrix_market library...")
 FetchContent_Declare(
@@ -143,17 +146,11 @@ function(add_demo_gpu)
 endfunction()
 
 # -----------------------------------------------------------------------------
-# Include Directories for Header-Only Functions
-# -----------------------------------------------------------------------------
-
-# Add functions/ directory to include path for header-only utilities
-target_include_directories(RandLAPACK::RandLAPACK INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/functions>
-)
-
-# -----------------------------------------------------------------------------
 # Demo Declarations
 # -----------------------------------------------------------------------------
+
+# Note: functions/ directory headers should be included with relative paths
+# from demo source files, e.g., #include "../../functions/misc/format_conversions.hh"
 
 message(STATUS "Configuring demos...")
 
