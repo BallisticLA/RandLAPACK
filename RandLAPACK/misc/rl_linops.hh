@@ -427,6 +427,12 @@ struct SparseLinOp {
         randblas_require(cols_submat_A <= n_cols);
         randblas_require(ldc >= m);
 
+        std::cerr << "For now, sparse * sparse is an uncharted territory." << std::endl;
+
+        // TODO: Implement sparse * sparse multiplication without explicit densification
+        // Current approach densifies B_sp, which is not ideal for performance
+
+        /*
         // Densify B_sp
         int64_t dense_rows = rows_B;
         int64_t dense_cols = cols_B;
@@ -439,6 +445,7 @@ struct SparseLinOp {
         // Use existing sparse-dense operator
         (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
         delete[] B_dense;
+        */
     }
 
     // Augmented sparse matrix multiplication operator with Side parameter.
