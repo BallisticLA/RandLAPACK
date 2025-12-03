@@ -23,6 +23,9 @@ There are 10 things that we time:
 
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
+// Demos format conversion utilities
+#include "../../demos/functions/misc/format_conversions.hh"
+
 using Subroutines = RandLAPACK::ABRIKSubroutines;
 
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
@@ -52,64 +55,7 @@ struct ABRIK_benchmark_data {
     }
 };
 
-template <typename T>
-RandBLAS::sparse_data::coo::COOMatrix<T> from_matrix_market(std::string fn) {
-
-    int64_t n_rows, n_cols = 0;
-    std::vector<int64_t> rows{};
-    std::vector<int64_t> cols{};
-    std::vector<T> vals{};
-
-    std::ifstream file_stream(fn);
-    fast_matrix_market::read_matrix_market_triplet(
-        file_stream, n_rows, n_cols, rows,  cols, vals
-    );
-
-    RandBLAS::sparse_data::coo::COOMatrix<T> out(n_rows, n_cols);
-    reserve_coo(vals.size(),out);
-    for (int i = 0; i < out.nnz; ++i) {
-        out.rows[i] = rows[i];
-        out.cols[i] = cols[i];
-        out.vals[i] = vals[i];
-    }
-
-    return out;
-}
-
-template <typename T>
-RandBLAS::CSCMatrix<T> format_conversion(int64_t m, int64_t n, RandBLAS::COOMatrix<T>& input_mat_coo)
-{
-    // Grab the leading principal submatrix of the size of half the input
-    RandBLAS::COOMatrix<double> input_mat_transformed(m, n);
-
-    // check how many nonzeros are in the left principal submatrix
-    int64_t nnz_sub = 0;
-    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
-        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
-            ++nnz_sub;
-        }
-    }
-
-    // Allocate
-    reserve_coo(nnz_sub, input_mat_transformed);
-
-    int64_t ell = 0;
-    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
-        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
-            input_mat_transformed.rows[ell] = input_mat_coo.rows[i];
-            input_mat_transformed.cols[ell] = input_mat_coo.cols[i];
-            input_mat_transformed.vals[ell] = input_mat_coo.vals[i];
-            ++ell;
-        }
-    }
-
-    // Convert the sparse matrix format for performance
-    RandBLAS::CSCMatrix<double> input_mat_csc(m, n);
-    //RandBLAS::conversions::coo_to_csc(input_mat_coo, input_mat_csc);
-    RandBLAS::conversions::coo_to_csc(input_mat_transformed, input_mat_csc);
-
-    return input_mat_csc;
-}
+// Format conversion utilities are now available via the RandLAPACK_demos namespace
 
 // Re-generate and clear data
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
@@ -207,16 +153,16 @@ int main(int argc, char *argv[]) {
 
     // Read the input fast matrix market data
     // The idea is that input_mat_coo will be automatically freed at the end of function execution
-    auto input_mat_coo = from_matrix_market<double>(std::string(argv[2]));
+    auto input_mat_coo = RandLAPACK_demos::coo_from_matrix_market<double>(std::string(argv[2]));
     auto m = input_mat_coo.n_rows * submatrix_dim_ratio;
     auto n = input_mat_coo.n_cols * submatrix_dim_ratio;
 
     // Convert coo into csc matrix - this will grab the leading principal submatrix
     // depending on what m and n were set to.
-    auto input_mat_csc = format_conversion<double>(m, n, input_mat_coo);
+    auto input_mat_csc = RandLAPACK_demos::coo_submatrix_to_csc<double>(m, n, input_mat_coo);
 
     // Allocate basic workspace.
-    ABRIK_benchmark_data<double, RandBLAS::sparse_data::CSCMatrix<double>> all_data(m, n, tol);
+    ABRIK_benchmark_data<double, RandBLAS::sparse_data::csc::CSCMatrix<double>> all_data(m, n, tol);
     all_data.A_input = &input_mat_csc;
 
     printf("Finished data preparation\n");

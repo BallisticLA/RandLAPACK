@@ -162,10 +162,17 @@ else
     rm -rf $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/*
     echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/"
 fi
+if [[ ! -d "$RANDNLA_PROJECT_DIR/build/demos-build/" ]]; then
+    mkdir -p "$RANDNLA_PROJECT_DIR/build/demos-build/"
+    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/demos-build/"
+else
+    rm -rf $RANDNLA_PROJECT_DIR/build/demos-build/*
+    echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/demos-build/"
+fi
 if [[ ! -d "$RANDNLA_PROJECT_DIR/build/benchmark-build/" ]]; then
     mkdir -p "$RANDNLA_PROJECT_DIR/build/benchmark-build/"
     echo "Directory created at: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
-else 
+else
     rm -rf $RANDNLA_PROJECT_DIR/build/benchmark-build/*
     echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
 fi
@@ -212,6 +219,11 @@ make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
 echo $LIB_VAR
 cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install
 make  -C $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -j20 install
+
+# Configure and build RandLAPACK-demos
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/demos/ -B $RANDNLA_PROJECT_DIR/build/demos-build/ -DCMAKE_BUILD_TYPE=Release -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
+make  -C $RANDNLA_PROJECT_DIR/build/demos-build/ -j20
+
 # Configure and build RandLAPACK-benchmark
 cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
 make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
