@@ -229,7 +229,7 @@ if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK build failed!"
     exit 1
 fi
-echo "✓ RandLAPACK configured and built successfully"
+echo "RandLAPACK configured and built successfully"
 echo ""
 
 # Configure and build RandLAPACK-demos
@@ -246,7 +246,7 @@ if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK demos build failed!"
     exit 1
 fi
-echo "✓ RandLAPACK demos configured and built successfully"
+echo "RandLAPACK demos configured and built successfully"
 echo ""
 
 # Configure and build RandLAPACK-benchmark
@@ -263,11 +263,11 @@ if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK benchmarks build failed!"
     exit 1
 fi
-echo "✓ RandLAPACK benchmarks configured and built successfully"
+echo "RandLAPACK benchmarks configured and built successfully"
 echo ""
 
 echo "=========================================="
-echo "✓ Installation Complete!"
+echo "Installation Complete!"
 echo "=========================================="
 echo "RandLAPACK, demos, and benchmarks are ready to use."
 echo ""
