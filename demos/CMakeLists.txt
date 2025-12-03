@@ -55,30 +55,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(eigen_lib)
 
 # Spectra - Eigenvalue solvers (depends on Eigen)
-message(STATUS "Fetching Spectra library...")
-
-# Disable Spectra's installation to avoid export conflicts
-set(BUILD_TESTS OFF CACHE BOOL "Disable Spectra tests" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "Disable Spectra examples" FORCE)
-
-FetchContent_Declare(
-    spectra_lib
-    GIT_REPOSITORY https://github.com/yixuan/spectra/
-    GIT_TAG master
-    GIT_SHALLOW TRUE
-    PATCH_COMMAND sed -i.bak "/install(EXPORT Spectra-targets/,+3d" CMakeLists.txt
-)
-
-# Get Spectra's source and binary dirs without adding to project
-FetchContent_GetProperties(spectra_lib)
-if(NOT spectra_lib_POPULATED)
-    FetchContent_Populate(spectra_lib)
-    # Add with EXCLUDE_FROM_ALL to prevent installation
-    add_subdirectory(${spectra_lib_SOURCE_DIR} ${spectra_lib_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
-
-# Link Spectra to Eigen (Spectra is header-only, uses INTERFACE)
-target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
+# NOTE: Disabled for now due to CMake export conflicts
+# TODO: Re-enable when needed for specific demos
+# message(STATUS "Fetching Spectra library...")
+# FetchContent_Declare(...)
+# FetchContent_MakeAvailable(spectra_lib)
 
 # fast_matrix_market - Matrix file I/O (optional)
 message(STATUS "Fetching fast_matrix_market library...")
@@ -99,11 +80,10 @@ set(Demo_libs_basic
     RandLAPACK::RandLAPACK
 )
 
-# External library demos (Eigen + Spectra)
+# External library demos (Eigen + fast_matrix_market)
 set(Demo_libs_external
     RandLAPACK::RandLAPACK
     Eigen3::Eigen
-    Spectra
     fast_matrix_market
 )
 
@@ -169,14 +149,12 @@ message(STATUS "Configuring demos...")
 
 # linops_external demos (from demos/linops_external/)
 add_demo(NAME demo_eigen_linops CXX_SOURCES demos/linops_external/demo_eigen_linops.cc LINK_LIBS ${Demo_libs_external})
-add_demo(NAME demo_spectra_eigensolvers CXX_SOURCES demos/linops_external/demo_spectra_eigensolvers.cc LINK_LIBS ${Demo_libs_external})
 
 # Dummy demo (from demos/)
 add_demo(NAME dummy CXX_SOURCES demos/dummy.cc LINK_LIBS ${Demo_libs_basic})
 
 message(STATUS "Configured ${CMAKE_PROJECT_NAME} with demos:")
 message(STATUS "  - demo_eigen_linops")
-message(STATUS "  - demo_spectra_eigensolvers")
 message(STATUS "  - dummy")
 
 if(HAVE_CUDA)
