@@ -34,41 +34,59 @@ concept LinearOperator = requires(LinOp A) {
 
 /*********************************************************/
 /*                                                       */
-/*            EfficientAndSparseLinOp                    */
+/*              CompositeOperator                        */
 /*                                                       */
 /*********************************************************/
-// Custom linear operator for the fast randomized Q-less Cholesky QR algorithm.
-// Represents the implicit product of an efficient operator A and a sparse tall matrix Omega.
-// This operator computes (A*Omega)*B by evaluating from right to left: A*(Omega*B).
+// Composite linear operator representing the product of two linear operators.
+// Represents the implicit product LinOp1 * LinOp2.
 //
 // Template parameters:
-//   EffLinOp - Type satisfying LinearOperator concept (e.g., SRFT, dense matrix wrapper)
-//   SpMat - Sparse matrix type from RandBLAS
-template <LinearOperator EffLinOp, RandBLAS::sparse_data::SparseMatrix SpMat>
-struct EfficientAndSparseLinOp {
-    using T = typename EffLinOp::scalar_t;
+//   LinOp1 - Left operator type satisfying LinearOperator concept
+//   LinOp2 - Right operator type satisfying LinearOperator concept
+//
+// Functionality:
+//   - Supports multiplication with both dense and sparse matrices B
+//   - Supports both left and right multiplication via Side parameter
+//   - Multiplication is ALWAYS performed right-to-left: LinOp1 * (LinOp2 * B)
+//
+// Strategy:
+//   All operations use a two-step process with an intermediate buffer:
+//     Step 1: temp = LinOp2 * B  (LinOp2 handles dense/sparse B internally)
+//     Step 2: result = LinOp1 * temp
+//
+// Sparse matrix handling:
+//   Delegated to the individual operators (DenseLinOp, SparseLinOp, etc.)
+//   - DenseLinOp: Uses RandBLAS::right_spmm for dense * sparse
+//   - SparseLinOp: Densifies sparse B, then uses left_spmm for sparse * dense
+template <LinearOperator LinOp1, LinearOperator LinOp2>
+struct CompositeOperator {
+    using T = typename LinOp1::scalar_t;
     using scalar_t = T;
-    const int64_t n_rows;  // Number of rows in A*Omega
-    const int64_t n_cols;  // Number of columns in A*Omega
-    EffLinOp &A_eff;       // Reference to the efficient operator A
-    SpMat &Omega_sp;       // Reference to the sparse matrix Omega
+    const int64_t n_rows;    // Number of rows in LinOp1 * LinOp2
+    const int64_t n_cols;    // Number of columns in LinOp1 * LinOp2
+    LinOp1 &left_op;         // Reference to the left operator
+    LinOp2 &right_op;        // Reference to the right operator
 
-    EfficientAndSparseLinOp(
+    CompositeOperator(
         const int64_t n_rows,
         const int64_t n_cols,
-        EffLinOp &A_eff,
-        SpMat &Omega_sp
-    ) : n_rows(n_rows), n_cols(n_cols), A_eff(A_eff), Omega_sp(Omega_sp) {
-        // Validate dimensions: A is (n_rows x Omega.n_rows), Omega is (Omega.n_rows x n_cols)
-        randblas_require(A_eff.n_cols == Omega_sp.n_rows);
-        randblas_require(Omega_sp.n_cols == n_cols);
+        LinOp1 &left_op,
+        LinOp2 &right_op
+    ) : n_rows(n_rows), n_cols(n_cols), left_op(left_op), right_op(right_op) {
+        // Validate dimensions: left_op is (n_rows x right_op.n_rows), right_op is (right_op.n_rows x n_cols)
+        randblas_require(left_op.n_cols == right_op.n_rows);
+        randblas_require(right_op.n_cols == n_cols);
     }
 
-    // Default operator: Computes C := alpha * op(A*Omega) * op(B) + beta * C
-    // Strategy: temp = Omega * B, then C = alpha * A * temp + beta * C
+    // Dense matrix multiplication operator: C := alpha * op(LinOp1 * LinOp2) * op(B) + beta * C
+    // where B is a dense matrix.
+    //
+    // Strategy: Compute right-to-left via intermediate buffer
+    //   Step 1: temp = LinOp2 * op(B)
+    //   Step 2: C = alpha * LinOp1 * temp + beta * C
     void operator()(
         Layout layout,
-        Op trans_AO,  // Transposition of the composite operator (A*Omega)
+        Op trans_comp,  // Transposition of the composite operator (LinOp1 * LinOp2)
         Op trans_B,
         int64_t m,
         int64_t n,
@@ -83,61 +101,56 @@ struct EfficientAndSparseLinOp {
         // Validate input dimensions
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
         randblas_require(ldb >= rows_B);
-        auto [rows_AO, cols_AO] = RandBLAS::dims_before_op(m, k, trans_AO);
-        randblas_require(rows_AO <= n_rows);
-        randblas_require(cols_AO <= n_cols);
+        auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
+        randblas_require(rows_comp <= n_rows);
+        randblas_require(cols_comp <= n_cols);
         randblas_require(ldc >= m);
 
-        if (trans_AO == Op::NoTrans) {
-            // C := alpha * (A * Omega) * op(B) + beta * C
-            // Note: Omega_sp.n_cols is only known to this sparse matrix.
-            // This parameter can have any value.
-            int64_t temp_rows = Omega_sp.n_cols;
+        if (trans_comp == Op::NoTrans) {
+            // C := alpha * (LinOp1 * LinOp2) * op(B) + beta * C
+            // Note: right_op.n_cols is the intermediate dimension
+            int64_t temp_rows = right_op.n_cols;
             T* temp_buffer = new T[temp_rows * n]();
             int64_t ldt = temp_rows;
 
-            // Step 1: temp := Omega * op(B), dimension (n_cols x n)
-            // Sparse matrix gets multiplied by a dense matrix on the right,
-            // result is stored in a buffer.
-            RandBLAS::sparse_data::left_spmm(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, Omega_sp, 0, 0, B, ldb, (T)0.0, temp_buffer, ldt);
+            // Step 1: temp := LinOp2 * op(B), dimension (right_op.n_cols x n)
+            right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
-            // Step 2: C := alpha * A * temp + beta * C
-            // Multiply the fast operator by temporary buffer on the right
-            A_eff(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+            // Step 2: C := alpha * LinOp1 * temp + beta * C
+            left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
             delete[] temp_buffer;
 
         } else {
-            // trans_AO == Op::Trans
-            // C := alpha * (A * Omega)^T * op(B) + beta * C
-            //    = alpha * Omega^T * A^T * op(B) + beta * C
-            // Note: A_eff.n_cols is only known to this operator.
-            // This parameter can have any value.
-            int64_t temp_rows = A_eff.n_cols;
+            // trans_comp == Op::Trans
+            // C := alpha * (LinOp1 * LinOp2)^T * op(B) + beta * C
+            //    = alpha * LinOp2^T * LinOp1^T * op(B) + beta * C
+            // Note: left_op.n_cols is the intermediate dimension
+            int64_t temp_rows = left_op.n_cols;
             T* temp_buffer = new T[temp_rows * n]();
             int64_t ldt = temp_rows;
 
-            // Step 1: temp := A^T * op(B), dimension (A.n_cols x n)
-            // Efficient operator gets multiplied by a dense matrix on the right,
-            // result stored in a buffer.
-            A_eff(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+            // Step 1: temp := LinOp1^T * op(B), dimension (left_op.n_cols x n)
+            left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
-            // Step 2: C := alpha * Omega^T * temp + beta * C
-            // Sparse matrix gets multiplied by a dense matrix on the right,
-            // result is stored in a buffer.
-            RandBLAS::sparse_data::left_spmm(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, Omega_sp, 0, 0, temp_buffer, ldt, beta, C, ldc);
+            // Step 2: C := alpha * LinOp2^T * temp + beta * C
+            right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
             delete[] temp_buffer;
         }
     }
 
-    // Augmented operator to allow for left and right multiplication.
-    // Side::Left: C := alpha * (A*Omega) * op(B) + beta * C  (delegates to default operator)
-    // Side::Right: C := alpha * op(B) * (A*Omega) + beta * C
+    // Augmented dense matrix multiplication operator with Side parameter.
+    // Handles both left and right multiplication with a dense matrix B.
+    //
+    // Side::Left:  C := alpha * (LinOp1 * LinOp2) * op(B) + beta * C
+    // Side::Right: C := alpha * op(B) * (LinOp1 * LinOp2) + beta * C
+    //
+    // Right multiplication uses the transpose trick with swapped layout.
     void operator()(
         Side side,
         Layout layout,
-        Op trans_AO,  // Transposition of the composite operator (A*Omega)
+        Op trans_comp,  // Transposition of the composite operator (LinOp1 * LinOp2)
         Op trans_B,
         int64_t m,
         int64_t n,
@@ -151,55 +164,43 @@ struct EfficientAndSparseLinOp {
     ) {
         if (side == Side::Left) {
             // Left multiplication: delegate to default operator
-            (*this)(layout, trans_AO, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
+            (*this)(layout, trans_comp, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
 
         } else {  // side == Side::Right
-            // Right multiplication: C := alpha * op(B) * op(A*Omega) + beta * C
-            // We use the transpose trick: compute C^T := alpha * op(A*Omega)^T * op(B)^T + beta * C^T
+            // Right multiplication: C := alpha * op(B) * op(LinOp1 * LinOp2) + beta * C
+            // We use the transpose trick: compute C^T := alpha * op(LinOp1 * LinOp2)^T * op(B)^T + beta * C^T
             // with swapped layout
 
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             randblas_require(ldb >= rows_B);
-            auto [rows_AO, cols_AO] = RandBLAS::dims_before_op(k, n, trans_AO);
-            randblas_require(rows_AO <= n_rows);
-            randblas_require(cols_AO <= n_cols);
+            auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(k, n, trans_comp);
+            randblas_require(rows_comp <= n_rows);
+            randblas_require(cols_comp <= n_cols);
             randblas_require(ldc >= m);
 
-            // Transpose the operation: swap trans_AO and use opposite layout
-            auto trans_trans_AO = (trans_AO == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+            // Transpose the operation: swap trans_comp and use opposite layout
+            auto trans_trans_comp = (trans_comp == Op::NoTrans) ? Op::Trans : Op::NoTrans;
             auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
 
             // Now call the default operator with transposed parameters
-            (*this)(trans_layout, trans_trans_AO, trans_B, n, m, k, alpha, B, ldb, beta, C, ldc);
+            (*this)(trans_layout, trans_trans_comp, trans_B, n, m, k, alpha, B, ldb, beta, C, ldc);
         }
     }
 
-    // Sparse matrix multiplication operator: C := alpha * op(A*Omega) * op(B_sp) + beta * C
+    // Sparse matrix multiplication operator: C := alpha * op(LinOp1 * LinOp2) * op(B_sp) + beta * C
     // where B_sp is a sparse matrix.
     //
-    // Strategy depends on trans_AO and whether A_eff is sparse:
+    // Strategy: Compute right-to-left via intermediate buffer (same as dense case).
+    //   Step 1: temp = LinOp2 * op(B_sp)  [LinOp2 handles sparse B_sp internally]
+    //   Step 2: C = alpha * LinOp1 * temp + beta * C
     //
-    // Case 1: trans_AO == NoTrans
-    //   C := alpha * (A * Omega) * op(B_sp) + beta * C
-    //   Since Omega (sparse) * op(B_sp) (sparse) has no sparse-sparse implementation in RandBLAS,
-    //   we ALWAYS convert B_sp to dense first, regardless of whether A is sparse or not.
-    //
-    // Case 2: trans_AO == Trans
-    //   C := alpha * (A * Omega)^T * op(B_sp) + beta * C
-    //     = alpha * Omega^T * A^T * op(B_sp) + beta * C
-    //
-    //   Sub-case 2a: A_eff is sparse
-    //     Both A^T (sparse) and op(B_sp) (sparse) are sparse, so we convert B_sp to dense
-    //     to avoid sparse-sparse issues, then use the existing dense operator.
-    //
-    //   Sub-case 2b: A_eff is NOT sparse
-    //     We can efficiently compute A^T * op(B_sp) using sparse-dense multiplication
-    //     (A^T is dense/efficient, B_sp is sparse). We materialize B_sp to dense,
-    //     apply A^T, then multiply by Omega^T using left_spmm (sparse * dense).
+    // Note: Both DenseLinOp and SparseLinOp support sparse matrix multiplication.
+    //   - DenseLinOp uses RandBLAS::right_spmm (dense * sparse)
+    //   - SparseLinOp densifies B_sp then uses left_spmm (sparse * dense)
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
         Layout layout,
-        Op trans_AO,  // Transposition of the composite operator (A*Omega)
+        Op trans_comp,  // Transposition of the composite operator (LinOp1 * LinOp2)
         Op trans_B,
         int64_t m,
         int64_t n,
@@ -212,90 +213,57 @@ struct EfficientAndSparseLinOp {
     ) {
         // Validate input dimensions
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
-        auto [rows_AO, cols_AO] = RandBLAS::dims_before_op(m, k, trans_AO);
-        randblas_require(rows_AO <= n_rows);
-        randblas_require(cols_AO <= n_cols);
+        auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
+        randblas_require(rows_comp <= n_rows);
+        randblas_require(cols_comp <= n_cols);
         randblas_require(ldc >= m);
 
-        // Check if EffLinOp is a sparse linear operator
-        constexpr bool eff_is_sparse = requires(EffLinOp op) {
-            typename EffLinOp::T;
-            { op.A_sp };
-            requires RandBLAS::sparse_data::SparseMatrix<decltype(op.A_sp)>;
-        };
+        if (trans_comp == Op::NoTrans) {
+            // C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
+            int64_t temp_rows = right_op.n_cols;
+            T* temp_buffer = new T[temp_rows * n]();
+            int64_t ldt = temp_rows;
 
-        if constexpr (eff_is_sparse) {
-            // A_eff is sparse, so convert B_sp to dense to avoid sparse-sparse issues
-            int64_t dense_rows = rows_B;
-            int64_t dense_cols = cols_B;
-            T* B_dense = new T[dense_rows * dense_cols]();
-            int64_t ldb = (layout == Layout::ColMajor) ? dense_rows : dense_cols;
+            // Step 1: temp := LinOp2 * op(B_sp), dimension (right_op.n_cols x n)
+            // LinOp2's operator handles sparse B_sp internally
+            right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
 
-            // Convert sparse to dense using utility function
-            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
+            // Step 2: C := alpha * LinOp1 * temp + beta * C
+            left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
-            // Use existing dense operator
-            (*this)(layout, trans_AO, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
-            delete[] B_dense;
+            delete[] temp_buffer;
 
         } else {
-            // A_eff is not sparse, use sparse-sparse multiplication approach
-            if (trans_AO == Op::NoTrans) {
-                // C := alpha * (A * Omega) * op(B_sp) + beta * C
-                int64_t temp_rows = Omega_sp.n_cols;
-                T* temp_buffer = new T[temp_rows * n]();
-                int64_t ldt = temp_rows;
+            // trans_comp == Op::Trans
+            // C := alpha * (LinOp1 * LinOp2)^T * op(B_sp) + beta * C
+            //    = alpha * LinOp2^T * LinOp1^T * op(B_sp) + beta * C
+            int64_t temp_rows = left_op.n_cols;
+            T* temp_buffer = new T[temp_rows * n]();
+            int64_t ldt = temp_rows;
 
-                // Step 1: temp := Omega * op(B_sp), dimension (n_cols x n)
-                RandBLAS::sparse_data::left_spmm(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, Omega_sp, 0, 0, B_sp, 0, 0, (T)0.0, temp_buffer, ldt);
+            // Step 1: temp := LinOp1^T * op(B_sp), dimension (left_op.n_cols x n)
+            // LinOp1's operator handles sparse B_sp internally
+            left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
 
-                // Step 2: C := alpha * A * temp + beta * C
-                A_eff(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-                delete[] temp_buffer;
+            // Step 2: C := alpha * LinOp2^T * temp + beta * C
+            right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
-            } else {
-                // trans_AO == Op::Trans
-                // C := alpha * (A * Omega)^T * op(B_sp) + beta * C
-                //    = alpha * Omega^T * A^T * op(B_sp) + beta * C
-                int64_t temp_rows = A_eff.n_cols;
-                T* temp_buffer = new T[temp_rows * n]();
-                int64_t ldt = temp_rows;
-
-                // Step 1: Materialize op(B_sp) to dense, then apply A^T
-                // Use left_spmm with an identity-like operation to convert sparse to dense
-                // This handles trans_B automatically
-                int64_t temp2_rows = k;
-                T* temp_buffer2 = new T[temp2_rows * n]();
-                int64_t ldt2 = temp2_rows;
-
-                // Apply transpose using layout trick when converting to dense
-                Layout temp_layout = layout;
-                if (trans_B == Op::Trans) {
-                    temp_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
-                }
-
-                // Convert sparse to dense using utility function
-                RandLAPACK::util::sparse_to_dense(B_sp, temp_layout, temp_buffer2);
-
-                // Now apply A^T to dense temp2 (trans_B already handled via layout)
-                A_eff(layout, Op::Trans, Op::NoTrans, temp_rows, n, k, (T)1.0, temp_buffer2, ldt2, (T)0.0, temp_buffer, ldt);
-                delete[] temp_buffer2;
-
-                // Step 2: C := alpha * Omega^T * temp + beta * C
-                RandBLAS::sparse_data::left_spmm(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, Omega_sp, 0, 0, temp_buffer, ldt, beta, C, ldc);
-                delete[] temp_buffer;
-            }
+            delete[] temp_buffer;
         }
     }
 
-    // Augmented sparse operator to allow for left and right multiplication.
-    // Side::Left: C := alpha * (A*Omega) * op(B_sp) + beta * C  (delegates to default sparse operator)
-    // Side::Right: C := alpha * op(B_sp) * (A*Omega) + beta * C
+    // Augmented sparse matrix multiplication operator with Side parameter.
+    // Handles both left and right multiplication with a sparse matrix B_sp.
+    //
+    // Side::Left:  C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
+    // Side::Right: C := alpha * op(B_sp) * (LinOp1 * LinOp2) + beta * C
+    //
+    // Right multiplication uses the transpose trick with swapped layout.
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
         Side side,
         Layout layout,
-        Op trans_AO,  // Transposition of the composite operator (A*Omega)
+        Op trans_comp,  // Transposition of the composite operator (LinOp1 * LinOp2)
         Op trans_B,
         int64_t m,
         int64_t n,
@@ -308,51 +276,51 @@ struct EfficientAndSparseLinOp {
     ) {
         if (side == Side::Left) {
             // Left multiplication: delegate to default sparse operator
-            (*this)(layout, trans_AO, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
+            (*this)(layout, trans_comp, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
 
         } else {  // side == Side::Right
-            // Right multiplication: C := alpha * op(B_sp) * op(A*Omega) + beta * C
-            // We use the transpose trick: compute C^T := alpha * op(A*Omega)^T * op(B_sp)^T + beta * C^T
+            // Right multiplication: C := alpha * op(B_sp) * op(LinOp1 * LinOp2) + beta * C
+            // We use the transpose trick: compute C^T := alpha * op(LinOp1 * LinOp2)^T * op(B_sp)^T + beta * C^T
             // with swapped layout
 
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
-            auto [rows_AO, cols_AO] = RandBLAS::dims_before_op(k, n, trans_AO);
-            randblas_require(rows_AO <= n_rows);
-            randblas_require(cols_AO <= n_cols);
+            auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(k, n, trans_comp);
+            randblas_require(rows_comp <= n_rows);
+            randblas_require(cols_comp <= n_cols);
             randblas_require(ldc >= m);
 
-            // Transpose the operation: swap trans_AO and use opposite layout
-            auto trans_trans_AO = (trans_AO == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+            // Transpose the operation: swap trans_comp and use opposite layout
+            auto trans_trans_comp = (trans_comp == Op::NoTrans) ? Op::Trans : Op::NoTrans;
             auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
 
             // Now call the default sparse operator with transposed parameters
-            (*this)(trans_layout, trans_trans_AO, trans_B, n, m, k, alpha, B_sp, beta, C, ldc);
+            (*this)(trans_layout, trans_trans_comp, trans_B, n, m, k, alpha, B_sp, beta, C, ldc);
         }
     }
 };
 
 /*********************************************************/
 /*                                                       */
-/*                      SpLinOp                          */
+/*                   SparseLinOp                         */
 /*                                                       */
 /*********************************************************/
 
-// Sparse linear operator struct, supplied with a sparse-with-dense matrix multiplication operator 
+// Sparse linear operator struct, supplied with a sparse-with-dense matrix multiplication operator
 // and a Frobenius norm function.
 template <RandBLAS::sparse_data::SparseMatrix SpMat>
-struct SpLinOp {
+struct SparseLinOp {
     using T = typename SpMat::scalar_t;
     using scalar_t = T;
     const int64_t n_rows;
     const int64_t n_cols;
     SpMat &A_sp;
 
-    SpLinOp(
+    SparseLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
         SpMat &A_sp
     ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp) {
-       
+
     }
 
     T fro_nrm(
@@ -360,19 +328,22 @@ struct SpLinOp {
         return blas::nrm2(A_sp.nnz, A_sp.vals, 1);
     }
 
-    // Default operator.
+    // Dense matrix multiplication operator: C := alpha * op(A_sp) * op(B) + beta * C
+    // where A_sp is sparse and B is dense.
+    //
+    // Uses RandBLAS::left_spmm for sparse * dense multiplication.
     void operator()(
-        Layout layout, 
-        Op trans_A, 
-        Op trans_B, 
-        int64_t m, 
-        int64_t n, 
-        int64_t k, 
-        T alpha,  
-        const T* B, 
-        int64_t ldb, 
-        T beta, 
-        T* C, 
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        const T* B,
+        int64_t ldb,
+        T beta,
+        T* C,
         int64_t ldc
     ) {
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
@@ -385,7 +356,13 @@ struct SpLinOp {
         RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
     }
 
-    // Augmented operator to allow for left and right spmm.
+    // Augmented dense matrix multiplication operator with Side parameter.
+    // Handles both left and right multiplication with a dense matrix B.
+    //
+    // Side::Left:  C := alpha * op(A_sp) * op(B) + beta * C
+    // Side::Right: C := alpha * op(B) * op(A_sp) + beta * C
+    //
+    // Right multiplication uses the transpose trick with swapped layout.
     void operator()(
         Side side,
         Layout layout, 
@@ -423,17 +400,102 @@ struct SpLinOp {
             left_spmm(trans_layout, trans_trans_A, trans_B, k, m, n, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
         }
     }
+
+    // Sparse matrix multiplication operator: C := alpha * op(A_sp) * op(B_sp) + beta * C
+    // where both A_sp and B_sp are sparse matrices.
+    //
+    // Strategy: Densify B_sp then delegate to dense operator (uses left_spmm)
+    // Note: RandBLAS does not support sparse * sparse multiplication directly.
+    template <RandBLAS::sparse_data::SparseMatrix SpMatB>
+    void operator()(
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SpMatB &B_sp,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        // Validate input dimensions
+        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
+        randblas_require(rows_submat_A <= n_rows);
+        randblas_require(cols_submat_A <= n_cols);
+        randblas_require(ldc >= m);
+
+        // Densify B_sp
+        int64_t dense_rows = rows_B;
+        int64_t dense_cols = cols_B;
+        T* B_dense = new T[dense_rows * dense_cols]();
+        int64_t ldb = (layout == Layout::ColMajor) ? dense_rows : dense_cols;
+
+        // Convert sparse to dense using utility function
+        RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
+
+        // Use existing sparse-dense operator
+        (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
+        delete[] B_dense;
+    }
+
+    // Augmented sparse matrix multiplication operator with Side parameter.
+    // Handles both left and right multiplication with a sparse matrix B_sp.
+    //
+    // Side::Left:  C := alpha * op(A_sp) * op(B_sp) + beta * C
+    // Side::Right: C := alpha * op(B_sp) * op(A_sp) + beta * C
+    //
+    // Right multiplication uses the transpose trick with swapped layout.
+    template <RandBLAS::sparse_data::SparseMatrix SpMatB>
+    void operator()(
+        Side side,
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SpMatB &B_sp,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        if (side == Side::Left) {
+            // Left multiplication: delegate to default sparse operator
+            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
+        } else {  // side == Side::Right
+            // Right multiplication: C := alpha * op(B_sp) * op(A_sp) + beta * C
+            // We use the transpose trick: compute C^T := alpha * op(A_sp)^T * op(B_sp)^T + beta * C^T
+            // with swapped layout
+
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
+            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(k, n, trans_A);
+            randblas_require(rows_submat_A <= n_rows);
+            randblas_require(cols_submat_A <= n_cols);
+            randblas_require(ldc >= m);
+
+            // Transpose the operation: swap trans_A and use opposite layout
+            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
+
+            // Now call the default sparse operator with transposed parameters
+            (*this)(trans_layout, trans_trans_A, trans_B, n, m, k, alpha, B_sp, beta, C, ldc);
+        }
+    }
 };
 
 /*********************************************************/
 /*                                                       */
-/*                      GenLinOp                         */
+/*                     DenseLinOp                        */
 /*                                                       */
 /*********************************************************/
-// General linear operator struct, supplied with a general matrix multiplication operator 
+// Dense linear operator struct, supplied with a general matrix multiplication operator
 // (through blas::gemm) and a Frobenius norm function.
 template <typename T>
-struct GenLinOp {
+struct DenseLinOp {
     using scalar_t = T;
     const int64_t n_rows;
     const int64_t n_cols;
@@ -441,7 +503,7 @@ struct GenLinOp {
     const int64_t lda;
     const Layout buff_layout;
 
-    GenLinOp(
+    DenseLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
         const T* A_buff,
@@ -456,14 +518,13 @@ struct GenLinOp {
         return lapack::lange(Norm::Fro, n_rows, n_cols, A_buff, lda);
     }
 
-    // Comments on the use of layout in the below operators:
-    // Current implementation: requires that the layout of A, B, C is column-major.
-    // Intended behavior: the "layout" parameter here is interpreted for (B and C).
-    // If layout conflicts with this->buff_layout then we manipulate
-    // parameters to blas::gemm to reconcile the different layouts of
-    // A vs (B, C).
-
-    // Default operator
+    // Dense matrix multiplication operator: C := alpha * op(A) * op(B) + beta * C
+    // where both A and B are dense matrices.
+    //
+    // Uses BLAS::gemm for dense * dense multiplication.
+    //
+    // Note on layout: The "layout" parameter applies to B and C.
+    // Current implementation requires buff_layout == ColMajor.
     void operator()(
         Layout layout, 
         Op trans_A, 
@@ -489,20 +550,26 @@ struct GenLinOp {
         blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
     }
 
-    // Augmented operator to allow for left and right gemm.
+    // Augmented dense matrix multiplication operator with Side parameter.
+    // Handles both left and right multiplication with a dense matrix B.
+    //
+    // Side::Left:  C := alpha * op(A) * op(B) + beta * C
+    // Side::Right: C := alpha * op(B) * op(A) + beta * C
+    //
+    // Right multiplication uses the transpose trick with swapped layout.
     void operator()(
         Side side,
-        Layout layout, 
-        Op trans_A, 
-        Op trans_B, 
-        int64_t m, 
-        int64_t n, 
-        int64_t k, 
-        T alpha,  
-        T* const B, 
-        int64_t ldb, 
-        T beta, 
-        T* C, 
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        T* const B,
+        int64_t ldb,
+        T beta,
+        T* C,
         int64_t ldc
     ) {
         if (side == Side::Left) {
@@ -527,6 +594,80 @@ struct GenLinOp {
             auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
             auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
             blas::gemm(trans_layout, trans_trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+        }
+    }
+
+    // Sparse matrix multiplication operator: C := alpha * op(A) * op(B_sp) + beta * C
+    // where A is dense and B_sp is a sparse matrix.
+    //
+    // Uses RandBLAS::right_spmm for dense * sparse multiplication.
+    template <RandBLAS::sparse_data::SparseMatrix SpMatB>
+    void operator()(
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SpMatB &B_sp,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        // Validate input dimensions
+        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+        auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
+        randblas_require(rows_A == n_rows);
+        randblas_require(cols_A == n_cols);
+        randblas_require(ldc >= m);
+
+        // Use RandBLAS right_spmm: C = alpha * A * B_sp + beta * C
+        RandBLAS::sparse_data::right_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B_sp, 0, 0, beta, C, ldc);
+    }
+
+    // Augmented sparse matrix multiplication operator with Side parameter.
+    // Handles both left and right multiplication with a sparse matrix B_sp.
+    //
+    // Side::Left:  C := alpha * op(A) * op(B_sp) + beta * C
+    // Side::Right: C := alpha * op(B_sp) * op(A) + beta * C
+    //
+    // Right multiplication uses the transpose trick with swapped layout.
+    template <RandBLAS::sparse_data::SparseMatrix SpMatB>
+    void operator()(
+        Side side,
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SpMatB &B_sp,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        if (side == Side::Left) {
+            // Left multiplication: delegate to default sparse operator
+            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
+        } else {  // side == Side::Right
+            // Right multiplication: C := alpha * op(B_sp) * op(A) + beta * C
+            // We use the transpose trick: compute C^T := alpha * op(A)^T * op(B_sp)^T + beta * C^T
+            // with swapped layout
+
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
+            auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
+            randblas_require(rows_A == n_rows);
+            randblas_require(cols_A == n_cols);
+            randblas_require(ldc >= m);
+
+            // Transpose the operation: swap trans_A and use opposite layout
+            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
+
+            // Now call the default sparse operator with transposed parameters
+            (*this)(trans_layout, trans_trans_A, trans_B, n, m, k, alpha, B_sp, beta, C, ldc);
         }
     }
 };
