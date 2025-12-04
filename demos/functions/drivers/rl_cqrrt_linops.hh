@@ -31,13 +31,12 @@ class CQRRT_linops {
         // tuning SASOS
         int64_t nnz;
 
-        CQRRT(
+        CQRRT_linops(
             bool time_subroutines,
             T ep
         ) {
             timing = time_subroutines;
             eps = ep;
-            orthogonalization = false;
             nnz = 2;
         }
 
@@ -139,7 +138,7 @@ class CQRRT_linops {
 
             // Below expression replaces applying a SASO from the left to a general linear operator (S * A).
             // Below, Side::Right is used because the operator is on the right side of the expression.
-            A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S_csr, d, (T)0.0, A_hat, d);
+            A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S_csr, (T)0.0, A_hat, d);
 
             if(this -> timing) {
                 saso_t_stop = steady_clock::now();
@@ -154,7 +153,7 @@ class CQRRT_linops {
 
             /// Extracting a k by k R representation
             T* R_sk  = new T[n * n]();
-            lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk, ldr);
+            lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk, n);
 
             if(this -> timing)
                 a_mod_trsm_t_start = steady_clock::now();
@@ -164,7 +163,7 @@ class CQRRT_linops {
             // If A is not just a general dense operator, we handle this step via an explicit inverse and a multiplication.
 
             // Explicitly invert R_sk
-            lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, ldr);
+            lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
 
             // Allocate a buffer for A_pre
             T* A_pre = new T[m * n]();
@@ -182,7 +181,7 @@ class CQRRT_linops {
             // Since SYRK, used in the original implementation of CQRRT, is not defined for non-dense operators, perform an explicit ((R_sk)^-1)^T * A^T * A * (R_sk)^-1
 
             // A^T * A_pre = A^T * A * (R_sk)^-1
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
+            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
 
             // (R_sk^-1)^T * (A^T * A_pre)
             blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T) 1.0, R_sk, n, R, ldr);
