@@ -22,8 +22,14 @@ class CQRRT_linops {
     public:
 
         bool timing;
+        bool test_mode;
         T eps;
         int64_t rank;
+
+        // Q-factor for test mode (only allocated if test_mode = true)
+        T* Q;
+        int64_t Q_rows;
+        int64_t Q_cols;
 
         // 6 entries
         std::vector<long> times;
@@ -33,11 +39,22 @@ class CQRRT_linops {
 
         CQRRT_linops(
             bool time_subroutines,
-            T ep
+            T ep,
+            bool enable_test_mode = false
         ) {
             timing = time_subroutines;
             eps = ep;
             nnz = 2;
+            test_mode = enable_test_mode;
+            Q = nullptr;
+            Q_rows = 0;
+            Q_cols = 0;
+        }
+
+        ~CQRRT_linops() {
+            if (Q != nullptr) {
+                delete[] Q;
+            }
         }
 
         /// Computes an R-factor of the unpivoted QR factorization of the form:
@@ -209,6 +226,21 @@ class CQRRT_linops {
 
             // Set the rank parameter to the value computed a posteriori.
             this->rank = new_rank;
+
+            // Compute Q-factor if test mode is enabled
+            if(this->test_mode) {
+                // Allocate Q: m x n matrix
+                this->Q_rows = m;
+                this->Q_cols = n;
+                this->Q = new T[m * n]();
+
+                // Copy A_pre to Q
+                lapack::lacpy(MatrixType::General, m, n, A_pre, m, this->Q, m);
+
+                // Solve Q * R_sk = A_pre for Q, i.e., Q = A_pre * (R_sk)^{-1}
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
+                           Diag::NonUnit, m, n, (T)1.0, R_sk, n, this->Q, m);
+            }
 
             if(this -> timing)
                 cholqr_t_stop = steady_clock::now();

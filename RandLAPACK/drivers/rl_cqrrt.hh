@@ -148,7 +148,7 @@ int CQRRT<T, RNG>::call(
     int i;
     int64_t d = d_factor * n;
     // Variables for a posteriori rank estimation.
-    int64_t new_rank;
+    int64_t new_rank = n;
     T running_max, running_min, curr_entry;
 
     T* A_hat = new T[d * n]();
@@ -196,27 +196,30 @@ int CQRRT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
-    lapack::potrf(Uplo::Upper, n, R_sk, ldr);
+    int msg = lapack::potrf(Uplo::Upper, n, R_sk, ldr);
+    //printf("CholQR output message: %d\n", msg);
+    //if(msg) {
+        // Perform aposteriori rank estimation of CholQR failed?
 
-    // Estimate rank after we have the R-factor form Cholesky QR.
-    // The strategy here is the same as in naive rank estimation.
-    // This also automatically takes care of any potential failures in Cholesky factorization.
-    // Note that the diagonal of R_sk may not be sorted, so we need to keep the running max/min
-    // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sk)^2, where u is the unit roundoff for the numerical type T.
-    new_rank = n;
-    running_max = R_sk[0];
-    running_min = R_sk[0];
-    T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
+        // Estimate rank after we have the R-factor form Cholesky QR.
+        // The strategy here is the same as in naive rank estimation.
+        // This also automatically takes care of any potential failures in Cholesky factorization.
+        // Note that the diagonal of R_sk may not be sorted, so we need to keep the running max/min
+        // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sk)^2, where u is the unit roundoff for the numerical type T.
+        running_max = R_sk[0];
+        running_min = R_sk[0];
+        T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
 
-    for(i = 0; i < n; ++i) {
-        curr_entry = std::abs(R_sk[i * ldr + i]);
-        running_max = std::max(running_max, curr_entry);
-        running_min = std::min(running_min, curr_entry);
-        if((running_min * cond_threshold < running_max) && i > 1) {
-            new_rank = i - 1;
-            break;
+        for(i = 0; i < n; ++i) {
+            curr_entry = std::abs(R_sk[i * ldr + i]);
+            running_max = std::max(running_max, curr_entry);
+            running_min = std::min(running_min, curr_entry);
+            if((running_min * cond_threshold < running_max) && i > 1) {
+                new_rank = i - 1;
+                break;
+            }
         }
-    }
+    //}
 
     // Set the rank parameter to the value computed a posteriori.
     this->rank = new_rank;
@@ -231,7 +234,7 @@ int CQRRT<T, RNG>::call(
         // Get the final R-factor -- undoing the preconditioning
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sk, ldr); 
     } 
-
+    
     // Function always full econ Q
     if (new_rank != n) {
         // Complete the orthonormal set

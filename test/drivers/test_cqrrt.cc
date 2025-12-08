@@ -146,3 +146,54 @@ TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
 
     test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
 }
+/*
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRT, CQRRT_large_low_rank) {
+    int64_t m = 5000;
+    int64_t n = 5000;
+    int64_t k = 2500;
+    double d_factor = 2;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRTTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
+    CQRRT.nnz = 2;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+
+    test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
+}
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRT, CQRRT_large_full_rank) {
+    int64_t m = 5000;
+    int64_t n = 5000;
+    int64_t k = 5000;
+    double d_factor = 2;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRTTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
+    CQRRT.nnz = 2;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+
+    test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
+}
+*/
