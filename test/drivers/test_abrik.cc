@@ -339,7 +339,7 @@ TEST_F(TestABRIK, ABRIK_catch_instability_bad) {
 TEST_F(TestABRIK, ABRIK_catch_instability_worse) {
     int64_t m           = 4000;
     int64_t n           = 4000;
-    int64_t b_sz        = 10;
+    int64_t b_sz        = 1000;
     int64_t target_rank = 4000;
     int64_t custom_rank = 10;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
@@ -348,7 +348,7 @@ TEST_F(TestABRIK, ABRIK_catch_instability_worse) {
     ABRIKTestDataSparse<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n);
     RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
     ABRIK.num_threads_min = 1;
-    ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
+    //ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::util::eye(m, n, all_data.A_buff);

@@ -527,14 +527,6 @@ class ABRIK {
                         //char name [] = "R_2";
                         //RandLAPACK::util::print_colmaj(k, k, S_ii, n + k, name);
 
-                        // REMOVE ME
-                        T min_val = 1000000000000;
-                        for (int buf = 0; buf < k; ++buf) {
-                            min_val = std::min(min_val, std::abs(S_ii[(n + k) * buf + buf]));
-                            //printf("r_ii %e\n", S_ii[(n + k) * buf + buf]);
-                        }
-                        printf("Minimum value on the diagonal of the R-factor: %e\n", min_val);
-
                     } else {
                         // [X_i, S_ii] = qr(X_i, 0);
                         std::fill(&tau[0], &tau[k], 0.0);
@@ -567,6 +559,15 @@ class ABRIK {
                             ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
                         }
                     }
+
+                        // REMOVE ME
+                        T min_val = 1000000000000;
+                        for (int buf = 0; buf < k; ++buf) {
+                            min_val = std::min(min_val, std::abs(S_ii[(n + k) * buf + buf]));
+                            //printf("r_ii %e\n", S_ii[(n + k) * buf + buf]);
+                        }
+                        printf("Minimum value on the diagonal of the R-factor: %e\n", min_val);
+
 
                     // REMOVE ME
                     std::vector<double> buffer2 (iter_ev * k * iter_ev * k, 0.0);

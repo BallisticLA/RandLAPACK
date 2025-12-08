@@ -192,7 +192,6 @@ class CQRRT_linops {
             // The strategy here is the same as in naive rank estimation.
             // This also automatically takes care of any potential failures in Cholesky factorization.
             // Note that the diagonal of R may not be sorted, so we need to keep the running max/min
-            // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R)^2, where u is the unit roundoff for the numerical type T.
             new_rank = n;
             running_max = R[0];
             running_min = R[0];

@@ -1,6 +1,6 @@
 #pragma once
 
-// RandLAPACK Demos - Format Conversion Utilities
+// RandLAPACK Demos - Utilities
 //
 // This header-only library provides format conversion utilities for working with
 // external matrix libraries (Eigen, fast_matrix_market) in demos and benchmarks.
@@ -155,64 +155,6 @@ void eigen_sparse_submatrix_from_matrix_market(
     // Build sparse matrix
     A.resize(m, n);
     A.setFromTriplets(tripletList.begin(), tripletList.end());
-}
-
-/***********************************************************************
- *                                                                     *
- *           SPARSE FORMAT CONVERSIONS (RandBLAS formats)              *
- *                                                                     *
- ***********************************************************************/
-
-/// Extract leading principal submatrix from COO matrix and convert to CSC.
-/// This function extracts an m×n leading principal submatrix from a larger
-/// COO matrix and converts it to CSC format for efficient sparse operations.
-///
-/// @tparam T - Scalar type
-///
-/// @param[in] m - Number of rows in output submatrix
-/// @param[in] n - Number of columns in output submatrix
-/// @param[in] input_mat_coo - Input COO matrix (must be at least m×n)
-///
-/// @return CSC matrix containing the m×n leading principal submatrix
-///
-template <typename T>
-RandBLAS::sparse_data::csc::CSCMatrix<T> coo_submatrix_to_csc(
-    int64_t m,
-    int64_t n,
-    const RandBLAS::sparse_data::coo::COOMatrix<T>& input_mat_coo
-) {
-    using namespace RandBLAS::sparse_data;
-
-    // Create submatrix
-    coo::COOMatrix<T> submatrix(m, n);
-
-    // Count nonzeros in leading principal submatrix
-    int64_t nnz_sub = 0;
-    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
-        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
-            ++nnz_sub;
-        }
-    }
-
-    // Allocate storage for submatrix
-    coo::reserve_coo(nnz_sub, submatrix);
-
-    // Copy entries within submatrix bounds
-    int64_t ell = 0;
-    for (int64_t i = 0; i < input_mat_coo.nnz; ++i) {
-        if (input_mat_coo.rows[i] < m && input_mat_coo.cols[i] < n) {
-            submatrix.rows[ell] = input_mat_coo.rows[i];
-            submatrix.cols[ell] = input_mat_coo.cols[i];
-            submatrix.vals[ell] = input_mat_coo.vals[i];
-            ++ell;
-        }
-    }
-
-    // Convert to CSC format
-    csc::CSCMatrix<T> output_csc(m, n);
-    RandBLAS::sparse_data::conversions::coo_to_csc(submatrix, output_csc);
-
-    return output_csc;
 }
 
 } // namespace RandLAPACK_demos
