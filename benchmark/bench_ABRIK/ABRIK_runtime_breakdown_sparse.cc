@@ -24,7 +24,7 @@ There are 10 things that we time:
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
 // Demos format conversion utilities
-#include "../../demos/functions/misc/format_conversions.hh"
+#include "../../demos/functions/misc/dm_util.hh"
 
 using Subroutines = RandLAPACK::ABRIKSubroutines;
 

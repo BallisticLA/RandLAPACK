@@ -24,7 +24,7 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(target_rank
 #include <Spectra/contrib/PartialSVDSolver.h>
 
 // Demos format conversion utilities
-#include "../../demos/functions/misc/format_conversions.hh"
+#include "../../demos/functions/misc/dm_util.hh"
 
 using SpMatrix = Eigen::SparseMatrix<double>;
 using Matrix = Eigen::MatrixXd;
