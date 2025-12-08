@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <sstream>
 #include <fstream>
+#include <random>
 
 namespace RandLAPACK::gen {
 
@@ -456,6 +457,107 @@ void process_input_mat(
     }
 }
 
+/// Generate a random symmetric positive definite (SPD) matrix.
+/// Creates an SPD matrix using the transformation: A = A_base^T * A_base + n*I
+/// where A_base is a random matrix generated using mat_gen_info parameters.
+///
+/// @param[in] n
+///     Dimension of the square SPD matrix (n x n).
+///
+/// @param[in] cond_num
+///     Target condition number for the generated matrix.
+///
+/// @param[out] A
+///     On exit, contains the n-by-n SPD matrix in column-major format.
+///     Buffer must be pre-allocated with size n*n.
+///
+/// @param[in] state
+///     RNG state for reproducible generation.
+///
+template <typename T, typename RNG>
+void gen_spd_mat(
+    int64_t n,
+    T cond_num,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    // Generate base matrix using polynomial decay
+    mat_gen_info<T> m_info(n, n, polynomial);
+    m_info.cond_num = cond_num;
+    m_info.rank = n;
+    m_info.exponent = 2.0;
+
+    ::std::vector<T> A_base(n * n);
+    mat_gen(m_info, A_base.data(), state);
+
+    // Make symmetric: A_sym = A_base + A_base^T
+    ::std::vector<T> A_sym(n * n);
+    for (int64_t i = 0; i < n; ++i) {
+        for (int64_t j = 0; j < n; ++j) {
+            A_sym[i + j * n] = A_base[i + j * n] + A_base[j + i * n];
+        }
+    }
+
+    // Make positive definite: A = A_sym^T * A_sym + n*I
+    // Compute A_sym^T * A_sym (upper triangle only)
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, n,
+               (T)1.0, A_sym.data(), n, (T)0.0, A, n);
+
+    // Add diagonal regularization: A += n*I
+    for (int64_t i = 0; i < n; ++i) {
+        A[i + i * n] += n;
+    }
+
+    // Copy upper triangle to lower triangle for full symmetric matrix
+    for (int64_t i = 0; i < n; ++i) {
+        for (int64_t j = 0; j < i; ++j) {
+            A[i + j * n] = A[j + i * n];
+        }
+    }
+}
+
+/// Generate a random sparse matrix in COO format.
+/// Creates a sparse matrix with randomly positioned entries sampled from a normal distribution.
+/// Note: This function may generate duplicate entries at the same (row, col) position.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[in] density - Fraction of entries that are nonzero (0 < density <= 1)
+/// @param[in,out] state - RNG state for reproducible generation
+///
+/// @return COO matrix with approximately m*n*density nonzero entries
+///
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state
+) {
+    using namespace RandBLAS::sparse_data;
+
+    int64_t nnz = static_cast<int64_t>(m * n * density);
+    coo::COOMatrix<T> A_coo(m, n);
+    coo::reserve_coo(nnz, A_coo);
+
+    // Generate random entries
+    ::std::uniform_int_distribution<int64_t> row_dist(0, m - 1);
+    ::std::uniform_int_distribution<int64_t> col_dist(0, n - 1);
+    ::std::normal_distribution<T> val_dist(0.0, 1.0);
+
+    auto& gen = state.gen;
+    for (int64_t idx = 0; idx < nnz; ++idx) {
+        A_coo.rows[idx] = row_dist(gen);
+        A_coo.cols[idx] = col_dist(gen);
+        A_coo.vals[idx] = val_dist(gen);
+    }
+
+    return A_coo;
+}
+
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
 template <typename T, typename RNG>
@@ -522,8 +624,8 @@ void mat_gen(
 }
 
 template <typename T, typename RNG>
-std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
-    std::vector<T> A(info.rows * info.cols, 0.0);
+::std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
+    ::std::vector<T> A(info.rows * info.cols, 0.0);
     mat_gen(info, A.data(), state);
     return A;
 }

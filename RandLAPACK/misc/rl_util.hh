@@ -522,4 +522,61 @@ void sparse_to_dense(
     }
 }
 
+/// Complete an orthonormal basis given a partial orthonormal set.
+/// Given Q ∈ ℝ^{m×k} with orthonormal columns (k < n), extends Q to
+/// Q_extended ∈ ℝ^{m×n} by adding (n-k) orthonormal columns.
+///
+/// The algorithm:
+/// 1. Generate random Gaussian vectors in columns [k:n)
+/// 2. Project out components in span(Q) via G := (I - QQ^T)G
+/// 3. Orthogonalize the projected vectors via QR factorization
+///
+/// @tparam T - Scalar type (float, double)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows (ambient dimension)
+/// @param[in] k - Number of existing orthonormal columns
+/// @param[in] n - Target number of columns (n >= k)
+/// @param[in] lda - Leading dimension of A (lda >= m)
+/// @param[in,out] A - On entry: first k columns contain orthonormal vectors
+///                    On exit: columns [k:n) contain additional orthonormal vectors
+/// @param[in,out] state - RNG state for generating random vectors
+///
+/// @note Modifies A in-place. The first k columns are unchanged.
+/// @note Requires n > k and m >= n
+///
+template <typename T, typename RNG>
+void complete_orthonormal_set(
+    int64_t m,
+    int64_t k,
+    int64_t n,
+    int64_t lda,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    randblas_require(n > k);
+    randblas_require(m >= n);
+    randblas_require(lda >= m);
+
+    int64_t cols_to_fill = n - k;
+
+    // Generate random Gaussian vectors in columns [k:n)
+    RandBLAS::DenseDist D(m, cols_to_fill);
+    RandBLAS::fill_dense(D, &A[k * lda], state);
+
+    // Project out Q: compute G := (I - QQ^T)G
+    ::std::vector<T> temp(k * cols_to_fill);
+    // temp = Q^T * G
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, cols_to_fill, m,
+               (T)1.0, A, lda, &A[k * lda], lda, (T)0.0, temp.data(), k);
+    // G := G - Q * temp (i.e., G = G - QQ^T * G)
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cols_to_fill, k,
+               (T)-1.0, A, lda, temp.data(), k, (T)1.0, &A[k * lda], lda);
+
+    // Orthogonalize projected vectors via QR
+    ::std::vector<T> tau_orth(cols_to_fill);
+    lapack::geqrf(m, cols_to_fill, &A[k * lda], lda, tau_orth.data());
+    lapack::orgqr(m, cols_to_fill, cols_to_fill, &A[k * lda], lda, tau_orth.data());
+}
+
 } // end namespace util

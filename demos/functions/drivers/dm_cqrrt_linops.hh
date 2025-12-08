@@ -24,7 +24,6 @@ class CQRRT_linops {
         bool timing;
         bool test_mode;
         T eps;
-        int64_t rank;
 
         // Q-factor for test mode (only allocated if test_mode = true)
         T* Q;
@@ -59,9 +58,13 @@ class CQRRT_linops {
 
         /// Computes an R-factor of the unpivoted QR factorization of the form:
         ///     A= QR,
-        /// where Q and R are of size m-by-n and n-by-n; 
+        /// where Q and R are of size m-by-n and n-by-n;
         /// operates similarly to ../../../RandLAPACK/drivers/rl_cqrrt.hh, but returns a Q-less factorization
         /// and accepts linear operators.
+        ///
+        /// @note This algorithm expects A to be full-rank (rank = n). Rank-deficient inputs may result
+        ///       in loss of orthogonality in the Q-factor (when test_mode=true) and numerical instability
+        ///       in the R-factor.
         ///
         /// @param[in] m
         ///     The number of rows in the matrix A.
@@ -115,7 +118,6 @@ class CQRRT_linops {
             steady_clock::time_point total_t_stop;
             long saso_t_dur        = 0;
             long qr_t_dur          = 0;
-            long rank_reveal_t_dur = 0;
             long cholqr_t_dur      = 0;
             long a_mod_piv_t_dur   = 0;
             long a_mod_trsm_t_dur  = 0;
@@ -129,9 +131,6 @@ class CQRRT_linops {
 
             int i;
             int64_t d = d_factor * n;
-            // Variables for a posteriori rank estimation.
-            int64_t new_rank;
-            T running_max, running_min, curr_entry;
 
             T* A_hat = new T[d * n]();
             T* tau   = new T[n]();
@@ -205,28 +204,6 @@ class CQRRT_linops {
             // Cholesky factorization
             lapack::potrf(Uplo::Upper, n, R, ldr);
 
-            // Estimate rank after we have the R-factor form Cholesky QR.
-            // The strategy here is the same as in naive rank estimation.
-            // This also automatically takes care of any potential failures in Cholesky factorization.
-            // Note that the diagonal of R may not be sorted, so we need to keep the running max/min
-            new_rank = n;
-            running_max = R[0];
-            running_min = R[0];
-            T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
-
-            for(i = 0; i < n; ++i) {
-                curr_entry = std::abs(R[i * ldr + i]);
-                running_max = std::max(running_max, curr_entry);
-                running_min = std::min(running_min, curr_entry);
-                if((running_min * cond_threshold < running_max) && i > 1) {
-                    new_rank = i - 1;
-                    break;
-                }
-            }
-
-            // Set the rank parameter to the value computed a posteriori.
-            this->rank = new_rank;
-
             // Compute Q-factor if test mode is enabled
             if(this->test_mode) {
                 // Allocate Q: m x n matrix
@@ -246,7 +223,7 @@ class CQRRT_linops {
                 cholqr_t_stop = steady_clock::now();
 
             // Get the final R-factor - undoing the preconditioning
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R, ldr);
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R, ldr);
 
             if(this -> timing) {
                 saso_t_dur       = duration_cast<microseconds>(saso_t_stop       - saso_t_start).count();

@@ -215,4 +215,63 @@ RandBLAS::sparse_data::csc::CSCMatrix<T> coo_submatrix_to_csc(
     return output_csc;
 }
 
+/***********************************************************************
+ *                                                                     *
+ *               SPD MATRIX GENERATION AND I/O                         *
+ *                                                                     *
+ ***********************************************************************/
+
+/// Generate a random SPD matrix and save to Matrix Market file.
+/// Uses RandLAPACK::gen::gen_spd_mat() to generate the matrix, then writes
+/// it to a Matrix Market coordinate format file.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] filename - Path to output Matrix Market file
+/// @param[in] n - Dimension of square SPD matrix (n × n)
+/// @param[in] cond_num - Target condition number for the matrix
+/// @param[in] state - RNG state for reproducible generation
+///
+template <typename T, typename RNG>
+void generate_spd_matrix_file(
+    const std::string& filename,
+    int64_t n,
+    T cond_num,
+    RandBLAS::RNGState<RNG> &state
+) {
+    // Generate SPD matrix using RandLAPACK core function
+    std::vector<T> A(n * n);
+    RandLAPACK::gen::gen_spd_mat(n, cond_num, A.data(), state);
+
+    // Write to Matrix Market file (coordinate format)
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file for writing: " + filename);
+    }
+
+    file << "%%MatrixMarket matrix coordinate real general\n";
+
+    // Count nonzeros (entries with magnitude > threshold)
+    int64_t nnz = 0;
+    for (int64_t i = 0; i < n * n; ++i) {
+        if (std::abs(A[i]) > 1e-14) {
+            ++nnz;
+        }
+    }
+
+    file << n << " " << n << " " << nnz << "\n";
+
+    // Write nonzero entries (Matrix Market uses 0-based indexing)
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            if (std::abs(A[i + j * n]) > 1e-14) {
+                file << i << " " << j << " " << A[i + j * n] << "\n";
+            }
+        }
+    }
+
+    file.close();
+}
+
 } // namespace RandLAPACK_demos

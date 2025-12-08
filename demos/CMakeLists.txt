@@ -168,3 +168,13 @@ if(HAVE_CUDA)
 else()
     message(STATUS "GPU demos: Skipped (no CUDA)")
 endif()
+
+# -----------------------------------------------------------------------------
+# Testing Support
+# -----------------------------------------------------------------------------
+
+# Enable CTest for demos
+enable_testing()
+
+# Add test subdirectory
+add_subdirectory(test)
