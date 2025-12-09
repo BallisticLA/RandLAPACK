@@ -4,11 +4,12 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
-#include "dm_util.hh"
+#include "../misc/dm_util.hh"
 
 #include <RandBLAS.hh>
 #include <string>
 #include <fstream>
+#include <stdexcept>
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 
@@ -35,8 +36,8 @@ namespace RandLAPACK_demos {
 template <typename T>
 struct CholSolverLinOp {
     using scalar_t = T;
-    int64_t n_rows;
-    int64_t n_cols;
+    const int64_t n_rows;
+    const int64_t n_cols;
     std::string matrix_file;
 
     // Eigen sparse Cholesky solver
@@ -44,11 +45,19 @@ struct CholSolverLinOp {
 
     bool factorization_done;
 
-    // Constructtor - checks the header of teh sparse matrix; does not load data until it is needed.
+    // Constructor - checks the header of the sparse matrix; does not load data until it is needed.
     CholSolverLinOp(
         const std::string& filename
-    ) : matrix_file(filename), factorization_done(false) {
-        // Read matrix dimensions from Matrix Market file
+    ) : n_rows(read_matrix_dimension(filename, 0)),
+        n_cols(read_matrix_dimension(filename, 1)),
+        matrix_file(filename),
+        factorization_done(false) {
+        randblas_require(n_rows == n_cols); // Must be square for Cholesky
+    }
+
+private:
+    // Helper function to read matrix dimensions from Matrix Market file
+    static int64_t read_matrix_dimension(const std::string& filename, int dim_index) {
         std::ifstream file(filename);
         randblas_require(file.is_open());
 
@@ -60,12 +69,14 @@ struct CholSolverLinOp {
 
         // Parse dimensions
         std::istringstream iss(line);
-        int64_t nnz;
-        iss >> n_rows >> n_cols >> nnz;
+        int64_t rows, cols, nnz;
+        iss >> rows >> cols >> nnz;
         file.close();
 
-        randblas_require(n_rows == n_cols); // Must be square for Cholesky
+        return (dim_index == 0) ? rows : cols;
     }
+
+public:
 
     /// Compute the sparse Cholesky factorization A = L * L^T.
     // The factorization is stored in chol_solver; A-eigen gets freed automatically.
@@ -98,7 +109,21 @@ struct CholSolverLinOp {
 
     /// Dense matrix multiplication operator: C := alpha * A^{-1} * op(B) + beta * C
     /// where A^{-1} is computed via sparse Cholesky solve: x = L^{-T} * L^{-1} * b
+    ///
+    /// Side parameter (optional):
+    ///   Side::Left  - C := alpha * A^{-1} * op(B) + beta * C (supported)
+    ///   Side::Right - C := alpha * op(B) * A^{-1} + beta * C (NOT supported - throws error)
+    ///
+    /// Why Side::Right is not supported:
+    ///   1. Eigen's Cholesky solver only provides efficient column-oriented solves: x = A^{-1} * b
+    ///   2. Computing B * A^{-1} requires row-oriented operations which the solver doesn't support
+    ///   3. The transpose trick (C = B*A <=> C^T = A^T*B^T) requires layout swapping, but we only support ColMajor
+    ///   4. The only alternative would be materializing A^{-1} as a dense matrix (O(n^3) work, O(n^2) storage),
+    ///      which defeats the purpose of using a sparse implicit operator
+    ///
+    /// If you need Side::Right multiplication, consider restructuring your computation to use Side::Left instead.
     void operator()(
+        Side side,
         Layout layout,
         Op trans_A,
         Op trans_B,
@@ -112,6 +137,19 @@ struct CholSolverLinOp {
         T* C,
         int64_t ldc
     ) {
+        // Check Side parameter first
+        if (side == Side::Right) {
+            throw std::runtime_error(
+                "CholSolverLinOp: Side::Right multiplication is not supported.\n"
+                "Reason: Eigen's sparse Cholesky solver only supports efficient column-oriented solves (A^{-1} * x),\n"
+                "        not row-oriented operations (x * A^{-1}) required for Side::Right.\n"
+                "        Materializing A^{-1} would require O(n^3) work and O(n^2) storage, defeating the purpose\n"
+                "        of using a sparse implicit operator.\n"
+                "Solution: Restructure your computation to use Side::Left instead."
+            );
+        }
+
+        // Validate parameters
         randblas_require(layout == Layout::ColMajor);
         randblas_require(trans_A == Op::NoTrans); // Only A^{-1} supported, not (A^{-1})^T
         randblas_require(trans_B == Op::NoTrans || trans_B == Op::Trans);
@@ -128,19 +166,19 @@ struct CholSolverLinOp {
         randblas_require(k == n_cols);
 
         // Scale C by beta
-        // Below AXPY function does not have a beta parameter,  
-        // hence we scale preemptively 
+        // Below AXPY function does not have a beta parameter,
+        // hence we scale preemptively
         if (beta != (T)1.0) {
             blas::scal(m * n, beta, C, 1);
         }
 
         // Solve A^{-1} * op(B) for each column using sparse Cholesky solver
-        // This computes x such that A * x = b via: L * L^T * x = b, 
+        // This computes x such that A * x = b via: L * L^T * x = b,
         // since Eigen's sparse solver can only accept vector rhs
         if (trans_B == Op::NoTrans) {
             // B is k × n, proceed by column
             for (int64_t j = 0; j < n; ++j) {
-                // Below wrapper (Eigen::map) lets Eigen operate on external memeory without performing a copy
+                // Below wrapper (Eigen::map) lets Eigen operate on external memory without performing a copy
                 Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_col(B + j * ldb, k);
                 Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_col);
                 // We can access data of an Eigen matrix as a raw pointer
@@ -161,40 +199,11 @@ struct CholSolverLinOp {
         }
     }
 
-    /// Augmented dense matrix multiplication operator with Side parameter.
-    /// Side::Left:  C := alpha * A^{-1} * op(B) + beta * C
-    /// Side::Right: C := alpha * op(B) * A^{-1} + beta * C
-    void operator()(
-        Side side,
-        Layout layout,
-        Op trans_A,
-        Op trans_B,
-        int64_t m,
-        int64_t n,
-        int64_t k,
-        T alpha,
-        const T* B,
-        int64_t ldb,
-        T beta,
-        T* C,
-        int64_t ldc
-    ) {
-        if (side == Side::Left) {
-            // Left multiplication: delegate to default operator
-            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
-        } else {
-            // Right multiplication: C := alpha * op(B) * A^{-1} + beta * C
-            // Use transpose trick: compute C^T := alpha * A^{-T} * op(B)^T + beta * C^T
-            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
-            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
-
-            (*this)(trans_layout, trans_trans_A, trans_B, n, m, k, alpha, B, ldb, beta, C, ldc);
-        }
-    }
-
     /// Sparse matrix multiplication operator: C := alpha * A^{-1} * op(B_sp) + beta * C
+    /// (Side::Right not supported - see dense operator documentation for details)
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
+        Side side,
         Layout layout,
         Op trans_A,
         Op trans_B,
@@ -207,6 +216,14 @@ struct CholSolverLinOp {
         T* C,
         int64_t ldc
     ) {
+        // Check Side parameter - reject Side::Right
+        if (side == Side::Right) {
+            throw std::runtime_error(
+                "CholSolverLinOp: Side::Right multiplication is not supported for sparse matrices.\n"
+                "See the dense operator documentation for a detailed explanation."
+            );
+        }
+
         // For sparse B, densify and delegate to dense operator
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
         int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
@@ -216,35 +233,9 @@ struct CholSolverLinOp {
         T* B_dense = new T[rows_B * cols_B]();
         RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
 
-        (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
+        (*this)(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
 
         delete[] B_dense;
-    }
-
-    /// Augmented sparse matrix multiplication operator with Side parameter.
-    template <RandBLAS::sparse_data::SparseMatrix SpMatB>
-    void operator()(
-        Side side,
-        Layout layout,
-        Op trans_A,
-        Op trans_B,
-        int64_t m,
-        int64_t n,
-        int64_t k,
-        T alpha,
-        SpMatB &B_sp,
-        T beta,
-        T* C,
-        int64_t ldc
-    ) {
-        if (side == Side::Left) {
-            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
-        } else {
-            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
-            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
-
-            (*this)(trans_layout, trans_trans_A, trans_B, n, m, k, alpha, B_sp, beta, C, ldc);
-        }
     }
 };
 

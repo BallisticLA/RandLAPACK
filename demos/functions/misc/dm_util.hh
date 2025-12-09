@@ -262,11 +262,11 @@ void generate_spd_matrix_file(
 
     file << n << " " << n << " " << nnz << "\n";
 
-    // Write nonzero entries (Matrix Market uses 0-based indexing)
+    // Write nonzero entries (Matrix Market uses 1-based indexing)
     for (int64_t j = 0; j < n; ++j) {
         for (int64_t i = 0; i < n; ++i) {
             if (std::abs(A[i + j * n]) > 1e-14) {
-                file << i << " " << j << " " << A[i + j * n] << "\n";
+                file << (i + 1) << " " << (j + 1) << " " << A[i + j * n] << "\n";
             }
         }
     }

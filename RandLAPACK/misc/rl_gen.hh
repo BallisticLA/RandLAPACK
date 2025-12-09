@@ -543,16 +543,23 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
     coo::COOMatrix<T> A_coo(m, n);
     coo::reserve_coo(nnz, A_coo);
 
-    // Generate random entries
-    ::std::uniform_int_distribution<int64_t> row_dist(0, m - 1);
-    ::std::uniform_int_distribution<int64_t> col_dist(0, n - 1);
-    ::std::normal_distribution<T> val_dist(0.0, 1.0);
+    // Generate random Gaussian values using RandBLAS
+    RandBLAS::DenseDist D_vals(nnz, 1);
+    RandBLAS::fill_dense(D_vals, A_coo.vals, state);
 
-    auto& gen = state.gen;
+    // Generate random indices using RandBLAS uniform distribution
+    // Use normal distribution and scale to get uniform integers
+    ::std::vector<T> row_vals_tmp(nnz);
+    ::std::vector<T> col_vals_tmp(nnz);
+    RandBLAS::DenseDist D_rows(nnz, 1);
+    RandBLAS::DenseDist D_cols(nnz, 1);
+    RandBLAS::fill_dense(D_rows, row_vals_tmp.data(), state);
+    RandBLAS::fill_dense(D_cols, col_vals_tmp.data(), state);
+
+    // Convert to uniform [0, m) and [0, n) using modulo
     for (int64_t idx = 0; idx < nnz; ++idx) {
-        A_coo.rows[idx] = row_dist(gen);
-        A_coo.cols[idx] = col_dist(gen);
-        A_coo.vals[idx] = val_dist(gen);
+        A_coo.rows[idx] = static_cast<int64_t>(::std::abs(row_vals_tmp[idx] * m)) % m;
+        A_coo.cols[idx] = static_cast<int64_t>(::std::abs(col_vals_tmp[idx] * n)) % n;
     }
 
     return A_coo;

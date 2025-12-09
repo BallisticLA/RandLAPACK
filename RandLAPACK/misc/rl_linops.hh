@@ -47,7 +47,6 @@ concept LinearOperator = requires(LinOp A) {
 // Functionality:
 //   - Supports multiplication with both dense and sparse matrices B
 //   - Supports both left and right multiplication via Side parameter
-//   - Multiplication is ALWAYS performed right-to-left: LinOp1 * (LinOp2 * B)
 //
 // Strategy:
 //   All operations use a two-step process with an intermediate buffer:
@@ -78,75 +77,23 @@ struct CompositeOperator {
         randblas_require(right_op.n_cols == n_cols);
     }
 
-    // Dense matrix multiplication operator: C := alpha * op(LinOp1 * LinOp2) * op(B) + beta * C
-    // where B is a dense matrix.
-    //
-    // Strategy: Compute right-to-left via intermediate buffer
-    //   Step 1: temp = LinOp2 * op(B)
-    //   Step 2: C = alpha * LinOp1 * temp + beta * C
-    void operator()(
-        Layout layout,
-        Op trans_comp,  // Transposition of the composite operator (LinOp1 * LinOp2)
-        Op trans_B,
-        int64_t m,
-        int64_t n,
-        int64_t k,
-        T alpha,
-        const T* B,
-        int64_t ldb,
-        T beta,
-        T* C,
-        int64_t ldc
-    ) {
-        // Validate input dimensions
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
-        randblas_require(ldb >= rows_B);
-        auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
-        randblas_require(rows_comp <= n_rows);
-        randblas_require(cols_comp <= n_cols);
-        randblas_require(ldc >= m);
-
-        if (trans_comp == Op::NoTrans) {
-            // C := alpha * (LinOp1 * LinOp2) * op(B) + beta * C
-            // Note: right_op.n_cols is the intermediate dimension
-            int64_t temp_rows = right_op.n_cols;
-            T* temp_buffer = new T[temp_rows * n]();
-            int64_t ldt = temp_rows;
-
-            // Step 1: temp := LinOp2 * op(B), dimension (right_op.n_cols x n)
-            right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
-
-            // Step 2: C := alpha * LinOp1 * temp + beta * C
-            left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-            delete[] temp_buffer;
-
-        } else {
-            // trans_comp == Op::Trans
-            // C := alpha * (LinOp1 * LinOp2)^T * op(B) + beta * C
-            //    = alpha * LinOp2^T * LinOp1^T * op(B) + beta * C
-            // Note: left_op.n_cols is the intermediate dimension
-            int64_t temp_rows = left_op.n_cols;
-            T* temp_buffer = new T[temp_rows * n]();
-            int64_t ldt = temp_rows;
-
-            // Step 1: temp := LinOp1^T * op(B), dimension (left_op.n_cols x n)
-            left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
-
-            // Step 2: C := alpha * LinOp2^T * temp + beta * C
-            right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-            delete[] temp_buffer;
-        }
-    }
-
-    // Augmented dense matrix multiplication operator with Side parameter.
+    // Dense matrix multiplication operator with Side parameter.
     // Handles both left and right multiplication with a dense matrix B.
     //
     // Side::Left:  C := alpha * (LinOp1 * LinOp2) * op(B) + beta * C
-    // Side::Right: C := alpha * op(B) * (LinOp1 * LinOp2) + beta * C
+    //              Applies operators right-to-left: LinOp2 first, then LinOp1
     //
-    // Right multiplication uses the transpose trick with swapped layout.
+    // Side::Right: C := alpha * op(B) * (LinOp1 * LinOp2) + beta * C
+    //              Applies operators left-to-right: LinOp1 first, then LinOp2
+    //              Step 1: temp = op(B) * LinOp1
+    //              Step 2: C = alpha * temp * LinOp2 + beta * C
+    //
+    // Note: We cannot use the transpose trick (C = B*A <=> C^T = A^T * B^T) for
+    // Side::Right because it requires swapping layout (ColMajor <-> RowMajor),
+    // and some operators (e.g., CholSolverLinOp) only support one layout.
+    // Instead, we explicitly implement Side::Right by calling constituent operators
+    // with their Side::Right parameter. This is why we have separate Side::Left and
+    // Side::Right implementations rather than reusing code via the transpose trick.
     void operator()(
         Side side,
         Layout layout,
@@ -163,13 +110,68 @@ struct CompositeOperator {
         int64_t ldc
     ) {
         if (side == Side::Left) {
-            // Left multiplication: delegate to default operator
-            (*this)(layout, trans_comp, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
+            // Left multiplication: C := alpha * (LinOp1 * LinOp2) * op(B) + beta * C
+            // Compute right-to-left via intermediate buffer
+            //   Step 1: temp = LinOp2 * op(B)
+            //   Step 2: C = alpha * LinOp1 * temp + beta * C
+
+            // Validate input dimensions
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+            randblas_require(ldb >= rows_B);
+            auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
+            randblas_require(rows_comp <= n_rows);
+            randblas_require(cols_comp <= n_cols);
+            randblas_require(ldc >= m);
+
+            if (trans_comp == Op::NoTrans) {
+                // C := alpha * (LinOp1 * LinOp2) * op(B) + beta * C
+                // Note: right_op.n_cols is the intermediate dimension
+                int64_t temp_rows = right_op.n_cols;
+                T* temp_buffer = new T[temp_rows * n]();
+                int64_t ldt = temp_rows;
+
+                // Step 1: temp := LinOp2 * op(B), dimension (right_op.n_cols x n)
+                right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * LinOp1 * temp + beta * C
+                left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+
+            } else {
+                // trans_comp == Op::Trans
+                // C := alpha * (LinOp1 * LinOp2)^T * op(B) + beta * C
+                //    = alpha * LinOp2^T * LinOp1^T * op(B) + beta * C
+                // Note: left_op.n_cols is the intermediate dimension
+                int64_t temp_rows = left_op.n_cols;
+                T* temp_buffer = new T[temp_rows * n]();
+                int64_t ldt = temp_rows;
+
+                // Step 1: temp := LinOp1^T * op(B), dimension (left_op.n_cols x n)
+                left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * LinOp2^T * temp + beta * C
+                right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+            }
 
         } else {  // side == Side::Right
-            // Right multiplication: C := alpha * op(B) * op(LinOp1 * LinOp2) + beta * C
-            // We use the transpose trick: compute C^T := alpha * op(LinOp1 * LinOp2)^T * op(B)^T + beta * C^T
-            // with swapped layout
+            // Right multiplication: C := alpha * op(B) * (LinOp1 * LinOp2) + beta * C
+            // Compute left-to-right (opposite order from Side::Left):
+            //
+            //   If trans_comp == NoTrans:
+            //     C := alpha * op(B) * (LinOp1 * LinOp2) + beta * C
+            //        = alpha * (op(B) * LinOp2) * LinOp1 + beta * C
+            //     Step 1: temp := op(B) * LinOp2
+            //     Step 2: C := alpha * temp * LinOp1 + beta * C
+            //
+            //   If trans_comp == Trans:
+            //     C := alpha * op(B) * (LinOp1 * LinOp2)^T + beta * C
+            //        = alpha * op(B) * LinOp2^T * LinOp1^T + beta * C
+            //        = alpha * (op(B) * LinOp2^T) * LinOp1^T + beta * C
+            //     Step 1: temp := op(B) * LinOp2^T
+            //     Step 2: C := alpha * temp * LinOp1^T + beta * C
 
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             randblas_require(ldb >= rows_B);
@@ -178,87 +180,65 @@ struct CompositeOperator {
             randblas_require(cols_comp <= n_cols);
             randblas_require(ldc >= m);
 
-            // Transpose the operation: swap trans_comp and use opposite layout
-            auto trans_trans_comp = (trans_comp == Op::NoTrans) ? Op::Trans : Op::NoTrans;
-            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
+            if (trans_comp == Op::NoTrans) {
+                // C := alpha * op(B) * (LinOp1 * LinOp2) + beta * C
+                // Compute left-to-right in operator names: (op(B) * LinOp1) * LinOp2
+                // This applies LinOp1 first, then LinOp2
+                // Intermediate dimension: left_op.n_rows (between op(B) and LinOp1)
+                int64_t temp_cols = left_op.n_rows;
+                int64_t temp_rows = m;
+                T* temp_buffer = new T[temp_rows * temp_cols]();
+                int64_t ldt = temp_rows;
 
-            // Now call the default operator with transposed parameters
-            (*this)(trans_layout, trans_trans_comp, trans_B, n, m, k, alpha, B, ldb, beta, C, ldc);
+                // Step 1: temp := op(B) * LinOp1, dimension (m x left_op.n_rows)
+                //   op(B) is (m x k), LinOp1 is (k x left_op.n_rows)
+                left_op(Side::Right, layout, Op::NoTrans, trans_B,
+                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * temp * LinOp2 + beta * C
+                //   temp is (m x left_op.n_rows), LinOp2 is (left_op.n_rows x n)
+                right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans,
+                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+
+            } else {  // trans_comp == Op::Trans
+                // C := alpha * op(B) * (LinOp1 * LinOp2)^T + beta * C
+                //    = alpha * op(B) * LinOp2^T * LinOp1^T + beta * C
+                // Compute left-to-right in operator names: (op(B) * LinOp1^T) * LinOp2^T
+                // This applies LinOp1^T first, then LinOp2^T
+                // Intermediate dimension: right_op.n_rows (between op(B) and LinOp1^T)
+                int64_t temp_cols = right_op.n_rows;
+                int64_t temp_rows = m;
+                T* temp_buffer = new T[temp_rows * temp_cols]();
+                int64_t ldt = temp_rows;
+
+                // Step 1: temp := op(B) * LinOp1^T, dimension (m x right_op.n_rows)
+                //   op(B) is (m x k), LinOp1^T is (k x right_op.n_rows)
+                left_op(Side::Right, layout, Op::Trans, trans_B,
+                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * temp * LinOp2^T + beta * C
+                //   temp is (m x right_op.n_rows), LinOp2^T is (right_op.n_rows x n)
+                right_op(Side::Right, layout, Op::Trans, Op::NoTrans,
+                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+            }
         }
     }
 
-    // Sparse matrix multiplication operator: C := alpha * op(LinOp1 * LinOp2) * op(B_sp) + beta * C
-    // where B_sp is a sparse matrix.
-    //
-    // Strategy: Compute right-to-left via intermediate buffer (same as dense case).
-    //   Step 1: temp = LinOp2 * op(B_sp)  [LinOp2 handles sparse B_sp internally]
-    //   Step 2: C = alpha * LinOp1 * temp + beta * C
-    //
-    // Note: Both DenseLinOp and SparseLinOp support sparse matrix multiplication.
-    //   - DenseLinOp uses RandBLAS::right_spmm (dense * sparse)
-    //   - SparseLinOp densifies B_sp then uses left_spmm (sparse * dense)
-    template <RandBLAS::sparse_data::SparseMatrix SpMatB>
-    void operator()(
-        Layout layout,
-        Op trans_comp,  // Transposition of the composite operator (LinOp1 * LinOp2)
-        Op trans_B,
-        int64_t m,
-        int64_t n,
-        int64_t k,
-        T alpha,
-        SpMatB &B_sp,
-        T beta,
-        T* C,
-        int64_t ldc
-    ) {
-        // Validate input dimensions
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
-        auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
-        randblas_require(rows_comp <= n_rows);
-        randblas_require(cols_comp <= n_cols);
-        randblas_require(ldc >= m);
-
-        if (trans_comp == Op::NoTrans) {
-            // C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
-            int64_t temp_rows = right_op.n_cols;
-            T* temp_buffer = new T[temp_rows * n]();
-            int64_t ldt = temp_rows;
-
-            // Step 1: temp := LinOp2 * op(B_sp), dimension (right_op.n_cols x n)
-            // LinOp2's operator handles sparse B_sp internally
-            right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
-
-            // Step 2: C := alpha * LinOp1 * temp + beta * C
-            left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-            delete[] temp_buffer;
-
-        } else {
-            // trans_comp == Op::Trans
-            // C := alpha * (LinOp1 * LinOp2)^T * op(B_sp) + beta * C
-            //    = alpha * LinOp2^T * LinOp1^T * op(B_sp) + beta * C
-            int64_t temp_rows = left_op.n_cols;
-            T* temp_buffer = new T[temp_rows * n]();
-            int64_t ldt = temp_rows;
-
-            // Step 1: temp := LinOp1^T * op(B_sp), dimension (left_op.n_cols x n)
-            // LinOp1's operator handles sparse B_sp internally
-            left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
-
-            // Step 2: C := alpha * LinOp2^T * temp + beta * C
-            right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-            delete[] temp_buffer;
-        }
-    }
-
-    // Augmented sparse matrix multiplication operator with Side parameter.
+    // Sparse matrix multiplication operator with Side parameter.
     // Handles both left and right multiplication with a sparse matrix B_sp.
     //
     // Side::Left:  C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
-    // Side::Right: C := alpha * op(B_sp) * (LinOp1 * LinOp2) + beta * C
+    //              Applies operators right-to-left: LinOp2 first, then LinOp1
     //
-    // Right multiplication uses the transpose trick with swapped layout.
+    // Side::Right: C := alpha * op(B_sp) * (LinOp1 * LinOp2) + beta * C
+    //              Applies operators left-to-right: LinOp1 first, then LinOp2
+    //
+    // Note: We cannot use the transpose trick for Side::Right because it requires
+    // layout swapping, which some operators don't support. See dense version above.
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
         Side side,
@@ -275,13 +255,58 @@ struct CompositeOperator {
         int64_t ldc
     ) {
         if (side == Side::Left) {
-            // Left multiplication: delegate to default sparse operator
-            (*this)(layout, trans_comp, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
+            // Left multiplication: C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
+            // Compute right-to-left via intermediate buffer (same as dense case).
+            //   Step 1: temp = LinOp2 * op(B_sp)  [LinOp2 handles sparse B_sp internally]
+            //   Step 2: C = alpha * LinOp1 * temp + beta * C
+            //
+            // Note: Both DenseLinOp and SparseLinOp support sparse matrix multiplication.
+            //   - DenseLinOp uses RandBLAS::right_spmm (dense * sparse)
+            //   - SparseLinOp densifies B_sp then uses left_spmm (sparse * dense)
+
+            // Validate input dimensions
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+            auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
+            randblas_require(rows_comp <= n_rows);
+            randblas_require(cols_comp <= n_cols);
+            randblas_require(ldc >= m);
+
+            if (trans_comp == Op::NoTrans) {
+                // C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
+                int64_t temp_rows = right_op.n_cols;
+                T* temp_buffer = new T[temp_rows * n]();
+                int64_t ldt = temp_rows;
+
+                // Step 1: temp := LinOp2 * op(B_sp), dimension (right_op.n_cols x n)
+                // LinOp2's operator handles sparse B_sp internally
+                right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * LinOp1 * temp + beta * C
+                left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+
+            } else {
+                // trans_comp == Op::Trans
+                // C := alpha * (LinOp1 * LinOp2)^T * op(B_sp) + beta * C
+                //    = alpha * LinOp2^T * LinOp1^T * op(B_sp) + beta * C
+                int64_t temp_rows = left_op.n_cols;
+                T* temp_buffer = new T[temp_rows * n]();
+                int64_t ldt = temp_rows;
+
+                // Step 1: temp := LinOp1^T * op(B_sp), dimension (left_op.n_cols x n)
+                // LinOp1's operator handles sparse B_sp internally
+                left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * LinOp2^T * temp + beta * C
+                right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+            }
 
         } else {  // side == Side::Right
-            // Right multiplication: C := alpha * op(B_sp) * op(LinOp1 * LinOp2) + beta * C
-            // We use the transpose trick: compute C^T := alpha * op(LinOp1 * LinOp2)^T * op(B_sp)^T + beta * C^T
-            // with swapped layout
+            // Right multiplication: C := alpha * op(B_sp) * (LinOp1 * LinOp2) + beta * C
+            // Same strategy as dense Side::Right (left-to-right computation)
 
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(k, n, trans_comp);
@@ -289,12 +314,45 @@ struct CompositeOperator {
             randblas_require(cols_comp <= n_cols);
             randblas_require(ldc >= m);
 
-            // Transpose the operation: swap trans_comp and use opposite layout
-            auto trans_trans_comp = (trans_comp == Op::NoTrans) ? Op::Trans : Op::NoTrans;
-            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
+            if (trans_comp == Op::NoTrans) {
+                // C := alpha * op(B_sp) * (LinOp1 * LinOp2) + beta * C
+                // Compute left-to-right in operator names: (op(B_sp) * LinOp1) * LinOp2
+                // This applies LinOp1 first, then LinOp2
+                int64_t temp_cols = left_op.n_rows;
+                int64_t temp_rows = m;
+                T* temp_buffer = new T[temp_rows * temp_cols]();
+                int64_t ldt = temp_rows;
 
-            // Now call the default sparse operator with transposed parameters
-            (*this)(trans_layout, trans_trans_comp, trans_B, n, m, k, alpha, B_sp, beta, C, ldc);
+                // Step 1: temp := op(B_sp) * LinOp1
+                left_op(Side::Right, layout, Op::NoTrans, trans_B,
+                        temp_rows, temp_cols, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * temp * LinOp2 + beta * C
+                right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans,
+                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+
+            } else {  // trans_comp == Op::Trans
+                // C := alpha * op(B_sp) * (LinOp1 * LinOp2)^T + beta * C
+                //    = alpha * op(B_sp) * LinOp2^T * LinOp1^T + beta * C
+                // Compute left-to-right in operator names: (op(B_sp) * LinOp1^T) * LinOp2^T
+                // This applies LinOp1^T first, then LinOp2^T
+                int64_t temp_cols = right_op.n_rows;
+                int64_t temp_rows = m;
+                T* temp_buffer = new T[temp_rows * temp_cols]();
+                int64_t ldt = temp_rows;
+
+                // Step 1: temp := op(B_sp) * LinOp1^T
+                left_op(Side::Right, layout, Op::Trans, trans_B,
+                        temp_rows, temp_cols, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+
+                // Step 2: C := alpha * temp * LinOp2^T + beta * C
+                right_op(Side::Right, layout, Op::Trans, Op::NoTrans,
+                         m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
+
+                delete[] temp_buffer;
+            }
         }
     }
 };

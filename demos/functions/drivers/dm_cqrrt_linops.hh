@@ -148,9 +148,9 @@ class CQRRT_linops {
             RandBLAS::SparseSkOp<T, RNG> S(DS, state);
             state = S.next_state;
             RandBLAS::fill_sparse(S);
-            RandBLAS::CSRMatrix S_csr(S.n_rows, S.n_cols);
-            RandBLAS::COOMatrix S_coo_view(S.n_rows, S.n_cols, S.nnz, S.vals, S.rows, S.cols);
-            RandBLAS::coo_to_csr(S_coo_view, S_csr);
+            RandBLAS::CSRMatrix<T> S_csr(S.n_rows, S.n_cols);
+            RandBLAS::COOMatrix<T> S_coo_view(S.n_rows, S.n_cols, S.nnz, S.vals, S.rows, S.cols);
+            RandBLAS::sparse_data::conversions::coo_to_csr(S_coo_view, S_csr);
 
             // Below expression replaces applying a SASO from the left to a general linear operator (S * A).
             // Below, Side::Right is used because the operator is on the right side of the expression.
