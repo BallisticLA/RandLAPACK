@@ -642,8 +642,6 @@ struct DenseLinOp {
     //
     // Side::Left:  C := alpha * op(A) * op(B) + beta * C
     // Side::Right: C := alpha * op(B) * op(A) + beta * C
-    //
-    // Right multiplication uses the transpose trick with swapped layout.
     void operator()(
         Side side,
         Layout layout,
@@ -669,7 +667,8 @@ struct DenseLinOp {
             randblas_require(ldc >= m);
 
             blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
-        } else {
+        } else {  // Side::Right
+            // Right multiplication: C := alpha * op(B) * op(A) + beta * C
             randblas_require(layout == buff_layout);
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             randblas_require(ldb >= rows_B);
@@ -678,9 +677,8 @@ struct DenseLinOp {
             randblas_require(cols_A == n_cols);
             randblas_require(ldc >= m);
 
-            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
-            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
-            blas::gemm(trans_layout, trans_trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+            // Compute C := alpha * op(B) * op(A) + beta * C by swapping operand order in GEMM
+            blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A_buff, lda, beta, C, ldc);
         }
     }
 
@@ -702,14 +700,15 @@ struct DenseLinOp {
         T* C,
         int64_t ldc
     ) {
-        // Validate input dimensions
+        // Validate layout and input dimensions
+        randblas_require(layout == buff_layout);
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
         auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
         randblas_require(rows_A == n_rows);
         randblas_require(cols_A == n_cols);
         randblas_require(ldc >= m);
 
-        // Use RandBLAS right_spmm: C = alpha * A * B_sp + beta * C
+        // Use RandBLAS right_spmm: C = alpha * op(A) * op(B_sp) + beta * C
         RandBLAS::sparse_data::right_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B_sp, 0, 0, beta, C, ldc);
     }
 
@@ -740,21 +739,17 @@ struct DenseLinOp {
             (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
         } else {  // side == Side::Right
             // Right multiplication: C := alpha * op(B_sp) * op(A) + beta * C
-            // We use the transpose trick: compute C^T := alpha * op(A)^T * op(B_sp)^T + beta * C^T
-            // with swapped layout
+            // Use RandBLAS left_spmm: sparse × dense
 
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
             randblas_require(rows_A == n_rows);
             randblas_require(cols_A == n_cols);
             randblas_require(ldc >= m);
+            randblas_require(layout == buff_layout);
 
-            // Transpose the operation: swap trans_A and use opposite layout
-            auto trans_trans_A = (trans_A == Op::NoTrans) ? Op::Trans : Op::NoTrans;
-            auto trans_layout = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
-
-            // Now call the default sparse operator with transposed parameters
-            (*this)(trans_layout, trans_trans_A, trans_B, n, m, k, alpha, B_sp, beta, C, ldc);
+            // left_spmm computes: C = alpha * op(B_sp) * op(A_buff) + beta * C
+            RandBLAS::sparse_data::left_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_sp, 0, 0, A_buff, lda, beta, C, ldc);
         }
     }
 };

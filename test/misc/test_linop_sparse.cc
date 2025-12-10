@@ -28,7 +28,7 @@ protected:
     // Helper: Generate sparse matrix in CSC format
     template <typename T>
     static RandBLAS::sparse_data::csc::CSCMatrix<T> generate_sparse_csc(
-        int64_t m, int64_t n, T density, RNGState<RandBLAS::r123::Philox4x32>& state
+        int64_t m, int64_t n, T density, RNGState<r123::Philox4x32>& state
     ) {
         auto coo = RandLAPACK::gen::gen_sparse_mat<T>(m, n, density, state);
         RandBLAS::sparse_data::csc::CSCMatrix<T> csc(m, n);
