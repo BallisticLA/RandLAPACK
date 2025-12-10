@@ -107,21 +107,36 @@ public:
         factorization_done = true;
     }
 
-    /// Dense matrix multiplication operator: C := alpha * A^{-1} * op(B) + beta * C
-    /// where A^{-1} is computed via sparse Cholesky solve: x = L^{-T} * L^{-1} * b
+    /// Dense matrix multiplication operator (non-Side version): C := alpha * A^{-1} * op(B) + beta * C
+    /// Delegates to Side::Left version
+    void operator()(
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        const T* B,
+        int64_t ldb,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
+    }
+
+    /// Dense matrix multiplication operator (Side version): C := alpha * op(A^{-1}) * op(B) + beta * C
+    /// where A^{-1} is computed via sparse Cholesky solve
     ///
-    /// Side parameter (optional):
-    ///   Side::Left  - C := alpha * A^{-1} * op(B) + beta * C (supported)
-    ///   Side::Right - C := alpha * op(B) * A^{-1} + beta * C (NOT supported - throws error)
+    /// Supported operations:
+    ///   trans_A = NoTrans: A^{-1} * op(B)     (solve A*x = b via L*L^T*x = b)
+    ///   trans_A = Trans:   A^{-T} * op(B)    (solve A^T*x = b via L^T*L*x = b)
     ///
-    /// Why Side::Right is not supported:
-    ///   1. Eigen's Cholesky solver only provides efficient column-oriented solves: x = A^{-1} * b
-    ///   2. Computing B * A^{-1} requires row-oriented operations which the solver doesn't support
-    ///   3. The transpose trick (C = B*A <=> C^T = A^T*B^T) requires layout swapping, but we only support ColMajor
-    ///   4. The only alternative would be materializing A^{-1} as a dense matrix (O(n^3) work, O(n^2) storage),
-    ///      which defeats the purpose of using a sparse implicit operator
-    ///
-    /// If you need Side::Right multiplication, consider restructuring your computation to use Side::Left instead.
+    /// Side parameter:
+    ///   Side::Left  - C := alpha * op(A^{-1}) * op(B) + beta * C (supported)
+    ///   Side::Right - Uses transpose trick: (B * A^{-1})^T = A^{-T} * B^T
+    ///                 Requires trans_A support, which is now implemented
     void operator()(
         Side side,
         Layout layout,
@@ -137,21 +152,54 @@ public:
         T* C,
         int64_t ldc
     ) {
-        // Check Side parameter first
+        // Handle Side::Right by materializing A^{-1}
+        // This is necessary because Eigen's Cholesky solver is column-oriented
         if (side == Side::Right) {
-            throw std::runtime_error(
-                "CholSolverLinOp: Side::Right multiplication is not supported.\n"
-                "Reason: Eigen's sparse Cholesky solver only supports efficient column-oriented solves (A^{-1} * x),\n"
-                "        not row-oriented operations (x * A^{-1}) required for Side::Right.\n"
-                "        Materializing A^{-1} would require O(n^3) work and O(n^2) storage, defeating the purpose\n"
-                "        of using a sparse implicit operator.\n"
-                "Solution: Restructure your computation to use Side::Left instead."
-            );
+            // Want: C := alpha * op(B) * op(A^{-1}) + beta * C
+            // Strategy: Materialize A^{-1}, then use standard BLAS gemm
+
+            // Ensure factorization is computed
+            if (!factorization_done) {
+                factorize();
+            }
+
+            // Materialize A^{-1} as a dense n_rows × n_cols matrix
+            std::vector<T> A_inv_dense(n_rows * n_cols);
+
+            // Compute A^{-1} by solving A * X = I column-by-column
+            for (int64_t j = 0; j < n_cols; ++j) {
+                std::vector<T> e_j(n_cols, (T)0.0);
+                e_j[j] = (T)1.0;
+                Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(e_j.data(), n_cols);
+                Eigen::Matrix<T, Eigen::Dynamic, 1> x;
+
+                if (trans_A == Op::NoTrans) {
+                    x = chol_solver.solve(b_vec);
+                } else {
+                    // Solve A^T * x = e_j
+                    auto L = chol_solver.matrixL();
+                    auto LT = chol_solver.matrixU();
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_vec);
+                    x = L.solve(y);
+                }
+
+                // Store column j of A^{-1} (or A^{-T})
+                for (int64_t i = 0; i < n_rows; ++i) {
+                    A_inv_dense[i + j * n_rows] = x(i);
+                }
+            }
+
+            // Now compute C := alpha * op(B) * op(A^{-1}) + beta * C using BLAS gemm
+            // This is: C := alpha * op(B) * op(A_inv_dense) + beta * C
+            // Note: BLAS gemm can handle any layout, so no layout restriction here
+            blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb,
+                      A_inv_dense.data(), n_rows, beta, C, ldc);
+            return;
         }
 
-        // Validate parameters
+        // Validate parameters for Side::Left
         randblas_require(layout == Layout::ColMajor);
-        randblas_require(trans_A == Op::NoTrans); // Only A^{-1} supported, not (A^{-1})^T
+        randblas_require(trans_A == Op::NoTrans || trans_A == Op::Trans);
         randblas_require(trans_B == Op::NoTrans || trans_B == Op::Trans);
 
         // Ensure factorization is computed
@@ -172,35 +220,91 @@ public:
             blas::scal(m * n, beta, C, 1);
         }
 
-        // Solve A^{-1} * op(B) for each column using sparse Cholesky solver
-        // This computes x such that A * x = b via: L * L^T * x = b,
-        // since Eigen's sparse solver can only accept vector rhs
-        if (trans_B == Op::NoTrans) {
-            // B is k × n, proceed by column
-            for (int64_t j = 0; j < n; ++j) {
-                // Below wrapper (Eigen::map) lets Eigen operate on external memory without performing a copy
-                Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_col(B + j * ldb, k);
-                Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_col);
-                // We can access data of an Eigen matrix as a raw pointer
-                blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
+        // Solve op(A^{-1}) * op(B) for each column using sparse Cholesky solver
+        // For A = L * L^T (Cholesky factorization):
+        //   - A^{-1} * b: solve L * L^T * x = b (forward solve with L, backward with L^T)
+        //   - A^{-T} * b: solve L^T * L * x = b (forward solve with L^T, backward with L)
+
+        if (trans_A == Op::NoTrans) {
+            // Compute A^{-1} * op(B)
+            if (trans_B == Op::NoTrans) {
+                // B is k × n, proceed by column
+                for (int64_t j = 0; j < n; ++j) {
+                    Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_col(B + j * ldb, k);
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_col);
+                    blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
+                }
+            } else {
+                // trans_B == Op::Trans: B is n × k, need to extract rows (which become columns of B^T)
+                std::vector<T> b_row(k);
+                for (int64_t j = 0; j < n; ++j) {
+                    // Extract row j from B (stride ldb between elements)
+                    for (int64_t i = 0; i < k; ++i) {
+                        b_row[i] = B[j + i * ldb];
+                    }
+                    Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(b_row.data(), k);
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_vec);
+                    blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
+                }
             }
         } else {
-            // trans_B == Op::Trans: B is n × k, need to extract rows (which become columns of B^T)
-            std::vector<T> b_row(k);
-            for (int64_t j = 0; j < n; ++j) {
-                // Extract row j from B (stride ldb between elements)
-                for (int64_t i = 0; i < k; ++i) {
-                    b_row[i] = B[j + i * ldb];
+            // trans_A == Op::Trans: Compute A^{-T} * op(B)
+            // Solve A^T * x = b, which is equivalent to solving (L * L^T)^T * x = b
+            // This gives us L^T * L * x = b
+            // We use: x = L^{-T} * (L^{-1})^T * b = L^{-T} * L^{-T} * b
+
+            // Get triangular factors
+            auto L = chol_solver.matrixL();
+            auto LT = chol_solver.matrixU(); // U = L^T for Cholesky
+
+            if (trans_B == Op::NoTrans) {
+                // B is k × n, proceed by column
+                for (int64_t j = 0; j < n; ++j) {
+                    Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_col(B + j * ldb, k);
+                    // Solve L^T * L * x = b in two steps:
+                    // Step 1: L^T * y = b  =>  y = (L^T)^{-1} * b
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_col);
+                    // Step 2: L * x = y  =>  x = L^{-1} * y
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> x = L.solve(y);
+                    blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
                 }
-                Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(b_row.data(), k);
-                Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_vec);
-                blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
+            } else {
+                // trans_B == Op::Trans: B is n × k, need to extract rows
+                std::vector<T> b_row(k);
+                for (int64_t j = 0; j < n; ++j) {
+                    for (int64_t i = 0; i < k; ++i) {
+                        b_row[i] = B[j + i * ldb];
+                    }
+                    Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(b_row.data(), k);
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_vec);
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> x = L.solve(y);
+                    blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
+                }
             }
         }
     }
 
-    /// Sparse matrix multiplication operator: C := alpha * A^{-1} * op(B_sp) + beta * C
-    /// (Side::Right not supported - see dense operator documentation for details)
+    /// Sparse matrix multiplication operator (non-Side version): C := alpha * A^{-1} * op(B_sp) + beta * C
+    /// Delegates to Side::Left version
+    template <RandBLAS::sparse_data::SparseMatrix SpMatB>
+    void operator()(
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SpMatB &B_sp,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
+    }
+
+    /// Sparse matrix multiplication operator (Side version): C := alpha * op(A^{-1}) * op(B_sp) + beta * C
+    /// Supports both Side::Left and Side::Right via the dense operator
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
         Side side,
@@ -216,15 +320,7 @@ public:
         T* C,
         int64_t ldc
     ) {
-        // Check Side parameter - reject Side::Right
-        if (side == Side::Right) {
-            throw std::runtime_error(
-                "CholSolverLinOp: Side::Right multiplication is not supported for sparse matrices.\n"
-                "See the dense operator documentation for a detailed explanation."
-            );
-        }
-
-        // For sparse B, densify and delegate to dense operator
+        // For sparse B, densify and delegate to dense operator (which handles Side::Right)
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
         int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
 

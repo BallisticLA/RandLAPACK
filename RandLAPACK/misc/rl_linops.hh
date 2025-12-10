@@ -131,10 +131,10 @@ struct CompositeOperator {
                 int64_t ldt = temp_rows;
 
                 // Step 1: temp := LinOp2 * op(B), dimension (right_op.n_cols x n)
-                right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * LinOp1 * temp + beta * C
-                left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
                 delete[] temp_buffer;
 
@@ -148,10 +148,10 @@ struct CompositeOperator {
                 int64_t ldt = temp_rows;
 
                 // Step 1: temp := LinOp1^T * op(B), dimension (left_op.n_cols x n)
-                left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
+                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * LinOp2^T * temp + beta * C
-                right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
                 delete[] temp_buffer;
             }
@@ -279,10 +279,10 @@ struct CompositeOperator {
 
                 // Step 1: temp := LinOp2 * op(B_sp), dimension (right_op.n_cols x n)
                 // LinOp2's operator handles sparse B_sp internally
-                right_op(layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * LinOp1 * temp + beta * C
-                left_op(layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
                 delete[] temp_buffer;
 
@@ -296,10 +296,10 @@ struct CompositeOperator {
 
                 // Step 1: temp := LinOp1^T * op(B_sp), dimension (left_op.n_cols x n)
                 // LinOp1's operator handles sparse B_sp internally
-                left_op(layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
+                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B_sp, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * LinOp2^T * temp + beta * C
-                right_op(layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
+                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
                 delete[] temp_buffer;
             }
