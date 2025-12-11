@@ -208,7 +208,7 @@ static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data,
 // in exact precision. Target_rank defines size of U, V as returned by ABRIK; target_rank <= target_rank.
 template <typename T, typename TestData>
 static T
-residual_error_comp(TestData &all_data, int64_t target_rank) {
+residual_error_vectors_comp(TestData &all_data, int64_t target_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
@@ -237,6 +237,21 @@ residual_error_comp(TestData &all_data, int64_t target_rank) {
     T nrm2 = lapack::lange(Norm::Fro, n, target_rank, all_data.V_cpy, n);
 
     return std::hypot(nrm1, nrm2);
+}
+
+// Assesses the quality of approximation of singular values specifically
+template <typename T, typename TestData>
+static T
+residual_error_values_comp(TestData &all_data, int64_t target_rank, T triplet_error) {
+    
+    T spectral_gap;
+    if (target_rank == 1) {
+        spectral_gap = all_data.Sigma[0];
+    } else {
+        spectral_gap = all_data.Sigma[target_rank - 2] - all_data.Sigma[target_rank - 1];
+    }
+
+    return triplet_error * spectral_gap;
 }
 
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
@@ -277,8 +292,10 @@ static void call_all_algs(
     auto state_gen = state;
     auto state_alg = state;
 
-    T residual_err_custom_SVDS = 0;
-    T residual_err_custom_ABRIK = 0;
+    T residual_err_vec_SVDS  = 0;
+    T residual_err_val_SVDS  = 0;
+    T residual_err_vec_ABRIK = 0;
+    T residual_err_val_ABRIK = 0;
 
     int64_t singular_triplets_target_ABRIK = 0;
     int64_t singular_triplets_found_SVDS   = 0;
@@ -298,8 +315,10 @@ static void call_all_algs(
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
         printf("Singular triplets: %ld\n", singular_triplets_target_ABRIK);
 
-        residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
-        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_ABRIK);
+        residual_err_vec_ABRIK = residual_error_vectors_comp<T>(all_data, singular_triplets_target_ABRIK);
+        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_vec_ABRIK);
+        residual_err_val_ABRIK = residual_error_values_comp<T>(all_data, singular_triplets_target_ABRIK, residual_err_vec_ABRIK);
+        printf("ABRIK resigual error * spectral gap: %.16e\n", residual_err_val_ABRIK);
 
         state_alg = state;
         state_gen = state;
@@ -337,17 +356,19 @@ static void call_all_algs(
 
         singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
 
-        residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
-        
+        residual_err_vec_SVDS = residual_error_vectors_comp<T>(all_data, singular_triplets_target_SVDS);
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_vec_SVDS);
+        residual_err_val_SVDS = residual_error_values_comp<T>(all_data, singular_triplets_target_SVDS, residual_err_vec_SVDS);
+        printf("SVDS resigual error * spectral gap: %.16e\n", residual_err_val_SVDS);        
+
         state_alg = state;
         state_gen = state;
         data_regen(all_data, state_gen);
 
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.ABRIK.max_krylov_iters  <<  ",  " << target_rank << ",  " 
-        << residual_err_custom_ABRIK <<  ",  " << dur_ABRIK    << ",  " 
-        << residual_err_custom_SVDS <<  ",  " << dur_svds    << ",\n";
+        << residual_err_vec_ABRIK << ",  " << residual_err_val_ABRIK <<  ",  " << dur_ABRIK    << ",  " 
+        << residual_err_vec_SVDS << ",  " << residual_err_val_SVDS << ",  " << dur_svds    << ",\n";
     }
 }
 
