@@ -25,11 +25,12 @@ protected:
     virtual void TearDown() {};
 
     // Unified test function for DenseLinOp
-    // Handles both Side::Left and Side::Right, both dense and sparse B
+    // Handles both Side::Left and Side::Right, both dense and sparse B, both ColMajor and RowMajor
     template <typename T>
     void test_dense_linop(
         Side side,
         bool sparse_B,
+        Layout layout,
         Op trans_A,
         Op trans_B,
         int64_t m,
@@ -60,12 +61,23 @@ protected:
         }
 
         // Generate dense matrix A
+        // NOTE: RandBLAS::fill_dense always fills in ColMajor format
         vector<T> A_dense(rows_A * cols_A);
         RandBLAS::DenseDist D_A(rows_A, cols_A);
         RandBLAS::fill_dense(D_A, A_dense.data(), state);
 
-        int64_t lda = rows_A;
-        int64_t ldc = m;
+        // For RowMajor, we need to transpose the data after generation
+        if (layout == Layout::RowMajor) {
+            vector<T> A_temp = A_dense;
+            for (int64_t i = 0; i < rows_A; ++i) {
+                for (int64_t j = 0; j < cols_A; ++j) {
+                    A_dense[j + i * cols_A] = A_temp[i + j * rows_A];
+                }
+            }
+        }
+
+        int64_t lda = (layout == Layout::ColMajor) ? rows_A : cols_A;
+        int64_t ldc = (layout == Layout::ColMajor) ? m : n;
 
         // Create output buffers
         vector<T> C_dense_op(m * n);
@@ -76,7 +88,7 @@ protected:
         C_reference = C_dense_op;
 
         // Create the DenseLinOp operator
-        RandLAPACK::linops::DenseLinOp<T> A_op(rows_A, cols_A, A_dense.data(), lda, Layout::ColMajor);
+        RandLAPACK::linops::DenseLinOp<T> A_op(rows_A, cols_A, A_dense.data(), lda, layout);
 
         if (sparse_B) {
             // Generate sparse matrix B in CSC format
@@ -85,25 +97,36 @@ protected:
             RandBLAS::sparse_data::conversions::coo_to_csc(B_coo, B_csc);
 
             // Compute using DenseLinOp with sparse B
-            A_op(side, Layout::ColMajor, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_dense_op.data(), ldc);
+            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_dense_op.data(), ldc);
 
             // Compute reference: densify B and use BLAS GEMM
             // NOTE: gen_sparse_mat can generate duplicates, so we must SUM them, not overwrite
             vector<T> B_dense(rows_B * cols_B, 0.0);
-            int64_t ldb = rows_B;
-            for (int64_t j = 0; j < cols_B; ++j) {
-                for (int64_t idx = B_csc.colptr[j]; idx < B_csc.colptr[j+1]; ++idx) {
-                    int64_t i = B_csc.rowidxs[idx];
-                    B_dense[i + j * ldb] += B_csc.vals[idx];  // SUM duplicates!
+
+            // Densify B_csc into layout-aware format
+            if (layout == Layout::ColMajor) {
+                for (int64_t j = 0; j < cols_B; ++j) {
+                    for (int64_t idx = B_csc.colptr[j]; idx < B_csc.colptr[j+1]; ++idx) {
+                        int64_t i = B_csc.rowidxs[idx];
+                        B_dense[i + j * rows_B] += B_csc.vals[idx];  // SUM duplicates!
+                    }
+                }
+            } else {  // RowMajor
+                for (int64_t j = 0; j < cols_B; ++j) {
+                    for (int64_t idx = B_csc.colptr[j]; idx < B_csc.colptr[j+1]; ++idx) {
+                        int64_t i = B_csc.rowidxs[idx];
+                        B_dense[j + i * cols_B] += B_csc.vals[idx];  // SUM duplicates!
+                    }
                 }
             }
+            int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
 
             // GEMM call depends on Side
             if (side == Side::Left) {
-                blas::gemm(Layout::ColMajor, trans_A, trans_B, m, n, k, alpha,
+                blas::gemm(layout, trans_A, trans_B, m, n, k, alpha,
                            A_dense.data(), lda, B_dense.data(), ldb, beta, C_reference.data(), ldc);
             } else {
-                blas::gemm(Layout::ColMajor, trans_B, trans_A, m, n, k, alpha,
+                blas::gemm(layout, trans_B, trans_A, m, n, k, alpha,
                            B_dense.data(), ldb, A_dense.data(), lda, beta, C_reference.data(), ldc);
             }
 
@@ -117,20 +140,31 @@ protected:
             );
         } else {
             // Generate dense matrix B
+            // NOTE: RandBLAS::fill_dense always fills in ColMajor format
             vector<T> B_dense(rows_B * cols_B);
             RandBLAS::DenseDist D_B(rows_B, cols_B);
             RandBLAS::fill_dense(D_B, B_dense.data(), state);
-            int64_t ldb = rows_B;
+
+            // For RowMajor, we need to transpose the data after generation
+            if (layout == Layout::RowMajor) {
+                vector<T> B_temp = B_dense;
+                for (int64_t i = 0; i < rows_B; ++i) {
+                    for (int64_t j = 0; j < cols_B; ++j) {
+                        B_dense[j + i * cols_B] = B_temp[i + j * rows_B];
+                    }
+                }
+            }
+            int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
 
             // Compute using DenseLinOp with dense B
-            A_op(side, Layout::ColMajor, trans_A, trans_B, m, n, k, alpha, B_dense.data(), ldb, beta, C_dense_op.data(), ldc);
+            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense.data(), ldb, beta, C_dense_op.data(), ldc);
 
             // Compute reference using BLAS GEMM
             if (side == Side::Left) {
-                blas::gemm(Layout::ColMajor, trans_A, trans_B, m, n, k, alpha,
+                blas::gemm(layout, trans_A, trans_B, m, n, k, alpha,
                            A_dense.data(), lda, B_dense.data(), ldb, beta, C_reference.data(), ldc);
             } else {
-                blas::gemm(Layout::ColMajor, trans_B, trans_A, m, n, k, alpha,
+                blas::gemm(layout, trans_B, trans_A, m, n, k, alpha,
                            B_dense.data(), ldb, A_dense.data(), lda, beta, C_reference.data(), ldc);
             }
 
@@ -144,81 +178,161 @@ protected:
 };
 
 // ============================================================================
-// Side::Left with dense B
+// Side::Left with dense B - ColMajor
 // ============================================================================
 
-TEST_F(TestDenseLinOp, left_colmajor_notrans_notrans) {
-    test_dense_linop<double>(Side::Left, false, Op::NoTrans, Op::NoTrans, 10, 8, 12);
+TEST_F(TestDenseLinOp, left_dense_colmajor_notrans_notrans) {
+    test_dense_linop<double>(Side::Left, false, Layout::ColMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12);
 }
 
-TEST_F(TestDenseLinOp, left_colmajor_notrans_trans) {
-    test_dense_linop<double>(Side::Left, false, Op::NoTrans, Op::Trans, 10, 8, 12);
+TEST_F(TestDenseLinOp, left_dense_colmajor_notrans_trans) {
+    test_dense_linop<double>(Side::Left, false, Layout::ColMajor, Op::NoTrans, Op::Trans, 10, 8, 12);
 }
 
-TEST_F(TestDenseLinOp, left_colmajor_trans_notrans) {
-    test_dense_linop<double>(Side::Left, false, Op::Trans, Op::NoTrans, 10, 8, 12);
+TEST_F(TestDenseLinOp, left_dense_colmajor_trans_notrans) {
+    test_dense_linop<double>(Side::Left, false, Layout::ColMajor, Op::Trans, Op::NoTrans, 10, 8, 12);
 }
 
-TEST_F(TestDenseLinOp, left_colmajor_trans_trans) {
-    test_dense_linop<double>(Side::Left, false, Op::Trans, Op::Trans, 10, 8, 12);
-}
-
-// ============================================================================
-// Side::Right with dense B
-// ============================================================================
-
-TEST_F(TestDenseLinOp, right_colmajor_notrans_notrans) {
-    test_dense_linop<double>(Side::Right, false, Op::NoTrans, Op::NoTrans, 10, 8, 12);
-}
-
-TEST_F(TestDenseLinOp, right_colmajor_notrans_trans) {
-    test_dense_linop<double>(Side::Right, false, Op::NoTrans, Op::Trans, 10, 8, 12);
-}
-
-TEST_F(TestDenseLinOp, right_colmajor_trans_notrans) {
-    test_dense_linop<double>(Side::Right, false, Op::Trans, Op::NoTrans, 10, 8, 12);
-}
-
-TEST_F(TestDenseLinOp, right_colmajor_trans_trans) {
-    test_dense_linop<double>(Side::Right, false, Op::Trans, Op::Trans, 10, 8, 12);
+TEST_F(TestDenseLinOp, left_dense_colmajor_trans_trans) {
+    test_dense_linop<double>(Side::Left, false, Layout::ColMajor, Op::Trans, Op::Trans, 10, 8, 12);
 }
 
 // ============================================================================
-// Side::Left with sparse B
+// Side::Left with dense B - RowMajor
+// ============================================================================
+
+TEST_F(TestDenseLinOp, left_dense_rowmajor_notrans_notrans) {
+    test_dense_linop<double>(Side::Left, false, Layout::RowMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, left_dense_rowmajor_notrans_trans) {
+    test_dense_linop<double>(Side::Left, false, Layout::RowMajor, Op::NoTrans, Op::Trans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, left_dense_rowmajor_trans_notrans) {
+    test_dense_linop<double>(Side::Left, false, Layout::RowMajor, Op::Trans, Op::NoTrans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, left_dense_rowmajor_trans_trans) {
+    test_dense_linop<double>(Side::Left, false, Layout::RowMajor, Op::Trans, Op::Trans, 10, 8, 12);
+}
+
+// ============================================================================
+// Side::Right with dense B - ColMajor
+// ============================================================================
+
+TEST_F(TestDenseLinOp, right_dense_colmajor_notrans_notrans) {
+    test_dense_linop<double>(Side::Right, false, Layout::ColMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, right_dense_colmajor_notrans_trans) {
+    test_dense_linop<double>(Side::Right, false, Layout::ColMajor, Op::NoTrans, Op::Trans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, right_dense_colmajor_trans_notrans) {
+    test_dense_linop<double>(Side::Right, false, Layout::ColMajor, Op::Trans, Op::NoTrans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, right_dense_colmajor_trans_trans) {
+    test_dense_linop<double>(Side::Right, false, Layout::ColMajor, Op::Trans, Op::Trans, 10, 8, 12);
+}
+
+// ============================================================================
+// Side::Right with dense B - RowMajor
+// ============================================================================
+
+TEST_F(TestDenseLinOp, right_dense_rowmajor_notrans_notrans) {
+    test_dense_linop<double>(Side::Right, false, Layout::RowMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, right_dense_rowmajor_notrans_trans) {
+    test_dense_linop<double>(Side::Right, false, Layout::RowMajor, Op::NoTrans, Op::Trans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, right_dense_rowmajor_trans_notrans) {
+    test_dense_linop<double>(Side::Right, false, Layout::RowMajor, Op::Trans, Op::NoTrans, 10, 8, 12);
+}
+
+TEST_F(TestDenseLinOp, right_dense_rowmajor_trans_trans) {
+    test_dense_linop<double>(Side::Right, false, Layout::RowMajor, Op::Trans, Op::Trans, 10, 8, 12);
+}
+
+// ============================================================================
+// Side::Left with sparse B - ColMajor
 // ============================================================================
 
 TEST_F(TestDenseLinOp, left_sparse_colmajor_notrans_notrans) {
-    test_dense_linop<double>(Side::Left, true, Op::NoTrans, Op::NoTrans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Left, true, Layout::ColMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12, 0.3);
 }
 
 TEST_F(TestDenseLinOp, left_sparse_colmajor_notrans_trans) {
-    test_dense_linop<double>(Side::Left, true, Op::NoTrans, Op::Trans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Left, true, Layout::ColMajor, Op::NoTrans, Op::Trans, 10, 8, 12, 0.3);
 }
 
 TEST_F(TestDenseLinOp, left_sparse_colmajor_trans_notrans) {
-    test_dense_linop<double>(Side::Left, true, Op::Trans, Op::NoTrans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Left, true, Layout::ColMajor, Op::Trans, Op::NoTrans, 10, 8, 12, 0.3);
 }
 
 TEST_F(TestDenseLinOp, left_sparse_colmajor_trans_trans) {
-    test_dense_linop<double>(Side::Left, true, Op::Trans, Op::Trans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Left, true, Layout::ColMajor, Op::Trans, Op::Trans, 10, 8, 12, 0.3);
 }
 
 // ============================================================================
-// Side::Right with sparse B
+// Side::Left with sparse B - RowMajor
+// ============================================================================
+
+TEST_F(TestDenseLinOp, left_sparse_rowmajor_notrans_notrans) {
+    test_dense_linop<double>(Side::Left, true, Layout::RowMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12, 0.3);
+}
+
+TEST_F(TestDenseLinOp, left_sparse_rowmajor_notrans_trans) {
+    test_dense_linop<double>(Side::Left, true, Layout::RowMajor, Op::NoTrans, Op::Trans, 10, 8, 12, 0.3);
+}
+
+TEST_F(TestDenseLinOp, left_sparse_rowmajor_trans_notrans) {
+    test_dense_linop<double>(Side::Left, true, Layout::RowMajor, Op::Trans, Op::NoTrans, 10, 8, 12, 0.3);
+}
+
+TEST_F(TestDenseLinOp, left_sparse_rowmajor_trans_trans) {
+    test_dense_linop<double>(Side::Left, true, Layout::RowMajor, Op::Trans, Op::Trans, 10, 8, 12, 0.3);
+}
+
+// ============================================================================
+// Side::Right with sparse B - ColMajor
 // ============================================================================
 
 TEST_F(TestDenseLinOp, right_sparse_colmajor_notrans_notrans) {
-    test_dense_linop<double>(Side::Right, true, Op::NoTrans, Op::NoTrans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Right, true, Layout::ColMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12, 0.3);
 }
 
 TEST_F(TestDenseLinOp, right_sparse_colmajor_notrans_trans) {
-    test_dense_linop<double>(Side::Right, true, Op::NoTrans, Op::Trans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Right, true, Layout::ColMajor, Op::NoTrans, Op::Trans, 10, 8, 12, 0.3);
 }
 
 TEST_F(TestDenseLinOp, right_sparse_colmajor_trans_notrans) {
-    test_dense_linop<double>(Side::Right, true, Op::Trans, Op::NoTrans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Right, true, Layout::ColMajor, Op::Trans, Op::NoTrans, 10, 8, 12, 0.3);
 }
 
 TEST_F(TestDenseLinOp, right_sparse_colmajor_trans_trans) {
-    test_dense_linop<double>(Side::Right, true, Op::Trans, Op::Trans, 10, 8, 12, 0.3);
+    test_dense_linop<double>(Side::Right, true, Layout::ColMajor, Op::Trans, Op::Trans, 10, 8, 12, 0.3);
+}
+
+// ============================================================================
+// Side::Right with sparse B - RowMajor
+// ============================================================================
+
+TEST_F(TestDenseLinOp, right_sparse_rowmajor_notrans_notrans) {
+    test_dense_linop<double>(Side::Right, true, Layout::RowMajor, Op::NoTrans, Op::NoTrans, 10, 8, 12, 0.3);
+}
+
+TEST_F(TestDenseLinOp, right_sparse_rowmajor_notrans_trans) {
+    test_dense_linop<double>(Side::Right, true, Layout::RowMajor, Op::NoTrans, Op::Trans, 10, 8, 12, 0.3);
+}
+
+TEST_F(TestDenseLinOp, right_sparse_rowmajor_trans_notrans) {
+    test_dense_linop<double>(Side::Right, true, Layout::RowMajor, Op::Trans, Op::NoTrans, 10, 8, 12, 0.3);
+}
+
+TEST_F(TestDenseLinOp, right_sparse_rowmajor_trans_trans) {
+    test_dense_linop<double>(Side::Right, true, Layout::RowMajor, Op::Trans, Op::Trans, 10, 8, 12, 0.3);
 }

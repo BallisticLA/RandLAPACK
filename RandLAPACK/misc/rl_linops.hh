@@ -410,12 +410,19 @@ struct SparseLinOp {
         T* C,
         int64_t ldc
     ) {
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
-        randblas_require(ldb >= rows_B);
-        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
+        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
         randblas_require(rows_submat_A <= n_rows);
         randblas_require(cols_submat_A <= n_cols);
-        randblas_require(ldc >= m);
+
+        // Layout-aware dimension checks
+        if (layout == Layout::ColMajor) {
+            randblas_require(ldb >= rows_B);
+            randblas_require(ldc >= m);
+        } else {  // RowMajor
+            randblas_require(ldb >= cols_B);
+            randblas_require(ldc >= n);
+        }
 
         RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
     }
@@ -443,14 +450,8 @@ struct SparseLinOp {
         int64_t ldc
     ) {
         if (side == Side::Left) {
-            auto [rows_B, cols_B] = RandBLAS::dims_before_op(n, k, trans_B);
-            randblas_require(ldb >= rows_B);
-            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, n, trans_A);
-            randblas_require(rows_submat_A <= n_rows);
-            randblas_require(cols_submat_A <= n_cols);
-            randblas_require(ldc >= m);
-
-            RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+            // Left multiplication: delegate to non-sided dense operator
+            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
         } else {
             // Side::Right: C := alpha * op(B) * op(A_sp) + beta * C
             // Use RandBLAS::right_spmm for dense × sparse multiplication
@@ -498,7 +499,13 @@ struct SparseLinOp {
         auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
         randblas_require(rows_submat_A <= n_rows);
         randblas_require(cols_submat_A <= n_cols);
-        randblas_require(ldc >= m);
+
+        // Layout-aware ldc validation
+        if (layout == Layout::ColMajor) {
+            randblas_require(ldc >= m);
+        } else {  // RowMajor
+            randblas_require(ldc >= n);
+        }
 
         std::cerr << "For now, sparse * sparse is done via densifying the rhs matrix. This is suboptimal." << std::endl;
 
@@ -511,8 +518,8 @@ struct SparseLinOp {
         T* B_dense = new T[dense_rows * dense_cols]();
         int64_t ldb = (layout == Layout::ColMajor) ? dense_rows : dense_cols;
 
-        // Convert sparse to dense using utility function
-        RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
+        // Convert sparse to dense, summing duplicates to match spmm semantics
+        RandLAPACK::util::sparse_to_dense_summing_duplicates(B_sp, layout, B_dense);
 
         // Use existing sparse-dense operator
         (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
@@ -564,7 +571,7 @@ struct SparseLinOp {
             // Densify B_sp (the input) to avoid densifying the operator A_sp
             T* B_dense = new T[rows_B * cols_B]();
             int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
-            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_sp, layout, B_dense);
 
             // Compute: C := alpha * op(B_dense) * op(A_sp) + beta * C using right_spmm
             RandBLAS::sparse_data::right_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_dense, ldb, A_sp, 0, 0, beta, C, ldc);
@@ -579,8 +586,7 @@ struct SparseLinOp {
 /*                     DenseLinOp                        */
 /*                                                       */
 /*********************************************************/
-// Dense linear operator struct, supplied with a general matrix multiplication operator
-// (through blas::gemm) and a Frobenius norm function.
+// Dense linear operator struct, supplied with a dense or sparse matrix multiplication operator and a Frobenius norm function.
 template <typename T>
 struct DenseLinOp {
     using scalar_t = T;
@@ -597,7 +603,12 @@ struct DenseLinOp {
         int64_t lda,
         Layout buff_layout
     ) : n_rows(n_rows), n_cols(n_cols), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {
-        randblas_require(buff_layout == Layout::ColMajor);
+        // Validate leading dimension based on layout
+        if (buff_layout == Layout::ColMajor) {
+            randblas_require(lda >= n_rows);
+        } else {  // RowMajor
+            randblas_require(lda >= n_cols);
+        }
     }
 
     T fro_nrm(
@@ -610,29 +621,36 @@ struct DenseLinOp {
     //
     // Uses BLAS::gemm for dense * dense multiplication.
     //
-    // Note on layout: The "layout" parameter applies to B and C.
-    // Current implementation requires buff_layout == ColMajor.
+    // Note on layout: The "layout" parameter applies to B and C, and must match buff_layout.
+    // Supports both ColMajor and RowMajor layouts.
     void operator()(
-        Layout layout, 
-        Op trans_A, 
-        Op trans_B, 
-        int64_t m, 
-        int64_t n, 
-        int64_t k, 
-        T alpha,  
-        T* const B, 
-        int64_t ldb, 
-        T beta, 
-        T* C, 
+        Layout layout,
+        Op trans_A,
+        Op trans_B,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        T* const B,
+        int64_t ldb,
+        T beta,
+        T* C,
         int64_t ldc
     ) {
         randblas_require(layout == buff_layout);
         auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
-        randblas_require(ldb >= rows_B);
         auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
         randblas_require(rows_A == n_rows);
         randblas_require(cols_A == n_cols);
-        randblas_require(ldc >= m);
+
+        // Layout-aware dimension checks
+        if (layout == Layout::ColMajor) {
+            randblas_require(ldb >= rows_B);
+            randblas_require(ldc >= m);
+        } else {  // RowMajor
+            randblas_require(ldb >= cols_B);
+            randblas_require(ldc >= n);
+        }
 
         blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
     }
@@ -658,24 +676,24 @@ struct DenseLinOp {
         int64_t ldc
     ) {
         if (side == Side::Left) {
-            randblas_require(layout == buff_layout);
-            auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
-            randblas_require(ldb >= rows_B);
-            auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
-            randblas_require(ldc >= m);
-
-            blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
+            // Left multiplication: delegate to non-sided dense operator
+            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
         } else {  // Side::Right
             // Right multiplication: C := alpha * op(B) * op(A) + beta * C
             randblas_require(layout == buff_layout);
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
-            randblas_require(ldb >= rows_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
             randblas_require(rows_A == n_rows);
             randblas_require(cols_A == n_cols);
-            randblas_require(ldc >= m);
+
+            // Layout-aware dimension checks
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldb >= rows_B);
+                randblas_require(ldc >= m);
+            } else {  // RowMajor
+                randblas_require(ldb >= cols_B);
+                randblas_require(ldc >= n);
+            }
 
             // Compute C := alpha * op(B) * op(A) + beta * C by swapping operand order in GEMM
             blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A_buff, lda, beta, C, ldc);
@@ -706,7 +724,13 @@ struct DenseLinOp {
         auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
         randblas_require(rows_A == n_rows);
         randblas_require(cols_A == n_cols);
-        randblas_require(ldc >= m);
+
+        // Layout-aware dimension checks
+        if (layout == Layout::ColMajor) {
+            randblas_require(ldc >= m);
+        } else {  // RowMajor
+            randblas_require(ldc >= n);
+        }
 
         // Use RandBLAS right_spmm: C = alpha * op(A) * op(B_sp) + beta * C
         RandBLAS::sparse_data::right_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B_sp, 0, 0, beta, C, ldc);
@@ -735,7 +759,7 @@ struct DenseLinOp {
         int64_t ldc
     ) {
         if (side == Side::Left) {
-            // Left multiplication: delegate to default sparse operator
+            // Left multiplication: delegate to non-sided sparse operator
             (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
         } else {  // side == Side::Right
             // Right multiplication: C := alpha * op(B_sp) * op(A) + beta * C
@@ -745,8 +769,14 @@ struct DenseLinOp {
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
             randblas_require(rows_A == n_rows);
             randblas_require(cols_A == n_cols);
-            randblas_require(ldc >= m);
             randblas_require(layout == buff_layout);
+
+            // Layout-aware dimension checks
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldc >= m);
+            } else {  // RowMajor
+                randblas_require(ldc >= n);
+            }
 
             // left_spmm computes: C = alpha * op(B_sp) * op(A_buff) + beta * C
             RandBLAS::sparse_data::left_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_sp, 0, 0, A_buff, lda, beta, C, ldc);

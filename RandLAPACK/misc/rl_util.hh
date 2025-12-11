@@ -522,6 +522,48 @@ void sparse_to_dense(
     }
 }
 
+/// Convert sparse matrix to dense format, summing duplicate entries
+///
+/// NOTE: This function properly handles duplicate (row, col) entries by summing them,
+/// which matches the semantics of RandBLAS spmm operations. Use this instead of
+/// RandBLAS's csc_to_dense when gen_sparse_mat may have created duplicates.
+///
+/// @param sp_mat - Sparse matrix in CSC format
+/// @param layout - Memory layout for dense output (ColMajor or RowMajor)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+template <typename T, typename sint_t = int64_t>
+void sparse_to_dense_summing_duplicates(
+    const RandBLAS::sparse_data::CSCMatrix<T, sint_t> &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    int64_t m = sp_mat.n_rows;
+    int64_t n = sp_mat.n_cols;
+
+    // Zero-initialize the output
+    int64_t total_size = m * n;
+    for (int64_t idx = 0; idx < total_size; ++idx) {
+        dense_mat[idx] = 0.0;
+    }
+
+    // Convert CSC to dense, summing duplicate entries
+    if (layout == blas::Layout::ColMajor) {
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t idx = sp_mat.colptr[j]; idx < sp_mat.colptr[j+1]; ++idx) {
+                int64_t i = sp_mat.rowidxs[idx];
+                dense_mat[i + j * m] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    } else {  // RowMajor
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t idx = sp_mat.colptr[j]; idx < sp_mat.colptr[j+1]; ++idx) {
+                int64_t i = sp_mat.rowidxs[idx];
+                dense_mat[j + i * n] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    }
+}
+
 /// Complete an orthonormal basis given a partial orthonormal set.
 /// Given Q ∈ ℝ^{m×k} with orthonormal columns (k < n), extends Q to
 /// Q_extended ∈ ℝ^{m×n} by adding (n-k) orthonormal columns.
