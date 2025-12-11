@@ -8,6 +8,7 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "linop_test_utils.hh"
 
 using std::vector;
 using blas::Layout;
@@ -15,6 +16,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
+using namespace RandLAPACK::test::linop_utils;
 
 class TestSparseLinOp : public ::testing::Test {
 
@@ -43,91 +45,42 @@ protected:
         T alpha = 1.5;
         T beta = 0.5;
 
-        // Dimension calculation depends on Side
-        int64_t rows_A, cols_A, rows_B, cols_B;
-        if (side == Side::Left) {
-            // Side::Left: C := alpha * op(A_sp) * op(B) + beta * C
-            // A is the operator (m × k), B is the input (k × n)
-            auto [ra, ca] = RandBLAS::dims_before_op(m, k, trans_A);
-            auto [rb, cb] = RandBLAS::dims_before_op(k, n, trans_B);
-            rows_A = ra; cols_A = ca;
-            rows_B = rb; cols_B = cb;
-        } else {
-            // Side::Right: C := alpha * op(B) * op(A_sp) + beta * C
-            // A is the operator (k × n), B is the input (m × k)
-            auto [ra, ca] = RandBLAS::dims_before_op(k, n, trans_A);
-            auto [rb, cb] = RandBLAS::dims_before_op(m, k, trans_B);
-            rows_A = ra; cols_A = ca;
-            rows_B = rb; cols_B = cb;
-        }
+        // Calculate dimensions using utility function
+        auto dims = calculate_dimensions<T>(side, layout, trans_A, trans_B, m, n, k);
 
-        // Generate sparse matrix A in CSC format
-        auto A_coo = RandLAPACK::gen::gen_sparse_mat<T>(rows_A, cols_A, density_A, state);
-        RandBLAS::sparse_data::csc::CSCMatrix<T> A_csc(rows_A, cols_A);
-        RandBLAS::sparse_data::conversions::coo_to_csc(A_coo, A_csc);
-
-        int64_t ldc = (layout == Layout::ColMajor) ? m : n;
+        // Generate sparse matrix A using utility function
+        auto A_csc = generate_sparse_matrix<T>(dims.rows_A, dims.cols_A, density_A, state);
 
         // Create output buffers
         vector<T> C_sparse_op(m * n);
         vector<T> C_reference(m * n);
 
-        // Initialize C with random data (to test beta scaling)
-        for (auto& c : C_sparse_op) c = static_cast<T>(rand()) / RAND_MAX;
-        C_reference = C_sparse_op;
+        // Initialize test buffers using utility function
+        initialize_test_buffers(C_sparse_op, C_reference);
 
         // Create the SparseLinOp operator
         RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>>
-            A_op(rows_A, cols_A, A_csc);
+            A_op(dims.rows_A, dims.cols_A, A_csc);
 
         if (sparse_B) {
-            // Generate sparse matrix B in CSC format
-            auto B_coo = RandLAPACK::gen::gen_sparse_mat<T>(rows_B, cols_B, density_B, state);
-            RandBLAS::sparse_data::csc::CSCMatrix<T> B_csc(rows_B, cols_B);
-            RandBLAS::sparse_data::conversions::coo_to_csc(B_coo, B_csc);
+            // Generate sparse matrix B using utility function
+            auto B_csc = generate_sparse_matrix<T>(dims.rows_B, dims.cols_B, density_B, state);
 
             // Compute using SparseLinOp with sparse B
-            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_sparse_op.data(), ldc);
+            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_sparse_op.data(), dims.ldc);
 
             // Compute reference: densify both matrices and use BLAS GEMM
             // NOTE: gen_sparse_mat can generate duplicates, so we must SUM them, not overwrite
-            vector<T> A_dense(rows_A * cols_A, 0.0);
-            vector<T> B_dense(rows_B * cols_B, 0.0);
-            int64_t lda = (layout == Layout::ColMajor) ? rows_A : cols_A;
-            int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
+            vector<T> A_dense(dims.rows_A * dims.cols_A);
+            vector<T> B_dense(dims.rows_B * dims.cols_B);
 
-            // Densify A
-            for (int64_t j = 0; j < cols_A; ++j) {
-                for (int64_t idx = A_csc.colptr[j]; idx < A_csc.colptr[j+1]; ++idx) {
-                    int64_t i = A_csc.rowidxs[idx];
-                    if (layout == Layout::ColMajor) {
-                        A_dense[i + j * lda] += A_csc.vals[idx];  // SUM duplicates!
-                    } else {
-                        A_dense[j + i * lda] += A_csc.vals[idx];  // RowMajor
-                    }
-                }
-            }
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, layout, A_dense.data());
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, layout, B_dense.data());
 
-            // Densify B
-            for (int64_t j = 0; j < cols_B; ++j) {
-                for (int64_t idx = B_csc.colptr[j]; idx < B_csc.colptr[j+1]; ++idx) {
-                    int64_t i = B_csc.rowidxs[idx];
-                    if (layout == Layout::ColMajor) {
-                        B_dense[i + j * ldb] += B_csc.vals[idx];  // SUM duplicates!
-                    } else {
-                        B_dense[j + i * ldb] += B_csc.vals[idx];  // RowMajor
-                    }
-                }
-            }
-
-            // GEMM call depends on Side
-            if (side == Side::Left) {
-                blas::gemm(layout, trans_A, trans_B, m, n, k, alpha,
-                           A_dense.data(), lda, B_dense.data(), ldb, beta, C_reference.data(), ldc);
-            } else {
-                blas::gemm(layout, trans_B, trans_A, m, n, k, alpha,
-                           B_dense.data(), ldb, A_dense.data(), lda, beta, C_reference.data(), ldc);
-            }
+            // Compute reference using utility function
+            compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
+                                   A_dense.data(), dims.lda, B_dense.data(), dims.ldb,
+                                   beta, C_reference.data(), dims.ldc);
 
             // Compare results with relaxed tolerance for sparse operations
             T atol = 100 * std::numeric_limits<T>::epsilon();
@@ -138,49 +91,21 @@ protected:
                 atol, rtol
             );
         } else {
-            // Generate dense matrix B
-            // NOTE: RandBLAS::fill_dense always fills in ColMajor format
-            vector<T> B_dense(rows_B * cols_B);
-            RandBLAS::DenseDist D_B(rows_B, cols_B);
-            RandBLAS::fill_dense(D_B, B_dense.data(), state);
-
-            // For RowMajor, we need to transpose the data after generation
-            if (layout == Layout::RowMajor) {
-                vector<T> B_temp = B_dense;
-                for (int64_t i = 0; i < rows_B; ++i) {
-                    for (int64_t j = 0; j < cols_B; ++j) {
-                        B_dense[j + i * cols_B] = B_temp[i + j * rows_B];
-                    }
-                }
-            }
-            int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
+            // Generate dense matrix B using utility function
+            vector<T> B_dense = generate_dense_matrix<T>(dims.rows_B, dims.cols_B, layout, state);
 
             // Compute using SparseLinOp with dense B
-            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense.data(), ldb, beta, C_sparse_op.data(), ldc);
+            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense.data(), dims.ldb, beta, C_sparse_op.data(), dims.ldc);
 
             // Compute reference using dense GEMM
             // Densify A
-            vector<T> A_dense(rows_A * cols_A, 0.0);
-            int64_t lda = (layout == Layout::ColMajor) ? rows_A : cols_A;
-            for (int64_t j = 0; j < cols_A; ++j) {
-                for (int64_t idx = A_csc.colptr[j]; idx < A_csc.colptr[j+1]; ++idx) {
-                    int64_t i = A_csc.rowidxs[idx];
-                    if (layout == Layout::ColMajor) {
-                        A_dense[i + j * lda] += A_csc.vals[idx];  // SUM duplicates!
-                    } else {
-                        A_dense[j + i * lda] += A_csc.vals[idx];  // RowMajor
-                    }
-                }
-            }
+            vector<T> A_dense(dims.rows_A * dims.cols_A);
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, layout, A_dense.data());
 
-            // GEMM call depends on Side
-            if (side == Side::Left) {
-                blas::gemm(layout, trans_A, trans_B, m, n, k, alpha,
-                           A_dense.data(), lda, B_dense.data(), ldb, beta, C_reference.data(), ldc);
-            } else {
-                blas::gemm(layout, trans_B, trans_A, m, n, k, alpha,
-                           B_dense.data(), ldb, A_dense.data(), lda, beta, C_reference.data(), ldc);
-            }
+            // Compute reference using utility function
+            compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
+                                   A_dense.data(), dims.lda, B_dense.data(), dims.ldb,
+                                   beta, C_reference.data(), dims.ldc);
 
             // Compare results with relaxed tolerance for sparse operations
             T atol = 100 * std::numeric_limits<T>::epsilon();
