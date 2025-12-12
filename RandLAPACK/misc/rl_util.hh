@@ -564,6 +564,80 @@ void sparse_to_dense_summing_duplicates(
     }
 }
 
+/// Convert sparse CSR matrix to dense format, summing duplicate entries if present.
+///
+/// @param sp_mat - Sparse matrix in CSR format
+/// @param layout - Memory layout for dense output (ColMajor or RowMajor)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+template <typename T, typename sint_t = int64_t>
+void sparse_to_dense_summing_duplicates(
+    const RandBLAS::sparse_data::CSRMatrix<T, sint_t> &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    int64_t m = sp_mat.n_rows;
+    int64_t n = sp_mat.n_cols;
+
+    // Zero-initialize the output
+    int64_t total_size = m * n;
+    for (int64_t idx = 0; idx < total_size; ++idx) {
+        dense_mat[idx] = 0.0;
+    }
+
+    // Convert CSR to dense, summing duplicate entries
+    if (layout == blas::Layout::ColMajor) {
+        for (int64_t i = 0; i < m; ++i) {
+            for (int64_t idx = sp_mat.rowptr[i]; idx < sp_mat.rowptr[i+1]; ++idx) {
+                int64_t j = sp_mat.colidxs[idx];
+                dense_mat[i + j * m] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    } else {  // RowMajor
+        for (int64_t i = 0; i < m; ++i) {
+            for (int64_t idx = sp_mat.rowptr[i]; idx < sp_mat.rowptr[i+1]; ++idx) {
+                int64_t j = sp_mat.colidxs[idx];
+                dense_mat[j + i * n] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    }
+}
+
+/// Convert sparse COO matrix to dense format, summing duplicate entries if present.
+///
+/// @param sp_mat - Sparse matrix in COO format
+/// @param layout - Memory layout for dense output (ColMajor or RowMajor)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+template <typename T, typename sint_t = int64_t>
+void sparse_to_dense_summing_duplicates(
+    const RandBLAS::sparse_data::COOMatrix<T, sint_t> &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    int64_t m = sp_mat.n_rows;
+    int64_t n = sp_mat.n_cols;
+
+    // Zero-initialize the output
+    int64_t total_size = m * n;
+    for (int64_t idx = 0; idx < total_size; ++idx) {
+        dense_mat[idx] = 0.0;
+    }
+
+    // Convert COO to dense, summing duplicate entries
+    if (layout == blas::Layout::ColMajor) {
+        for (int64_t idx = 0; idx < sp_mat.nnz; ++idx) {
+            int64_t i = sp_mat.rowidxs[idx];
+            int64_t j = sp_mat.colidxs[idx];
+            dense_mat[i + j * m] += sp_mat.vals[idx];  // SUM duplicates!
+        }
+    } else {  // RowMajor
+        for (int64_t idx = 0; idx < sp_mat.nnz; ++idx) {
+            int64_t i = sp_mat.rowidxs[idx];
+            int64_t j = sp_mat.colidxs[idx];
+            dense_mat[j + i * n] += sp_mat.vals[idx];  // SUM duplicates!
+        }
+    }
+}
+
 /// Complete an orthonormal basis given a partial orthonormal set.
 /// Given Q ∈ ℝ^{m×k} with orthonormal columns (k < n), extends Q to
 /// Q_extended ∈ ℝ^{m×n} by adding (n-k) orthonormal columns.

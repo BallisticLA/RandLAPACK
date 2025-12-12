@@ -55,9 +55,9 @@ class TestDmCQRRTLinops : public ::testing::Test
         int64_t m,
         int64_t n
     ) {
-        // Convert B to dense
+        // Convert B to dense (summing duplicates to match RandBLAS spmm behavior)
         std::vector<T> B_dense(A_inv_linop.n_cols * n, 0.0);
-        RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense.data());
+        RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense.data());
 
         // Compute A_inv_linop * B_dense -> result
         A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, A_inv_linop.n_cols,

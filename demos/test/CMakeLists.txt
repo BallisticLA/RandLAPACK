@@ -10,6 +10,8 @@ if (GTest_FOUND)
 
     set(RandLAPACK_demos_test_srcs
         drivers/test_dm_cqrrt_linops.cc
+        misc/test_dm_cholsolver_linop.cc
+        misc/test_linop_dm_composite.cc
     )
 
     # Create test executable

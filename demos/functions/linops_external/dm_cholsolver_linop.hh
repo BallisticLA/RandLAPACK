@@ -97,12 +97,8 @@ public:
         chol_solver.compute(A_eigen);
 
         if (chol_solver.info() != Eigen::Success) {
-            std::cerr << "CholSolverLinOp: Cholesky factorization failed!" << std::endl;
             randblas_require(false);
         }
-
-        std::cerr << "CholSolverLinOp: Matrix loaded (" << A_eigen.nonZeros() << " nonzeros). ";
-        std::cerr << "Sparse Cholesky factorization completed successfully." << std::endl;
 
         factorization_done = true;
     }
@@ -176,11 +172,13 @@ public:
                 if (trans_A == Op::NoTrans) {
                     x = chol_solver.solve(b_vec);
                 } else {
-                    // Solve A^T * x = e_j
+                    // Solve A^T * x = e_j, where A^T = L^T * L
+                    // Step 1: L * y = e_j  (solve for y)
+                    // Step 2: L^T * x = y (solve for x)
                     auto L = chol_solver.matrixL();
                     auto LT = chol_solver.matrixU();
-                    Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_vec);
-                    x = L.solve(y);
+                    Eigen::Matrix<T, Eigen::Dynamic, 1> y = L.solve(b_vec);
+                    x = LT.solve(y);
                 }
 
                 // Store column j of A^{-1} (or A^{-T})
@@ -227,108 +225,57 @@ public:
 
         // Solve op(A^{-1}) * op(B) for each column using sparse Cholesky solver
         // For A = L * L^T (Cholesky factorization):
-        //   - A^{-1} * b: solve L * L^T * x = b (forward solve with L, backward with L^T)
-        //   - A^{-T} * b: solve L^T * L * x = b (forward solve with L^T, backward with L)
-        //
-        // Layout handling:
-        //   - ColMajor: columns are contiguous, access with B + j*ldb
-        //   - RowMajor: rows are contiguous, access column j with stride ldb using Eigen::InnerStride
+        //   - A^{-1} * b: solve L * L^T * x = b
+        //   - A^{-T} * b: solve L^T * L * x = b (step 1: L*y=b, step 2: L^T*x=y)
 
-        if (layout == Layout::ColMajor) {
-            // ColMajor: columns are contiguous in memory
+        // Define solve function based on trans_A
+        auto solve_column = [&](const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) -> Eigen::Matrix<T, Eigen::Dynamic, 1> {
             if (trans_A == Op::NoTrans) {
-                // Compute A^{-1} * op(B)
+                return chol_solver.solve(b);
+            } else {
+                auto L = chol_solver.matrixL();
+                auto LT = chol_solver.matrixU();
+                Eigen::Matrix<T, Eigen::Dynamic, 1> y = L.solve(b);
+                return LT.solve(y);
+            }
+        };
+
+        // Process each column of op(B)
+        std::vector<T> b_temp(k);  // Temporary buffer for column extraction
+
+        for (int64_t j = 0; j < n; ++j) {
+            Eigen::Matrix<T, Eigen::Dynamic, 1> b_col(k);
+
+            // Extract column j of op(B) based on layout and trans_B
+            if (layout == Layout::ColMajor) {
                 if (trans_B == Op::NoTrans) {
-                    // B is k × n, proceed by column
-                    for (int64_t j = 0; j < n; ++j) {
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_col(B + j * ldb, k);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_col);
-                        blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
-                    }
+                    // B is k × n, column j is contiguous
+                    b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>>(B + j * ldb, k);
                 } else {
-                    // trans_B == Op::Trans: B is n × k, need to extract rows
-                    std::vector<T> b_row(k);
-                    for (int64_t j = 0; j < n; ++j) {
-                        for (int64_t i = 0; i < k; ++i) {
-                            b_row[i] = B[j + i * ldb];
-                        }
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(b_row.data(), k);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_vec);
-                        blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
+                    // B is n × k, need row j (not contiguous)
+                    for (int64_t i = 0; i < k; ++i) {
+                        b_col(i) = B[j + i * ldb];
                     }
                 }
-            } else {
-                // trans_A == Op::Trans: Compute A^{-T} * op(B)
-                auto L = chol_solver.matrixL();
-                auto LT = chol_solver.matrixU(); // U = L^T for Cholesky
-
+            } else {  // RowMajor
                 if (trans_B == Op::NoTrans) {
-                    // B is k × n, proceed by column
-                    for (int64_t j = 0; j < n; ++j) {
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_col(B + j * ldb, k);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_col);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = L.solve(y);
-                        blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
-                    }
+                    // B is k × n, column j has stride ldb
+                    b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>, 0, Eigen::InnerStride<>>(
+                        B + j, k, Eigen::InnerStride<>(ldb));
                 } else {
-                    // trans_B == Op::Trans: B is n × k, need to extract rows
-                    std::vector<T> b_row(k);
-                    for (int64_t j = 0; j < n; ++j) {
-                        for (int64_t i = 0; i < k; ++i) {
-                            b_row[i] = B[j + i * ldb];
-                        }
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(b_row.data(), k);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_vec);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = L.solve(y);
-                        blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
-                    }
+                    // B is n × k, row j is contiguous
+                    b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>>(B + j * ldb, k);
                 }
             }
-        } else {
-            // RowMajor: rows are contiguous, use strided access for columns
-            if (trans_A == Op::NoTrans) {
-                // Compute A^{-1} * op(B)
-                if (trans_B == Op::NoTrans) {
-                    // B is k × n (RowMajor), extract column j with stride ldb
-                    for (int64_t j = 0; j < n; ++j) {
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>, 0, Eigen::InnerStride<>>
-                            b_col(B + j, k, Eigen::InnerStride<>(ldb));
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_col);
-                        // Write to column j of RowMajor C with stride ldc
-                        blas::axpy(m, alpha, x.data(), 1, C + j, ldc);
-                    }
-                } else {
-                    // trans_B == Op::Trans: B is n × k (RowMajor), rows are contiguous
-                    for (int64_t j = 0; j < n; ++j) {
-                        // Row j is contiguous in RowMajor layout
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_row(B + j * ldb, k);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b_row);
-                        blas::axpy(m, alpha, x.data(), 1, C + j, ldc);
-                    }
-                }
-            } else {
-                // trans_A == Op::Trans: Compute A^{-T} * op(B)
-                auto L = chol_solver.matrixL();
-                auto LT = chol_solver.matrixU(); // U = L^T for Cholesky
 
-                if (trans_B == Op::NoTrans) {
-                    // B is k × n (RowMajor), extract column j with stride ldb
-                    for (int64_t j = 0; j < n; ++j) {
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>, 0, Eigen::InnerStride<>>
-                            b_col(B + j, k, Eigen::InnerStride<>(ldb));
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_col);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = L.solve(y);
-                        blas::axpy(m, alpha, x.data(), 1, C + j, ldc);
-                    }
-                } else {
-                    // trans_B == Op::Trans: B is n × k (RowMajor), rows are contiguous
-                    for (int64_t j = 0; j < n; ++j) {
-                        Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_row(B + j * ldb, k);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> y = LT.solve(b_row);
-                        Eigen::Matrix<T, Eigen::Dynamic, 1> x = L.solve(y);
-                        blas::axpy(m, alpha, x.data(), 1, C + j, ldc);
-                    }
-                }
+            // Solve and accumulate result
+            Eigen::Matrix<T, Eigen::Dynamic, 1> x = solve_column(b_col);
+
+            // Write to column j of C based on layout
+            if (layout == Layout::ColMajor) {
+                blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
+            } else {  // RowMajor
+                blas::axpy(m, alpha, x.data(), 1, C + j, ldc);
             }
         }
     }
@@ -370,27 +317,30 @@ public:
         int64_t ldc
     ) {
         // For sparse B, densify and delegate to dense operator (which handles Side::Right)
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+        // Calculate the dimensions of B before any transpose operation
+        int64_t rows_B, cols_B;
+        if (side == Side::Left) {
+            // Side::Left: C := alpha * op(A) * op(B) + beta * C
+            // A is m × k, B is k × n after transpose
+            auto [rb, cb] = RandBLAS::dims_before_op(k, n, trans_B);
+            rows_B = rb;
+            cols_B = cb;
+        } else {
+            // Side::Right: C := alpha * op(B) * op(A) + beta * C
+            // A is k × n, B is m × k after transpose
+            auto [rb, cb] = RandBLAS::dims_before_op(m, k, trans_B);
+            rows_B = rb;
+            cols_B = cb;
+        }
+
         int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
 
-        std::cerr << "For now, sparse * sparse is done via densifying the rhs matrix. This is suboptimal." << std::endl;
-        std::cerr << "CholSolver sparse overload: side=" << (side == Side::Left ? "Left" : "Right")
-                  << ", layout=" << (layout == Layout::ColMajor ? "Col" : "Row")
-                  << ", m=" << m << ", n=" << n << ", k=" << k
-                  << ", rows_B=" << rows_B << ", cols_B=" << cols_B
-                  << ", ldb=" << ldb << ", ldc=" << ldc
-                  << ", allocating " << (rows_B * cols_B) << " elements" << std::endl;
-
         T* B_dense = new T[rows_B * cols_B]();
-        std::cerr << "Allocated B_dense, now densifying..." << std::endl;
-        RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
-        std::cerr << "Densified, now calling dense operator..." << std::endl;
+        RandLAPACK::util::sparse_to_dense_summing_duplicates(B_sp, layout, B_dense);
 
         (*this)(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
 
-        std::cerr << "Dense operator returned, deleting B_dense..." << std::endl;
         delete[] B_dense;
-        std::cerr << "Sparse overload complete." << std::endl;
     }
 };
 
