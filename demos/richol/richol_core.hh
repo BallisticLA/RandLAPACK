@@ -11,7 +11,8 @@
 #include <exception>
 #include <iterator>
 #include <fstream>
-#include <numeric>       
+#include <numeric>      
+#include <span> 
 
 #include <fast_matrix_market/fast_matrix_market.hpp>
 
@@ -21,6 +22,7 @@
 namespace richol {
 
 
+using blas::Uplo;
 using symmetry_type = fast_matrix_market::symmetry_type;
 using RandBLAS::CSRMatrix;
 using RandBLAS::sparse_data::reserve_csr;
@@ -146,26 +148,58 @@ int64_t nnz(std::vector<spvec_t> &M) {
 }
 
 
+template <typename T>
+T epsilon() { 
+    return std::numeric_limits<T>::epsilon();
+}
+
+
+template <typename spvec_t, typename scalar_t = typename spvec_t::scalar_t>
+size_t coallesce_spvecs(std::vector<spvec_t> &spvecs, scalar_t tol = epsilon<scalar_t>()) {
+    size_t nnz = 0;
+    for (spvec_t &row : spvecs) {
+        row.coallesce(tol);
+        nnz += row.size();
+    }
+    return nnz;
+}
+
+
+// MARK: CSR <-> csrlike
+
 template <typename ordinal_t1, typename ordinal_t2, typename vals_t, typename spvec_t>
-void sym_as_upper_tri_from_csr( int64_t n, const ordinal_t1* rowptr, const ordinal_t2* colinds, const vals_t* vals, std::vector<spvec_t> &sym ) {
+void csrlike_from_csr( int64_t n_rows, const ordinal_t1* rowptr, const ordinal_t2* colinds, const vals_t* vals, std::vector<spvec_t> &csrlike, Uplo keep ) {
     using ordinal_t = typename spvec_t::ordinal_t;
     using scalar_t  = typename spvec_t::scalar_t;
 
-    sym.clear();
-    sym.resize(n);
-    for (int64_t i = 0; i < n; ++i) {
-        auto &row  = sym[i];
+    bool keep_upper = (keep == Uplo::General) || (keep == Uplo::Upper);
+    bool keep_lower = (keep == Uplo::General) || (keep == Uplo::Lower);
+
+    csrlike.clear();
+    csrlike.resize(n_rows);
+    for (int64_t i = 0; i < n_rows; ++i) {
+        auto &row  = csrlike[i];
         auto start = static_cast< int64_t >( rowptr[ i  ]  );
         auto stop  = static_cast< int64_t >( rowptr[ i+1 ] );
         for (int64_t nz_ind = start; nz_ind < stop; ++nz_ind) {
-            auto j = static_cast<ordinal_t>(colinds[nz_ind]);
-            if (i <= j) {
-                auto val = static_cast<scalar_t>(vals[nz_ind]);
-                row.push_back( j, val );
+            auto j   = static_cast<ordinal_t>(colinds[nz_ind]);
+            auto val = static_cast<scalar_t>(vals[nz_ind]);
+            if (i == j) {
+                row.push_back(j, val);
+            } else if (i < j && keep_upper) {
+                row.push_back(j, val);
+            } else if (i > j && keep_lower) {
+                row.push_back(j, val);
             }
         }
     }
     return;
+}
+
+
+template <typename spvec_t, typename CSR_t>
+void csrlike_from_csr(const CSR_t &csr, std::vector<spvec_t> &csrlike, Uplo keep) {
+    csrlike_from_csr(csr.n_rows, csr.rowptr, csr.colidxs, csr.vals, csrlike, keep);
 }
 
 
@@ -187,23 +221,43 @@ void csr_from_csrlike(const std::vector<spvec_t> &csrlike, ordinal_t1* rowptr, o
 }
 
 
-template <typename T>
-T epsilon() { return std::numeric_limits<T>::epsilon(); }
+template <typename spvec_t, typename CSR_t>
+void csr_from_csrlike(const std::vector<spvec_t> &csrlike, CSR_t &csr) {
+    randblas_require(csr.n_rows == static_cast<int64_t>(csrlike.size()));
+    auto m = nnz(csrlike);
+    csr.reserve(m);
+    auto *vals    = csr.vals;
+    auto *colinds = csr.colidxs;
+    auto *rowptr  = csr.rowptr;
+    csr_from_csrlike(csrlike, rowptr, colinds, vals);
+    return;
+}
+
+// MARK: I/O
 
 
-template <typename spvec_t, typename scalar_t = typename spvec_t::scalar_t>
-size_t coallesce_spvecs(std::vector<spvec_t> &spvecs, scalar_t tol = epsilon<scalar_t>()) {
-    size_t nnz = 0;
-    for (spvec_t &row : spvecs) {
-        row.coallesce(tol);
-        nnz += row.size();
-    }
-    return nnz;
+template <typename CS_t>
+void write_compressed_sparse(
+    CS_t &A, std::ostream &os, symmetry_type symtype, std::string comment = {}
+) {
+    auto A_coo = A.as_owning_coo();
+    using value_t = typename CS_t::scalar_t;
+    using index_t = typename CS_t::index_t;
+    std::span<value_t> vals(A_coo.vals, A_coo.nnz);
+    std::span<index_t> rows(A_coo.rows, A_coo.nnz);
+    std::span<index_t> cols(A_coo.cols, A_coo.nnz);
+
+    fast_matrix_market::matrix_market_header header(A_coo.n_rows, A_coo.n_cols);
+    header.comment = comment;
+    header.symmetry = symtype;
+
+    fast_matrix_market::write_matrix_market_triplet(os, header, rows, cols, vals);
+    return;
 }
 
 
 template <typename spvec_t, typename tol_t = typename spvec_t::scalar_t>
-void write_square_matrix_market(
+void write_csrlike(
     std::vector<spvec_t> &csr_like, std::ostream &os, symmetry_type symtype, std::string comment = {}, tol_t tol = 0.0
 ) {
     size_t nz = coallesce_spvecs(csr_like, tol);
@@ -230,6 +284,73 @@ void write_square_matrix_market(
     return;
 }
 
+
+template <typename T>
+COOMatrix<T> from_matrix_market(std::string fn) {
+
+    int64_t n_rows, n_cols = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<double> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n_rows, n_cols, rows,  cols, vals
+    );
+
+    COOMatrix<T> out(n_rows, n_cols);
+    reserve_coo(vals.size(),out);
+    for (int i = 0; i < out.nnz; ++i) {
+        out.rows[i] = rows[i];
+        out.cols[i] = cols[i];
+        out.vals[i] = (T) vals[i];
+    }
+    return out;
+}
+
+
+template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
+CSRMatrix<scalar_t, sint_t> laplacian_from_matrix_market(std::string fn, scalar_t reg) {
+    randblas_require(reg >= 0);
+    int64_t n, n_ = 0;
+    std::vector<int64_t> rows{};
+    std::vector<int64_t> cols{};
+    std::vector<double> vals{};
+
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_triplet(
+        file_stream, n, n_, rows,  cols, vals
+    );
+    randblas_require(n == n_); // we must be square.
+
+    // Convert adjacency matrix to COO format Laplacian
+    int64_t m = vals.size();
+    int64_t nnz = m + n;
+    COOMatrix<double> coo(n, n);
+    RandBLAS::sparse_data::reserve_coo(nnz, coo);
+    std::vector<double> diagvec(n, reg);
+    auto diag = diagvec.data();
+    for (int64_t i = 0; i < m; ++i) {
+        coo.rows[i] = rows[i];
+        coo.cols[i] = cols[i];
+        double v = vals[i];
+        randblas_require(v >= 0);
+        coo.vals[i] = -v;
+        diag[rows[i]] += v;
+    }
+    for (int64_t i = 0; i < n; ++i) {
+        coo.vals[m+i] = diag[i];
+        coo.rows[m+i] = i;
+        coo.cols[m+i] = i;
+    }
+    // convert COO format Laplacian to CSR format, using RandBLAS.
+    CSRMatrix<double> csr(n, n);
+    RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
+    return csr;
+}
+
+
+// MARK: Cholesky
 
 template <typename scalar_t, typename spvec_t>
 inline void xbapy(spvec_t &x, scalar_t a, int64_t col_ind, std::vector<spvec_t> &csr_like) {
@@ -433,7 +554,7 @@ typename spvec_t::ordinal_t clb21_rand_cholesky(
     return k;
 }
 
-/* MARK: Terminology
+/* MARK: SDD[M] transforms
 
 A symmetric diagonally dominant (SDD) matrix is called an "SDDM matrix" if all of
 its off-diagonal entries are <= 0.
@@ -593,91 +714,12 @@ std::vector<spvec_t> lift_sdd2sddm(const std::vector<spvec_t> &S, bool explicit_
     return G;
 }
 
-template <typename T>
-COOMatrix<T> from_matrix_market(std::string fn) {
-
-    int64_t n_rows, n_cols = 0;
-    std::vector<int64_t> rows{};
-    std::vector<int64_t> cols{};
-    std::vector<double> vals{};
-
-    std::ifstream file_stream(fn);
-    fast_matrix_market::read_matrix_market_triplet(
-        file_stream, n_rows, n_cols, rows,  cols, vals
-    );
-
-    COOMatrix<T> out(n_rows, n_cols);
-    reserve_coo(vals.size(),out);
-    for (int i = 0; i < out.nnz; ++i) {
-        out.rows[i] = rows[i];
-        out.cols[i] = cols[i];
-        out.vals[i] = (T) vals[i];
-    }
-    return out;
-}
-
-
-template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
-CSRMatrix<scalar_t, sint_t> laplacian_from_matrix_market(std::string fn, scalar_t reg) {
-    randblas_require(reg >= 0);
-    int64_t n, n_ = 0;
-    std::vector<int64_t> rows{};
-    std::vector<int64_t> cols{};
-    std::vector<double> vals{};
-
-    std::ifstream file_stream(fn);
-    fast_matrix_market::read_matrix_market_triplet(
-        file_stream, n, n_, rows,  cols, vals
-    );
-    randblas_require(n == n_); // we must be square.
-
-    // Convert adjacency matrix to COO format Laplacian
-    int64_t m = vals.size();
-    int64_t nnz = m + n;
-    COOMatrix<double> coo(n, n);
-    RandBLAS::sparse_data::reserve_coo(nnz, coo);
-    std::vector<double> diagvec(n, reg);
-    auto diag = diagvec.data();
-    for (int64_t i = 0; i < m; ++i) {
-        coo.rows[i] = rows[i];
-        coo.cols[i] = cols[i];
-        double v = vals[i];
-        randblas_require(v >= 0);
-        coo.vals[i] = -v;
-        diag[rows[i]] += v;
-    }
-    for (int64_t i = 0; i < n; ++i) {
-        coo.vals[m+i] = diag[i];
-        coo.rows[m+i] = i;
-        coo.cols[m+i] = i;
-    }
-    // convert COO format Laplacian to CSR format, using RandBLAS.
-    CSRMatrix<double> csr(n, n);
-    RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
-    return csr;
-}
-
+// MARK: AMD reordering
 
 template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
 void permuted(const CSRMatrix<scalar_t, sint_t> &A, const std::vector<sint_t> &perm, CSRMatrix<scalar_t, sint_t> &out) {
-    auto  n   = A.n_rows;
-    COOMatrix<scalar_t, sint_t> coo(n, n);
-    reserve_coo(A.nnz, coo);
-    std::vector<sint_t> invperm(n);
-    for (sint_t k = 0; k < n; ++k) {
-        invperm[perm[k]] = k;
-    }
-    sint_t inew, jnew, p, ctr = 0;
-    for (jnew = 0; jnew < n; ++jnew) {
-        auto j = perm[jnew];
-        for (p = A.rowptr[j]; p < A.rowptr[j+1]; ++p) {
-            inew = invperm[A.colidxs[p]];
-            coo.rows[ctr] = inew;
-            coo.cols[ctr] = jnew;
-            coo.vals[ctr] = A.vals[p];
-            ++ctr;
-        }
-    }
+    auto coo = A.as_owning_coo();
+    coo.symperm_inplace(perm.data());
     coo_to_csr(coo, out);
     return;
 }
@@ -727,6 +769,8 @@ void filter_triangle(COOMatrix<T, sint_t> &A, blas::Uplo uplo) {
     return;
 }
 
+
+// MARK: DIC preconditioner
 
 template<
     template<typename,typename> class SpMat, 

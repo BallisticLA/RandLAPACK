@@ -41,15 +41,15 @@ void small_3dlap() {
 
     using spvec = richol::SparseVec<T, int64_t>;
     std::vector<spvec> sym;
-    richol::sym_as_upper_tri_from_csr(n, rowptr.data(), colidxs.data(), vals.data(), sym);
+    richol::csrlike_from_csr(n, rowptr.data(), colidxs.data(), vals.data(), sym, blas::Uplo::Upper);
     std::ofstream fl("L.mtx");
-    richol::write_square_matrix_market(sym, fl, richol::symmetry_type::symmetric, "Laplacian");
+    richol::write_csrlike(sym, fl, richol::symmetry_type::symmetric, "Laplacian");
 
     std::vector<spvec> C;
     auto k = richol::full_cholesky(sym, C);
     std::cout << "Exited with C of rank k = " << k << std::endl;
     std::ofstream fc("C.mtx");
-    richol::write_square_matrix_market(C, fc, richol::symmetry_type::general, "Exact Cholesky factor");
+    richol::write_csrlike(C, fc, richol::symmetry_type::general, "Exact Cholesky factor");
 
     std::vector<spvec> C_approx;
     RandBLAS::RNGState state(0);
@@ -57,7 +57,7 @@ void small_3dlap() {
     k = richol::clb21_rand_cholesky(sym, C_approx, state, true);
     std::cout << "Exited with C_approx of rank k = " << k << std::endl;
     std::ofstream fa("C_approx.mtx");
-    richol::write_square_matrix_market(C_approx, fa, richol::symmetry_type::general, "Approximate Cholesky factor");
+    richol::write_csrlike(C_approx, fa, richol::symmetry_type::general, "Approximate Cholesky factor");
 
     /*
     Question: how well does RChol's preconditioner (as defined by the lift to n+1 nodes) compare
@@ -68,7 +68,7 @@ void small_3dlap() {
     k = richol::clb21_rand_cholesky(sym_lift, C_approx, state, false);
     std::cout << "Exited with C_approx of rank k = " << k << std::endl;
     std::ofstream flc("C_lifted.mtx");
-    richol::write_square_matrix_market(C_approx, flc, richol::symmetry_type::general, "Approximate Cholesky factor of lifted matrix.");
+    richol::write_csrlike(C_approx, flc, richol::symmetry_type::general, "Approximate Cholesky factor of lifted matrix.");
     return;
 }
 
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
         perm[i] = i;
     CSRMatrix<double, int64_t> L(n, n);
     TIMED_LINE(
-    //richol::amd_permutation(csr, perm);
+    richol::amd_permutation(csr, perm);
     richol::permuted(csr, perm, L);, "AMD reordering      : "
     );
 
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     std::vector<spvec> sym;
 
     TIMED_LINE(
-    richol::sym_as_upper_tri_from_csr(L.n_rows, L.rowptr, L.colidxs, L.vals, sym), "sym_as_upper_tri    : "
+    richol::csrlike_from_csr(L.n_rows, L.rowptr, L.colidxs, L.vals, sym, blas::Uplo::Upper), "sym_as_upper_tri    : "
     );
 
     std::vector<spvec> C;
@@ -105,11 +105,11 @@ int main(int argc, char** argv) {
     std::cout << "Exited with C of rank k = " << k << std::endl;
 
     // template <typename spvec_t, typename tol_t = typename spvec_t::scalar_t>
-    // void write_square_matrix_market(
+    // void write_csrlike(
     //     std::vector<spvec_t> &csr_like, std::ostream &os, symmetry_type symtype, std::string comment = {}, tol_t tol = 0.0
     // ) {
     std::ofstream fnc("C.mtx");
-    richol::write_square_matrix_market(C, fnc, fast_matrix_market::general, "approximate Cholesky factor");
+    richol::write_csrlike(C, fnc, fast_matrix_market::general, "approximate Cholesky factor");
 
 
     return 0;
