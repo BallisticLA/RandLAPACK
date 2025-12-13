@@ -24,7 +24,7 @@ CSRMatrix<T> richol_pipeline(CSRMatrix<T> &A_csr, RNGState<RNG> state ) {
     
     using spvec = richol::SparseVec<T, int64_t>;
     vector<spvec> A_csrlike_triu(n);
-    richol::sym_as_upper_tri_from_csr(n, A_csr.rowptr, A_csr.colidxs, A_csr.vals, A_csrlike_triu);
+    richol::csrlike_from_csr(n, A_csr.rowptr, A_csr.colidxs, A_csr.vals, A_csrlike_triu, blas::Uplo::Upper);
 
     vector<spvec> C_csrlike_lower{};
     bool diag_adjust = true;
