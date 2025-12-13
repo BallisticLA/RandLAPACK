@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 
     // Step 3. Compute the Gremban expansion
     vector<spvec> A_csrlike_triu(n0);
-    richol::sym_as_upper_tri_from_csr(n0, A_csr.rowptr, A_csr.colidxs, A_csr.vals, A_csrlike_triu);
+    richol::csrlike_from_csr(n0, A_csr.rowptr, A_csr.colidxs, A_csr.vals, A_csrlike_triu, blas::Uplo::Upper);
     vector<spvec> G_csrlike_triu{};
     if (offdiag_of_A_is_nonpos) {
         G_csrlike_triu = A_csrlike_triu;
@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 
     // Step 5. Get a callable linear operator representation of inv(CC').
     std::ofstream C_filename("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/build/C.mtx");
-    richol::write_square_matrix_market(C_csrlike_lower, C_filename, fast_matrix_market::general, "Approximate Cholesky factor");
+    richol::write_csrlike(C_csrlike_lower, C_filename, fast_matrix_market::general, "Approximate Cholesky factor");
     CSRMatrix<T> C_lower(n, n);
     C_lower.reserve(nnz(C_csrlike_lower));
     csr_from_csrlike(C_csrlike_lower, C_lower.rowptr, C_lower.colidxs, C_lower.vals);
@@ -131,7 +131,7 @@ int main(int argc, char** argv) {
     G_callable.project_out = false;
 
     std::ofstream G_filename("/Users/rjmurr/Documents/randnla/RandLAPACK/demos/build/G_explicit.mtx");
-    richol::write_square_matrix_market(G_csrlike, G_filename, fast_matrix_market::general, "I get fed into PCG.");
+    richol::write_csrlike(G_csrlike, G_filename, fast_matrix_market::general, "I get fed into PCG.");
 
 
     // Step 7. Setup PCG.
