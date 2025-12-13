@@ -88,7 +88,7 @@ std::vector<double> richol_pipeline(CSRMatrix<T,int64_t> &L,  CSRMatrix<T,int64_
     int64_t rank;
     tp0 = std_clock::now();
     TIMED_LINE(
-    richol::sym_as_upper_tri_from_csr(Lperm.n_rows, Lperm.rowptr, Lperm.colidxs, Lperm.vals, sym);,
+    richol::csrlike_from_csr(Lperm.n_rows, Lperm.rowptr, Lperm.colidxs, Lperm.vals, sym, blas::Uplo::Upper);,
     "convert to sym-as-upper-tri  : ");
     TIMED_LINE(
     rank = richol::clb21_rand_cholesky(sym, C, state, false, (T)0.0), "SparseCholesky: ");
