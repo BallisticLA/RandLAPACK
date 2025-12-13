@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     RandBLAS::RNGState state(0);
     int64_t rank;
     TIMED_LINE(
-    richol::sym_as_upper_tri_from_csr(Lperm.n_rows, Lperm.rowptr, Lperm.colidxs, Lperm.vals, sym);
+    richol::csrlike_from_csr(Lperm.n_rows, Lperm.rowptr, Lperm.colidxs, Lperm.vals, sym, blas::Uplo::Upper);
     bool allow_strict_sdd = true;
     rank = richol::clb21_rand_cholesky(sym, C, state, allow_strict_sdd, (T)0.0), "SparseCholesky: ");
     std::cout << "Exited with C of rank k = " << rank << std::endl;

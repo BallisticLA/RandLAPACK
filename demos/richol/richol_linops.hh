@@ -95,7 +95,7 @@ struct CallableSpMat {
         T alpha, const T* B, int64_t ldb,
         T beta,  T* C, int64_t ldc
     ) {
-        if (work == nullptr) {
+        if (work == nullptr || n_work < n) {
             work_stdvec.resize(dim*n);
             unit_ones_stdvec.resize(dim);
             work_n_stdvec.resize(n);
@@ -105,8 +105,6 @@ struct CallableSpMat {
             std::fill(unit_ones, unit_ones + dim, val);
             work_n = work_n_stdvec.data();
             n_work = n;
-        } else {
-            randblas_require(n_work >= n);
         }
         randblas_require(ldb == dim);
         blas::copy(dim*n, B, 1, work, 1);
@@ -146,7 +144,7 @@ struct CallableChoSolve {
         T alpha, const T* B, int64_t ldb,
         T beta, T* C, int64_t ldc
     ) {
-        if (work_n == nullptr) {
+        if (work_n == nullptr || n_work < n) {
             unit_ones_stdvec.resize(dim);
             unit_ones = unit_ones_stdvec.data();
             T val = (T)1.0 / sqrt<T>(dim);
@@ -154,8 +152,6 @@ struct CallableChoSolve {
             work_n_stdvec.resize(n);
             work_n = work_n_stdvec.data();
             n_work = n;
-        } else {
-            randblas_require(n_work >= n);
         }
         randblas_require(beta == (T) 0.0);
         randblas_require(ldb == dim);
