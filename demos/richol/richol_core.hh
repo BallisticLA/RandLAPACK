@@ -4,6 +4,7 @@
 #include <RandLAPACK.hh>
 #include <blas.hh>
 #include <vector>
+#include <span>
 #include <algorithm>
 #include <limits>
 #include <map>
@@ -147,15 +148,8 @@ int64_t nnz(std::vector<spvec_t> &M) {
     return nnz_M;
 }
 
-
-template <typename T>
-T epsilon() { 
-    return std::numeric_limits<T>::epsilon();
-}
-
-
 template <typename spvec_t, typename scalar_t = typename spvec_t::scalar_t>
-size_t coallesce_spvecs(std::vector<spvec_t> &spvecs, scalar_t tol = epsilon<scalar_t>()) {
+size_t coallesce_spvecs(std::vector<spvec_t> &spvecs, scalar_t tol = std::numeric_limits<scalar_t>::epsilon()) {
     size_t nnz = 0;
     for (spvec_t &row : spvecs) {
         row.coallesce(tol);
@@ -196,12 +190,10 @@ void csrlike_from_csr( int64_t n_rows, const ordinal_t1* rowptr, const ordinal_t
     return;
 }
 
-
 template <typename spvec_t, typename CSR_t>
 void csrlike_from_csr(const CSR_t &csr, std::vector<spvec_t> &csrlike, Uplo keep) {
     csrlike_from_csr(csr.n_rows, csr.rowptr, csr.colidxs, csr.vals, csrlike, keep);
 }
-
 
 template <typename ordinal_t1, typename ordinal_t2, typename vals_t, typename spvec_t>
 void csr_from_csrlike(const std::vector<spvec_t> &csrlike, ordinal_t1* rowptr, ordinal_t2* colinds, vals_t* vals) {
@@ -220,7 +212,6 @@ void csr_from_csrlike(const std::vector<spvec_t> &csrlike, ordinal_t1* rowptr, o
     return;
 }
 
-
 template <typename spvec_t, typename CSR_t>
 void csr_from_csrlike(const std::vector<spvec_t> &csrlike, CSR_t &csr) {
     randblas_require(csr.n_rows == static_cast<int64_t>(csrlike.size()));
@@ -233,12 +224,36 @@ void csr_from_csrlike(const std::vector<spvec_t> &csrlike, CSR_t &csr) {
     return;
 }
 
-// MARK: I/O
+// MARK: write to disk
 
+
+template <typename T>
+void write_array(
+    blas::Layout layout, int64_t n_rows, int64_t n_cols, T* a, std::ostream &os, std::string comment = {}
+) {
+    using fast_matrix_market::write_matrix_market_array;
+    using fast_matrix_market::matrix_market_header;
+
+    matrix_market_header header(n_rows, n_cols);
+    header.comment = comment;
+    std::span<T> a_span(a, n_rows * n_cols);
+
+    if (layout == blas::Layout::ColMajor) {
+        write_matrix_market_array(os, header, a_span, fast_matrix_market::col_major);
+    } else {
+        write_matrix_market_array(os, header, a_span, fast_matrix_market::row_major);
+    }
+    return;
+}
+
+template <typename T>
+void write_vector(std::vector<T> &a, std::ostream &os, std::string comment = {}) {
+    write_array(blas::Layout::ColMajor, static_cast<int64_t>(a.size()), a.data(), 1, os, comment);
+}
 
 template <typename CS_t>
 void write_compressed_sparse(
-    CS_t &A, std::ostream &os, symmetry_type symtype, std::string comment = {}
+    CS_t &A, std::ostream &os, std::string comment = {}, symmetry_type symtype = symmetry_type::general 
 ) {
     auto A_coo = A.as_owning_coo();
     using value_t = typename CS_t::scalar_t;
@@ -255,6 +270,8 @@ void write_compressed_sparse(
     return;
 }
 
+
+// MARK: read from disk
 
 template <typename spvec_t, typename tol_t = typename spvec_t::scalar_t>
 void write_csrlike(
@@ -284,9 +301,23 @@ void write_csrlike(
     return;
 }
 
+template <typename T>
+std::vector<T> vector_from_matrix_market(std::string fn) {
+    int64_t n_rows, n_cols = 0;
+    std::vector<double> vals{};
+    std::ifstream file_stream(fn);
+    fast_matrix_market::read_matrix_market_array(
+        file_stream, n_rows, n_cols, vals, fast_matrix_market::col_major
+    );
+    std::vector<T> out_vals{};
+    for (auto &v : vals) {
+        out_vals.push_back((T)v);
+    }
+    return out_vals;
+}
 
 template <typename T>
-COOMatrix<T> from_matrix_market(std::string fn) {
+COOMatrix<T> coo_from_matrix_market(std::string fn) {
 
     int64_t n_rows, n_cols = 0;
     std::vector<int64_t> rows{};
@@ -307,7 +338,6 @@ COOMatrix<T> from_matrix_market(std::string fn) {
     }
     return out;
 }
-
 
 template <typename scalar_t, RandBLAS::SignedInteger sint_t = int64_t>
 CSRMatrix<scalar_t, sint_t> laplacian_from_matrix_market(std::string fn, scalar_t reg) {
@@ -358,7 +388,6 @@ inline void xbapy(spvec_t &x, scalar_t a, int64_t col_ind, std::vector<spvec_t> 
         csr_like[xc.ind].push_back(col_ind, xc.val/a);
     }
 }
-
 
 template <typename spvec_t, typename callable_t1, typename callable_t2>
 typename spvec_t::ordinal_t abstract_cholesky(
@@ -433,7 +462,6 @@ template <typename scalar_t>
 inline void scal(int64_t n, scalar_t alpha, scalar_t *x, int64_t incx) {
     blas::scal(n, alpha, x, incx);
 }
-
 
 template <typename scalar_t, typename ordinal_t, typename state_t> 
 void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<scalar_t, ordinal_t>> &M, bool diag_adjust, state_t &state) {
@@ -513,7 +541,7 @@ template <typename spvec_t>
 typename spvec_t::ordinal_t full_cholesky(
     std::vector<spvec_t>  M, // pass by value
     std::vector<spvec_t> &C, // pass by reference
-    typename spvec_t::scalar_t zero_threshold = epsilon<typename spvec_t::scalar_t>(),
+    typename spvec_t::scalar_t zero_threshold = std::numeric_limits<typename spvec_t::scalar_t>::epsilon(),
     bool handle_trailing_zero = true
 ) {
     using scalar_t  = typename spvec_t::scalar_t;
@@ -530,7 +558,7 @@ typename spvec_t::ordinal_t clb21_rand_cholesky(
     std::vector<spvec_t> &C, // pass by reference
     state_t &state,
     bool diag_adjust = false,
-    typename spvec_t::scalar_t zero_threshold = epsilon<typename spvec_t::scalar_t>()
+    typename spvec_t::scalar_t zero_threshold = std::numeric_limits<typename spvec_t::scalar_t>::epsilon()
 ) {
     using scalar_t  = typename spvec_t::scalar_t;
     using ordinal_t = typename spvec_t::ordinal_t;
@@ -724,7 +752,6 @@ void permuted(const CSRMatrix<scalar_t, sint_t> &A, const std::vector<sint_t> &p
     return;
 }
 
-
 template <typename CSR_t>
 void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
     perm.resize(A.n_rows);
@@ -740,7 +767,6 @@ void amd_permutation(const CSR_t &A, std::vector<int64_t> &perm) {
     }
     return;
 }
-
 
 template<typename T, typename sint_t>
 void filter_triangle(COOMatrix<T, sint_t> &A, blas::Uplo uplo) {

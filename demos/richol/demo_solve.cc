@@ -48,27 +48,12 @@ CSRMatrix<T> identity_as_csr(int64_t n) {
 }
 
 template <typename T>
-vector<T> vector_from_matrix_market(std::string fn) {
-    int64_t n_rows, n_cols = 0;
-    vector<double> vals{};
-    std::ifstream file_stream(fn);
-    fast_matrix_market::read_matrix_market_array(
-        file_stream, n_rows, n_cols, vals, fast_matrix_market::col_major
-    );
-    vector<T> out_vals{};
-    for (auto &v : vals) {
-        out_vals.push_back((T)v);
-    }
-    return out_vals;
-}
-
-template <typename T>
 std::pair<vector<T>,vector<T>> setup_pcg_vecs(std::string &datadir, vector<int64_t> &perm) {
-    vector<T> b0 = vector_from_matrix_market<T>(datadir + "/p_rgh_source_b.mtx");
+    vector<T> b0 = richol::vector_from_matrix_market<T>(datadir + "/p_rgh_source_b.mtx");
     int64_t n = static_cast<int64_t>(b0.size());
     vector<T> b(n);
     for (int64_t i = 0; i < n; ++i) { b[perm[i]] = -b0[i]; }
-    vector<T> x0 = vector_from_matrix_market<T>(datadir + "/p_rgh_psi_initial_x^{n}.mtx");
+    vector<T> x0 = richol::vector_from_matrix_market<T>(datadir + "/p_rgh_psi_initial_x^{n}.mtx");
     vector<T> x(n);
     for (int64_t i = 0; i < n; ++i) { x[perm[i]] = x0[i]; }
     return {x, b};
@@ -76,7 +61,7 @@ std::pair<vector<T>,vector<T>> setup_pcg_vecs(std::string &datadir, vector<int64
 
 template <typename T>
 COOMatrix<T> read_negative_M_matrix(std::string &datadir) {
-    auto A_coo = richol::from_matrix_market<T>(datadir + "/p_rgh_matrix_A.mtx");
+    auto A_coo = richol::coo_from_matrix_market<T>(datadir + "/p_rgh_matrix_A.mtx");
     std::for_each(A_coo.vals, A_coo.vals + A_coo.nnz, [](T &a) { a*= -1; return; } );
     T reg = 0.0;
     bool offdiag_of_A_is_nonpos = true;
