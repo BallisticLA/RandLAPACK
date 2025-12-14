@@ -96,3 +96,4 @@ set(richol_headers
 add_demo(NAME demo_factor   CXX_SOURCES richol/richol_core.hh  richol/demo_factor.cc    LINK_LIBS ${main_libs} )
 add_demo(NAME demo_pinv     CXX_SOURCES ${richol_headers} richol/demo_pinv.cc      LINK_LIBS ${main_libs} )
 add_demo(NAME demo_solve    CXX_SOURCES ${richol_headers} richol/demo_solve.cc  LINK_LIBS ${main_libs} )
+add_demo(NAME stage_oftc    CXX_SOURCES ${richol_headers} richol/stage_openfoam_testcase.cc LINK_LIBS ${main_libs})

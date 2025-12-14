@@ -141,7 +141,7 @@ struct SparseVec {
 
 
 template <typename spvec_t>
-int64_t nnz(std::vector<spvec_t> &M) {
+int64_t nnz(const std::vector<spvec_t> &M) {
     int64_t nnz_M = 0;
     for (const auto &v : M)
         nnz_M += static_cast<int64_t>(v.size());
@@ -236,19 +236,19 @@ void write_array(
 
     matrix_market_header header(n_rows, n_cols);
     header.comment = comment;
-    std::span<T> a_span(a, n_rows * n_cols);
+    std::vector<T> a_vec(a, a + n_rows * n_cols);
 
     if (layout == blas::Layout::ColMajor) {
-        write_matrix_market_array(os, header, a_span, fast_matrix_market::col_major);
+        write_matrix_market_array(os, header, a_vec, fast_matrix_market::col_major);
     } else {
-        write_matrix_market_array(os, header, a_span, fast_matrix_market::row_major);
+        write_matrix_market_array(os, header, a_vec, fast_matrix_market::row_major);
     }
     return;
 }
 
 template <typename T>
 void write_vector(std::vector<T> &a, std::ostream &os, std::string comment = {}) {
-    write_array(blas::Layout::ColMajor, static_cast<int64_t>(a.size()), a.data(), 1, os, comment);
+    write_array(blas::Layout::ColMajor, static_cast<int64_t>(a.size()), 1, a.data(), os, comment);
 }
 
 template <typename CS_t>
@@ -258,9 +258,10 @@ void write_compressed_sparse(
     auto A_coo = A.as_owning_coo();
     using value_t = typename CS_t::scalar_t;
     using index_t = typename CS_t::index_t;
-    std::span<value_t> vals(A_coo.vals, A_coo.nnz);
-    std::span<index_t> rows(A_coo.rows, A_coo.nnz);
-    std::span<index_t> cols(A_coo.cols, A_coo.nnz);
+    auto nnz = A_coo.nnz;
+    std::vector<value_t> vals(A_coo.vals, A_coo.vals + nnz);
+    std::vector<index_t> rows(A_coo.rows, A_coo.rows + nnz);
+    std::vector<index_t> cols(A_coo.cols, A_coo.cols + nnz);
 
     fast_matrix_market::matrix_market_header header(A_coo.n_rows, A_coo.n_cols);
     header.comment = comment;
