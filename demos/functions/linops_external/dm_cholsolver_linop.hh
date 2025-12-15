@@ -76,6 +76,60 @@ private:
         return (dim_index == 0) ? rows : cols;
     }
 
+    // Solve with optional transpose: op(A) * x = b
+    Eigen::Matrix<T, Eigen::Dynamic, 1> solve_with_transpose(
+        const Eigen::Matrix<T, Eigen::Dynamic, 1>& b, Op trans_A
+    ) {
+        if (trans_A == Op::NoTrans) {
+            // Solve A * x = b via L * L^T * x = b
+            return chol_solver.solve(b);
+        } else {
+            // Solve A^T * x = b, where A = L * L^T, so A^T = L^T * L
+            // Step 1: L * y = b (solve for y)
+            // Step 2: L^T * x = y (solve for x)
+            auto L = chol_solver.matrixL();
+            auto LT = chol_solver.matrixU();
+            auto y = L.solve(b);
+            return LT.solve(y);
+        }
+    }
+
+    // Get pointer to column j of C and its increment
+    std::pair<T*, int64_t> get_c_column(int64_t j, Layout layout, T* C, int64_t ldc) {
+        if (layout == Layout::ColMajor) {
+            return {C + j * ldc, 1};  // {pointer, increment}
+        } else {  // RowMajor
+            return {C + j, ldc};
+        }
+    }
+
+    // Extract column j of op(B) into b_col
+    void extract_column_from_op_B(
+        int64_t j, int64_t k, Layout layout, Op trans_B,
+        const T* B, int64_t ldb, Eigen::Matrix<T, Eigen::Dynamic, 1>& b_col
+    ) {
+        if (layout == Layout::ColMajor) {
+            if (trans_B == Op::NoTrans) {
+                // B is k × n, column j is contiguous
+                b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>>(B + j * ldb, k);
+            } else {
+                // B is n × k, need row j (not contiguous)
+                for (int64_t i = 0; i < k; ++i) {
+                    b_col(i) = B[j + i * ldb];
+                }
+            }
+        } else {  // RowMajor
+            if (trans_B == Op::NoTrans) {
+                // B is k × n, column j has stride ldb
+                b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>, 0, Eigen::InnerStride<>>(
+                    B + j, k, Eigen::InnerStride<>(ldb));
+            } else {
+                // B is n × k, row j is contiguous
+                b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>>(B + j * ldb, k);
+            }
+        }
+    }
+
 public:
 
     /// Compute the sparse Cholesky factorization A = L * L^T.
@@ -148,50 +202,41 @@ public:
         T* C,
         int64_t ldc
     ) {
-        // Handle Side::Right by materializing A^{-1}
-        // This is necessary because Eigen's Cholesky solver is column-oriented
+        // Handle Side::Right using BLAS gemv (zero-copy approach)
         if (side == Side::Right) {
             // Want: C := alpha * op(B) * op(A^{-1}) + beta * C
-            // Strategy: Materialize A^{-1}, then use standard BLAS gemm
+            // Strategy: For each column j of C, compute C[:, j] = alpha * op(B) * x_j + beta * C[:, j]
+            //           where x_j is column j of op(A^{-1}), obtained by solving op(A) * x_j = e_j
 
             // Ensure factorization is computed
             if (!factorization_done) {
                 factorize();
             }
 
-            // Materialize A^{-1} as a dense n_rows × n_cols matrix
-            std::vector<T> A_inv_dense(n_rows * n_cols);
+            // C is m × n
+            // op(B) is m × k
+            // op(A^{-1}) is k × n (since A is k × k)
+            // We need n solves, one for each column of op(A^{-1})
 
-            // Compute A^{-1} by solving A * X = I column-by-column
-            for (int64_t j = 0; j < n_cols; ++j) {
-                std::vector<T> e_j(n_cols, (T)0.0);
+            // Determine B's storage dimensions (before transpose)
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
+
+            // For each column j of C (corresponds to column j of op(A^{-1}))
+            for (int64_t j = 0; j < n; ++j) {
+                // Solve op(A) * x_j = e_j to get column j of op(A^{-1})
+                std::vector<T> e_j(k, (T)0.0);
                 e_j[j] = (T)1.0;
-                Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(e_j.data(), n_cols);
-                Eigen::Matrix<T, Eigen::Dynamic, 1> x;
+                Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(e_j.data(), k);
 
-                if (trans_A == Op::NoTrans) {
-                    x = chol_solver.solve(b_vec);
-                } else {
-                    // Solve A^T * x = e_j, where A^T = L^T * L
-                    // Step 1: L * y = e_j  (solve for y)
-                    // Step 2: L^T * x = y (solve for x)
-                    auto L = chol_solver.matrixL();
-                    auto LT = chol_solver.matrixU();
-                    Eigen::Matrix<T, Eigen::Dynamic, 1> y = L.solve(b_vec);
-                    x = LT.solve(y);
-                }
+                auto x_j = solve_with_transpose(b_vec, trans_A);
 
-                // Store column j of A^{-1} (or A^{-T})
-                for (int64_t i = 0; i < n_rows; ++i) {
-                    A_inv_dense[i + j * n_rows] = x(i);
-                }
+                // Compute C[:, j] = alpha * op(B) * x_j + beta * C[:, j]
+                auto [c_col, inc_c] = get_c_column(j, layout, C, ldc);
+
+                // gemv: y = alpha * op(A) * x + beta * y
+                // B is rows_B × cols_B (storage dimensions before transpose)
+                blas::gemv(layout, trans_B, rows_B, cols_B, alpha, B, ldb, x_j.data(), 1, beta, c_col, inc_c);
             }
-
-            // Now compute C := alpha * op(B) * op(A^{-1}) + beta * C using BLAS gemm
-            // This is: C := alpha * op(B) * op(A_inv_dense) + beta * C
-            // Note: BLAS gemm can handle any layout, so no layout restriction here
-            blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb,
-                      A_inv_dense.data(), n_rows, beta, C, ldc);
             return;
         }
 
@@ -223,60 +268,19 @@ public:
             blas::scal(m * n, beta, C, 1);
         }
 
-        // Solve op(A^{-1}) * op(B) for each column using sparse Cholesky solver
-        // For A = L * L^T (Cholesky factorization):
-        //   - A^{-1} * b: solve L * L^T * x = b
-        //   - A^{-T} * b: solve L^T * L * x = b (step 1: L*y=b, step 2: L^T*x=y)
-
-        // Define solve function based on trans_A
-        auto solve_column = [&](const Eigen::Matrix<T, Eigen::Dynamic, 1>& b) -> Eigen::Matrix<T, Eigen::Dynamic, 1> {
-            if (trans_A == Op::NoTrans) {
-                return chol_solver.solve(b);
-            } else {
-                auto L = chol_solver.matrixL();
-                auto LT = chol_solver.matrixU();
-                Eigen::Matrix<T, Eigen::Dynamic, 1> y = L.solve(b);
-                return LT.solve(y);
-            }
-        };
-
         // Process each column of op(B)
-        std::vector<T> b_temp(k);  // Temporary buffer for column extraction
-
         for (int64_t j = 0; j < n; ++j) {
             Eigen::Matrix<T, Eigen::Dynamic, 1> b_col(k);
 
-            // Extract column j of op(B) based on layout and trans_B
-            if (layout == Layout::ColMajor) {
-                if (trans_B == Op::NoTrans) {
-                    // B is k × n, column j is contiguous
-                    b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>>(B + j * ldb, k);
-                } else {
-                    // B is n × k, need row j (not contiguous)
-                    for (int64_t i = 0; i < k; ++i) {
-                        b_col(i) = B[j + i * ldb];
-                    }
-                }
-            } else {  // RowMajor
-                if (trans_B == Op::NoTrans) {
-                    // B is k × n, column j has stride ldb
-                    b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>, 0, Eigen::InnerStride<>>(
-                        B + j, k, Eigen::InnerStride<>(ldb));
-                } else {
-                    // B is n × k, row j is contiguous
-                    b_col = Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>>(B + j * ldb, k);
-                }
-            }
+            // Extract column j of op(B)
+            extract_column_from_op_B(j, k, layout, trans_B, B, ldb, b_col);
 
-            // Solve and accumulate result
-            Eigen::Matrix<T, Eigen::Dynamic, 1> x = solve_column(b_col);
+            // Solve op(A) * x = b_col
+            auto x = solve_with_transpose(b_col, trans_A);
 
-            // Write to column j of C based on layout
-            if (layout == Layout::ColMajor) {
-                blas::axpy(m, alpha, x.data(), 1, C + j * ldc, 1);
-            } else {  // RowMajor
-                blas::axpy(m, alpha, x.data(), 1, C + j, ldc);
-            }
+            // Accumulate result into column j of C
+            auto [c_col, inc_c] = get_c_column(j, layout, C, ldc);
+            blas::axpy(m, alpha, x.data(), 1, c_col, inc_c);
         }
     }
 
