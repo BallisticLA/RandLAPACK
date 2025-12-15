@@ -86,6 +86,28 @@ protected:
         }
     }
 
+    // Helper to compare two result matrices with tolerance
+    template <typename T>
+    static void compare_results(
+        const vector<T>& C_computed,
+        const vector<T>& C_reference,
+        int64_t m, int64_t n,
+        T atol_factor = 100.0,
+        T rtol_factor = 10.0
+    ) {
+        T atol = atol_factor * std::numeric_limits<T>::epsilon();
+        T rtol = rtol_factor * std::numeric_limits<T>::epsilon();
+
+        for (int64_t i = 0; i < m * n; ++i) {
+            T diff = std::abs(C_computed[i] - C_reference[i]);
+            T magnitude = std::max(std::abs(C_reference[i]), (T)1.0);
+            ASSERT_LE(diff, atol + rtol * magnitude)
+                << "Mismatch at index " << i
+                << ": computed=" << C_computed[i]
+                << ", reference=" << C_reference[i];
+        }
+    }
+
     // Main test function for CholSolver * Dense composition
     template <typename T>
     static void test_chol_dense(
@@ -101,7 +123,6 @@ protected:
 
         T alpha = 1.5;
         T beta = 0.5;
-        T density_dense = 0.3;
         T density_B = 0.25;
 
         // Composite dimensions: m × k_dense (CholSolver is m×m, dense is m×k_dense)
@@ -194,17 +215,7 @@ protected:
         }
 
         // Compare results
-        T atol = 100 * std::numeric_limits<T>::epsilon();
-        T rtol = 10 * std::numeric_limits<T>::epsilon();
-
-        for (int64_t i = 0; i < m * n; ++i) {
-            T diff = std::abs(C_composite[i] - C_reference[i]);
-            T magnitude = std::max(std::abs(C_reference[i]), (T)1.0);
-            ASSERT_LE(diff, atol + rtol * magnitude)
-                << "Mismatch at index " << i
-                << ": composite=" << C_composite[i]
-                << ", reference=" << C_reference[i];
-        }
+        compare_results(C_composite, C_reference, m, n);
 
         // Cleanup
         std::remove(spd_file.c_str());
@@ -325,17 +336,7 @@ protected:
                       intermediate.data(), rows_dense, B_dense.data(), dim_chol, beta, C_reference.data(), ldc);
         }
 
-        T atol = 100 * std::numeric_limits<T>::epsilon();
-        T rtol = 10 * std::numeric_limits<T>::epsilon();
-
-        for (int64_t i = 0; i < m * n; ++i) {
-            T diff = std::abs(C_composite[i] - C_reference[i]);
-            T magnitude = std::max(std::abs(C_reference[i]), (T)1.0);
-            ASSERT_LE(diff, atol + rtol * magnitude)
-                << "Mismatch at index " << i
-                << ": composite=" << C_composite[i]
-                << ", reference=" << C_reference[i];
-        }
+        compare_results(C_composite, C_reference, m, n);
 
         std::remove(spd_file.c_str());
     }
@@ -468,17 +469,7 @@ protected:
         }
 
         // Compare results
-        T atol = 100 * std::numeric_limits<T>::epsilon();
-        T rtol = 10 * std::numeric_limits<T>::epsilon();
-
-        for (int64_t i = 0; i < m * n; ++i) {
-            T diff = std::abs(C_composite[i] - C_reference[i]);
-            T magnitude = std::max(std::abs(C_reference[i]), (T)1.0);
-            ASSERT_LE(diff, atol + rtol * magnitude)
-                << "Mismatch at index " << i
-                << ": composite=" << C_composite[i]
-                << ", reference=" << C_reference[i];
-        }
+        compare_results(C_composite, C_reference, m, n);
 
         std::remove(spd_file.c_str());
     }
@@ -630,17 +621,7 @@ protected:
             }
         }
 
-        T atol = 100 * std::numeric_limits<T>::epsilon();
-        T rtol = 10 * std::numeric_limits<T>::epsilon();
-
-        for (int64_t i = 0; i < m * n; ++i) {
-            T diff = std::abs(C_composite[i] - C_reference[i]);
-            T magnitude = std::max(std::abs(C_reference[i]), (T)1.0);
-            ASSERT_LE(diff, atol + rtol * magnitude)
-                << "Mismatch at index " << i
-                << ": composite=" << C_composite[i]
-                << ", reference=" << C_reference[i];
-        }
+        compare_results(C_composite, C_reference, m, n);
 
         std::remove(spd_file.c_str());
     }
