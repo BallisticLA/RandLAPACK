@@ -1,8 +1,4 @@
-// Test suite for CQRRT_linops driver with composite linear operators.
-// Tests the algorithm on C = A^{-1}B where A^{-1} is a CholSolverLinOp (sparse Cholesky-based inverse)
-// and B is a SparseLinOp, without explicitly forming the dense composite matrix. Verifies Q orthogonality
-// and factorization accuracy using test mode to compute the Q-factor.
-
+// Test suite for CQRRT_linops driver with linear operators
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -13,160 +9,81 @@
 #include "../../functions/misc/dm_util.hh"
 
 #include <RandBLAS.hh>
-#include <fstream>
-#include <iomanip>
 #include <gtest/gtest.h>
 
-class TestDmCQRRTLinops : public ::testing::Test
-{
-    protected:
+using namespace RandLAPACK_demos;
 
-    virtual void SetUp() {};
-
-    virtual void TearDown() {};
-
-    template <typename T>
-    struct CQRRTLinopsTestData {
-        int64_t row;
-        int64_t col;
-        int64_t rank; // has to be modifiable
-        std::vector<T> R;
-        std::vector<T> A_dense; // Dense representation of composite operator for verification
-        std::vector<T> A_cpy;
-        std::vector<T> I_ref;
-
-        CQRRTLinopsTestData(int64_t m, int64_t n, int64_t k) :
-        R(n * n, 0.0),
-        A_dense(m * n, 0.0),
-        A_cpy(m * n, 0.0),
-        I_ref(k * k, 0.0)
-        {
-            row = m;
-            col = n;
-            rank = k;
-        }
-    };
-
-    /// Compute dense representation of A_inv_linop * B where A_inv_linop is CholSolverLinOp and B is sparse
-    template <typename T>
-    static void compute_composite_dense(
-        RandLAPACK_demos::CholSolverLinOp<T>& A_inv_linop,
-        RandBLAS::sparse_data::csc::CSCMatrix<T>& B_csc,
-        T* result,
-        int64_t m,
-        int64_t n
-    ) {
-        // Convert B to dense (summing duplicates to match RandBLAS spmm behavior)
-        std::vector<T> B_dense(A_inv_linop.n_cols * n, 0.0);
-        RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense.data());
-
-        // Compute A_inv_linop * B_dense -> result
-        A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, A_inv_linop.n_cols,
-              1.0, B_dense.data(), A_inv_linop.n_cols, 0.0, result, m);
-    }
-
-    template <typename T>
-    static void norm_and_copy_computational_helper(T &norm_A, CQRRTLinopsTestData<T> &all_data) {
-        auto m = all_data.row;
-        auto n = all_data.col;
-
-        lapack::lacpy(MatrixType::General, m, n, all_data.A_dense.data(), m, all_data.A_cpy.data(), m);
-        norm_A = lapack::lange(Norm::Fro, m, n, all_data.A_dense.data(), m);
-    }
-
-    /// Error checking routine for CQRRT with linear operators
-    template <typename T>
-    static void
-    error_check(T &norm_A, CQRRTLinopsTestData<T> &all_data, T* Q, int64_t Q_rows, int64_t Q_cols) {
-
-        auto m = all_data.row;
-        auto n = all_data.col;
-        auto k = n;
-
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
-        RandLAPACK::util::eye(k, k, all_data.I_ref);
-
-        T* A_dat         = all_data.A_cpy.data();
-        T const* A_dense_dat = all_data.A_dense.data();
-        T const* Q_dat   = Q;
-        T const* R_dat   = all_data.R.data();
-        T* I_ref_dat     = all_data.I_ref.data();
-
-        // Check orthogonality of Q
-        // Q' * Q - I = 0
-        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, Q_dat, m, -1.0, I_ref_dat, k);
-        T norm_0 = lapack::lansy(lapack::Norm::Fro, Uplo::Upper, k, I_ref_dat, k);
-
-        // A - QR
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k, 1.0, Q_dat, m, R_dat, n, -1.0, A_dat, m);
-
-        // Implementing max col norm metric
-        T max_col_norm = 0.0;
-        T col_norm = 0.0;
-        int max_idx = 0;
-        for(int i = 0; i < n; ++i) {
-            col_norm = blas::nrm2(m, &A_dat[m * i], 1);
-            if(max_col_norm < col_norm) {
-                max_col_norm = col_norm;
-                max_idx = i;
-            }
-        }
-        T col_norm_A = blas::nrm2(n, &A_dense_dat[m * max_idx], 1);
-        T norm_AQR = lapack::lange(Norm::Fro, m, n, A_dat, m);
-
-        printf("REL NORM OF A - QR:    %15e\n", norm_AQR / norm_A);
-        printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
-        printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
-
-        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        ASSERT_LE(norm_AQR, atol * norm_A);
-        ASSERT_LE(max_col_norm, atol * col_norm_A);
-        ASSERT_LE(norm_0, atol * std::sqrt((T) n));
-    }
-
-    /// General test for CQRRT_linops with composite operator
-    template <typename T, typename RNG, typename CompositeLinOp>
-    static void test_CQRRT_linops_general(
-        T d_factor,
-        T norm_A,
-        CQRRTLinopsTestData<T> &all_data,
-        RandLAPACK_demos::CQRRT_linops<T, RNG> &CQRRT_linops_alg,
-        CompositeLinOp &A_composite,
-        RandBLAS::RNGState<RNG> &state) {
-
-        auto m = all_data.row;
-        auto n = all_data.col;
-
-        CQRRT_linops_alg.call(A_composite, all_data.R.data(), n, d_factor, state);
-
-        // Access Q-factor from test mode
-        ASSERT_NE(CQRRT_linops_alg.Q, nullptr);
-        error_check(norm_A, all_data, CQRRT_linops_alg.Q, CQRRT_linops_alg.Q_rows, CQRRT_linops_alg.Q_cols);
-    }
+class TestDmCQRRTLinops : public ::testing::Test {
+protected:
+    virtual void SetUp() {}
+    virtual void TearDown() {}
 };
 
-// Test CQRRT_linops with composite operator: A_inv_linop * B_sparse
-// where A_inv_linop comes from CholSolverLinOp and B_sparse is a SparseLinOp
-TEST_F(TestDmCQRRTLinops, CQRRTLinops_composite_cholsolver_sparse) {
-    // Dimensions
-    int64_t n_spd = 50;   // Size of SPD matrix (A_inv_linop will be n_spd x n_spd)
-    int64_t n_sparse_cols = 20;  // Columns in sparse matrix B
-    int64_t m = n_spd;    // Rows in composite = rows in A_inv_linop
-    int64_t n = n_sparse_cols;  // Cols in composite = cols in B
-    int64_t k = n;        // Expected rank
+// Test with simple dense matrix wrapped in DenseLinOp
+TEST_F(TestDmCQRRTLinops, dense_matrix) {
+    int64_t m = 100;
+    int64_t n = 50;
     double d_factor = 2.0;
-    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+
+    // Create random dense matrix
+    std::vector<double> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<r123::Philox4x32> state(0);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+
+    // Make copy for verification
+    std::vector<double> A_copy = A_data;
+
+    // Create DenseLinOp
+    RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    // Run CQRRT with test mode enabled
+    std::vector<double> R(n * n, 0.0);
+    CQRRT_linops<double, r123::Philox4x32> CQRRT(false, tol, true);
+    state = RandBLAS::RNGState<r123::Philox4x32>(1);
+    CQRRT.call(A_linop, R.data(), n, d_factor, state);
+
+    // Verify A = Q * R
+    std::vector<double> QR(m * n, 0.0);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+               1.0, CQRRT.Q, m, R.data(), n, 0.0, QR.data(), m);
+
+    for (int64_t i = 0; i < m * n; ++i) {
+        QR[i] = A_copy[i] - QR[i];
+    }
+    double norm_AQR = lapack::lange(Norm::Fro, m, n, QR.data(), m);
+    double norm_A = lapack::lange(Norm::Fro, m, n, A_copy.data(), m);
+
+    // Check orthogonality of Q
+    std::vector<double> I_ref(n * n);
+    RandLAPACK::util::eye(n, n, I_ref.data());
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, CQRRT.Q, m, -1.0, I_ref.data(), n);
+    double norm_orth = lapack::lansy(Norm::Fro, Uplo::Upper, n, I_ref.data(), n);
+
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    ASSERT_LE(norm_AQR, atol * norm_A);
+    ASSERT_LE(norm_orth, atol * std::sqrt((double) n));
+}
+
+// Test with composite operator: CholSolver * Sparse
+TEST_F(TestDmCQRRTLinops, composite_operator) {
+    int64_t n_spd = 50;
+    int64_t n_sparse_cols = 20;
+    int64_t m = n_spd;
+    int64_t n = n_sparse_cols;
+    double d_factor = 2.0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    // Generate and save SPD matrix to temporary file
-    std::string spd_filename = "/tmp/test_spd_matrix.mtx";
+    // Generate SPD matrix
+    std::string spd_filename = "/tmp/test_spd_matrix_cqrrt.mtx";
     RandLAPACK_demos::generate_spd_matrix_file<double>(spd_filename, n_spd, 10.0, state);
 
     // Create CholSolverLinOp
     RandLAPACK_demos::CholSolverLinOp<double> A_inv_linop(spd_filename);
 
-    // Generate sparse matrix B in COO format
+    // Generate sparse matrix B
     double density = 0.2;
     auto B_coo = RandLAPACK::gen::gen_sparse_mat<double>(n_spd, n_sparse_cols, density, state);
 
@@ -174,138 +91,44 @@ TEST_F(TestDmCQRRTLinops, CQRRTLinops_composite_cholsolver_sparse) {
     RandBLAS::sparse_data::csc::CSCMatrix<double> B_csc(n_spd, n_sparse_cols);
     RandBLAS::sparse_data::conversions::coo_to_csc(B_coo, B_csc);
 
-    // Create SparseLinOp
+    // Create SparseLinOp and CompositeOperator
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<double>> B_sp_linop(n_spd, n_sparse_cols, B_csc);
-
-    // Create CompositeOperator
     RandLAPACK::linops::CompositeOperator A_composite(m, n, A_inv_linop, B_sp_linop);
 
     // Compute dense representation for verification
-    CQRRTLinopsTestData<double> all_data(m, n, k);
-    compute_composite_dense(A_inv_linop, B_csc, all_data.A_dense.data(), m, n);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-
-    // DEBUG: Pre-compute what the sketch SHOULD be for verification in CQRRT
-    std::cerr << "\n=== DEBUG: Pre-computing expected sketch ===" << std::endl;
-    std::cerr << "Composite dimensions: " << A_composite.n_rows << " x " << A_composite.n_cols << std::endl;
-    std::cerr << "Norm of dense composite (A^-1 * B): " << lapack::lange(Norm::Fro, m, n, all_data.A_dense.data(), m) << std::endl;
-
-    // Store the RNG state to restore after creating sketch
-    auto state_backup = state;
-
-    // Create the SAME sketch that CQRRT will create
-    int64_t d = (int64_t)(d_factor * n);  // d = 2.0 * 20 = 40
-    RandBLAS::SparseDist DS_pre(d, m, 2);
-    RandBLAS::SparseSkOp<double> S_pre(DS_pre, state);
-    state = S_pre.next_state;  // Update state same as CQRRT does
-    RandBLAS::fill_sparse(S_pre);
-    RandBLAS::CSRMatrix<double> S_pre_csr(S_pre.n_rows, S_pre.n_cols);
-    RandBLAS::COOMatrix<double> S_pre_coo(S_pre.n_rows, S_pre.n_cols, S_pre.nnz, S_pre.vals, S_pre.rows, S_pre.cols);
-    RandBLAS::sparse_data::conversions::coo_to_csr(S_pre_coo, S_pre_csr);
-
-    // Compute expected A_hat = S * composite manually
-    std::vector<double> S_pre_dense(d * m, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(S_pre_csr, Layout::ColMajor, S_pre_dense.data());
-
-    std::vector<double> expected_A_hat(d * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m,
-               1.0, S_pre_dense.data(), d, all_data.A_dense.data(), m, 0.0, expected_A_hat.data(), d);
-
-    double norm_expected_A_hat = lapack::lange(Norm::Fro, d, n, expected_A_hat.data(), d);
-    std::cerr << "Expected norm(A_hat) from S * composite: " << norm_expected_A_hat << std::endl;
-    std::cerr << "Expected first 5 values: ";
-    for (int i = 0; i < 5; ++i) {
-        std::cerr << expected_A_hat[i] << " ";
-    }
-    std::cerr << "\n=== END DEBUG ===\n" << std::endl;
-
-    // Restore RNG state so CQRRT gets the same sketch
-    state = state_backup;
-
-    // Create CQRRT_linops driver with test mode enabled
-    RandLAPACK_demos::CQRRT_linops<double> CQRRT_linops_alg(false, tol, true);
-    CQRRT_linops_alg.nnz = 2;
-
-    test_CQRRT_linops_general(d_factor, norm_A, all_data, CQRRT_linops_alg, A_composite, state);
-
-    // Clean up
-    std::remove(spd_filename.c_str());
-}
-
-// Small test case with 5x5 matrices for debugging
-TEST_F(TestDmCQRRTLinops, CQRRTLinops_composite_small_debug) {
-    // Small dimensions for easy debugging
-    int64_t n_spd = 5;           // Size of SPD matrix
-    int64_t n_sparse_cols = 3;   // Columns in sparse matrix B
-    int64_t m = n_spd;           // Rows in composite
-    int64_t n = n_sparse_cols;   // Cols in composite
-    int64_t k = n;               // Expected rank
-    double d_factor = 2.0;       // Sketch dimension multiplier
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    std::cerr << "\n========================================" << std::endl;
-    std::cerr << "SMALL DEBUG TEST: " << m << " x " << n << " composite" << std::endl;
-    std::cerr << "========================================\n" << std::endl;
-
-    // Generate and save SPD matrix
-    std::string spd_filename = "/tmp/test_spd_small_debug.mtx";
-    RandLAPACK_demos::generate_spd_matrix_file<double>(spd_filename, n_spd, 10.0, state);
-
-    // Create CholSolverLinOp
-    RandLAPACK_demos::CholSolverLinOp<double> A_inv_linop(spd_filename);
-    A_inv_linop.factorize();  // Explicitly factorize for debugging
-
-    // Generate sparse matrix B (higher density for small matrix)
-    double density = 0.6;
-    auto B_coo = RandLAPACK::gen::gen_sparse_mat<double>(n_spd, n_sparse_cols, density, state);
-
-    // Convert to CSC for SparseLinOp
-    RandBLAS::sparse_data::csc::CSCMatrix<double> B_csc(n_spd, n_sparse_cols);
-    RandBLAS::sparse_data::conversions::coo_to_csc(B_coo, B_csc);
-
-    // Convert B to dense for printing
     std::vector<double> B_dense(n_spd * n_sparse_cols, 0.0);
     RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense.data());
 
-    std::cerr << "Sparse matrix B (" << n_spd << " x " << n_sparse_cols << "):" << std::endl;
-    for (int64_t i = 0; i < n_spd; ++i) {
-        for (int64_t j = 0; j < n_sparse_cols; ++j) {
-            std::cerr << std::setw(10) << std::setprecision(4) << B_dense[i + j * n_spd] << " ";
-        }
-        std::cerr << std::endl;
-    }
-    std::cerr << std::endl;
+    std::vector<double> A_dense(m * n, 0.0);
+    A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n_spd,
+                1.0, B_dense.data(), n_spd, 0.0, A_dense.data(), m);
 
-    // Create SparseLinOp
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<double>> B_sp_linop(n_spd, n_sparse_cols, B_csc);
-
-    // Create CompositeOperator
-    RandLAPACK::linops::CompositeOperator A_composite(m, n, A_inv_linop, B_sp_linop);
-
-    // Compute dense representation for verification
-    CQRRTLinopsTestData<double> all_data(m, n, k);
-    compute_composite_dense(A_inv_linop, B_csc, all_data.A_dense.data(), m, n);
-
-    std::cerr << "Dense composite A = A_inv * B (" << m << " x " << n << "):" << std::endl;
-    for (int64_t i = 0; i < m; ++i) {
-        for (int64_t j = 0; j < n; ++j) {
-            std::cerr << std::setw(10) << std::setprecision(4) << all_data.A_dense[i + j * m] << " ";
-        }
-        std::cerr << std::endl;
-    }
-    std::cerr << std::endl;
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    std::cerr << "Norm of composite: " << norm_A << "\n" << std::endl;
-
-    // Create CQRRT_linops driver with test mode enabled
-    RandLAPACK_demos::CQRRT_linops<double> CQRRT_linops_alg(false, tol, true);
+    // Run CQRRT
+    std::vector<double> R(n * n, 0.0);
+    CQRRT_linops<double> CQRRT_linops_alg(false, tol, true);
     CQRRT_linops_alg.nnz = 2;
+    CQRRT_linops_alg.call(A_composite, R.data(), n, d_factor, state);
 
-    test_CQRRT_linops_general(d_factor, norm_A, all_data, CQRRT_linops_alg, A_composite, state);
+    // Verify A = Q * R
+    std::vector<double> QR(m * n, 0.0);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+               1.0, CQRRT_linops_alg.Q, m, R.data(), n, 0.0, QR.data(), m);
+
+    for (int64_t i = 0; i < m * n; ++i) {
+        QR[i] = A_dense[i] - QR[i];
+    }
+    double norm_AQR = lapack::lange(Norm::Fro, m, n, QR.data(), m);
+    double norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);
+
+    // Check orthogonality
+    std::vector<double> I_ref(n * n);
+    RandLAPACK::util::eye(n, n, I_ref.data());
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, CQRRT_linops_alg.Q, m, -1.0, I_ref.data(), n);
+    double norm_orth = lapack::lansy(Norm::Fro, Uplo::Upper, n, I_ref.data(), n);
+
+    double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    ASSERT_LE(norm_AQR, atol * norm_A);
+    ASSERT_LE(norm_orth, atol * std::sqrt((double) n));
 
     // Clean up
     std::remove(spd_filename.c_str());

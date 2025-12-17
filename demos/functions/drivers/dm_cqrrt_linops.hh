@@ -204,27 +204,18 @@ class CQRRT_linops {
             // (R_sk_inv)^T * (A^T * A_pre)
             blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T) 1.0, R_sk_inv, n, R, ldr);
 
-            // Zero out lower triangular part (Cholesky expects only upper triangle to be valid)
-            for(int64_t j = 0; j < n; ++j) {
-                for(int64_t i = j + 1; i < n; ++i) {
-                    R[i + j * ldr] = 0.0;
-                }
-            }
-
-            // Cholesky factorization
+            // Cholesky factorization (only reads/writes upper triangle)
             lapack::potrf(Uplo::Upper, n, R, ldr);
 
             // Compute Q-factor if test mode is enabled
             if(this->test_mode) {
-                // Allocate Q: m x n matrix
+                // Reuse A_pre storage for Q (Q = A_pre * R_chol^{-1})
                 this->Q_rows = m;
                 this->Q_cols = n;
-                this->Q = new T[m * n]();
+                this->Q = A_pre;  // Take ownership of A_pre buffer
 
-                // Q = A * (R_chol * R_sk)^{-1} = A * R_sk^{-1} * R_chol^{-1} = A_pre * R_chol^{-1}
-                // Copy A_pre to Q, then solve Q * R_chol = A_pre for Q
-                lapack::lacpy(MatrixType::General, m, n, A_pre, m, this->Q, m);
                 // Solve Q * R_chol = A_pre for Q (R_chol is upper triangular from Cholesky)
+                // Q = A * (R_chol * R_sk)^{-1} = A * R_sk^{-1} * R_chol^{-1} = A_pre * R_chol^{-1}
                 blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                            Diag::NonUnit, m, n, (T)1.0, R, ldr, this->Q, m);
             }
@@ -232,14 +223,19 @@ class CQRRT_linops {
             if(this -> timing)
                 cholqr_t_stop = steady_clock::now();
 
+            // Zero out strictly lower triangle of R before final trmm
+            // trmm expects R to be upper triangular on input (it preserves triangular structure)
+            // The lower triangle may contain garbage from the Gram matrix computation
+            // Use laset with beta=1.0 to preserve diagonal while zeroing strictly lower triangle
+            if (n > 1) {
+                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &R[1], ldr);
+            }
+
             // Get the final R-factor - undoing the preconditioning
-            // Below does R_chol (returned by Chol, stored in R) * R_sk
-            // Note: R_sk was extracted from A_hat and has NOT been inverted (R_sk_inv points to the inverted version)
-            // We need to use the original R_sk from A_hat
-            T* R_sk_for_final = new T[n * n]();
-            lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk_for_final, n);
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, R_sk_for_final, n, R, ldr);
-            delete[] R_sk_for_final;
+            // R := R_chol * R_sk, where R_sk is the upper triangle of A_hat
+            // trmm with Uplo::Upper only reads upper triangle of A_hat (can use ld=d directly)
+            // and expects R to be upper triangular on input
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R, ldr);
 
             if(this -> timing) {
                 saso_t_dur       = duration_cast<microseconds>(saso_t_stop       - saso_t_start).count();
@@ -258,7 +254,11 @@ class CQRRT_linops {
             delete[] A_hat;
             delete[] tau;
             delete[] R_sk;
-            delete[] A_pre;
+
+            // Only delete A_pre if not in test mode (otherwise Q owns it)
+            if(!this->test_mode) {
+                delete[] A_pre;
+            }
 
             return 0;
         }
