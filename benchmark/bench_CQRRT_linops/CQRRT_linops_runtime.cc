@@ -14,12 +14,17 @@ int main() {return 0;}
 #include <RandBLAS.hh>
 #include <fstream>
 #include <iomanip>
-#include <fast_matrix_market/fast_matrix_market.hpp>
+#include <Eigen/Sparse>
+#include <unsupported/Eigen/SparseExtra>
 
 // Need to include demos utilities for CholSolverLinOp and dm_cqrrt_linops
 #include "../../demos/functions/linops_external/dm_cholsolver_linop.hh"
 #include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
 #include "../../demos/functions/misc/dm_util.hh"
+
+using std::chrono::steady_clock;
+using std::chrono::duration_cast;
+using std::chrono::microseconds;
 
 template <typename T>
 struct CQRRT_linops_benchmark_data {
@@ -92,15 +97,26 @@ static void run_benchmark(
     // Create CholSolverLinOp from SPD matrix file
     RandLAPACK_demos::CholSolverLinOp<T> A_inv_linop(spd_filename);
 
-    // Load sparse matrix from file
-    RandBLAS::sparse_data::csc::CSCMatrix<T> B_csc;
-    std::ifstream sparse_file(sparse_filename);
-    if (!sparse_file) {
-        throw std::runtime_error("Failed to open sparse matrix file: " + sparse_filename);
+    // Load sparse matrix from Matrix Market file using Eigen
+    Eigen::SparseMatrix<T> B_eigen;
+    if (!Eigen::loadMarket(B_eigen, sparse_filename)) {
+        throw std::runtime_error("Failed to load sparse matrix from: " + sparse_filename);
     }
-    fast_matrix_market::read_matrix_market_csc(sparse_file, B_csc.n_rows, B_csc.n_cols,
-                                                 B_csc.vals, B_csc.colptr, B_csc.rowidx);
-    sparse_file.close();
+
+    // Convert Eigen sparse matrix to RandBLAS CSC format
+    B_eigen.makeCompressed();  // Ensure CSC format
+    int64_t B_rows = B_eigen.rows();
+    int64_t B_cols = B_eigen.cols();
+    int64_t B_nnz = B_eigen.nonZeros();
+
+    // Allocate RandBLAS CSC matrix using reserve_csc
+    RandBLAS::sparse_data::csc::CSCMatrix<T> B_csc(B_rows, B_cols);
+    RandBLAS::sparse_data::csc::reserve_csc(B_nnz, B_csc);
+
+    // Copy data from Eigen to RandBLAS format (raw pointers)
+    std::copy(B_eigen.valuePtr(), B_eigen.valuePtr() + B_nnz, B_csc.vals);
+    std::copy(B_eigen.innerIndexPtr(), B_eigen.innerIndexPtr() + B_nnz, B_csc.rowidxs);
+    std::copy(B_eigen.outerIndexPtr(), B_eigen.outerIndexPtr() + B_cols + 1, B_csc.colptr);
 
     printf("SPD matrix dimension: %ld x %ld\n", A_inv_linop.n_rows, A_inv_linop.n_cols);
     printf("Sparse matrix dimension: %ld x %ld\n", B_csc.n_rows, B_csc.n_cols);
@@ -230,37 +246,36 @@ int main(int argc, char *argv[]) {
     double d_factor = std::stod(argv[4]);
     int64_t numruns = std::stol(argv[5]);
 
-    // Load matrix dimensions to allocate benchmark data
-    // Read SPD matrix dimensions
-    std::ifstream spd_file(spd_filename);
-    if (!spd_file) {
-        std::cerr << "Error: Cannot open SPD matrix file: " << spd_filename << std::endl;
-        return 1;
-    }
-    int64_t spd_rows, spd_cols;
-    fast_matrix_market::matrix_market_header spd_header;
-    fast_matrix_market::read_header(spd_file, spd_header);
-    spd_rows = spd_header.nrows;
-    spd_cols = spd_header.ncols;
-    spd_file.close();
+    // Helper lambda to read Matrix Market dimensions
+    auto read_mm_dimensions = [](const std::string& filename) -> std::pair<int64_t, int64_t> {
+        std::ifstream file(filename);
+        if (!file) {
+            throw std::runtime_error("Cannot open file: " + filename);
+        }
+
+        // Skip comment lines
+        std::string line;
+        do {
+            std::getline(file, line);
+        } while (line[0] == '%');
+
+        // Parse dimensions
+        std::istringstream iss(line);
+        int64_t rows, cols, nnz;
+        iss >> rows >> cols >> nnz;
+        file.close();
+
+        return {rows, cols};
+    };
+
+    // Read matrix dimensions
+    auto [spd_rows, spd_cols] = read_mm_dimensions(spd_filename);
+    auto [sparse_rows, sparse_cols] = read_mm_dimensions(sparse_filename);
 
     if (spd_rows != spd_cols) {
         std::cerr << "Error: SPD matrix must be square" << std::endl;
         return 1;
     }
-
-    // Read sparse matrix dimensions
-    std::ifstream sparse_file(sparse_filename);
-    if (!sparse_file) {
-        std::cerr << "Error: Cannot open sparse matrix file: " << sparse_filename << std::endl;
-        return 1;
-    }
-    int64_t sparse_rows, sparse_cols;
-    fast_matrix_market::matrix_market_header sparse_header;
-    fast_matrix_market::read_header(sparse_file, sparse_header);
-    sparse_rows = sparse_header.nrows;
-    sparse_cols = sparse_header.ncols;
-    sparse_file.close();
 
     if (spd_cols != sparse_rows) {
         std::cerr << "Error: SPD matrix columns (" << spd_cols
