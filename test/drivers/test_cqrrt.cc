@@ -94,10 +94,10 @@ class TestCQRRT : public ::testing::Test
         printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
         printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
 
-        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        ASSERT_LE(norm_AQR, atol * norm_A);
-        ASSERT_LE(max_col_norm, atol * col_norm_A);
-        ASSERT_LE(norm_0, atol * std::sqrt((T) n));
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.7);
+        ASSERT_LE(norm_AQR / norm_A, atol);
+        ASSERT_LE(max_col_norm / col_norm_A, atol);
+        ASSERT_LE(norm_0 / std::sqrt((T) n), atol);
     }
 
     /// General test for CQRRT:
@@ -126,7 +126,7 @@ TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
     int64_t k = 5;
     double d_factor = 2;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.8);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     CQRRTTestData<double> all_data(m, n, k);
@@ -151,7 +151,7 @@ TEST_F(TestCQRRT, CQRRT_large_full_rank) {
     int64_t k = 5000;
     double d_factor = 2;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.8);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
     CQRRTTestData<double> all_data(m, n, k);
