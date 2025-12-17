@@ -14,6 +14,7 @@
 
 #include <RandBLAS.hh>
 #include <fstream>
+#include <iomanip>
 #include <gtest/gtest.h>
 
 class TestDmCQRRTLinops : public ::testing::Test
@@ -184,6 +185,121 @@ TEST_F(TestDmCQRRTLinops, CQRRTLinops_composite_cholsolver_sparse) {
     compute_composite_dense(A_inv_linop, B_csc, all_data.A_dense.data(), m, n);
 
     norm_and_copy_computational_helper(norm_A, all_data);
+
+    // DEBUG: Pre-compute what the sketch SHOULD be for verification in CQRRT
+    std::cerr << "\n=== DEBUG: Pre-computing expected sketch ===" << std::endl;
+    std::cerr << "Composite dimensions: " << A_composite.n_rows << " x " << A_composite.n_cols << std::endl;
+    std::cerr << "Norm of dense composite (A^-1 * B): " << lapack::lange(Norm::Fro, m, n, all_data.A_dense.data(), m) << std::endl;
+
+    // Store the RNG state to restore after creating sketch
+    auto state_backup = state;
+
+    // Create the SAME sketch that CQRRT will create
+    int64_t d = (int64_t)(d_factor * n);  // d = 2.0 * 20 = 40
+    RandBLAS::SparseDist DS_pre(d, m, 2);
+    RandBLAS::SparseSkOp<double> S_pre(DS_pre, state);
+    state = S_pre.next_state;  // Update state same as CQRRT does
+    RandBLAS::fill_sparse(S_pre);
+    RandBLAS::CSRMatrix<double> S_pre_csr(S_pre.n_rows, S_pre.n_cols);
+    RandBLAS::COOMatrix<double> S_pre_coo(S_pre.n_rows, S_pre.n_cols, S_pre.nnz, S_pre.vals, S_pre.rows, S_pre.cols);
+    RandBLAS::sparse_data::conversions::coo_to_csr(S_pre_coo, S_pre_csr);
+
+    // Compute expected A_hat = S * composite manually
+    std::vector<double> S_pre_dense(d * m, 0.0);
+    RandLAPACK::util::sparse_to_dense_summing_duplicates(S_pre_csr, Layout::ColMajor, S_pre_dense.data());
+
+    std::vector<double> expected_A_hat(d * n, 0.0);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m,
+               1.0, S_pre_dense.data(), d, all_data.A_dense.data(), m, 0.0, expected_A_hat.data(), d);
+
+    double norm_expected_A_hat = lapack::lange(Norm::Fro, d, n, expected_A_hat.data(), d);
+    std::cerr << "Expected norm(A_hat) from S * composite: " << norm_expected_A_hat << std::endl;
+    std::cerr << "Expected first 5 values: ";
+    for (int i = 0; i < 5; ++i) {
+        std::cerr << expected_A_hat[i] << " ";
+    }
+    std::cerr << "\n=== END DEBUG ===\n" << std::endl;
+
+    // Restore RNG state so CQRRT gets the same sketch
+    state = state_backup;
+
+    // Create CQRRT_linops driver with test mode enabled
+    RandLAPACK_demos::CQRRT_linops<double> CQRRT_linops_alg(false, tol, true);
+    CQRRT_linops_alg.nnz = 2;
+
+    test_CQRRT_linops_general(d_factor, norm_A, all_data, CQRRT_linops_alg, A_composite, state);
+
+    // Clean up
+    std::remove(spd_filename.c_str());
+}
+
+// Small test case with 5x5 matrices for debugging
+TEST_F(TestDmCQRRTLinops, CQRRTLinops_composite_small_debug) {
+    // Small dimensions for easy debugging
+    int64_t n_spd = 5;           // Size of SPD matrix
+    int64_t n_sparse_cols = 3;   // Columns in sparse matrix B
+    int64_t m = n_spd;           // Rows in composite
+    int64_t n = n_sparse_cols;   // Cols in composite
+    int64_t k = n;               // Expected rank
+    double d_factor = 2.0;       // Sketch dimension multiplier
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    std::cerr << "\n========================================" << std::endl;
+    std::cerr << "SMALL DEBUG TEST: " << m << " x " << n << " composite" << std::endl;
+    std::cerr << "========================================\n" << std::endl;
+
+    // Generate and save SPD matrix
+    std::string spd_filename = "/tmp/test_spd_small_debug.mtx";
+    RandLAPACK_demos::generate_spd_matrix_file<double>(spd_filename, n_spd, 10.0, state);
+
+    // Create CholSolverLinOp
+    RandLAPACK_demos::CholSolverLinOp<double> A_inv_linop(spd_filename);
+    A_inv_linop.factorize();  // Explicitly factorize for debugging
+
+    // Generate sparse matrix B (higher density for small matrix)
+    double density = 0.6;
+    auto B_coo = RandLAPACK::gen::gen_sparse_mat<double>(n_spd, n_sparse_cols, density, state);
+
+    // Convert to CSC for SparseLinOp
+    RandBLAS::sparse_data::csc::CSCMatrix<double> B_csc(n_spd, n_sparse_cols);
+    RandBLAS::sparse_data::conversions::coo_to_csc(B_coo, B_csc);
+
+    // Convert B to dense for printing
+    std::vector<double> B_dense(n_spd * n_sparse_cols, 0.0);
+    RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense.data());
+
+    std::cerr << "Sparse matrix B (" << n_spd << " x " << n_sparse_cols << "):" << std::endl;
+    for (int64_t i = 0; i < n_spd; ++i) {
+        for (int64_t j = 0; j < n_sparse_cols; ++j) {
+            std::cerr << std::setw(10) << std::setprecision(4) << B_dense[i + j * n_spd] << " ";
+        }
+        std::cerr << std::endl;
+    }
+    std::cerr << std::endl;
+
+    // Create SparseLinOp
+    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<double>> B_sp_linop(n_spd, n_sparse_cols, B_csc);
+
+    // Create CompositeOperator
+    RandLAPACK::linops::CompositeOperator A_composite(m, n, A_inv_linop, B_sp_linop);
+
+    // Compute dense representation for verification
+    CQRRTLinopsTestData<double> all_data(m, n, k);
+    compute_composite_dense(A_inv_linop, B_csc, all_data.A_dense.data(), m, n);
+
+    std::cerr << "Dense composite A = A_inv * B (" << m << " x " << n << "):" << std::endl;
+    for (int64_t i = 0; i < m; ++i) {
+        for (int64_t j = 0; j < n; ++j) {
+            std::cerr << std::setw(10) << std::setprecision(4) << all_data.A_dense[i + j * m] << " ";
+        }
+        std::cerr << std::endl;
+    }
+    std::cerr << std::endl;
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    std::cerr << "Norm of composite: " << norm_A << "\n" << std::endl;
 
     // Create CQRRT_linops driver with test mode enabled
     RandLAPACK_demos::CQRRT_linops<double> CQRRT_linops_alg(false, tol, true);

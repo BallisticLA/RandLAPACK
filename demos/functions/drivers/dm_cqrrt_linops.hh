@@ -12,6 +12,7 @@
 #include <vector>
 #include <chrono>
 #include <numeric>
+#include <iomanip>
 
 using namespace std::chrono;
 
@@ -178,14 +179,15 @@ class CQRRT_linops {
             // TRSM, used in the original implementation of CQRRT, is only defined for dense operators.
             // If A is not just a general dense operator, we handle this step via an explicit inverse and a multiplication.
 
-            // Explicitly invert R_sk
+            // Explicitly invert R_sk to get R_sk_inv
             lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
+            T* R_sk_inv = R_sk;  // Rename for clarity - R_sk is now inverted
 
             // Allocate a buffer for A_pre
             T* A_pre = new T[m * n]();
 
-            // Multiply A * (R_sk)^-1, where A is a GLO and (R_sk)^-1 is a dense matrix.
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, R_sk, n, (T)0.0, A_pre, m);
+            // Multiply A * R_sk_inv, where A is a GLO and R_sk_inv is a dense matrix.
+            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, R_sk_inv, n, (T)0.0, A_pre, m);
 
             if(this -> timing) {
                 a_mod_trsm_t_stop = steady_clock::now();
@@ -196,11 +198,19 @@ class CQRRT_linops {
             //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
             // Since SYRK, used in the original implementation of CQRRT, is not defined for non-dense operators, perform an explicit ((R_sk)^-1)^T * A^T * A * (R_sk)^-1
 
-            // A^T * A_pre = A^T * A * (R_sk)^-1
+            // A^T * A_pre = A^T * A * R_sk_inv
             A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
 
-            // (R_sk^-1)^T * (A^T * A_pre)
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T) 1.0, R_sk, n, R, ldr);
+            // (R_sk_inv)^T * (A^T * A_pre)
+            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T) 1.0, R_sk_inv, n, R, ldr);
+
+            // Zero out lower triangular part (Cholesky expects only upper triangle to be valid)
+            for(int64_t j = 0; j < n; ++j) {
+                for(int64_t i = j + 1; i < n; ++i) {
+                    R[i + j * ldr] = 0.0;
+                }
+            }
+
             // Cholesky factorization
             lapack::potrf(Uplo::Upper, n, R, ldr);
 
@@ -211,19 +221,25 @@ class CQRRT_linops {
                 this->Q_cols = n;
                 this->Q = new T[m * n]();
 
-                // Copy A_pre to Q
+                // Q = A * (R_chol * R_sk)^{-1} = A * R_sk^{-1} * R_chol^{-1} = A_pre * R_chol^{-1}
+                // Copy A_pre to Q, then solve Q * R_chol = A_pre for Q
                 lapack::lacpy(MatrixType::General, m, n, A_pre, m, this->Q, m);
-
-                // Solve Q * R_sk = A_pre for Q, i.e., Q = A_pre * (R_sk)^{-1}
+                // Solve Q * R_chol = A_pre for Q (R_chol is upper triangular from Cholesky)
                 blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                           Diag::NonUnit, m, n, (T)1.0, R_sk, n, this->Q, m);
+                           Diag::NonUnit, m, n, (T)1.0, R, ldr, this->Q, m);
             }
 
             if(this -> timing)
                 cholqr_t_stop = steady_clock::now();
 
             // Get the final R-factor - undoing the preconditioning
-            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R, ldr);
+            // Below does R_chol (returned by Chol, stored in R) * R_sk
+            // Note: R_sk was extracted from A_hat and has NOT been inverted (R_sk_inv points to the inverted version)
+            // We need to use the original R_sk from A_hat
+            T* R_sk_for_final = new T[n * n]();
+            lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk_for_final, n);
+            blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, R_sk_for_final, n, R, ldr);
+            delete[] R_sk_for_final;
 
             if(this -> timing) {
                 saso_t_dur       = duration_cast<microseconds>(saso_t_stop       - saso_t_start).count();

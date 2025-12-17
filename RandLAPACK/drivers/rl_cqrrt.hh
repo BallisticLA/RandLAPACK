@@ -201,7 +201,8 @@ int CQRRT<T, RNG>::call(
         cholqr_t_stop = steady_clock::now();
 
     if (!this->orthogonalization) {
-        // Get the final R-factor -- undoing the preconditioning
+        // Get the final R-factor - undoing the preconditioning
+        // Below does R_pre (returned by Chol) * R_sk (returned by QRCP on A_sk)
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R_sk, ldr); 
     } 
     
