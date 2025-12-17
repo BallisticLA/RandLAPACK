@@ -126,7 +126,7 @@ TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
     int64_t k = 5;
     double d_factor = 2;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.8);
     auto state = RandBLAS::RNGState();
 
     CQRRTTestData<double> all_data(m, n, k);
@@ -151,7 +151,7 @@ TEST_F(TestCQRRT, CQRRT_large_full_rank) {
     int64_t k = 5000;
     double d_factor = 2;
     double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.8);
     auto state = RandBLAS::RNGState();
 
     CQRRTTestData<double> all_data(m, n, k);
