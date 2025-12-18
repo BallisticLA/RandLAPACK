@@ -147,15 +147,11 @@ endfunction()
 
 message(STATUS "Configuring demos...")
 
-# linops_external demos (from demos/linops_external/)
-add_demo(NAME demo_eigen_linops CXX_SOURCES demos/linops_external/demo_eigen_linops.cc LINK_LIBS ${Demo_libs_external})
-
-# Dummy demo (from demos/)
-add_demo(NAME dummy CXX_SOURCES demos/dummy.cc LINK_LIBS ${Demo_libs_basic})
+# No demos currently configured
+# Add demo targets here as needed
 
 message(STATUS "Configured ${CMAKE_PROJECT_NAME} with demos:")
-message(STATUS "  - demo_eigen_linops")
-message(STATUS "  - dummy")
+message(STATUS "  - (none configured)")
 
 if(HAVE_CUDA)
     message(STATUS "GPU demos: Available (CUDA ${CUDAToolkit_VERSION})")
