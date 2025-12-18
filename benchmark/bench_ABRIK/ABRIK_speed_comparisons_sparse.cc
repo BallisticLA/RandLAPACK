@@ -285,7 +285,7 @@ residual_error_values_comp(TestData &all_data, int64_t target_rank, T triplet_er
         spectral_gap = all_data.Sigma[target_rank - 2] - all_data.Sigma[target_rank - 1];
     }
 
-    return triplet_error * spectral_gap / all_gata.Sigma[0];
+    return triplet_error * spectral_gap / all_data.Sigma[0];
 }
 
 // Helper function to write matrices to Matrix Market format (MATLAB-compatible)
