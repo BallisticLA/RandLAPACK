@@ -285,7 +285,7 @@ residual_error_values_comp(TestData &all_data, int64_t target_rank, T triplet_er
         spectral_gap = all_data.Sigma[target_rank - 2] - all_data.Sigma[target_rank - 1];
     }
 
-    return triplet_error * spectral_gap;
+    return triplet_error * spectral_gap / all_gata.Sigma[0];
 }
 
 // Helper function to write matrices to Matrix Market format (MATLAB-compatible)
@@ -464,7 +464,7 @@ static void call_all_algs(
         residual_err_vec_ABRIK = residual_error_vectors_comp<T>(all_data, singular_triplets_target_ABRIK);
         printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_vec_ABRIK);
         residual_err_val_ABRIK = residual_error_values_comp<T>(all_data, singular_triplets_target_ABRIK, residual_err_vec_ABRIK);
-        printf("ABRIK resigual error * spectral gap: %.16e\n", residual_err_val_ABRIK);
+        printf("ABRIK resigual error * spectral gap / sigma[0]: %.16e\n", residual_err_val_ABRIK);
 
         // Write ABRIK output matrices to files if requested (only on first run)
         if (write_output_matrices && i == 0) {
