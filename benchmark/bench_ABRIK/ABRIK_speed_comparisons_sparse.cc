@@ -15,6 +15,10 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(target_rank
 #include <RandBLAS.hh>
 #include <fstream>
 #include <iomanip>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <cerrno>
+#include <cstring>
 
 // External libs includes
 #include <fast_matrix_market/fast_matrix_market.hpp>
@@ -28,6 +32,36 @@ using Matrix = Eigen::MatrixXd;
 using Vector = Eigen::VectorXd;
 
 using Subroutines = RandLAPACK::ABRIKSubroutines;
+
+// Helper function to ensure directory exists (creates parent directories if needed)
+void ensure_directory_exists(const std::string& path) {
+    struct stat info;
+    if (stat(path.c_str(), &info) == 0) {
+        // Path exists
+        if (info.st_mode & S_IFDIR) {
+            // It's a directory, we're good
+            return;
+        } else {
+            std::cerr << "Error: " << path << " exists but is not a directory" << std::endl;
+            return;
+        }
+    }
+
+    // Directory doesn't exist - try to create parent directories first
+    size_t pos = path.find_last_of('/');
+    if (pos != std::string::npos && pos > 0) {
+        std::string parent = path.substr(0, pos);
+        ensure_directory_exists(parent);  // Recursive call for parent
+    }
+
+    // Now create this directory
+    if (mkdir(path.c_str(), 0755) != 0) {
+        std::cerr << "Warning: Could not create directory " << path
+                  << " (error: " << strerror(errno) << ")" << std::endl;
+    } else {
+        std::cout << "Created output directory: " << path << std::endl;
+    }
+}
 
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct ABRIK_benchmark_data {
@@ -432,9 +466,9 @@ static void call_all_algs(
         residual_err_val_ABRIK = residual_error_values_comp<T>(all_data, singular_triplets_target_ABRIK, residual_err_vec_ABRIK);
         printf("ABRIK resigual error * spectral gap: %.16e\n", residual_err_val_ABRIK);
 
-        // Write ABRIK output matrices to files if requested
-        if (write_output_matrices) {
-            std::string prefix = output_dir + "/ABRIK_run" + std::to_string(i) + "_bsz" + std::to_string(b_sz) + "_mm" + std::to_string(num_matmuls);
+        // Write ABRIK output matrices to files if requested (only on first run)
+        if (write_output_matrices && i == 0) {
+            std::string prefix = output_dir + "/ABRIK_bsz" + std::to_string(b_sz) + "_mm" + std::to_string(num_matmuls);
             write_matrix_to_file(prefix + "_U.mtx", all_data.U, m, singular_triplets_target_ABRIK, false);
             write_matrix_to_file(prefix + "_V.mtx", all_data.V, n, singular_triplets_target_ABRIK, false);
             write_matrix_to_file(prefix + "_Sigma.mtx", all_data.Sigma, singular_triplets_target_ABRIK, 1, true);
@@ -527,6 +561,11 @@ int main(int argc, char *argv[]) {
     double tol                 = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                 = RandBLAS::RNGState();
     auto state_constant        = state;
+
+    // Ensure output directory exists if we're writing matrices
+    if (write_matrices) {
+        ensure_directory_exists(std::string(argv[1]));
+    }
 
     // Read the input fast matrix market data
     // The idea is that input_mat_coo will be automatically freed at the end of function execution
