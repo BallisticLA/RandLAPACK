@@ -2,9 +2,9 @@
 int main() {return 0;}
 #else
 
-// CQRRT_linops runtime benchmark - measures time for CQRRT with composite linear operators
-// Composite operator: CholSolver (left) * Sparse (right) representing A^{-1} * B
-// Matrices sourced from user-provided Matrix Market files
+// CQRRT_linops runtime benchmark - measures time for CQRRT with nested composite linear operators
+// Nested composite: CholSolver * (Sparse * Gaussian) representing A^{-1} * (S * G)
+// SPD matrix from Matrix Market file, Sparse (SASO) and Gaussian matrices generated randomly
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -49,7 +49,7 @@ static void verify_factorization(
     const T* Q, int64_t Q_rows, int64_t Q_cols,
     const T* R, int64_t ldr,
     const T* A_expected, int64_t m, int64_t n,
-    T& rel_error, T& orth_error) {
+    T& rel_error, T& orth_error, int64_t& num_orthonormal_cols) {
 
     // Compute Q * R
     std::vector<T> QR(m * n, 0.0);
@@ -71,20 +71,64 @@ static void verify_factorization(
     rel_error = norm_diff / norm_A;
 
     // Check orthogonality: ||Q^T Q - I||_F
+    std::vector<T> QtQ(n * n, 0.0);
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m,
+               1.0, Q, m, Q, m, 0.0, QtQ.data(), n);
+
+    // Compute overall orthogonality error
     std::vector<T> I_ref(n * n);
     RandLAPACK::util::eye(n, n, I_ref.data());
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m,
-               1.0, Q, m, -1.0, I_ref.data(), n);
-    T norm_orth = lapack::lansy(Norm::Fro, Uplo::Upper, n, I_ref.data(), n);
-
-    // Normalized orthogonality error
+    for (int64_t i = 0; i < n * n; ++i) {
+        QtQ[i] -= I_ref[i];
+    }
+    T norm_orth = lapack::lange(Norm::Fro, n, n, QtQ.data(), n);
     orth_error = norm_orth / std::sqrt((T) n);
+
+    // Count how many columns are orthonormal
+    // A column i is considered orthonormal if:
+    // 1. ||q_i||_2 ≈ 1 (diagonal element Q^T Q [i,i] ≈ 1)
+    // 2. q_i ⊥ q_j for all j ≠ i (off-diagonal elements Q^T Q [i,j] ≈ 0)
+    T tol = 100 * std::numeric_limits<T>::epsilon() * m;  // Tolerance scaled by problem size
+    num_orthonormal_cols = 0;
+
+    // Recompute Q^T Q with original values
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m,
+               1.0, Q, m, Q, m, 0.0, QtQ.data(), n);
+
+    for (int64_t i = 0; i < n; ++i) {
+        bool is_orthonormal = true;
+
+        // Check diagonal: should be ≈ 1
+        T diag_error = std::abs(QtQ[i + i * n] - 1.0);
+        if (diag_error > tol) {
+            is_orthonormal = false;
+        }
+
+        // Check off-diagonals in column i: should be ≈ 0
+        if (is_orthonormal) {
+            for (int64_t j = 0; j < n; ++j) {
+                if (j != i) {
+                    T offdiag_error = std::abs(QtQ[j + i * n]);
+                    if (offdiag_error > tol) {
+                        is_orthonormal = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (is_orthonormal) {
+            num_orthonormal_cols++;
+        }
+    }
 }
 
 template <typename T, typename RNG>
 static void run_benchmark(
     const std::string& spd_filename,
-    const std::string& sparse_filename,
+    int64_t k_dim,
+    int64_t n_cols,
+    T saso_density,
     int64_t numruns,
     T d_factor,
     CQRRT_linops_benchmark_data<T>& data,
@@ -92,59 +136,55 @@ static void run_benchmark(
     const std::string& output_filename) {
 
     printf("Loading SPD matrix from: %s\n", spd_filename.c_str());
-    printf("Loading sparse matrix from: %s\n", sparse_filename.c_str());
+    printf("Generating SASO (Sparse) matrix: %ld x %ld with density %.3f\n", data.m, k_dim, saso_density);
+    printf("Generating Gaussian matrix: %ld x %ld\n", k_dim, n_cols);
 
     // Create CholSolverLinOp from SPD matrix file
     RandLAPACK_demos::CholSolverLinOp<T> A_inv_linop(spd_filename);
 
-    // Load sparse matrix from Matrix Market file using Eigen
-    Eigen::SparseMatrix<T> B_eigen;
-    if (!Eigen::loadMarket(B_eigen, sparse_filename)) {
-        throw std::runtime_error("Failed to load sparse matrix from: " + sparse_filename);
+    // Verify SPD matrix dimension matches expected m
+    if (A_inv_linop.n_rows != data.m) {
+        throw std::runtime_error("SPD matrix dimension doesn't match expected m");
     }
 
-    // Convert Eigen sparse matrix to RandBLAS CSC format
-    B_eigen.makeCompressed();  // Ensure CSC format
-    int64_t B_rows = B_eigen.rows();
-    int64_t B_cols = B_eigen.cols();
-    int64_t B_nnz = B_eigen.nonZeros();
+    // Generate SASO (Sparse) matrix: m × k_dim
+    auto saso_coo = RandLAPACK::gen::gen_sparse_mat<T>(data.m, k_dim, saso_density, state);
+    RandBLAS::sparse_data::csc::CSCMatrix<T> saso_csc(data.m, k_dim);
+    RandBLAS::sparse_data::conversions::coo_to_csc(saso_coo, saso_csc);
+    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> saso_linop(
+        data.m, k_dim, saso_csc);
 
-    // Allocate RandBLAS CSC matrix using reserve_csc
-    RandBLAS::sparse_data::csc::CSCMatrix<T> B_csc(B_rows, B_cols);
-    RandBLAS::sparse_data::csc::reserve_csc(B_nnz, B_csc);
+    // Generate Gaussian matrix: k_dim × n_cols
+    std::vector<T> gaussian_mat(k_dim * n_cols);
+    RandBLAS::DenseDist gaussian_dist(k_dim, n_cols);
+    RandBLAS::fill_dense(gaussian_dist, gaussian_mat.data(), state);
+    RandLAPACK::linops::DenseLinOp<T> gaussian_linop(k_dim, n_cols, gaussian_mat.data(), k_dim, Layout::ColMajor);
 
-    // Copy data from Eigen to RandBLAS format (raw pointers)
-    std::copy(B_eigen.valuePtr(), B_eigen.valuePtr() + B_nnz, B_csc.vals);
-    std::copy(B_eigen.innerIndexPtr(), B_eigen.innerIndexPtr() + B_nnz, B_csc.rowidxs);
-    std::copy(B_eigen.outerIndexPtr(), B_eigen.outerIndexPtr() + B_cols + 1, B_csc.colptr);
+    // Create inner composite: Sparse * Gaussian
+    RandLAPACK::linops::CompositeOperator inner_composite(data.m, n_cols, saso_linop, gaussian_linop);
+
+    // Create outer composite: CholSolver * (Sparse * Gaussian)
+    RandLAPACK::linops::CompositeOperator outer_composite(data.m, data.n, A_inv_linop, inner_composite);
 
     printf("SPD matrix dimension: %ld x %ld\n", A_inv_linop.n_rows, A_inv_linop.n_cols);
-    printf("Sparse matrix dimension: %ld x %ld\n", B_csc.n_rows, B_csc.n_cols);
-    printf("Composite operator dimension: %ld x %ld\n", data.m, data.n);
-
-    // Verify dimensions match
-    if (A_inv_linop.n_rows != data.m || B_csc.n_cols != data.n) {
-        throw std::runtime_error("Matrix dimensions don't match benchmark data");
-    }
-    if (A_inv_linop.n_cols != B_csc.n_rows) {
-        throw std::runtime_error("Inner dimensions of composite don't match");
-    }
-
-    // Create SparseLinOp
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> B_sp_linop(
-        B_csc.n_rows, B_csc.n_cols, B_csc);
-
-    // Create CompositeOperator
-    RandLAPACK::linops::CompositeOperator A_composite(data.m, data.n, A_inv_linop, B_sp_linop);
-
-    // Convert sparse matrix to dense for composite computation
-    std::vector<T> B_dense(B_csc.n_rows * B_csc.n_cols, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense.data());
+    printf("SASO matrix dimension: %ld x %ld (nnz: %ld)\n", saso_csc.n_rows, saso_csc.n_cols, saso_csc.nnz);
+    printf("Gaussian matrix dimension: %ld x %ld\n", k_dim, n_cols);
+    printf("Nested composite dimension: %ld x %ld\n", data.m, data.n);
 
     // Compute dense representation for verification
-    printf("Computing dense representation of composite operator...\n");
-    A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, data.m, data.n, B_csc.n_rows,
-                1.0, B_dense.data(), B_csc.n_rows, 0.0, data.A_dense.data(), data.m);
+    printf("Computing dense representation of nested composite operator...\n");
+
+    // Step 1: Densify SASO and compute SASO * Gaussian -> intermediate
+    std::vector<T> saso_dense(data.m * k_dim, 0.0);
+    RandLAPACK::util::sparse_to_dense_summing_duplicates(saso_csc, Layout::ColMajor, saso_dense.data());
+
+    std::vector<T> intermediate(data.m * n_cols, 0.0);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, data.m, n_cols, k_dim, 1.0,
+              saso_dense.data(), data.m, gaussian_mat.data(), k_dim, 0.0, intermediate.data(), data.m);
+
+    // Step 2: Compute CholSolver * intermediate -> final dense representation
+    A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, data.m, data.n, data.m,
+                1.0, intermediate.data(), data.m, 0.0, data.A_dense.data(), data.m);
     printf("Dense representation computed.\n");
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
@@ -153,6 +193,7 @@ static void run_benchmark(
     std::vector<long> timing_results_R_only;
     std::vector<long> timing_results_QR;
     T rel_error, orth_error;
+    int64_t num_orthonormal_cols;
 
     printf("\nRunning %ld iterations of CQRRT_linops...\n", numruns);
 
@@ -166,7 +207,7 @@ static void run_benchmark(
 
         RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_R_only(true, tol, false);  // timing=true, test_mode=false
         CQRRT_R_only.nnz = 2;
-        CQRRT_R_only.call(A_composite, data.R.data(), data.n, d_factor, state_run);
+        CQRRT_R_only.call(outer_composite, data.R.data(), data.n, d_factor, state_run);
 
         timing_results_R_only = CQRRT_R_only.times;
         printf("  R-only total time: %ld microseconds\n", timing_results_R_only.back());
@@ -178,7 +219,7 @@ static void run_benchmark(
 
         RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
         CQRRT_QR.nnz = 2;
-        CQRRT_QR.call(A_composite, data.R.data(), data.n, d_factor, state_run);
+        CQRRT_QR.call(outer_composite, data.R.data(), data.n, d_factor, state_run);
 
         timing_results_QR = CQRRT_QR.times;
         printf("  Q+R total time: %ld microseconds\n", timing_results_QR.back());
@@ -188,10 +229,11 @@ static void run_benchmark(
         verify_factorization(CQRRT_QR.Q, CQRRT_QR.Q_rows, CQRRT_QR.Q_cols,
                             data.R.data(), data.n,
                             data.A_dense.data(), data.m, data.n,
-                            rel_error, orth_error);
+                            rel_error, orth_error, num_orthonormal_cols);
 
         printf("  ||A - QR|| / ||A||: %.6e\n", rel_error);
         printf("  ||Q'Q - I|| / sqrt(n): %.6e\n", orth_error);
+        printf("  Orthonormal columns: %ld / %ld\n", num_orthonormal_cols, data.n);
 
         // Check if errors are acceptable
         T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
@@ -202,7 +244,7 @@ static void run_benchmark(
         }
 
         // Write results to file
-        // Format: R-only timings (6 values), Q+R timings (6 values), rel_error, orth_error
+        // Format: R-only timings (6 values), Q+R timings (6 values), rel_error, orth_error, num_orthonormal_cols
         std::ofstream file(output_filename, std::ios::out | std::ios::app);
 
         // R-only timings
@@ -215,9 +257,10 @@ static void run_benchmark(
             file << timing_results_QR[j] << ", ";
         }
 
-        // Error metrics
+        // Error metrics and orthonormal column count
         file << std::scientific << std::setprecision(6)
-             << rel_error << ", " << orth_error << "\n";
+             << rel_error << ", " << orth_error << ", "
+             << num_orthonormal_cols << "\n";
         file.flush();
     }
 
@@ -226,28 +269,32 @@ static void run_benchmark(
 
 int main(int argc, char *argv[]) {
 
-    if (argc != 6) {
+    if (argc != 8) {
         std::cerr << "Usage: " << argv[0]
-                  << " <output_dir> <spd_matrix.mtx> <sparse_matrix.mtx> <d_factor> <num_runs>"
+                  << " <output_dir> <spd_matrix.mtx> <k_dim> <n_cols> <saso_density> <d_factor> <num_runs>"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
-        std::cerr << "  output_dir       : Directory for output file (use '.' for current dir)" << std::endl;
-        std::cerr << "  spd_matrix.mtx   : Path to SPD matrix in Matrix Market format" << std::endl;
-        std::cerr << "  sparse_matrix.mtx: Path to sparse matrix in Matrix Market format" << std::endl;
-        std::cerr << "  d_factor         : Sketching dimension factor (e.g., 2.0)" << std::endl;
-        std::cerr << "  num_runs         : Number of benchmark iterations" << std::endl;
+        std::cerr << "  output_dir     : Directory for output file (use '.' for current dir)" << std::endl;
+        std::cerr << "  spd_matrix.mtx : Path to SPD matrix in Matrix Market format (determines m)" << std::endl;
+        std::cerr << "  k_dim          : Intermediate dimension (SASO cols / Gaussian rows)" << std::endl;
+        std::cerr << "  n_cols         : Final number of columns (Gaussian cols)" << std::endl;
+        std::cerr << "  saso_density   : Density for sparse SASO matrix (e.g., 0.1)" << std::endl;
+        std::cerr << "  d_factor       : Sketching dimension factor (e.g., 2.0)" << std::endl;
+        std::cerr << "  num_runs       : Number of benchmark iterations" << std::endl;
         return 1;
     }
 
     // Parse command-line arguments
     std::string output_dir = argv[1];
     std::string spd_filename = argv[2];
-    std::string sparse_filename = argv[3];
-    double d_factor = std::stod(argv[4]);
-    int64_t numruns = std::stol(argv[5]);
+    int64_t k_dim = std::stol(argv[3]);
+    int64_t n_cols = std::stol(argv[4]);
+    double saso_density = std::stod(argv[5]);
+    double d_factor = std::stod(argv[6]);
+    int64_t numruns = std::stol(argv[7]);
 
-    // Helper lambda to read Matrix Market dimensions
-    auto read_mm_dimensions = [](const std::string& filename) -> std::pair<int64_t, int64_t> {
+    // Helper lambda to read SPD matrix dimension (square matrix)
+    auto read_spd_dimension = [](const std::string& filename) -> int64_t {
         std::ifstream file(filename);
         if (!file) {
             throw std::runtime_error("Cannot open file: " + filename);
@@ -265,35 +312,37 @@ int main(int argc, char *argv[]) {
         iss >> rows >> cols >> nnz;
         file.close();
 
-        return {rows, cols};
+        if (rows != cols) {
+            throw std::runtime_error("SPD matrix must be square");
+        }
+
+        return rows;
     };
 
-    // Read matrix dimensions
-    auto [spd_rows, spd_cols] = read_mm_dimensions(spd_filename);
-    auto [sparse_rows, sparse_cols] = read_mm_dimensions(sparse_filename);
+    // Read SPD matrix dimension
+    int64_t m = read_spd_dimension(spd_filename);
+    int64_t n = n_cols;
 
-    if (spd_rows != spd_cols) {
-        std::cerr << "Error: SPD matrix must be square" << std::endl;
+    // Validate dimensions
+    if (k_dim <= 0 || n_cols <= 0) {
+        std::cerr << "Error: k_dim and n_cols must be positive" << std::endl;
         return 1;
     }
 
-    if (spd_cols != sparse_rows) {
-        std::cerr << "Error: SPD matrix columns (" << spd_cols
-                  << ") must match sparse matrix rows (" << sparse_rows << ")" << std::endl;
+    if (saso_density <= 0.0 || saso_density > 1.0) {
+        std::cerr << "Error: saso_density must be in (0, 1]" << std::endl;
         return 1;
     }
 
-    int64_t m = spd_rows;
-    int64_t n = sparse_cols;
-
-    printf("\n=== CQRRT_linops Benchmark ===\n");
-    printf("Composite operator: A^{-1} * B\n");
-    printf("  A (SPD): %ld x %ld\n", spd_rows, spd_cols);
-    printf("  B (sparse): %ld x %ld\n", sparse_rows, sparse_cols);
-    printf("  Composite: %ld x %ld\n", m, n);
+    printf("\n=== CQRRT_linops Benchmark (Nested Composite) ===\n");
+    printf("Nested composite: A^{-1} * (S * G)\n");
+    printf("  A (SPD): %ld x %ld (from file)\n", m, m);
+    printf("  S (SASO): %ld x %ld (generated, density: %.3f)\n", m, k_dim, saso_density);
+    printf("  G (Gaussian): %ld x %ld (generated)\n", k_dim, n);
+    printf("  Final composite: %ld x %ld\n", m, n);
     printf("Sketching factor: %.2f\n", d_factor);
     printf("Number of runs: %ld\n", numruns);
-    printf("==============================\n\n");
+    printf("=================================================\n\n");
 
     // Allocate benchmark data
     CQRRT_linops_benchmark_data<double> bench_data(m, n, d_factor);
@@ -313,15 +362,17 @@ int main(int argc, char *argv[]) {
     std::ofstream file(output_path, std::ios::out | std::ios::trunc);  // Clear file first
 
     // Write header information
-    file << "Description: CQRRT_linops runtime benchmark with composite operator (CholSolver * Sparse)\n"
+    file << "Description: CQRRT_linops runtime benchmark with nested composite operator (CholSolver * (SASO * Gaussian))\n"
          << "File format: 14 columns - R-only mode (6): saso_t, qr_t, cholqr_t, a_mod_trsm_t, t_rest, total_t; "
          << "Q+R mode (6): saso_t, qr_t, cholqr_t, a_mod_trsm_t, t_rest, total_t; "
          << "Errors (2): rel_error, orth_error (times in microseconds, errors unitless)\n"
          << "Each row represents one iteration with both R-only and Q+R runs plus verification\n"
          << "Num OMP threads: " << RandLAPACK::util::get_omp_threads() << "\n"
          << "SPD matrix file: " << spd_filename << "\n"
-         << "Sparse matrix file: " << sparse_filename << "\n"
-         << "Composite dimensions: " << m << " x " << n << "\n"
+         << "SPD matrix dimension (m): " << m << "\n"
+         << "Intermediate dimension (k): " << k_dim << "\n"
+         << "Final columns (n): " << n << "\n"
+         << "SASO density: " << saso_density << "\n"
          << "d_factor: " << d_factor << "\n"
          << "num_runs: " << numruns << "\n";
     file.flush();
@@ -329,7 +380,7 @@ int main(int argc, char *argv[]) {
 
     // Run benchmark
     auto start_time = steady_clock::now();
-    run_benchmark(spd_filename, sparse_filename, numruns, d_factor, bench_data, state, output_path);
+    run_benchmark(spd_filename, k_dim, n_cols, saso_density, numruns, d_factor, bench_data, state, output_path);
     auto stop_time = steady_clock::now();
     long total_time = duration_cast<microseconds>(stop_time - start_time).count();
 

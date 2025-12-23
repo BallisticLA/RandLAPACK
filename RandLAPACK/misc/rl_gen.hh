@@ -498,14 +498,15 @@ void gen_spd_mat(
         }
     }
 
-    // Make positive definite: A = A_sym^T * A_sym + n*I
+    // Make positive definite: A = A_sym^T * A_sym + I
     // Compute A_sym^T * A_sym (upper triangle only)
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, n,
                (T)1.0, A_sym.data(), n, (T)0.0, A, n);
 
-    // Add diagonal regularization: A += n*I
+    // Add diagonal regularization: A += I (small constant to ensure positive definiteness)
+    // Using 1.0 instead of n preserves the condition number
     for (int64_t i = 0; i < n; ++i) {
-        A[i + i * n] += n;
+        A[i + i * n] += (T)1.0;
     }
 
     // Copy upper triangle to lower triangle for full symmetric matrix

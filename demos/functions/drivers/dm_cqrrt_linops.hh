@@ -238,12 +238,15 @@ class CQRRT_linops {
             blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R, ldr);
 
             if(this -> timing) {
+                // Stop timing BEFORE cleanup operations to exclude deallocation costs.
+                // Note: First iteration may show inflated times due to cold cache effects.
+                total_t_stop = steady_clock::now();
+
                 saso_t_dur       = duration_cast<microseconds>(saso_t_stop       - saso_t_start).count();
                 qr_t_dur         = duration_cast<microseconds>(qr_t_stop         - qr_t_start).count();
                 a_mod_trsm_t_dur = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
                 cholqr_t_dur     = duration_cast<microseconds>(cholqr_t_stop     - cholqr_t_start).count();
 
-                total_t_stop = steady_clock::now();
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 long t_rest  = total_t_dur - (saso_t_dur + qr_t_dur + cholqr_t_dur + a_mod_trsm_t_dur);
 
@@ -251,6 +254,7 @@ class CQRRT_linops {
                 this -> times = {saso_t_dur, qr_t_dur, cholqr_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
             }
 
+            // Cleanup - now outside the timing region to avoid timing artifacts
             delete[] A_hat;
             delete[] tau;
             delete[] R_sk;
