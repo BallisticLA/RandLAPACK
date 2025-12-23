@@ -301,13 +301,9 @@ TEST_F(TestDmCQRRTLinops, nested_composite_operator_large) {
     double norm_orth = lapack::lansy(Norm::Fro, Uplo::Upper, n, I_ref.data(), n);
 
     double atol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    std::cout << "Large test: norm_AQR=" << norm_AQR << ", norm_A=" << norm_A << ", rel=" << (norm_AQR / norm_A) << std::endl;
-    std::cout << "Large test: norm_orth=" << norm_orth << ", sqrt(n)=" << std::sqrt((double)n) << ", normalized=" << (norm_orth / std::sqrt((double)n)) << std::endl;
-    std::cout << "Large test: atol=" << atol << std::endl;
     ASSERT_LE(norm_AQR, atol * norm_A);
     ASSERT_LE(norm_orth, atol * std::sqrt((double) n));
 
     // Clean up
-    std::cout << "Keeping test matrix at: " << spd_filename << std::endl;
-    // std::remove(spd_filename.c_str());  // Keep for analysis
+    std::remove(spd_filename.c_str());
 }

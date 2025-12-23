@@ -484,24 +484,28 @@ void gen_spd_mat(
     // Generate SPD matrix using eigenvalue decomposition: A = Q * Lambda * Q^T
     // This gives exact control over the condition number
 
-    // Generate eigenvalues with polynomial decay from cond_num to 1
+    // Generate eigenvalues with polynomial decay from 1.0 to 1/cond_num
     ::std::vector<T> eigenvalues(n);
-    T max_eig = cond_num;
-    T min_eig = (T)1.0;
 
-    // Polynomial decay with exponent 2.0 (same as original intent)
-    // First 10% of eigenvalues set to max_eig
+    // Eigenvalues range from 1.0 (max) to 1/cond_num (min)
+    // This gives condition number κ = λ_max/λ_min = 1.0/(1/cond_num) = cond_num
+    T first_eig = (T)1.0;
+    T last_eig = (T)1.0 / cond_num;
+
+    // First 10% of eigenvalues set to 1.0
     int64_t offset = (int64_t)std::floor(n * 0.1);
+
+    // Simple polynomial decay: λ_i = first_eig * (last_eig/first_eig)^((i-offset)/(n-1-offset))^p
+    // This gives eigenvalues from 1.0 down to 1/cond_num, so κ = 1.0 / (1/cond_num) = cond_num
     T p = 2.0;
-    T neg_invp = -(T)1.0 / p;
-    T a = std::pow((std::pow(min_eig, neg_invp) - std::pow(max_eig, neg_invp)) / (n - offset), p);
-    T b = std::pow(a * max_eig, neg_invp) - offset;
 
     for (int64_t i = 0; i < offset; ++i) {
-        eigenvalues[i] = max_eig;
+        eigenvalues[i] = first_eig;
     }
     for (int64_t i = offset; i < n; ++i) {
-        eigenvalues[i] = (T)1.0 / (a * std::pow(i + b, p));
+        T t = (T)(i - offset) / (T)(n - 1 - offset);  // normalized position: 0 to 1
+        T decay = std::pow(t, p);  // polynomial decay
+        eigenvalues[i] = first_eig * std::pow(last_eig / first_eig, decay);
     }
 
     // Generate random orthogonal matrix Q via QR decomposition of Gaussian matrix
