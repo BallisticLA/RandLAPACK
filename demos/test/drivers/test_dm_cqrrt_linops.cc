@@ -222,23 +222,24 @@ TEST_F(TestDmCQRRTLinops, nested_composite_operator) {
 }
 
 // Test with nested composite operator: CholSolver * (SASO * Gaussian) (large scale - similar to benchmark)
-TEST_F(TestDmCQRRTLinops, nested_composite_operator_large) {
+TEST_F(TestDmCQRRTLinops, nested_composite_operator_large_square) {
     int64_t m = 1138;
-    int64_t k_dim = 200;
+    int64_t k_dim = 1138;  // SQUARE intermediate - matches benchmark!
     int64_t n = 100;
     double d_factor = 2.0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state = RandBLAS::RNGState();
 
-    // Generate SPD matrix for CholSolver
-    std::string spd_filename = "/tmp/test_cqrrt_nested_large.mtx";
+    // Generate SPD matrix for CholSolver - keep for benchmark testing
+    std::string spd_filename = "/tmp/test_cqrrt_nested_large_spd_k10.mtx";
     RandLAPACK_demos::generate_spd_matrix_file<double>(spd_filename, m, 10.0, state);
+    std::cout << "Generated SPD matrix (κ=10) at: " << spd_filename << std::endl;
 
     // Create CholSolverLinOp
     RandLAPACK_demos::CholSolverLinOp<double> chol_linop(spd_filename);
 
-    // Generate SASO (sparse) matrix: m × k_dim
-    double saso_density = 0.1;
+    // Generate SASO (sparse) matrix: m × k_dim (SQUARE like benchmark!)
+    double saso_density = 0.5;  // Match benchmark density
     auto saso_coo = RandLAPACK::gen::gen_sparse_mat<double>(m, k_dim, saso_density, state);
 
     // Convert to CSC for SparseLinOp
@@ -305,5 +306,5 @@ TEST_F(TestDmCQRRTLinops, nested_composite_operator_large) {
     ASSERT_LE(norm_orth, atol * std::sqrt((double) n));
 
     // Clean up
-    std::remove(spd_filename.c_str());
+    // std::remove(spd_filename.c_str());
 }
