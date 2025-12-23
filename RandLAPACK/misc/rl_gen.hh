@@ -481,33 +481,52 @@ void gen_spd_mat(
     T* A,
     RandBLAS::RNGState<RNG> &state
 ) {
-    // Generate base matrix using polynomial decay
-    mat_gen_info<T> m_info(n, n, polynomial);
-    m_info.cond_num = cond_num;
-    m_info.rank = n;
-    m_info.exponent = 2.0;
+    // Generate SPD matrix using eigenvalue decomposition: A = Q * Lambda * Q^T
+    // This gives exact control over the condition number
 
-    ::std::vector<T> A_base(n * n);
-    mat_gen(m_info, A_base.data(), state);
+    // Generate eigenvalues with polynomial decay from cond_num to 1
+    ::std::vector<T> eigenvalues(n);
+    T max_eig = cond_num;
+    T min_eig = (T)1.0;
 
-    // Make symmetric: A_sym = A_base + A_base^T
-    ::std::vector<T> A_sym(n * n);
-    for (int64_t i = 0; i < n; ++i) {
-        for (int64_t j = 0; j < n; ++j) {
-            A_sym[i + j * n] = A_base[i + j * n] + A_base[j + i * n];
+    // Polynomial decay with exponent 2.0 (same as original intent)
+    // First 10% of eigenvalues set to max_eig
+    int64_t offset = (int64_t)std::floor(n * 0.1);
+    T p = 2.0;
+    T neg_invp = -(T)1.0 / p;
+    T a = std::pow((std::pow(min_eig, neg_invp) - std::pow(max_eig, neg_invp)) / (n - offset), p);
+    T b = std::pow(a * max_eig, neg_invp) - offset;
+
+    for (int64_t i = 0; i < offset; ++i) {
+        eigenvalues[i] = max_eig;
+    }
+    for (int64_t i = offset; i < n; ++i) {
+        eigenvalues[i] = (T)1.0 / (a * std::pow(i + b, p));
+    }
+
+    // Generate random orthogonal matrix Q via QR decomposition of Gaussian matrix
+    ::std::vector<T> Q(n * n);
+    ::std::vector<T> tau(n);
+
+    RandBLAS::DenseDist D(n, n);
+    state = RandBLAS::fill_dense(D, Q.data(), state);
+
+    // QR factorization to get orthogonal Q
+    lapack::geqrf(n, n, Q.data(), n, tau.data());
+    lapack::orgqr(n, n, n, Q.data(), n, tau.data());
+
+    // Form A = Q * Lambda * Q^T
+    // Step 1: Temp = Q * Lambda (scale columns of Q by eigenvalues)
+    ::std::vector<T> Temp(n * n);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            Temp[i + j * n] = Q[i + j * n] * eigenvalues[j];
         }
     }
 
-    // Make positive definite: A = A_sym^T * A_sym + I
-    // Compute A_sym^T * A_sym (upper triangle only)
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, n,
-               (T)1.0, A_sym.data(), n, (T)0.0, A, n);
-
-    // Add diagonal regularization: A += I (small constant to ensure positive definiteness)
-    // Using 1.0 instead of n preserves the condition number
-    for (int64_t i = 0; i < n; ++i) {
-        A[i + i * n] += (T)1.0;
-    }
+    // Step 2: A = Temp * Q^T (symmetric rank-k update)
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, n, n,
+               (T)1.0, Temp.data(), n, (T)0.0, A, n);
 
     // Copy upper triangle to lower triangle for full symmetric matrix
     for (int64_t i = 0; i < n; ++i) {
