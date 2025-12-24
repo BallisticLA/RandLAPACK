@@ -82,15 +82,19 @@ private:
     ) {
         if (trans_A == Op::NoTrans) {
             // Solve A * x = b via L * L^T * x = b
-            return chol_solver.solve(b);
+            // CRITICAL: Force evaluation to concrete vector
+            Eigen::Matrix<T, Eigen::Dynamic, 1> x = chol_solver.solve(b);
+            return x;
         } else {
             // Solve A^T * x = b, where A = L * L^T, so A^T = L^T * L
             // Step 1: L * y = b (solve for y)
             // Step 2: L^T * x = y (solve for x)
             auto L = chol_solver.matrixL();
             auto LT = chol_solver.matrixU();
-            auto y = L.solve(b);
-            return LT.solve(y);
+            // CRITICAL: Force evaluation to concrete vector
+            Eigen::Matrix<T, Eigen::Dynamic, 1> y = L.solve(b);
+            Eigen::Matrix<T, Eigen::Dynamic, 1> x = LT.solve(y);
+            return x;
         }
     }
 
@@ -202,41 +206,59 @@ public:
         T* C,
         int64_t ldc
     ) {
-        // Handle Side::Right using BLAS gemv (zero-copy approach)
+        // Handle Side::Right using block-solve approach
         if (side == Side::Right) {
             // Want: C := alpha * op(B) * op(A^{-1}) + beta * C
-            // Strategy: For each column j of C, compute C[:, j] = alpha * op(B) * x_j + beta * C[:, j]
-            //           where x_j is column j of op(A^{-1}), obtained by solving op(A) * x_j = e_j
+            // Strategy: Solve op(A) * X = I_n to get the first n columns of op(A^{-1}),
+            // then compute each column of C using gemv.
+            //
+            // We solve for ALL columns of A^{-1} at once (block solve) for better numerical
+            // stability with sparse Cholesky, then apply them column-by-column using gemv.
 
             // Ensure factorization is computed
             if (!factorization_done) {
                 factorize();
             }
 
+            // Dimensions:
             // C is m × n
             // op(B) is m × k
-            // op(A^{-1}) is k × n (since A is k × k)
-            // We need n solves, one for each column of op(A^{-1})
+            // op(A^{-1}) is k × n (first n columns/rows of A^{-1})
 
-            // Determine B's storage dimensions (before transpose)
-            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
+            // Solve op(A) * X = I_n to get X = first n columns of op(A^{-1})
+            // For sparse SPD matrices, solving for multiple RHS at once is more
+            // numerically stable than solving column-by-column.
+            Eigen::MatrixXd I_n = Eigen::MatrixXd::Identity(k, n);
+            Eigen::MatrixXd A_inv;  // Will be k × n
 
-            // For each column j of C (corresponds to column j of op(A^{-1}))
+            if (trans_A == Op::NoTrans) {
+                // Solve A * X = I_n
+                A_inv = chol_solver.solve(I_n);
+            } else {
+                // For SPD matrices, A^T = A, so this is the same as NoTrans
+                // But we implement it anyway for generality
+                A_inv = chol_solver.solve(I_n);
+            }
+
+            // Scale C by beta
+            if (beta != (T)1.0) {
+                blas::scal(m * n, beta, C, 1);
+            }
+
+            // Now compute each column of C: C[:, j] = alpha * op(B) * A_inv[:, j] + C[:, j]
+            // Use gemv for each column
             for (int64_t j = 0; j < n; ++j) {
-                // Solve op(A) * x_j = e_j to get column j of op(A^{-1})
-                std::vector<T> e_j(k, (T)0.0);
-                e_j[j] = (T)1.0;
-                Eigen::Map<const Eigen::Matrix<T, Eigen::Dynamic, 1>> b_vec(e_j.data(), k);
+                // Get pointer to column j of A_inv (in Eigen's column-major storage)
+                const T* a_inv_col = A_inv.data() + j * k;
 
-                auto x_j = solve_with_transpose(b_vec, trans_A);
-
-                // Compute C[:, j] = alpha * op(B) * x_j + beta * C[:, j]
+                // Get pointer to column j of C and its increment
                 auto [c_col, inc_c] = get_c_column(j, layout, C, ldc);
 
-                // gemv: y = alpha * op(A) * x + beta * y
-                // B is rows_B × cols_B (storage dimensions before transpose)
-                blas::gemv(layout, trans_B, rows_B, cols_B, alpha, B, ldb, x_j.data(), 1, beta, c_col, inc_c);
+                // Compute C[:, j] += alpha * op(B) * A_inv[:, j]
+                // op(B) is m × k, A_inv[:, j] is k × 1, result is m × 1
+                blas::gemv(layout, trans_B, m, k, alpha, B, ldb, a_inv_col, 1, (T)1.0, c_col, inc_c);
             }
+
             return;
         }
 
