@@ -9,7 +9,8 @@ if (GTest_FOUND)
     include_directories(${CMAKE_SOURCE_DIR}/functions)
 
     set(RandLAPACK_demos_test_srcs
-        drivers/test_dm_cqrrt_linops.cc
+        drivers/test_dm_cqrrt_linops_dense.cc
+        drivers/test_dm_cqrrt_linops_sparse.cc
         misc/test_dm_cholsolver_linop.cc
         misc/test_dm_composite_linop.cc
     )

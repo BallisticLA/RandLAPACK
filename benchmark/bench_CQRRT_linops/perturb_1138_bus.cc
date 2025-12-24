@@ -182,7 +182,7 @@ int main(int argc, char *argv[]) {
     meta << "max_target_condition: " << max_cond << "\n";
     meta << "perturbation_method: diagonal_regularization (A + alpha*I)\n";
     meta << "spacing: logarithmic\n";
-    meta << "# Format: index, alpha, target_cond, actual_cond, nnz, filename\n";
+    meta << "# Format: index, condition_number, filename\n";
     meta << "# ----------------------------------------\n";
 
     for (int64_t i = 0; i < num_matrices; ++i) {
@@ -230,10 +230,8 @@ int main(int argc, char *argv[]) {
 
         printf("κ_actual=%.6e, nnz=%ld, saved to %s\n", actual_cond, nnz_perturbed, filename);
 
-        // Write to metadata
-        meta << i << ", " << std::scientific
-             << alpha << ", " << target_cond << ", " << actual_cond << ", "
-             << nnz_perturbed << ", " << filename << "\n";
+        // Write to metadata (format: index, condition_number, filename)
+        meta << i << ", " << std::scientific << actual_cond << ", " << filename << "\n";
     }
 
     meta.close();
