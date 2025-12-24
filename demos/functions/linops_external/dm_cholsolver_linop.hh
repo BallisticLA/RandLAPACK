@@ -25,12 +25,17 @@ namespace RandLAPACK_demos {
 /// - However, A^{-1} itself is typically dense, so A^{-1} * b produces a dense result
 ///   even when b is sparse
 ///
-/// Implementation rationale for sparse B
+/// Implementation rationale for sparse B:
 /// The operator processes input matrix B column-by-column, solving A * x = b for each column.
 /// When B is sparse, we densify it before processing because:
 /// 1. Sparse triangular solves effectively treat input vectors as dense (must touch all entries)
 /// 2. The result A^{-1} * b_sparse is dense regardless of input sparsity
 /// 3. Full densification is simpler and avoids repeated column extraction overhead
+///
+/// CQRRT compatibility:
+/// Natural ordering (no permutations) is required for CQRRT to work correctly with sparse SPD.
+/// Fill-reducing permutations (AMD, COLAMD) break CQRRT's numerical stability, causing non-orthogonal Q.
+/// Trade-off: Natural ordering may increase fill-in but ensures CQRRT produces machine-precision results.
 ///
 /// This operator is compatible with RandLAPACK::linops::CompositeOperator.
 template <typename T>
@@ -40,8 +45,9 @@ struct CholSolverLinOp {
     const int64_t n_cols;
     std::string matrix_file;
 
-    // Eigen sparse Cholesky solver
-    Eigen::SimplicialLLT<Eigen::SparseMatrix<T>> chol_solver;
+    // Eigen sparse Cholesky solver with natural ordering (no permutations)
+    // Using NaturalOrdering to avoid fill-reducing permutations that break CQRRT
+    Eigen::SimplicialLLT<Eigen::SparseMatrix<T>, Eigen::Lower, Eigen::NaturalOrdering<int>> chol_solver;
 
     bool factorization_done;
 
