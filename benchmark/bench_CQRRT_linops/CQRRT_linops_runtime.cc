@@ -206,7 +206,7 @@ static void run_benchmark(
         auto state_run = state;
 
         RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_R_only(true, tol, false);  // timing=true, test_mode=false
-        CQRRT_R_only.nnz = 2;
+        CQRRT_R_only.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
         CQRRT_R_only.call(outer_composite, data.R.data(), data.n, d_factor, state_run);
 
         timing_results_R_only = CQRRT_R_only.times;
@@ -218,7 +218,7 @@ static void run_benchmark(
         state_run = state;  // Reset to same RNG state
 
         RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
-        CQRRT_QR.nnz = 2;
+        CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
         CQRRT_QR.call(outer_composite, data.R.data(), data.n, d_factor, state_run);
 
         timing_results_QR = CQRRT_QR.times;
