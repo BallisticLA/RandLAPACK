@@ -153,7 +153,7 @@ static conditioning_result<T> run_single_test(
     auto t_start = steady_clock::now();
 
     RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(false, tol, true);  // timing=false, test_mode=true
-    CQRRT_QR.nnz = 2;
+    CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
     CQRRT_QR.call(outer_composite, R.data(), n, d_factor, state);
 
     auto t_stop = steady_clock::now();
