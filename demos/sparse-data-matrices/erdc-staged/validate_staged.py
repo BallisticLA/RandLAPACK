@@ -126,7 +126,31 @@ def dic_factory(_A: spmatrix) -> LinearOperator:
 
 def inv_ctc_factory(c_upper: spmatrix, d=None) -> LinearOperator:
     if isinstance(c_upper, (spar.coo_array, spar.coo_matrix)):
-        c_upper = c_upper.tocsc()
+        c_upper = c_upper.tocsr()
+        # For some reason that I cannot FATHOM, using .tocsr()
+        # instead of .tocsc() radically changes the iterate
+        # trajectories from PCG. 
+        #
+        # Maybe related:
+        #   https://github.com/scipy/scipy/issues/6603.
+        #   https://github.com/scipy/scipy/issues/14091.
+        #
+        #   Apparently spsolve_triangular operates on a view
+        #   of the input matrix. So a lower-triangular view
+        #   of a matrix that is in fact upper-triangular would
+        #   be a diagonal matrix.
+        #
+        #       Maybe /Users/rjmurr/mico3/envs/rb311b/lib/python3.11/site-packages/scipy/sparse/linalg/_dsolve/linsolve.py::672 is ... wrong ???
+        #       That seems like madness ???
+        #
+        #   x = np.random.randn(c_upper.shape[0])
+        #   c_upper_csr = c_upper.copy().tocsr()
+        #   c_upper_csc = c_upper.copy().tocsc()
+        #   y_csc = spsolve_triangular(c_upper_csc.T, x, lower=True)
+        #   y_csr = spsolve_triangular(c_upper_csr.T, x, lower=True)
+        #   z_csc = spsolve_triangular(c_upper_csc, y_csc, lower=False)
+        #   z_csr = spsolve_triangular(c_upper_csr, y_csr, lower=False)
+        #   la.norm(y_csc - y_csr)  # very big
     def spcho_solve(vec):
         y = spsolve_triangular( c_upper.T, vec, lower=True  )
         if d is not None:
