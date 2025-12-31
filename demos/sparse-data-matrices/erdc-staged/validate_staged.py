@@ -187,69 +187,71 @@ def read_richol_preconditioner(p: str) -> LinearOperator:
     return M
 
 
-factories = {
-    'SSOR preconditioning' : ssor_factory,
-    'DIC preconditioning' : dic_factory,
-    'ILU preconditioning' : ilu_factory,
-    'Jacobi preconditioning' : jacobi_factory
-}
+if __name__ == '__main__':
 
-curve_colors = {
-    'DIC preconditioning':    'k',
-    'RIC preconditioning':    'b',
-    'Jacobi preconditioning': 'r',
-    'SSOR preconditioning':    'orange'
-}
+    factories = {
+        'SSOR preconditioning' : ssor_factory,
+        'DIC preconditioning' : dic_factory,
+        'ILU preconditioning' : ilu_factory,
+        'Jacobi preconditioning' : jacobi_factory
+    }
+
+    curve_colors = {
+        'DIC preconditioning':    'k',
+        'RIC preconditioning':    'b',
+        'Jacobi preconditioning': 'r',
+        'SSOR preconditioning':    'orange'
+    }
 
 
-iters = 500
+    iters = 500
 
-for p in paths:
-    A, b, x0 = read_system(p)
-    x_direct = qdldl.Solver(A).solve(b)
+    for p in paths:
+        A, b, x0 = read_system(p)
+        x_direct = qdldl.Solver(A).solve(b)
 
-    residuals = dict()
+        residuals = dict()
 
-    # run PCG with classical preconditioners
-    for k, f in {'DIC preconditioning' : dic_factory, 
-                 'SSOR preconditioning' : ssor_factory,
-                 'Jacobi preconditioning' : jacobi_factory }.items():
+        # run PCG with classical preconditioners
+        for k, f in {'DIC preconditioning' : dic_factory, 
+                    'SSOR preconditioning' : ssor_factory,
+                    'Jacobi preconditioning' : jacobi_factory }.items():
+            cur_resid, callback = stateful_cg_callback(A, b, x_direct)
+            callback(x0)
+            M = f(A)
+            _ = cg(A, b, x0, rtol=0, atol=0, maxiter=iters, M=M, callback=callback)
+            residuals[k] = cur_resid
+        
         cur_resid, callback = stateful_cg_callback(A, b, x_direct)
         callback(x0)
-        M = f(A)
+        M = read_richol_preconditioner(p)
         _ = cg(A, b, x0, rtol=0, atol=0, maxiter=iters, M=M, callback=callback)
-        residuals[k] = cur_resid
-    
-    cur_resid, callback = stateful_cg_callback(A, b, x_direct)
-    callback(x0)
-    M = read_richol_preconditioner(p)
-    _ = cg(A, b, x0, rtol=0, atol=0, maxiter=iters, M=M, callback=callback)
-    residuals['RIC preconditioning'] = cur_resid
+        residuals['RIC preconditioning'] = cur_resid
 
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 6), sharex=True)
-    ax1.set_title('OpenFOAM residual of $x_k$ (see $\S 5.4$ of $Notes~on~CFD$)')
-    ax2.set_title('CG minimization objective $\\| A^{1/2}(x_k - A^{-1}b)\\|$')
-    ax3.set_title('Root MSE of residual $\\| A x_k - b\\|_2 / \\sqrt{n}$')
-    fig.suptitle('Error trajectories of PCG iterates in solving the "p_rgh" system from ' + linear_system_name(p))
-    xaxis = np.arange(iters + 1)
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 6), sharex=True)
+        ax1.set_title('OpenFOAM residual of $x_k$ (see $\S 5.4$ of $Notes~on~CFD$)')
+        ax2.set_title('CG minimization objective $\\| A^{1/2}(x_k - A^{-1}b)\\|$')
+        ax3.set_title('Root MSE of residual $\\| A x_k - b\\|_2 / \\sqrt{n}$')
+        fig.suptitle('Error trajectories of PCG iterates in solving the "p_rgh" system from ' + linear_system_name(p))
+        xaxis = np.arange(iters + 1)
 
-    for i, ax in enumerate([ax1, ax2, ax3]):
-        for precname in ['DIC preconditioning', 'SSOR preconditioning', 'RIC preconditioning', 'Jacobi preconditioning']:
-            resids = residuals[precname]
-            arr = np.array([a[i] for a in resids])
-            ax.semilogy(xaxis, arr, color=curve_colors[precname], label=precname)
-        ax.yaxis.minorticks_on()
-        ax.xaxis.minorticks_on()
-        ax.grid(which='major', linestyle='--', linewidth=0.5, color='k', alpha=0.75)
-        ax.grid(which='minor', linestyle='--', linewidth=0.5, color='k', alpha=0.333)
-        ax.legend(facecolor='white', framealpha=1, loc='lower left')
-        ax.set_xlabel('k')
+        for i, ax in enumerate([ax1, ax2, ax3]):
+            for precname in ['DIC preconditioning', 'SSOR preconditioning', 'RIC preconditioning', 'Jacobi preconditioning']:
+                resids = residuals[precname]
+                arr = np.array([a[i] for a in resids])
+                ax.semilogy(xaxis, arr, color=curve_colors[precname], label=precname)
+            ax.yaxis.minorticks_on()
+            ax.xaxis.minorticks_on()
+            ax.grid(which='major', linestyle='--', linewidth=0.5, color='k', alpha=0.75)
+            ax.grid(which='minor', linestyle='--', linewidth=0.5, color='k', alpha=0.333)
+            ax.legend(facecolor='white', framealpha=1, loc='lower left')
+            ax.set_xlabel('k')
 
-    with open(p + '/residuals.pkl', 'wb') as jar:
-        pkl.dump(residuals, jar)
-    plt.tight_layout()
-    plt.savefig(p + '/fig.pdf')
-    continue
+        with open(p + '/residuals.pkl', 'wb') as jar:
+            pkl.dump(residuals, jar)
+        plt.tight_layout()
+        plt.savefig(p + '/fig.pdf')
+        continue
 
 
-print()
+    print()
