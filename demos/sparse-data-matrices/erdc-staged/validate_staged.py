@@ -31,10 +31,11 @@ def linear_system_name(p: str):
 def is_sddm(A: spmatrix, sdd_reltol: float) -> bool:
     d = A.diagonal()
     A_x_ones = A @ np.ones(d.size)
+    A_x_ones /= la.norm(A_x_ones, np.inf)
     offd_ok = np.all((A - spar.diags(d)).data <= 0)
     symm_ok = np.all((A - A.T).data == 0)
     diag_ok = np.all(d > 0)
-    sums_ok = np.all(A_x_ones >= - sdd_reltol * d )
+    sums_ok = np.all(A_x_ones >= - sdd_reltol )
     all_ok  = bool(offd_ok and symm_ok and diag_ok and sums_ok)
     return all_ok
 
@@ -130,7 +131,7 @@ def dic_diagonal(A: spmatrix) -> np.ndarray:
     This function adapts that method for SDDM matrices and constructs the
     diagonal of D (rather than that of inv(D)).
     """
-    assert is_sddm(A, sdd_reltol=0.0)
+    assert is_sddm(A, sdd_reltol=1e-15)
     a : spar.csc_matrix = as_compressed(A, 'csc')  # type: ignore
     d = a.diagonal()
     inds = a.indices
