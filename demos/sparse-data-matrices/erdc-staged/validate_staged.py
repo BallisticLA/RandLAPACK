@@ -117,38 +117,41 @@ def as_compressed(A: spmatrix, format:str='csc'):
 
 
 def ssor_factory(A: spmatrix) -> LinearOperator:
-    lower = spar.tril(A, format='csc')
-    lower = lower @ spar.diags(A.diagonal() ** -0.5)
-    return inv_cct_factory(lower)
+    L : spar.csc_matrix = spar.tril(A, format='csc') # type: ignore
+    d = A.diagonal()
+    L = L @ spar.diags(d ** -0.5)
+    return inv_cct_factory(L)
 
 
-def dic_factory(A: spmatrix) -> LinearOperator:
+def dic_diagonal(A: spmatrix) -> np.ndarray:
     """
     Figure 3.3 of https://www.netlib.org/templates/templates.pdf shows
     how to compute the diagonal of "inv(D)" for the D-ILU preconditioner.
-    This function specializes that method for SDDM matrices and produces
-    a diagonal-based incomplete Cholesky preconditioner.
+    This function adapts that method for SDDM matrices and constructs the
+    diagonal of D (rather than that of inv(D)).
     """
     assert is_sddm(A, sdd_reltol=0.0)
-    a : spar.csc_matrix = as_compressed(A, 'csc') # type: ignore
+    a : spar.csc_matrix = as_compressed(A, 'csc')  # type: ignore
     d = a.diagonal()
     inds = a.indices
     ptrs = a.indptr
     vals = a.data
     for i in range(d.size):
-        d[i] = 1/d[i]
         j = inds[ptrs[i]:ptrs[i+1]]
         v = vals[ptrs[i]:ptrs[i+1]]
         selector = j > i
         j = j[selector]
         v = v[selector]
-        d[j] -= d[i] * v**2
-    lower : spar.csc_matrix = spar.tril(
-        A, format='csc'
-    ) # type: ignore
-    lower.setdiag(1/d)
-    lower = lower @ spar.diags(d ** 0.5)
-    return inv_cct_factory(lower)
+        d[j] -= v**2 / d[i]
+    return d
+
+
+def dic_factory(A: spmatrix) -> LinearOperator:
+    d = dic_diagonal(A)
+    L : spar.csc_matrix = spar.tril(A, format='csc') # type: ignore
+    L.setdiag(d)
+    L = L @ spar.diags(d ** -0.5)
+    return inv_cct_factory(L)
 
 
 def inv_cct_factory(c_lower: spmatrix) -> LinearOperator:
