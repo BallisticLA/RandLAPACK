@@ -16,8 +16,8 @@ spmatrix : TypeAlias = spar.coo_matrix | spar.csc_matrix | spar.csr_matrix
 paths = [
     '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=0.00263982s/amd_true',
     '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=25.8342s/amd_true',
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-64k/abs-tol/t=0.019081s/amd_true',
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-266k/abs-tol/t=0.00117647s/amd_true',
+    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-64k/abs-tol/t=0.019081s/amd_true',
+    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-266k/abs-tol/t=0.00117647s/amd_true',
     # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-2123k/abs-tol/t=0.00117647s/amd_true',
     # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-1024k/abs-tol/t=1.22302e-05s/amd_true',
 ]
@@ -28,14 +28,27 @@ def linear_system_name(p: str):
     return parts[1]
 
 
-def read_and_validate_A(p: str) -> spmatrix:
-    A = scio.mmread(p + '/A.mtx')
+def is_sddm(_A: spmatrix, sdd_reltol: float) -> bool:
+    d = _A.diagonal()
+    A_x_ones = _A @ np.ones(d.size)
+    offd_ok = np.all((_A - spar.diags(d)).data <= 0)
+    symm_ok = np.all((_A - _A.T).data == 0)
+    diag_ok = np.all(d > 0)
+    sums_ok = np.all(A_x_ones >= - sdd_reltol * d )
+    all_ok  = bool(offd_ok and symm_ok and diag_ok and sums_ok)
+    return all_ok
+
+
+def read_and_validate_A(p: str, sdd_rtol=1e-12) -> spmatrix:
+    A : spar.coo_matrix = scio.mmread(
+        p + '/A.mtx', spmatrix=True
+    ) # type: ignore
     d = A.diagonal()
     A_x_ones = A @ np.ones(d.size)
     offd_ok = np.all((A - spar.diags(d)).data <= 0)
     symm_ok = np.all((A - A.T).data == 0)
     diag_ok = np.all(d > 0)
-    sums_ok = np.all(A_x_ones > - 1e-12 * d )
+    sums_ok = np.all(A_x_ones >= - sdd_rtol * d )
     if not all([diag_ok, sums_ok, offd_ok, symm_ok]):
         print('\nFailed SDDM check for\n' + p)
         print('diag ' + str(diag_ok))
@@ -43,19 +56,23 @@ def read_and_validate_A(p: str) -> spmatrix:
         print('offd ' + str(offd_ok))
         print('symm ' + str(symm_ok))
         raise ValueError()
+    A.setdiag(d - np.minimum(A_x_ones, 0))
     return A
 
 
-def read_and_validate_C(p: str) -> spmatrix:
-    C = scio.mmread(p + '/richol_C_seed_0.mtx')
-    diag_ok = np.all(C.diagonal() > 0)
-    triu_ok = np.all((C - spar.tril(C)).data == 0)
+def read_and_validate_c_upper(p: str) -> spmatrix:
+    c_lower : spar.coo_matrix = scio.mmread(
+        p + '/richol_C_seed_0.mtx', spmatrix=True
+    ) # type: ignore
+    diag_ok = np.all(c_lower.diagonal() > 0)
+    triu_ok = np.all(spar.triu(c_lower, k=1).data == 0)
     if (not diag_ok) or (not triu_ok):
         print('\nInvalid preconditioner for\n' + p)
         print('diag : ' + str(diag_ok))
         print('triu : ' + str(triu_ok))
         raise ValueError()
-    return C
+    return c_lower.T
+
 
 
 def openfoam_residual(_x: np.ndarray, _A: spmatrix, _b: np.ndarray) -> np.floating:
@@ -64,7 +81,7 @@ def openfoam_residual(_x: np.ndarray, _A: spmatrix, _b: np.ndarray) -> np.floati
     return num/den
 
 
-def stateful_cg_callback(_A: spmatrix, _b: np.ndarray, x_direct: Optional[np.ndarray]=None) -> tuple[list, Callable[[np.ndarray],None]]:
+def stateful_cg_callback(_A: spmatrix, _b: np.ndarray, x_direct: Optional[np.ndarray]=None) -> tuple[list, Callable[[np.ndarray], None]]:
     if x_direct is None:
         x_direct = qdldl.Solver(_A).solve(_b)
     log = []
@@ -89,72 +106,46 @@ def jacobi_factory(_A: spmatrix) -> LinearOperator:
 
 
 def ssor_factory(_A: spmatrix) -> LinearOperator:
-    d = A.diagonal()**-0.5
-    lower : spar.csc_matrix = spar.tril(_A, format='csc') @ spar.diags(d)
+    d = _A.diagonal()
+    lower : spar.csc_matrix = spar.tril(_A, format='csc')
+    lower = lower @ spar.diags(d ** -0.5)
     upper : spar.csr_matrix = lower.T # type: ignore
     return inv_ctc_factory(upper)
 
 
 def dic_factory(_A: spmatrix) -> LinearOperator:
-    #
-    #   See Figure 3.3 of https://www.netlib.org/templates/templates.pdf
-    #
-    #   The "D" in that algorithm is really inv(D) for the preconditioner M
-    #   defined on page 40, under the heading **Simple cases: ILU(0) and D-ILU.**
-    #
+    """
+    Figure 3.3 of https://www.netlib.org/templates/templates.pdf shows
+    how to compute the diagonal of "inv(D)" for the D-ILU preconditioner.
+    This function specializes that method for SDDM matrices and produces
+    a diagonal-based incomplete Cholesky preconditioner.
+    """
+    assert is_sddm(_A, sdd_reltol=0.0)
     d = _A.diagonal()
-    A_csc : spar.csc_matrix = _A.tocsc()
-    inds = A_csc.indices.copy()
-    ptrs = A_csc.indptr.copy()
-    vals = A_csc.data.copy()
-    n = d.size
-    for i in range(n):
+    csc : spar.csc_matrix = _A.tocsc()
+    inds = csc.indices
+    ptrs = csc.indptr
+    vals = csc.data
+    for i in range(d.size):
         d[i] = 1/d[i]
-        js = inds[ptrs[i]:ptrs[i+1]]
-        js = js[js > i]
-        if js.size == 0:
-            continue
-        d[js] -= d[i] * vals[js]**2
-    lower : spar.csc_matrix = spar.tril(A_csc, format='csc')
-    if not lower.has_canonical_format:
-        lower.sum_duplicates()
-        lower.sort_indices()
-    lower.data[lower.indptr[:n]] = 1/d
+        j = inds[ptrs[i]:ptrs[i+1]]
+        v = vals[ptrs[i]:ptrs[i+1]]
+        selector = j > i
+        j = j[selector]
+        v = v[selector]
+        d[j] -= d[i] * v**2
+    lower : spar.csc_matrix = spar.tril(csc, format='csc')
+    lower.setdiag(1/d)
+    lower = lower @ spar.diags(d ** 0.5)
     upper : spar.csr_matrix = lower.T # type: ignore
-    return inv_ctc_factory(upper, d)
+    return inv_ctc_factory(upper)
 
 
-def inv_ctc_factory(c_upper: spmatrix, d=None) -> LinearOperator:
+def inv_ctc_factory(c_upper: spmatrix) -> LinearOperator:
     if isinstance(c_upper, (spar.coo_array, spar.coo_matrix)):
         c_upper = c_upper.tocsr()
-        # For some reason that I cannot FATHOM, using .tocsr()
-        # instead of .tocsc() radically changes the iterate
-        # trajectories from PCG. 
-        #
-        # Maybe related:
-        #   https://github.com/scipy/scipy/issues/6603.
-        #   https://github.com/scipy/scipy/issues/14091.
-        #
-        #   Apparently spsolve_triangular operates on a view
-        #   of the input matrix. So a lower-triangular view
-        #   of a matrix that is in fact upper-triangular would
-        #   be a diagonal matrix.
-        #
-        #       Maybe /Users/rjmurr/mico3/envs/rb311b/lib/python3.11/site-packages/scipy/sparse/linalg/_dsolve/linsolve.py::672 is ... wrong ???
-        #       That seems like madness ???
-        #
-        #   x = np.random.randn(c_upper.shape[0])
-        #   c_upper_csr = c_upper.copy().tocsr()
-        #   c_upper_csc = c_upper.copy().tocsc()
-        #   y_csc = spsolve_triangular(c_upper_csc.T, x, lower=True)
-        #   y_csr = spsolve_triangular(c_upper_csr.T, x, lower=True)
-        #   z_csc = spsolve_triangular(c_upper_csc, y_csc, lower=False)
-        #   z_csr = spsolve_triangular(c_upper_csr, y_csr, lower=False)
-        #   la.norm(y_csc - y_csr)  # very big
     def spcho_solve(vec):
         y = spsolve_triangular( c_upper.T, vec, lower=True  )
-        if d is not None:
-            y *= d
         x = spsolve_triangular( c_upper,     y, lower=False )
         return x
     linop = LinearOperator(
@@ -191,7 +182,7 @@ def read_system(p: str) -> tuple[spmatrix, np.ndarray, np.ndarray]:
 
 
 def read_richol_preconditioner(p: str) -> LinearOperator:
-    C = read_and_validate_C(p)
+    C = read_and_validate_c_upper(p)
     M = inv_ctc_factory(C)
     return M
 
