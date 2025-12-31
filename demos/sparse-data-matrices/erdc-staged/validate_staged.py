@@ -60,7 +60,7 @@ def read_and_validate_A(p: str, sdd_rtol=1e-12) -> spmatrix:
     return A
 
 
-def read_and_validate_c_upper(p: str) -> spmatrix:
+def read_and_validate_c_lower(p: str) -> spmatrix:
     c_lower : spar.coo_matrix = scio.mmread(
         p + '/richol_C_seed_0.mtx', spmatrix=True
     ) # type: ignore
@@ -71,13 +71,14 @@ def read_and_validate_c_upper(p: str) -> spmatrix:
         print('diag : ' + str(diag_ok))
         print('triu : ' + str(triu_ok))
         raise ValueError()
-    return c_lower.T
+    return c_lower
 
 
 
 def openfoam_residual(x: np.ndarray, A: spmatrix, b: np.ndarray) -> np.floating:
+    x_const = np.mean(x)*np.ones(x.shape)
     num = la.norm(b - A @ x, 1)
-    den = (la.norm(A @ (x - np.mean(x)*np.ones(x.shape)), 1) + la.norm(b - A @ (np.mean(x)*np.ones(x.shape)), 1))
+    den = la.norm(b - A @ x_const, 1) + la.norm(A @ (x - x_const), 1)
     return num/den
 
 
@@ -105,12 +106,20 @@ def jacobi_factory(A: spmatrix) -> LinearOperator:
     return linop
 
 
+def as_compressed(A: spmatrix, format:str='csc'):
+    if A.format in {'csc', 'csr'}:
+        return A
+    elif format == 'csc':
+        return A.tocsc()
+    elif format == 'csr':
+        return A.tocsr()
+    raise ValueError()
+
+
 def ssor_factory(A: spmatrix) -> LinearOperator:
-    d = A.diagonal()
-    lower : spar.csc_matrix = spar.tril(A, format='csc')
-    lower = lower @ spar.diags(d ** -0.5)
-    upper : spar.csr_matrix = lower.T # type: ignore
-    return inv_ctc_factory(upper)
+    lower = spar.tril(A, format='csc')
+    lower = lower @ spar.diags(A.diagonal() ** -0.5)
+    return inv_cct_factory(lower)
 
 
 def dic_factory(A: spmatrix) -> LinearOperator:
@@ -121,11 +130,11 @@ def dic_factory(A: spmatrix) -> LinearOperator:
     a diagonal-based incomplete Cholesky preconditioner.
     """
     assert is_sddm(A, sdd_reltol=0.0)
-    d = A.diagonal()
-    csc : spar.csc_matrix = A.tocsc()
-    inds = csc.indices
-    ptrs = csc.indptr
-    vals = csc.data
+    a : spar.csc_matrix = as_compressed(A, 'csc') # type: ignore
+    d = a.diagonal()
+    inds = a.indices
+    ptrs = a.indptr
+    vals = a.data
     for i in range(d.size):
         d[i] = 1/d[i]
         j = inds[ptrs[i]:ptrs[i+1]]
@@ -134,22 +143,23 @@ def dic_factory(A: spmatrix) -> LinearOperator:
         j = j[selector]
         v = v[selector]
         d[j] -= d[i] * v**2
-    lower : spar.csc_matrix = spar.tril(csc, format='csc')
+    lower : spar.csc_matrix = spar.tril(
+        A, format='csc'
+    ) # type: ignore
     lower.setdiag(1/d)
     lower = lower @ spar.diags(d ** 0.5)
-    upper : spar.csr_matrix = lower.T # type: ignore
-    return inv_ctc_factory(upper)
+    return inv_cct_factory(lower)
 
 
-def inv_ctc_factory(c_upper: spmatrix) -> LinearOperator:
-    if isinstance(c_upper, (spar.coo_array, spar.coo_matrix)):
-        c_upper = c_upper.tocsr()
+def inv_cct_factory(c_lower: spmatrix) -> LinearOperator:
+    if isinstance(c_lower, (spar.coo_array, spar.coo_matrix)):
+        c_lower = c_lower.tocsr() # type: ignore
     def spcho_solve(vec):
-        y = spsolve_triangular( c_upper.T, vec, lower=True  )
-        x = spsolve_triangular( c_upper,     y, lower=False )
+        y = spsolve_triangular( c_lower,   vec, lower=True  )
+        x = spsolve_triangular( c_lower.T,   y, lower=False )
         return x
     linop = LinearOperator(
-        dtype=np.double, shape=c_upper.shape,
+        dtype=np.double, shape=c_lower.shape,
         matvec  = lambda v: spcho_solve(v),
         rmatvec = lambda v: spcho_solve(v)
     )
@@ -182,8 +192,8 @@ def read_system(p: str) -> tuple[spmatrix, np.ndarray, np.ndarray]:
 
 
 def read_richol_preconditioner(p: str) -> LinearOperator:
-    C = read_and_validate_c_upper(p)
-    M = inv_ctc_factory(C)
+    C = read_and_validate_c_lower(p)
+    M = inv_cct_factory(C)
     return M
 
 
