@@ -28,11 +28,11 @@ def linear_system_name(p: str):
     return parts[1]
 
 
-def is_sddm(_A: spmatrix, sdd_reltol: float) -> bool:
-    d = _A.diagonal()
-    A_x_ones = _A @ np.ones(d.size)
-    offd_ok = np.all((_A - spar.diags(d)).data <= 0)
-    symm_ok = np.all((_A - _A.T).data == 0)
+def is_sddm(A: spmatrix, sdd_reltol: float) -> bool:
+    d = A.diagonal()
+    A_x_ones = A @ np.ones(d.size)
+    offd_ok = np.all((A - spar.diags(d)).data <= 0)
+    symm_ok = np.all((A - A.T).data == 0)
     diag_ok = np.all(d > 0)
     sums_ok = np.all(A_x_ones >= - sdd_reltol * d )
     all_ok  = bool(offd_ok and symm_ok and diag_ok and sums_ok)
@@ -75,54 +75,54 @@ def read_and_validate_c_upper(p: str) -> spmatrix:
 
 
 
-def openfoam_residual(_x: np.ndarray, _A: spmatrix, _b: np.ndarray) -> np.floating:
-    num = la.norm(_b - _A @ _x, 1)
-    den = (la.norm(_A @ (_x - np.mean(_x)*np.ones(_x.shape)), 1) + la.norm(_b - _A @ (np.mean(_x)*np.ones(_x.shape)), 1))
+def openfoam_residual(x: np.ndarray, A: spmatrix, b: np.ndarray) -> np.floating:
+    num = la.norm(b - A @ x, 1)
+    den = (la.norm(A @ (x - np.mean(x)*np.ones(x.shape)), 1) + la.norm(b - A @ (np.mean(x)*np.ones(x.shape)), 1))
     return num/den
 
 
-def stateful_cg_callback(_A: spmatrix, _b: np.ndarray, x_direct: Optional[np.ndarray]=None) -> tuple[list, Callable[[np.ndarray], None]]:
+def stateful_cg_callback(A: spmatrix, b: np.ndarray, x_direct: Optional[np.ndarray]=None) -> tuple[list, Callable[[np.ndarray], None]]:
     if x_direct is None:
-        x_direct = qdldl.Solver(_A).solve(_b)
+        x_direct = qdldl.Solver(A).solve(b)
     log = []
-    def callback(_x):
+    def callback(x):
         vec = np.array([
-            openfoam_residual(_x, _A, _b),
-            np.sqrt((x_direct - _x) @ _A @ (x_direct - _x)),
-            la.norm(_A @ _x - _b) / _x.size**0.5
+            openfoam_residual(x, A, b),
+            np.sqrt((x_direct - x) @ A @ (x_direct - x)),
+            la.norm(A @ x - b) / x.size**0.5
         ])
         log.append(vec)
     return log, callback
 
 
-def jacobi_factory(_A: spmatrix) -> LinearOperator:
-    d = _A.diagonal()
+def jacobi_factory(A: spmatrix) -> LinearOperator:
+    d = A.diagonal()
     linop = LinearOperator(
-        dtype=np.double, shape=_A.shape,
+        dtype=np.double, shape=A.shape,
         matvec  = lambda v: v / d,
         rmatvec = lambda v: v / d
     )
     return linop
 
 
-def ssor_factory(_A: spmatrix) -> LinearOperator:
-    d = _A.diagonal()
-    lower : spar.csc_matrix = spar.tril(_A, format='csc')
+def ssor_factory(A: spmatrix) -> LinearOperator:
+    d = A.diagonal()
+    lower : spar.csc_matrix = spar.tril(A, format='csc')
     lower = lower @ spar.diags(d ** -0.5)
     upper : spar.csr_matrix = lower.T # type: ignore
     return inv_ctc_factory(upper)
 
 
-def dic_factory(_A: spmatrix) -> LinearOperator:
+def dic_factory(A: spmatrix) -> LinearOperator:
     """
     Figure 3.3 of https://www.netlib.org/templates/templates.pdf shows
     how to compute the diagonal of "inv(D)" for the D-ILU preconditioner.
     This function specializes that method for SDDM matrices and produces
     a diagonal-based incomplete Cholesky preconditioner.
     """
-    assert is_sddm(_A, sdd_reltol=0.0)
-    d = _A.diagonal()
-    csc : spar.csc_matrix = _A.tocsc()
+    assert is_sddm(A, sdd_reltol=0.0)
+    d = A.diagonal()
+    csc : spar.csc_matrix = A.tocsc()
     inds = csc.indices
     ptrs = csc.indptr
     vals = csc.data
@@ -156,13 +156,13 @@ def inv_ctc_factory(c_upper: spmatrix) -> LinearOperator:
     return linop
 
 
-def ilu_factory(_A: spar.spmatrix) -> LinearOperator:
+def ilu_factory(A: spar.spmatrix) -> LinearOperator:
     # I assume the linear operator represented by
     # ilu_factorization is positive definite when 
-    # _A is positive definite.
-    ilu_factorization = spilu(_A)
+    # A is positive definite.
+    ilu_factorization = spilu(A)
     linop = LinearOperator(
-        dtype=np.double, shape=_A.shape,
+        dtype=np.double, shape=A.shape,
         matvec  = lambda v: ilu_factorization.solve(v),
         rmatvec = lambda v: ilu_factorization.solve(v)
     )
