@@ -492,8 +492,7 @@ void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<sca
     vector<scalar_t>  cdf_vec(num_neighbors);
     auto w_sum = zero;
     ell = 0;
-    for (const comp_t &comp : neighbors) {
-        auto &[val, ind] = comp;
+    for (const auto &[val, ind] : neighbors) {
         randblas_require(val >= 0);
         randblas_require(ind > k);
         w_sum += val;
@@ -503,36 +502,58 @@ void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<sca
     }
 
     // add the sampled spanning tree that approximates the clique in expectation
+    //
+    //     PROCESS: We iterate over the neighbors per the order in `indices`. For
+    //     each ell_1 in the list [[num_neighbors]] := [0,...,num_neigbors-1], we
+    //     pick some ell_2 > ell_1 (in some particular randomized way) and introduce
+    //     an edge between indices[ell_1] and indices[ell_2].
+    //
+    //     CLAIM: That process produces a tree over neighbors, regardless of the
+    //     ordering of `indices` (and neighbors).
+    //
+    //         PROOF. Fix ell in [[num_neighbors]]. Once the iterations complete,
+    //         there's a path from index[ell] to index[num_neighbors-1]. This means
+    //         we've created a connected graph among the neighbors. In particular,
+    //         for any pair (i1, i2), there is a path from index[i1] to index[i2]
+    //         that goes through index[num_neighbors-1]). At the same time, the process
+    //         adds exactly num_neighbors-1 edges. A connected graph on num_neighbors
+    //         vertices with num_neighbors-1 edges is a tree.
+    //
+    //     CLAIM: For the particular randomized way that the process constructs
+    //     the tree among neighbors, the expected value of the update to M 
+    //     (averaging over randomness in the choices) is the Laplacian of the
+    //     clique of neighbors.
+    //
+    //         PROOF. See Theorem 2.3 of https://arxiv.org/pdf/2011.07769, which
+    //         is stated for pseudocode that's easily seen to be equivalent to
+    //         our implementation. Alternatively, see the discussion just before
+    //         Claim 3.3 of https://rasmuskyng.com/papers/GKS25.pdf. The arguments
+    //         there imply would our claim even if `indices` was sorted in an
+    //         arbitrary order (although, the equivalence between their pseudocode
+    //         and our implementation with a given order of indices may not be
+    //         immediately obvious).
+    //
     if (num_neighbors > 1) {
         auto w_sum_work  = w_sum;
         auto cdf = cdf_vec.data();
         scal(num_neighbors, (scalar_t) 1.0 / w_sum, cdf, 1);
-        ell = 0;
-        int64_t sample_ind;
+        int64_t ell_1 = 0;
+        int64_t ell_2 = 0;
         auto num_neighbors_64t = static_cast<int64_t>(num_neighbors);
         for (const auto &[abs_vi, i] : neighbors) {
-            // ^ Equivalently, [abs_vi, i] = neighbors[ell], and i = indices[ell].
-            //   This iteration connects vertex i to a random vertex in the set of
-            //   neighbors.
-            cdf[ell] = zero;
-            // ^ cdf defines a distribution over the neighbors whose weights are
-            //   (nonstrictly) larger than its own weight.
-            //
-            //   The fact that the neighbors are sorted by weight means the update
-            //   to cdf is extremely cheap, yet the whole iterative process still
-            //   guarantees a spanning tree among the neighbors. The spanning-tree
-            //   property is non-obvious, but it's also not hard to show.
-            //
-            state = RandBLAS::sample_indices_iid(num_neighbors_64t, cdf, 1, &sample_ind, state);
-            if (sample_ind == num_neighbors) break;
-            auto j = indices[sample_ind];
+            // ^ Equivalently, i = indices[ell_1].
+            cdf[ell_1] = zero;
+            // ^ Cumulatively, these updates ensure we'll pick ell_2 where ell_2 > ell_1.
+            state = RandBLAS::sample_indices_iid(num_neighbors_64t, cdf, 1, &ell_2, state);
+            // ^ That writes to ell_2.
+            auto j = indices[ell_2];
             w_sum_work = std::max(w_sum_work - abs_vi, zero);
             if (w_sum_work == zero) break;
             auto w = (w_sum_work * abs_vi) / vk;
             M[i].push_back(i, w);
             M[min(i, j)].push_back(max(i, j), -w);
             M[j].push_back(j, w);
-            ++ell;
+            ++ell_1;
         }
     }
 
