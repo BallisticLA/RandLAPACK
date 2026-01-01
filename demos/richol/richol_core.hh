@@ -511,7 +511,18 @@ void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<sca
         int64_t sample_ind;
         auto num_neighbors_64t = static_cast<int64_t>(num_neighbors);
         for (const auto &[abs_vi, i] : neighbors) {
+            // ^ Equivalently, [abs_vi, i] = neighbors[ell], and i = indices[ell].
+            //   This iteration connects vertex i to a random vertex in the set of
+            //   neighbors.
             cdf[ell] = zero;
+            // ^ cdf defines a distribution over the neighbors whose weights are
+            //   (nonstrictly) larger than its own weight.
+            //
+            //   The fact that the neighbors are sorted by weight means the update
+            //   to cdf is extremely cheap, yet the whole iterative process still
+            //   guarantees a spanning tree among the neighbors. The spanning-tree
+            //   property is non-obvious, but it's also not hard to show.
+            //
             state = RandBLAS::sample_indices_iid(num_neighbors_64t, cdf, 1, &sample_ind, state);
             if (sample_ind == num_neighbors) break;
             auto j = indices[sample_ind];
