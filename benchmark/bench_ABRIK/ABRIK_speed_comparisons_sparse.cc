@@ -15,6 +15,10 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(target_rank
 #include <RandBLAS.hh>
 #include <fstream>
 #include <iomanip>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <cerrno>
+#include <cstring>
 
 // External libs includes
 #include <fast_matrix_market/fast_matrix_market.hpp>
@@ -28,6 +32,36 @@ using Matrix = Eigen::MatrixXd;
 using Vector = Eigen::VectorXd;
 
 using Subroutines = RandLAPACK::ABRIKSubroutines;
+
+// Helper function to ensure directory exists (creates parent directories if needed)
+void ensure_directory_exists(const std::string& path) {
+    struct stat info;
+    if (stat(path.c_str(), &info) == 0) {
+        // Path exists
+        if (info.st_mode & S_IFDIR) {
+            // It's a directory, we're good
+            return;
+        } else {
+            std::cerr << "Error: " << path << " exists but is not a directory" << std::endl;
+            return;
+        }
+    }
+
+    // Directory doesn't exist - try to create parent directories first
+    size_t pos = path.find_last_of('/');
+    if (pos != std::string::npos && pos > 0) {
+        std::string parent = path.substr(0, pos);
+        ensure_directory_exists(parent);  // Recursive call for parent
+    }
+
+    // Now create this directory
+    if (mkdir(path.c_str(), 0755) != 0) {
+        std::cerr << "Warning: Could not create directory " << path
+                  << " (error: " << strerror(errno) << ")" << std::endl;
+    } else {
+        std::cout << "Created output directory: " << path << std::endl;
+    }
+}
 
 template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
 struct ABRIK_benchmark_data {
@@ -208,7 +242,7 @@ static void data_regen(ABRIK_benchmark_data<T, SpMat> &all_data,
 // in exact precision. Target_rank defines size of U, V as returned by ABRIK; target_rank <= target_rank.
 template <typename T, typename TestData>
 static T
-residual_error_comp(TestData &all_data, int64_t target_rank) {
+residual_error_vectors_comp(TestData &all_data, int64_t target_rank) {
     auto m = all_data.row;
     auto n = all_data.col;
 
@@ -239,6 +273,117 @@ residual_error_comp(TestData &all_data, int64_t target_rank) {
     return std::hypot(nrm1, nrm2);
 }
 
+// Assesses the quality of approximation of singular values specifically
+template <typename T, typename TestData>
+static T
+residual_error_values_comp(TestData &all_data, int64_t target_rank, T triplet_error) {
+
+    T spectral_gap;
+    if (target_rank == 1) {
+        spectral_gap = all_data.Sigma[0];
+    } else {
+        spectral_gap = all_data.Sigma[target_rank - 2] - all_data.Sigma[target_rank - 1];
+    }
+
+    return triplet_error * spectral_gap / all_data.Sigma[0];
+}
+
+// Helper function to write matrices to Matrix Market format (MATLAB-compatible)
+template <typename T>
+void write_matrix_to_file(const std::string& filename, const T* matrix, int64_t rows, int64_t cols, bool is_vector = false) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
+        return;
+    }
+
+    // Write Matrix Market header
+    file << "%%MatrixMarket matrix array real general\n";
+    file << rows << " " << cols << "\n";
+
+    // Write data in column-major order (MATLAB's default)
+    file << std::scientific << std::setprecision(16);
+    for (int64_t j = 0; j < cols; ++j) {
+        for (int64_t i = 0; i < rows; ++i) {
+            file << matrix[i + j * rows] << "\n";
+        }
+    }
+
+    file.close();
+    std::cout << "Successfully wrote " << (is_vector ? "vector" : "matrix")
+              << " (" << rows << " x " << cols << ") to " << filename << std::endl;
+}
+
+// Perform direct SVD using LAPACK's GESDD on dense matrix
+template <typename T>
+void compute_direct_gesdd(const SpMatrix& A_sparse, int64_t m, int64_t n, int64_t target_rank,
+                          std::string output_dir, bool write_output_matrices) {
+    printf("\n========== Running Direct GESDD ==========\n");
+
+    // Convert sparse to dense
+    printf("Converting sparse matrix to dense...\n");
+    T* A_dense = new T[m * n]();
+
+    // Eigen sparse matrices are column-major by default
+    for (int k = 0; k < A_sparse.outerSize(); ++k) {
+        for (SpMatrix::InnerIterator it(A_sparse, k); it; ++it) {
+            A_dense[it.row() + it.col() * m] = it.value();
+        }
+    }
+
+    // Compute full SVD
+    int64_t min_mn = std::min(m, n);
+
+    printf("Computing full SVD with GESDD...\n");
+    auto start_gesdd = steady_clock::now();
+
+    // Call LAPACK's GESDD for full SVD
+    T* S_full = new T[min_mn]();
+    T* U_full = new T[m * min_mn]();
+    T* VT_full = new T[min_mn * n]();
+
+    // Copy A_dense since GESDD may overwrite it
+    T* A_copy = new T[m * n]();
+    lapack::lacpy(MatrixType::General, m, n, A_dense, m, A_copy, m);
+
+    lapack::gesdd(lapack::Job::SomeVec, m, n, A_copy, m, S_full, U_full, m, VT_full, min_mn);
+
+    auto stop_gesdd = steady_clock::now();
+    long dur_gesdd = duration_cast<microseconds>(stop_gesdd - start_gesdd).count();
+    printf("TOTAL TIME FOR GESDD: %ld microseconds\n", dur_gesdd);
+
+    // Transpose VT to get V
+    T* V_full = new T[n * min_mn]();
+    for (int64_t i = 0; i < min_mn; ++i) {
+        for (int64_t j = 0; j < n; ++j) {
+            V_full[j + i * n] = VT_full[i + j * min_mn];
+        }
+    }
+
+    printf("GESDD completed. First 5 singular values:\n");
+    for (int64_t i = 0; i < std::min((int64_t)5, min_mn); ++i) {
+        printf("  Sigma[%ld] = %.16e\n", i, S_full[i]);
+    }
+
+    // Write full results to files if requested
+    if (write_output_matrices) {
+        std::string prefix = output_dir + "/GESDD";
+        write_matrix_to_file(prefix + "_U.mtx", U_full, m, min_mn, false);
+        write_matrix_to_file(prefix + "_V.mtx", V_full, n, min_mn, false);
+        write_matrix_to_file(prefix + "_Sigma.mtx", S_full, min_mn, 1, true);
+    }
+
+    // Clean up
+    delete[] A_dense;
+    delete[] A_copy;
+    delete[] VT_full;
+    delete[] V_full;
+    delete[] S_full;
+    delete[] U_full;
+
+    printf("==========================================\n\n");
+}
+
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
 static void call_all_algs(
     int64_t num_runs,
@@ -248,8 +393,10 @@ static void call_all_algs(
     ABRIK_algorithm_objects<T, RNG> &all_algs,
     ABRIK_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
-    std::string output_filename, 
-    std::string input_path) {
+    std::string output_filename,
+    std::string input_path,
+    std::string output_dir,
+    bool write_output_matrices) {
 
     int i;
     auto m   = all_data.row;
@@ -267,7 +414,7 @@ static void call_all_algs(
     all_algs.ABRIK.num_threads_min = 4;
     all_algs.ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
     // Useful for all sparse matrices except 0.
-    all_algs.ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
+    //all_algs.ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
     
     // timing vars
     long dur_ABRIK = 0;
@@ -277,8 +424,10 @@ static void call_all_algs(
     auto state_gen = state;
     auto state_alg = state;
 
-    T residual_err_custom_SVDS = 0;
-    T residual_err_custom_ABRIK = 0;
+    T residual_err_vec_SVDS  = 0;
+    T residual_err_val_SVDS  = 0;
+    T residual_err_vec_ABRIK = 0;
+    T residual_err_val_ABRIK = 0;
 
     int64_t singular_triplets_target_ABRIK = 0;
     int64_t singular_triplets_found_SVDS   = 0;
@@ -298,14 +447,26 @@ static void call_all_algs(
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
         printf("Singular triplets: %ld\n", singular_triplets_target_ABRIK);
 
-        residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
-        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_ABRIK);
+        residual_err_vec_ABRIK = residual_error_vectors_comp<T>(all_data, singular_triplets_target_ABRIK);
+        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_vec_ABRIK);
+        residual_err_val_ABRIK = residual_error_values_comp<T>(all_data, singular_triplets_target_ABRIK, residual_err_vec_ABRIK);
+        printf("ABRIK resigual error * spectral gap / sigma[0]: %.16e\n", residual_err_val_ABRIK);
+
+        // Write ABRIK output matrices to files if requested (only on first run)
+        if (write_output_matrices && i == 0) {
+            // Write the full ABRIK output (not just up to target_rank)
+            int64_t full_abrik_output_size = all_algs.ABRIK.singular_triplets_found;
+            std::string prefix = output_dir + "/ABRIK_bsz" + std::to_string(b_sz) + "_mm" + std::to_string(num_matmuls);
+            write_matrix_to_file(prefix + "_U.mtx", all_data.U, m, full_abrik_output_size, false);
+            write_matrix_to_file(prefix + "_V.mtx", all_data.V, n, full_abrik_output_size, false);
+            write_matrix_to_file(prefix + "_Sigma.mtx", all_data.Sigma, full_abrik_output_size, 1, true);
+        }
 
         state_alg = state;
         state_gen = state;
         data_regen(all_data, state_gen);
 
-
+        /*
         // Running SVDS
         auto start_svds = steady_clock::now();
 
@@ -337,43 +498,50 @@ static void call_all_algs(
 
         singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
 
-        residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
-        
+        residual_err_vec_SVDS = residual_error_vectors_comp<T>(all_data, singular_triplets_target_SVDS);
+        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_vec_SVDS);
+        residual_err_val_SVDS = residual_error_values_comp<T>(all_data, singular_triplets_target_SVDS, residual_err_vec_SVDS);
+        printf("SVDS resigual error * spectral gap: %.16e\n", residual_err_val_SVDS);        
+
         state_alg = state;
         state_gen = state;
         data_regen(all_data, state_gen);
-
+        */
         std::ofstream file(output_filename, std::ios::app);
         file << b_sz << ",  " << all_algs.ABRIK.max_krylov_iters  <<  ",  " << target_rank << ",  " 
-        << residual_err_custom_ABRIK <<  ",  " << dur_ABRIK    << ",  " 
-        << residual_err_custom_SVDS <<  ",  " << dur_svds    << ",\n";
+        << residual_err_vec_ABRIK << ",  " << residual_err_val_ABRIK <<  ",  " << dur_ABRIK    << ",  " 
+        << residual_err_vec_SVDS << ",  " << residual_err_val_SVDS << ",  " << dur_svds    << ",\n";
     }
 }
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 9) {
+    if (argc < 12) {
         // Expected input into this benchmark.
-        std::cerr << "Usage: " << argv[0] << "<output_directory_path> <input_matrix_path> <num_runs> <target_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <output_directory_path> <input_matrix_path> <num_runs> <target_rank> <run_gesdd> <write_matrices> <submatrix_dim_ratio> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "  run_gesdd: 1 to run direct GESDD, 0 to skip" << std::endl;
+        std::cerr << "  write_matrices: 1 to write U,V,Sigma to files, 0 to skip" << std::endl;
+        std::cerr << "  submatrix_dim_ratio: ratio of input matrix to use (e.g., 0.5 for half, 1.0 for full matrix)" << std::endl;
         return 1;
     }
 
-    double submatrix_dim_ratio = 0.5;
+    double submatrix_dim_ratio = std::stod(argv[7]);
 
     int num_runs              = std::stol(argv[3]);
     int64_t target_rank       = std::stol(argv[4]);
+    bool run_gesdd            = (std::stoi(argv[5]) != 0);
+    bool write_matrices       = (std::stoi(argv[6]) != 0);
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < std::stol(argv[5]); ++i)
-        b_sz.push_back(std::stoi(argv[i + 7]));
+    for (int i = 0; i < std::stol(argv[8]); ++i)
+        b_sz.push_back(std::stoi(argv[i + 10]));
     // Save elements in string for logging purposes
     std::ostringstream oss1;
     for (const auto &val : b_sz)
         oss1 << val << ", ";
     std::string b_sz_string = oss1.str();
     std::vector<int64_t> matmuls;
-    for (int i = 0; i < std::stol(argv[6]); ++i)
-        matmuls.push_back(std::stoi(argv[i + 7 + std::stol(argv[5])]));
+    for (int i = 0; i < std::stol(argv[9]); ++i)
+        matmuls.push_back(std::stoi(argv[i + 10 + std::stol(argv[8])]));
     // Save elements in string for logging purposes
     std::ostringstream oss2;
     for (const auto &val : matmuls)
@@ -382,6 +550,11 @@ int main(int argc, char *argv[]) {
     double tol                 = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                 = RandBLAS::RNGState();
     auto state_constant        = state;
+
+    // Ensure output directory exists if we're writing matrices
+    if (write_matrices) {
+        ensure_directory_exists(std::string(argv[1]));
+    }
 
     // Read the input fast matrix market data
     // The idea is that input_mat_coo will be automatically freed at the end of function execution
@@ -427,10 +600,15 @@ int main(int argc, char *argv[]) {
               "\n";
     file.flush();
 
+    // Run direct GESDD if requested
+    if (run_gesdd) {
+        compute_direct_gesdd<double>(all_data.A_spectra, m, n, target_rank, std::string(argv[1]), write_matrices);
+    }
+
     size_t i = 0, j = 0;
     for (;i < b_sz.size(); ++i) {
         for (;j < matmuls.size(); ++j) {
-            call_all_algs(num_runs, b_sz[i], matmuls[j], target_rank, all_algs, all_data, state_constant, path, std::string(argv[2]));
+            call_all_algs(num_runs, b_sz[i], matmuls[j], target_rank, all_algs, all_data, state_constant, path, std::string(argv[2]), std::string(argv[1]), write_matrices);
         }
         j = 0;
     }

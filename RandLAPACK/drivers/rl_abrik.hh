@@ -439,7 +439,7 @@ class ABRIK {
                         // if (abs(R(end)) <= sqrt(eps('T')))
                         if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
                             //printf("TERMINATION 1 at iteration %ld\n", iter);
-                            break;
+                            //break;
                         }
 
                         // Allocate more space for R
@@ -561,7 +561,7 @@ class ABRIK {
                         // if (abs(S(end)) <= sqrt(eps('T')))
                         if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
                             //printf("TERMINATION 2 at iteration %ld\n", iter);
-                            break;
+                            //break;
                         }
 
                         if(this -> timing) {
@@ -626,7 +626,7 @@ class ABRIK {
                     //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
                     if(norm_R > threshold) {
                         // Threshold termination.
-                        break;
+                        //break;
                     }
                 }
 
