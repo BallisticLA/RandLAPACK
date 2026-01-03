@@ -500,43 +500,46 @@ void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<sca
         indices[ell] = ind;
         ++ell;
     }
+    auto w_sum_work  = w_sum;
+    auto cdf = cdf_vec.data();
+    scal(num_neighbors, (scalar_t) 1.0 / w_sum, cdf, 1);
+    if (num_neighbors > 0) {
+        cdf[num_neighbors - 1] = 1;
+    }
 
-    // add the sampled spanning tree that approximates the clique in expectation
-    //
-    //     PROCESS: We iterate over the neighbors per the order in `indices`. For
-    //     each ell_1 in the list [[num_neighbors]] := [0,...,num_neigbors-1], we
-    //     pick some ell_2 > ell_1 (in some particular randomized way) and introduce
-    //     an edge between indices[ell_1] and indices[ell_2].
-    //
-    //     CLAIM: That process produces a tree over neighbors, regardless of the
-    //     ordering of `indices` (and neighbors).
-    //
-    //         PROOF. Fix ell in [[num_neighbors]]. Once the iterations complete,
-    //         there's a path from index[ell] to index[num_neighbors-1]. This means
-    //         we've created a connected graph among the neighbors. In particular,
-    //         for any pair (i1, i2), there is a path from index[i1] to index[i2]
-    //         that goes through index[num_neighbors-1]). At the same time, the process
-    //         adds exactly num_neighbors-1 edges. A connected graph on num_neighbors
-    //         vertices with num_neighbors-1 edges is a tree.
-    //
-    //     CLAIM: For the particular randomized way that the process constructs
-    //     the tree among neighbors, the expected value of the update to M 
-    //     (averaging over randomness in the choices) is the Laplacian of the
-    //     clique of neighbors.
-    //
-    //         PROOF. See Theorem 2.3 of https://arxiv.org/pdf/2011.07769, which
-    //         is stated for pseudocode that's easily seen to be equivalent to
-    //         our implementation. Alternatively, see the discussion just before
-    //         Claim 3.3 of https://rasmuskyng.com/papers/GKS25.pdf. The arguments
-    //         there imply would our claim even if `indices` was sorted in an
-    //         arbitrary order (although, the equivalence between their pseudocode
-    //         and our implementation with a given order of indices may not be
-    //         immediately obvious).
-    //
     if (num_neighbors > 1) {
-        auto w_sum_work  = w_sum;
-        auto cdf = cdf_vec.data();
-        scal(num_neighbors, (scalar_t) 1.0 / w_sum, cdf, 1);
+        // add the sampled spanning tree that approximates the clique in expectation
+        //
+        //     PROCESS: We iterate over the neighbors per the order in `indices`. For
+        //     each ell_1 in the list [[num_neighbors]] := [0,...,num_neigbors-1], we
+        //     pick some ell_2 > ell_1 (in some particular randomized way) and introduce
+        //     an edge between indices[ell_1] and indices[ell_2].
+        //
+        //     CLAIM: That process produces a tree over neighbors, regardless of the
+        //     ordering of `indices` (and neighbors).
+        //
+        //         PROOF. Fix ell in [[num_neighbors]]. Once the iterations complete,
+        //         there's a path from index[ell] to index[num_neighbors-1]. This means
+        //         we've created a connected graph among the neighbors. In particular,
+        //         for any pair (i1, i2), there is a path from index[i1] to index[i2]
+        //         that goes through index[num_neighbors-1]). At the same time, the process
+        //         adds exactly num_neighbors-1 edges. A connected graph on num_neighbors
+        //         vertices with num_neighbors-1 edges is a tree.
+        //
+        //     CLAIM: For the particular randomized way that the process constructs
+        //     the tree among neighbors, the expected value of the update to M 
+        //     (averaging over randomness in the choices) is the Laplacian of the
+        //     clique of neighbors.
+        //
+        //         PROOF. See Theorem 2.3 of https://arxiv.org/pdf/2011.07769, which
+        //         is stated for pseudocode that's easily seen to be equivalent to
+        //         our implementation. Alternatively, see the discussion just before
+        //         Claim 3.3 of https://rasmuskyng.com/papers/GKS25.pdf. The arguments
+        //         there imply would our claim even if `indices` was sorted in an
+        //         arbitrary order (although, the equivalence between their pseudocode
+        //         and our implementation with a given order of indices may not be
+        //         immediately obvious).
+        //
         int64_t ell_1 = 0;
         int64_t ell_2 = 0;
         auto num_neighbors_64t = static_cast<int64_t>(num_neighbors);
@@ -554,6 +557,7 @@ void sample_clique_clb21(SparseVec<scalar_t, ordinal_t> &v, vector<SparseVec<sca
             M[min(i, j)].push_back(max(i, j), -w);
             M[j].push_back(j, w);
             ++ell_1;
+            if (ell_1 == num_neighbors - 1) { break; }
         }
     }
 
