@@ -20,16 +20,16 @@ using namespace richol::linops;
 
 template <typename T, typename RNG = RandBLAS::DefaultRNG>
 CSRMatrix<T> richol_pipeline(CSRMatrix<T> &A_csr, RNGState<RNG> state ) {
+    using spvec = richol::SparseVec<T, int64_t>;
     int64_t n = A_csr.n_rows;
     
-    using spvec = richol::SparseVec<T, int64_t>;
     vector<spvec> A_csrlike_triu(n);
     richol::csrlike_from_csr(n, A_csr.rowptr, A_csr.colidxs, A_csr.vals, A_csrlike_triu, blas::Uplo::Upper);
 
     vector<spvec> C_csrlike_lower{};
-    bool diag_adjust = true;
+    bool diag_adjust = false;
     int64_t rank = richol::clb21_rand_cholesky(A_csrlike_triu, C_csrlike_lower, state, diag_adjust, (T)0.0);
-    randblas_require(n == rank);
+    randblas_require(rank + 1 >= n);
 
     CSRMatrix<T> C_lower(n, n);
     C_lower.reserve(nnz(C_csrlike_lower));
@@ -108,9 +108,36 @@ void log_residual_info(LPINV_t &Lpinv, std::ostream &stream, const std::string &
     );
 }
 
+template <typename spvec_t>
+void lift_sddm2lap(std::vector<spvec_t> &S) {
+    // S is an explicitly symmetric SDDM matrix of order n.
+    // We overwrite it with the Laplacian lift of order n+1.
+    using scalar_t  = typename spvec_t::scalar_t;
+    using ordinal_t = typename spvec_t::ordinal_t;
+    auto n = static_cast<ordinal_t>(S.size());
+    std::vector<scalar_t> d(n, 0);
+    S.resize(n+1);
+    scalar_t sum_d = 0;
+    for (int64_t i = 0; i < n; ++i) {
+        for (const auto &[val, ind] : S[i].data ) {
+            d[i] += val;
+        }
+        if (d[i] <= 0) {
+            // < 0 should only happen due to rounding errors.
+            continue;
+        }
+        S[i].push_back(n, -d[i]);
+        S[n].push_back(i, -d[i]);
+        sum_d += d[i];
+    }
+    S[n].push_back(n, sum_d);
+    return;
+}
+
 
 int main(int argc, char** argv) {
-    using T = richol::dd;
+    using T = double; // richol::dd;
+    using spvec = richol::SparseVec<T, int64_t>;
     
     std::string datadir = "./";
     if (argc > 1) {
@@ -123,36 +150,67 @@ int main(int argc, char** argv) {
 
     auto A_coo = read_negative_M_matrix<T>(datadir);
     auto A_unperm_csr = A_coo.as_owning_csr();
-    int64_t n = A_coo.n_rows;
-    vector<int64_t> perm( n, 0 );
-    std::iota( perm.data(), perm.data() + n, 0 );
+    int64_t n0 = A_coo.n_rows;
+    vector<int64_t> perm( n0, 0 );
+    std::iota( perm.data(), perm.data() + n0, 0 );
     if (use_amd) {
         richol::amd_permutation(A_unperm_csr, perm);
         A_coo.symperm_inplace(perm.data());
     };
-    auto A_csr = A_coo.as_owning_csr();
+    auto A_csr0 = A_coo.as_owning_csr();
+    using csrlike_t = std::vector<spvec>;
+    csrlike_t A0_csrlike_triu{};
+    richol::csrlike_from_csr(A_csr0, A0_csrlike_triu, blas::Uplo::General);
+    lift_sddm2lap(A0_csrlike_triu);
+    int64_t n = n0 + 1;
+    CSRMatrix<T> A_csr(n, n);
+    richol::csr_from_csrlike(A0_csrlike_triu, A_csr);
+
+
     CallableSpMat A_callable{ &A_csr, A_csr.n_rows };
 
     auto richol_C_lower = richol_pipeline(A_csr, {0});
-    auto dichol_C_lower = richol::dichol<CSRMatrix>(A_coo, blas::Uplo::Lower);
+    auto A_coo_lifted = A_csr.as_owning_coo();
+    auto dichol_C_lower = richol::dichol<CSRMatrix>(A_coo_lifted, blas::Uplo::Lower);
     auto eyemat_C_lower = identity_as_csr<T>(n);
     auto inv_richol    = callable_chosolve( richol_C_lower );
     inv_richol.validate();
+    inv_richol.project_out = true;
     auto inv_dichol    = callable_chosolve( dichol_C_lower );
     inv_dichol.validate();
+    inv_dichol.project_out = true;
     auto inv_identity  = callable_chosolve( eyemat_C_lower );
     inv_identity.validate();
+    inv_identity.project_out = true;
 
 
-    int64_t max_iters = 541;
-
-    auto [x0, b] = setup_pcg_vecs<T>(datadir, perm);
+    int64_t max_iters = std::min((int64_t)500, n0);
+    std::vector<T> x0{};
+    std::vector<T> b{};
+    try {
+        auto [x0_temp, b_temp] = setup_pcg_vecs<T>(datadir, perm);
+        x0 = x0_temp;
+        b  = b_temp;
+    } catch (...) {
+        for (int64_t i = 0; i < n0; ++i) {
+            x0.push_back( (T) std::sqrt<T>(i)     );
+            b.push_back(  (T)1 + (T)1 / (T)(1 + i));
+        }
+    }
+    
+    if (int64_t(perm.size()) == n-1) {
+        T sum_x0 = std::accumulate(x0.begin(), x0.end(), (T)0.0);
+        T sum_b  = std::accumulate(b.begin(),   b.end(), (T)0.0);
+        x0.push_back( -sum_x0 );
+        b.push_back(  -sum_b  );
+    }
     T pcg_tol = 0.0;
 
     {
         auto x = x0;
         std::cout << "\n=== Preconditioner: richol ===\n";
         LaplacianPinv Lpinv(A_callable, inv_richol, pcg_tol, max_iters, false);
+        Lpinv.L_callable.project_out = true;
         
         TIMED_LINE(
         Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
@@ -164,6 +222,7 @@ int main(int argc, char** argv) {
         auto x = x0;
         std::cout << "\n=== Preconditioner: dichol ===\n";
         LaplacianPinv Lpinv(A_callable, inv_dichol, pcg_tol, max_iters, false);
+        Lpinv.L_callable.project_out = true;
         
         TIMED_LINE(
         Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
@@ -175,6 +234,7 @@ int main(int argc, char** argv) {
         auto x = x0;
         std::cout << "\n=== Preconditioner: identity ===\n";
         LaplacianPinv Lpinv(A_callable, inv_identity, pcg_tol, max_iters, false);
+        Lpinv.L_callable.project_out = true;
         
         TIMED_LINE(
         Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
