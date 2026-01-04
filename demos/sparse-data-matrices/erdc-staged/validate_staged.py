@@ -3,7 +3,7 @@ import scipy.io as scio
 import scipy.sparse as spar
 import scipy.linalg as la
 import scipy.sparse.linalg as sparla
-from scipy.sparse.linalg import spsolve_triangular, LinearOperator, cg, spilu
+from scipy.sparse.linalg import spsolve_triangular, LinearOperator, cg
 import qdldl
 from typing import TypeAlias, Callable, Optional
 from matplotlib import pyplot as plt
@@ -171,15 +171,22 @@ def inv_cct_factory(c_lower: spmatrix) -> LinearOperator:
 
 
 def ilu_factory(A: spar.spmatrix) -> LinearOperator:
-    # I assume the linear operator represented by
-    # ilu_factorization is positive definite when 
-    # A is positive definite.
-    ilu_factorization = spilu(A)
-    linop = LinearOperator(
-        dtype=np.double, shape=A.shape,
-        matvec  = lambda v: ilu_factorization.solve(v),
-        rmatvec = lambda v: ilu_factorization.solve(v)
-    )
+    # The following may not return a positive definite linear operator
+    #
+    #   from scipy.sparse.linalg import spilu
+    #   ilu_factorization = spilu(A)
+    #   linop = LinearOperator(
+    #     dtype=np.double, shape=A.shape,
+    #     matvec  = lambda v: ilu_factorization.solve(v),
+    #     rmatvec = lambda v: ilu_factorization.solve(v)
+    #   )
+    #
+    # So we use the an incomplete Cholesky from the standalone ilupp
+    # package.
+    import ilupp as ilu
+    if not isinstance(A, (spar.csc_matrix, spar.csr_matrix)):
+        A_compressed = spar.csc_matrix(A)
+    linop = ilu.ICholTPreconditioner(A_compressed, threshold=1e-4)
     return linop
 
 
@@ -214,6 +221,7 @@ if __name__ == '__main__':
         'DIC preconditioning':    'k',
         'RIC preconditioning':    'b',
         'Jacobi preconditioning': 'r',
+        'ILU preconditioning': 'r',
         'SSOR preconditioning':    'orange'
     }
 
@@ -229,6 +237,7 @@ if __name__ == '__main__':
         # run PCG with classical preconditioners
         for k, f in {'DIC preconditioning' : dic_factory, 
                     'SSOR preconditioning' : ssor_factory,
+                    #'ILU preconditioning' : ilu_factory,
                     'Jacobi preconditioning' : jacobi_factory }.items():
             cur_resid, callback = stateful_cg_callback(A, b, x_direct)
             callback(x0)
@@ -250,7 +259,10 @@ if __name__ == '__main__':
         xaxis = np.arange(iters + 1)
 
         for i, ax in enumerate([ax1, ax2, ax3]):
-            for precname in ['DIC preconditioning', 'SSOR preconditioning', 'RIC preconditioning', 'Jacobi preconditioning']:
+            for precname in ['DIC preconditioning', 'SSOR preconditioning', 'RIC preconditioning',
+                             'Jacobi preconditioning',
+                             #'ILU preconditioning'
+                             ]:
                 resids = residuals[precname]
                 arr = np.array([a[i] for a in resids])
                 ax.semilogy(xaxis, arr, color=curve_colors[precname], label=precname)

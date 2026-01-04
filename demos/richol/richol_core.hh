@@ -839,7 +839,7 @@ template<
     template<typename,typename> class SpMat, 
     typename T, typename sint_t
 >
-SpMat<T,sint_t> dichol(const COOMatrix<T,sint_t> &orig, blas::Uplo uplo) {
+SpMat<T,sint_t> ssor(const COOMatrix<T,sint_t> &orig, blas::Uplo uplo) {
     // 0) static check:
     using Mat = SpMat<T,sint_t>;
     static_assert(

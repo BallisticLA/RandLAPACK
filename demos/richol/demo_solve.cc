@@ -171,14 +171,14 @@ int main(int argc, char** argv) {
 
     auto richol_C_lower = richol_pipeline(A_csr, {0});
     auto A_coo_lifted = A_csr.as_owning_coo();
-    auto dichol_C_lower = richol::dichol<CSRMatrix>(A_coo_lifted, blas::Uplo::Lower);
+    auto ssor_C_lower = richol::ssor<CSRMatrix>(A_coo_lifted, blas::Uplo::Lower);
     auto eyemat_C_lower = identity_as_csr<T>(n);
     auto inv_richol    = callable_chosolve( richol_C_lower );
     inv_richol.validate();
     inv_richol.project_out = true;
-    auto inv_dichol    = callable_chosolve( dichol_C_lower );
-    inv_dichol.validate();
-    inv_dichol.project_out = true;
+    auto inv_ssor    = callable_chosolve( ssor_C_lower );
+    inv_ssor.validate();
+    inv_ssor.project_out = true;
     auto inv_identity  = callable_chosolve( eyemat_C_lower );
     inv_identity.validate();
     inv_identity.project_out = true;
@@ -220,14 +220,14 @@ int main(int argc, char** argv) {
 
     {
         auto x = x0;
-        std::cout << "\n=== Preconditioner: dichol ===\n";
-        LaplacianPinv Lpinv(A_callable, inv_dichol, pcg_tol, max_iters, false);
+        std::cout << "\n=== Preconditioner: ssor ===\n";
+        LaplacianPinv Lpinv(A_callable, inv_ssor, pcg_tol, max_iters, false);
         Lpinv.L_callable.project_out = true;
         
         TIMED_LINE(
         Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
         std::cout << std::endl;
-        log_residual_info(Lpinv, std::cout, "dichol");
+        log_residual_info(Lpinv, std::cout, "ssor");
     }
 
     {
