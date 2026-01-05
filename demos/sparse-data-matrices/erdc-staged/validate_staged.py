@@ -14,12 +14,12 @@ spmatrix : TypeAlias = spar.coo_matrix | spar.csc_matrix | spar.csr_matrix
 
 
 paths = [
-    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=0.00263982s/amd_true',
-    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=25.8342s/amd_true',
-    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-64k/abs-tol/t=0.019081s/amd_true',
-    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-266k/abs-tol/t=0.00117647s/amd_true',
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-2123k/abs-tol/t=0.00117647s/amd_true',
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-1024k/abs-tol/t=1.22302e-05s/amd_true',
+    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=0.00263982s/amd_true',
+    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=25.8342s/amd_true',
+    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-64k/abs-tol/t=0.019081s/amd_true',
+    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-266k/abs-tol/t=0.00117647s/amd_true',
+    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-2123k/abs-tol/t=0.00117647s/amd_true',
+    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-1024k/abs-tol/t=1.22302e-05s/amd_true',
 ]
 
 
@@ -190,7 +190,7 @@ def ilu_factory(A: spar.spmatrix) -> LinearOperator:
     return linop
 
 
-def read_system(p: str) -> tuple[spmatrix, np.ndarray, np.ndarray]:
+def read_system(p: str) -> tuple[spmatrix, np.ndarray, np.ndarray, np.ndarray]:
     A  = read_and_validate_A(p) 
     b  = scio.mmread(p + '/b.mtx').ravel()
     scale_a = la.norm(A.data, ord=np.inf)
@@ -199,7 +199,8 @@ def read_system(p: str) -> tuple[spmatrix, np.ndarray, np.ndarray]:
     x0 = scio.mmread(p + '/x0.mtx').ravel()
     A.data /= scale
     b /= scale
-    return A, b, x0
+    xf = scio.mmread(p + '/xf.mtx').ravel()
+    return A, b, x0, xf
 
 
 def read_richol_preconditioner(p: str) -> LinearOperator:
@@ -229,8 +230,11 @@ if __name__ == '__main__':
     iters = 500
 
     for p in paths:
-        A, b, x0 = read_system(p)
-        x_direct = qdldl.Solver(A).solve(b)
+        A, b, x0, xf = read_system(p)
+        if ('2123k' in p) or ('1024k' in p):
+            x_direct = xf
+        else:
+            x_direct = qdldl.Solver(A).solve(b)
 
         residuals = dict()
 
@@ -278,6 +282,5 @@ if __name__ == '__main__':
         plt.tight_layout()
         plt.savefig(p + '/fig.pdf')
         continue
-
 
     print()
