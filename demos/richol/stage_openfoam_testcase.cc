@@ -25,15 +25,20 @@ RandBLAS::COOMatrix<T> read_negative_M_matrix(std::string &datadir) {
 }
 
 template <typename T>
-std::pair<vector<T>,vector<T>> setup_pcg_vecs(std::string &datadir, vector<int64_t> &perm) {
+std::tuple<vector<T>,vector<T>,vector<T>> setup_pcg_vecs(std::string &datadir, vector<int64_t> &perm) {
     vector<T> b0 = richol::vector_from_matrix_market<T>(datadir + "/p_rgh_source_b.mtx");
     int64_t n = static_cast<int64_t>(b0.size());
     vector<T> b(n);
     for (int64_t i = 0; i < n; ++i) { b[perm[i]] = -b0[i]; }
-    vector<T> x0 = richol::vector_from_matrix_market<T>(datadir + "/p_rgh_psi_initial_x^{n}.mtx");
+    vector<T> x0  = richol::vector_from_matrix_market<T>(datadir + "/p_rgh_psi_initial_x^{n}.mtx");
+    vector<T> xn0 = richol::vector_from_matrix_market<T>(datadir + "/p_rgh_psi_solution_x^{n+1}.mtx");
     vector<T> x(n);
-    for (int64_t i = 0; i < n; ++i) { x[perm[i]] = x0[i]; }
-    return {x, b};
+    vector<T> xn(n);
+    for (int64_t i = 0; i < n; ++i) {
+        x[ perm[i]] =  x0[i];
+        xn[perm[i]] = xn0[i];
+    }
+    return {x, b, xn};
 }
 
 
@@ -87,14 +92,16 @@ int main(int argc, char** argv) {
     richol::csr_from_csrlike(c_lower_csrlike, C_lower);
 
     // 5) write linear system data to disk.
-    auto [x, b] = setup_pcg_vecs<T>(datadir, perm);
+    auto [x, b, s] = setup_pcg_vecs<T>(datadir, perm);
 
     std::ofstream ofs_x( outfull + "/x0.mtx" );
+    std::ofstream ofs_s( outfull + "/xf.mtx" );
     std::ofstream ofs_b( outfull + "/b.mtx"  );
     std::ofstream ofs_C( outfull + "/richol_C_seed_" + std::to_string(seed) + ".mtx");
     std::ofstream ofs_A( outfull + "/A.mtx"  );
 
     std::string comment_x = "initial vector for linear system iterative solve";
+    std::string comment_s = "openfoam solution for linear system iterative solve";
     std::string comment_b = "linear system right-hand-side";
     std::string comment_C = "randomized incomplete Cholesky, seed = " + std::to_string(seed);
     std::string comment_A = "linear system matrix";
@@ -102,6 +109,7 @@ int main(int argc, char** argv) {
     richol::write_compressed_sparse(C_lower, ofs_C, comment_C);
     richol::write_compressed_sparse(A_csr,   ofs_A, comment_A);
     richol::write_vector(x, ofs_x, comment_x);
+    richol::write_vector(s, ofs_s, comment_s);
     richol::write_vector(b, ofs_b, comment_b);
 
     return 0;
