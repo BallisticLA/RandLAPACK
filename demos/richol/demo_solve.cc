@@ -19,7 +19,7 @@ using namespace richol::linops;
 
 
 template <typename T, typename RNG = RandBLAS::DefaultRNG>
-CSRMatrix<T> richol_pipeline(CSRMatrix<T> &A_csr, RNGState<RNG> state ) {
+CSRMatrix<T> richol_pipeline(CSRMatrix<T> &A_csr, RNGState<RNG> state, bool diag_adjust ) {
     using spvec = richol::SparseVec<T, int64_t>;
     int64_t n = A_csr.n_rows;
     
@@ -27,7 +27,6 @@ CSRMatrix<T> richol_pipeline(CSRMatrix<T> &A_csr, RNGState<RNG> state ) {
     richol::csrlike_from_csr(n, A_csr.rowptr, A_csr.colidxs, A_csr.vals, A_csrlike_triu, blas::Uplo::Upper);
 
     vector<spvec> C_csrlike_lower{};
-    bool diag_adjust = false;
     int64_t rank = richol::clb21_rand_cholesky(A_csrlike_triu, C_csrlike_lower, state, diag_adjust, (T)0.0);
     randblas_require(rank + 1 >= n);
 
@@ -148,6 +147,8 @@ int main(int argc, char** argv) {
         use_amd = atoi(argv[2]);
     }
 
+    bool use_lift = false;
+
     auto A_coo = read_negative_M_matrix<T>(datadir);
     auto A_unperm_csr = A_coo.as_owning_csr();
     int64_t n0 = A_coo.n_rows;
@@ -161,27 +162,16 @@ int main(int argc, char** argv) {
     using csrlike_t = std::vector<spvec>;
     csrlike_t A0_csrlike_triu{};
     richol::csrlike_from_csr(A_csr0, A0_csrlike_triu, blas::Uplo::General);
-    lift_sddm2lap(A0_csrlike_triu);
-    int64_t n = n0 + 1;
+    int64_t n = n0;
+    if (use_lift) {
+        lift_sddm2lap(A0_csrlike_triu);
+        n += 1;
+    }
     CSRMatrix<T> A_csr(n, n);
     richol::csr_from_csrlike(A0_csrlike_triu, A_csr);
 
 
     CallableSpMat A_callable{ &A_csr, A_csr.n_rows };
-
-    auto richol_C_lower = richol_pipeline(A_csr, {0});
-    auto A_coo_lifted = A_csr.as_owning_coo();
-    auto ssor_C_lower = richol::ssor<CSRMatrix>(A_coo_lifted, blas::Uplo::Lower);
-    auto eyemat_C_lower = identity_as_csr<T>(n);
-    auto inv_richol    = callable_chosolve( richol_C_lower );
-    inv_richol.validate();
-    inv_richol.project_out = true;
-    auto inv_ssor    = callable_chosolve( ssor_C_lower );
-    inv_ssor.validate();
-    inv_ssor.project_out = true;
-    auto inv_identity  = callable_chosolve( eyemat_C_lower );
-    inv_identity.validate();
-    inv_identity.project_out = true;
 
 
     int64_t max_iters = std::min((int64_t)500, n0);
@@ -191,10 +181,12 @@ int main(int argc, char** argv) {
         auto [x0_temp, b_temp] = setup_pcg_vecs<T>(datadir, perm);
         x0 = x0_temp;
         b  = b_temp;
-    } catch (...) {
+    } catch (std::exception e) {
+        std::cerr << std::endl << e.what() << std::endl;
+        std::cerr << "Generating dummy test vectors." << std::endl;
         for (int64_t i = 0; i < n0; ++i) {
-            x0.push_back( (T) std::sqrt<T>(i)     );
-            b.push_back(  (T)1 + (T)1 / (T)(1 + i));
+            x0.push_back( (T) std::sqrt<T>(i)      );
+            b.push_back(  (T)1 + (T)1 / (T)(1 + i) );
         }
     }
     
@@ -209,8 +201,15 @@ int main(int argc, char** argv) {
     {
         auto x = x0;
         std::cout << "\n=== Preconditioner: richol ===\n";
+
+        auto richol_C_lower = richol_pipeline(A_csr, {0}, !use_lift);
+        auto eyemat_C_lower = identity_as_csr<T>(n);
+        auto inv_richol     = callable_chosolve( richol_C_lower );
+        inv_richol.validate();
+        inv_richol.project_out = use_lift;
+
         LaplacianPinv Lpinv(A_callable, inv_richol, pcg_tol, max_iters, false);
-        Lpinv.L_callable.project_out = true;
+        Lpinv.L_callable.project_out = use_lift;
         
         TIMED_LINE(
         Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
@@ -221,8 +220,15 @@ int main(int argc, char** argv) {
     {
         auto x = x0;
         std::cout << "\n=== Preconditioner: ssor ===\n";
+
+        auto A_coo_lifted = A_csr.as_owning_coo();
+        auto ssor_C_lower = richol::ssor<CSRMatrix>(A_coo_lifted, blas::Uplo::Lower);
+        auto inv_ssor    = callable_chosolve( ssor_C_lower );
+        inv_ssor.validate();
+        inv_ssor.project_out = use_lift;
+
         LaplacianPinv Lpinv(A_callable, inv_ssor, pcg_tol, max_iters, false);
-        Lpinv.L_callable.project_out = true;
+        Lpinv.L_callable.project_out = use_lift;
         
         TIMED_LINE(
         Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
@@ -233,9 +239,15 @@ int main(int argc, char** argv) {
     {
         auto x = x0;
         std::cout << "\n=== Preconditioner: identity ===\n";
+
+        auto eyemat_C_lower = identity_as_csr<T>(n);
+        auto inv_identity  = callable_chosolve( eyemat_C_lower );
+        inv_identity.validate();
+        inv_identity.project_out = use_lift;
+
         LaplacianPinv Lpinv(A_callable, inv_identity, pcg_tol, max_iters, false);
-        Lpinv.L_callable.project_out = true;
-        
+        Lpinv.L_callable.project_out = use_lift;
+    
         TIMED_LINE(
         Lpinv(blas::Layout::ColMajor, 1, (T)1.0, b.data(), n, (T)0.0, x.data(), n), "Linear solve: ");
         std::cout << std::endl;
