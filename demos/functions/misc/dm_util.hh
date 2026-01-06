@@ -13,6 +13,7 @@
 #include <fstream>
 #include <string>
 #include <stdexcept>
+#include <iomanip>
 
 // External library includes
 #include <fast_matrix_market/fast_matrix_market.hpp>
@@ -249,6 +250,9 @@ void generate_spd_matrix_file(
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open file for writing: " + filename);
     }
+
+    // Set full double precision (17 significant digits) to preserve SPD property
+    file << std::scientific << std::setprecision(17);
 
     file << "%%MatrixMarket matrix coordinate real general\n";
 

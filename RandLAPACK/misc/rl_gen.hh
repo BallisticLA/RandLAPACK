@@ -495,19 +495,21 @@ void gen_spd_mat(
     // First 10% of eigenvalues set to 1.0
     int64_t offset = (int64_t)std::floor(n * 0.1);
 
-    // Simple polynomial decay: λ_i = first_eig * (last_eig/first_eig)^((i-offset)/(n-1-offset))^p
+    // Simple polynomial decay: λ_i = first_eig * (last_eig/first_eig)^(t*p)
     // This gives eigenvalues from 1.0 down to 1/cond_num, so κ = 1.0 / (1/cond_num) = cond_num
     // Use p = 1.0 for linear decay (gives exact condition number)
     T p = 1.0;
 
     for (int64_t i = 0; i < offset; ++i) {
-        eigenvalues[i] = first_eig;
+        eigenvalues[i] = std::sqrt(first_eig);  // Store sqrt since syrk squares them
     }
     for (int64_t i = offset; i < n; ++i) {
         T t = (T)(i - offset) / (T)(n - 1 - offset);  // normalized position: 0 to 1
         // Eigenvalue decay: λ_i = first_eig * (last_eig/first_eig)^(t*p)
         // With p=1 (linear): gives exact condition number κ = first_eig / last_eig
-        eigenvalues[i] = first_eig * std::pow(last_eig / first_eig, t * p);
+        // Store sqrt(λ_i) because syrk computes A = (Q*sqrt(Λ)) * (Q*sqrt(Λ))^T = Q * Λ * Q^T
+        T eig = first_eig * std::pow(last_eig / first_eig, t * p);
+        eigenvalues[i] = std::sqrt(eig);
     }
 
     // Generate random orthogonal matrix Q via QR decomposition of Gaussian matrix
