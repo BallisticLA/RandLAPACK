@@ -179,6 +179,7 @@ add_benchmark(NAME CQRRT_linops_simple        CXX_SOURCES bench_CQRRT_linops/CQR
 add_benchmark(NAME CQRRT_linops_conditioning  CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_conditioning.cc  LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME generate_spd_matrices      CXX_SOURCES bench_CQRRT_linops/generate_spd_matrices.cc      LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME generate_sparse_spd        CXX_SOURCES bench_CQRRT_linops/generate_sparse_spd.cc        LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME generate_banded_spd        CXX_SOURCES bench_CQRRT_linops/generate_banded_spd.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME verify_spd_generation      CXX_SOURCES bench_CQRRT_linops/verify_spd_generation.cc      LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME diagnose_cholesky          CXX_SOURCES bench_CQRRT_linops/diagnose_cholesky.cc          LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME test_sparse_cholesky       CXX_SOURCES bench_CQRRT_linops/test_sparse_cholesky.cc       LINK_LIBS ${Benchmark_libs_external})
