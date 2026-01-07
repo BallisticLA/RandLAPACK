@@ -181,10 +181,7 @@ add_benchmark(NAME generate_spd_matrices      CXX_SOURCES bench_CQRRT_linops/gen
 add_benchmark(NAME generate_sparse_spd        CXX_SOURCES bench_CQRRT_linops/generate_sparse_spd.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME generate_banded_spd        CXX_SOURCES bench_CQRRT_linops/generate_banded_spd.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME verify_spd_generation      CXX_SOURCES bench_CQRRT_linops/verify_spd_generation.cc      LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME diagnose_cholesky          CXX_SOURCES bench_CQRRT_linops/diagnose_cholesky.cc          LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME test_sparse_cholesky       CXX_SOURCES bench_CQRRT_linops/test_sparse_cholesky.cc       LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME verify_matrix_file         CXX_SOURCES bench_CQRRT_linops/verify_matrix_file.cc         LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME perturb_1138_bus           CXX_SOURCES bench_CQRRT_linops/perturb_1138_bus.cc           LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME diagonal_regularization    CXX_SOURCES bench_CQRRT_linops/diagonal_regularization.cc    LINK_LIBS ${Benchmark_libs_external})
 
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)
