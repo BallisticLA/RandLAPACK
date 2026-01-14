@@ -51,12 +51,10 @@ protected:
         // Generate sparse matrix A using utility function
         auto A_csc = generate_sparse_matrix<T>(dims.rows_A, dims.cols_A, density_A, state);
 
-        // Create output buffers
-        vector<T> C_sparse_op(m * n);
-        vector<T> C_reference(m * n);
-
-        // Initialize test buffers using utility function
-        initialize_test_buffers(C_sparse_op, C_reference);
+        // Create and initialize output buffers with random data for beta testing
+        T* C_sparse_op = generate_dense_matrix<T>(m, n, Layout::ColMajor, state);
+        T* C_reference = new T[m * n];
+        std::copy(C_sparse_op, C_sparse_op + m * n, C_reference);
 
         // Create the SparseLinOp operator
         RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>>
@@ -67,55 +65,65 @@ protected:
             auto B_csc = generate_sparse_matrix<T>(dims.rows_B, dims.cols_B, density_B, state);
 
             // Compute using SparseLinOp with sparse B
-            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_sparse_op.data(), dims.ldc);
+            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_sparse_op, dims.ldc);
 
             // Compute reference: densify both matrices and use BLAS GEMM
             // NOTE: gen_sparse_mat can generate duplicates, so we must SUM them, not overwrite
-            vector<T> A_dense(dims.rows_A * dims.cols_A);
-            vector<T> B_dense(dims.rows_B * dims.cols_B);
+            T* A_dense = new T[dims.rows_A * dims.cols_A];
+            T* B_dense = new T[dims.rows_B * dims.cols_B];
 
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, layout, A_dense.data());
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, layout, B_dense.data());
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, layout, A_dense);
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, layout, B_dense);
 
             // Compute reference using utility function
             compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
-                                   A_dense.data(), dims.lda, B_dense.data(), dims.ldb,
-                                   beta, C_reference.data(), dims.ldc);
+                                   A_dense, dims.lda, B_dense, dims.ldb,
+                                   beta, C_reference, dims.ldc);
 
             // Compare results with relaxed tolerance for sparse operations
             T atol = 100 * std::numeric_limits<T>::epsilon();
             T rtol = 10 * std::numeric_limits<T>::epsilon();
             test::comparison::matrices_approx_equal(
-                Layout::ColMajor, Op::NoTrans, m, n, C_sparse_op.data(), m,
-                C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+                Layout::ColMajor, Op::NoTrans, m, n, C_sparse_op, m,
+                C_reference, m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
                 atol, rtol
             );
+
+            delete[] A_dense;
+            delete[] B_dense;
         } else {
             // Generate dense matrix B using utility function
-            vector<T> B_dense = generate_dense_matrix<T>(dims.rows_B, dims.cols_B, layout, state);
+            T* B_dense = generate_dense_matrix<T>(dims.rows_B, dims.cols_B, layout, state);
 
             // Compute using SparseLinOp with dense B
-            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense.data(), dims.ldb, beta, C_sparse_op.data(), dims.ldc);
+            A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense, dims.ldb, beta, C_sparse_op, dims.ldc);
 
             // Compute reference using dense GEMM
             // Densify A
-            vector<T> A_dense(dims.rows_A * dims.cols_A);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, layout, A_dense.data());
+            T* A_dense = new T[dims.rows_A * dims.cols_A];
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, layout, A_dense);
 
             // Compute reference using utility function
             compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
-                                   A_dense.data(), dims.lda, B_dense.data(), dims.ldb,
-                                   beta, C_reference.data(), dims.ldc);
+                                   A_dense, dims.lda, B_dense, dims.ldb,
+                                   beta, C_reference, dims.ldc);
 
             // Compare results with relaxed tolerance for sparse operations
             T atol = 100 * std::numeric_limits<T>::epsilon();
             T rtol = 10 * std::numeric_limits<T>::epsilon();
             test::comparison::matrices_approx_equal(
-                Layout::ColMajor, Op::NoTrans, m, n, C_sparse_op.data(), m,
-                C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+                Layout::ColMajor, Op::NoTrans, m, n, C_sparse_op, m,
+                C_reference, m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
                 atol, rtol
             );
+
+            delete[] A_dense;
+            delete[] B_dense;
         }
+
+        // Clean up
+        delete[] C_sparse_op;
+        delete[] C_reference;
     }
 };
 

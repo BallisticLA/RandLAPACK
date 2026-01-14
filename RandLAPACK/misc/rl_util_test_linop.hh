@@ -6,6 +6,7 @@
 #include <blas.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
+#include <algorithm>
 #include <vector>
 
 namespace RandLAPACK {
@@ -18,25 +19,28 @@ namespace test {
 
 /// Generate a random dense matrix with the specified layout
 /// Note: RandBLAS::fill_dense always generates ColMajor, so we convert if needed
+/// Caller is responsible for deallocating the returned pointer with delete[]
 template <typename T>
-::std::vector<T> generate_dense_matrix(
+T* generate_dense_matrix(
     int64_t rows,
     int64_t cols,
     ::blas::Layout layout,
     ::RandBLAS::RNGState<>& state
 ) {
-    ::std::vector<T> mat(rows * cols);
+    T* mat = new T[rows * cols];
     ::RandBLAS::DenseDist D(rows, cols);
-    ::RandBLAS::fill_dense(D, mat.data(), state);
+    ::RandBLAS::fill_dense(D, mat, state);
 
     // Convert to RowMajor if needed (RandBLAS generates ColMajor)
     if (layout == ::blas::Layout::RowMajor) {
-        ::std::vector<T> temp = mat;
+        T* temp = new T[rows * cols];
+        std::copy(mat, mat + rows * cols, temp);
         for (int64_t i = 0; i < rows; ++i) {
             for (int64_t j = 0; j < cols; ++j) {
                 mat[j + i * cols] = temp[i + j * rows];
             }
         }
+        delete[] temp;
     }
 
     return mat;
@@ -156,7 +160,7 @@ void compute_gemm_reference(
 /// Note: This assumes the matrix is currently in 'from_layout' and converts to 'to_layout'
 template <typename T>
 void convert_layout_inplace(
-    ::std::vector<T>& mat,
+    T* mat,
     int64_t rows,
     int64_t cols,
     ::blas::Layout from_layout,
@@ -164,7 +168,8 @@ void convert_layout_inplace(
 ) {
     if (from_layout == to_layout) return;
 
-    ::std::vector<T> temp = mat;
+    T* temp = new T[rows * cols];
+    std::copy(mat, mat + rows * cols, temp);
     if (from_layout == ::blas::Layout::ColMajor && to_layout == ::blas::Layout::RowMajor) {
         // ColMajor to RowMajor
         for (int64_t i = 0; i < rows; ++i) {
@@ -180,19 +185,7 @@ void convert_layout_inplace(
             }
         }
     }
-}
-
-// ============================================================================
-// Test Data Initialization Helper
-// ============================================================================
-
-/// Initialize test output buffers with random data for beta testing
-template <typename T>
-void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_reference) {
-    for (auto& c : C_test) {
-        c = static_cast<T>(rand()) / RAND_MAX;
-    }
-    C_reference = C_test;
+    delete[] temp;
 }
 
 }  // namespace test

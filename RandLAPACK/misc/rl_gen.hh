@@ -489,18 +489,21 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
 
     // Generate random indices using RandBLAS uniform distribution
     // Use normal distribution and scale to get uniform integers
-    ::std::vector<T> row_vals_tmp(nnz);
-    ::std::vector<T> col_vals_tmp(nnz);
+    T* row_vals_tmp = new T[nnz];
+    T* col_vals_tmp = new T[nnz];
     RandBLAS::DenseDist D_rows(nnz, 1);
     RandBLAS::DenseDist D_cols(nnz, 1);
-    RandBLAS::fill_dense(D_rows, row_vals_tmp.data(), state);
-    RandBLAS::fill_dense(D_cols, col_vals_tmp.data(), state);
+    RandBLAS::fill_dense(D_rows, row_vals_tmp, state);
+    RandBLAS::fill_dense(D_cols, col_vals_tmp, state);
 
     // Convert to uniform [0, m) and [0, n) using modulo
     for (int64_t idx = 0; idx < nnz; ++idx) {
         A_coo.rows[idx] = static_cast<int64_t>(::std::abs(row_vals_tmp[idx] * m)) % m;
         A_coo.cols[idx] = static_cast<int64_t>(::std::abs(col_vals_tmp[idx] * n)) % n;
     }
+
+    delete[] row_vals_tmp;
+    delete[] col_vals_tmp;
 
     return A_coo;
 }
