@@ -456,6 +456,42 @@ void process_input_mat(
     }
 }
 
+/// Generate a random dense matrix with specified layout.
+/// For simple random matrices without spectral structure.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[out] A - Output matrix (must be pre-allocated with m*n elements)
+/// @param[in] layout - Memory layout (ColMajor or RowMajor)
+/// @param[in,out] state - RNG state for reproducible generation
+///
+template <typename T, typename RNG>
+void gen_random_dense(
+    int64_t m,
+    int64_t n,
+    T* A,
+    blas::Layout layout,
+    RandBLAS::RNGState<RNG> &state
+) {
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::fill_dense(D, A, state);
+
+    // RandBLAS generates ColMajor; convert to RowMajor if needed
+    if (layout == blas::Layout::RowMajor) {
+        T* temp = new T[m * n];
+        std::copy(A, A + m * n, temp);
+        for (int64_t i = 0; i < m; ++i) {
+            for (int64_t j = 0; j < n; ++j) {
+                A[j + i * n] = temp[i + j * m];
+            }
+        }
+        delete[] temp;
+    }
+}
+
 /// Generate a random sparse matrix in COO format.
 /// Creates a sparse matrix with randomly positioned entries sampled from a normal distribution.
 /// Note: This function may generate duplicate entries at the same (row, col) position.
@@ -471,7 +507,7 @@ void process_input_mat(
 /// @return COO matrix with approximately m*n*density nonzero entries
 ///
 template <typename T, typename RNG>
-RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_coo(
     int64_t m,
     int64_t n,
     T density,
@@ -506,6 +542,43 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
     delete[] col_vals_tmp;
 
     return A_coo;
+}
+
+/// Generate a random sparse matrix in CSC format.
+/// Convenience wrapper around gen_sparse_coo that converts to CSC.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[in] density - Fraction of entries that are nonzero (0 < density <= 1)
+/// @param[in,out] state - RNG state for reproducible generation
+///
+/// @return CSC matrix with approximately m*n*density nonzero entries
+///
+template <typename T, typename RNG>
+RandBLAS::sparse_data::CSCMatrix<T> gen_sparse_csc(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state
+) {
+    auto coo = gen_sparse_coo<T>(m, n, density, state);
+    RandBLAS::sparse_data::CSCMatrix<T> csc(m, n);
+    RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
+    return csc;
+}
+
+/// Alias for gen_sparse_coo for backwards compatibility
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state
+) {
+    return gen_sparse_coo<T>(m, n, density, state);
 }
 
 /// 'Entry point' routine for matrix generation.

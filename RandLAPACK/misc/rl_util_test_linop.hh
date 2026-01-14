@@ -14,53 +14,6 @@ namespace util {
 namespace test {
 
 // ============================================================================
-// Matrix Generation Helpers
-// ============================================================================
-
-/// Generate a random dense matrix with the specified layout
-/// Note: RandBLAS::fill_dense always generates ColMajor, so we convert if needed
-/// Caller is responsible for deallocating the returned pointer with delete[]
-template <typename T>
-T* generate_dense_matrix(
-    int64_t rows,
-    int64_t cols,
-    ::blas::Layout layout,
-    ::RandBLAS::RNGState<>& state
-) {
-    T* mat = new T[rows * cols];
-    ::RandBLAS::DenseDist D(rows, cols);
-    ::RandBLAS::fill_dense(D, mat, state);
-
-    // Convert to RowMajor if needed (RandBLAS generates ColMajor)
-    if (layout == ::blas::Layout::RowMajor) {
-        T* temp = new T[rows * cols];
-        std::copy(mat, mat + rows * cols, temp);
-        for (int64_t i = 0; i < rows; ++i) {
-            for (int64_t j = 0; j < cols; ++j) {
-                mat[j + i * cols] = temp[i + j * rows];
-            }
-        }
-        delete[] temp;
-    }
-
-    return mat;
-}
-
-/// Generate a random sparse matrix in CSC format
-template <typename T>
-::RandBLAS::sparse_data::CSCMatrix<T> generate_sparse_matrix(
-    int64_t rows,
-    int64_t cols,
-    T density,
-    ::RandBLAS::RNGState<>& state
-) {
-    auto coo = ::RandLAPACK::gen::gen_sparse_mat<T>(rows, cols, density, state);
-    ::RandBLAS::sparse_data::CSCMatrix<T> csc(rows, cols);
-    ::RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
-    return csc;
-}
-
-// ============================================================================
 // Dimension Calculation Helpers
 // ============================================================================
 

@@ -47,11 +47,13 @@ protected:
         // Calculate dimensions using utility function
         auto dims = calculate_dimensions<T>(side, layout, trans_A, trans_B, m, n, k);
 
-        // Generate dense matrix A using utility function
-        T* A_dense = generate_dense_matrix<T>(dims.rows_A, dims.cols_A, layout, state);
+        // Generate dense matrix A
+        T* A_dense = new T[dims.rows_A * dims.cols_A];
+        RandLAPACK::gen::gen_random_dense(dims.rows_A, dims.cols_A, A_dense, layout, state);
 
         // Create and initialize output buffers with random data for beta testing
-        T* C_dense_op = generate_dense_matrix<T>(m, n, Layout::ColMajor, state);
+        T* C_dense_op = new T[m * n];
+        RandLAPACK::gen::gen_random_dense(m, n, C_dense_op, Layout::ColMajor, state);
         T* C_reference = new T[m * n];
         std::copy(C_dense_op, C_dense_op + m * n, C_reference);
 
@@ -60,7 +62,7 @@ protected:
 
         if (sparse_B) {
             // Generate sparse matrix B using utility function
-            auto B_csc = generate_sparse_matrix<T>(dims.rows_B, dims.cols_B, density, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_csc<T>(dims.rows_B, dims.cols_B, density, state);
 
             // Compute using DenseLinOp with sparse B
             A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_dense_op, dims.ldc);
@@ -86,8 +88,9 @@ protected:
 
             delete[] B_dense;
         } else {
-            // Generate dense matrix B using utility function
-            T* B_dense = generate_dense_matrix<T>(dims.rows_B, dims.cols_B, layout, state);
+            // Generate dense matrix B
+            T* B_dense = new T[dims.rows_B * dims.cols_B];
+            RandLAPACK::gen::gen_random_dense(dims.rows_B, dims.cols_B, B_dense, layout, state);
 
             // Compute using DenseLinOp with dense B
             A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense, dims.ldb, beta, C_dense_op, dims.ldc);
