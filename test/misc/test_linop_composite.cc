@@ -8,6 +8,7 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
 
 using std::vector;
 using blas::Layout;
