@@ -70,40 +70,58 @@ function(add_benchmark_gpu)
     message(STATUS "RandLAPACK: added ${TGT_NAME} GPU benchmark")
 endfunction()
 
-# EIGEN dependency.
+# External Dependencies via FetchContent
+# NOTE: These dependencies are shared with the demos/ project.
+# If demos was built first, these targets will already exist and won't be re-downloaded.
 include(FetchContent)
-FetchContent_Declare(
-        eigen_lib
-        GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-        GIT_TAG master
-        GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(eigen_lib)
-# Exporting Eigen target.
-install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Eigen3)
 
-# SPECTRA dependency
-FetchContent_Declare(
-        spectra_lib
-        GIT_REPOSITORY https://github.com/yixuan/spectra/
-        GIT_TAG master
-        GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(spectra_lib)
-# Linking Spectra and Eigen.
-target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
+# EIGEN dependency - only fetch if not already available
+if(NOT TARGET Eigen3::Eigen)
+    message(STATUS "Fetching Eigen library for benchmarks...")
+    FetchContent_Declare(
+            eigen_lib
+            GIT_REPOSITORY https://gitlab.com/libeigen/eigen
+            GIT_TAG master
+            GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(eigen_lib)
+    # Exporting Eigen target.
+    install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Eigen3)
+else()
+    message(STATUS "Eigen library already available (likely from demos project)")
+endif()
 
-# Adding fast matri matrket for benchmarking matrices examples
-include(FetchContent)
-FetchContent_Declare(
-    fast_matrix_market
-    GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
-    GIT_TAG main
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(
-    fast_matrix_market
-)
+# SPECTRA dependency - only fetch if not already available
+if(NOT TARGET Spectra)
+    message(STATUS "Fetching Spectra library for benchmarks...")
+    FetchContent_Declare(
+            spectra_lib
+            GIT_REPOSITORY https://github.com/yixuan/spectra/
+            GIT_TAG master
+            GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(spectra_lib)
+    # Linking Spectra and Eigen.
+    target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
+else()
+    message(STATUS "Spectra library already available (likely from demos project)")
+endif()
+
+# fast_matrix_market dependency - only fetch if not already available
+if(NOT TARGET fast_matrix_market)
+    message(STATUS "Fetching fast_matrix_market library for benchmarks...")
+    FetchContent_Declare(
+        fast_matrix_market
+        GIT_REPOSITORY https://github.com/alugowski/fast_matrix_market
+        GIT_TAG main
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(
+        fast_matrix_market
+    )
+else()
+    message(STATUS "fast_matrix_market library already available (likely from demos project)")
+endif()
 
 set(
     Benchmark_libs
@@ -154,6 +172,15 @@ add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_
 add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+
+# CQRRT_linops benchmarks
+add_benchmark(NAME CQRRT_linops_runtime       CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_runtime.cc       LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME CQRRT_linops_simple        CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_simple.cc        LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRT_linops_conditioning  CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_conditioning.cc  LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME generate_spd_matrices      CXX_SOURCES bench_CQRRT_linops/generate_spd_matrices.cc      LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME generate_banded_spd        CXX_SOURCES bench_CQRRT_linops/generate_banded_spd.cc        LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME verify_spd_generation      CXX_SOURCES bench_CQRRT_linops/verify_spd_generation.cc      LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME diagonal_regularization    CXX_SOURCES bench_CQRRT_linops/diagonal_regularization.cc    LINK_LIBS ${Benchmark_libs_external})
 
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)

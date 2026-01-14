@@ -162,10 +162,17 @@ else
     rm -rf $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/*
     echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/"
 fi
+if [[ ! -d "$RANDNLA_PROJECT_DIR/build/demos-build/" ]]; then
+    mkdir -p "$RANDNLA_PROJECT_DIR/build/demos-build/"
+    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/demos-build/"
+else
+    rm -rf $RANDNLA_PROJECT_DIR/build/demos-build/*
+    echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/demos-build/"
+fi
 if [[ ! -d "$RANDNLA_PROJECT_DIR/build/benchmark-build/" ]]; then
     mkdir -p "$RANDNLA_PROJECT_DIR/build/benchmark-build/"
     echo "Directory created at: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
-else 
+else
     rm -rf $RANDNLA_PROJECT_DIR/build/benchmark-build/*
     echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
 fi
@@ -209,12 +216,64 @@ fi
 cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install
 make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
 # Configure, build, and install RandLAPACK
-echo $LIB_VAR
+echo "=========================================="
+echo "Configuring and building RandLAPACK..."
+echo "=========================================="
 cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install
+if [ $? -ne 0 ]; then
+    echo "ERROR: RandLAPACK configuration failed!"
+    exit 1
+fi
 make  -C $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -j20 install
+if [ $? -ne 0 ]; then
+    echo "ERROR: RandLAPACK build failed!"
+    exit 1
+fi
+echo "RandLAPACK configured and built successfully"
+echo ""
+
+# Configure and build RandLAPACK-demos
+echo "=========================================="
+echo "Configuring and building RandLAPACK demos..."
+echo "=========================================="
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/demos/ -B $RANDNLA_PROJECT_DIR/build/demos-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
+if [ $? -ne 0 ]; then
+    echo "ERROR: RandLAPACK demos configuration failed!"
+    exit 1
+fi
+make  -C $RANDNLA_PROJECT_DIR/build/demos-build/ -j20
+if [ $? -ne 0 ]; then
+    echo "ERROR: RandLAPACK demos build failed!"
+    exit 1
+fi
+echo "RandLAPACK demos configured and built successfully"
+echo ""
+
 # Configure and build RandLAPACK-benchmark
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release  -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
+echo "=========================================="
+echo "Configuring and building RandLAPACK benchmarks..."
+echo "=========================================="
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/
+if [ $? -ne 0 ]; then
+    echo "ERROR: RandLAPACK benchmarks configuration failed!"
+    exit 1
+fi
 make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
+if [ $? -ne 0 ]; then
+    echo "ERROR: RandLAPACK benchmarks build failed!"
+    exit 1
+fi
+echo "RandLAPACK benchmarks configured and built successfully"
+echo ""
+
+echo "=========================================="
+echo "Installation Complete!"
+echo "=========================================="
+echo "RandLAPACK, demos, and benchmarks are ready to use."
+echo ""
+echo "Demo executables: $RANDNLA_PROJECT_DIR/build/demos-build/"
+echo "Benchmark executables: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
+echo ""
 
 if [ $RELOAD_SHELL -eq 1 ]; then
     # Source from bash and spawn a new shell so that the variable change takes place

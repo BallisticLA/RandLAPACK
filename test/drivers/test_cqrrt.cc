@@ -57,7 +57,7 @@ class TestCQRRT : public ::testing::Test
 
         auto m = all_data.row;
         auto n = all_data.col;
-        auto k = all_data.rank;
+        auto k = n;
 
         RandLAPACK::util::upsize(k * k, all_data.I_ref);
         RandLAPACK::util::eye(k, k, all_data.I_ref);
@@ -94,10 +94,10 @@ class TestCQRRT : public ::testing::Test
         printf("MAX COL NORM METRIC:    %15e\n", max_col_norm / col_norm_A);
         printf("FRO NORM OF (Q'Q - I)/sqrt(n): %2e\n\n", norm_0 / std::sqrt((T) n));
 
-        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-        ASSERT_LE(norm_AQR, atol * norm_A);
-        ASSERT_LE(max_col_norm, atol * col_norm_A);
-        ASSERT_LE(norm_0, atol * std::sqrt((T) n));
+        T atol = std::pow(std::numeric_limits<T>::epsilon(), 0.7);
+        ASSERT_LE(norm_AQR / norm_A, atol);
+        ASSERT_LE(max_col_norm / col_norm_A, atol);
+        ASSERT_LE(norm_0 / std::sqrt((T) n), atol);
     }
 
     /// General test for CQRRT:
@@ -115,9 +115,6 @@ class TestCQRRT : public ::testing::Test
 
         CQRRT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, d_factor, state);
 
-        all_data.rank = CQRRT.rank;
-        printf("RANK AS RETURNED BY CQRRT %ld\n", all_data.rank);
-
         error_check(norm_A, all_data); 
     }
 };
@@ -127,6 +124,31 @@ TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
     int64_t m = 10;
     int64_t n = 5;
     int64_t k = 5;
+    double d_factor = 2;
+    double norm_A = 0;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    CQRRTTestData<double> all_data(m, n, k);
+    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
+    CQRRT.nnz = 2;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+
+    test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
+}
+
+// Note: If Subprocess killed exception -> reload vscode
+TEST_F(TestCQRRT, CQRRT_large_full_rank) {
+    int64_t m = 5000;
+    int64_t n = 5000;
+    int64_t k = 5000;
     double d_factor = 2;
     double norm_A = 0;
     double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);

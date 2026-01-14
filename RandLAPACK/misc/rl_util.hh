@@ -490,4 +490,209 @@ std::string get_current_date_time() {
     return dateTimeStream.str();
 }
 
+/// Convert a sparse matrix to dense format.
+/// Supports COO, CSR, and CSC sparse matrix formats.
+///
+/// @tparam SpMat - Sparse matrix type (COOMatrix, CSRMatrix, or CSCMatrix)
+/// @tparam T - Scalar type
+///
+/// @param[in] sp_mat - The sparse matrix to convert
+/// @param[in] layout - Memory layout for the output dense matrix (ColMajor or RowMajor)
+/// @param[out] dense_mat - Pre-allocated buffer to store the dense matrix
+///
+template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = SpMat::scalar_t>
+void sparse_to_dense(
+    const SpMat &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    using sint_t = typename SpMat::index_t;
+    constexpr bool is_coo = std::is_same_v<SpMat, RandBLAS::sparse_data::COOMatrix<T, sint_t>>;
+    constexpr bool is_csr = std::is_same_v<SpMat, RandBLAS::sparse_data::CSRMatrix<T, sint_t>>;
+    constexpr bool is_csc = std::is_same_v<SpMat, RandBLAS::sparse_data::CSCMatrix<T, sint_t>>;
+
+    if constexpr (is_coo) {
+        RandBLAS::sparse_data::coo::coo_to_dense(sp_mat, layout, dense_mat);
+    } else if constexpr (is_csr) {
+        RandBLAS::sparse_data::csr::csr_to_dense(sp_mat, layout, dense_mat);
+    } else if constexpr (is_csc) {
+        RandBLAS::sparse_data::csc::csc_to_dense(sp_mat, layout, dense_mat);
+    } else {
+        randblas_require(false); // Unsupported sparse matrix type
+    }
+}
+
+/// Convert sparse matrix to dense format, summing duplicate entries
+///
+/// NOTE: This function properly handles duplicate (row, col) entries by summing them,
+/// which matches the semantics of RandBLAS spmm operations. Use this instead of
+/// RandBLAS's csc_to_dense when gen_sparse_mat may have created duplicates.
+///
+/// @param sp_mat - Sparse matrix in CSC format
+/// @param layout - Memory layout for dense output (ColMajor or RowMajor)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+template <typename T, typename sint_t = int64_t>
+void sparse_to_dense_summing_duplicates(
+    const RandBLAS::sparse_data::CSCMatrix<T, sint_t> &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    int64_t m = sp_mat.n_rows;
+    int64_t n = sp_mat.n_cols;
+
+    // Zero-initialize the output
+    int64_t total_size = m * n;
+    for (int64_t idx = 0; idx < total_size; ++idx) {
+        dense_mat[idx] = 0.0;
+    }
+
+    // Convert CSC to dense, summing duplicate entries
+    if (layout == blas::Layout::ColMajor) {
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t idx = sp_mat.colptr[j]; idx < sp_mat.colptr[j+1]; ++idx) {
+                int64_t i = sp_mat.rowidxs[idx];
+                dense_mat[i + j * m] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    } else {  // RowMajor
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t idx = sp_mat.colptr[j]; idx < sp_mat.colptr[j+1]; ++idx) {
+                int64_t i = sp_mat.rowidxs[idx];
+                dense_mat[j + i * n] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    }
+}
+
+/// Convert sparse CSR matrix to dense format, summing duplicate entries if present.
+///
+/// @param sp_mat - Sparse matrix in CSR format
+/// @param layout - Memory layout for dense output (ColMajor or RowMajor)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+template <typename T, typename sint_t = int64_t>
+void sparse_to_dense_summing_duplicates(
+    const RandBLAS::sparse_data::CSRMatrix<T, sint_t> &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    int64_t m = sp_mat.n_rows;
+    int64_t n = sp_mat.n_cols;
+
+    // Zero-initialize the output
+    int64_t total_size = m * n;
+    for (int64_t idx = 0; idx < total_size; ++idx) {
+        dense_mat[idx] = 0.0;
+    }
+
+    // Convert CSR to dense, summing duplicate entries
+    if (layout == blas::Layout::ColMajor) {
+        for (int64_t i = 0; i < m; ++i) {
+            for (int64_t idx = sp_mat.rowptr[i]; idx < sp_mat.rowptr[i+1]; ++idx) {
+                int64_t j = sp_mat.colidxs[idx];
+                dense_mat[i + j * m] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    } else {  // RowMajor
+        for (int64_t i = 0; i < m; ++i) {
+            for (int64_t idx = sp_mat.rowptr[i]; idx < sp_mat.rowptr[i+1]; ++idx) {
+                int64_t j = sp_mat.colidxs[idx];
+                dense_mat[j + i * n] += sp_mat.vals[idx];  // SUM duplicates!
+            }
+        }
+    }
+}
+
+/// Convert sparse COO matrix to dense format, summing duplicate entries if present.
+///
+/// @param sp_mat - Sparse matrix in COO format
+/// @param layout - Memory layout for dense output (ColMajor or RowMajor)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+template <typename T, typename sint_t = int64_t>
+void sparse_to_dense_summing_duplicates(
+    const RandBLAS::sparse_data::COOMatrix<T, sint_t> &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    int64_t m = sp_mat.n_rows;
+    int64_t n = sp_mat.n_cols;
+
+    // Zero-initialize the output
+    int64_t total_size = m * n;
+    for (int64_t idx = 0; idx < total_size; ++idx) {
+        dense_mat[idx] = 0.0;
+    }
+
+    // Convert COO to dense, summing duplicate entries
+    if (layout == blas::Layout::ColMajor) {
+        for (int64_t idx = 0; idx < sp_mat.nnz; ++idx) {
+            int64_t i = sp_mat.rowidxs[idx];
+            int64_t j = sp_mat.colidxs[idx];
+            dense_mat[i + j * m] += sp_mat.vals[idx];  // SUM duplicates!
+        }
+    } else {  // RowMajor
+        for (int64_t idx = 0; idx < sp_mat.nnz; ++idx) {
+            int64_t i = sp_mat.rowidxs[idx];
+            int64_t j = sp_mat.colidxs[idx];
+            dense_mat[j + i * n] += sp_mat.vals[idx];  // SUM duplicates!
+        }
+    }
+}
+
+/// Complete an orthonormal basis given a partial orthonormal set.
+/// Given Q ∈ ℝ^{m×k} with orthonormal columns (k < n), extends Q to
+/// Q_extended ∈ ℝ^{m×n} by adding (n-k) orthonormal columns.
+///
+/// The algorithm:
+/// 1. Generate random Gaussian vectors in columns [k:n)
+/// 2. Project out components in span(Q) via G := (I - QQ^T)G
+/// 3. Orthogonalize the projected vectors via QR factorization
+///
+/// @tparam T - Scalar type (float, double)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows (ambient dimension)
+/// @param[in] k - Number of existing orthonormal columns
+/// @param[in] n - Target number of columns (n >= k)
+/// @param[in] lda - Leading dimension of A (lda >= m)
+/// @param[in,out] A - On entry: first k columns contain orthonormal vectors
+///                    On exit: columns [k:n) contain additional orthonormal vectors
+/// @param[in,out] state - RNG state for generating random vectors
+///
+/// @note Modifies A in-place. The first k columns are unchanged.
+/// @note Requires n > k and m >= n
+///
+template <typename T, typename RNG>
+void complete_orthonormal_set(
+    int64_t m,
+    int64_t k,
+    int64_t n,
+    int64_t lda,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    randblas_require(n > k);
+    randblas_require(m >= n);
+    randblas_require(lda >= m);
+
+    int64_t cols_to_fill = n - k;
+
+    // Generate random Gaussian vectors in columns [k:n)
+    RandBLAS::DenseDist D(m, cols_to_fill);
+    RandBLAS::fill_dense(D, &A[k * lda], state);
+
+    // Project out Q: compute G := (I - QQ^T)G
+    ::std::vector<T> temp(k * cols_to_fill);
+    // temp = Q^T * G
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, cols_to_fill, m,
+               (T)1.0, A, lda, &A[k * lda], lda, (T)0.0, temp.data(), k);
+    // G := G - Q * temp (i.e., G = G - QQ^T * G)
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cols_to_fill, k,
+               (T)-1.0, A, lda, temp.data(), k, (T)1.0, &A[k * lda], lda);
+
+    // Orthogonalize projected vectors via QR
+    ::std::vector<T> tau_orth(cols_to_fill);
+    lapack::geqrf(m, cols_to_fill, &A[k * lda], lda, tau_orth.data());
+    lapack::orgqr(m, cols_to_fill, cols_to_fill, &A[k * lda], lda, tau_orth.data());
+}
+
 } // end namespace util

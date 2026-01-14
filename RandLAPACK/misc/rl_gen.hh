@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <sstream>
 #include <fstream>
+#include <random>
 
 namespace RandLAPACK::gen {
 
@@ -456,6 +457,142 @@ void process_input_mat(
     }
 }
 
+/// Generate a random symmetric positive definite (SPD) matrix.
+/// Creates an SPD matrix using the transformation: A = A_base^T * A_base + n*I
+/// where A_base is a random matrix generated using mat_gen_info parameters.
+///
+/// @param[in] n
+///     Dimension of the square SPD matrix (n x n).
+///
+/// @param[in] cond_num
+///     Target condition number for the generated matrix.
+///
+/// @param[out] A
+///     On exit, contains the n-by-n SPD matrix in column-major format.
+///     Buffer must be pre-allocated with size n*n.
+///
+/// @param[in] state
+///     RNG state for reproducible generation.
+///
+template <typename T, typename RNG>
+void gen_spd_mat(
+    int64_t n,
+    T cond_num,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    // Generate SPD matrix using eigenvalue decomposition: A = Q * Lambda * Q^T
+    // This gives exact control over the condition number
+
+    // Generate eigenvalues with polynomial decay from 1.0 to 1/cond_num
+    ::std::vector<T> eigenvalues(n);
+
+    // Eigenvalues range from 1.0 (max) to 1/cond_num (min)
+    // This gives condition number κ = λ_max/λ_min = 1.0/(1/cond_num) = cond_num
+    T first_eig = (T)1.0;
+    T last_eig = (T)1.0 / cond_num;
+
+    // First 10% of eigenvalues set to 1.0
+    int64_t offset = (int64_t)std::floor(n * 0.1);
+
+    // Simple polynomial decay: λ_i = first_eig * (last_eig/first_eig)^(t*p)
+    // This gives eigenvalues from 1.0 down to 1/cond_num, so κ = 1.0 / (1/cond_num) = cond_num
+    // Use p = 1.0 for linear decay (gives exact condition number)
+    T p = 1.0;
+
+    for (int64_t i = 0; i < offset; ++i) {
+        eigenvalues[i] = std::sqrt(first_eig);  // Store sqrt since syrk squares them
+    }
+    for (int64_t i = offset; i < n; ++i) {
+        T t = (T)(i - offset) / (T)(n - 1 - offset);  // normalized position: 0 to 1
+        // Eigenvalue decay: λ_i = first_eig * (last_eig/first_eig)^(t*p)
+        // With p=1 (linear): gives exact condition number κ = first_eig / last_eig
+        // Store sqrt(λ_i) because syrk computes A = (Q*sqrt(Λ)) * (Q*sqrt(Λ))^T = Q * Λ * Q^T
+        T eig = first_eig * std::pow(last_eig / first_eig, t * p);
+        eigenvalues[i] = std::sqrt(eig);
+    }
+
+    // Generate random orthogonal matrix Q via QR decomposition of Gaussian matrix
+    ::std::vector<T> Q(n * n);
+    ::std::vector<T> tau(n);
+
+    RandBLAS::DenseDist D(n, n);
+    state = RandBLAS::fill_dense(D, Q.data(), state);
+
+    // QR factorization to get orthogonal Q
+    lapack::geqrf(n, n, Q.data(), n, tau.data());
+    lapack::orgqr(n, n, n, Q.data(), n, tau.data());
+
+    // Form A = Q * Lambda * Q^T
+    // Step 1: Temp = Q * Lambda (scale columns of Q by eigenvalues)
+    ::std::vector<T> Temp(n * n);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            Temp[i + j * n] = Q[i + j * n] * eigenvalues[j];
+        }
+    }
+
+    // Step 2: A = Temp * Q^T (symmetric rank-k update)
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans, n, n,
+               (T)1.0, Temp.data(), n, (T)0.0, A, n);
+
+    // Copy upper triangle to lower triangle for full symmetric matrix
+    for (int64_t i = 0; i < n; ++i) {
+        for (int64_t j = 0; j < i; ++j) {
+            A[i + j * n] = A[j + i * n];
+        }
+    }
+}
+
+/// Generate a random sparse matrix in COO format.
+/// Creates a sparse matrix with randomly positioned entries sampled from a normal distribution.
+/// Note: This function may generate duplicate entries at the same (row, col) position.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[in] density - Fraction of entries that are nonzero (0 < density <= 1)
+/// @param[in,out] state - RNG state for reproducible generation
+///
+/// @return COO matrix with approximately m*n*density nonzero entries
+///
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state
+) {
+    using namespace RandBLAS::sparse_data;
+
+    int64_t nnz = static_cast<int64_t>(m * n * density);
+    coo::COOMatrix<T> A_coo(m, n);
+    coo::reserve_coo(nnz, A_coo);
+
+    // Generate random Gaussian values using RandBLAS
+    RandBLAS::DenseDist D_vals(nnz, 1);
+    RandBLAS::fill_dense(D_vals, A_coo.vals, state);
+
+    // Generate random indices using RandBLAS uniform distribution
+    // Use normal distribution and scale to get uniform integers
+    ::std::vector<T> row_vals_tmp(nnz);
+    ::std::vector<T> col_vals_tmp(nnz);
+    RandBLAS::DenseDist D_rows(nnz, 1);
+    RandBLAS::DenseDist D_cols(nnz, 1);
+    RandBLAS::fill_dense(D_rows, row_vals_tmp.data(), state);
+    RandBLAS::fill_dense(D_cols, col_vals_tmp.data(), state);
+
+    // Convert to uniform [0, m) and [0, n) using modulo
+    for (int64_t idx = 0; idx < nnz; ++idx) {
+        A_coo.rows[idx] = static_cast<int64_t>(::std::abs(row_vals_tmp[idx] * m)) % m;
+        A_coo.cols[idx] = static_cast<int64_t>(::std::abs(col_vals_tmp[idx] * n)) % n;
+    }
+
+    return A_coo;
+}
+
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
 template <typename T, typename RNG>
@@ -522,8 +659,8 @@ void mat_gen(
 }
 
 template <typename T, typename RNG>
-std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
-    std::vector<T> A(info.rows * info.cols, 0.0);
+::std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
+    ::std::vector<T> A(info.rows * info.cols, 0.0);
     mat_gen(info, A.data(), state);
     return A;
 }
