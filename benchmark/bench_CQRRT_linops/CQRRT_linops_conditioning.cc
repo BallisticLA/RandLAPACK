@@ -23,6 +23,7 @@ int main() {return 0;}
 // Need to include demos utilities
 #include "../../demos/functions/linops_external/dm_cholsolver_linop.hh"
 #include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
+#include "../../demos/functions/drivers/dm_cholqr_linops.hh"
 #include "../../demos/functions/misc/dm_util.hh"
 
 using std::chrono::steady_clock;
@@ -32,11 +33,20 @@ using std::chrono::microseconds;
 template <typename T>
 struct conditioning_result {
     T cond_num;           // Condition number of SPD matrix
-    T rel_error;          // ||A - QR|| / ||A||
-    T orth_error;         // ||Q^T Q - I|| / sqrt(n)
-    bool is_orthonormal;  // Is full Q block orthonormal?
-    int64_t max_orth_cols;  // Maximum orthonormal prefix
-    long total_time;      // Total computation time (microseconds)
+
+    // CQRRT results
+    T cqrrt_rel_error;          // ||A - QR|| / ||A||
+    T cqrrt_orth_error;         // ||Q^T Q - I|| / sqrt(n)
+    bool cqrrt_is_orthonormal;  // Is full Q block orthonormal?
+    int64_t cqrrt_max_orth_cols;  // Maximum orthonormal prefix
+    long cqrrt_time;      // Total computation time (microseconds)
+
+    // CholQR results
+    T cholqr_rel_error;          // ||A - QR|| / ||A||
+    T cholqr_orth_error;         // ||Q^T Q - I|| / sqrt(n)
+    bool cholqr_is_orthonormal;  // Is full Q block orthonormal?
+    int64_t cholqr_max_orth_cols;  // Maximum orthonormal prefix
+    long cholqr_time;      // Total computation time (microseconds)
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -109,11 +119,16 @@ static conditioning_result<T> run_single_test(
         A_inv_linop.factorize();
     } catch (const std::exception& e) {
         printf("    Cholesky factorization failed for κ=%.6e - matrix too ill-conditioned\n", cond_num);
-        result.rel_error = std::numeric_limits<T>::quiet_NaN();
-        result.orth_error = std::numeric_limits<T>::quiet_NaN();
-        result.is_orthonormal = false;
-        result.max_orth_cols = -1;
-        result.total_time = 0;
+        result.cqrrt_rel_error = std::numeric_limits<T>::quiet_NaN();
+        result.cqrrt_orth_error = std::numeric_limits<T>::quiet_NaN();
+        result.cqrrt_is_orthonormal = false;
+        result.cqrrt_max_orth_cols = -1;
+        result.cqrrt_time = 0;
+        result.cholqr_rel_error = std::numeric_limits<T>::quiet_NaN();
+        result.cholqr_orth_error = std::numeric_limits<T>::quiet_NaN();
+        result.cholqr_is_orthonormal = false;
+        result.cholqr_max_orth_cols = -1;
+        result.cholqr_time = 0;
         return result;
     }
 
@@ -146,37 +161,71 @@ static conditioning_result<T> run_single_test(
     A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m,
                 1.0, intermediate.data(), m, 0.0, A_dense.data(), m);
 
-    // Run CQRRT
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
-    std::vector<T> R(n * n, 0.0);
-
-    auto t_start = steady_clock::now();
-
-    RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(false, tol, true);  // timing=false, test_mode=true
-    CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
-    CQRRT_QR.call(outer_composite, R.data(), n, d_factor, state);
-
-    auto t_stop = steady_clock::now();
-    result.total_time = duration_cast<microseconds>(t_stop - t_start).count();
-
-    // Compute factorization error
-    std::vector<T> QR(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-               1.0, CQRRT_QR.Q, m, R.data(), n, 0.0, QR.data(), m);
-
-    T norm_diff = 0.0;
-    for (int64_t i = 0; i < m * n; ++i) {
-        T diff = A_dense[i] - QR[i];
-        norm_diff += diff * diff;
-    }
-    norm_diff = std::sqrt(norm_diff);
-
     T norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);
-    result.rel_error = norm_diff / norm_A;
 
-    // Measure orthogonality
-    measure_orthogonality(CQRRT_QR.Q, m, n, result.orth_error,
-                         result.is_orthonormal, result.max_orth_cols);
+    // ============================================================
+    // Run CQRRT (preconditioned Cholesky QR)
+    // ============================================================
+    {
+        std::vector<T> R_cqrrt(n * n, 0.0);
+        auto t_start = steady_clock::now();
+
+        RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(false, tol, true);  // timing=false, test_mode=true
+        CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
+        CQRRT_QR.call(outer_composite, R_cqrrt.data(), n, d_factor, state);
+
+        auto t_stop = steady_clock::now();
+        result.cqrrt_time = duration_cast<microseconds>(t_stop - t_start).count();
+
+        // Compute factorization error
+        std::vector<T> QR(m * n, 0.0);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+                   1.0, CQRRT_QR.Q, m, R_cqrrt.data(), n, 0.0, QR.data(), m);
+
+        T norm_diff = 0.0;
+        for (int64_t i = 0; i < m * n; ++i) {
+            T diff = A_dense[i] - QR[i];
+            norm_diff += diff * diff;
+        }
+        norm_diff = std::sqrt(norm_diff);
+        result.cqrrt_rel_error = norm_diff / norm_A;
+
+        // Measure orthogonality
+        measure_orthogonality(CQRRT_QR.Q, m, n, result.cqrrt_orth_error,
+                             result.cqrrt_is_orthonormal, result.cqrrt_max_orth_cols);
+    }
+
+    // ============================================================
+    // Run CholQR (unpreconditioned Cholesky QR)
+    // ============================================================
+    {
+        std::vector<T> R_cholqr(n * n, 0.0);
+        auto t_start = steady_clock::now();
+
+        RandLAPACK_demos::CholQR_linops<T> CholQR_alg(false, tol, true);  // timing=false, test_mode=true
+        CholQR_alg.call(outer_composite, R_cholqr.data(), n);
+
+        auto t_stop = steady_clock::now();
+        result.cholqr_time = duration_cast<microseconds>(t_stop - t_start).count();
+
+        // Compute factorization error
+        std::vector<T> QR(m * n, 0.0);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+                   1.0, CholQR_alg.Q, m, R_cholqr.data(), n, 0.0, QR.data(), m);
+
+        T norm_diff = 0.0;
+        for (int64_t i = 0; i < m * n; ++i) {
+            T diff = A_dense[i] - QR[i];
+            norm_diff += diff * diff;
+        }
+        norm_diff = std::sqrt(norm_diff);
+        result.cholqr_rel_error = norm_diff / norm_A;
+
+        // Measure orthogonality
+        measure_orthogonality(CholQR_alg.Q, m, n, result.cholqr_orth_error,
+                             result.cholqr_is_orthonormal, result.cholqr_max_orth_cols);
+    }
 
     return result;
 }
@@ -235,14 +284,14 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("\n=== CQRRT_linops Conditioning Study ===\n");
+    printf("\n=== CQRRT vs CholQR Conditioning Study ===\n");
     printf("SPD matrix directory: %s\n", spd_dir.c_str());
     printf("Number of condition numbers: %ld\n", num_matrices);
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
-    printf("Sketching factor: %.2f\n", d_factor);
+    printf("Sketching factor (CQRRT only): %.2f\n", d_factor);
     printf("Runs per condition: %ld\n", num_runs);
     printf("Output file: %s\n", output_file.c_str());
-    printf("========================================\n\n");
+    printf("==========================================\n\n");
 
     // Re-read metadata to get file list
     meta.open(metadata_file);
@@ -272,15 +321,23 @@ int main(int argc, char *argv[]) {
 
     // Open output file
     std::ofstream out(output_file);
-    out << "# CQRRT_linops Conditioning Study Results\n";
+    out << "# CQRRT vs CholQR Conditioning Study Results\n";
     out << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
-    out << "# d_factor: " << d_factor << "\n";
+    out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# num_runs: " << num_runs << "\n";
-    out << "# Format: cond_num, rel_error_mean, rel_error_std, orth_error_mean, orth_error_std, "
-        << "max_orth_cols_mean, max_orth_cols_std, is_orthonormal_rate, time_mean, time_std\n";
-    out << "cond_num,rel_error_mean,rel_error_std,orth_error_mean,orth_error_std,"
-        << "max_orth_cols_mean,max_orth_cols_std,orth_rate,time_mean,time_std\n";
+    out << "# Format: cond_num, cqrrt_*, cholqr_* (rel_error, orth_error, max_orth_cols, orth_rate, time)\n";
+    out << "cond_num,"
+        << "cqrrt_rel_error_mean,cqrrt_rel_error_std,"
+        << "cqrrt_orth_error_mean,cqrrt_orth_error_std,"
+        << "cqrrt_max_orth_cols_mean,cqrrt_max_orth_cols_std,"
+        << "cqrrt_orth_rate,"
+        << "cqrrt_time_mean,cqrrt_time_std,"
+        << "cholqr_rel_error_mean,cholqr_rel_error_std,"
+        << "cholqr_orth_error_mean,cholqr_orth_error_std,"
+        << "cholqr_max_orth_cols_mean,cholqr_max_orth_cols_std,"
+        << "cholqr_orth_rate,"
+        << "cholqr_time_mean,cholqr_time_std\n";
 
     // Run conditioning study
     for (size_t i = 0; i < matrix_files.size(); ++i) {
@@ -295,54 +352,97 @@ int main(int argc, char *argv[]) {
             auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, state);
             results.push_back(result);
 
-            printf("  Run %ld/%ld: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
-                   run + 1, num_runs, result.orth_error, result.max_orth_cols, n, result.total_time);
+            printf("  Run %ld/%ld:\n", run + 1, num_runs);
+            printf("    CQRRT: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+                   result.cqrrt_orth_error, result.cqrrt_max_orth_cols, n, result.cqrrt_time);
+            printf("    CholQR: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+                   result.cholqr_orth_error, result.cholqr_max_orth_cols, n, result.cholqr_time);
         }
 
-        // Compute statistics
-        double rel_err_mean = 0, orth_err_mean = 0, time_mean = 0;
-        double max_orth_mean = 0;
-        int orth_count = 0;
+        // Compute statistics for CQRRT
+        double cqrrt_rel_err_mean = 0, cqrrt_orth_err_mean = 0, cqrrt_time_mean = 0;
+        double cqrrt_max_orth_mean = 0;
+        int cqrrt_orth_count = 0;
 
         for (const auto& r : results) {
-            rel_err_mean += r.rel_error;
-            orth_err_mean += r.orth_error;
-            max_orth_mean += r.max_orth_cols;
-            time_mean += r.total_time;
-            if (r.is_orthonormal) orth_count++;
+            cqrrt_rel_err_mean += r.cqrrt_rel_error;
+            cqrrt_orth_err_mean += r.cqrrt_orth_error;
+            cqrrt_max_orth_mean += r.cqrrt_max_orth_cols;
+            cqrrt_time_mean += r.cqrrt_time;
+            if (r.cqrrt_is_orthonormal) cqrrt_orth_count++;
         }
-        rel_err_mean /= num_runs;
-        orth_err_mean /= num_runs;
-        max_orth_mean /= num_runs;
-        time_mean /= num_runs;
+        cqrrt_rel_err_mean /= num_runs;
+        cqrrt_orth_err_mean /= num_runs;
+        cqrrt_max_orth_mean /= num_runs;
+        cqrrt_time_mean /= num_runs;
 
-        double rel_err_std = 0, orth_err_std = 0, time_std = 0;
-        double max_orth_std = 0;
+        double cqrrt_rel_err_std = 0, cqrrt_orth_err_std = 0, cqrrt_time_std = 0;
+        double cqrrt_max_orth_std = 0;
         for (const auto& r : results) {
-            rel_err_std += (r.rel_error - rel_err_mean) * (r.rel_error - rel_err_mean);
-            orth_err_std += (r.orth_error - orth_err_mean) * (r.orth_error - orth_err_mean);
-            max_orth_std += (r.max_orth_cols - max_orth_mean) * (r.max_orth_cols - max_orth_mean);
-            time_std += (r.total_time - time_mean) * (r.total_time - time_mean);
+            cqrrt_rel_err_std += (r.cqrrt_rel_error - cqrrt_rel_err_mean) * (r.cqrrt_rel_error - cqrrt_rel_err_mean);
+            cqrrt_orth_err_std += (r.cqrrt_orth_error - cqrrt_orth_err_mean) * (r.cqrrt_orth_error - cqrrt_orth_err_mean);
+            cqrrt_max_orth_std += (r.cqrrt_max_orth_cols - cqrrt_max_orth_mean) * (r.cqrrt_max_orth_cols - cqrrt_max_orth_mean);
+            cqrrt_time_std += (r.cqrrt_time - cqrrt_time_mean) * (r.cqrrt_time - cqrrt_time_mean);
         }
-        rel_err_std = std::sqrt(rel_err_std / num_runs);
-        orth_err_std = std::sqrt(orth_err_std / num_runs);
-        max_orth_std = std::sqrt(max_orth_std / num_runs);
-        time_std = std::sqrt(time_std / num_runs);
+        cqrrt_rel_err_std = std::sqrt(cqrrt_rel_err_std / num_runs);
+        cqrrt_orth_err_std = std::sqrt(cqrrt_orth_err_std / num_runs);
+        cqrrt_max_orth_std = std::sqrt(cqrrt_max_orth_std / num_runs);
+        cqrrt_time_std = std::sqrt(cqrrt_time_std / num_runs);
 
-        double orth_rate = static_cast<double>(orth_count) / num_runs;
+        double cqrrt_orth_rate = static_cast<double>(cqrrt_orth_count) / num_runs;
+
+        // Compute statistics for CholQR
+        double cholqr_rel_err_mean = 0, cholqr_orth_err_mean = 0, cholqr_time_mean = 0;
+        double cholqr_max_orth_mean = 0;
+        int cholqr_orth_count = 0;
+
+        for (const auto& r : results) {
+            cholqr_rel_err_mean += r.cholqr_rel_error;
+            cholqr_orth_err_mean += r.cholqr_orth_error;
+            cholqr_max_orth_mean += r.cholqr_max_orth_cols;
+            cholqr_time_mean += r.cholqr_time;
+            if (r.cholqr_is_orthonormal) cholqr_orth_count++;
+        }
+        cholqr_rel_err_mean /= num_runs;
+        cholqr_orth_err_mean /= num_runs;
+        cholqr_max_orth_mean /= num_runs;
+        cholqr_time_mean /= num_runs;
+
+        double cholqr_rel_err_std = 0, cholqr_orth_err_std = 0, cholqr_time_std = 0;
+        double cholqr_max_orth_std = 0;
+        for (const auto& r : results) {
+            cholqr_rel_err_std += (r.cholqr_rel_error - cholqr_rel_err_mean) * (r.cholqr_rel_error - cholqr_rel_err_mean);
+            cholqr_orth_err_std += (r.cholqr_orth_error - cholqr_orth_err_mean) * (r.cholqr_orth_error - cholqr_orth_err_mean);
+            cholqr_max_orth_std += (r.cholqr_max_orth_cols - cholqr_max_orth_mean) * (r.cholqr_max_orth_cols - cholqr_max_orth_mean);
+            cholqr_time_std += (r.cholqr_time - cholqr_time_mean) * (r.cholqr_time - cholqr_time_mean);
+        }
+        cholqr_rel_err_std = std::sqrt(cholqr_rel_err_std / num_runs);
+        cholqr_orth_err_std = std::sqrt(cholqr_orth_err_std / num_runs);
+        cholqr_max_orth_std = std::sqrt(cholqr_max_orth_std / num_runs);
+        cholqr_time_std = std::sqrt(cholqr_time_std / num_runs);
+
+        double cholqr_orth_rate = static_cast<double>(cholqr_orth_count) / num_runs;
 
         // Write results
         out << std::scientific << std::setprecision(6)
             << cond_num << ","
-            << rel_err_mean << "," << rel_err_std << ","
-            << orth_err_mean << "," << orth_err_std << ","
-            << max_orth_mean << "," << max_orth_std << ","
-            << orth_rate << ","
-            << time_mean << "," << time_std << "\n";
+            << cqrrt_rel_err_mean << "," << cqrrt_rel_err_std << ","
+            << cqrrt_orth_err_mean << "," << cqrrt_orth_err_std << ","
+            << cqrrt_max_orth_mean << "," << cqrrt_max_orth_std << ","
+            << cqrrt_orth_rate << ","
+            << cqrrt_time_mean << "," << cqrrt_time_std << ","
+            << cholqr_rel_err_mean << "," << cholqr_rel_err_std << ","
+            << cholqr_orth_err_mean << "," << cholqr_orth_err_std << ","
+            << cholqr_max_orth_mean << "," << cholqr_max_orth_std << ","
+            << cholqr_orth_rate << ","
+            << cholqr_time_mean << "," << cholqr_time_std << "\n";
         out.flush();
 
-        printf("  Summary: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n\n",
-               orth_err_mean, orth_err_std, max_orth_mean, max_orth_std, orth_rate);
+        printf("  Summary:\n");
+        printf("    CQRRT:  orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
+               cqrrt_orth_err_mean, cqrrt_orth_err_std, cqrrt_max_orth_mean, cqrrt_max_orth_std, cqrrt_orth_rate);
+        printf("    CholQR: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n\n",
+               cholqr_orth_err_mean, cholqr_orth_err_std, cholqr_max_orth_mean, cholqr_max_orth_std, cholqr_orth_rate);
     }
 
     out.close();
