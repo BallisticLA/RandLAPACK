@@ -8,7 +8,7 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
+#include "../../RandLAPACK/misc/rl_util_test_linop.hh"  // Test utilities, not part of public API
 
 using std::vector;
 using blas::Layout;

@@ -8,7 +8,7 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
+#include "../../RandLAPACK/misc/rl_util_test_linop.hh"  // Test utilities, not part of public API
 
 using std::vector;
 using blas::Layout;
@@ -133,7 +133,7 @@ protected:
             // Sparse-Dense composition
             auto left_csc = generate_sparse_matrix<T>(rows_left, cols_left, density_left, state);
             RandLAPACK::linops::SparseLinOp left_op(rows_left, cols_left, left_csc);
-            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense.data(), lda_right, layout);
+            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense, lda_right, layout);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
 
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
@@ -143,7 +143,7 @@ protected:
         } else if (!left_sparse && right_sparse) {
             // Dense-Sparse composition
             auto right_csc = generate_sparse_matrix<T>(rows_right, cols_right, density_right, state);
-            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense.data(), lda_left, layout);
+            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense, lda_left, layout);
             RandLAPACK::linops::SparseLinOp right_op(rows_right, cols_right, right_csc);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
 
@@ -153,8 +153,8 @@ protected:
 
         } else {
             // Dense-Dense composition
-            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense.data(), lda_left, layout);
-            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense.data(), lda_right, layout);
+            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense, lda_left, layout);
+            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense, lda_right, layout);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
 
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
