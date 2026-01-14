@@ -255,6 +255,7 @@ int CQRRPT<T, RNG>::call(
         }
     }
     this->rank = k;
+    new_rank = k;
 
     if(this -> timing)
         rank_reveal_t_stop = steady_clock::now();
@@ -285,25 +286,26 @@ int CQRRPT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, ldr);
-    lapack::potrf(Uplo::Upper, k, R_sp, ldr);
+    if(lapack::potrf(Uplo::Upper, k, R_sp, ldr)) {
+        // Perform aposteriori rank estimation of CholQR failed?
 
-    // Re-estimate rank after we have the R-factor form Cholesky QR.
-    // The strategy here is the same as in naive rank estimation.
-    // This also automatically takes care of any potential failures in Cholesky factorization.
-    // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
-    // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
-    new_rank = k;
-    running_max = R_sp[0];
-    running_min = R_sp[0];
-    T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
+        // Re-estimate rank after we have the R-factor form Cholesky QR.
+        // The strategy here is the same as in naive rank estimation.
+        // This also automatically takes care of any potential failures in Cholesky factorization.
+        // Note that the diagonal of R_sp may not be sorted, so we need to keep the running max/min
+        // We expect the loss in the orthogonality of Q to be approximately equal to u * cond(R_sp)^2, where u is the unit roundoff for the numerical type T.
+        running_max = R_sp[0];
+        running_min = R_sp[0];
+        T cond_threshold = std::sqrt(this->eps / std::numeric_limits<T>::epsilon());
 
-    for(i = 0; i < k; ++i) {
-        curr_entry = std::abs(R_sp[i * ldr + i]);
-        running_max = std::max(running_max, curr_entry);
-        running_min = std::min(running_min, curr_entry);
-        if((running_min * cond_threshold < running_max) && i > 1) {
-            new_rank = i - 1;
-            break;
+        for(i = 0; i < k; ++i) {
+            curr_entry = std::abs(R_sp[i * ldr + i]);
+            running_max = std::max(running_max, curr_entry);
+            running_min = std::min(running_min, curr_entry);
+            if((running_min * cond_threshold < running_max) && i > 1) {
+                new_rank = i - 1;
+                break;
+            }
         }
     }
 

@@ -456,6 +456,55 @@ void process_input_mat(
     }
 }
 
+/// Generate a random sparse matrix in COO format.
+/// Creates a sparse matrix with randomly positioned entries sampled from a normal distribution.
+/// Note: This function may generate duplicate entries at the same (row, col) position.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[in] density - Fraction of entries that are nonzero (0 < density <= 1)
+/// @param[in,out] state - RNG state for reproducible generation
+///
+/// @return COO matrix with approximately m*n*density nonzero entries
+///
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state
+) {
+    using namespace RandBLAS::sparse_data;
+
+    int64_t nnz = static_cast<int64_t>(m * n * density);
+    coo::COOMatrix<T> A_coo(m, n);
+    coo::reserve_coo(nnz, A_coo);
+
+    // Generate random Gaussian values using RandBLAS
+    RandBLAS::DenseDist D_vals(nnz, 1);
+    RandBLAS::fill_dense(D_vals, A_coo.vals, state);
+
+    // Generate random indices using RandBLAS uniform distribution
+    // Use normal distribution and scale to get uniform integers
+    ::std::vector<T> row_vals_tmp(nnz);
+    ::std::vector<T> col_vals_tmp(nnz);
+    RandBLAS::DenseDist D_rows(nnz, 1);
+    RandBLAS::DenseDist D_cols(nnz, 1);
+    RandBLAS::fill_dense(D_rows, row_vals_tmp.data(), state);
+    RandBLAS::fill_dense(D_cols, col_vals_tmp.data(), state);
+
+    // Convert to uniform [0, m) and [0, n) using modulo
+    for (int64_t idx = 0; idx < nnz; ++idx) {
+        A_coo.rows[idx] = static_cast<int64_t>(::std::abs(row_vals_tmp[idx] * m)) % m;
+        A_coo.cols[idx] = static_cast<int64_t>(::std::abs(col_vals_tmp[idx] * n)) % n;
+    }
+
+    return A_coo;
+}
+
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
 template <typename T, typename RNG>
@@ -522,8 +571,8 @@ void mat_gen(
 }
 
 template <typename T, typename RNG>
-std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
-    std::vector<T> A(info.rows * info.cols, 0.0);
+::std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
+    ::std::vector<T> A(info.rows * info.cols, 0.0);
     mat_gen(info, A.data(), state);
     return A;
 }

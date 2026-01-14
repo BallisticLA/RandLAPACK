@@ -271,5 +271,89 @@ TEST_F(TestABRIK, ABRIK_sparse_coo_cqrrt) {
     test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
     RandBLAS::sparse_data::coo::dense_to_coo<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
+test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
+}
+
+
+TEST_F(TestABRIK, ABRIK_catch_instability_prelim) {
+
+    int64_t m = 10;
+    int64_t k = 5;
+    double* X_i = new double[m * k]();
+    double* tau = new double[k]();
+    RandBLAS::DenseDist D(m, k);
+    auto state = RandBLAS::RNGState();
+    RandBLAS::fill_dense(D, X_i, state);
+
+    lapack::geqrf(m, k, X_i, m, tau);
+    lapack::ungqr(m, k, k, X_i, m, tau);
+
+    std::vector<double> buffer2 (k * k, 0.0);
+    RandLAPACK::util::eye(k, k, buffer2.data());
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, X_i, m, X_i, m, -1.0, buffer2.data(), k);
+    printf("Norm 2: %e\n", lapack::lange(Norm::Fro, k, k, buffer2.data(), k) / sqrt(k));
+}
+
+TEST_F(TestABRIK, ABRIK_catch_instability_good) {
+    int64_t m           = 4000;
+    int64_t n           = 4000;
+    int64_t b_sz        = 10;
+    int64_t target_rank = 4000;
+    int64_t custom_rank = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    ABRIKTestData<double> all_data(m, n);
+    RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
+    ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
+    ABRIK.num_threads_min = 1;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A, m, all_data.A_buff, m);
+
+    test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
+}
+
+TEST_F(TestABRIK, ABRIK_catch_instability_bad) {
+    int64_t m           = 4000;
+    int64_t n           = 4000;
+    int64_t b_sz        = 1000;
+    int64_t target_rank = 4000;
+    int64_t custom_rank = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    ABRIKTestData<double> all_data(m, n);
+    RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
+    ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
+    ABRIK.num_threads_min = 1;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A, m, all_data.A_buff, m);
+
+    test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
+}
+
+TEST_F(TestABRIK, ABRIK_catch_instability_worse) {
+    int64_t m           = 4000;
+    int64_t n           = 4000;
+    int64_t b_sz        = 1000;
+    int64_t target_rank = 4000;
+    int64_t custom_rank = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
+    auto state = RandBLAS::RNGState();
+
+    ABRIKTestDataSparse<double, RandBLAS::sparse_data::COOMatrix<double>> all_data(m, n);
+    RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
+    ABRIK.num_threads_min = 1;
+    //ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
+    ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
+
+    RandLAPACK::util::eye(m, n, all_data.A_buff);
+    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::sparse_data::coo::dense_to_coo<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
+
     test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
 }
