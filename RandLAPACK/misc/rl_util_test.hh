@@ -1,5 +1,6 @@
-// Common utilities for linear operator tests
-// Provides helper functions to reduce code duplication across linop tests
+// Common utilities for RandLAPACK tests
+// Provides helper functions for testing linear operators.
+// NOT part of the public API - for test code only.
 
 #pragma once
 
@@ -14,7 +15,7 @@ namespace util {
 namespace test {
 
 // ============================================================================
-// Dimension Calculation Helpers
+// Dimension Calculation Helpers (for linear operator tests)
 // ============================================================================
 
 /// Structure to hold matrix dimensions and leading dimensions
