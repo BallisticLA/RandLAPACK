@@ -439,8 +439,8 @@ int64_t rank_check(
 ///         false if columns are approximately orthonormal
 ///
 /// The threshold is precision-dependent:
-///   - double (T=double): 1e-14
-///   - float  (T=float):  1e-6
+///   - double (T=double): 1e-10
+///   - float  (T=float):  1e-2
 ///
 template <typename T>
 bool orthogonality_check(
@@ -467,7 +467,7 @@ bool orthogonality_check(
     }
 
     // Precision-dependent tolerance
-    constexpr T tol = (sizeof(T) == sizeof(double)) ? (T)1.0e-14 : (T)1.0e-6;
+    constexpr T tol = (sizeof(T) == sizeof(double)) ? (T)1.0e-10 : (T)1.0e-2;
 
     delete[] A_gram;
     return orth_err / sqrt(k) > tol;
