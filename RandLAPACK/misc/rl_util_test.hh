@@ -106,42 +106,6 @@ void compute_gemm_reference(
     }
 }
 
-// ============================================================================
-// Layout Conversion Helper
-// ============================================================================
-
-/// Convert matrix layout in-place
-/// Note: This assumes the matrix is currently in 'from_layout' and converts to 'to_layout'
-template <typename T>
-void convert_layout_inplace(
-    T* mat,
-    int64_t rows,
-    int64_t cols,
-    ::blas::Layout from_layout,
-    ::blas::Layout to_layout
-) {
-    if (from_layout == to_layout) return;
-
-    T* temp = new T[rows * cols];
-    std::copy(mat, mat + rows * cols, temp);
-    if (from_layout == ::blas::Layout::ColMajor && to_layout == ::blas::Layout::RowMajor) {
-        // ColMajor to RowMajor
-        for (int64_t i = 0; i < rows; ++i) {
-            for (int64_t j = 0; j < cols; ++j) {
-                mat[j + i * cols] = temp[i + j * rows];
-            }
-        }
-    } else {
-        // RowMajor to ColMajor
-        for (int64_t i = 0; i < rows; ++i) {
-            for (int64_t j = 0; j < cols; ++j) {
-                mat[i + j * rows] = temp[j + i * cols];
-            }
-        }
-    }
-    delete[] temp;
-}
-
 }  // namespace test
 }  // namespace util
 }  // namespace RandLAPACK

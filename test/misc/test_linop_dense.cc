@@ -68,9 +68,8 @@ protected:
             A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_dense_op, dims.ldc);
 
             // Compute reference: densify B and use BLAS GEMM
-            // NOTE: gen_sparse_mat can generate duplicates, so we must SUM them, not overwrite
-            T* B_dense = new T[dims.rows_B * dims.cols_B];
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, layout, B_dense);
+            T* B_dense = new T[dims.rows_B * dims.cols_B]();
+            RandBLAS::sparse_data::csc::csc_to_dense(B_csc, layout, B_dense);
 
             // Compute reference using utility function
             compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,

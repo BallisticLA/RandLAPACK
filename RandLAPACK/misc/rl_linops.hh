@@ -178,7 +178,7 @@ struct CompositeOperator {
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp2 * op(B), dimension (right_op.n_rows x n)
-                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, const_cast<T*>(B), ldb, (T)0.0, temp_buffer, ldt);
+                right_op(Side::Left, layout, Op::NoTrans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * LinOp1 * temp + beta * C
                 left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
@@ -195,7 +195,7 @@ struct CompositeOperator {
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp1^T * op(B), dimension (left_op.n_cols x n)
-                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, const_cast<T*>(B), ldb, (T)0.0, temp_buffer, ldt);
+                left_op(Side::Left, layout, Op::Trans, trans_B, temp_rows, n, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * LinOp2^T * temp + beta * C
                 right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
@@ -247,7 +247,7 @@ struct CompositeOperator {
                 // Step 1: temp := op(B) * LinOp1, dimension (m x left_op.n_cols)
                 //   op(B) is (m x k), LinOp1 is (k x left_op.n_cols)
                 left_op(Side::Right, layout, Op::NoTrans, trans_B,
-                        temp_rows, temp_cols, k, (T)1.0, const_cast<T*>(B), ldb, (T)0.0, temp_buffer, ldt);
+                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * temp * LinOp2 + beta * C
                 //   temp is (m x left_op.n_cols), LinOp2 is (left_op.n_cols x n)
@@ -270,7 +270,7 @@ struct CompositeOperator {
                 // Step 1: temp := op(B) * LinOp1^T, dimension (m x right_op.n_rows)
                 //   op(B) is (m x k), LinOp1^T is (k x right_op.n_rows)
                 left_op(Side::Right, layout, Op::Trans, trans_B,
-                        temp_rows, temp_cols, k, (T)1.0, const_cast<T*>(B), ldb, (T)0.0, temp_buffer, ldt);
+                        temp_rows, temp_cols, k, (T)1.0, B, ldb, (T)0.0, temp_buffer, ldt);
 
                 // Step 2: C := alpha * temp * LinOp2^T + beta * C
                 //   temp is (m x right_op.n_rows), LinOp2^T is (right_op.n_rows x n)
@@ -553,7 +553,7 @@ struct SparseLinOp {
         int64_t n,
         int64_t k,
         T alpha,
-        T* B,
+        const T* B,
         int64_t ldb,
         T beta,
         T* C,
@@ -603,8 +603,6 @@ struct SparseLinOp {
     /// @note Current implementation densifies B_sp and delegates to sparse-dense operator.
     /// This is suboptimal for very sparse matrices. A true sparse-sparse implementation
     /// would be more efficient but is not yet available in RandBLAS.
-    ///
-    /// @warning Duplicate (row, col) entries in sparse matrices are correctly summed.
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
         Layout layout,
@@ -644,7 +642,7 @@ struct SparseLinOp {
         int64_t ldb = (layout == Layout::ColMajor) ? dense_rows : dense_cols;
 
         // Convert sparse to dense, summing duplicates to match spmm semantics
-        RandLAPACK::util::sparse_to_dense_summing_duplicates(B_sp, layout, B_dense);
+        RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
 
         // Use existing sparse-dense operator
         (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
@@ -711,7 +709,7 @@ struct SparseLinOp {
             // Densify B_sp (the input) to avoid densifying the operator A_sp
             T* B_dense = new T[rows_B * cols_B]();
             int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_sp, layout, B_dense);
+            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
 
             // Compute: C := alpha * op(B_dense) * op(A_sp) + beta * C using right_spmm
             RandBLAS::sparse_data::right_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_dense, ldb, A_sp, 0, 0, beta, C, ldc);
@@ -802,7 +800,7 @@ struct DenseLinOp {
         int64_t n,
         int64_t k,
         T alpha,
-        T* const B,
+        const T* B,
         int64_t ldb,
         T beta,
         T* C,
@@ -857,7 +855,7 @@ struct DenseLinOp {
         int64_t n,
         int64_t k,
         T alpha,
-        T* B,
+        const T* B,
         int64_t ldb,
         T beta,
         T* C,

@@ -415,7 +415,7 @@ int64_t rank_check(
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
     for(int i = 0; i < n; ++i) {
-        if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
+        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0])
             return i - 1;
     }
 
@@ -426,6 +426,22 @@ int64_t rank_check(
 }
 
 /// Checks whether matrix A has orthonormal columns.
+///
+/// Measures orthogonality loss by computing the Frobenius norm of (A^T * A - I).
+/// For a matrix with perfectly orthonormal columns, this quantity is zero.
+///
+/// @param[in] m - Number of rows in A
+/// @param[in] k - Number of columns in A
+/// @param[in] A - Column-major m x k matrix to check
+/// @param[in] verbose - If true, prints the orthogonality error
+///
+/// @return true if orthogonality loss exceeds threshold (columns are NOT orthonormal),
+///         false if columns are approximately orthonormal
+///
+/// The threshold is precision-dependent:
+///   - double (T=double): 1e-14
+///   - float  (T=float):  1e-6
+///
 template <typename T>
 bool orthogonality_check(
     int64_t m,
@@ -433,31 +449,44 @@ bool orthogonality_check(
     T* A,
     bool verbose
 ) {
-
     T* A_gram  = new T[k * k]();
 
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
+    // Compute A^T * A (only upper triangle, but lange reads full matrix)
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T)1.0, A, m, (T)0.0, A_gram, k);
 
+    // Subtract identity: A^T * A - I
     for (int i = 0; i < k; ++i) {
-        A_gram[i * k + i] -= 1.0;
+        A_gram[i * k + i] -= (T)1.0;
     }
+
+    // Compute ||A^T * A - I||_F
     T orth_err = lapack::lange(Norm::Fro, k, k, A_gram, k);
 
-    if(verbose) {
+    if (verbose) {
         printf("Q ERROR:   %e\n\n", orth_err);
     }
 
-    if (orth_err > 1.0e-10) {
-        delete[] A_gram;
-        return true;
-    }
+    // Precision-dependent tolerance
+    constexpr T tol = (sizeof(T) == sizeof(double)) ? (T)1.0e-14 : (T)1.0e-6;
 
     delete[] A_gram;
-    return false;
+    return orth_err / sqrt(k) > tol;
 }
 
-/// Computes an L-2 norm of a given matrix using
-/// p steps of power iteration.
+/// Estimates the spectral norm (largest singular value) of matrix A using power iteration.
+///
+/// Uses p iterations of power method on A^T A to find its dominant eigenvalue λ_max.
+/// Since eigenvalues of A^T A are squared singular values of A, we have:
+///     ||A||_2 = σ_max(A) = √λ_max(A^T A)
+///
+/// @param[in] m - Number of rows in A
+/// @param[in] n - Number of columns in A
+/// @param[in] A_dat - Column-major m x n matrix
+/// @param[in] p - Number of power iterations (more iterations = better accuracy)
+/// @param[in,out] state - RNG state for random starting vector
+///
+/// @return Estimate of ||A||_2
+///
 template <typename T, typename RNG>
 T estimate_spectral_norm(
     int64_t m,
@@ -466,77 +495,59 @@ T estimate_spectral_norm(
     int p,
     RandBLAS::RNGState<RNG>& state
 ) {
+    std::vector<T> v(n, 0.0);   // Current iterate (length n)
+    std::vector<T> Av(m, 0.0);  // A * v (length m)
 
-    std::vector<T> buf (n, 0.0);
-    std::vector<T> buf1 (m, 0.0);
-
+    // Initialize v with random starting vector
     RandBLAS::DenseDist DV(n, 1);
-    state = RandBLAS::fill_dense(DV, buf.data(), state);
+    state = RandBLAS::fill_dense(DV, v.data(), state);
 
+    // Power iteration on A^T A:
+    //   v_{k+1} = (A^T A) v_k / ||(A^T A) v_k||
+    //
+    // After convergence, ||v|| ≈ λ_max(A^T A) = σ_max(A)^2
+    // We defer normalization by tracking prev_norm_inv to avoid redundant nrm2 calls.
     T prev_norm_inv = 1.0;
-    for(int i = 0; i < p; ++i) {
-        // A * v
-        gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0, A_dat, m, buf.data(), 1, 0.0, buf1.data(), 1);
-        // prev_norm_inv * A' * A * v
-        gemv(Layout::ColMajor, Op::Trans, m, n, prev_norm_inv, A_dat, m, buf1.data(), 1, 0.0, buf.data(), 1);
-        prev_norm_inv = 1 / blas::nrm2(n, buf.data(), 1);
+    for (int i = 0; i < p; ++i) {
+        // Av = A * v
+        gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0, A_dat, m, v.data(), 1, 0.0, Av.data(), 1);
+        // v = (1/||v_prev||) * A^T * Av = (1/||v_prev||) * (A^T A) * v_prev
+        gemv(Layout::ColMajor, Op::Trans, m, n, prev_norm_inv, A_dat, m, Av.data(), 1, 0.0, v.data(), 1);
+        prev_norm_inv = 1.0 / blas::nrm2(n, v.data(), 1);
     }
 
-    return std::sqrt(blas::nrm2(n, buf.data(), 1));
+    // ||v|| ≈ λ_max(A^T A), so σ_max(A) ≈ √||v||
+    return std::sqrt(blas::nrm2(n, v.data(), 1));
 }
 
-/// Convert sparse matrix to dense format, summing duplicate entries if present.
+/// Convert any sparse matrix (COO, CSR, or CSC) to dense format.
 ///
-/// NOTE: This function properly handles duplicate (row, col) entries by summing them,
-/// which matches the semantics of RandBLAS spmm operations. Use this instead of
-/// RandBLAS's *_to_dense when gen_sparse_mat may have created duplicates.
+/// This is a convenience wrapper that dispatches to the appropriate RandBLAS
+/// conversion function based on the sparse matrix type.
 ///
 /// @param sp_mat - Sparse matrix (COO, CSR, or CSC format)
 /// @param layout - Memory layout for dense output (ColMajor or RowMajor)
-/// @param dense_mat - Output dense matrix (must be pre-allocated)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
 template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = typename SpMat::scalar_t>
-void sparse_to_dense_summing_duplicates(
+void sparse_to_dense(
     const SpMat &sp_mat,
     blas::Layout layout,
     T *dense_mat
 ) {
     using sint_t = typename SpMat::index_t;
-    int64_t m = sp_mat.n_rows;
-    int64_t n = sp_mat.n_cols;
-
-    // Zero-initialize the output
-    std::fill(dense_mat, dense_mat + m * n, T(0));
 
     constexpr bool is_coo = std::is_same_v<SpMat, RandBLAS::sparse_data::COOMatrix<T, sint_t>>;
     constexpr bool is_csr = std::is_same_v<SpMat, RandBLAS::sparse_data::CSRMatrix<T, sint_t>>;
     constexpr bool is_csc = std::is_same_v<SpMat, RandBLAS::sparse_data::CSCMatrix<T, sint_t>>;
 
-    auto add_entry = [&](int64_t i, int64_t j, T val) {
-        if (layout == blas::Layout::ColMajor) {
-            dense_mat[i + j * m] += val;
-        } else {
-            dense_mat[j + i * n] += val;
-        }
-    };
-
     if constexpr (is_coo) {
-        for (int64_t idx = 0; idx < sp_mat.nnz; ++idx) {
-            add_entry(sp_mat.rows[idx], sp_mat.cols[idx], sp_mat.vals[idx]);
-        }
+        RandBLAS::sparse_data::coo::coo_to_dense(sp_mat, layout, dense_mat);
     } else if constexpr (is_csr) {
-        for (int64_t i = 0; i < m; ++i) {
-            for (int64_t idx = sp_mat.rowptr[i]; idx < sp_mat.rowptr[i+1]; ++idx) {
-                add_entry(i, sp_mat.colidxs[idx], sp_mat.vals[idx]);
-            }
-        }
+        RandBLAS::sparse_data::csr::csr_to_dense(sp_mat, layout, dense_mat);
     } else if constexpr (is_csc) {
-        for (int64_t j = 0; j < n; ++j) {
-            for (int64_t idx = sp_mat.colptr[j]; idx < sp_mat.colptr[j+1]; ++idx) {
-                add_entry(sp_mat.rowidxs[idx], j, sp_mat.vals[idx]);
-            }
-        }
+        RandBLAS::sparse_data::csc::csc_to_dense(sp_mat, layout, dense_mat);
     } else {
-        randblas_require(false); // Unsupported sparse matrix type
+        static_assert(is_coo || is_csr || is_csc, "Unsupported sparse matrix type");
     }
 }
 

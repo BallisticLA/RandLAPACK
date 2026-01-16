@@ -192,7 +192,7 @@ int CQRRT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
-    int msg = lapack::potrf(Uplo::Upper, n, R_sk, ldr);
+    lapack::potrf(Uplo::Upper, n, R_sk, ldr);
 
     // Obtain the output Q-factor
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);

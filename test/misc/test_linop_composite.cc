@@ -169,38 +169,32 @@ protected:
         // First materialize left and right operators as dense matrices
         // Need to regenerate with same seed for consistent results
         RNGState state_ref(0);
-        T* left_mat_dense = new T[rows_left * cols_left];
-        T* right_mat_dense = new T[rows_right * cols_right];
+        T* left_mat_dense = new T[rows_left * cols_left]();
+        T* right_mat_dense = new T[rows_right * cols_right]();
 
         if (left_sparse) {
             auto left_csc_ref = RandLAPACK::gen::gen_sparse_csc<T>(rows_left, cols_left, density_left, state_ref);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(left_csc_ref, Layout::ColMajor, left_mat_dense);
+            RandBLAS::sparse_data::csc::csc_to_dense(left_csc_ref, Layout::ColMajor, left_mat_dense);
         } else {
             // Convert to ColMajor if needed
             if (layout == Layout::ColMajor) {
                 std::copy(left_dense, left_dense + rows_left * cols_left, left_mat_dense);
             } else {
-                for (int64_t i = 0; i < rows_left; ++i) {
-                    for (int64_t j = 0; j < cols_left; ++j) {
-                        left_mat_dense[i + j * rows_left] = left_dense[j + i * cols_left];
-                    }
-                }
+                // RowMajor to ColMajor: irs=cols_left, ics=1 -> irs=1, ics=rows_left
+                RandBLAS::util::omatcopy(rows_left, cols_left, left_dense, cols_left, 1, left_mat_dense, 1, rows_left);
             }
         }
 
         if (right_sparse) {
             auto right_csc_ref = RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state_ref);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(right_csc_ref, Layout::ColMajor, right_mat_dense);
+            RandBLAS::sparse_data::csc::csc_to_dense(right_csc_ref, Layout::ColMajor, right_mat_dense);
         } else {
             // Convert to ColMajor if needed
             if (layout == Layout::ColMajor) {
                 std::copy(right_dense, right_dense + rows_right * cols_right, right_mat_dense);
             } else {
-                for (int64_t i = 0; i < rows_right; ++i) {
-                    for (int64_t j = 0; j < cols_right; ++j) {
-                        right_mat_dense[i + j * rows_right] = right_dense[j + i * cols_right];
-                    }
-                }
+                // RowMajor to ColMajor: irs=cols_right, ics=1 -> irs=1, ics=rows_right
+                RandBLAS::util::omatcopy(rows_right, cols_right, right_dense, cols_right, 1, right_mat_dense, 1, rows_right);
             }
         }
 
@@ -217,11 +211,8 @@ protected:
         if (layout == Layout::ColMajor) {
             std::copy(composite_colmajor, composite_colmajor + rows_left * cols_right, composite_dense);
         } else {  // RowMajor
-            for (int64_t i = 0; i < rows_left; ++i) {
-                for (int64_t j = 0; j < cols_right; ++j) {
-                    composite_dense[j + i * cols_right] = composite_colmajor[i + j * rows_left];
-                }
-            }
+            // ColMajor to RowMajor: irs=1, ics=rows_left -> irs=cols_right, ics=1
+            RandBLAS::util::omatcopy(rows_left, cols_right, composite_colmajor, 1, rows_left, composite_dense, cols_right, 1);
         }
 
         // Now apply the materialized composite operator to B to get reference
@@ -232,8 +223,8 @@ protected:
         if (sparse_B) {
             // Generate sparse B and densify
             auto B_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_B, cols_B, density_B, state_ref);
-            B_dense_ref = new T[rows_B * cols_B];
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, layout, B_dense_ref);
+            B_dense_ref = new T[rows_B * cols_B]();
+            RandBLAS::sparse_data::csc::csc_to_dense(B_csc, layout, B_dense_ref);
         } else {
             // Generate dense B
             B_dense_ref = new T[rows_B * cols_B];
