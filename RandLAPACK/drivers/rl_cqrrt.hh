@@ -192,7 +192,13 @@ int CQRRT<T, RNG>::call(
 
     // Do Cholesky QR
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
-    lapack::potrf(Uplo::Upper, n, R_sk, ldr);
+    int64_t potrf_info = lapack::potrf(Uplo::Upper, n, R_sk, ldr);
+    if (potrf_info != 0) {
+        delete[] A_hat;
+        delete[] tau;
+        throw std::runtime_error("CQRRT: Cholesky factorization failed (potrf info = "
+            + std::to_string(potrf_info) + "). Input matrix may be rank-deficient.");
+    }
 
     // Obtain the output Q-factor
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);

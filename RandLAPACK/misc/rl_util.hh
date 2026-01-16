@@ -390,7 +390,7 @@ T cond_num_check(
     lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
     lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
 
-    T cond_num = s[0] / s[n - 1];
+    T cond_num = (s[n - 1] == 0) ? std::numeric_limits<T>::infinity() : s[0] / s[n - 1];
 
     if (verbose)
         printf("CONDITION NUMBER: %f\n", cond_num);
