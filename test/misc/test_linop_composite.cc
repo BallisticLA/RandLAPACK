@@ -8,7 +8,6 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test.hh"  // Test utilities, not part of public API
 
 using std::vector;
 using blas::Layout;
@@ -16,7 +15,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util::test;
+using namespace RandLAPACK::util;
 
 // Static assertion to verify CompositeOperator satisfies LinearOperator concept
 using DenseOp = RandLAPACK::linops::DenseLinOp<double>;
@@ -38,8 +37,44 @@ protected:
 
     virtual void TearDown() {};
 
-    // Unified test function for CompositeOperator
-    // Handles all combinations of left/right operators, input matrix types, and layouts
+    /// Unified test function for CompositeOperator.
+    ///
+    /// This test verifies that CompositeOperator correctly computes matrix products
+    /// of the form C := alpha * op(L * R) * op(B) + beta * C (side=Left) or
+    /// C := alpha * op(B) * op(L * R) + beta * C (side=Right), where L and R are
+    /// the left and right factor matrices of the composite operator.
+    ///
+    /// Test structure:
+    ///
+    /// 1. MATRIX GENERATION
+    ///    - Generate random matrices L (rows_left × cols_left) and R (rows_right × cols_right)
+    ///      where cols_left == rows_right (= intermediate_dim) so that L * R is well-defined.
+    ///    - L and R may be dense or sparse (controlled by left_sparse, right_sparse flags).
+    ///    - Generate random matrix B with dimensions determined by side and transpose flags.
+    ///    - B may be dense or sparse (controlled by sparse_B flag).
+    ///    - Initialize output matrix C with random values (to test beta != 0 case).
+    ///
+    /// 2. LINEAR OPERATOR CONSTRUCTION
+    ///    - Wrap L in either DenseLinOp or SparseLinOp<CSCMatrix> depending on left_sparse.
+    ///    - Wrap R in either DenseLinOp or SparseLinOp<CSCMatrix> depending on right_sparse.
+    ///    - Construct CompositeOperator from the two linear operators.
+    ///
+    /// 3. COMPUTATION VIA COMPOSITE OPERATOR
+    ///    - Apply the composite operator to compute:
+    ///        Side::Left:  C_composite := alpha * op(L * R) * op(B) + beta * C_composite
+    ///        Side::Right: C_composite := alpha * op(B) * op(L * R) + beta * C_composite
+    ///
+    /// 4. REFERENCE COMPUTATION
+    ///    - Re-generate L, R, B from the same RNG seed to ensure identical matrices.
+    ///    - Convert all matrices to dense column-major format.
+    ///    - Explicitly compute (L * R) via BLAS gemm.
+    ///    - Apply the same operation using BLAS gemm to get C_reference.
+    ///
+    /// 5. VERIFICATION
+    ///    - Compare C_composite and C_reference entry-wise.
+    ///    - Test passes if |C_composite[i,j] - C_reference[i,j]| <= atol + rtol * |C_reference[i,j]|
+    ///      for all entries, where atol = 100 * eps and rtol = 10 * eps (eps = machine epsilon).
+    ///
     template <typename T>
     void test_composite_linop(
         bool left_sparse,   // Left operator: true=sparse, false=dense

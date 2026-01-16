@@ -8,7 +8,6 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test.hh"  // Test utilities, not part of public API
 
 using std::vector;
 using blas::Layout;
@@ -16,7 +15,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util::test;
+using namespace RandLAPACK::util;
 
 class TestSparseLinOp : public ::testing::Test {
 
@@ -26,8 +25,40 @@ protected:
 
     virtual void TearDown() {};
 
-    // Unified test function for SparseLinOp
-    // Handles both Side::Left and Side::Right, both dense and sparse B, and both ColMajor and RowMajor layouts
+    /// Unified test function for SparseLinOp.
+    ///
+    /// This test verifies that SparseLinOp correctly computes matrix products of the form
+    /// C := alpha * op(A) * op(B) + beta * C (side=Left) or
+    /// C := alpha * op(B) * op(A) + beta * C (side=Right), where A is a sparse matrix
+    /// stored in CSC format and wrapped as a SparseLinOp.
+    ///
+    /// Test structure:
+    ///
+    /// 1. MATRIX GENERATION
+    ///    - Generate random sparse matrix A in CSC format with specified density.
+    ///    - Generate random matrix B, either dense or sparse (CSC format) based on sparse_B flag.
+    ///    - Initialize output matrix C with random values (to test beta != 0 case).
+    ///
+    /// 2. LINEAR OPERATOR CONSTRUCTION
+    ///    - Wrap A in a SparseLinOp<CSCMatrix> object, which stores a reference to the CSC data.
+    ///
+    /// 3. COMPUTATION VIA LINEAR OPERATOR
+    ///    - Apply the SparseLinOp to compute:
+    ///        Side::Left:  C_sparse_op := alpha * op(A) * op(B) + beta * C_sparse_op
+    ///        Side::Right: C_sparse_op := alpha * op(B) * op(A) + beta * C_sparse_op
+    ///    - The operator handles both dense and sparse B inputs via overloaded operator().
+    ///    - Internally uses RandBLAS sparse matrix-matrix multiplication (spmm).
+    ///
+    /// 4. REFERENCE COMPUTATION
+    ///    - Convert A to dense format.
+    ///    - If B is sparse, convert it to dense format as well.
+    ///    - Compute C_reference using BLAS gemm directly on dense matrices.
+    ///
+    /// 5. VERIFICATION
+    ///    - Compare C_sparse_op and C_reference entry-wise.
+    ///    - Uses relaxed tolerance (atol = 100 * eps, rtol = 10 * eps) to account for
+    ///      potential differences in sparse vs dense computation order.
+    ///
     template <typename T>
     void test_sparse_linop(
         Side side,

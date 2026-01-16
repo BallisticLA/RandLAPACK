@@ -8,7 +8,6 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test.hh"  // Test utilities, not part of public API
 
 using std::vector;
 using blas::Layout;
@@ -16,7 +15,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util::test;
+using namespace RandLAPACK::util;
 
 class TestDenseLinOp : public ::testing::Test {
 
@@ -26,8 +25,38 @@ protected:
 
     virtual void TearDown() {};
 
-    // Unified test function for DenseLinOp
-    // Handles both Side::Left and Side::Right, both dense and sparse B, both ColMajor and RowMajor
+    /// Unified test function for DenseLinOp.
+    ///
+    /// This test verifies that DenseLinOp correctly computes matrix products of the form
+    /// C := alpha * op(A) * op(B) + beta * C (side=Left) or
+    /// C := alpha * op(B) * op(A) + beta * C (side=Right), where A is a dense matrix
+    /// wrapped as a DenseLinOp.
+    ///
+    /// Test structure:
+    ///
+    /// 1. MATRIX GENERATION
+    ///    - Generate random dense matrix A with dimensions determined by side and transpose flags.
+    ///    - Generate random matrix B, either dense or sparse (CSC format) based on sparse_B flag.
+    ///    - Initialize output matrix C with random values (to test beta != 0 case).
+    ///
+    /// 2. LINEAR OPERATOR CONSTRUCTION
+    ///    - Wrap A in a DenseLinOp object, which stores a pointer to the underlying buffer.
+    ///
+    /// 3. COMPUTATION VIA LINEAR OPERATOR
+    ///    - Apply the DenseLinOp to compute:
+    ///        Side::Left:  C_dense_op := alpha * op(A) * op(B) + beta * C_dense_op
+    ///        Side::Right: C_dense_op := alpha * op(B) * op(A) + beta * C_dense_op
+    ///    - The operator handles both dense and sparse B inputs via overloaded operator().
+    ///
+    /// 4. REFERENCE COMPUTATION
+    ///    - If B is sparse, convert it to dense format first.
+    ///    - Compute C_reference using BLAS gemm directly on dense matrices.
+    ///
+    /// 5. VERIFICATION
+    ///    - Compare C_dense_op and C_reference entry-wise.
+    ///    - For dense B: uses default tolerance from test::comparison::matrices_approx_equal.
+    ///    - For sparse B: uses relaxed tolerance (atol = 100 * eps, rtol = 10 * eps).
+    ///
     template <typename T>
     void test_dense_linop(
         Side side,
