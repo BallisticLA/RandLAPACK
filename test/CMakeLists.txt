@@ -25,8 +25,7 @@ if (GTest_FOUND)
         misc/test_util.cc
         misc/test_pdkernels.cc
         misc/test_linops.cc
-        misc/test_linop_dense.cc
-        misc/test_linop_sparse.cc
+        misc/test_linop_unified.cc
         misc/test_linop_composite.cc
     )
     
