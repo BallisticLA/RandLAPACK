@@ -271,5 +271,5 @@ TEST_F(TestABRIK, ABRIK_sparse_coo_cqrrt) {
     test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
     RandBLAS::sparse_data::coo::dense_to_coo<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
-    test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
+test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
 }

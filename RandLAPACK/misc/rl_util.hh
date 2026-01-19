@@ -14,19 +14,6 @@
 
 namespace RandLAPACK::util {
 
-
-inline int get_omp_threads(
-) {
-    int num_threads = 1;
-    #ifdef RandBLAS_HAS_OpenMP
-    #pragma omp parallel
-    {
-        num_threads = omp_get_num_threads();
-    }
-    #endif
-    return num_threads;
-}
-
 template <typename T>
 void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[])
 {
@@ -38,26 +25,34 @@ void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[
         for (j = 0; j < n_cols - 1; ++j) {
             val = a[i + lda * j];
             if (val < 0) {
-				//std::cout << string_format("  %2.4f,", val);
                 printf("  %2.20f,", val);
             } else {
-				//std::cout << string_format("   %2.4f", val);
 				printf("   %2.20f,", val);
             }
         }
         // j = n_cols - 1
         val = a[i + lda * j];
         if (val < 0) {
-   			//std::cout << string_format("  %2.4f,", val); 
 			printf("  %2.20f,", val);
 		} else {
-            //std::cout << string_format("   %2.4f,", val);
 			printf("   %2.20f,", val);
 		}
         printf("\n");
     }
     printf("\n");
     return;
+}
+
+inline int get_omp_threads(
+) {
+    int num_threads = 1;
+    #ifdef RandBLAS_HAS_OpenMP
+    #pragma omp parallel
+    {
+        num_threads = omp_get_num_threads();
+    }
+    #endif
+    return num_threads;
 }
 
 /// Generates an identity matrix. Assuming col-maj
@@ -191,115 +186,6 @@ T* upsize(
         A.resize(target_sz, 0);
 
     return A.data();
-}
-
-/// Find the condition number of a given matrix A.
-template <typename T>
-T cond_num_check(
-    int64_t m,
-    int64_t n,
-    const T* A,
-    bool verbose
-) {
-    T* A_cpy = new T[m * n]();
-    T* s     = new T[n]();
-
-    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
-    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
-
-    T cond_num = s[0] / s[n - 1];
-
-    if (verbose)
-        printf("CONDITION NUMBER: %f\n", cond_num);
-
-    delete[] A_cpy;
-    delete[] s;
-
-    return cond_num;
-}
-
-// Computes the numerical rank of a given matrix
-template <typename T>
-int64_t rank_check(
-    int64_t m,
-    int64_t n,
-    const T* A
-) {
-    T* A_cpy = new T[m * n]();
-    T* s     = new T[n]();
-
-    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
-    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
-
-    for(int i = 0; i < n; ++i) {
-        if (s[i] / s[0] <= 5 * std::numeric_limits<T>::epsilon())
-            return i - 1;
-    }
-
-    delete[] A_cpy;
-    delete[] s;
-
-    return n;
-}
-
-/// Checks whether matrix A has orthonormal columns.
-template <typename T>
-bool orthogonality_check(
-    int64_t m,
-    int64_t k,
-    T* A,
-    bool verbose
-) {
-
-    T* A_gram  = new T[k * k]();
-
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
-
-    for (int i = 0; i < k; ++i) {
-        A_gram[i * k + i] -= 1.0;
-    }
-    T orth_err = lapack::lange(Norm::Fro, k, k, A_gram, k);
-
-    if(verbose) {
-        printf("Q ERROR:   %e\n\n", orth_err);
-    }
-
-    if (orth_err > 1.0e-10) {
-        delete[] A_gram;
-        return true;
-    }
-
-    delete[] A_gram;
-    return false;
-}
-
-/// Computes an L-2 norm of a given matrix using
-/// p steps of power iteration.
-template <typename T, typename RNG>
-T estimate_spectral_norm(
-    int64_t m,
-    int64_t n,
-    T const* A_dat,
-    int p,
-    RandBLAS::RNGState<RNG>& state
-) {
-
-    std::vector<T> buf (n, 0.0);
-    std::vector<T> buf1 (m, 0.0);
-
-    RandBLAS::DenseDist DV(n, 1);
-    state = RandBLAS::fill_dense(DV, buf.data(), state);
-
-    T prev_norm_inv = 1.0;
-    for(int i = 0; i < p; ++i) {
-        // A * v
-        gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0, A_dat, m, buf.data(), 1, 0.0, buf1.data(), 1);
-        // prev_norm_inv * A' * A * v
-        gemv(Layout::ColMajor, Op::Trans, m, n, prev_norm_inv, A_dat, m, buf1.data(), 1, 0.0, buf.data(), 1);
-        prev_norm_inv = 1 / blas::nrm2(n, buf.data(), 1);
-    }
-
-    return std::sqrt(blas::nrm2(n, buf.data(), 1));
 }
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
@@ -488,6 +374,269 @@ std::string get_current_date_time() {
                    << std::setw(2) << std::setfill('0') << localTime->tm_sec;                  // Second
 
     return dateTimeStream.str();
+}
+
+/// Find the condition number of a given matrix A.
+template <typename T>
+T cond_num_check(
+    int64_t m,
+    int64_t n,
+    const T* A,
+    bool verbose
+) {
+    T* A_cpy = new T[m * n]();
+    T* s     = new T[n]();
+
+    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
+
+    T cond_num = (s[n - 1] == 0) ? std::numeric_limits<T>::infinity() : s[0] / s[n - 1];
+
+    if (verbose)
+        printf("CONDITION NUMBER: %f\n", cond_num);
+
+    delete[] A_cpy;
+    delete[] s;
+
+    return cond_num;
+}
+
+// Computes the numerical rank of a given matrix
+template <typename T>
+int64_t rank_check(
+    int64_t m,
+    int64_t n,
+    const T* A
+) {
+    T* A_cpy = new T[m * n]();
+    T* s     = new T[n]();
+
+    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    lapack::gesdd(Job::NoVec, m, n, A_cpy, m, s, NULL, m, NULL, n);
+
+    for(int i = 0; i < n; ++i) {
+        if (s[i] <= 5 * std::numeric_limits<T>::epsilon() * s[0])
+            return i - 1;
+    }
+
+    delete[] A_cpy;
+    delete[] s;
+
+    return n;
+}
+
+/// Checks whether matrix A has orthonormal columns.
+///
+/// Measures orthogonality loss by computing the Frobenius norm of (A^T * A - I).
+/// For a matrix with perfectly orthonormal columns, this quantity is zero.
+///
+/// @param[in] m - Number of rows in A
+/// @param[in] k - Number of columns in A
+/// @param[in] A - Column-major m x k matrix to check
+/// @param[in] verbose - If true, prints the orthogonality error
+///
+/// @return true if orthogonality loss exceeds threshold (columns are NOT orthonormal),
+///         false if columns are approximately orthonormal
+///
+/// The threshold is precision-dependent:
+///   - double (T=double): 1e-10
+///   - float  (T=float):  1e-2
+///
+template <typename T>
+bool orthogonality_check(
+    int64_t m,
+    int64_t k,
+    T* A,
+    bool verbose
+) {
+    T* A_gram  = new T[k * k]();
+
+    // Compute A^T * A (only upper triangle, but lange reads full matrix)
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T)1.0, A, m, (T)0.0, A_gram, k);
+
+    // Subtract identity: A^T * A - I
+    for (int i = 0; i < k; ++i) {
+        A_gram[i * k + i] -= (T)1.0;
+    }
+
+    // Compute ||A^T * A - I||_F
+    T orth_err = lapack::lange(Norm::Fro, k, k, A_gram, k);
+
+    if (verbose) {
+        printf("Q ERROR:   %e\n\n", orth_err);
+    }
+
+    // Precision-dependent tolerance
+    constexpr T tol = (sizeof(T) == sizeof(double)) ? (T)1.0e-10 : (T)1.0e-2;
+
+    delete[] A_gram;
+    return orth_err / sqrt(k) > tol;
+}
+
+/// Estimates the spectral norm (largest singular value) of matrix A using power iteration.
+///
+/// Uses p iterations of power method on A^T A to find its dominant eigenvalue λ_max.
+/// Since eigenvalues of A^T A are squared singular values of A, we have:
+///     ||A||_2 = σ_max(A) = √λ_max(A^T A)
+///
+/// @param[in] m - Number of rows in A
+/// @param[in] n - Number of columns in A
+/// @param[in] A_dat - Column-major m x n matrix
+/// @param[in] p - Number of power iterations (more iterations = better accuracy)
+/// @param[in,out] state - RNG state for random starting vector
+///
+/// @return Estimate of ||A||_2
+///
+template <typename T, typename RNG>
+T estimate_spectral_norm(
+    int64_t m,
+    int64_t n,
+    T const* A_dat,
+    int p,
+    RandBLAS::RNGState<RNG>& state
+) {
+    std::vector<T> v(n, 0.0);   // Current iterate (length n)
+    std::vector<T> Av(m, 0.0);  // A * v (length m)
+
+    // Initialize v with random starting vector
+    RandBLAS::DenseDist DV(n, 1);
+    state = RandBLAS::fill_dense(DV, v.data(), state);
+
+    // Power iteration on A^T A:
+    //   v_{k+1} = (A^T A) v_k / ||(A^T A) v_k||
+    //
+    // After convergence, ||v|| ≈ λ_max(A^T A) = σ_max(A)^2
+    // We defer normalization by tracking prev_norm_inv to avoid redundant nrm2 calls.
+    T prev_norm_inv = 1.0;
+    for (int i = 0; i < p; ++i) {
+        // Av = A * v
+        gemv(Layout::ColMajor, Op::NoTrans, m, n, 1.0, A_dat, m, v.data(), 1, 0.0, Av.data(), 1);
+        // v = (1/||v_prev||) * A^T * Av = (1/||v_prev||) * (A^T A) * v_prev
+        gemv(Layout::ColMajor, Op::Trans, m, n, prev_norm_inv, A_dat, m, Av.data(), 1, 0.0, v.data(), 1);
+        prev_norm_inv = 1.0 / blas::nrm2(n, v.data(), 1);
+    }
+
+    // ||v|| ≈ λ_max(A^T A), so σ_max(A) ≈ √||v||
+    return std::sqrt(blas::nrm2(n, v.data(), 1));
+}
+
+/// Convert any sparse matrix (COO, CSR, or CSC) to dense format.
+///
+/// This is a convenience wrapper that dispatches to the appropriate RandBLAS
+/// conversion function based on the sparse matrix type.
+///
+/// @param sp_mat - Sparse matrix (COO, CSR, or CSC format)
+/// @param layout - Memory layout for dense output (ColMajor or RowMajor)
+/// @param dense_mat - Output dense matrix (must be pre-allocated and zero-initialized)
+template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = typename SpMat::scalar_t>
+void sparse_to_dense(
+    const SpMat &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    using sint_t = typename SpMat::index_t;
+
+    constexpr bool is_coo = std::is_same_v<SpMat, RandBLAS::sparse_data::COOMatrix<T, sint_t>>;
+    constexpr bool is_csr = std::is_same_v<SpMat, RandBLAS::sparse_data::CSRMatrix<T, sint_t>>;
+    constexpr bool is_csc = std::is_same_v<SpMat, RandBLAS::sparse_data::CSCMatrix<T, sint_t>>;
+
+    if constexpr (is_coo) {
+        RandBLAS::sparse_data::coo::coo_to_dense(sp_mat, layout, dense_mat);
+    } else if constexpr (is_csr) {
+        RandBLAS::sparse_data::csr::csr_to_dense(sp_mat, layout, dense_mat);
+    } else if constexpr (is_csc) {
+        RandBLAS::sparse_data::csc::csc_to_dense(sp_mat, layout, dense_mat);
+    } else {
+        static_assert(is_coo || is_csr || is_csc, "Unsupported sparse matrix type");
+    }
+}
+
+// ============================================================================
+// Test Utilities (for linear operator tests)
+// ============================================================================
+
+/// Structure to hold matrix dimensions and leading dimensions
+struct MatrixDimensions {
+    int64_t rows_A, cols_A;  // Operator matrix dimensions
+    int64_t rows_B, cols_B;  // Input matrix dimensions
+    int64_t lda, ldb, ldc;   // Leading dimensions
+};
+
+/// Calculate all dimensions for a linear operator multiplication
+/// Handles both Side::Left and Side::Right cases
+template <typename T>
+MatrixDimensions calculate_dimensions(
+    blas::Side side,
+    blas::Layout layout,
+    blas::Op trans_A,
+    blas::Op trans_B,
+    int64_t m,
+    int64_t n,
+    int64_t k
+) {
+    MatrixDimensions dims;
+
+    if (side == blas::Side::Left) {
+        // Side::Left: C := alpha * op(A) * op(B) + beta * C
+        // A is the operator (m × k), B is the input (k × n)
+        auto [ra, ca] = RandBLAS::dims_before_op(m, k, trans_A);
+        auto [rb, cb] = RandBLAS::dims_before_op(k, n, trans_B);
+        dims.rows_A = ra;
+        dims.cols_A = ca;
+        dims.rows_B = rb;
+        dims.cols_B = cb;
+    } else {
+        // Side::Right: C := alpha * op(B) * op(A) + beta * C
+        // A is the operator (k × n), B is the input (m × k)
+        auto [ra, ca] = RandBLAS::dims_before_op(k, n, trans_A);
+        auto [rb, cb] = RandBLAS::dims_before_op(m, k, trans_B);
+        dims.rows_A = ra;
+        dims.cols_A = ca;
+        dims.rows_B = rb;
+        dims.cols_B = cb;
+    }
+
+    // Calculate leading dimensions based on layout
+    if (layout == blas::Layout::ColMajor) {
+        dims.lda = dims.rows_A;
+        dims.ldb = dims.rows_B;
+        dims.ldc = m;
+    } else {  // RowMajor
+        dims.lda = dims.cols_A;
+        dims.ldb = dims.cols_B;
+        dims.ldc = n;
+    }
+
+    return dims;
+}
+
+/// Compute reference result using BLAS GEMM
+/// Handles both Side::Left and Side::Right cases
+template <typename T>
+void compute_gemm_reference(
+    blas::Side side,
+    blas::Layout layout,
+    blas::Op trans_A,
+    blas::Op trans_B,
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    T alpha,
+    const T* A,
+    int64_t lda,
+    const T* B,
+    int64_t ldb,
+    T beta,
+    T* C,
+    int64_t ldc
+) {
+    if (side == blas::Side::Left) {
+        // C := alpha * op(A) * op(B) + beta * C
+        blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    } else {
+        // C := alpha * op(B) * op(A) + beta * C
+        blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A, lda, beta, C, ldc);
+    }
 }
 
 } // end namespace util

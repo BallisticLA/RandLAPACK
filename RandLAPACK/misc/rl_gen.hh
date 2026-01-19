@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <sstream>
 #include <fstream>
+#include <unordered_map>
 
 namespace RandLAPACK::gen {
 
@@ -456,6 +457,140 @@ void process_input_mat(
     }
 }
 
+/// Generate a random dense matrix with specified layout.
+/// For simple random matrices without spectral structure.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[out] A - Output matrix (must be pre-allocated with m*n elements)
+/// @param[in] layout - Memory layout (ColMajor or RowMajor)
+/// @param[in,out] state - RNG state for reproducible generation
+/// @param[in] dist - Distribution for matrix entries (Gaussian or Uniform, default: Gaussian)
+///
+template <typename T, typename RNG>
+void gen_random_dense(
+    int64_t m,
+    int64_t n,
+    T* A,
+    blas::Layout layout,
+    RandBLAS::RNGState<RNG> &state,
+    RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
+) {
+    RandBLAS::DenseDist D(m, n, dist);
+    RandBLAS::fill_dense(D, A, state);
+
+    // RandBLAS generates ColMajor; convert to RowMajor if needed
+    if (layout == blas::Layout::RowMajor) {
+        std::vector<T> temp(A, A + m * n);
+        // ColMajor: irs=1, ics=m; RowMajor: irs=n, ics=1
+        RandBLAS::util::omatcopy(m, n, temp.data(), 1, m, A, n, 1);
+    }
+}
+
+/// Generate a random sparse matrix in COO format.
+/// Creates a sparse matrix with uniformly random positions and values from the specified distribution.
+/// Duplicate (row, col) entries are merged by summing their values.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[in] density - Fraction of entries that are nonzero (0 < density <= 1)
+/// @param[in,out] state - RNG state for reproducible generation
+/// @param[in] dist - Distribution for nonzero values (Gaussian or Uniform, default: Gaussian)
+///
+/// @return COO matrix with at most m*n*density nonzero entries (fewer if duplicates were merged)
+///
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_coo(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state,
+    RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
+) {
+    using namespace RandBLAS::sparse_data;
+
+    int64_t target_nnz = static_cast<int64_t>(m * n * density);
+
+    // Generate random values from specified distribution
+    std::vector<T> vals_tmp(target_nnz);
+    RandBLAS::DenseDist D(target_nnz, 1, dist);
+    state = RandBLAS::fill_dense(D, vals_tmp.data(), state);
+
+    // Generate uniformly random row and column indices
+    std::vector<int64_t> row_indices(target_nnz);
+    std::vector<int64_t> col_indices(target_nnz);
+    state = RandBLAS::sample_indices_iid_uniform(m, target_nnz, row_indices.data(), state);
+    state = RandBLAS::sample_indices_iid_uniform(n, target_nnz, col_indices.data(), state);
+
+    // Use map to deduplicate: key = (row * n + col), value = accumulated sum
+    std::unordered_map<int64_t, T> entries;
+    for (int64_t idx = 0; idx < target_nnz; ++idx) {
+        int64_t key = row_indices[idx] * n + col_indices[idx];
+        entries[key] += vals_tmp[idx];  // Sum duplicates
+    }
+
+    // Build deduplicated COO matrix
+    int64_t actual_nnz = static_cast<int64_t>(entries.size());
+    coo::COOMatrix<T> A_coo(m, n);
+    coo::reserve_coo(actual_nnz, A_coo);
+
+    int64_t idx = 0;
+    for (const auto& [key, val] : entries) {
+        A_coo.rows[idx] = key / n;
+        A_coo.cols[idx] = key % n;
+        A_coo.vals[idx] = val;
+        ++idx;
+    }
+
+    return A_coo;
+}
+
+/// Generate a random sparse matrix in CSC format.
+/// Convenience wrapper around gen_sparse_coo that converts to CSC.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+/// @param[in] density - Fraction of entries that are nonzero (0 < density <= 1)
+/// @param[in,out] state - RNG state for reproducible generation
+/// @param[in] dist - Distribution for nonzero values (Gaussian or Uniform, default: Gaussian)
+///
+/// @return CSC matrix with at most m*n*density nonzero entries
+///
+template <typename T, typename RNG>
+RandBLAS::sparse_data::CSCMatrix<T> gen_sparse_csc(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state,
+    RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
+) {
+    auto coo = gen_sparse_coo<T>(m, n, density, state, dist);
+    RandBLAS::sparse_data::CSCMatrix<T> csc(m, n);
+    RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
+    return csc;
+}
+
+/// Alias for gen_sparse_coo for backwards compatibility
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
+    int64_t m,
+    int64_t n,
+    T density,
+    RandBLAS::RNGState<RNG> &state,
+    RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
+) {
+    return gen_sparse_coo<T>(m, n, density, state, dist);
+}
+
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
 template <typename T, typename RNG>
@@ -522,8 +657,8 @@ void mat_gen(
 }
 
 template <typename T, typename RNG>
-std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
-    std::vector<T> A(info.rows * info.cols, 0.0);
+::std::vector<T> mat_gen(mat_gen_info<T> &info, RandBLAS::RNGState<RNG> &state) {
+    ::std::vector<T> A(info.rows * info.cols, 0.0);
     mat_gen(info, A.data(), state);
     return A;
 }
