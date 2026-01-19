@@ -145,8 +145,8 @@ RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> make_o
 ) {
     data.rows = rows;
     data.cols = cols;
-    // Use emplace with move since CSCMatrix has deleted copy assignment
-    data.csc_mat.emplace(std::move(RandLAPACK::gen::gen_sparse_csc<T>(rows, cols, density, state)));
+    // Use emplace since gen_sparse_csc returns by value (already an rvalue)
+    data.csc_mat.emplace(RandLAPACK::gen::gen_sparse_csc<T>(rows, cols, density, state));
 
     return RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>>(
         rows, cols, *data.csc_mat);
@@ -197,7 +197,7 @@ void densify_operator(
 // Composite operator creation and densification
 // ============================================================================
 
-// Composite operator creation - creates left and right operators and returns composite
+// Composite operator creation
 // IMPORTANT: The operators are stored in data.left_op and data.right_op because
 // CompositeOperator stores references, so we need the operators to outlive the CompositeOperator.
 template <typename LeftTag, typename RightTag, typename T = typename LeftTag::scalar_t>
@@ -308,8 +308,10 @@ protected:
     ///    - Compute C_reference using BLAS gemm directly on dense matrices.
     ///
     /// 5. VERIFICATION
-    ///    - Compare C_op and C_reference entry-wise.
-    ///    - Uses tolerance: atol = 100 * eps, rtol = 10 * eps.
+    ///    - Compare C_op and C_reference entry-wise using componentwise error bounds.
+    ///    - Error bound: |C_op - C_ref| <= |alpha| * k * 2 * eps * |A| * |B| + |beta| * eps * |C_old|
+    ///    - This bound accounts for rounding errors in GEMM proportional to the inner dimension
+    ///      and the magnitudes of the operands.
     ///
     /// Parameters:
     ///    test_linear_operator<OpTag>(side, sparse_B, layout, trans_A, trans_B, m, n, k, params)
@@ -391,6 +393,12 @@ private:
         T* C_reference = new T[m * n];
         std::copy(C_op, C_op + m * n, C_reference);
 
+        // Store |C_old| for error bound computation (beta term)
+        T* E = new T[m * n];  // Error bound matrix
+        for (int64_t i = 0; i < m * n; ++i) {
+            E[i] = std::abs(C_op[i]);
+        }
+
         // Allocate dense matrices for reference computation
         T* A_dense = new T[dims.rows_A * dims.cols_A]();
         T* B_dense = new T[dims.rows_B * dims.cols_B]();
@@ -420,20 +428,43 @@ private:
                                A_dense, dims.lda, B_dense, dims.ldb,
                                beta, C_reference, dims.ldc);
 
-        // Compare results
-        T atol = 100 * std::numeric_limits<T>::epsilon();
-        T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
-            layout, Op::NoTrans, m, n, C_op, dims.ldc,
-            C_reference, dims.ldc, __PRETTY_FUNCTION__, __FILE__, __LINE__,
-            atol, rtol
+        // Compute componentwise error bound matrix E
+        // Error bound: |C_computed - C_exact| <= |alpha| * inner_dim * 2 * eps * |A| * |B| + |beta| * eps * |C_old|
+        // We use GEMM on absolute values to compute this bound
+        T eps = std::numeric_limits<T>::epsilon();
+        T err_alpha = std::abs(alpha) * k * 2 * eps;
+        T err_beta = std::abs(beta) * eps;
+
+        // Compute |A| and |B|
+        T* A_abs = new T[dims.rows_A * dims.cols_A];
+        T* B_abs = new T[dims.rows_B * dims.cols_B];
+        for (int64_t i = 0; i < dims.rows_A * dims.cols_A; ++i) {
+            A_abs[i] = std::abs(A_dense[i]);
+        }
+        for (int64_t i = 0; i < dims.rows_B * dims.cols_B; ++i) {
+            B_abs[i] = std::abs(B_dense[i]);
+        }
+
+        // E = err_alpha * |A| * |B| + err_beta * |C_old|
+        // (E was initialized with |C_old|)
+        compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, err_alpha,
+                               A_abs, dims.lda, B_abs, dims.ldb,
+                               err_beta, E, dims.ldc);
+
+        // Compare results using componentwise bounds
+        test::comparison::buffs_approx_equal(
+            C_op, C_reference, E, m * n,
+            __PRETTY_FUNCTION__, __FILE__, __LINE__
         );
 
         // Clean up
         delete[] A_dense;
         delete[] B_dense;
+        delete[] A_abs;
+        delete[] B_abs;
         delete[] C_op;
         delete[] C_reference;
+        delete[] E;
     }
 };
 
