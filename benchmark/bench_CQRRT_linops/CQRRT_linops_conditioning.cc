@@ -24,6 +24,7 @@ int main() {return 0;}
 #include "../../demos/functions/linops_external/dm_cholsolver_linop.hh"
 #include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
 #include "../../demos/functions/drivers/dm_cholqr_linops.hh"
+#include "../../demos/functions/drivers/dm_scholqr3_linops.hh"
 #include "../../demos/functions/misc/dm_util.hh"
 
 using std::chrono::steady_clock;
@@ -47,6 +48,13 @@ struct conditioning_result {
     bool cholqr_is_orthonormal;  // Is full Q block orthonormal?
     int64_t cholqr_max_orth_cols;  // Maximum orthonormal prefix
     long cholqr_time;      // Total computation time (microseconds)
+
+    // sCholQR3 results
+    T scholqr3_rel_error;
+    T scholqr3_orth_error;
+    bool scholqr3_is_orthonormal;
+    int64_t scholqr3_max_orth_cols;
+    long scholqr3_time;
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -227,6 +235,37 @@ static conditioning_result<T> run_single_test(
                              result.cholqr_is_orthonormal, result.cholqr_max_orth_cols);
     }
 
+    // ============================================================
+    // Run sCholQR3 (shifted Cholesky QR with 3 iterations)
+    // ============================================================
+    {
+        std::vector<T> R_scholqr3(n * n, 0.0);
+        auto t_start = steady_clock::now();
+
+        RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(false, tol, true);  // timing=false, test_mode=true
+        sCholQR3_alg.call(outer_composite, R_scholqr3.data(), n);
+
+        auto t_stop = steady_clock::now();
+        result.scholqr3_time = duration_cast<microseconds>(t_stop - t_start).count();
+
+        // Compute factorization error
+        std::vector<T> QR(m * n, 0.0);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+                   1.0, sCholQR3_alg.Q, m, R_scholqr3.data(), n, 0.0, QR.data(), m);
+
+        T norm_diff = 0.0;
+        for (int64_t i = 0; i < m * n; ++i) {
+            T diff = A_dense[i] - QR[i];
+            norm_diff += diff * diff;
+        }
+        norm_diff = std::sqrt(norm_diff);
+        result.scholqr3_rel_error = norm_diff / norm_A;
+
+        // Measure orthogonality
+        measure_orthogonality(sCholQR3_alg.Q, m, n, result.scholqr3_orth_error,
+                             result.scholqr3_is_orthonormal, result.scholqr3_max_orth_cols);
+    }
+
     return result;
 }
 
@@ -284,7 +323,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("\n=== CQRRT vs CholQR Conditioning Study ===\n");
+    printf("\n=== CQRRT vs CholQR vs sCholQR3 Conditioning Study ===\n");
     printf("SPD matrix directory: %s\n", spd_dir.c_str());
     printf("Number of condition numbers: %ld\n", num_matrices);
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
@@ -321,12 +360,12 @@ int main(int argc, char *argv[]) {
 
     // Open output file
     std::ofstream out(output_file);
-    out << "# CQRRT vs CholQR Conditioning Study Results\n";
+    out << "# CQRRT vs CholQR vs sCholQR3 Conditioning Study Results\n";
     out << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# num_runs: " << num_runs << "\n";
-    out << "# Format: cond_num, cqrrt_*, cholqr_* (rel_error, orth_error, max_orth_cols, orth_rate, time)\n";
+    out << "# Format: cond_num, cqrrt_*, cholqr_*, scholqr3_* (rel_error, orth_error, max_orth_cols, orth_rate, time)\n";
     out << "cond_num,"
         << "cqrrt_rel_error_mean,cqrrt_rel_error_std,"
         << "cqrrt_orth_error_mean,cqrrt_orth_error_std,"
@@ -337,7 +376,12 @@ int main(int argc, char *argv[]) {
         << "cholqr_orth_error_mean,cholqr_orth_error_std,"
         << "cholqr_max_orth_cols_mean,cholqr_max_orth_cols_std,"
         << "cholqr_orth_rate,"
-        << "cholqr_time_mean,cholqr_time_std\n";
+        << "cholqr_time_mean,cholqr_time_std,"
+        << "scholqr3_rel_error_mean,scholqr3_rel_error_std,"
+        << "scholqr3_orth_error_mean,scholqr3_orth_error_std,"
+        << "scholqr3_max_orth_cols_mean,scholqr3_max_orth_cols_std,"
+        << "scholqr3_orth_rate,"
+        << "scholqr3_time_mean,scholqr3_time_std\n";
 
     // Run conditioning study
     for (size_t i = 0; i < matrix_files.size(); ++i) {
@@ -353,10 +397,12 @@ int main(int argc, char *argv[]) {
             results.push_back(result);
 
             printf("  Run %ld/%ld:\n", run + 1, num_runs);
-            printf("    CQRRT: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+            printf("    CQRRT:   orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.cqrrt_orth_error, result.cqrrt_max_orth_cols, n, result.cqrrt_time);
-            printf("    CholQR: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+            printf("    CholQR:  orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.cholqr_orth_error, result.cholqr_max_orth_cols, n, result.cholqr_time);
+            printf("    sCholQR3: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+                   result.scholqr3_orth_error, result.scholqr3_max_orth_cols, n, result.scholqr3_time);
         }
 
         // Compute statistics for CQRRT
@@ -423,6 +469,38 @@ int main(int argc, char *argv[]) {
 
         double cholqr_orth_rate = static_cast<double>(cholqr_orth_count) / num_runs;
 
+        // Compute statistics for sCholQR3
+        double scholqr3_rel_err_mean = 0, scholqr3_orth_err_mean = 0, scholqr3_time_mean = 0;
+        double scholqr3_max_orth_mean = 0;
+        int scholqr3_orth_count = 0;
+
+        for (const auto& r : results) {
+            scholqr3_rel_err_mean += r.scholqr3_rel_error;
+            scholqr3_orth_err_mean += r.scholqr3_orth_error;
+            scholqr3_max_orth_mean += r.scholqr3_max_orth_cols;
+            scholqr3_time_mean += r.scholqr3_time;
+            if (r.scholqr3_is_orthonormal) scholqr3_orth_count++;
+        }
+        scholqr3_rel_err_mean /= num_runs;
+        scholqr3_orth_err_mean /= num_runs;
+        scholqr3_max_orth_mean /= num_runs;
+        scholqr3_time_mean /= num_runs;
+
+        double scholqr3_rel_err_std = 0, scholqr3_orth_err_std = 0, scholqr3_time_std = 0;
+        double scholqr3_max_orth_std = 0;
+        for (const auto& r : results) {
+            scholqr3_rel_err_std += (r.scholqr3_rel_error - scholqr3_rel_err_mean) * (r.scholqr3_rel_error - scholqr3_rel_err_mean);
+            scholqr3_orth_err_std += (r.scholqr3_orth_error - scholqr3_orth_err_mean) * (r.scholqr3_orth_error - scholqr3_orth_err_mean);
+            scholqr3_max_orth_std += (r.scholqr3_max_orth_cols - scholqr3_max_orth_mean) * (r.scholqr3_max_orth_cols - scholqr3_max_orth_mean);
+            scholqr3_time_std += (r.scholqr3_time - scholqr3_time_mean) * (r.scholqr3_time - scholqr3_time_mean);
+        }
+        scholqr3_rel_err_std = std::sqrt(scholqr3_rel_err_std / num_runs);
+        scholqr3_orth_err_std = std::sqrt(scholqr3_orth_err_std / num_runs);
+        scholqr3_max_orth_std = std::sqrt(scholqr3_max_orth_std / num_runs);
+        scholqr3_time_std = std::sqrt(scholqr3_time_std / num_runs);
+
+        double scholqr3_orth_rate = static_cast<double>(scholqr3_orth_count) / num_runs;
+
         // Write results
         out << std::scientific << std::setprecision(6)
             << cond_num << ","
@@ -435,14 +513,21 @@ int main(int argc, char *argv[]) {
             << cholqr_orth_err_mean << "," << cholqr_orth_err_std << ","
             << cholqr_max_orth_mean << "," << cholqr_max_orth_std << ","
             << cholqr_orth_rate << ","
-            << cholqr_time_mean << "," << cholqr_time_std << "\n";
+            << cholqr_time_mean << "," << cholqr_time_std << ","
+            << scholqr3_rel_err_mean << "," << scholqr3_rel_err_std << ","
+            << scholqr3_orth_err_mean << "," << scholqr3_orth_err_std << ","
+            << scholqr3_max_orth_mean << "," << scholqr3_max_orth_std << ","
+            << scholqr3_orth_rate << ","
+            << scholqr3_time_mean << "," << scholqr3_time_std << "\n";
         out.flush();
 
         printf("  Summary:\n");
-        printf("    CQRRT:  orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
+        printf("    CQRRT:   orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                cqrrt_orth_err_mean, cqrrt_orth_err_std, cqrrt_max_orth_mean, cqrrt_max_orth_std, cqrrt_orth_rate);
-        printf("    CholQR: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n\n",
+        printf("    CholQR:  orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                cholqr_orth_err_mean, cholqr_orth_err_std, cholqr_max_orth_mean, cholqr_max_orth_std, cholqr_orth_rate);
+        printf("    sCholQR3: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n\n",
+               scholqr3_orth_err_mean, scholqr3_orth_err_std, scholqr3_max_orth_mean, scholqr3_max_orth_std, scholqr3_orth_rate);
     }
 
     out.close();

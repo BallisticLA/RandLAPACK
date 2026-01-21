@@ -21,6 +21,7 @@ int main() {return 0;}
 // Need to include demos utilities
 #include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
 #include "../../demos/functions/drivers/dm_cholqr_linops.hh"
+#include "../../demos/functions/drivers/dm_scholqr3_linops.hh"
 
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
@@ -46,6 +47,13 @@ struct scaling_result {
     bool cholqr_is_orthonormal;
     int64_t cholqr_max_orth_cols;
     long cholqr_time;
+
+    // sCholQR3 results
+    T scholqr3_rel_error;
+    T scholqr3_orth_error;
+    bool scholqr3_is_orthonormal;
+    int64_t scholqr3_max_orth_cols;
+    long scholqr3_time;
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -188,6 +196,37 @@ static scaling_result<T> run_single_test(
                              result.cholqr_is_orthonormal, result.cholqr_max_orth_cols);
     }
 
+    // ============================================================
+    // Run sCholQR3 (shifted Cholesky QR with 3 iterations)
+    // ============================================================
+    {
+        std::vector<T> R_scholqr3(n * n, 0.0);
+        auto t_start = steady_clock::now();
+
+        RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(false, tol, true);  // timing=false, test_mode=true
+        sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
+
+        auto t_stop = steady_clock::now();
+        result.scholqr3_time = duration_cast<microseconds>(t_stop - t_start).count();
+
+        // Compute factorization error
+        std::vector<T> QR(m * n, 0.0);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+                   1.0, sCholQR3_alg.Q, m, R_scholqr3.data(), n, 0.0, QR.data(), m);
+
+        T norm_diff = 0.0;
+        for (int64_t i = 0; i < m * n; ++i) {
+            T diff = A_dense[i] - QR[i];
+            norm_diff += diff * diff;
+        }
+        norm_diff = std::sqrt(norm_diff);
+        result.scholqr3_rel_error = norm_diff / norm_A;
+
+        // Measure orthogonality
+        measure_orthogonality(sCholQR3_alg.Q, m, n, result.scholqr3_orth_error,
+                             result.scholqr3_is_orthonormal, result.scholqr3_max_orth_cols);
+    }
+
     return result;
 }
 
@@ -228,7 +267,7 @@ int main(int argc, char *argv[]) {
         sizes.push_back({m, n});
     }
 
-    printf("\n=== CQRRT vs CholQR Scaling Study ===\n");
+    printf("\n=== CQRRT vs CholQR vs sCholQR3 Scaling Study ===\n");
     printf("Fixed aspect ratio: %.1f:1 (m/n)\n", aspect_ratio);
     printf("Matrix sizes: %ld x %ld to %ld x %ld\n",
            sizes.front().first, sizes.front().second,
@@ -244,14 +283,15 @@ int main(int argc, char *argv[]) {
     // Prepare output file
     std::string output_file = "CQRRT_linops_scaling_results.csv";
     std::ofstream out(output_file);
-    out << "# CQRRT vs CholQR Scaling Study Results\n";
+    out << "# CQRRT vs CholQR vs sCholQR3 Scaling Study Results\n";
     out << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     out << "# Density: " << density << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "m,n,aspect_ratio,density,"
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
-        << "speedup_cqrrt_over_cholqr\n";
+        << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
+        << "speedup_cqrrt_over_cholqr,speedup_scholqr3_over_cholqr\n";
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {
@@ -262,14 +302,18 @@ int main(int argc, char *argv[]) {
 
         auto result = run_single_test<double>(m, n, density, d_factor, state);
 
-        double speedup = (result.cqrrt_time > 0) ?
+        double speedup_cqrrt = (result.cqrrt_time > 0) ?
             static_cast<double>(result.cholqr_time) / result.cqrrt_time : 0.0;
+        double speedup_scholqr3 = (result.scholqr3_time > 0) ?
+            static_cast<double>(result.cholqr_time) / result.scholqr3_time : 0.0;
 
-        printf("  CQRRT:  orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
+        printf("  CQRRT:   orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
                result.cqrrt_orth_error, result.cqrrt_max_orth_cols, n, result.cqrrt_time);
-        printf("  CholQR: orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
+        printf("  CholQR:  orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
                result.cholqr_orth_error, result.cholqr_max_orth_cols, n, result.cholqr_time);
-        printf("  Speedup (CholQR/CQRRT): %.2fx\n\n", speedup);
+        printf("  sCholQR3: orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
+               result.scholqr3_orth_error, result.scholqr3_max_orth_cols, n, result.scholqr3_time);
+        printf("  Speedup (CholQR/CQRRT): %.2fx, (CholQR/sCholQR3): %.2fx\n\n", speedup_cqrrt, speedup_scholqr3);
 
         // Write results
         out << std::fixed << std::setprecision(1)
@@ -282,7 +326,10 @@ int main(int argc, char *argv[]) {
             << result.cholqr_rel_error << "," << result.cholqr_orth_error << ","
             << result.cholqr_max_orth_cols << "," << (result.cholqr_is_orthonormal ? 1 : 0) << ","
             << result.cholqr_time << ","
-            << std::fixed << std::setprecision(3) << speedup << "\n";
+            << result.scholqr3_rel_error << "," << result.scholqr3_orth_error << ","
+            << result.scholqr3_max_orth_cols << "," << (result.scholqr3_is_orthonormal ? 1 : 0) << ","
+            << result.scholqr3_time << ","
+            << std::fixed << std::setprecision(3) << speedup_cqrrt << "," << speedup_scholqr3 << "\n";
         out.flush();
     }
 
