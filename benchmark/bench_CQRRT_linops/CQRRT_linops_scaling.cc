@@ -17,6 +17,7 @@ int main() {return 0;}
 #include <fstream>
 #include <iomanip>
 #include <cmath>
+#include <ctime>
 
 // Need to include demos utilities
 #include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
@@ -302,9 +303,9 @@ static scaling_result<T> run_single_test(
 
 int main(int argc, char *argv[]) {
 
-    if (argc != 8) {
+    if (argc != 9) {
         std::cerr << "Usage: " << argv[0]
-                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <density> <d_factor> <num_runs>"
+                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <density> <d_factor> <num_runs> <output_dir>"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  aspect_ratio : Ratio m/n (e.g., 20 means n = m/20)" << std::endl;
@@ -314,8 +315,9 @@ int main(int argc, char *argv[]) {
         std::cerr << "  density      : Sparse matrix density (e.g., 0.1)" << std::endl;
         std::cerr << "  d_factor     : Sketching dimension factor for CQRRT (e.g., 2.0)" << std::endl;
         std::cerr << "  num_runs     : Number of runs per matrix size (for timing)" << std::endl;
+        std::cerr << "  output_dir   : Directory to write output files" << std::endl;
         std::cerr << "\nExample:" << std::endl;
-        std::cerr << "  " << argv[0] << " 20 500 10000 50 0.1 2.0 3" << std::endl;
+        std::cerr << "  " << argv[0] << " 20 500 10000 50 0.1 2.0 3 ./output" << std::endl;
         std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, all with aspect ratio 20:1, 3 runs each)" << std::endl;
         return 1;
     }
@@ -328,6 +330,12 @@ int main(int argc, char *argv[]) {
     double density = std::stod(argv[5]);
     double d_factor = std::stod(argv[6]);
     int64_t num_runs = std::stol(argv[7]);
+    std::string output_dir = argv[8];
+
+    // Generate date/time prefix
+    std::time_t now = std::time(nullptr);
+    char date_prefix[20];
+    std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
 
     // Build list of (m, n) pairs to test
     std::vector<std::pair<int64_t, int64_t>> sizes;
@@ -353,8 +361,8 @@ int main(int argc, char *argv[]) {
     // Initialize RNG
     auto state = RandBLAS::RNGState<r123::Philox4x32>();
 
-    // Prepare output file
-    std::string output_file = "CQRRT_linops_scaling_results.csv";
+    // Prepare output file with date/time prefix
+    std::string output_file = output_dir + "/" + date_prefix + "scaling_results.csv";
     std::ofstream out(output_file);
     out << "# CQRRT vs CholQR vs sCholQR3 Scaling Study Results\n";
     out << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
@@ -367,8 +375,8 @@ int main(int argc, char *argv[]) {
         << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
         << "speedup_cqrrt_over_cholqr,speedup_scholqr3_over_cholqr\n";
 
-    // Prepare runtime breakdown file
-    std::string breakdown_file = "CQRRT_linops_scaling_breakdown.csv";
+    // Prepare runtime breakdown file with date/time prefix
+    std::string breakdown_file = output_dir + "/" + date_prefix + "scaling_breakdown.csv";
     std::ofstream breakdown(breakdown_file);
     breakdown << "# CQRRT Runtime Breakdown (from fastest run per matrix size)\n";
     breakdown << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";

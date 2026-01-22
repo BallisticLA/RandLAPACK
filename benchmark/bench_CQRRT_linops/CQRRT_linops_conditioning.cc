@@ -17,6 +17,7 @@ int main() {return 0;}
 #include <fstream>
 #include <iomanip>
 #include <filesystem>
+#include <ctime>
 #include <Eigen/Sparse>
 #include <unsupported/Eigen/SparseExtra>
 
@@ -302,7 +303,18 @@ int main(int argc, char *argv[]) {
     int64_t n = std::stol(argv[3]);
     double d_factor = std::stod(argv[4]);
     int64_t num_runs = std::stol(argv[5]);
-    std::string output_file = argv[6];
+    std::string output_file_arg = argv[6];
+
+    // Generate date/time prefix
+    std::time_t now = std::time(nullptr);
+    char date_prefix[20];
+    std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
+
+    // Extract directory and filename, prepend date prefix to filename
+    std::filesystem::path output_path(output_file_arg);
+    std::string output_dir = output_path.parent_path().string();
+    std::string output_filename = output_path.filename().string();
+    std::string output_file = (output_dir.empty() ? "" : output_dir + "/") + date_prefix + output_filename;
 
     // Read metadata
     std::string metadata_file = spd_dir + "/metadata.txt";
