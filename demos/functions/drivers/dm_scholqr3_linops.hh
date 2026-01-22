@@ -97,6 +97,9 @@ class sCholQR3_linops {
             long cholqr2_t_dur  = 0;
             long cholqr3_t_dur  = 0;
             long total_t_dur    = 0;
+            long q_t_dur        = 0;
+            steady_clock::time_point q_t_start;
+            steady_clock::time_point q_t_stop;
 
             if(this->timing)
                 total_t_start = steady_clock::now();
@@ -217,6 +220,9 @@ class sCholQR3_linops {
 
             // Only compute final Q if test mode is enabled (not needed for R-factor only)
             if(this->test_mode) {
+                if(this->timing)
+                    q_t_start = steady_clock::now();
+
                 // Compute Q = Q * R3^{-1}
                 blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                            Diag::NonUnit, m, n, (T)1.0, G, n, Q_buf, m);
@@ -224,6 +230,9 @@ class sCholQR3_linops {
                 this->Q_rows = m;
                 this->Q_cols = n;
                 this->Q = Q_buf;  // Take ownership of Q_buf
+
+                if(this->timing)
+                    q_t_stop = steady_clock::now();
             }
 
             if(this->timing)
@@ -236,6 +245,12 @@ class sCholQR3_linops {
                 cholqr2_t_dur  = duration_cast<microseconds>(cholqr2_t_stop  - cholqr2_t_start).count();
                 cholqr3_t_dur  = duration_cast<microseconds>(cholqr3_t_stop  - cholqr3_t_start).count();
                 total_t_dur    = duration_cast<microseconds>(total_t_stop    - total_t_start).count();
+
+                // Subtract Q-factor computation time if in test mode
+                if(this->test_mode) {
+                    q_t_dur = duration_cast<microseconds>(q_t_stop - q_t_start).count();
+                    total_t_dur -= q_t_dur;
+                }
 
                 // Fill the data vector: [scholqr1_time, cholqr2_time, cholqr3_time, total_time]
                 this->times = {scholqr1_t_dur, cholqr2_t_dur, cholqr3_t_dur, total_t_dur};

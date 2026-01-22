@@ -42,6 +42,13 @@ struct conditioning_result {
     int64_t cqrrt_max_orth_cols;  // Maximum orthonormal prefix
     long cqrrt_time;      // Total computation time (microseconds)
 
+    // CQRRT subroutine times (from fastest run)
+    long cqrrt_saso_time;
+    long cqrrt_qr_time;
+    long cqrrt_cholqr_time;
+    long cqrrt_trsm_time;
+    long cqrrt_rest_time;
+
     // CholQR results
     T cholqr_rel_error;          // ||A - QR|| / ||A||
     T cholqr_orth_error;         // ||Q^T Q - I|| / sqrt(n)
@@ -177,14 +184,17 @@ static conditioning_result<T> run_single_test(
     // ============================================================
     {
         std::vector<T> R_cqrrt(n * n, 0.0);
-        auto t_start = steady_clock::now();
 
-        RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(false, tol, true);  // timing=false, test_mode=true
+        RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
         CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
         CQRRT_QR.call(outer_composite, R_cqrrt.data(), n, d_factor, state);
 
-        auto t_stop = steady_clock::now();
-        result.cqrrt_time = duration_cast<microseconds>(t_stop - t_start).count();
+        result.cqrrt_time = CQRRT_QR.times[5];  // total_t_dur
+        result.cqrrt_saso_time = CQRRT_QR.times[0];
+        result.cqrrt_qr_time = CQRRT_QR.times[1];
+        result.cqrrt_cholqr_time = CQRRT_QR.times[2];
+        result.cqrrt_trsm_time = CQRRT_QR.times[3];
+        result.cqrrt_rest_time = CQRRT_QR.times[4];
 
         // Compute factorization error
         std::vector<T> QR(m * n, 0.0);
@@ -383,6 +393,17 @@ int main(int argc, char *argv[]) {
         << "scholqr3_orth_rate,"
         << "scholqr3_time_mean,scholqr3_time_std\n";
 
+    // Open runtime breakdown file
+    std::string breakdown_file = output_file.substr(0, output_file.find_last_of('.')) + "_breakdown.csv";
+    std::ofstream breakdown(breakdown_file);
+    breakdown << "# CQRRT Runtime Breakdown (from fastest run per condition number)\n";
+    breakdown << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
+    breakdown << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
+    breakdown << "# d_factor: " << d_factor << "\n";
+    breakdown << "# num_runs: " << num_runs << "\n";
+    breakdown << "# Times are in microseconds\n";
+    breakdown << "cond_num,saso_time_us,qr_time_us,cholqr_time_us,trsm_time_us,rest_time_us,total_time_us\n";
+
     // Run conditioning study
     for (size_t i = 0; i < matrix_files.size(); ++i) {
         double cond_num = matrix_files[i].first;
@@ -392,9 +413,18 @@ int main(int argc, char *argv[]) {
 
         // Run multiple times for statistics
         std::vector<conditioning_result<double>> results;
+        int64_t fastest_cqrrt_idx = 0;
+        long fastest_cqrrt_time = std::numeric_limits<long>::max();
+
         for (int64_t run = 0; run < num_runs; ++run) {
             auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, state);
             results.push_back(result);
+
+            // Track fastest CQRRT run
+            if (result.cqrrt_time < fastest_cqrrt_time) {
+                fastest_cqrrt_time = result.cqrrt_time;
+                fastest_cqrrt_idx = run;
+            }
 
             printf("  Run %ld/%ld:\n", run + 1, num_runs);
             printf("    CQRRT:   orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
@@ -404,6 +434,9 @@ int main(int argc, char *argv[]) {
             printf("    sCholQR3: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.scholqr3_orth_error, result.scholqr3_max_orth_cols, n, result.scholqr3_time);
         }
+
+        // Get subroutine times from fastest run
+        const auto& fastest = results[fastest_cqrrt_idx];
 
         // Compute statistics for CQRRT
         double cqrrt_rel_err_mean = 0, cqrrt_orth_err_mean = 0, cqrrt_time_mean = 0;
@@ -528,12 +561,25 @@ int main(int argc, char *argv[]) {
                cholqr_orth_err_mean, cholqr_orth_err_std, cholqr_max_orth_mean, cholqr_max_orth_std, cholqr_orth_rate);
         printf("    sCholQR3: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n\n",
                scholqr3_orth_err_mean, scholqr3_orth_err_std, scholqr3_max_orth_mean, scholqr3_max_orth_std, scholqr3_orth_rate);
+
+        // Write runtime breakdown from fastest CQRRT run
+        breakdown << std::scientific << std::setprecision(6)
+                  << cond_num << ","
+                  << fastest.cqrrt_saso_time << ","
+                  << fastest.cqrrt_qr_time << ","
+                  << fastest.cqrrt_cholqr_time << ","
+                  << fastest.cqrrt_trsm_time << ","
+                  << fastest.cqrrt_rest_time << ","
+                  << fastest.cqrrt_time << "\n";
+        breakdown.flush();
     }
 
     out.close();
+    breakdown.close();
     printf("========================================\n");
     printf("Conditioning study complete!\n");
     printf("Results saved to: %s\n", output_file.c_str());
+    printf("Runtime breakdown saved to: %s\n", breakdown_file.c_str());
     printf("========================================\n");
 
     return 0;

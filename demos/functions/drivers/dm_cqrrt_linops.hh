@@ -117,12 +117,15 @@ class CQRRT_linops {
             steady_clock::time_point a_mod_trsm_t_stop;
             steady_clock::time_point total_t_start;
             steady_clock::time_point total_t_stop;
+            steady_clock::time_point q_t_start;
+            steady_clock::time_point q_t_stop;
             long saso_t_dur        = 0;
             long qr_t_dur          = 0;
             long cholqr_t_dur      = 0;
             long a_mod_piv_t_dur   = 0;
             long a_mod_trsm_t_dur  = 0;
             long total_t_dur       = 0;
+            long q_t_dur           = 0;
 
             if(this -> timing)
                 total_t_start = steady_clock::now();
@@ -209,6 +212,9 @@ class CQRRT_linops {
 
             // Compute Q-factor if test mode is enabled
             if(this->test_mode) {
+                if(this->timing)
+                    q_t_start = steady_clock::now();
+
                 // Reuse A_pre storage for Q (Q = A_pre * R_chol^{-1})
                 this->Q_rows = m;
                 this->Q_cols = n;
@@ -218,6 +224,9 @@ class CQRRT_linops {
                 // Q = A * (R_chol * R_sk)^{-1} = A * R_sk^{-1} * R_chol^{-1} = A_pre * R_chol^{-1}
                 blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                            Diag::NonUnit, m, n, (T)1.0, R, ldr, this->Q, m);
+
+                if(this->timing)
+                    q_t_stop = steady_clock::now();
             }
 
             if(this -> timing)
@@ -248,6 +257,13 @@ class CQRRT_linops {
                 cholqr_t_dur     = duration_cast<microseconds>(cholqr_t_stop     - cholqr_t_start).count();
 
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+
+                // Subtract Q-factor computation time if in test mode
+                if(this->test_mode) {
+                    q_t_dur = duration_cast<microseconds>(q_t_stop - q_t_start).count();
+                    total_t_dur -= q_t_dur;
+                }
+
                 long t_rest  = total_t_dur - (saso_t_dur + qr_t_dur + cholqr_t_dur + a_mod_trsm_t_dur);
 
                 // Fill the data vector

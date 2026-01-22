@@ -91,6 +91,9 @@ class CholQR_linops {
             long gram_t_dur  = 0;
             long chol_t_dur  = 0;
             long total_t_dur = 0;
+            long q_t_dur     = 0;
+            steady_clock::time_point q_t_start;
+            steady_clock::time_point q_t_stop;
 
             if(this->timing)
                 total_t_start = steady_clock::now();
@@ -140,6 +143,9 @@ class CholQR_linops {
 
             // Compute Q-factor if test mode is enabled
             if(this->test_mode) {
+                if(this->timing)
+                    q_t_start = steady_clock::now();
+
                 this->Q_rows = m;
                 this->Q_cols = n;
                 this->Q = A_temp;  // Take ownership of A_temp buffer
@@ -148,6 +154,9 @@ class CholQR_linops {
                 // Q = A * R^{-1}
                 blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                            Diag::NonUnit, m, n, (T)1.0, R, ldr, this->Q, m);
+
+                if(this->timing)
+                    q_t_stop = steady_clock::now();
             }
 
             if(this->timing) {
@@ -157,6 +166,12 @@ class CholQR_linops {
                 gram_t_dur  = duration_cast<microseconds>(gram_t_stop  - gram_t_start).count();
                 chol_t_dur  = duration_cast<microseconds>(chol_t_stop  - chol_t_start).count();
                 total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+
+                // Subtract Q-factor computation time if in test mode
+                if(this->test_mode) {
+                    q_t_dur = duration_cast<microseconds>(q_t_stop - q_t_start).count();
+                    total_t_dur -= q_t_dur;
+                }
 
                 // Fill the data vector: [gram_time, chol_time, total_time]
                 this->times = {gram_t_dur, chol_t_dur, total_t_dur};

@@ -41,6 +41,13 @@ struct scaling_result {
     int64_t cqrrt_max_orth_cols;
     long cqrrt_time;          // Total time (microseconds)
 
+    // CQRRT subroutine times (from fastest run)
+    long cqrrt_saso_time;
+    long cqrrt_qr_time;
+    long cqrrt_cholqr_time;
+    long cqrrt_trsm_time;
+    long cqrrt_rest_time;
+
     // CholQR results
     T cholqr_rel_error;
     T cholqr_orth_error;
@@ -111,6 +118,7 @@ static scaling_result<T> run_single_test(
     int64_t n,
     T density,
     T d_factor,
+    int64_t num_runs,
     RandBLAS::RNGState<RNG>& state) {
 
     scaling_result<T> result;
@@ -133,98 +141,160 @@ static scaling_result<T> run_single_test(
     T norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);
 
     // ============================================================
-    // Run CQRRT (preconditioned Cholesky QR)
+    // Run CQRRT (preconditioned Cholesky QR) - multiple runs
     // ============================================================
     {
-        std::vector<T> R_cqrrt(n * n, 0.0);
-        auto state_copy = state;
-        auto t_start = steady_clock::now();
+        // Initialize with first run
+        result.cqrrt_time = std::numeric_limits<long>::max();
+        result.cqrrt_saso_time = 0;
+        result.cqrrt_qr_time = 0;
+        result.cqrrt_cholqr_time = 0;
+        result.cqrrt_trsm_time = 0;
+        result.cqrrt_rest_time = 0;
 
-        RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(false, tol, true);  // timing=false, test_mode=true
-        CQRRT_QR.nnz = 5;
-        CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
+        T best_rel_error = 0.0;
+        T best_orth_error = 0.0;
+        bool best_is_orthonormal = false;
+        int64_t best_max_orth_cols = 0;
 
-        auto t_stop = steady_clock::now();
-        result.cqrrt_time = duration_cast<microseconds>(t_stop - t_start).count();
+        for (int64_t run = 0; run < num_runs; ++run) {
+            std::vector<T> R_cqrrt(n * n, 0.0);
+            auto state_copy = state;
 
-        // Compute factorization error
-        std::vector<T> QR(m * n, 0.0);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-                   1.0, CQRRT_QR.Q, m, R_cqrrt.data(), n, 0.0, QR.data(), m);
+            RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
+            CQRRT_QR.nnz = 5;
+            CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
 
-        T norm_diff = 0.0;
-        for (int64_t i = 0; i < m * n; ++i) {
-            T diff = A_dense[i] - QR[i];
-            norm_diff += diff * diff;
+            long run_time = CQRRT_QR.times[5];  // total_t_dur
+
+            // Track fastest run and its subroutine times
+            if (run_time < result.cqrrt_time) {
+                result.cqrrt_time = run_time;
+                result.cqrrt_saso_time = CQRRT_QR.times[0];
+                result.cqrrt_qr_time = CQRRT_QR.times[1];
+                result.cqrrt_cholqr_time = CQRRT_QR.times[2];
+                result.cqrrt_trsm_time = CQRRT_QR.times[3];
+                result.cqrrt_rest_time = CQRRT_QR.times[4];
+
+                // Compute factorization error for fastest run
+                std::vector<T> QR(m * n, 0.0);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+                           1.0, CQRRT_QR.Q, m, R_cqrrt.data(), n, 0.0, QR.data(), m);
+
+                T norm_diff = 0.0;
+                for (int64_t i = 0; i < m * n; ++i) {
+                    T diff = A_dense[i] - QR[i];
+                    norm_diff += diff * diff;
+                }
+                norm_diff = std::sqrt(norm_diff);
+                best_rel_error = norm_diff / norm_A;
+
+                // Measure orthogonality
+                measure_orthogonality(CQRRT_QR.Q, m, n, best_orth_error,
+                                     best_is_orthonormal, best_max_orth_cols);
+            }
         }
-        norm_diff = std::sqrt(norm_diff);
-        result.cqrrt_rel_error = norm_diff / norm_A;
 
-        // Measure orthogonality
-        measure_orthogonality(CQRRT_QR.Q, m, n, result.cqrrt_orth_error,
-                             result.cqrrt_is_orthonormal, result.cqrrt_max_orth_cols);
+        result.cqrrt_rel_error = best_rel_error;
+        result.cqrrt_orth_error = best_orth_error;
+        result.cqrrt_is_orthonormal = best_is_orthonormal;
+        result.cqrrt_max_orth_cols = best_max_orth_cols;
     }
 
     // ============================================================
-    // Run CholQR (unpreconditioned Cholesky QR)
+    // Run CholQR (unpreconditioned Cholesky QR) - multiple runs
     // ============================================================
     {
-        std::vector<T> R_cholqr(n * n, 0.0);
-        auto t_start = steady_clock::now();
+        result.cholqr_time = std::numeric_limits<long>::max();
+        T best_rel_error = 0.0;
+        T best_orth_error = 0.0;
+        bool best_is_orthonormal = false;
+        int64_t best_max_orth_cols = 0;
 
-        RandLAPACK_demos::CholQR_linops<T> CholQR_alg(false, tol, true);  // timing=false, test_mode=true
-        CholQR_alg.call(A_linop, R_cholqr.data(), n);
+        for (int64_t run = 0; run < num_runs; ++run) {
+            std::vector<T> R_cholqr(n * n, 0.0);
+            auto t_start = steady_clock::now();
 
-        auto t_stop = steady_clock::now();
-        result.cholqr_time = duration_cast<microseconds>(t_stop - t_start).count();
+            RandLAPACK_demos::CholQR_linops<T> CholQR_alg(false, tol, true);  // timing=false, test_mode=true
+            CholQR_alg.call(A_linop, R_cholqr.data(), n);
 
-        // Compute factorization error
-        std::vector<T> QR(m * n, 0.0);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-                   1.0, CholQR_alg.Q, m, R_cholqr.data(), n, 0.0, QR.data(), m);
+            auto t_stop = steady_clock::now();
+            long run_time = duration_cast<microseconds>(t_stop - t_start).count();
 
-        T norm_diff = 0.0;
-        for (int64_t i = 0; i < m * n; ++i) {
-            T diff = A_dense[i] - QR[i];
-            norm_diff += diff * diff;
+            if (run_time < result.cholqr_time) {
+                result.cholqr_time = run_time;
+
+                // Compute factorization error
+                std::vector<T> QR(m * n, 0.0);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+                           1.0, CholQR_alg.Q, m, R_cholqr.data(), n, 0.0, QR.data(), m);
+
+                T norm_diff = 0.0;
+                for (int64_t i = 0; i < m * n; ++i) {
+                    T diff = A_dense[i] - QR[i];
+                    norm_diff += diff * diff;
+                }
+                norm_diff = std::sqrt(norm_diff);
+                best_rel_error = norm_diff / norm_A;
+
+                // Measure orthogonality
+                measure_orthogonality(CholQR_alg.Q, m, n, best_orth_error,
+                                     best_is_orthonormal, best_max_orth_cols);
+            }
         }
-        norm_diff = std::sqrt(norm_diff);
-        result.cholqr_rel_error = norm_diff / norm_A;
 
-        // Measure orthogonality
-        measure_orthogonality(CholQR_alg.Q, m, n, result.cholqr_orth_error,
-                             result.cholqr_is_orthonormal, result.cholqr_max_orth_cols);
+        result.cholqr_rel_error = best_rel_error;
+        result.cholqr_orth_error = best_orth_error;
+        result.cholqr_is_orthonormal = best_is_orthonormal;
+        result.cholqr_max_orth_cols = best_max_orth_cols;
     }
 
     // ============================================================
-    // Run sCholQR3 (shifted Cholesky QR with 3 iterations)
+    // Run sCholQR3 (shifted Cholesky QR with 3 iterations) - multiple runs
     // ============================================================
     {
-        std::vector<T> R_scholqr3(n * n, 0.0);
-        auto t_start = steady_clock::now();
+        result.scholqr3_time = std::numeric_limits<long>::max();
+        T best_rel_error = 0.0;
+        T best_orth_error = 0.0;
+        bool best_is_orthonormal = false;
+        int64_t best_max_orth_cols = 0;
 
-        RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(false, tol, true);  // timing=false, test_mode=true
-        sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
+        for (int64_t run = 0; run < num_runs; ++run) {
+            std::vector<T> R_scholqr3(n * n, 0.0);
+            auto t_start = steady_clock::now();
 
-        auto t_stop = steady_clock::now();
-        result.scholqr3_time = duration_cast<microseconds>(t_stop - t_start).count();
+            RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(false, tol, true);  // timing=false, test_mode=true
+            sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
 
-        // Compute factorization error
-        std::vector<T> QR(m * n, 0.0);
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-                   1.0, sCholQR3_alg.Q, m, R_scholqr3.data(), n, 0.0, QR.data(), m);
+            auto t_stop = steady_clock::now();
+            long run_time = duration_cast<microseconds>(t_stop - t_start).count();
 
-        T norm_diff = 0.0;
-        for (int64_t i = 0; i < m * n; ++i) {
-            T diff = A_dense[i] - QR[i];
-            norm_diff += diff * diff;
+            if (run_time < result.scholqr3_time) {
+                result.scholqr3_time = run_time;
+
+                // Compute factorization error
+                std::vector<T> QR(m * n, 0.0);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+                           1.0, sCholQR3_alg.Q, m, R_scholqr3.data(), n, 0.0, QR.data(), m);
+
+                T norm_diff = 0.0;
+                for (int64_t i = 0; i < m * n; ++i) {
+                    T diff = A_dense[i] - QR[i];
+                    norm_diff += diff * diff;
+                }
+                norm_diff = std::sqrt(norm_diff);
+                best_rel_error = norm_diff / norm_A;
+
+                // Measure orthogonality
+                measure_orthogonality(sCholQR3_alg.Q, m, n, best_orth_error,
+                                     best_is_orthonormal, best_max_orth_cols);
+            }
         }
-        norm_diff = std::sqrt(norm_diff);
-        result.scholqr3_rel_error = norm_diff / norm_A;
 
-        // Measure orthogonality
-        measure_orthogonality(sCholQR3_alg.Q, m, n, result.scholqr3_orth_error,
-                             result.scholqr3_is_orthonormal, result.scholqr3_max_orth_cols);
+        result.scholqr3_rel_error = best_rel_error;
+        result.scholqr3_orth_error = best_orth_error;
+        result.scholqr3_is_orthonormal = best_is_orthonormal;
+        result.scholqr3_max_orth_cols = best_max_orth_cols;
     }
 
     return result;
@@ -232,9 +302,9 @@ static scaling_result<T> run_single_test(
 
 int main(int argc, char *argv[]) {
 
-    if (argc != 7) {
+    if (argc != 8) {
         std::cerr << "Usage: " << argv[0]
-                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <density> <d_factor>"
+                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <density> <d_factor> <num_runs>"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  aspect_ratio : Ratio m/n (e.g., 20 means n = m/20)" << std::endl;
@@ -243,9 +313,10 @@ int main(int argc, char *argv[]) {
         std::cerr << "  num_sizes    : Number of matrix sizes to test" << std::endl;
         std::cerr << "  density      : Sparse matrix density (e.g., 0.1)" << std::endl;
         std::cerr << "  d_factor     : Sketching dimension factor for CQRRT (e.g., 2.0)" << std::endl;
+        std::cerr << "  num_runs     : Number of runs per matrix size (for timing)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
-        std::cerr << "  " << argv[0] << " 20 500 10000 50 0.1 2.0" << std::endl;
-        std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, all with aspect ratio 20:1)" << std::endl;
+        std::cerr << "  " << argv[0] << " 20 500 10000 50 0.1 2.0 3" << std::endl;
+        std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, all with aspect ratio 20:1, 3 runs each)" << std::endl;
         return 1;
     }
 
@@ -256,6 +327,7 @@ int main(int argc, char *argv[]) {
     int64_t num_sizes = std::stol(argv[4]);
     double density = std::stod(argv[5]);
     double d_factor = std::stod(argv[6]);
+    int64_t num_runs = std::stol(argv[7]);
 
     // Build list of (m, n) pairs to test
     std::vector<std::pair<int64_t, int64_t>> sizes;
@@ -275,6 +347,7 @@ int main(int argc, char *argv[]) {
     printf("Number of test sizes: %zu\n", sizes.size());
     printf("Density: %.3f\n", density);
     printf("d_factor (CQRRT): %.2f\n", d_factor);
+    printf("Runs per size: %ld\n", num_runs);
     printf("=====================================\n\n");
 
     // Initialize RNG
@@ -287,11 +360,23 @@ int main(int argc, char *argv[]) {
     out << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     out << "# Density: " << density << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
+    out << "# num_runs: " << num_runs << "\n";
     out << "m,n,aspect_ratio,density,"
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
         << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
         << "speedup_cqrrt_over_cholqr,speedup_scholqr3_over_cholqr\n";
+
+    // Prepare runtime breakdown file
+    std::string breakdown_file = "CQRRT_linops_scaling_breakdown.csv";
+    std::ofstream breakdown(breakdown_file);
+    breakdown << "# CQRRT Runtime Breakdown (from fastest run per matrix size)\n";
+    breakdown << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
+    breakdown << "# Density: " << density << "\n";
+    breakdown << "# d_factor: " << d_factor << "\n";
+    breakdown << "# num_runs: " << num_runs << "\n";
+    breakdown << "# Times are in microseconds\n";
+    breakdown << "m,n,saso_time_us,qr_time_us,cholqr_time_us,trsm_time_us,rest_time_us,total_time_us\n";
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {
@@ -300,7 +385,7 @@ int main(int argc, char *argv[]) {
         printf("Testing %ld x %ld (aspect ratio %.1f) [%zu/%zu]...\n",
                m, n, static_cast<double>(m) / n, i + 1, sizes.size());
 
-        auto result = run_single_test<double>(m, n, density, d_factor, state);
+        auto result = run_single_test<double>(m, n, density, d_factor, num_runs, state);
 
         double speedup_cqrrt = (result.cqrrt_time > 0) ?
             static_cast<double>(result.cholqr_time) / result.cqrrt_time : 0.0;
@@ -331,12 +416,21 @@ int main(int argc, char *argv[]) {
             << result.scholqr3_time << ","
             << std::fixed << std::setprecision(3) << speedup_cqrrt << "," << speedup_scholqr3 << "\n";
         out.flush();
+
+        // Write runtime breakdown
+        breakdown << result.m << "," << result.n << ","
+                  << result.cqrrt_saso_time << "," << result.cqrrt_qr_time << ","
+                  << result.cqrrt_cholqr_time << "," << result.cqrrt_trsm_time << ","
+                  << result.cqrrt_rest_time << "," << result.cqrrt_time << "\n";
+        breakdown.flush();
     }
 
     out.close();
+    breakdown.close();
     printf("========================================\n");
     printf("Scaling study complete!\n");
     printf("Results saved to: %s\n", output_file.c_str());
+    printf("Runtime breakdown saved to: %s\n", breakdown_file.c_str());
     printf("========================================\n");
 
     return 0;
