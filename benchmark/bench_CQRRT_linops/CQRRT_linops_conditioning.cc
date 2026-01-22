@@ -18,6 +18,7 @@ int main() {return 0;}
 #include <iomanip>
 #include <filesystem>
 #include <ctime>
+#include <omp.h>
 #include <Eigen/Sparse>
 #include <unsupported/Eigen/SparseExtra>
 
@@ -345,12 +346,16 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Get OpenMP thread count
+    int num_threads = omp_get_max_threads();
+
     printf("\n=== CQRRT vs CholQR vs sCholQR3 Conditioning Study ===\n");
     printf("SPD matrix directory: %s\n", spd_dir.c_str());
     printf("Number of condition numbers: %ld\n", num_matrices);
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
     printf("Sketching factor (CQRRT only): %.2f\n", d_factor);
     printf("Runs per condition: %ld\n", num_runs);
+    printf("OpenMP threads: %d\n", num_threads);
     printf("Output file: %s\n", output_file.c_str());
     printf("==========================================\n\n");
 
@@ -387,6 +392,7 @@ int main(int argc, char *argv[]) {
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# num_runs: " << num_runs << "\n";
+    out << "# OpenMP threads: " << num_threads << "\n";
     out << "# Format: cond_num, cqrrt_*, cholqr_*, scholqr3_* (rel_error, orth_error, max_orth_cols, orth_rate, time)\n";
     out << "cond_num,"
         << "cqrrt_rel_error_mean,cqrrt_rel_error_std,"
@@ -413,6 +419,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     breakdown << "# d_factor: " << d_factor << "\n";
     breakdown << "# num_runs: " << num_runs << "\n";
+    breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
     breakdown << "cond_num,saso_time_us,qr_time_us,cholqr_time_us,trsm_time_us,rest_time_us,total_time_us\n";
 

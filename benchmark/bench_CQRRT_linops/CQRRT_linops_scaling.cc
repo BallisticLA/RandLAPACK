@@ -18,6 +18,7 @@ int main() {return 0;}
 #include <iomanip>
 #include <cmath>
 #include <ctime>
+#include <omp.h>
 
 // Need to include demos utilities
 #include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
@@ -347,6 +348,9 @@ int main(int argc, char *argv[]) {
         sizes.push_back({m, n});
     }
 
+    // Get OpenMP thread count
+    int num_threads = omp_get_max_threads();
+
     printf("\n=== CQRRT vs CholQR vs sCholQR3 Scaling Study ===\n");
     printf("Fixed aspect ratio: %.1f:1 (m/n)\n", aspect_ratio);
     printf("Matrix sizes: %ld x %ld to %ld x %ld\n",
@@ -356,6 +360,7 @@ int main(int argc, char *argv[]) {
     printf("Density: %.3f\n", density);
     printf("d_factor (CQRRT): %.2f\n", d_factor);
     printf("Runs per size: %ld\n", num_runs);
+    printf("OpenMP threads: %d\n", num_threads);
     printf("=====================================\n\n");
 
     // Initialize RNG
@@ -369,6 +374,7 @@ int main(int argc, char *argv[]) {
     out << "# Density: " << density << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# num_runs: " << num_runs << "\n";
+    out << "# OpenMP threads: " << num_threads << "\n";
     out << "m,n,aspect_ratio,density,"
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
@@ -383,6 +389,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# Density: " << density << "\n";
     breakdown << "# d_factor: " << d_factor << "\n";
     breakdown << "# num_runs: " << num_runs << "\n";
+    breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
     breakdown << "m,n,saso_time_us,qr_time_us,cholqr_time_us,trsm_time_us,rest_time_us,total_time_us\n";
 
