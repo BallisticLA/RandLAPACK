@@ -10,6 +10,7 @@ int main() {return 0;}
 #include <fstream>
 #include <vector>
 #include <filesystem>
+#include <omp.h>
 #include "../../demos/functions/misc/dm_util.hh"
 
 int main(int argc, char *argv[]) {
@@ -52,27 +53,66 @@ int main(int argc, char *argv[]) {
     // Create output directory
     std::filesystem::create_directories(output_dir);
 
+    int num_threads = omp_get_max_threads();
     printf("\n=== Dense SPD Matrix Generation for CQRRT Conditioning Study ===\n");
     printf("Output directory: %s\n", output_dir.c_str());
     printf("Matrix size: %ld x %ld\n", n, n);
     printf("Number of matrices: %ld\n", num_matrices);
     printf("Condition number range: %.2e to %.2e (log-spaced)\n", min_cond, max_cond);
     printf("Method: Eigenvalue decomposition (A = Q * Lambda * Q^T)\n");
+    printf("OpenMP threads: %d\n", num_threads);
     printf("================================================================\n\n");
-
-    // Initialize RNG
-    auto state = RandBLAS::RNGState<r123::Philox4x32>();
 
     // Generate log-spaced condition numbers
     double log_min = std::log10(min_cond);
     double log_max = std::log10(max_cond);
 
-    // Create metadata file
+    // Pre-compute condition numbers and filenames
+    struct MatrixParams {
+        int64_t idx;
+        double cond_num;
+        std::string filename;
+        std::string filepath;
+    };
+    std::vector<MatrixParams> matrices(num_matrices);
+
+    for (int64_t i = 0; i < num_matrices; ++i) {
+        double t = static_cast<double>(i) / static_cast<double>(num_matrices - 1);
+        double log_cond = log_min + t * (log_max - log_min);
+        double cond_num = std::pow(10.0, log_cond);
+
+        char filename[256];
+        snprintf(filename, sizeof(filename), "dense_spd_%04ld_cond_%.2e.mtx", i, cond_num);
+
+        matrices[i] = {i, cond_num, std::string(filename), output_dir + "/" + std::string(filename)};
+    }
+
+    // Parallel matrix generation
+    // Each thread gets an independent RNG state based on matrix index
+    #pragma omp parallel for schedule(dynamic)
+    for (int64_t i = 0; i < num_matrices; ++i) {
+        const auto& params = matrices[i];
+
+        // Create independent RNG state for this matrix using index as key offset
+        // This ensures reproducibility: same index -> same matrix
+        auto state = RandBLAS::RNGState<r123::Philox4x32>(static_cast<uint32_t>(i));
+
+        RandLAPACK_demos::generate_spd_matrix_file<double>(params.filepath, n, params.cond_num, state);
+
+        #pragma omp critical
+        {
+            printf("Generated matrix %ld/%ld: kappa = %.6e -> %s\n",
+                   params.idx + 1, num_matrices, params.cond_num, params.filename.c_str());
+        }
+    }
+
+    // Write metadata file (sequential, after all matrices generated)
     std::string metadata_file = output_dir + "/metadata.txt";
     std::ofstream meta(metadata_file);
     meta << "# Dense SPD Matrix Set Metadata\n";
     meta << "# Generated for CQRRT_linops conditioning study\n";
     meta << "# Method: Eigenvalue decomposition (A = Q * Lambda * Q^T)\n";
+    meta << "# OpenMP threads used: " << num_threads << "\n";
     meta << "matrix_size: " << n << "\n";
     meta << "num_matrices: " << num_matrices << "\n";
     meta << "min_condition_number: " << min_cond << "\n";
@@ -82,29 +122,9 @@ int main(int argc, char *argv[]) {
     meta << "# Format: index, condition_number, filename\n";
     meta << "# ----------------------------------------\n";
 
-    for (int64_t i = 0; i < num_matrices; ++i) {
-        // Log-spaced condition number
-        double t = static_cast<double>(i) / static_cast<double>(num_matrices - 1);
-        double log_cond = log_min + t * (log_max - log_min);
-        double cond_num = std::pow(10.0, log_cond);
-
-        // Generate filename with "dense_spd" prefix
-        char filename[256];
-        snprintf(filename, sizeof(filename), "dense_spd_%04ld_cond_%.2e.mtx", i, cond_num);
-        std::string filepath = output_dir + "/" + std::string(filename);
-
-        // Generate and save matrix
-        printf("Generating matrix %ld/%ld: kappa = %.6e ... ", i + 1, num_matrices, cond_num);
-        fflush(stdout);
-
-        RandLAPACK_demos::generate_spd_matrix_file<double>(filepath, n, cond_num, state);
-
-        printf("saved to %s\n", filename);
-
-        // Write to metadata
-        meta << i << ", " << std::scientific << cond_num << ", " << filename << "\n";
+    for (const auto& params : matrices) {
+        meta << params.idx << ", " << std::scientific << params.cond_num << ", " << params.filename << "\n";
     }
-
     meta.close();
     printf("\n================================================================\n");
     printf("Generation complete!\n");
