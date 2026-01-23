@@ -210,7 +210,11 @@ class CQRRT_linops {
             // Cholesky factorization (only reads/writes upper triangle)
             lapack::potrf(Uplo::Upper, n, R, ldr);
 
-            // Compute Q-factor if test mode is enabled
+            // Stop CholQR timing BEFORE Q-factor computation
+            if(this -> timing)
+                cholqr_t_stop = steady_clock::now();
+
+            // Compute Q-factor if test mode is enabled (NOT included in cholqr timing)
             if(this->test_mode) {
                 if(this->timing)
                     q_t_start = steady_clock::now();
@@ -228,9 +232,6 @@ class CQRRT_linops {
                 if(this->timing)
                     q_t_stop = steady_clock::now();
             }
-
-            if(this -> timing)
-                cholqr_t_stop = steady_clock::now();
 
             // Zero out strictly lower triangle of R before final trmm
             // trmm expects R to be upper triangular on input (it preserves triangular structure)
