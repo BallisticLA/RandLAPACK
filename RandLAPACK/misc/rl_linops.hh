@@ -425,6 +425,125 @@ struct CompositeOperator {
             }
         }
     }
+
+    /// @brief Composite-sketch multiplication with explicit side specification
+    ///
+    /// @tparam SkOp RandBLAS sketching operator type (DenseSkOp or SparseSkOp)
+    /// @param side Multiplication side (Left or Right)
+    /// @param layout Memory layout of C (ColMajor or RowMajor)
+    /// @param trans_A Transpose operation for this composite operator (NoTrans or Trans)
+    /// @param trans_S Transpose operation for sketching operator S (NoTrans or Trans)
+    /// @param m Number of rows in result matrix C
+    /// @param n Number of columns in result matrix C
+    /// @param k Inner dimension for the multiplication
+    /// @param alpha Scalar multiplier for the product
+    /// @param S Reference to sketching operator
+    /// @param beta Scalar multiplier for C
+    /// @param C Pointer to output matrix C (modified in-place)
+    /// @param ldc Leading dimension of C (layout-dependent)
+    ///
+    /// @details
+    /// - Side::Left:  C := alpha * op(LinOp1 * LinOp2) * op(S) + beta * C
+    ///   Computed as: temp = LinOp2 * op(S), then C = alpha * LinOp1 * temp + beta * C
+    ///   (or appropriate transpose variant)
+    ///
+    /// - Side::Right: C := alpha * op(S) * op(LinOp1 * LinOp2) + beta * C
+    ///   Computed as: temp = op(S) * LinOp1, then C = alpha * temp * LinOp2 + beta * C
+    ///   (or appropriate transpose variant)
+    ///
+    /// This delegates sketching to constituent operators, avoiding full materialization.
+    template <typename SkOp>
+    void operator()(
+        Side side,
+        Layout layout,
+        Op trans_A,
+        Op trans_S,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SkOp& S,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        if (side == Side::Left) {
+            // C = alpha * op(LinOp1 * LinOp2) * op(S) + beta * C
+            // op(A) is m×k, op(S) is k×n, C is m×n
+
+            if (trans_A == Op::NoTrans) {
+                // C = alpha * (LinOp1 * LinOp2) * op(S) + beta * C
+                // Strategy: temp = LinOp2 * op(S), then C = alpha * LinOp1 * temp + beta * C
+                // LinOp2 is (right_op.n_rows × n_cols), op(S) is k×n
+                // temp is (right_op.n_rows × n)
+                int64_t temp_rows = right_op.n_rows;
+                T* temp = new T[temp_rows * n]();
+                int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
+
+                // Step 1: temp = LinOp2 * op(S), dimension (right_op.n_rows × n)
+                right_op(Side::Left, layout, Op::NoTrans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp, ldt);
+
+                // Step 2: C = alpha * LinOp1 * temp + beta * C
+                // LinOp1 is (n_rows × left_op.n_cols), temp is (left_op.n_cols × n)
+                left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
+
+                delete[] temp;
+
+            } else {  // trans_A == Op::Trans
+                // C = alpha * (LinOp1 * LinOp2)^T * op(S) + beta * C
+                //   = alpha * LinOp2^T * LinOp1^T * op(S) + beta * C
+                // Strategy: temp = LinOp1^T * op(S), then C = alpha * LinOp2^T * temp + beta * C
+                int64_t temp_rows = left_op.n_cols;
+                T* temp = new T[temp_rows * n]();
+                int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
+
+                // Step 1: temp = LinOp1^T * op(S), dimension (left_op.n_cols × n)
+                left_op(Side::Left, layout, Op::Trans, trans_S, temp_rows, n, k, (T)1.0, S, (T)0.0, temp, ldt);
+
+                // Step 2: C = alpha * LinOp2^T * temp + beta * C
+                right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
+
+                delete[] temp;
+            }
+
+        } else {  // Side::Right
+            // C = alpha * op(S) * op(LinOp1 * LinOp2) + beta * C
+            // op(S) is m×k, op(A) is k×n, C is m×n
+
+            if (trans_A == Op::NoTrans) {
+                // C = alpha * op(S) * (LinOp1 * LinOp2) + beta * C
+                // Strategy: temp = op(S) * LinOp1, then C = alpha * temp * LinOp2 + beta * C
+                int64_t temp_cols = left_op.n_cols;
+                T* temp = new T[m * temp_cols]();
+                int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
+
+                // Step 1: temp = op(S) * LinOp1, dimension (m × left_op.n_cols)
+                left_op(Side::Right, layout, Op::NoTrans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
+
+                // Step 2: C = alpha * temp * LinOp2 + beta * C
+                // temp is (m × left_op.n_cols), LinOp2 is (left_op.n_cols × n_cols)
+                right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
+
+                delete[] temp;
+
+            } else {  // trans_A == Op::Trans
+                // C = alpha * op(S) * (LinOp1 * LinOp2)^T + beta * C
+                //   = alpha * op(S) * LinOp2^T * LinOp1^T + beta * C
+                // Strategy: temp = op(S) * LinOp2^T, then C = alpha * temp * LinOp1^T + beta * C
+                int64_t temp_cols = right_op.n_rows;
+                T* temp = new T[m * temp_cols]();
+                int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
+
+                // Step 1: temp = op(S) * LinOp2^T, dimension (m × right_op.n_rows)
+                right_op(Side::Right, layout, Op::Trans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
+
+                // Step 2: C = alpha * temp * LinOp1^T + beta * C
+                left_op(Side::Right, layout, Op::Trans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
+
+                delete[] temp;
+            }
+        }
+    }
 };
 
 /*********************************************************/
@@ -719,6 +838,86 @@ struct SparseLinOp {
             delete[] B_dense;
         }
     }
+
+    /// @brief Sparse-sketch multiplication with explicit side specification
+    ///
+    /// @tparam SkOp RandBLAS sketching operator type (DenseSkOp or SparseSkOp)
+    /// @param side Multiplication side (Left or Right)
+    /// @param layout Memory layout of C (ColMajor or RowMajor)
+    /// @param trans_A Transpose operation for this operator A (NoTrans or Trans)
+    /// @param trans_S Transpose operation for sketching operator S (NoTrans or Trans)
+    /// @param m Number of rows in result matrix C
+    /// @param n Number of columns in result matrix C
+    /// @param k Inner dimension for the multiplication
+    /// @param alpha Scalar multiplier for the product
+    /// @param S Reference to sketching operator
+    /// @param beta Scalar multiplier for C
+    /// @param C Pointer to output matrix C (modified in-place)
+    /// @param ldc Leading dimension of C (layout-dependent)
+    ///
+    /// @details
+    /// - Side::Left:  C := alpha * op(A) * op(S) + beta * C
+    /// - Side::Right: C := alpha * op(S) * op(A) + beta * C
+    ///
+    /// @note Current implementation densifies the sparse matrix A and uses
+    /// RandBLAS::sketch_general. A future optimization could use sparse sketching directly.
+    template <typename SkOp>
+    void operator()(
+        Side side,
+        Layout layout,
+        Op trans_A,
+        Op trans_S,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SkOp& S,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        // Densify the sparse matrix A
+        T* A_dense = new T[n_rows * n_cols]();
+        int64_t lda = (layout == Layout::ColMajor) ? n_rows : n_cols;
+        RandLAPACK::util::sparse_to_dense_summing_duplicates(A_sp, layout, A_dense);
+
+        if (side == Side::Left) {
+            // C = alpha * op(A) * op(S) + beta * C
+            // op(A) is m×k, op(S) is k×n, C is m×n
+            auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
+            randblas_require(rows_A == n_rows);
+            randblas_require(cols_A == n_cols);
+
+            // Layout-aware ldc check
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldc >= m);
+            } else {
+                randblas_require(ldc >= n);
+            }
+
+            // Right sketch in RandBLAS terms: B = alpha * op(A) * op(S) + beta * B
+            RandBLAS::sketch_general(layout, trans_A, trans_S, m, n, k, alpha, A_dense, lda, S, beta, C, ldc);
+
+        } else {  // Side::Right
+            // C = alpha * op(S) * op(A) + beta * C
+            // op(S) is m×k, op(A) is k×n, C is m×n
+            auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
+            randblas_require(rows_A == n_rows);
+            randblas_require(cols_A == n_cols);
+
+            // Layout-aware ldc check
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldc >= m);
+            } else {
+                randblas_require(ldc >= n);
+            }
+
+            // Left sketch in RandBLAS terms: B = alpha * op(S) * op(A) + beta * B
+            RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_dense, lda, beta, C, ldc);
+        }
+
+        delete[] A_dense;
+    }
 };
 
 /*********************************************************/
@@ -995,6 +1194,80 @@ struct DenseLinOp {
 
             // left_spmm computes: C = alpha * op(B_sp) * op(A_buff) + beta * C
             RandBLAS::sparse_data::left_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_sp, 0, 0, A_buff, lda, beta, C, ldc);
+        }
+    }
+
+    /// @brief Dense-sketch multiplication with explicit side specification
+    ///
+    /// @tparam SkOp RandBLAS sketching operator type (DenseSkOp or SparseSkOp)
+    /// @param side Multiplication side (Left or Right)
+    /// @param layout Memory layout of C (ColMajor or RowMajor, must match buff_layout)
+    /// @param trans_A Transpose operation for this operator A (NoTrans or Trans)
+    /// @param trans_S Transpose operation for sketching operator S (NoTrans or Trans)
+    /// @param m Number of rows in result matrix C
+    /// @param n Number of columns in result matrix C
+    /// @param k Inner dimension for the multiplication
+    /// @param alpha Scalar multiplier for the product
+    /// @param S Reference to sketching operator
+    /// @param beta Scalar multiplier for C
+    /// @param C Pointer to output matrix C (modified in-place)
+    /// @param ldc Leading dimension of C (layout-dependent)
+    ///
+    /// @details
+    /// - Side::Left:  C := alpha * op(A) * op(S) + beta * C
+    /// - Side::Right: C := alpha * op(S) * op(A) + beta * C
+    ///
+    /// Uses RandBLAS::sketch_general for efficient sketching.
+    template <typename SkOp>
+    void operator()(
+        Side side,
+        Layout layout,
+        Op trans_A,
+        Op trans_S,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SkOp& S,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        randblas_require(layout == buff_layout);
+
+        if (side == Side::Left) {
+            // C = alpha * op(A) * op(S) + beta * C
+            // op(A) is m×k, op(S) is k×n, C is m×n
+            auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
+            randblas_require(rows_A == n_rows);
+            randblas_require(cols_A == n_cols);
+
+            // Layout-aware ldc check
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldc >= m);
+            } else {
+                randblas_require(ldc >= n);
+            }
+
+            // Right sketch in RandBLAS terms: B = alpha * op(A) * op(S) + beta * B
+            RandBLAS::sketch_general(layout, trans_A, trans_S, m, n, k, alpha, A_buff, lda, S, beta, C, ldc);
+
+        } else {  // Side::Right
+            // C = alpha * op(S) * op(A) + beta * C
+            // op(S) is m×k, op(A) is k×n, C is m×n
+            auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
+            randblas_require(rows_A == n_rows);
+            randblas_require(cols_A == n_cols);
+
+            // Layout-aware ldc check
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldc >= m);
+            } else {
+                randblas_require(ldc >= n);
+            }
+
+            // Left sketch in RandBLAS terms: B = alpha * op(S) * op(A) + beta * B
+            RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_buff, lda, beta, C, ldc);
         }
     }
 };

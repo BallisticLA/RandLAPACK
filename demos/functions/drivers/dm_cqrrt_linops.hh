@@ -134,7 +134,6 @@ class CQRRT_linops {
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
 
-            int i;
             int64_t d = d_factor * n;
 
             T* A_hat = new T[d * n]();
@@ -143,23 +142,18 @@ class CQRRT_linops {
             if(this -> timing)
                 saso_t_start = steady_clock::now();
 
-            /// Generating a SASO
+            /// Generating a SASO and applying it to the linear operator
             //
-            // We want an explicit sparse matrix S instead of just a SparseSkOp object in order
-            // to be able to multiply S by a linear operator.
-            // Below, is, however, pretty complicated.
-            // In the future, I should implement sketching with RandBLAS object types in linops.
+            // Create and fill a sparse sketching operator, then apply it directly.
+            // The linear operator's operator() overload for SkOp handles the multiplication.
             RandBLAS::SparseDist DS(d, m, this->nnz);
             RandBLAS::SparseSkOp<T, RNG> S(DS, state);
             state = S.next_state;
             RandBLAS::fill_sparse(S);
-            RandBLAS::CSRMatrix<T> S_csr(S.n_rows, S.n_cols);
-            RandBLAS::COOMatrix<T> S_coo_view(S.n_rows, S.n_cols, S.nnz, S.vals, S.rows, S.cols);
-            RandBLAS::sparse_data::conversions::coo_to_csr(S_coo_view, S_csr);
 
-            // Below expression replaces applying a SASO from the left to a general linear operator (S * A).
-            // Below, Side::Right is used because the operator is on the right side of the expression.
-            A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S_csr, (T)0.0, A_hat, d);
+            // Compute A_hat = S * A (sketch from the left)
+            // Side::Right means the operator A is on the right side: C = op(S) * op(A)
+            A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
 
             if(this -> timing) {
                 saso_t_stop = steady_clock::now();

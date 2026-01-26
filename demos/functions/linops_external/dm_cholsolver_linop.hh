@@ -374,6 +374,76 @@ public:
 
         delete[] B_dense;
     }
+
+    /// Sketch multiplication operator (Side version): C := alpha * op(A^{-1}) * op(S) + beta * C
+    /// or C := alpha * op(S) * op(A^{-1}) + beta * C depending on Side
+    ///
+    /// @tparam SkOp RandBLAS sketching operator type (DenseSkOp or SparseSkOp)
+    /// @param side Multiplication side (Left or Right)
+    /// @param layout Memory layout of C (ColMajor or RowMajor)
+    /// @param trans_A Transpose operation for this operator A (NoTrans or Trans)
+    /// @param trans_S Transpose operation for sketching operator S (NoTrans or Trans)
+    /// @param m Number of rows in result matrix C
+    /// @param n Number of columns in result matrix C
+    /// @param k Inner dimension for the multiplication
+    /// @param alpha Scalar multiplier for the product
+    /// @param S Reference to sketching operator
+    /// @param beta Scalar multiplier for C
+    /// @param C Pointer to output matrix C (modified in-place)
+    /// @param ldc Leading dimension of C (layout-dependent)
+    ///
+    /// @details
+    /// - Side::Left:  C := alpha * op(A^{-1}) * op(S) + beta * C
+    /// - Side::Right: C := alpha * op(S) * op(A^{-1}) + beta * C
+    ///
+    /// @note Current implementation materializes the sketch and uses dense operator.
+    template <typename SkOp>
+    void operator()(
+        Side side,
+        Layout layout,
+        Op trans_A,
+        Op trans_S,
+        int64_t m,
+        int64_t n,
+        int64_t k,
+        T alpha,
+        SkOp& S,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        // Materialize the sketch into a dense matrix
+        T* S_dense = new T[S.n_rows * S.n_cols]();
+        int64_t lds = (layout == Layout::ColMajor) ? S.n_rows : S.n_cols;
+
+        // Fill S_dense with identity and apply sketch
+        // For ColMajor: each column is a unit vector, sketched to get columns of S
+        if (layout == Layout::ColMajor) {
+            for (int64_t j = 0; j < S.n_cols; ++j) {
+                S_dense[j * lds + j] = (T)1.0;  // Only works if S.n_rows >= S.n_cols
+            }
+        } else {
+            for (int64_t i = 0; i < S.n_rows; ++i) {
+                S_dense[i * lds + i] = (T)1.0;
+            }
+        }
+        // Actually, we need to use RandBLAS to materialize the sketch properly
+        // Use sketch_general with identity matrix
+        T* I_mat = new T[S.n_cols * S.n_cols]();
+        for (int64_t i = 0; i < S.n_cols; ++i) {
+            I_mat[i * S.n_cols + i] = (T)1.0;
+        }
+        // S_dense = S * I = S (materialized)
+        RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                  S.n_rows, S.n_cols, S.n_cols,
+                                  (T)1.0, S, I_mat, S.n_cols, (T)0.0, S_dense, S.n_rows);
+        delete[] I_mat;
+
+        // Now use the dense operator
+        (*this)(side, layout, trans_A, trans_S, m, n, k, alpha, S_dense, lds, beta, C, ldc);
+
+        delete[] S_dense;
+    }
 };
 
 } // namespace RandLAPACK_demos
