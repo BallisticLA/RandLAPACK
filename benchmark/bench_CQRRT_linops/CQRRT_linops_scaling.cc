@@ -46,8 +46,12 @@ struct scaling_result {
     // CQRRT subroutine times (from fastest run)
     long cqrrt_saso_time;
     long cqrrt_qr_time;
-    long cqrrt_cholqr_time;
-    long cqrrt_trsm_time;
+    long cqrrt_trtri_time;
+    long cqrrt_linop_precond_time;
+    long cqrrt_linop_gram_time;
+    long cqrrt_trmm_gram_time;
+    long cqrrt_potrf_time;
+    long cqrrt_finalize_time;
     long cqrrt_rest_time;
 
     // CholQR results
@@ -150,8 +154,12 @@ static scaling_result<T> run_single_test(
         result.cqrrt_time = std::numeric_limits<long>::max();
         result.cqrrt_saso_time = 0;
         result.cqrrt_qr_time = 0;
-        result.cqrrt_cholqr_time = 0;
-        result.cqrrt_trsm_time = 0;
+        result.cqrrt_trtri_time = 0;
+        result.cqrrt_linop_precond_time = 0;
+        result.cqrrt_linop_gram_time = 0;
+        result.cqrrt_trmm_gram_time = 0;
+        result.cqrrt_potrf_time = 0;
+        result.cqrrt_finalize_time = 0;
         result.cqrrt_rest_time = 0;
 
         T best_rel_error = 0.0;
@@ -167,16 +175,20 @@ static scaling_result<T> run_single_test(
             CQRRT_QR.nnz = 5;
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
 
-            long run_time = CQRRT_QR.times[5];  // total_t_dur
+            long run_time = CQRRT_QR.times[9];  // total_t_dur
 
             // Track fastest run and its subroutine times
             if (run_time < result.cqrrt_time) {
                 result.cqrrt_time = run_time;
                 result.cqrrt_saso_time = CQRRT_QR.times[0];
                 result.cqrrt_qr_time = CQRRT_QR.times[1];
-                result.cqrrt_cholqr_time = CQRRT_QR.times[2];
-                result.cqrrt_trsm_time = CQRRT_QR.times[3];
-                result.cqrrt_rest_time = CQRRT_QR.times[4];
+                result.cqrrt_trtri_time = CQRRT_QR.times[2];
+                result.cqrrt_linop_precond_time = CQRRT_QR.times[3];
+                result.cqrrt_linop_gram_time = CQRRT_QR.times[4];
+                result.cqrrt_trmm_gram_time = CQRRT_QR.times[5];
+                result.cqrrt_potrf_time = CQRRT_QR.times[6];
+                result.cqrrt_finalize_time = CQRRT_QR.times[7];
+                result.cqrrt_rest_time = CQRRT_QR.times[8];
 
                 // Compute factorization error for fastest run
                 std::vector<T> QR(m * n, 0.0);
@@ -391,7 +403,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
-    breakdown << "m,n,saso_time_us,qr_time_us,cholqr_time_us,trsm_time_us,rest_time_us,total_time_us\n";
+    breakdown << "m,n,saso_time_us,qr_time_us,trtri_time_us,linop_precond_time_us,linop_gram_time_us,trmm_gram_time_us,potrf_time_us,finalize_time_us,rest_time_us,total_time_us\n";
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {
@@ -435,7 +447,9 @@ int main(int argc, char *argv[]) {
         // Write runtime breakdown
         breakdown << result.m << "," << result.n << ","
                   << result.cqrrt_saso_time << "," << result.cqrrt_qr_time << ","
-                  << result.cqrrt_cholqr_time << "," << result.cqrrt_trsm_time << ","
+                  << result.cqrrt_trtri_time << "," << result.cqrrt_linop_precond_time << ","
+                  << result.cqrrt_linop_gram_time << "," << result.cqrrt_trmm_gram_time << ","
+                  << result.cqrrt_potrf_time << "," << result.cqrrt_finalize_time << ","
                   << result.cqrrt_rest_time << "," << result.cqrrt_time << "\n";
         breakdown.flush();
     }

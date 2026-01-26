@@ -47,8 +47,12 @@ struct conditioning_result {
     // CQRRT subroutine times (from fastest run)
     long cqrrt_saso_time;
     long cqrrt_qr_time;
-    long cqrrt_cholqr_time;
-    long cqrrt_trsm_time;
+    long cqrrt_trtri_time;
+    long cqrrt_linop_precond_time;
+    long cqrrt_linop_gram_time;
+    long cqrrt_trmm_gram_time;
+    long cqrrt_potrf_time;
+    long cqrrt_finalize_time;
     long cqrrt_rest_time;
 
     // CholQR results
@@ -191,12 +195,16 @@ static conditioning_result<T> run_single_test(
         CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
         CQRRT_QR.call(outer_composite, R_cqrrt.data(), n, d_factor, state);
 
-        result.cqrrt_time = CQRRT_QR.times[5];  // total_t_dur
+        result.cqrrt_time = CQRRT_QR.times[9];  // total_t_dur
         result.cqrrt_saso_time = CQRRT_QR.times[0];
         result.cqrrt_qr_time = CQRRT_QR.times[1];
-        result.cqrrt_cholqr_time = CQRRT_QR.times[2];
-        result.cqrrt_trsm_time = CQRRT_QR.times[3];
-        result.cqrrt_rest_time = CQRRT_QR.times[4];
+        result.cqrrt_trtri_time = CQRRT_QR.times[2];
+        result.cqrrt_linop_precond_time = CQRRT_QR.times[3];
+        result.cqrrt_linop_gram_time = CQRRT_QR.times[4];
+        result.cqrrt_trmm_gram_time = CQRRT_QR.times[5];
+        result.cqrrt_potrf_time = CQRRT_QR.times[6];
+        result.cqrrt_finalize_time = CQRRT_QR.times[7];
+        result.cqrrt_rest_time = CQRRT_QR.times[8];
 
         // Compute factorization error
         std::vector<T> QR(m * n, 0.0);
@@ -421,7 +429,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
-    breakdown << "cond_num,saso_time_us,qr_time_us,cholqr_time_us,trsm_time_us,rest_time_us,total_time_us\n";
+    breakdown << "cond_num,saso_time_us,qr_time_us,trtri_time_us,linop_precond_time_us,linop_gram_time_us,trmm_gram_time_us,potrf_time_us,finalize_time_us,rest_time_us,total_time_us\n";
 
     // Run conditioning study
     for (size_t i = 0; i < matrix_files.size(); ++i) {
@@ -586,8 +594,12 @@ int main(int argc, char *argv[]) {
                   << cond_num << ","
                   << fastest.cqrrt_saso_time << ","
                   << fastest.cqrrt_qr_time << ","
-                  << fastest.cqrrt_cholqr_time << ","
-                  << fastest.cqrrt_trsm_time << ","
+                  << fastest.cqrrt_trtri_time << ","
+                  << fastest.cqrrt_linop_precond_time << ","
+                  << fastest.cqrrt_linop_gram_time << ","
+                  << fastest.cqrrt_trmm_gram_time << ","
+                  << fastest.cqrrt_potrf_time << ","
+                  << fastest.cqrrt_finalize_time << ","
                   << fastest.cqrrt_rest_time << ","
                   << fastest.cqrrt_time << "\n";
         breakdown.flush();

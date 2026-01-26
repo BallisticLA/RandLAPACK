@@ -31,7 +31,7 @@ class CQRRT_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 6 entries
+        // 10 entries: saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total
         std::vector<long> times;
 
         // tuning SASOS
@@ -107,25 +107,26 @@ class CQRRT_linops {
             RandBLAS::RNGState<RNG> &state
         ) {
             ///--------------------TIMING VARS--------------------/
-            steady_clock::time_point saso_t_stop;
-            steady_clock::time_point saso_t_start;
-            steady_clock::time_point qr_t_start;
-            steady_clock::time_point qr_t_stop;
-            steady_clock::time_point cholqr_t_start;
-            steady_clock::time_point cholqr_t_stop;
-            steady_clock::time_point a_mod_trsm_t_start;
-            steady_clock::time_point a_mod_trsm_t_stop;
-            steady_clock::time_point total_t_start;
-            steady_clock::time_point total_t_stop;
-            steady_clock::time_point q_t_start;
-            steady_clock::time_point q_t_stop;
-            long saso_t_dur        = 0;
-            long qr_t_dur          = 0;
-            long cholqr_t_dur      = 0;
-            long a_mod_piv_t_dur   = 0;
-            long a_mod_trsm_t_dur  = 0;
-            long total_t_dur       = 0;
-            long q_t_dur           = 0;
+            steady_clock::time_point saso_t_start, saso_t_stop;
+            steady_clock::time_point qr_t_start, qr_t_stop;
+            steady_clock::time_point trtri_t_start, trtri_t_stop;
+            steady_clock::time_point linop_precond_t_start, linop_precond_t_stop;
+            steady_clock::time_point linop_gram_t_start, linop_gram_t_stop;
+            steady_clock::time_point trmm_gram_t_start, trmm_gram_t_stop;
+            steady_clock::time_point potrf_t_start, potrf_t_stop;
+            steady_clock::time_point finalize_t_start, finalize_t_stop;
+            steady_clock::time_point total_t_start, total_t_stop;
+            steady_clock::time_point q_t_start, q_t_stop;
+            long saso_t_dur         = 0;
+            long qr_t_dur           = 0;
+            long trtri_t_dur        = 0;
+            long linop_precond_t_dur = 0;
+            long linop_gram_t_dur   = 0;
+            long trmm_gram_t_dur    = 0;
+            long potrf_t_dur        = 0;
+            long finalize_t_dur     = 0;
+            long total_t_dur        = 0;
+            long q_t_dur            = 0;
 
             if(this -> timing)
                 total_t_start = steady_clock::now();
@@ -175,15 +176,21 @@ class CQRRT_linops {
             T* R_sk  = new T[n * n]();
             lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk, n);
 
-            if(this -> timing)
-                a_mod_trsm_t_start = steady_clock::now();
-
             //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
             // TRSM, used in the original implementation of CQRRT, is only defined for dense operators.
             // If A is not just a general dense operator, we handle this step via an explicit inverse and a multiplication.
 
             // Explicitly invert R_sk to get R_sk_inv
+            if(this -> timing)
+                trtri_t_start = steady_clock::now();
+
             lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
+
+            if(this -> timing) {
+                trtri_t_stop = steady_clock::now();
+                linop_precond_t_start = steady_clock::now();
+            }
+
             T* R_sk_inv = R_sk;  // Rename for clarity - R_sk is now inverted
 
             // Allocate a buffer for A_pre
@@ -193,8 +200,8 @@ class CQRRT_linops {
             A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, R_sk_inv, n, (T)0.0, A_pre, m);
 
             if(this -> timing) {
-                a_mod_trsm_t_stop = steady_clock::now();
-                cholqr_t_start = steady_clock::now();
+                linop_precond_t_stop = steady_clock::now();
+                linop_gram_t_start = steady_clock::now();
             }
 
             // Do Cholesky QR
@@ -204,15 +211,24 @@ class CQRRT_linops {
             // A^T * A_pre = A^T * A * R_sk_inv
             A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
 
+            if(this -> timing) {
+                linop_gram_t_stop = steady_clock::now();
+                trmm_gram_t_start = steady_clock::now();
+            }
+
             // (R_sk_inv)^T * (A^T * A_pre)
             blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T) 1.0, R_sk_inv, n, R, ldr);
+
+            if(this -> timing) {
+                trmm_gram_t_stop = steady_clock::now();
+                potrf_t_start = steady_clock::now();
+            }
 
             // Cholesky factorization (only reads/writes upper triangle)
             lapack::potrf(Uplo::Upper, n, R, ldr);
 
-            // Stop CholQR timing BEFORE Q-factor computation
             if(this -> timing)
-                cholqr_t_stop = steady_clock::now();
+                potrf_t_stop = steady_clock::now();
 
             // Compute Q-factor if test mode is enabled (NOT included in cholqr timing)
             if(this->test_mode) {
@@ -241,21 +257,31 @@ class CQRRT_linops {
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &R[1], ldr);
             }
 
+            if(this -> timing)
+                finalize_t_start = steady_clock::now();
+
             // Get the final R-factor - undoing the preconditioning
             // R := R_chol * R_sk, where R_sk is the upper triangle of A_hat
             // trmm with Uplo::Upper only reads upper triangle of A_hat (can use ld=d directly)
             // and expects R to be upper triangular on input
             blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R, ldr);
 
+            if(this -> timing)
+                finalize_t_stop = steady_clock::now();
+
             if(this -> timing) {
                 // Stop timing BEFORE cleanup operations to exclude deallocation costs.
                 // Note: First iteration may show inflated times due to cold cache effects.
                 total_t_stop = steady_clock::now();
 
-                saso_t_dur       = duration_cast<microseconds>(saso_t_stop       - saso_t_start).count();
-                qr_t_dur         = duration_cast<microseconds>(qr_t_stop         - qr_t_start).count();
-                a_mod_trsm_t_dur = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
-                cholqr_t_dur     = duration_cast<microseconds>(cholqr_t_stop     - cholqr_t_start).count();
+                saso_t_dur         = duration_cast<microseconds>(saso_t_stop         - saso_t_start).count();
+                qr_t_dur           = duration_cast<microseconds>(qr_t_stop           - qr_t_start).count();
+                trtri_t_dur        = duration_cast<microseconds>(trtri_t_stop        - trtri_t_start).count();
+                linop_precond_t_dur = duration_cast<microseconds>(linop_precond_t_stop - linop_precond_t_start).count();
+                linop_gram_t_dur   = duration_cast<microseconds>(linop_gram_t_stop   - linop_gram_t_start).count();
+                trmm_gram_t_dur    = duration_cast<microseconds>(trmm_gram_t_stop    - trmm_gram_t_start).count();
+                potrf_t_dur        = duration_cast<microseconds>(potrf_t_stop        - potrf_t_start).count();
+                finalize_t_dur     = duration_cast<microseconds>(finalize_t_stop     - finalize_t_start).count();
 
                 total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
@@ -265,10 +291,14 @@ class CQRRT_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                long t_rest  = total_t_dur - (saso_t_dur + qr_t_dur + cholqr_t_dur + a_mod_trsm_t_dur);
+                long t_rest  = total_t_dur - (saso_t_dur + qr_t_dur + trtri_t_dur + linop_precond_t_dur +
+                                              linop_gram_t_dur + trmm_gram_t_dur + potrf_t_dur + finalize_t_dur);
 
-                // Fill the data vector
-                this -> times = {saso_t_dur, qr_t_dur, cholqr_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
+                // Fill the data vector (10 entries)
+                // Index: 0=saso, 1=qr, 2=trtri, 3=linop_precond, 4=linop_gram, 5=trmm_gram, 6=potrf, 7=finalize, 8=rest, 9=total
+                this -> times = {saso_t_dur, qr_t_dur, trtri_t_dur, linop_precond_t_dur,
+                                 linop_gram_t_dur, trmm_gram_t_dur, potrf_t_dur, finalize_t_dur,
+                                 t_rest, total_t_dur};
             }
 
             // Cleanup - now outside the timing region to avoid timing artifacts
