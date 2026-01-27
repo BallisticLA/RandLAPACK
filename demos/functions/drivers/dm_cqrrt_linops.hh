@@ -178,15 +178,17 @@ class CQRRT_linops {
             if(this -> timing)
                 trtri_t_start = steady_clock::now();
 
-            // Try TRSM with identity rhs
-            lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
+            // TRTRI replace with TRSM with identity on the left
+            //lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
+            //T* R_sk_inv = R_sk;  // Rename for clarity - R_sk is now inverted
+            T* Eye = new T[n * n]();
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, R_sk, n, Eye, n);
+            T* R_sk_inv = Eye;
 
             if(this -> timing) {
                 trtri_t_stop = steady_clock::now();
                 linop_precond_t_start = steady_clock::now();
             }
-
-            T* R_sk_inv = R_sk;  // Rename for clarity - R_sk is now inverted
 
             // Allocate a buffer for A_pre
             T* A_pre = new T[m * n]();
@@ -301,6 +303,7 @@ class CQRRT_linops {
             delete[] A_hat;
             delete[] tau;
             delete[] R_sk;
+            delete[] Eye;
 
             // Only delete A_pre if not in test mode (otherwise Q owns it)
             if(!this->test_mode) {
