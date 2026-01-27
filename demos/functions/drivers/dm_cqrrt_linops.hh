@@ -182,6 +182,7 @@ class CQRRT_linops {
             //lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
             //T* R_sk_inv = R_sk;  // Rename for clarity - R_sk is now inverted
             T* Eye = new T[n * n]();
+            RandLAPACK::util::eye(n, n, Eye);
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, R_sk, n, Eye, n);
             T* R_sk_inv = Eye;
 
