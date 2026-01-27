@@ -178,6 +178,7 @@ class CQRRT_linops {
             if(this -> timing)
                 trtri_t_start = steady_clock::now();
 
+            // Try TRSM with identity rhs
             lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
 
             if(this -> timing) {
@@ -203,6 +204,7 @@ class CQRRT_linops {
             // Since SYRK, used in the original implementation of CQRRT, is not defined for non-dense operators, perform an explicit ((R_sk)^-1)^T * A^T * A * (R_sk)^-1
 
             // A^T * A_pre = A^T * A * R_sk_inv
+            // Try CSR format
             A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
 
             if(this -> timing) {

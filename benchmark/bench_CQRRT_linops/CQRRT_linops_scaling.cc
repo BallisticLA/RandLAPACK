@@ -135,13 +135,13 @@ static scaling_result<T> run_single_test(
 
     // Generate sparse matrix A: m × n
     auto A_coo = RandLAPACK::gen::gen_sparse_mat<T>(m, n, density, state);
-    RandBLAS::sparse_data::csc::CSCMatrix<T> A_csc(m, n);
-    RandBLAS::sparse_data::conversions::coo_to_csc(A_coo, A_csc);
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> A_linop(m, n, A_csc);
+    RandBLAS::sparse_data::csr::CSRMatrix<T> A_csr(m, n);
+    RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
+    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
 
     // Compute dense representation for verification
     std::vector<T> A_dense(m * n, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, Layout::ColMajor, A_dense.data());
+    RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csr, Layout::ColMajor, A_dense.data());
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
     T norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);
