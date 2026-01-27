@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
+#include <omp.h>
 
 namespace RandLAPACK_demos {
 
@@ -252,7 +253,8 @@ public:
             }
 
             // Now compute each column of C: C[:, j] = alpha * op(B) * A_inv[:, j] + C[:, j]
-            // Use gemv for each column
+            // Use gemv for each column (parallelized over columns)
+            #pragma omp parallel for
             for (int64_t j = 0; j < n; ++j) {
                 // Get pointer to column j of A_inv (in Eigen's column-major storage)
                 const T* a_inv_col = A_inv.data() + j * k;
@@ -296,7 +298,8 @@ public:
             blas::scal(m * n, beta, C, 1);
         }
 
-        // Process each column of op(B)
+        // Process each column of op(B) (parallelized over columns)
+        #pragma omp parallel for
         for (int64_t j = 0; j < n; ++j) {
             Eigen::Matrix<T, Eigen::Dynamic, 1> b_col(k);
 
@@ -396,7 +399,8 @@ public:
     /// - Side::Left:  C := alpha * op(A^{-1}) * op(S) + beta * C
     /// - Side::Right: C := alpha * op(S) * op(A^{-1}) + beta * C
     ///
-    /// @note Current implementation materializes the sketch and uses dense operator.
+    /// @note For SparseSkOp: Materializes directly from COO data in O(nnz) time.
+    /// @note For DenseSkOp: Uses block-wise sketch_general to avoid O(n²) memory.
     template <typename SkOp>
     void operator()(
         Side side,
@@ -412,32 +416,51 @@ public:
         T* C,
         int64_t ldc
     ) {
-        // Materialize the sketch into a dense matrix
+        // Allocate dense matrix to hold materialized sketch
         T* S_dense = new T[S.n_rows * S.n_cols]();
         int64_t lds = (layout == Layout::ColMajor) ? S.n_rows : S.n_cols;
 
-        // Fill S_dense with identity and apply sketch
-        // For ColMajor: each column is a unit vector, sketched to get columns of S
-        if (layout == Layout::ColMajor) {
-            for (int64_t j = 0; j < S.n_cols; ++j) {
-                S_dense[j * lds + j] = (T)1.0;  // Only works if S.n_rows >= S.n_cols
+        // Materialize the sketch - method depends on sketch type
+        // Use if constexpr to check for SparseSkOp (has 'rows' member)
+        if constexpr (requires { S.rows; S.cols; S.vals; S.nnz; }) {
+            // SparseSkOp: materialize directly from COO data in O(nnz) time
+            T scale = S.dist.isometry_scale;
+            for (int64_t i = 0; i < S.nnz; ++i) {
+                int64_t r = S.rows[i];
+                int64_t c = S.cols[i];
+                int64_t idx = (layout == Layout::ColMajor) ? (r + c * lds) : (r * lds + c);
+                S_dense[idx] += scale * S.vals[i];
             }
         } else {
-            for (int64_t i = 0; i < S.n_rows; ++i) {
-                S_dense[i * lds + i] = (T)1.0;
+            // DenseSkOp: use block-wise materialization to avoid O(n²) memory
+            // Process in blocks of 256 columns at a time
+            constexpr int64_t block_size = 256;
+            int64_t num_blocks = (S.n_cols + block_size - 1) / block_size;
+
+            for (int64_t b = 0; b < num_blocks; ++b) {
+                int64_t col_start = b * block_size;
+                int64_t col_end = std::min(col_start + block_size, S.n_cols);
+                int64_t block_cols = col_end - col_start;
+
+                // Create small identity block
+                T* I_block = new T[block_cols * block_cols]();
+                for (int64_t i = 0; i < block_cols; ++i) {
+                    I_block[i * block_cols + i] = (T)1.0;
+                }
+
+                // Sketch this block: S_block = S[:, col_start:col_end]
+                // Using submatrix view via col_offset parameter
+                T* S_block = S_dense + (layout == Layout::ColMajor ? col_start * lds : col_start);
+                RandBLAS::sketch_general(
+                    Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                    S.n_rows, block_cols, block_cols,
+                    (T)1.0, S, col_start, 0, I_block, block_cols,
+                    (T)0.0, S_block, lds
+                );
+
+                delete[] I_block;
             }
         }
-        // Actually, we need to use RandBLAS to materialize the sketch properly
-        // Use sketch_general with identity matrix
-        T* I_mat = new T[S.n_cols * S.n_cols]();
-        for (int64_t i = 0; i < S.n_cols; ++i) {
-            I_mat[i * S.n_cols + i] = (T)1.0;
-        }
-        // S_dense = S * I = S (materialized)
-        RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                  S.n_rows, S.n_cols, S.n_cols,
-                                  (T)1.0, S, I_mat, S.n_cols, (T)0.0, S_dense, S.n_rows);
-        delete[] I_mat;
 
         // Now use the dense operator
         (*this)(side, layout, trans_A, trans_S, m, n, k, alpha, S_dense, lds, beta, C, ldc);
