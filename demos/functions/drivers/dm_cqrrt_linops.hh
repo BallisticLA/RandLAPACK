@@ -166,10 +166,6 @@ class CQRRT_linops {
             if(this -> timing)
                 qr_t_stop = steady_clock::now();
 
-            /// Extracting a k by k R representation
-            T* R_sk  = new T[n * n]();
-            lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk, n);
-
             //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
             // TRSM, used in the original implementation of CQRRT, is only defined for dense operators.
             // If A is not just a general dense operator, we handle this step via an explicit inverse and a multiplication.
@@ -178,12 +174,16 @@ class CQRRT_linops {
             if(this -> timing)
                 trtri_t_start = steady_clock::now();
 
-            // TRTRI replace with TRSM with identity on the left
+            // Instead of doing TRTRI to find R_sk_inv, we do TRSM with an identity, since trtri is not optimized in MKL
             //lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
             //T* R_sk_inv = R_sk;  // Rename for clarity - R_sk is now inverted
             T* Eye = new T[n * n]();
             RandLAPACK::util::eye(n, n, Eye);
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, R_sk, n, Eye, n);
+            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, Eye, n);
+            if (n > 1) {
+                // Clear the below-diagonal
+                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &Eye[1], n);
+            }
             T* R_sk_inv = Eye;
 
             if(this -> timing) {
@@ -303,7 +303,6 @@ class CQRRT_linops {
             // Cleanup - now outside the timing region to avoid timing artifacts
             delete[] A_hat;
             delete[] tau;
-            delete[] R_sk;
             delete[] Eye;
 
             // Only delete A_pre if not in test mode (otherwise Q owns it)
