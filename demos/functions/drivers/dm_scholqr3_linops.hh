@@ -42,7 +42,8 @@ class sCholQR3_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // Timing: [shifted_cholqr1, cholqr2, cholqr3, total]
+        // Timing: [materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total]
+        // 12 entries for detailed breakdown
         std::vector<long> times;
 
         sCholQR3_linops(
@@ -85,21 +86,30 @@ class sCholQR3_linops {
             int64_t ldr
         ) {
             ///--------------------TIMING VARS--------------------/
-            steady_clock::time_point scholqr1_t_start;
-            steady_clock::time_point scholqr1_t_stop;
-            steady_clock::time_point cholqr2_t_start;
-            steady_clock::time_point cholqr2_t_stop;
-            steady_clock::time_point cholqr3_t_start;
-            steady_clock::time_point cholqr3_t_stop;
-            steady_clock::time_point total_t_start;
-            steady_clock::time_point total_t_stop;
-            long scholqr1_t_dur = 0;
-            long cholqr2_t_dur  = 0;
-            long cholqr3_t_dur  = 0;
-            long total_t_dur    = 0;
-            long q_t_dur        = 0;
-            steady_clock::time_point q_t_start;
-            steady_clock::time_point q_t_stop;
+            steady_clock::time_point materialize_t_start, materialize_t_stop;
+            steady_clock::time_point gram1_t_start, gram1_t_stop;
+            steady_clock::time_point potrf1_t_start, potrf1_t_stop;
+            steady_clock::time_point trsm1_t_start, trsm1_t_stop;
+            steady_clock::time_point syrk2_t_start, syrk2_t_stop;
+            steady_clock::time_point potrf2_t_start, potrf2_t_stop;
+            steady_clock::time_point update2_t_start, update2_t_stop;
+            steady_clock::time_point syrk3_t_start, syrk3_t_stop;
+            steady_clock::time_point potrf3_t_start, potrf3_t_stop;
+            steady_clock::time_point update3_t_start, update3_t_stop;
+            steady_clock::time_point total_t_start, total_t_stop;
+            steady_clock::time_point q_t_start, q_t_stop;
+            long materialize_t_dur = 0;
+            long gram1_t_dur = 0;
+            long potrf1_t_dur = 0;
+            long trsm1_t_dur = 0;
+            long syrk2_t_dur = 0;
+            long potrf2_t_dur = 0;
+            long update2_t_dur = 0;
+            long syrk3_t_dur = 0;
+            long potrf3_t_dur = 0;
+            long update3_t_dur = 0;
+            long total_t_dur = 0;
+            long q_t_dur = 0;
 
             if(this->timing)
                 total_t_start = steady_clock::now();
@@ -124,10 +134,15 @@ class sCholQR3_linops {
             // Step 1: Shifted Cholesky QR1
             //================================================================
             if(this->timing)
-                scholqr1_t_start = steady_clock::now();
+                materialize_t_start = steady_clock::now();
 
             // Materialize A: Q_buf = A * I
             A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, I_mat, n, (T)0.0, Q_buf, m);
+
+            if(this->timing) {
+                materialize_t_stop = steady_clock::now();
+                gram1_t_start = steady_clock::now();
+            }
 
             // Compute ||A||_F for the shift
             T norm_A = lapack::lange(Norm::Fro, m, n, Q_buf, m);
@@ -148,24 +163,34 @@ class sCholQR3_linops {
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
             }
 
+            if(this->timing) {
+                gram1_t_stop = steady_clock::now();
+                potrf1_t_start = steady_clock::now();
+            }
+
             // Cholesky factorization: G = R1^T * R1
             lapack::potrf(Uplo::Upper, n, G, n);
 
             // Copy R1 to R (accumulate R factor)
             lapack::lacpy(MatrixType::Upper, n, n, G, n, R, ldr);
 
+            if(this->timing) {
+                potrf1_t_stop = steady_clock::now();
+                trsm1_t_start = steady_clock::now();
+            }
+
             // Compute Q = A * R1^{-1}
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                        Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_buf, m);
 
             if(this->timing)
-                scholqr1_t_stop = steady_clock::now();
+                trsm1_t_stop = steady_clock::now();
 
             //================================================================
             // Step 2: Cholesky QR2
             //================================================================
             if(this->timing)
-                cholqr2_t_start = steady_clock::now();
+                syrk2_t_start = steady_clock::now();
 
             // Compute Gram matrix: G = Q^T * Q
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
@@ -175,8 +200,18 @@ class sCholQR3_linops {
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
             }
 
+            if(this->timing) {
+                syrk2_t_stop = steady_clock::now();
+                potrf2_t_start = steady_clock::now();
+            }
+
             // Cholesky factorization: G = R2^T * R2
             lapack::potrf(Uplo::Upper, n, G, n);
+
+            if(this->timing) {
+                potrf2_t_stop = steady_clock::now();
+                update2_t_start = steady_clock::now();
+            }
 
             // Update R = R2 * R1 (G contains R2)
             // Copy current R to R_temp
@@ -191,13 +226,13 @@ class sCholQR3_linops {
                        Diag::NonUnit, m, n, (T)1.0, G, n, Q_buf, m);
 
             if(this->timing)
-                cholqr2_t_stop = steady_clock::now();
+                update2_t_stop = steady_clock::now();
 
             //================================================================
             // Step 3: Cholesky QR3
             //================================================================
             if(this->timing)
-                cholqr3_t_start = steady_clock::now();
+                syrk3_t_start = steady_clock::now();
 
             // Compute Gram matrix: G = Q^T * Q
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
@@ -207,8 +242,18 @@ class sCholQR3_linops {
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
             }
 
+            if(this->timing) {
+                syrk3_t_stop = steady_clock::now();
+                potrf3_t_start = steady_clock::now();
+            }
+
             // Cholesky factorization: G = R3^T * R3
             lapack::potrf(Uplo::Upper, n, G, n);
+
+            if(this->timing) {
+                potrf3_t_stop = steady_clock::now();
+                update3_t_start = steady_clock::now();
+            }
 
             // Update R = R3 * R (G contains R3)
             // Copy current R to R_temp
@@ -217,6 +262,9 @@ class sCholQR3_linops {
             blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
                        Diag::NonUnit, n, n, (T)1.0, G, n, R_temp, n);
             lapack::lacpy(MatrixType::Upper, n, n, R_temp, n, R, ldr);
+
+            if(this->timing)
+                update3_t_stop = steady_clock::now();
 
             // Only compute final Q if test mode is enabled (not needed for R-factor only)
             if(this->test_mode) {
@@ -235,16 +283,20 @@ class sCholQR3_linops {
                     q_t_stop = steady_clock::now();
             }
 
-            if(this->timing)
-                cholqr3_t_stop = steady_clock::now();
-
             if(this->timing) {
                 total_t_stop = steady_clock::now();
 
-                scholqr1_t_dur = duration_cast<microseconds>(scholqr1_t_stop - scholqr1_t_start).count();
-                cholqr2_t_dur  = duration_cast<microseconds>(cholqr2_t_stop  - cholqr2_t_start).count();
-                cholqr3_t_dur  = duration_cast<microseconds>(cholqr3_t_stop  - cholqr3_t_start).count();
-                total_t_dur    = duration_cast<microseconds>(total_t_stop    - total_t_start).count();
+                materialize_t_dur = duration_cast<microseconds>(materialize_t_stop - materialize_t_start).count();
+                gram1_t_dur = duration_cast<microseconds>(gram1_t_stop - gram1_t_start).count();
+                potrf1_t_dur = duration_cast<microseconds>(potrf1_t_stop - potrf1_t_start).count();
+                trsm1_t_dur = duration_cast<microseconds>(trsm1_t_stop - trsm1_t_start).count();
+                syrk2_t_dur = duration_cast<microseconds>(syrk2_t_stop - syrk2_t_start).count();
+                potrf2_t_dur = duration_cast<microseconds>(potrf2_t_stop - potrf2_t_start).count();
+                update2_t_dur = duration_cast<microseconds>(update2_t_stop - update2_t_start).count();
+                syrk3_t_dur = duration_cast<microseconds>(syrk3_t_stop - syrk3_t_start).count();
+                potrf3_t_dur = duration_cast<microseconds>(potrf3_t_stop - potrf3_t_start).count();
+                update3_t_dur = duration_cast<microseconds>(update3_t_stop - update3_t_start).count();
+                total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
                 // Subtract Q-factor computation time if in test mode
                 if(this->test_mode) {
@@ -252,8 +304,15 @@ class sCholQR3_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                // Fill the data vector: [scholqr1_time, cholqr2_time, cholqr3_time, total_time]
-                this->times = {scholqr1_t_dur, cholqr2_t_dur, cholqr3_t_dur, total_t_dur};
+                long rest_t_dur = total_t_dur - (materialize_t_dur + gram1_t_dur + potrf1_t_dur + trsm1_t_dur +
+                                                 syrk2_t_dur + potrf2_t_dur + update2_t_dur +
+                                                 syrk3_t_dur + potrf3_t_dur + update3_t_dur);
+
+                // Fill the data vector: [materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total]
+                this->times = {materialize_t_dur, gram1_t_dur, potrf1_t_dur, trsm1_t_dur,
+                               syrk2_t_dur, potrf2_t_dur, update2_t_dur,
+                               syrk3_t_dur, potrf3_t_dur, update3_t_dur,
+                               rest_t_dur, total_t_dur};
             }
 
             // Cleanup

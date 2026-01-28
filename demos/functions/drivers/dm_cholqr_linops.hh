@@ -26,7 +26,7 @@ class CholQR_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 3 entries: gram_t_dur, chol_t_dur, total_t_dur
+        // 5 entries: materialize, gram, potrf, rest, total
         std::vector<long> times;
 
         CholQR_linops(
@@ -82,14 +82,17 @@ class CholQR_linops {
             int64_t ldr
         ) {
             ///--------------------TIMING VARS--------------------/
+            steady_clock::time_point materialize_t_start;
+            steady_clock::time_point materialize_t_stop;
             steady_clock::time_point gram_t_start;
             steady_clock::time_point gram_t_stop;
-            steady_clock::time_point chol_t_start;
-            steady_clock::time_point chol_t_stop;
+            steady_clock::time_point potrf_t_start;
+            steady_clock::time_point potrf_t_stop;
             steady_clock::time_point total_t_start;
             steady_clock::time_point total_t_stop;
+            long materialize_t_dur = 0;
             long gram_t_dur  = 0;
-            long chol_t_dur  = 0;
+            long potrf_t_dur = 0;
             long total_t_dur = 0;
             long q_t_dur     = 0;
             steady_clock::time_point q_t_start;
@@ -100,9 +103,6 @@ class CholQR_linops {
 
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
-
-            if(this->timing)
-                gram_t_start = steady_clock::now();
 
             // Compute Gram matrix: R = A^T * A
             // We cannot use syrk since A may be a sparse operator
@@ -118,8 +118,16 @@ class CholQR_linops {
             // Allocate buffer for A materialized
             T* A_temp = new T[m * n]();
 
+            if(this->timing)
+                materialize_t_start = steady_clock::now();
+
             // Step 1: Materialize A by computing A_temp = A * I
             A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, I_mat, n, (T)0.0, A_temp, m);
+
+            if(this->timing) {
+                materialize_t_stop = steady_clock::now();
+                gram_t_start = steady_clock::now();
+            }
 
             // Step 2: Compute R = A^T * A_temp (using the linear operator's transpose)
             A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_temp, m, (T)0.0, R, ldr);
@@ -131,7 +139,7 @@ class CholQR_linops {
 
             if(this->timing) {
                 gram_t_stop = steady_clock::now();
-                chol_t_start = steady_clock::now();
+                potrf_t_start = steady_clock::now();
             }
 
             // Compute Cholesky factorization: G = R^T * R
@@ -139,7 +147,7 @@ class CholQR_linops {
             lapack::potrf(Uplo::Upper, n, R, ldr);
 
             if(this->timing)
-                chol_t_stop = steady_clock::now();
+                potrf_t_stop = steady_clock::now();
 
             // Compute Q-factor if test mode is enabled
             if(this->test_mode) {
@@ -163,8 +171,9 @@ class CholQR_linops {
                 // Stop timing BEFORE cleanup operations to exclude deallocation costs
                 total_t_stop = steady_clock::now();
 
+                materialize_t_dur = duration_cast<microseconds>(materialize_t_stop - materialize_t_start).count();
                 gram_t_dur  = duration_cast<microseconds>(gram_t_stop  - gram_t_start).count();
-                chol_t_dur  = duration_cast<microseconds>(chol_t_stop  - chol_t_start).count();
+                potrf_t_dur = duration_cast<microseconds>(potrf_t_stop - potrf_t_start).count();
                 total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
                 // Subtract Q-factor computation time if in test mode
@@ -173,8 +182,10 @@ class CholQR_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                // Fill the data vector: [gram_time, chol_time, total_time]
-                this->times = {gram_t_dur, chol_t_dur, total_t_dur};
+                long rest_t_dur = total_t_dur - (materialize_t_dur + gram_t_dur + potrf_t_dur);
+
+                // Fill the data vector: [materialize, gram, potrf, rest, total]
+                this->times = {materialize_t_dur, gram_t_dur, potrf_t_dur, rest_t_dur, total_t_dur};
             }
 
             // Cleanup

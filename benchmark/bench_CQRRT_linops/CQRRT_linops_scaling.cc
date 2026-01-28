@@ -61,12 +61,31 @@ struct scaling_result {
     int64_t cholqr_max_orth_cols;
     long cholqr_time;
 
+    // CholQR subroutine times (5 entries: materialize, gram, potrf, rest, total)
+    long cholqr_materialize_time;
+    long cholqr_gram_time;
+    long cholqr_potrf_time;
+    long cholqr_rest_time;
+
     // sCholQR3 results
     T scholqr3_rel_error;
     T scholqr3_orth_error;
     bool scholqr3_is_orthonormal;
     int64_t scholqr3_max_orth_cols;
     long scholqr3_time;
+
+    // sCholQR3 subroutine times (12 entries)
+    long scholqr3_materialize_time;
+    long scholqr3_gram1_time;
+    long scholqr3_potrf1_time;
+    long scholqr3_trsm1_time;
+    long scholqr3_syrk2_time;
+    long scholqr3_potrf2_time;
+    long scholqr3_update2_time;
+    long scholqr3_syrk3_time;
+    long scholqr3_potrf3_time;
+    long scholqr3_update3_time;
+    long scholqr3_rest_time;
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -220,6 +239,11 @@ static scaling_result<T> run_single_test(
     // ============================================================
     {
         result.cholqr_time = std::numeric_limits<long>::max();
+        result.cholqr_materialize_time = 0;
+        result.cholqr_gram_time = 0;
+        result.cholqr_potrf_time = 0;
+        result.cholqr_rest_time = 0;
+
         T best_rel_error = 0.0;
         T best_orth_error = 0.0;
         bool best_is_orthonormal = false;
@@ -227,16 +251,18 @@ static scaling_result<T> run_single_test(
 
         for (int64_t run = 0; run < num_runs; ++run) {
             std::vector<T> R_cholqr(n * n, 0.0);
-            auto t_start = steady_clock::now();
 
-            RandLAPACK_demos::CholQR_linops<T> CholQR_alg(false, tol, true);  // timing=false, test_mode=true
+            RandLAPACK_demos::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
             CholQR_alg.call(A_linop, R_cholqr.data(), n);
 
-            auto t_stop = steady_clock::now();
-            long run_time = duration_cast<microseconds>(t_stop - t_start).count();
+            long run_time = CholQR_alg.times[4];  // total
 
             if (run_time < result.cholqr_time) {
                 result.cholqr_time = run_time;
+                result.cholqr_materialize_time = CholQR_alg.times[0];
+                result.cholqr_gram_time = CholQR_alg.times[1];
+                result.cholqr_potrf_time = CholQR_alg.times[2];
+                result.cholqr_rest_time = CholQR_alg.times[3];
 
                 // Compute factorization error
                 std::vector<T> QR(m * n, 0.0);
@@ -268,6 +294,18 @@ static scaling_result<T> run_single_test(
     // ============================================================
     {
         result.scholqr3_time = std::numeric_limits<long>::max();
+        result.scholqr3_materialize_time = 0;
+        result.scholqr3_gram1_time = 0;
+        result.scholqr3_potrf1_time = 0;
+        result.scholqr3_trsm1_time = 0;
+        result.scholqr3_syrk2_time = 0;
+        result.scholqr3_potrf2_time = 0;
+        result.scholqr3_update2_time = 0;
+        result.scholqr3_syrk3_time = 0;
+        result.scholqr3_potrf3_time = 0;
+        result.scholqr3_update3_time = 0;
+        result.scholqr3_rest_time = 0;
+
         T best_rel_error = 0.0;
         T best_orth_error = 0.0;
         bool best_is_orthonormal = false;
@@ -275,16 +313,25 @@ static scaling_result<T> run_single_test(
 
         for (int64_t run = 0; run < num_runs; ++run) {
             std::vector<T> R_scholqr3(n * n, 0.0);
-            auto t_start = steady_clock::now();
 
-            RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(false, tol, true);  // timing=false, test_mode=true
+            RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(true, tol, true);  // timing=true, test_mode=true
             sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
 
-            auto t_stop = steady_clock::now();
-            long run_time = duration_cast<microseconds>(t_stop - t_start).count();
+            long run_time = sCholQR3_alg.times[11];  // total
 
             if (run_time < result.scholqr3_time) {
                 result.scholqr3_time = run_time;
+                result.scholqr3_materialize_time = sCholQR3_alg.times[0];
+                result.scholqr3_gram1_time = sCholQR3_alg.times[1];
+                result.scholqr3_potrf1_time = sCholQR3_alg.times[2];
+                result.scholqr3_trsm1_time = sCholQR3_alg.times[3];
+                result.scholqr3_syrk2_time = sCholQR3_alg.times[4];
+                result.scholqr3_potrf2_time = sCholQR3_alg.times[5];
+                result.scholqr3_update2_time = sCholQR3_alg.times[6];
+                result.scholqr3_syrk3_time = sCholQR3_alg.times[7];
+                result.scholqr3_potrf3_time = sCholQR3_alg.times[8];
+                result.scholqr3_update3_time = sCholQR3_alg.times[9];
+                result.scholqr3_rest_time = sCholQR3_alg.times[10];
 
                 // Compute factorization error
                 std::vector<T> QR(m * n, 0.0);
@@ -396,14 +443,20 @@ int main(int argc, char *argv[]) {
     // Prepare runtime breakdown file with date/time prefix
     std::string breakdown_file = output_dir + "/" + date_prefix + "scaling_breakdown.csv";
     std::ofstream breakdown(breakdown_file);
-    breakdown << "# CQRRT Runtime Breakdown (from fastest run per matrix size)\n";
+    breakdown << "# Runtime Breakdown for All Algorithms (from fastest run per matrix size)\n";
     breakdown << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     breakdown << "# Density: " << density << "\n";
-    breakdown << "# d_factor: " << d_factor << "\n";
+    breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
-    breakdown << "m,n,saso_time_us,qr_time_us,trtri_time_us,linop_precond_time_us,linop_gram_time_us,trmm_gram_time_us,potrf_time_us,finalize_time_us,rest_time_us,total_time_us\n";
+    breakdown << "# CQRRT: saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
+    breakdown << "# CholQR: materialize, gram, potrf, rest, total\n";
+    breakdown << "# sCholQR3: materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
+    breakdown << "m,n,"
+              << "cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
+              << "cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
+              << "scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total\n";
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {
@@ -444,13 +497,25 @@ int main(int argc, char *argv[]) {
             << std::fixed << std::setprecision(3) << speedup_cqrrt << "," << speedup_scholqr3 << "\n";
         out.flush();
 
-        // Write runtime breakdown
+        // Write runtime breakdown for all algorithms
         breakdown << result.m << "," << result.n << ","
+                  // CQRRT (10 values)
                   << result.cqrrt_saso_time << "," << result.cqrrt_qr_time << ","
                   << result.cqrrt_trtri_time << "," << result.cqrrt_linop_precond_time << ","
                   << result.cqrrt_linop_gram_time << "," << result.cqrrt_trmm_gram_time << ","
                   << result.cqrrt_potrf_time << "," << result.cqrrt_finalize_time << ","
-                  << result.cqrrt_rest_time << "," << result.cqrrt_time << "\n";
+                  << result.cqrrt_rest_time << "," << result.cqrrt_time << ","
+                  // CholQR (5 values)
+                  << result.cholqr_materialize_time << "," << result.cholqr_gram_time << ","
+                  << result.cholqr_potrf_time << "," << result.cholqr_rest_time << ","
+                  << result.cholqr_time << ","
+                  // sCholQR3 (12 values)
+                  << result.scholqr3_materialize_time << "," << result.scholqr3_gram1_time << ","
+                  << result.scholqr3_potrf1_time << "," << result.scholqr3_trsm1_time << ","
+                  << result.scholqr3_syrk2_time << "," << result.scholqr3_potrf2_time << ","
+                  << result.scholqr3_update2_time << "," << result.scholqr3_syrk3_time << ","
+                  << result.scholqr3_potrf3_time << "," << result.scholqr3_update3_time << ","
+                  << result.scholqr3_rest_time << "," << result.scholqr3_time << "\n";
         breakdown.flush();
     }
 
