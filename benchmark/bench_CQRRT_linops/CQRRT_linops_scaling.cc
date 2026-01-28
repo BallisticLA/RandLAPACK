@@ -143,6 +143,7 @@ static scaling_result<T> run_single_test(
     int64_t n,
     T density,
     T d_factor,
+    bool use_dense_sketch,
     int64_t num_runs,
     RandBLAS::RNGState<RNG>& state) {
 
@@ -192,6 +193,7 @@ static scaling_result<T> run_single_test(
 
             RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
             CQRRT_QR.nnz = 5;
+            CQRRT_QR.use_dense_sketch = use_dense_sketch;
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
 
             long run_time = CQRRT_QR.times[9];  // total_t_dur
@@ -363,19 +365,20 @@ static scaling_result<T> run_single_test(
 
 int main(int argc, char *argv[]) {
 
-    if (argc != 9) {
+    if (argc < 9 || argc > 10) {
         std::cerr << "Usage: " << argv[0]
-                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <density> <d_factor> <num_runs> <output_dir>"
+                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <density> <d_factor> <num_runs> <output_dir> [use_dense_sketch]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
-        std::cerr << "  aspect_ratio : Ratio m/n (e.g., 20 means n = m/20)" << std::endl;
-        std::cerr << "  m_start      : Starting number of rows (smallest matrix)" << std::endl;
-        std::cerr << "  m_end        : Ending number of rows (largest matrix)" << std::endl;
-        std::cerr << "  num_sizes    : Number of matrix sizes to test" << std::endl;
-        std::cerr << "  density      : Sparse matrix density (e.g., 0.1)" << std::endl;
-        std::cerr << "  d_factor     : Sketching dimension factor for CQRRT (e.g., 2.0)" << std::endl;
-        std::cerr << "  num_runs     : Number of runs per matrix size (for timing)" << std::endl;
-        std::cerr << "  output_dir   : Directory to write output files" << std::endl;
+        std::cerr << "  aspect_ratio     : Ratio m/n (e.g., 20 means n = m/20)" << std::endl;
+        std::cerr << "  m_start          : Starting number of rows (smallest matrix)" << std::endl;
+        std::cerr << "  m_end            : Ending number of rows (largest matrix)" << std::endl;
+        std::cerr << "  num_sizes        : Number of matrix sizes to test" << std::endl;
+        std::cerr << "  density          : Sparse matrix density (e.g., 0.1)" << std::endl;
+        std::cerr << "  d_factor         : Sketching dimension factor for CQRRT (e.g., 2.0)" << std::endl;
+        std::cerr << "  num_runs         : Number of runs per matrix size (for timing)" << std::endl;
+        std::cerr << "  output_dir       : Directory to write output files" << std::endl;
+        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = sparse SASO (default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
         std::cerr << "  " << argv[0] << " 20 500 10000 50 0.1 2.0 3 ./output" << std::endl;
         std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, all with aspect ratio 20:1, 3 runs each)" << std::endl;
@@ -391,6 +394,7 @@ int main(int argc, char *argv[]) {
     double d_factor = std::stod(argv[6]);
     int64_t num_runs = std::stol(argv[7]);
     std::string output_dir = argv[8];
+    bool use_dense_sketch = (argc >= 10) ? (std::stoi(argv[9]) != 0) : false;
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -418,6 +422,7 @@ int main(int argc, char *argv[]) {
     printf("Number of test sizes: %zu\n", sizes.size());
     printf("Density: %.3f\n", density);
     printf("d_factor (CQRRT): %.2f\n", d_factor);
+    printf("Sketch type (CQRRT): %s\n", use_dense_sketch ? "dense Gaussian" : "sparse SASO");
     printf("Runs per size: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
     printf("=====================================\n\n");
@@ -432,6 +437,7 @@ int main(int argc, char *argv[]) {
     out << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     out << "# Density: " << density << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
+    out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
     out << "m,n,aspect_ratio,density,"
@@ -447,6 +453,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     breakdown << "# Density: " << density << "\n";
     breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
+    breakdown << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
@@ -465,7 +472,7 @@ int main(int argc, char *argv[]) {
         printf("Testing %ld x %ld (aspect ratio %.1f) [%zu/%zu]...\n",
                m, n, static_cast<double>(m) / n, i + 1, sizes.size());
 
-        auto result = run_single_test<double>(m, n, density, d_factor, num_runs, state);
+        auto result = run_single_test<double>(m, n, density, d_factor, use_dense_sketch, num_runs, state);
 
         double speedup_cqrrt = (result.cqrrt_time > 0) ?
             static_cast<double>(result.cholqr_time) / result.cqrrt_time : 0.0;

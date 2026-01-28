@@ -37,6 +37,11 @@ class CQRRT_linops {
         // tuning SASOS
         int64_t nnz;
 
+        // If true, use a dense Gaussian sketching operator instead of sparse SASO.
+        // Dense sketches avoid potential issues with rank-deficient sketches but
+        // require O(d*m) storage and O(d*m*n) work for application.
+        bool use_dense_sketch;
+
         CQRRT_linops(
             bool time_subroutines,
             T ep,
@@ -45,6 +50,7 @@ class CQRRT_linops {
             timing = time_subroutines;
             eps = ep;
             nnz = 2;
+            use_dense_sketch = false;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -142,17 +148,21 @@ class CQRRT_linops {
             if(this -> timing)
                 saso_t_start = steady_clock::now();
 
-            /// Generating a SASO and applying it to the linear operator
-            //
-            // Create and fill a sparse sketching operator, then apply it directly.
-            // The linear operator's operator() overload for SkOp handles the multiplication.
-            RandBLAS::SparseDist DS(d, m, this->nnz);
-            RandBLAS::SparseSkOp<T, RNG> S(DS, state);
-            state = S.next_state;
-            RandBLAS::fill_sparse(S);
-
-            // Compute A_hat = S * A (sketch from the left)
+            /// Generate and apply the sketching operator to the linear operator.
             // Side::Right means the operator A is on the right side: C = op(S) * op(A)
+            if (this->use_dense_sketch) {
+                // Dense Gaussian sketch: allocate d x m buffer, fill with Gaussian entries.
+                RandBLAS::DenseDist DD(d, m);
+                RandBLAS::DenseSkOp<T, RNG> S(DD, state);
+                state = S.next_state;
+                RandBLAS::fill_dense(S);
+            } else {
+                // Sparse SASO sketch: uses nnz nonzeros per column.
+                RandBLAS::SparseDist DS(d, m, this->nnz);
+                RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+                state = S.next_state;
+                RandBLAS::fill_sparse(S);
+            }
             A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
 
             if(this -> timing) {
