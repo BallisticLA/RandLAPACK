@@ -679,7 +679,11 @@ TEST_F(TestDmCQRRTLinopsSparse, eigen_chol_structure_comparison) {
                   << ", via (i,0): " << X_dense_partial(i, 0) << std::endl;
     }
 
-    EXPECT_LE(diff_L, 1e-10);
+    // L factors may differ when sparse Cholesky uses fill-reducing permutation.
+    // Only assert L factor equality when no permutation is used.
+    if (!has_permutation) {
+        EXPECT_LE(diff_L, 1e-10);
+    }
     EXPECT_LE(diff_partial, 1e-10);
 
     std::remove(sparse_spd_filename.c_str());
