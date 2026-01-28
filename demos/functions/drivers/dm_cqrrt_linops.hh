@@ -156,14 +156,15 @@ class CQRRT_linops {
                 RandBLAS::DenseSkOp<T, RNG> S(DD, state);
                 state = S.next_state;
                 RandBLAS::fill_dense(S);
+                A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
             } else {
                 // Sparse SASO sketch: uses nnz nonzeros per column.
                 RandBLAS::SparseDist DS(d, m, this->nnz);
                 RandBLAS::SparseSkOp<T, RNG> S(DS, state);
                 state = S.next_state;
                 RandBLAS::fill_sparse(S);
+                A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
             }
-            A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
 
             if(this -> timing) {
                 saso_t_stop = steady_clock::now();
