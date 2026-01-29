@@ -87,6 +87,9 @@ struct conditioning_result {
     long scholqr3_potrf3_time;
     long scholqr3_update3_time;
     long scholqr3_rest_time;
+
+    // Dense CQRRT (original rl_cqrrt) results - time only, no quality metrics
+    long dense_cqrrt_time;
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -170,6 +173,7 @@ static conditioning_result<T> run_single_test(
         result.cholqr_is_orthonormal = false;
         result.cholqr_max_orth_cols = -1;
         result.cholqr_time = 0;
+        result.dense_cqrrt_time = 0;
         return result;
     }
 
@@ -323,6 +327,36 @@ static conditioning_result<T> run_single_test(
                              result.scholqr3_is_orthonormal, result.scholqr3_max_orth_cols);
     }
 
+    // ============================================================
+    // Run Dense CQRRT (materialize operator, then call rl_cqrrt)
+    // ============================================================
+    {
+        // Time the entire operation: materialization + Q-less CQRRT
+        auto dense_cqrrt_start = steady_clock::now();
+
+        // Step 1: Materialize the operator by multiplying with identity
+        T* I_mat = new T[n * n]();
+        RandLAPACK::util::eye(n, n, I_mat);
+        T* A_materialized = new T[m * n]();
+        outer_composite(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                        m, n, n, (T)1.0, I_mat, n, (T)0.0, A_materialized, m);
+
+        // Step 2: Call Q-less rl_cqrrt on the dense matrix
+        std::vector<T> R_dense(n * n, 0.0);
+        RandLAPACK::CQRRT<T, RNG> dense_alg(false, tol);  // timing=false
+        dense_alg.compute_Q = false;
+        dense_alg.orthogonalization = false;
+        dense_alg.nnz = 2;
+        auto state_copy = state;
+        dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
+
+        auto dense_cqrrt_stop = steady_clock::now();
+        result.dense_cqrrt_time = duration_cast<microseconds>(dense_cqrrt_stop - dense_cqrrt_start).count();
+
+        delete[] I_mat;
+        delete[] A_materialized;
+    }
+
     return result;
 }
 
@@ -396,7 +430,7 @@ int main(int argc, char *argv[]) {
     // Get OpenMP thread count
     int num_threads = omp_get_max_threads();
 
-    printf("\n=== CQRRT vs CholQR vs sCholQR3 Conditioning Study ===\n");
+    printf("\n=== CQRRT vs CholQR vs sCholQR3 vs Dense CQRRT Conditioning Study ===\n");
     printf("SPD matrix directory: %s\n", spd_dir.c_str());
     printf("Number of condition numbers: %ld\n", num_matrices);
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
@@ -435,14 +469,14 @@ int main(int argc, char *argv[]) {
 
     // Open output file
     std::ofstream out(output_file);
-    out << "# CQRRT vs CholQR vs sCholQR3 Conditioning Study Results\n";
+    out << "# CQRRT vs CholQR vs sCholQR3 vs Dense CQRRT Conditioning Study Results\n";
     out << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
-    out << "# Format: cond_num, cqrrt_*, cholqr_*, scholqr3_* (rel_error, orth_error, max_orth_cols, orth_rate, time)\n";
+    out << "# Format: cond_num, cqrrt_*, cholqr_*, scholqr3_* (rel_error, orth_error, max_orth_cols, orth_rate, time), dense_cqrrt_time\n";
     out << "cond_num,"
         << "cqrrt_rel_error_mean,cqrrt_rel_error_std,"
         << "cqrrt_orth_error_mean,cqrrt_orth_error_std,"
@@ -458,7 +492,8 @@ int main(int argc, char *argv[]) {
         << "scholqr3_orth_error_mean,scholqr3_orth_error_std,"
         << "scholqr3_max_orth_cols_mean,scholqr3_max_orth_cols_std,"
         << "scholqr3_orth_rate,"
-        << "scholqr3_time_mean,scholqr3_time_std\n";
+        << "scholqr3_time_mean,scholqr3_time_std,"
+        << "dense_cqrrt_time_mean,dense_cqrrt_time_std\n";
 
     // Open runtime breakdown file
     std::string breakdown_file = output_file.substr(0, output_file.find_last_of('.')) + "_breakdown.csv";
@@ -491,9 +526,11 @@ int main(int argc, char *argv[]) {
         int64_t fastest_cqrrt_idx = 0;
         int64_t fastest_cholqr_idx = 0;
         int64_t fastest_scholqr3_idx = 0;
+        int64_t fastest_dense_cqrrt_idx = 0;
         long fastest_cqrrt_time = std::numeric_limits<long>::max();
         long fastest_cholqr_time = std::numeric_limits<long>::max();
         long fastest_scholqr3_time = std::numeric_limits<long>::max();
+        long fastest_dense_cqrrt_time = std::numeric_limits<long>::max();
 
         for (int64_t run = 0; run < num_runs; ++run) {
             auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, use_dense_sketch, state);
@@ -512,6 +549,10 @@ int main(int argc, char *argv[]) {
                 fastest_scholqr3_time = result.scholqr3_time;
                 fastest_scholqr3_idx = run;
             }
+            if (result.dense_cqrrt_time < fastest_dense_cqrrt_time) {
+                fastest_dense_cqrrt_time = result.dense_cqrrt_time;
+                fastest_dense_cqrrt_idx = run;
+            }
 
             printf("  Run %ld/%ld:\n", run + 1, num_runs);
             printf("    CQRRT:   orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
@@ -520,6 +561,8 @@ int main(int argc, char *argv[]) {
                    result.cholqr_orth_error, result.cholqr_max_orth_cols, n, result.cholqr_time);
             printf("    sCholQR3: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.scholqr3_orth_error, result.scholqr3_max_orth_cols, n, result.scholqr3_time);
+            printf("    Dense CQRRT: time=%ld μs\n",
+                   result.dense_cqrrt_time);
         }
 
         // Get subroutine times from fastest runs
@@ -623,6 +666,19 @@ int main(int argc, char *argv[]) {
 
         double scholqr3_orth_rate = static_cast<double>(scholqr3_orth_count) / num_runs;
 
+        // Compute statistics for Dense CQRRT (time only)
+        double dense_cqrrt_time_mean = 0;
+        for (const auto& r : results) {
+            dense_cqrrt_time_mean += r.dense_cqrrt_time;
+        }
+        dense_cqrrt_time_mean /= num_runs;
+
+        double dense_cqrrt_time_std = 0;
+        for (const auto& r : results) {
+            dense_cqrrt_time_std += (r.dense_cqrrt_time - dense_cqrrt_time_mean) * (r.dense_cqrrt_time - dense_cqrrt_time_mean);
+        }
+        dense_cqrrt_time_std = std::sqrt(dense_cqrrt_time_std / num_runs);
+
         // Write results
         out << std::scientific << std::setprecision(6)
             << cond_num << ","
@@ -640,7 +696,8 @@ int main(int argc, char *argv[]) {
             << scholqr3_orth_err_mean << "," << scholqr3_orth_err_std << ","
             << scholqr3_max_orth_mean << "," << scholqr3_max_orth_std << ","
             << scholqr3_orth_rate << ","
-            << scholqr3_time_mean << "," << scholqr3_time_std << "\n";
+            << scholqr3_time_mean << "," << scholqr3_time_std << ","
+            << dense_cqrrt_time_mean << "," << dense_cqrrt_time_std << "\n";
         out.flush();
 
         printf("  Summary:\n");
@@ -648,8 +705,10 @@ int main(int argc, char *argv[]) {
                cqrrt_orth_err_mean, cqrrt_orth_err_std, cqrrt_max_orth_mean, cqrrt_max_orth_std, cqrrt_orth_rate);
         printf("    CholQR:  orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                cholqr_orth_err_mean, cholqr_orth_err_std, cholqr_max_orth_mean, cholqr_max_orth_std, cholqr_orth_rate);
-        printf("    sCholQR3: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n\n",
+        printf("    sCholQR3: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                scholqr3_orth_err_mean, scholqr3_orth_err_std, scholqr3_max_orth_mean, scholqr3_max_orth_std, scholqr3_orth_rate);
+        printf("    Dense CQRRT: time=%.1f±%.1f μs\n\n",
+               dense_cqrrt_time_mean, dense_cqrrt_time_std);
 
         // Write runtime breakdown from fastest runs for all algorithms
         breakdown << std::scientific << std::setprecision(6)

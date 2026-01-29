@@ -86,6 +86,9 @@ struct scaling_result {
     long scholqr3_potrf3_time;
     long scholqr3_update3_time;
     long scholqr3_rest_time;
+
+    // Dense CQRRT (original rl_cqrrt) results - time only
+    long dense_cqrrt_time;
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -360,6 +363,43 @@ static scaling_result<T> run_single_test(
         result.scholqr3_max_orth_cols = best_max_orth_cols;
     }
 
+    // ============================================================
+    // Run Dense CQRRT (materialize operator, then call rl_cqrrt) - multiple runs
+    // ============================================================
+    {
+        result.dense_cqrrt_time = std::numeric_limits<long>::max();
+
+        for (int64_t run = 0; run < num_runs; ++run) {
+            auto dense_cqrrt_start = steady_clock::now();
+
+            // Step 1: Materialize the operator by multiplying with identity
+            T* I_mat = new T[n * n]();
+            RandLAPACK::util::eye(n, n, I_mat);
+            T* A_materialized = new T[m * n]();
+            A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                    m, n, n, (T)1.0, I_mat, n, (T)0.0, A_materialized, m);
+
+            // Step 2: Call Q-less rl_cqrrt on the dense matrix
+            std::vector<T> R_dense(n * n, 0.0);
+            auto state_copy = state;
+            RandLAPACK::CQRRT<T, RNG> dense_alg(false, tol);  // timing=false
+            dense_alg.compute_Q = false;
+            dense_alg.orthogonalization = false;
+            dense_alg.nnz = 2;
+            dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
+
+            auto dense_cqrrt_stop = steady_clock::now();
+            long run_time = duration_cast<microseconds>(dense_cqrrt_stop - dense_cqrrt_start).count();
+
+            if (run_time < result.dense_cqrrt_time) {
+                result.dense_cqrrt_time = run_time;
+            }
+
+            delete[] I_mat;
+            delete[] A_materialized;
+        }
+    }
+
     return result;
 }
 
@@ -414,7 +454,7 @@ int main(int argc, char *argv[]) {
     // Get OpenMP thread count
     int num_threads = omp_get_max_threads();
 
-    printf("\n=== CQRRT vs CholQR vs sCholQR3 Scaling Study ===\n");
+    printf("\n=== CQRRT vs CholQR vs sCholQR3 vs Dense CQRRT Scaling Study ===\n");
     printf("Fixed aspect ratio: %.1f:1 (m/n)\n", aspect_ratio);
     printf("Matrix sizes: %ld x %ld to %ld x %ld\n",
            sizes.front().first, sizes.front().second,
@@ -433,7 +473,7 @@ int main(int argc, char *argv[]) {
     // Prepare output file with date/time prefix
     std::string output_file = output_dir + "/" + date_prefix + "scaling_results.csv";
     std::ofstream out(output_file);
-    out << "# CQRRT vs CholQR vs sCholQR3 Scaling Study Results\n";
+    out << "# CQRRT vs CholQR vs sCholQR3 vs Dense CQRRT Scaling Study Results\n";
     out << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     out << "# Density: " << density << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
@@ -444,7 +484,8 @@ int main(int argc, char *argv[]) {
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
         << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
-        << "speedup_cqrrt_over_cholqr,speedup_scholqr3_over_cholqr\n";
+        << "dense_cqrrt_time_us,"
+        << "speedup_cqrrt_over_cholqr,speedup_cqrrt_over_scholqr3,speedup_cqrrt_over_dense\n";
 
     // Prepare runtime breakdown file with date/time prefix
     std::string breakdown_file = output_dir + "/" + date_prefix + "scaling_breakdown.csv";
@@ -474,10 +515,12 @@ int main(int argc, char *argv[]) {
 
         auto result = run_single_test<double>(m, n, density, d_factor, use_dense_sketch, num_runs, state);
 
-        double speedup_cqrrt = (result.cqrrt_time > 0) ?
+        double speedup_cqrrt_over_cholqr = (result.cqrrt_time > 0) ?
             static_cast<double>(result.cholqr_time) / result.cqrrt_time : 0.0;
-        double speedup_scholqr3 = (result.scholqr3_time > 0) ?
-            static_cast<double>(result.cholqr_time) / result.scholqr3_time : 0.0;
+        double speedup_cqrrt_over_scholqr3 = (result.cqrrt_time > 0) ?
+            static_cast<double>(result.scholqr3_time) / result.cqrrt_time : 0.0;
+        double speedup_cqrrt_over_dense = (result.cqrrt_time > 0) ?
+            static_cast<double>(result.dense_cqrrt_time) / result.cqrrt_time : 0.0;
 
         printf("  CQRRT:   orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
                result.cqrrt_orth_error, result.cqrrt_max_orth_cols, n, result.cqrrt_time);
@@ -485,7 +528,9 @@ int main(int argc, char *argv[]) {
                result.cholqr_orth_error, result.cholqr_max_orth_cols, n, result.cholqr_time);
         printf("  sCholQR3: orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
                result.scholqr3_orth_error, result.scholqr3_max_orth_cols, n, result.scholqr3_time);
-        printf("  Speedup (CholQR/CQRRT): %.2fx, (CholQR/sCholQR3): %.2fx\n\n", speedup_cqrrt, speedup_scholqr3);
+        printf("  Dense CQRRT: time=%ld us\n", result.dense_cqrrt_time);
+        printf("  Speedup CQRRT over: CholQR=%.2fx, sCholQR3=%.2fx, Dense=%.2fx\n\n",
+               speedup_cqrrt_over_cholqr, speedup_cqrrt_over_scholqr3, speedup_cqrrt_over_dense);
 
         // Write results
         out << std::fixed << std::setprecision(1)
@@ -501,7 +546,8 @@ int main(int argc, char *argv[]) {
             << result.scholqr3_rel_error << "," << result.scholqr3_orth_error << ","
             << result.scholqr3_max_orth_cols << "," << (result.scholqr3_is_orthonormal ? 1 : 0) << ","
             << result.scholqr3_time << ","
-            << std::fixed << std::setprecision(3) << speedup_cqrrt << "," << speedup_scholqr3 << "\n";
+            << result.dense_cqrrt_time << ","
+            << std::fixed << std::setprecision(3) << speedup_cqrrt_over_cholqr << "," << speedup_cqrrt_over_scholqr3 << "," << speedup_cqrrt_over_dense << "\n";
         out.flush();
 
         // Write runtime breakdown for all algorithms

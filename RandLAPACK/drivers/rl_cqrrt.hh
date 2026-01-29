@@ -45,6 +45,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             orthogonalization = false;
+            compute_Q = true;
             nnz = 2;
         }
 
@@ -109,6 +110,10 @@ class CQRRT : public CQRRTalg<T, RNG> {
 
         // Mode of operation that allows to use CQRRT for orthogonalization of the input matrix.
         bool orthogonalization;
+
+        // If false, skip the Q-factor computation (R-only mode).
+        // When false, A is NOT overwritten with Q on output.
+        bool compute_Q;
 };
 
 // -----------------------------------------------------------------------------
@@ -194,8 +199,10 @@ int CQRRT<T, RNG>::call(
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
     int msg = lapack::potrf(Uplo::Upper, n, R_sk, ldr);
 
-    // Obtain the output Q-factor
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
+    // Obtain the output Q-factor (only if requested)
+    if (this->compute_Q) {
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
+    }
 
     if(this -> timing)
         cholqr_t_stop = steady_clock::now();

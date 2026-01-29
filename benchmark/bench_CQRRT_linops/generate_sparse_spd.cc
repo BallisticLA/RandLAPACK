@@ -198,7 +198,6 @@ int main(int argc, char *argv[]) {
         std::cerr << "from min_cond to max_cond using a pentadiagonal structure." << std::endl;
         std::cerr << "\nThe tool creates a high-kappa seed matrix internally and uses" << std::endl;
         std::cerr << "diagonal regularization (A + alpha*I) to achieve target condition numbers." << std::endl;
-        std::cerr << "\nNOTE: Uses BLAS++/LAPACK++ (no Eigen dependency)." << std::endl;
         return 1;
     }
 
@@ -229,7 +228,6 @@ int main(int argc, char *argv[]) {
     printf("Number of matrices: %ld\n", num_matrices);
     printf("Condition number range: %.2e to %.2e (log-spaced)\n", min_cond, max_cond);
     printf("Structure: Pentadiagonal (bandwidth = 2)\n");
-    printf("Implementation: BLAS++/LAPACK++ (no Eigen)\n");
     printf("================================================================\n\n");
 
     // Initialize RNG
@@ -334,7 +332,6 @@ int main(int argc, char *argv[]) {
     meta << "# Sparse SPD Matrix Set Metadata\n";
     meta << "# Generated for CQRRT_linops conditioning study\n";
     meta << "# Method: Banded structure + diagonal regularization\n";
-    meta << "# Implementation: BLAS++/LAPACK++ (no Eigen)\n";
     meta << "# OpenMP threads used: " << num_threads << "\n";
     meta << "matrix_size: " << n << "\n";
     meta << "num_matrices: " << matrices_to_generate << "\n";

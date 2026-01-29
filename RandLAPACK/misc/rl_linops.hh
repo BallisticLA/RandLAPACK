@@ -49,7 +49,8 @@ concept LinearOperator = requires(LinOp A) {
 //   - Supports both left and right multiplication via Side parameter
 //
 // Strategy:
-//   All operations use a two-step process with an intermediate buffer:
+//   All operations use a two-step process with a reusable workspace buffer
+//   (mutable member, avoids heap allocation per call):
 //     Step 1: temp = LinOp2 * B  (LinOp2 handles dense/sparse B internally)
 //     Step 2: result = LinOp1 * temp
 //
@@ -65,6 +66,7 @@ struct CompositeOperator {
     const int64_t n_cols;    // Number of columns in LinOp1 * LinOp2
     LinOp1 &left_op;         // Reference to the left operator
     LinOp2 &right_op;        // Reference to the right operator
+    mutable std::vector<T> work_buf;  // Reusable workspace for intermediate results
 
     CompositeOperator(
         const int64_t n_rows,
@@ -174,7 +176,8 @@ struct CompositeOperator {
                 // C := alpha * (LinOp1 * LinOp2) * op(B) + beta * C
                 // Intermediate dimension: right_op.n_rows = left_op.n_cols
                 int64_t temp_rows = right_op.n_rows;
-                T* temp_buffer = new T[temp_rows * n]();
+                work_buf.resize(temp_rows * n);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp2 * op(B), dimension (right_op.n_rows x n)
@@ -183,15 +186,14 @@ struct CompositeOperator {
                 // Step 2: C := alpha * LinOp1 * temp + beta * C
                 left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
-                delete[] temp_buffer;
-
             } else {
                 // trans_comp == Op::Trans
                 // C := alpha * (LinOp1 * LinOp2)^T * op(B) + beta * C
                 //    = alpha * LinOp2^T * LinOp1^T * op(B) + beta * C
                 // Note: left_op.n_cols is the intermediate dimension
                 int64_t temp_rows = left_op.n_cols;
-                T* temp_buffer = new T[temp_rows * n]();
+                work_buf.resize(temp_rows * n);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp1^T * op(B), dimension (left_op.n_cols x n)
@@ -199,8 +201,6 @@ struct CompositeOperator {
 
                 // Step 2: C := alpha * LinOp2^T * temp + beta * C
                 right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
             }
 
         } else {  // side == Side::Right
@@ -241,7 +241,8 @@ struct CompositeOperator {
                 // Intermediate dimension: left_op.n_cols = right_op.n_rows
                 int64_t temp_cols = left_op.n_cols;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                work_buf.resize(temp_rows * temp_cols);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 // Step 1: temp := op(B) * LinOp1, dimension (m x left_op.n_cols)
@@ -254,8 +255,6 @@ struct CompositeOperator {
                 right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans,
                          m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
 
-                delete[] temp_buffer;
-
             } else {  // trans_comp == Op::Trans
                 // C := alpha * op(B) * (LinOp1 * LinOp2)^T + beta * C
                 //    = alpha * op(B) * LinOp2^T * LinOp1^T + beta * C
@@ -264,7 +263,8 @@ struct CompositeOperator {
                 // Intermediate dimension: right_op.n_rows (between op(B) and LinOp1^T)
                 int64_t temp_cols = right_op.n_rows;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                work_buf.resize(temp_rows * temp_cols);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 // Step 1: temp := op(B) * LinOp1^T, dimension (m x right_op.n_rows)
@@ -276,8 +276,6 @@ struct CompositeOperator {
                 //   temp is (m x right_op.n_rows), LinOp2^T is (right_op.n_rows x n)
                 right_op(Side::Right, layout, Op::Trans, Op::NoTrans,
                          m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
             }
         }
     }
@@ -333,7 +331,8 @@ struct CompositeOperator {
                 // C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
                 // Intermediate dimension: right_op.n_rows = left_op.n_cols
                 int64_t temp_rows = right_op.n_rows;
-                T* temp_buffer = new T[temp_rows * n]();
+                work_buf.resize(temp_rows * n);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp2 * op(B_sp), dimension (right_op.n_rows x n)
@@ -343,15 +342,14 @@ struct CompositeOperator {
                 // Step 2: C := alpha * LinOp1 * temp + beta * C
                 left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
 
-                delete[] temp_buffer;
-
             } else {
                 // trans_comp == Op::Trans
                 // C := alpha * (LinOp1 * LinOp2)^T * op(B_sp) + beta * C
                 //    = alpha * LinOp2^T * LinOp1^T * op(B_sp) + beta * C
                 // Note: left_op.n_cols is the intermediate dimension
                 int64_t temp_rows = left_op.n_cols;
-                T* temp_buffer = new T[temp_rows * n]();
+                work_buf.resize(temp_rows * n);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp := LinOp1^T * op(B_sp), dimension (left_op.n_cols x n)
@@ -360,8 +358,6 @@ struct CompositeOperator {
 
                 // Step 2: C := alpha * LinOp2^T * temp + beta * C
                 right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
             }
 
         } else {  // side == Side::Right
@@ -385,7 +381,8 @@ struct CompositeOperator {
                 // Intermediate dimension: left_op.n_cols = right_op.n_rows
                 int64_t temp_cols = left_op.n_cols;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                work_buf.resize(temp_rows * temp_cols);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 // Step 1: temp := op(B_sp) * LinOp1, dimension (m x left_op.n_cols)
@@ -398,8 +395,6 @@ struct CompositeOperator {
                 right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans,
                          m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
 
-                delete[] temp_buffer;
-
             } else {  // trans_comp == Op::Trans
                 // C := alpha * op(B_sp) * (LinOp1 * LinOp2)^T + beta * C
                 //    = alpha * op(B_sp) * LinOp2^T * LinOp1^T + beta * C
@@ -408,7 +403,8 @@ struct CompositeOperator {
                 // Intermediate dimension: right_op.n_rows (between op(B_sp) and LinOp1^T)
                 int64_t temp_cols = right_op.n_rows;
                 int64_t temp_rows = m;
-                T* temp_buffer = new T[temp_rows * temp_cols]();
+                work_buf.resize(temp_rows * temp_cols);
+                T* temp_buffer = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : temp_cols;
 
                 // Step 1: temp := op(B_sp) * LinOp1^T, dimension (m x right_op.n_rows)
@@ -420,8 +416,6 @@ struct CompositeOperator {
                 //   temp is (m x right_op.n_rows), LinOp2^T is (right_op.n_rows x n)
                 right_op(Side::Right, layout, Op::Trans, Op::NoTrans,
                          m, n, temp_cols, alpha, temp_buffer, ldt, beta, C, ldc);
-
-                delete[] temp_buffer;
             }
         }
     }
@@ -477,7 +471,8 @@ struct CompositeOperator {
                 // LinOp2 is (right_op.n_rows × n_cols), op(S) is k×n
                 // temp is (right_op.n_rows × n)
                 int64_t temp_rows = right_op.n_rows;
-                T* temp = new T[temp_rows * n]();
+                work_buf.resize(temp_rows * n);
+                T* temp = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp = LinOp2 * op(S), dimension (right_op.n_rows × n)
@@ -487,14 +482,13 @@ struct CompositeOperator {
                 // LinOp1 is (n_rows × left_op.n_cols), temp is (left_op.n_cols × n)
                 left_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
 
-                delete[] temp;
-
             } else {  // trans_A == Op::Trans
                 // C = alpha * (LinOp1 * LinOp2)^T * op(S) + beta * C
                 //   = alpha * LinOp2^T * LinOp1^T * op(S) + beta * C
                 // Strategy: temp = LinOp1^T * op(S), then C = alpha * LinOp2^T * temp + beta * C
                 int64_t temp_rows = left_op.n_cols;
-                T* temp = new T[temp_rows * n]();
+                work_buf.resize(temp_rows * n);
+                T* temp = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? temp_rows : n;
 
                 // Step 1: temp = LinOp1^T * op(S), dimension (left_op.n_cols × n)
@@ -502,8 +496,6 @@ struct CompositeOperator {
 
                 // Step 2: C = alpha * LinOp2^T * temp + beta * C
                 right_op(Side::Left, layout, Op::Trans, Op::NoTrans, m, n, temp_rows, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
             }
 
         } else {  // Side::Right
@@ -514,7 +506,8 @@ struct CompositeOperator {
                 // C = alpha * op(S) * (LinOp1 * LinOp2) + beta * C
                 // Strategy: temp = op(S) * LinOp1, then C = alpha * temp * LinOp2 + beta * C
                 int64_t temp_cols = left_op.n_cols;
-                T* temp = new T[m * temp_cols]();
+                work_buf.resize(m * temp_cols);
+                T* temp = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
 
                 // Step 1: temp = op(S) * LinOp1, dimension (m × left_op.n_cols)
@@ -524,14 +517,13 @@ struct CompositeOperator {
                 // temp is (m × left_op.n_cols), LinOp2 is (left_op.n_cols × n_cols)
                 right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
 
-                delete[] temp;
-
             } else {  // trans_A == Op::Trans
                 // C = alpha * op(S) * (LinOp1 * LinOp2)^T + beta * C
                 //   = alpha * op(S) * LinOp2^T * LinOp1^T + beta * C
                 // Strategy: temp = op(S) * LinOp2^T, then C = alpha * temp * LinOp1^T + beta * C
                 int64_t temp_cols = right_op.n_rows;
-                T* temp = new T[m * temp_cols]();
+                work_buf.resize(m * temp_cols);
+                T* temp = work_buf.data();
                 int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
 
                 // Step 1: temp = op(S) * LinOp2^T, dimension (m × right_op.n_rows)
@@ -539,8 +531,6 @@ struct CompositeOperator {
 
                 // Step 2: C = alpha * temp * LinOp1^T + beta * C
                 left_op(Side::Right, layout, Op::Trans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
-
-                delete[] temp;
             }
         }
     }
@@ -876,6 +866,9 @@ struct SparseLinOp {
         T* C,
         int64_t ldc
     ) {
+        std::cerr << "SparseLinOp: Sketching requires full densification of the sparse operator ("
+                  << n_rows << " x " << n_cols << "). This is currently inefficient." << std::endl;
+
         // Densify the sparse matrix A
         T* A_dense = new T[n_rows * n_cols]();
         int64_t lda = (layout == Layout::ColMajor) ? n_rows : n_cols;
