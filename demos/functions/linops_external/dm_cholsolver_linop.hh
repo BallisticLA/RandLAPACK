@@ -526,7 +526,7 @@ public:
                 RandBLAS::sketch_general(
                     Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                     S.n_rows, block_cols, block_cols,
-                    (T)1.0, S, col_start, 0, I_block, block_cols,
+                    (T)1.0, S, 0, col_start, I_block, block_cols,
                     (T)0.0, S_block, lds
                 );
 
