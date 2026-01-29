@@ -148,9 +148,12 @@ static void run_benchmark(
     }
 
     // Generate SASO (Sparse) matrix: m × k_dim
-    auto saso_coo = RandLAPACK::gen::gen_sparse_mat<T>(data.m, k_dim, saso_density, state);
+    // COO is only needed for CSC conversion, so scope-limit it to free memory early.
     RandBLAS::sparse_data::csc::CSCMatrix<T> saso_csc(data.m, k_dim);
-    RandBLAS::sparse_data::conversions::coo_to_csc(saso_coo, saso_csc);
+    {
+        auto saso_coo = RandLAPACK::gen::gen_sparse_mat<T>(data.m, k_dim, saso_density, state);
+        RandBLAS::sparse_data::conversions::coo_to_csc(saso_coo, saso_csc);
+    }
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> saso_linop(
         data.m, k_dim, saso_csc);
 
@@ -174,17 +177,17 @@ static void run_benchmark(
     // Compute dense representation for verification
     printf("Computing dense representation of nested composite operator...\n");
 
-    // Step 1: Densify SASO and compute SASO * Gaussian -> intermediate
-    std::vector<T> saso_dense(data.m * k_dim, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(saso_csc, Layout::ColMajor, saso_dense.data());
-
-    std::vector<T> intermediate(data.m * n_cols, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, data.m, n_cols, k_dim, 1.0,
-              saso_dense.data(), data.m, gaussian_mat.data(), k_dim, 0.0, intermediate.data(), data.m);
-
-    // Step 2: Compute CholSolver * intermediate -> final dense representation
-    A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, data.m, data.n, data.m,
-                1.0, intermediate.data(), data.m, 0.0, data.A_dense.data(), data.m);
+    // Use SpMM directly on the CSC (avoids m×k dense copy of SASO).
+    // Scope-limit intermediate to free it after A_dense is computed.
+    {
+        std::vector<T> intermediate(data.m * n_cols, 0.0);
+        RandBLAS::sparse_data::left_spmm(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            data.m, n_cols, k_dim, (T)1.0, saso_csc, 0, 0,
+            gaussian_mat.data(), k_dim, (T)0.0, intermediate.data(), data.m);
+        A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, data.m, data.n, data.m,
+                    (T)1.0, intermediate.data(), data.m, (T)0.0, data.A_dense.data(), data.m);
+    }
     printf("Dense representation computed.\n");
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);

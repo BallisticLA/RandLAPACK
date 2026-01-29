@@ -362,9 +362,6 @@ public:
         }
 
         // Side::Left: C := alpha * A^{-1} * op(B) + beta * C
-        //
-        // Straightforward: copy op(B) into W, apply two TRSMs in the caller's layout,
-        // then accumulate W into C.
 
         randblas_require(m == n_rows);
         randblas_require(k == n_cols);
@@ -378,24 +375,39 @@ public:
             randblas_require(ldc >= n);
         }
 
-        // Allocate work buffer for op(B) (k x n) in the caller's layout.
-        int64_t ldw = (layout == Layout::ColMajor) ? k : n;
-        T* W = new T[k * n]();
-
-        copy_op_B(layout, trans_B, k, n, B, ldb, W, ldw);
-
-        // Forward substitution: W := L^{-1} * op(B)
         auto L_csc = make_L_csc();
-        RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
-                                    Uplo::Lower, Diag::NonUnit, n, W, ldw);
 
-        // Backward substitution: W := L^{-T} * W = A^{-1} * op(B)
-        RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
-                                    Uplo::Lower, Diag::NonUnit, n, W, ldw);
+        if (beta == (T)0.0) {
+            // Fast path: copy op(B) directly into C, TRSM in-place.
+            // Avoids allocating a separate k x n work buffer.
+            copy_op_B(layout, trans_B, k, n, B, ldb, C, ldc);
 
-        // C := beta * C + alpha * W
-        accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
-        delete[] W;
+            // Forward substitution: C := L^{-1} * op(B)
+            RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
+                                        Uplo::Lower, Diag::NonUnit, n, C, ldc);
+
+            // Backward substitution with alpha: C := alpha * A^{-1} * op(B)
+            RandBLAS::sparse_data::trsm(layout, Op::Trans, alpha, L_csc,
+                                        Uplo::Lower, Diag::NonUnit, n, C, ldc);
+        } else {
+            // General path: allocate W, TRSM on W, accumulate into C.
+            int64_t ldw = (layout == Layout::ColMajor) ? k : n;
+            T* W = new T[k * n]();
+
+            copy_op_B(layout, trans_B, k, n, B, ldb, W, ldw);
+
+            // Forward substitution: W := L^{-1} * op(B)
+            RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
+                                        Uplo::Lower, Diag::NonUnit, n, W, ldw);
+
+            // Backward substitution: W := L^{-T} * W = A^{-1} * op(B)
+            RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
+                                        Uplo::Lower, Diag::NonUnit, n, W, ldw);
+
+            // C := beta * C + alpha * W
+            accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
+            delete[] W;
+        }
     }
 
     /// Sparse B operator (non-Side version): C := alpha * A^{-1} * op(B_sp) + beta * C.

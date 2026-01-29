@@ -174,9 +174,12 @@ static conditioning_result<T> run_single_test(
     }
 
     // Generate SASO (Sparse) matrix: m × k_dim
-    auto saso_coo = RandLAPACK::gen::gen_sparse_mat<T>(m, k_dim, 0.5, state);
+    // COO is only needed for CSC conversion, so scope-limit it to free memory early.
     RandBLAS::sparse_data::csc::CSCMatrix<T> saso_csc(m, k_dim);
-    RandBLAS::sparse_data::conversions::coo_to_csc(saso_coo, saso_csc);
+    {
+        auto saso_coo = RandLAPACK::gen::gen_sparse_mat<T>(m, k_dim, 0.5, state);
+        RandBLAS::sparse_data::conversions::coo_to_csc(saso_coo, saso_csc);
+    }
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> saso_linop(
         m, k_dim, saso_csc);
 
@@ -190,17 +193,19 @@ static conditioning_result<T> run_single_test(
     RandLAPACK::linops::CompositeOperator inner_composite(m, n, saso_linop, gaussian_linop);
     RandLAPACK::linops::CompositeOperator outer_composite(m, n, A_inv_linop, inner_composite);
 
-    // Compute dense representation for verification
-    std::vector<T> saso_dense(m * k_dim, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(saso_csc, Layout::ColMajor, saso_dense.data());
-
-    std::vector<T> intermediate(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_dim, 1.0,
-              saso_dense.data(), m, gaussian_mat.data(), k_dim, 0.0, intermediate.data(), m);
-
+    // Compute dense representation for verification.
+    // Use SpMM directly on the CSC (avoids m×k dense copy of SASO).
+    // Scope-limit intermediate to free it after A_dense is computed.
     std::vector<T> A_dense(m * n, 0.0);
-    A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m,
-                1.0, intermediate.data(), m, 0.0, A_dense.data(), m);
+    {
+        std::vector<T> intermediate(m * n, 0.0);
+        RandBLAS::sparse_data::left_spmm(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            m, n, k_dim, (T)1.0, saso_csc, 0, 0,
+            gaussian_mat.data(), k_dim, (T)0.0, intermediate.data(), m);
+        A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m,
+                    (T)1.0, intermediate.data(), m, (T)0.0, A_dense.data(), m);
+    }
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
     T norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);
