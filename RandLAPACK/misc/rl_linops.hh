@@ -12,6 +12,8 @@
 #include <vector>
 #include <cstdint>
 #include <concepts>
+#include <type_traits>
+#include <memory>
 
 
 namespace RandLAPACK::linops {
@@ -64,6 +66,47 @@ struct CompositeOperator {
     using scalar_t = T;
     const int64_t n_rows;    // Number of rows in LinOp1 * LinOp2
     const int64_t n_cols;    // Number of columns in LinOp1 * LinOp2
+
+private:
+    // ---- Owned operands for block-derived CompositeOperators ----
+    //
+    // When this CompositeOperator is produced by a block method (row_block,
+    // col_block, submatrix), one or both of these shared_ptrs hold the
+    // block-derived operand(s).  For externally-constructed operators,
+    // both are null and left_op/right_op reference caller-owned objects.
+    //
+    // IMPORTANT: Declared BEFORE left_op/right_op so that C++ destruction
+    // order (reverse of declaration) destroys the references first, then
+    // releases the owned operand data they may point into.
+    std::shared_ptr<LinOp1> owned_left_;
+    std::shared_ptr<LinOp2> owned_right_;
+
+    /// @brief Private constructor: owns left operand, borrows right.
+    /// Used by row_block() which extracts a row block from the left operator.
+    CompositeOperator(int64_t n_rows, int64_t n_cols,
+                      std::shared_ptr<LinOp1> owned_L, LinOp2& right_op)
+        : n_rows(n_rows), n_cols(n_cols),
+          owned_left_(std::move(owned_L)), owned_right_(),
+          left_op(*owned_left_), right_op(right_op) {}
+
+    /// @brief Private constructor: borrows left operand, owns right.
+    /// Used by col_block() which extracts a column block from the right operator.
+    CompositeOperator(int64_t n_rows, int64_t n_cols,
+                      LinOp1& left_op, std::shared_ptr<LinOp2> owned_R)
+        : n_rows(n_rows), n_cols(n_cols),
+          owned_left_(), owned_right_(std::move(owned_R)),
+          left_op(left_op), right_op(*owned_right_) {}
+
+    /// @brief Private constructor: owns both operands.
+    /// Used by submatrix() which extracts from both left and right operators.
+    CompositeOperator(int64_t n_rows, int64_t n_cols,
+                      std::shared_ptr<LinOp1> owned_L,
+                      std::shared_ptr<LinOp2> owned_R)
+        : n_rows(n_rows), n_cols(n_cols),
+          owned_left_(std::move(owned_L)), owned_right_(std::move(owned_R)),
+          left_op(*owned_left_), right_op(*owned_right_) {}
+
+public:
     LinOp1 &left_op;         // Reference to the left operator
     LinOp2 &right_op;        // Reference to the right operator
     mutable std::vector<T> work_buf;  // Reusable workspace for intermediate results
@@ -73,7 +116,9 @@ struct CompositeOperator {
         const int64_t n_cols,
         LinOp1 &left_op,
         LinOp2 &right_op
-    ) : n_rows(n_rows), n_cols(n_cols), left_op(left_op), right_op(right_op) {
+    ) : n_rows(n_rows), n_cols(n_cols),
+        owned_left_(), owned_right_(),
+        left_op(left_op), right_op(right_op) {
         // Validate dimensions: left_op is (n_rows x right_op.n_rows), right_op is (right_op.n_rows x n_cols)
         randblas_require(left_op.n_cols == right_op.n_rows);
         randblas_require(right_op.n_cols == n_cols);
@@ -534,7 +579,481 @@ struct CompositeOperator {
             }
         }
     }
+
+    // =====================================================================
+    //  Block view methods
+    // =====================================================================
+    //
+    //  Row partitioning touches only the left operator (L):
+    //      (L * R)[rows, :] = L[rows, :] * R
+    //
+    //  Column partitioning touches only the right operator (R):
+    //      (L * R)[:, cols] = L * R[:, cols]
+    //
+    //  Submatrix partitioning touches both:
+    //      (L * R)[rows, cols] = L[rows, :] * R[:, cols]
+    //
+    //  The inner dimension (L.n_cols == R.n_rows) is never partitioned,
+    //  because blocking the inner dimension would require summing partial
+    //  products, which is a different decomposition pattern.
+    //
+    //  Block-derived CompositeOperators own their block operand(s) via
+    //  shared_ptr members (owned_left_, owned_right_).  The non-blocked
+    //  operand is still borrowed by reference from this operator's operand.
+    //
+
+    /// @brief Extract a row block [row_start, row_start + row_count).
+    ///
+    /// Only the left operator is partitioned.  The right operator is
+    /// borrowed unchanged.  The caller's left operand must outlive this
+    /// operator (since right_op is borrowed by reference from it).
+    ///
+    /// @param row_start  First row of the block (0-indexed)
+    /// @param row_count  Number of rows in the block
+    /// @return CompositeOperator representing L[rows,:] * R
+    CompositeOperator row_block(int64_t row_start, int64_t row_count) const {
+        auto block_L = std::make_shared<LinOp1>(
+            left_op.row_block(row_start, row_count));
+        return CompositeOperator(row_count, n_cols,
+                                 std::move(block_L), right_op);
+    }
+
+    /// @brief Extract a column block [col_start, col_start + col_count).
+    ///
+    /// Only the right operator is partitioned.  The left operator is
+    /// borrowed unchanged.  The caller's right operand must outlive this
+    /// operator (since left_op is borrowed by reference from it).
+    ///
+    /// @param col_start  First column of the block (0-indexed)
+    /// @param col_count  Number of columns in the block
+    /// @return CompositeOperator representing L * R[:,cols]
+    CompositeOperator col_block(int64_t col_start, int64_t col_count) const {
+        auto block_R = std::make_shared<LinOp2>(
+            right_op.col_block(col_start, col_count));
+        return CompositeOperator(n_rows, col_count,
+                                 left_op, std::move(block_R));
+    }
+
+    /// @brief Extract a submatrix at (row_start, col_start) with dimensions
+    /// row_count x col_count.
+    ///
+    /// Both operators are partitioned: row block from the left, column block
+    /// from the right.  The returned CompositeOperator owns both blocked
+    /// operands and is fully self-contained.
+    ///
+    /// @param row_start  First row of the submatrix (0-indexed)
+    /// @param col_start  First column of the submatrix (0-indexed)
+    /// @param row_count  Number of rows in the submatrix
+    /// @param col_count  Number of columns in the submatrix
+    /// @return CompositeOperator representing L[rows,:] * R[:,cols]
+    CompositeOperator submatrix(int64_t row_start, int64_t col_start,
+                                int64_t row_count, int64_t col_count) const {
+        auto block_L = std::make_shared<LinOp1>(
+            left_op.row_block(row_start, row_count));
+        auto block_R = std::make_shared<LinOp2>(
+            right_op.col_block(col_start, col_count));
+        return CompositeOperator(row_count, col_count,
+                                 std::move(block_L), std::move(block_R));
+    }
 };
+
+/*********************************************************/
+/*                                                       */
+/*          Sparse Block View Utilities                  */
+/*                                                       */
+/*********************************************************/
+
+/// @brief Non-owning view of a contiguous row range of a CSR matrix.
+///
+/// Owns a rebased copy of the rowptr array (O(row_count) memory) so that
+/// rowptr[0] == 0 as required by RandBLAS SpMM. The vals and colidxs
+/// pointers borrow from the parent CSR matrix, which must outlive this view.
+///
+/// @tparam T Scalar type
+/// @tparam sint_t Signed integer type for indices
+template <typename T, typename sint_t = int64_t>
+struct CSRRowBlockView {
+    std::vector<sint_t> rowptr;  ///< Owned, rebased to start from 0
+    T* vals;                     ///< Non-owning, points into parent
+    sint_t* colidxs;             ///< Non-owning, points into parent
+    int64_t n_rows;              ///< Number of rows in the block
+    int64_t n_cols;              ///< Number of columns (same as parent)
+    int64_t nnz;                 ///< Number of nonzeros in the block
+
+    /// @brief Get a non-owning CSRMatrix view of this block.
+    /// The returned CSRMatrix borrows from this view (rowptr) and the parent
+    /// (vals, colidxs). Both must outlive the returned CSRMatrix.
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t> as_csr() {
+        return RandBLAS::sparse_data::CSRMatrix<T, sint_t>(
+            n_rows, n_cols, nnz, vals, rowptr.data(), colidxs);
+    }
+};
+
+/// @brief Create a row-block view of a CSR matrix for rows [row_start, row_start + row_count).
+///
+/// The returned view owns a rebased rowptr array and borrows vals/colidxs
+/// from the parent. The parent must outlive the view and any CSRMatrix
+/// obtained via as_csr().
+///
+/// @param A Parent CSR matrix
+/// @param row_start First row of the block (0-indexed)
+/// @param row_count Number of rows in the block
+template <typename T, typename sint_t>
+CSRRowBlockView<T, sint_t> csr_row_block(
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
+    int64_t row_start,
+    int64_t row_count
+) {
+    randblas_require(row_start >= 0);
+    randblas_require(row_count > 0);
+    randblas_require(row_start + row_count <= A.n_rows);
+
+    sint_t base = A.rowptr[row_start];
+    int64_t block_nnz = A.rowptr[row_start + row_count] - base;
+
+    // Rebase rowptr so that rowptr[0] == 0
+    std::vector<sint_t> rebased(row_count + 1);
+    for (int64_t i = 0; i <= row_count; ++i)
+        rebased[i] = A.rowptr[row_start + i] - base;
+
+    return CSRRowBlockView<T, sint_t>{
+        std::move(rebased),
+        A.vals + base,
+        A.colidxs + base,
+        row_count,
+        A.n_cols,
+        block_nnz
+    };
+}
+
+/// @brief Split a CSR matrix into num_blocks uniform row blocks.
+///
+/// Requires n_rows to be evenly divisible by num_blocks.
+///
+/// @param A Parent CSR matrix
+/// @param num_blocks Number of blocks to split into
+template <typename T, typename sint_t>
+std::vector<CSRRowBlockView<T, sint_t>> csr_split_row_blocks(
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0);
+    int64_t block_size = A.n_rows / num_blocks;
+    randblas_require(block_size * num_blocks == A.n_rows);
+
+    std::vector<CSRRowBlockView<T, sint_t>> out;
+    out.reserve(num_blocks);
+    for (int64_t i = 0; i < num_blocks; ++i)
+        out.push_back(csr_row_block(A, i * block_size, block_size));
+    return out;
+}
+
+
+/// @brief Owning extraction of a column range from a CSR matrix (cross-direction).
+///
+/// Unlike CSR row-block views (O(block_size), non-owning), CSR column-block
+/// extraction requires scanning ALL nnz entries and copying those in the
+/// column range. This is O(nnz) work and produces an independent copy.
+///
+/// Column indices in the result are rebased to [0, col_count).
+///
+/// @tparam T Scalar type
+/// @tparam sint_t Signed integer type for indices
+template <typename T, typename sint_t = int64_t>
+struct CSRColBlock {
+    std::vector<T> vals;           ///< Owned copy of matching values
+    std::vector<sint_t> rowptr;    ///< Owned, built from per-row counts
+    std::vector<sint_t> colidxs;   ///< Owned copy of matching column indices (rebased)
+    int64_t n_rows;                ///< Number of rows (same as parent)
+    int64_t n_cols;                ///< Number of columns in the block
+    int64_t nnz;                   ///< Number of nonzeros in the block
+
+    /// @brief Get a non-owning CSRMatrix referencing this block's arrays.
+    /// This block must outlive the returned CSRMatrix.
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t> as_csr() {
+        return RandBLAS::sparse_data::CSRMatrix<T, sint_t>(
+            n_rows, n_cols, nnz, vals.data(), rowptr.data(), colidxs.data());
+    }
+};
+
+/// @brief Extract columns [col_start, col_start + col_count) from a CSR matrix.
+///
+/// Scans all nnz entries (O(nnz) work), copies matching entries, and rebuilds
+/// rowptr. Column indices are rebased by subtracting col_start.
+///
+/// @param A Parent CSR matrix
+/// @param col_start First column of the block (0-indexed)
+/// @param col_count Number of columns in the block
+template <typename T, typename sint_t>
+CSRColBlock<T, sint_t> csr_col_block(
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
+    int64_t col_start,
+    int64_t col_count
+) {
+    randblas_require(col_start >= 0);
+    randblas_require(col_count > 0);
+    randblas_require(col_start + col_count <= A.n_cols);
+
+    int64_t col_end = col_start + col_count;
+
+    // Pass 1: count entries per row that fall in [col_start, col_end)
+    std::vector<sint_t> rowptr(A.n_rows + 1, 0);
+    for (int64_t i = 0; i < A.n_rows; ++i) {
+        for (sint_t k = A.rowptr[i]; k < A.rowptr[i + 1]; ++k) {
+            if (A.colidxs[k] >= col_start && A.colidxs[k] < col_end)
+                rowptr[i + 1]++;
+        }
+    }
+
+    // Prefix sum
+    for (int64_t i = 0; i < A.n_rows; ++i)
+        rowptr[i + 1] += rowptr[i];
+
+    int64_t block_nnz = rowptr[A.n_rows];
+
+    // Pass 2: copy matching entries with rebased column indices
+    std::vector<T> vals(block_nnz);
+    std::vector<sint_t> colidxs(block_nnz);
+    for (int64_t i = 0; i < A.n_rows; ++i) {
+        sint_t write_pos = rowptr[i];
+        for (sint_t k = A.rowptr[i]; k < A.rowptr[i + 1]; ++k) {
+            if (A.colidxs[k] >= col_start && A.colidxs[k] < col_end) {
+                vals[write_pos] = A.vals[k];
+                colidxs[write_pos] = A.colidxs[k] - col_start;
+                write_pos++;
+            }
+        }
+    }
+
+    return CSRColBlock<T, sint_t>{
+        std::move(vals), std::move(rowptr), std::move(colidxs),
+        A.n_rows, col_count, block_nnz
+    };
+}
+
+/// @brief Split a CSR matrix into num_blocks uniform column blocks.
+///
+/// Each block extraction scans all nnz entries independently (O(nnz) per block).
+/// Blocks are extracted in parallel when OpenMP is available.
+///
+/// Requires n_cols to be evenly divisible by num_blocks.
+///
+/// @param A Parent CSR matrix
+/// @param num_blocks Number of column blocks to split into
+template <typename T, typename sint_t>
+std::vector<CSRColBlock<T, sint_t>> csr_split_col_blocks(
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0);
+    int64_t block_size = A.n_cols / num_blocks;
+    randblas_require(block_size * num_blocks == A.n_cols);
+
+    std::vector<CSRColBlock<T, sint_t>> out(num_blocks);
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif
+    for (int64_t i = 0; i < num_blocks; ++i)
+        out[i] = csr_col_block(A, i * block_size, block_size);
+    return out;
+}
+
+
+/// @brief Non-owning view of a contiguous column range of a CSC matrix.
+///
+/// Owns a rebased copy of the colptr array (O(col_count) memory) so that
+/// colptr[0] == 0 as required by RandBLAS SpMM. The vals and rowidxs
+/// pointers borrow from the parent CSC matrix, which must outlive this view.
+///
+/// @tparam T Scalar type
+/// @tparam sint_t Signed integer type for indices
+template <typename T, typename sint_t = int64_t>
+struct CSCColBlockView {
+    std::vector<sint_t> colptr;  ///< Owned, rebased to start from 0
+    T* vals;                     ///< Non-owning, points into parent
+    sint_t* rowidxs;             ///< Non-owning, points into parent
+    int64_t n_rows;              ///< Number of rows (same as parent)
+    int64_t n_cols;              ///< Number of columns in the block
+    int64_t nnz;                 ///< Number of nonzeros in the block
+
+    /// @brief Get a non-owning CSCMatrix view of this block.
+    /// The returned CSCMatrix borrows from this view (colptr) and the parent
+    /// (vals, rowidxs). Both must outlive the returned CSCMatrix.
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t> as_csc() {
+        return RandBLAS::sparse_data::CSCMatrix<T, sint_t>(
+            n_rows, n_cols, nnz, vals, rowidxs, colptr.data());
+    }
+};
+
+/// @brief Create a column-block view of a CSC matrix for columns [col_start, col_start + col_count).
+///
+/// The returned view owns a rebased colptr array and borrows vals/rowidxs
+/// from the parent. The parent must outlive the view and any CSCMatrix
+/// obtained via as_csc().
+///
+/// @param A Parent CSC matrix
+/// @param col_start First column of the block (0-indexed)
+/// @param col_count Number of columns in the block
+template <typename T, typename sint_t>
+CSCColBlockView<T, sint_t> csc_col_block(
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
+    int64_t col_start,
+    int64_t col_count
+) {
+    randblas_require(col_start >= 0);
+    randblas_require(col_count > 0);
+    randblas_require(col_start + col_count <= A.n_cols);
+
+    sint_t base = A.colptr[col_start];
+    int64_t block_nnz = A.colptr[col_start + col_count] - base;
+
+    // Rebase colptr so that colptr[0] == 0
+    std::vector<sint_t> rebased(col_count + 1);
+    for (int64_t i = 0; i <= col_count; ++i)
+        rebased[i] = A.colptr[col_start + i] - base;
+
+    return CSCColBlockView<T, sint_t>{
+        std::move(rebased),
+        A.vals + base,
+        A.rowidxs + base,
+        A.n_rows,
+        col_count,
+        block_nnz
+    };
+}
+
+/// @brief Split a CSC matrix into num_blocks uniform column blocks.
+///
+/// Requires n_cols to be evenly divisible by num_blocks.
+///
+/// @param A Parent CSC matrix
+/// @param num_blocks Number of blocks to split into
+template <typename T, typename sint_t>
+std::vector<CSCColBlockView<T, sint_t>> csc_split_col_blocks(
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0);
+    int64_t block_size = A.n_cols / num_blocks;
+    randblas_require(block_size * num_blocks == A.n_cols);
+
+    std::vector<CSCColBlockView<T, sint_t>> out;
+    out.reserve(num_blocks);
+    for (int64_t i = 0; i < num_blocks; ++i)
+        out.push_back(csc_col_block(A, i * block_size, block_size));
+    return out;
+}
+
+
+/// @brief Owning extraction of a row range from a CSC matrix (cross-direction).
+///
+/// Unlike CSC col-block views (O(block_size), non-owning), CSC row-block
+/// extraction requires scanning ALL nnz entries and copying those in the
+/// row range. This is O(nnz) work and produces an independent copy.
+///
+/// Row indices in the result are rebased to [0, row_count).
+///
+/// @tparam T Scalar type
+/// @tparam sint_t Signed integer type for indices
+template <typename T, typename sint_t = int64_t>
+struct CSCRowBlock {
+    std::vector<T> vals;           ///< Owned copy of matching values
+    std::vector<sint_t> colptr;    ///< Owned, built from per-column counts
+    std::vector<sint_t> rowidxs;   ///< Owned copy of matching row indices (rebased)
+    int64_t n_rows;                ///< Number of rows in the block
+    int64_t n_cols;                ///< Number of columns (same as parent)
+    int64_t nnz;                   ///< Number of nonzeros in the block
+
+    /// @brief Get a non-owning CSCMatrix referencing this block's arrays.
+    /// This block must outlive the returned CSCMatrix.
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t> as_csc() {
+        return RandBLAS::sparse_data::CSCMatrix<T, sint_t>(
+            n_rows, n_cols, nnz, vals.data(), rowidxs.data(), colptr.data());
+    }
+};
+
+/// @brief Extract rows [row_start, row_start + row_count) from a CSC matrix.
+///
+/// Scans all nnz entries (O(nnz) work), copies matching entries, and rebuilds
+/// colptr. Row indices are rebased by subtracting row_start.
+///
+/// @param A Parent CSC matrix
+/// @param row_start First row of the block (0-indexed)
+/// @param row_count Number of rows in the block
+template <typename T, typename sint_t>
+CSCRowBlock<T, sint_t> csc_row_block(
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
+    int64_t row_start,
+    int64_t row_count
+) {
+    randblas_require(row_start >= 0);
+    randblas_require(row_count > 0);
+    randblas_require(row_start + row_count <= A.n_rows);
+
+    int64_t row_end = row_start + row_count;
+
+    // Pass 1: count entries per column that fall in [row_start, row_end)
+    std::vector<sint_t> colptr(A.n_cols + 1, 0);
+    for (int64_t j = 0; j < A.n_cols; ++j) {
+        for (sint_t k = A.colptr[j]; k < A.colptr[j + 1]; ++k) {
+            if (A.rowidxs[k] >= row_start && A.rowidxs[k] < row_end)
+                colptr[j + 1]++;
+        }
+    }
+
+    // Prefix sum
+    for (int64_t j = 0; j < A.n_cols; ++j)
+        colptr[j + 1] += colptr[j];
+
+    int64_t block_nnz = colptr[A.n_cols];
+
+    // Pass 2: copy matching entries with rebased row indices
+    std::vector<T> vals(block_nnz);
+    std::vector<sint_t> rowidxs(block_nnz);
+    for (int64_t j = 0; j < A.n_cols; ++j) {
+        sint_t write_pos = colptr[j];
+        for (sint_t k = A.colptr[j]; k < A.colptr[j + 1]; ++k) {
+            if (A.rowidxs[k] >= row_start && A.rowidxs[k] < row_end) {
+                vals[write_pos] = A.vals[k];
+                rowidxs[write_pos] = A.rowidxs[k] - row_start;
+                write_pos++;
+            }
+        }
+    }
+
+    return CSCRowBlock<T, sint_t>{
+        std::move(vals), std::move(colptr), std::move(rowidxs),
+        row_count, A.n_cols, block_nnz
+    };
+}
+
+/// @brief Split a CSC matrix into num_blocks uniform row blocks.
+///
+/// Each block extraction scans all nnz entries independently (O(nnz) per block).
+/// Blocks are extracted in parallel when OpenMP is available.
+///
+/// Requires n_rows to be evenly divisible by num_blocks.
+///
+/// @param A Parent CSC matrix
+/// @param num_blocks Number of row blocks to split into
+template <typename T, typename sint_t>
+std::vector<CSCRowBlock<T, sint_t>> csc_split_row_blocks(
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0);
+    int64_t block_size = A.n_rows / num_blocks;
+    randblas_require(block_size * num_blocks == A.n_rows);
+
+    std::vector<CSCRowBlock<T, sint_t>> out(num_blocks);
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif
+    for (int64_t i = 0; i < num_blocks; ++i)
+        out[i] = csc_row_block(A, i * block_size, block_size);
+    return out;
+}
+
 
 /*********************************************************/
 /*                                                       */
@@ -561,19 +1080,99 @@ template <RandBLAS::sparse_data::SparseMatrix SpMat>
 struct SparseLinOp {
     using T = typename SpMat::scalar_t;
     using scalar_t = T;
+    using sint_t = typename SpMat::index_t;
     const int64_t n_rows;  ///< Number of rows in the operator matrix
     const int64_t n_cols;  ///< Number of columns in the operator matrix
-    SpMat &A_sp;          ///< Reference to the sparse matrix data
 
-    /// @brief Construct a sparse linear operator
-    /// @param n_rows Number of rows in the sparse matrix
-    /// @param n_cols Number of columns in the sparse matrix
-    /// @param A_sp Reference to the sparse matrix (CSC, CSR, or COO format)
+private:
+    // ---- Block data ownership (type-erased) ----
+    //
+    // When this SparseLinOp is produced by a block method (row_block,
+    // col_block, submatrix), block_owner_ holds the block/view struct
+    // (e.g., CSRRowBlockView, CSRColBlock, CSCColBlockView, CSCRowBlock)
+    // that owns the underlying sparse data arrays.  For SparseLinOps
+    // constructed directly from an external SpMat&, block_owner_ is null.
+    //
+    // Uses std::shared_ptr<void> for type-erased ownership: the correct
+    // destructor is captured at construction time via shared_ptr's deleter,
+    // so a single member can hold any block type without exposing it in the
+    // class template signature.
+    //
+    // IMPORTANT: block_owner_ is declared BEFORE A_sp so that C++ destruction
+    // order (reverse of declaration) destroys A_sp (the non-owning view)
+    // first, then block_owner_ releases the data A_sp may point into.
+    std::shared_ptr<void> block_owner_;
+
+    /// @brief Create a non-owning SpMat view of an existing sparse matrix.
+    ///
+    /// Uses the SpMat expert constructor (own_memory=false) to produce a
+    /// lightweight view that borrows all pointer data from src.  The source
+    /// matrix must outlive any SparseLinOp built from this view.
+    ///
+    /// Dispatches at compile time via if constexpr for CSR, CSC, and COO.
+    static SpMat make_view(SpMat& src) {
+        using CSR = RandBLAS::sparse_data::CSRMatrix<T, sint_t>;
+        using CSC = RandBLAS::sparse_data::CSCMatrix<T, sint_t>;
+        using COO = RandBLAS::sparse_data::COOMatrix<T, sint_t>;
+        if constexpr (std::is_same_v<SpMat, CSR>) {
+            return CSR(src.n_rows, src.n_cols, src.nnz,
+                       src.vals, src.rowptr, src.colidxs);
+        } else if constexpr (std::is_same_v<SpMat, CSC>) {
+            return CSC(src.n_rows, src.n_cols, src.nnz,
+                       src.vals, src.rowidxs, src.colptr);
+        } else if constexpr (std::is_same_v<SpMat, COO>) {
+            return COO(src.n_rows, src.n_cols, src.nnz,
+                       src.vals, src.rows, src.cols);
+        } else {
+            static_assert(!std::is_same_v<SpMat, SpMat>,
+                "make_view only supports CSR, CSC, and COO sparse formats");
+        }
+    }
+
+    /// @brief Private constructor for block-derived SparseLinOps.
+    ///
+    /// Used by row_block(), col_block(), and submatrix() to return a
+    /// SparseLinOp that owns its block data via the type-erased owner.
+    ///
+    /// @param n_rows  Number of rows in the block
+    /// @param n_cols  Number of columns in the block
+    /// @param view    Non-owning SpMat whose pointers reference data in owner
+    /// @param owner   Type-erased shared_ptr holding the block/view struct
+    SparseLinOp(int64_t n_rows, int64_t n_cols,
+                SpMat&& view, std::shared_ptr<void> owner)
+        : n_rows(n_rows), n_cols(n_cols),
+          block_owner_(std::move(owner)), A_sp(std::move(view)) {}
+
+public:
+    // ---- Sparse matrix data ----
+    //
+    // Non-owning view (own_memory == false) of the sparse matrix, created
+    // via the SpMat expert constructor.  The actual data resides either in
+    // the caller's original SpMat (for externally-constructed operators) or
+    // in block_owner_ (for block-derived operators).
+    //
+    // Declared mutable because const block methods (row_block, col_block,
+    // submatrix) must pass A_sp to free functions (e.g., csr_row_block)
+    // that take SpMat& (non-const reference).  The underlying matrix data
+    // is never modified through A_sp; the mutable qualifier only relaxes
+    // the top-level const on the SpMat object itself.
+    mutable SpMat A_sp;
+
+    /// @brief Construct a sparse linear operator from an existing sparse matrix.
+    ///
+    /// Creates a non-owning view of the source matrix via its expert
+    /// constructor (own_memory=false).  The source matrix must outlive this
+    /// operator and any natural-direction block views derived from it
+    /// (which borrow vals/index pointers from the source).
+    ///
+    /// @param n_rows  Number of rows in the sparse matrix
+    /// @param n_cols  Number of columns in the sparse matrix
+    /// @param src     Source sparse matrix (CSR, CSC, or COO). Not modified.
     SparseLinOp(
         const int64_t n_rows,
         const int64_t n_cols,
-        SpMat &A_sp
-    ) : n_rows(n_rows), n_cols(n_cols), A_sp(A_sp) {
+        SpMat &src
+    ) : n_rows(n_rows), n_cols(n_cols), block_owner_(), A_sp(make_view(src)) {
 
     }
 
@@ -911,6 +1510,151 @@ struct SparseLinOp {
 
         delete[] A_dense;
     }
+
+    // =====================================================================
+    //  Block view methods
+    // =====================================================================
+    //
+    //  These methods extract row, column, or submatrix blocks and return
+    //  a new SparseLinOp that owns its block data via the type-erased
+    //  block_owner_ member (std::shared_ptr<void>).  The returned operator's
+    //  A_sp is a non-owning view into block_owner_'s data.
+    //
+    //  Internally, each method:
+    //    1. Calls the appropriate free function (e.g., csr_row_block) to
+    //       produce a block/view struct that holds the extracted data.
+    //    2. Wraps that struct in a std::shared_ptr<void> (type-erased).
+    //    3. Calls the block struct's as_csr()/as_csc() to obtain a
+    //       non-owning SpMat view of the data.
+    //    4. Returns a SparseLinOp constructed from the view + shared_ptr
+    //       via the private constructor.
+    //
+    //  Complexity:
+    //    - Natural-direction (CSR row / CSC col): O(block_size) for rebasing
+    //      the pointer array.  vals/index arrays are borrowed from the parent.
+    //      The parent matrix must outlive the returned SparseLinOp.
+    //    - Cross-direction (CSR col / CSC row): O(nnz) full copy of matching
+    //      entries.  The returned SparseLinOp is fully self-contained.
+    //    - submatrix: chains natural then cross, so O(block_nnz) total.
+    //      The result is fully self-contained.
+    //
+    //  Uses if constexpr with std::is_same_v to dispatch CSR vs CSC at
+    //  compile time.  COO is not supported (no natural partitioning).
+    //
+
+    /// @brief Extract a row block [row_start, row_start + row_count).
+    ///
+    /// For CSR: natural-direction O(row_count) view via CSRRowBlockView.
+    ///          Parent matrix must outlive the returned operator.
+    /// For CSC: cross-direction O(nnz) owning copy via CSCRowBlock.
+    ///          Returned operator is self-contained.
+    ///
+    /// @param row_start First row of the block (0-indexed)
+    /// @param row_count Number of rows in the block
+    /// @return SparseLinOp viewing the extracted row block
+    SparseLinOp row_block(int64_t row_start, int64_t row_count) const {
+        using CSR = RandBLAS::sparse_data::CSRMatrix<T, sint_t>;
+        using CSC = RandBLAS::sparse_data::CSCMatrix<T, sint_t>;
+        if constexpr (std::is_same_v<SpMat, CSR>) {
+            // Natural direction: CSRRowBlockView owns rebased rowptr,
+            // borrows vals/colidxs from this operator's source.
+            auto blk = std::make_shared<CSRRowBlockView<T, sint_t>>(
+                csr_row_block(A_sp, row_start, row_count));
+            auto view = blk->as_csr();
+            return SparseLinOp(row_count, A_sp.n_cols,
+                               std::move(view), std::move(blk));
+        } else if constexpr (std::is_same_v<SpMat, CSC>) {
+            // Cross direction: CSCRowBlock owns all arrays (full copy).
+            auto blk = std::make_shared<CSCRowBlock<T, sint_t>>(
+                csc_row_block(A_sp, row_start, row_count));
+            auto view = blk->as_csc();
+            return SparseLinOp(row_count, A_sp.n_cols,
+                               std::move(view), std::move(blk));
+        } else {
+            static_assert(!std::is_same_v<SpMat, SpMat>,
+                "row_block is only supported for CSR and CSC sparse formats");
+        }
+    }
+
+    /// @brief Extract a column block [col_start, col_start + col_count).
+    ///
+    /// For CSR: cross-direction O(nnz) owning copy via CSRColBlock.
+    ///          Returned operator is self-contained.
+    /// For CSC: natural-direction O(col_count) view via CSCColBlockView.
+    ///          Parent matrix must outlive the returned operator.
+    ///
+    /// @param col_start First column of the block (0-indexed)
+    /// @param col_count Number of columns in the block
+    /// @return SparseLinOp viewing the extracted column block
+    SparseLinOp col_block(int64_t col_start, int64_t col_count) const {
+        using CSR = RandBLAS::sparse_data::CSRMatrix<T, sint_t>;
+        using CSC = RandBLAS::sparse_data::CSCMatrix<T, sint_t>;
+        if constexpr (std::is_same_v<SpMat, CSR>) {
+            // Cross direction: CSRColBlock owns all arrays (full copy).
+            auto blk = std::make_shared<CSRColBlock<T, sint_t>>(
+                csr_col_block(A_sp, col_start, col_count));
+            auto view = blk->as_csr();
+            return SparseLinOp(A_sp.n_rows, col_count,
+                               std::move(view), std::move(blk));
+        } else if constexpr (std::is_same_v<SpMat, CSC>) {
+            // Natural direction: CSCColBlockView owns rebased colptr,
+            // borrows vals/rowidxs from this operator's source.
+            auto blk = std::make_shared<CSCColBlockView<T, sint_t>>(
+                csc_col_block(A_sp, col_start, col_count));
+            auto view = blk->as_csc();
+            return SparseLinOp(A_sp.n_rows, col_count,
+                               std::move(view), std::move(blk));
+        } else {
+            static_assert(!std::is_same_v<SpMat, SpMat>,
+                "col_block is only supported for CSR and CSC sparse formats");
+        }
+    }
+
+    /// @brief Extract a submatrix at (row_start, col_start) with dimensions
+    /// row_count x col_count.
+    ///
+    /// Implemented as a two-step extraction: natural-direction block first
+    /// (cheap O(block_size)), then cross-direction extraction on the result
+    /// (O(block_nnz)).  The returned operator is always self-contained
+    /// because the cross-direction step produces a full owning copy.
+    ///
+    /// For CSR: row block then col extraction -> CSRColBlock.
+    /// For CSC: col block then row extraction -> CSCRowBlock.
+    ///
+    /// @param row_start First row of the submatrix (0-indexed)
+    /// @param col_start First column of the submatrix (0-indexed)
+    /// @param row_count Number of rows in the submatrix
+    /// @param col_count Number of columns in the submatrix
+    /// @return SparseLinOp viewing the extracted submatrix
+    SparseLinOp submatrix(int64_t row_start, int64_t col_start,
+                          int64_t row_count, int64_t col_count) const {
+        using CSR = RandBLAS::sparse_data::CSRMatrix<T, sint_t>;
+        using CSC = RandBLAS::sparse_data::CSCMatrix<T, sint_t>;
+        if constexpr (std::is_same_v<SpMat, CSR>) {
+            // Step 1: natural row-block (O(row_count), temporary view)
+            auto row_view = csr_row_block(A_sp, row_start, row_count);
+            auto row_csr = row_view.as_csr();
+            // Step 2: cross-direction col extraction (O(block_nnz), full copy)
+            auto blk = std::make_shared<CSRColBlock<T, sint_t>>(
+                csr_col_block(row_csr, col_start, col_count));
+            auto view = blk->as_csr();
+            return SparseLinOp(row_count, col_count,
+                               std::move(view), std::move(blk));
+        } else if constexpr (std::is_same_v<SpMat, CSC>) {
+            // Step 1: natural col-block (O(col_count), temporary view)
+            auto col_view = csc_col_block(A_sp, col_start, col_count);
+            auto col_csc = col_view.as_csc();
+            // Step 2: cross-direction row extraction (O(block_nnz), full copy)
+            auto blk = std::make_shared<CSCRowBlock<T, sint_t>>(
+                csc_row_block(col_csc, row_start, row_count));
+            auto view = blk->as_csc();
+            return SparseLinOp(row_count, col_count,
+                               std::move(view), std::move(blk));
+        } else {
+            static_assert(!std::is_same_v<SpMat, SpMat>,
+                "submatrix is only supported for CSR and CSC sparse formats");
+        }
+    }
 };
 
 /*********************************************************/
@@ -960,6 +1704,67 @@ struct DenseLinOp {
         } else {  // RowMajor
             randblas_require(lda >= n_cols);
         }
+    }
+
+    /// @brief Create a view of a contiguous row range [row_start, row_start + row_count).
+    ///
+    /// Returns a non-owning DenseLinOp whose A_buff points into this operator's memory.
+    /// The parent must outlive the returned view. The view preserves the original lda
+    /// and is directly usable in BLAS/LAPACK calls.
+    ///
+    /// @param row_start First row of the block (0-indexed)
+    /// @param row_count Number of rows in the block
+    DenseLinOp<T> row_block(int64_t row_start, int64_t row_count) const {
+        randblas_require(row_start >= 0);
+        randblas_require(row_count > 0);
+        randblas_require(row_start + row_count <= n_rows);
+        const T* offset = (buff_layout == Layout::ColMajor)
+            ? A_buff + row_start
+            : A_buff + row_start * lda;
+        return DenseLinOp<T>(row_count, n_cols, offset, lda, buff_layout);
+    }
+
+    /// @brief Create a view of a contiguous column range [col_start, col_start + col_count).
+    ///
+    /// Returns a non-owning DenseLinOp whose A_buff points into this operator's memory.
+    /// The parent must outlive the returned view. The view preserves the original lda
+    /// and is directly usable in BLAS/LAPACK calls.
+    ///
+    /// @param col_start First column of the block (0-indexed)
+    /// @param col_count Number of columns in the block
+    DenseLinOp<T> col_block(int64_t col_start, int64_t col_count) const {
+        randblas_require(col_start >= 0);
+        randblas_require(col_count > 0);
+        randblas_require(col_start + col_count <= n_cols);
+        const T* offset = (buff_layout == Layout::ColMajor)
+            ? A_buff + col_start * lda
+            : A_buff + col_start;
+        return DenseLinOp<T>(n_rows, col_count, offset, lda, buff_layout);
+    }
+
+    /// @brief Create a view of a submatrix starting at (row_start, col_start)
+    /// with dimensions row_count x col_count.
+    ///
+    /// Returns a non-owning DenseLinOp whose A_buff points into this operator's memory.
+    /// The parent must outlive the returned view. The view preserves the original lda
+    /// and is directly usable in BLAS/LAPACK calls.
+    ///
+    /// @param row_start First row of the submatrix (0-indexed)
+    /// @param col_start First column of the submatrix (0-indexed)
+    /// @param row_count Number of rows in the submatrix
+    /// @param col_count Number of columns in the submatrix
+    DenseLinOp<T> submatrix(int64_t row_start, int64_t col_start,
+                            int64_t row_count, int64_t col_count) const {
+        randblas_require(row_start >= 0);
+        randblas_require(col_start >= 0);
+        randblas_require(row_count > 0);
+        randblas_require(col_count > 0);
+        randblas_require(row_start + row_count <= n_rows);
+        randblas_require(col_start + col_count <= n_cols);
+        const T* offset = (buff_layout == Layout::ColMajor)
+            ? A_buff + row_start + col_start * lda
+            : A_buff + row_start * lda + col_start;
+        return DenseLinOp<T>(row_count, col_count, offset, lda, buff_layout);
     }
 
     /// @brief Compute the Frobenius norm of the dense operator matrix

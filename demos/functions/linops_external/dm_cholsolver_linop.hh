@@ -551,6 +551,42 @@ public:
 
         delete[] S_dense;
     }
+
+    // =====================================================================
+    // Block views — intentionally unsupported
+    // =====================================================================
+    //
+    // CholSolverLinOp represents an implicit inverse (A^{-1}).  A submatrix
+    // of an inverse has no efficient implicit representation: extracting
+    // rows or columns of A^{-1} requires materialising those entries, which
+    // is O(n^2) and defeats the purpose of the implicit operator.
+    //
+    // The methods below exist only to produce a clear compile-time error
+    // when someone (or a CompositeOperator block method) tries to call them.
+
+    template <typename Dummy = void>
+    auto row_block(int64_t, int64_t) const {
+        static_assert(!std::is_same_v<Dummy, void>,
+            "CholSolverLinOp represents an implicit inverse (A^{-1}) and cannot be "
+            "partitioned into blocks.  Block views are only supported for DenseLinOp, "
+            "SparseLinOp, and CompositeOperator.");
+    }
+
+    template <typename Dummy = void>
+    auto col_block(int64_t, int64_t) const {
+        static_assert(!std::is_same_v<Dummy, void>,
+            "CholSolverLinOp represents an implicit inverse (A^{-1}) and cannot be "
+            "partitioned into blocks.  Block views are only supported for DenseLinOp, "
+            "SparseLinOp, and CompositeOperator.");
+    }
+
+    template <typename Dummy = void>
+    auto submatrix(int64_t, int64_t, int64_t, int64_t) const {
+        static_assert(!std::is_same_v<Dummy, void>,
+            "CholSolverLinOp represents an implicit inverse (A^{-1}) and cannot be "
+            "partitioned into blocks.  Block views are only supported for DenseLinOp, "
+            "SparseLinOp, and CompositeOperator.");
+    }
 };
 
 } // namespace RandLAPACK_demos
