@@ -21,6 +21,7 @@ int main() {return 0;}
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <cmath>
+#include <cstdio>
 #include <iomanip>
 #include "../../demos/functions/misc/dm_util.hh"
 
@@ -50,23 +51,6 @@ public:
             values.push_back(val);
             num_entries++;
         }
-    }
-
-    // Create a copy with modified diagonal
-    SparseSPDMatrix with_diagonal_shift(double alpha) const {
-        SparseSPDMatrix result(dim);
-        result.row_indices = row_indices;
-        result.col_indices = col_indices;
-        result.values = values;
-        result.num_entries = num_entries;
-
-        // Add alpha to diagonal entries
-        for (int64_t k = 0; k < result.num_entries; ++k) {
-            if (result.row_indices[k] == result.col_indices[k]) {
-                result.values[k] += alpha;
-            }
-        }
-        return result;
     }
 };
 
@@ -197,26 +181,59 @@ void compute_eigenvalue_range(
     lambda_max = eigenvalues[n - 1];
 }
 
-/// Write sparse matrix in symmetric Matrix Market format with full precision
-void write_sparse_matrix_symmetric(
+/// Write a diagonally-shifted sparse matrix in symmetric MatrixMarket format.
+///
+/// This function combines two former steps (copy + write) into one: instead of
+/// creating a full copy of the seed matrix via with_diagonal_shift() and then
+/// writing it with write_sparse_matrix_symmetric(), it writes directly from the
+/// seed's COO arrays, adding alpha to diagonal entries on-the-fly during output.
+///
+/// Benefits:
+///   - No per-matrix allocation: avoids copying 3 arrays of ~600K entries each
+///     (row_indices, col_indices, values) for every output matrix.
+///   - Uses fprintf instead of std::ofstream with std::scientific/std::setprecision.
+///     C stdio is significantly faster for bulk formatted numeric output because it
+///     avoids C++ stream state management, locale handling, and virtual dispatch
+///     overhead on every write call.
+///   - The output is byte-identical to the former approach.
+///
+/// @param[in] filename  Output file path (.mtx)
+/// @param[in] A_seed    The seed banded SPD matrix (lower-triangular COO storage)
+/// @param[in] alpha     Diagonal shift: the output matrix is A_seed + alpha * I.
+///                      For each entry (i, j, val): if i == j, writes val + alpha;
+///                      otherwise writes val unchanged.
+void write_shifted_matrix(
     const std::string& filename,
-    const SparseSPDMatrix& A
+    const SparseSPDMatrix& A_seed,
+    double alpha
 ) {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
+    FILE* f = fopen(filename.c_str(), "w");
+    if (!f) {
         throw std::runtime_error("Cannot open file for writing: " + filename);
     }
 
-    file << "%%MatrixMarket matrix coordinate real symmetric\n";
-    file << A.dim << " " << A.dim << " " << A.num_entries << "\n";
+    // MatrixMarket header: "coordinate real symmetric" format, 1-indexed
+    fprintf(f, "%%%%MatrixMarket matrix coordinate real symmetric\n");
+    fprintf(f, "%ld %ld %ld\n", A_seed.dim, A_seed.dim, A_seed.num_entries);
 
-    // Write lower triangular entries (1-indexed) with full double precision
-    file << std::scientific << std::setprecision(17);
-    for (int64_t k = 0; k < A.num_entries; ++k) {
-        file << (A.row_indices[k] + 1) << " " << (A.col_indices[k] + 1) << " " << A.values[k] << "\n";
+    // Write all lower-triangular COO entries with diagonal shift applied on-the-fly.
+    // The seed's COO arrays are read but never modified — each thread in the parallel
+    // loop reads from the same shared seed, with only the alpha value differing.
+    for (int64_t k = 0; k < A_seed.num_entries; ++k) {
+        int64_t row_1idx = A_seed.row_indices[k] + 1;  // Convert 0-indexed to 1-indexed
+        int64_t col_1idx = A_seed.col_indices[k] + 1;
+        double val = A_seed.values[k];
+
+        // Apply diagonal shift without copying: only diagonal entries (i == j) are modified
+        if (A_seed.row_indices[k] == A_seed.col_indices[k]) {
+            val += alpha;
+        }
+
+        // %.17e matches the former std::scientific << std::setprecision(17)
+        fprintf(f, "%ld %ld %.17e\n", row_1idx, col_1idx, val);
     }
 
-    file.close();
+    fclose(f);
 }
 
 int main(int argc, char *argv[]) {
@@ -346,17 +363,18 @@ int main(int argc, char *argv[]) {
     printf("Will generate %ld matrices (skipped %ld due to SPD constraints)\n\n",
            matrices_to_generate, num_matrices - matrices_to_generate);
 
-    // Parallel matrix generation
+    // Parallel matrix generation.
+    // Each thread writes directly from the shared A_seed, applying the per-matrix
+    // diagonal shift (alpha) on-the-fly in write_shifted_matrix(). No per-matrix
+    // copies of the COO arrays are created — the only per-thread allocation is the
+    // FILE* buffer inside fprintf. This is safe because each thread writes to a
+    // different output file, and A_seed is read-only (never modified).
     #pragma omp parallel for schedule(dynamic)
     for (int64_t idx = 0; idx < matrices_to_generate; ++idx) {
         const MatrixGenParams& params = valid_matrices[idx];
 
-        // Create regularized matrix (each thread gets its own copy)
-        SparseSPDMatrix A_reg = A_seed.with_diagonal_shift(params.alpha);
-
-        // Save matrix
         std::string filepath = output_dir + "/" + params.filename;
-        write_sparse_matrix_symmetric(filepath, A_reg);
+        write_shifted_matrix(filepath, A_seed, params.alpha);
 
         #pragma omp critical
         {
