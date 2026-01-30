@@ -104,57 +104,95 @@ SparseSPDMatrix generate_banded_spd_seed(
     return A;
 }
 
-/// Convert sparse matrix to dense (column-major) for eigensolve
-/// The sparse matrix is stored as lower triangular, but we need full symmetric
-void sparse_to_dense_symmetric(const SparseSPDMatrix& A, std::vector<double>& dense) {
+/// Pack a banded SPD matrix (stored as lower-triangular COO) into LAPACK's
+/// banded storage format for use with lapack::sbev.
+///
+/// LAPACK banded format (Uplo::Lower, column-major):
+///   AB has dimensions (ldab, n) where ldab = kd + 1.
+///   For each column j, the lower bands are stored contiguously:
+///     AB[0    + j * ldab] = A(j,   j)      diagonal
+///     AB[1    + j * ldab] = A(j+1, j)      1st subdiagonal (if j+1 < n)
+///     AB[2    + j * ldab] = A(j+2, j)      2nd subdiagonal (if j+2 < n)
+///     ...
+///     AB[kd   + j * ldab] = A(j+kd, j)     kd-th subdiagonal (if j+kd < n)
+///
+/// This function assumes the COO entries store only the lower triangle (i >= j),
+/// which matches SparseSPDMatrix::add_entry.
+///
+/// @param[in]  A     Banded SPD matrix in lower-triangular COO storage
+/// @param[in]  kd    Number of subdiagonals (bandwidth). For pentadiagonal, kd = 2.
+/// @param[out] AB    Banded storage array, will be resized to (kd+1) * n and zero-initialized
+/// @param[in]  ldab  Leading dimension of AB, must be >= kd + 1
+void pack_lower_banded(
+    const SparseSPDMatrix& A,
+    int64_t kd,
+    std::vector<double>& AB,
+    int64_t ldab
+) {
     int64_t n = A.dim;
-    dense.assign(n * n, 0.0);
+    AB.assign(ldab * n, 0.0);
 
-    // Fill from lower triangular storage
+    // Map each lower-triangular COO entry (i, j, val) with i >= j
+    // to banded position AB[(i - j) + j * ldab].
+    // Since i - j <= kd for a banded matrix, this always fits in rows 0..kd.
     for (int64_t k = 0; k < A.num_entries; ++k) {
         int64_t i = A.row_indices[k];
         int64_t j = A.col_indices[k];
-        double val = A.values[k];
-
-        // Column-major indexing: A[i,j] = dense[i + j*n]
-        dense[i + j * n] = val;
-        if (i != j) {
-            dense[j + i * n] = val;  // Symmetric: A[j,i] = A[i,j]
-        }
+        AB[(i - j) + j * ldab] = A.values[k];
     }
 }
 
-/// Compute eigenvalue range using LAPACK++ syev
+/// Compute eigenvalue range using LAPACK++ sbev (symmetric banded eigenvalue solver).
+///
+/// Uses the banded structure directly instead of densifying the matrix. This is
+/// O(n * kd^2) in time and O(n * kd) in storage, compared to O(n^3) / O(n^2)
+/// for a full dense syev. For our pentadiagonal matrices (kd = 2), the banded
+/// storage requires (kd+1)*n = 3n doubles (~4.8 MB at n=200,000), compared to
+/// n^2 doubles (~320 GB at n=200,000) for dense syev.
+///
+/// @param[in]  A           Banded SPD matrix in lower-triangular COO storage
+/// @param[in]  kd          Number of subdiagonals (bandwidth). Must match the actual
+///                         bandwidth of A — entries with |i - j| > kd will be silently
+///                         dropped during packing.
+/// @param[out] lambda_min  Smallest eigenvalue
+/// @param[out] lambda_max  Largest eigenvalue
 void compute_eigenvalue_range(
     const SparseSPDMatrix& A,
+    int64_t kd,
     double& lambda_min,
     double& lambda_max
 ) {
     int64_t n = A.dim;
+    int64_t ldab = kd + 1;
 
-    // Convert to dense
-    std::vector<double> dense;
-    sparse_to_dense_symmetric(A, dense);
+    // Pack COO entries into LAPACK banded format (lower triangle)
+    std::vector<double> AB;
+    pack_lower_banded(A, kd, AB, ldab);
 
     // Eigenvalues output array
     std::vector<double> eigenvalues(n);
 
-    // Call LAPACK syev (eigenvalues only, no eigenvectors)
-    // Job='N' means eigenvalues only, uplo='L' means lower triangular input
-    int64_t info = lapack::syev(
+    // Call LAPACK sbev (symmetric banded eigenvalue solver).
+    // Job::NoVec = eigenvalues only (no eigenvectors), so Z and ldz are unused.
+    // Note: sbev overwrites AB internally (tridiagonal reduction workspace).
+    // Eigenvalues are returned in ascending order.
+    double z_dummy;
+    int64_t info = lapack::sbev(
         lapack::Job::NoVec,
         lapack::Uplo::Lower,
         n,
-        dense.data(),
-        n,
-        eigenvalues.data()
+        kd,
+        AB.data(),
+        ldab,
+        eigenvalues.data(),
+        &z_dummy,  // Z — unused when Job::NoVec
+        1          // ldz — must be >= 1 even when unused
     );
 
     if (info != 0) {
-        throw std::runtime_error("LAPACK syev failed with info = " + std::to_string(info));
+        throw std::runtime_error("LAPACK sbev failed with info = " + std::to_string(info));
     }
 
-    // Eigenvalues are returned in ascending order
     lambda_min = eigenvalues[0];
     lambda_max = eigenvalues[n - 1];
 }
@@ -238,9 +276,11 @@ int main(int argc, char *argv[]) {
     int64_t bandwidth = 2;  // Pentadiagonal: diagonal + 2 bands above/below
     SparseSPDMatrix A_seed = generate_banded_spd_seed(n, bandwidth, state);
 
-    // Compute seed matrix properties using LAPACK++ eigensolve
+    // Compute seed matrix properties using LAPACK++ banded eigensolve (sbev).
+    // This exploits the pentadiagonal structure: O(n * kd^2) time, O(n * kd) storage,
+    // instead of O(n^3) time and O(n^2) storage for dense syev.
     double lambda_min_seed, lambda_max_seed;
-    compute_eigenvalue_range(A_seed, lambda_min_seed, lambda_max_seed);
+    compute_eigenvalue_range(A_seed, bandwidth, lambda_min_seed, lambda_max_seed);
     double cond_seed = lambda_max_seed / lambda_min_seed;
 
     // Compute full nnz (for symmetric matrix: lower + upper - diagonal = 2*num_entries - n)
