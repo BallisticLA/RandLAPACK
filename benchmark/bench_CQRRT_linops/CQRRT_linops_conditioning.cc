@@ -150,6 +150,7 @@ static conditioning_result<T> run_single_test(
     int64_t n,
     T d_factor,
     bool use_dense_sketch,
+    int64_t block_size,
     RandBLAS::RNGState<RNG>& state) {
 
     conditioning_result<T> result;
@@ -223,6 +224,7 @@ static conditioning_result<T> run_single_test(
         RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
         CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
         CQRRT_QR.use_dense_sketch = use_dense_sketch;
+        CQRRT_QR.block_size = block_size;
         CQRRT_QR.call(outer_composite, R_cqrrt.data(), n, d_factor, state);
 
         result.cqrrt_time = CQRRT_QR.times[9];  // total_t_dur
@@ -362,9 +364,9 @@ static conditioning_result<T> run_single_test(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 7 || argc > 8) {
+    if (argc < 7 || argc > 9) {
         std::cerr << "Usage: " << argv[0]
-                  << " <spd_matrix_dir> <k_dim> <n_cols> <d_factor> <num_runs> <output_file> [use_dense_sketch]"
+                  << " <spd_matrix_dir> <k_dim> <n_cols> <d_factor> <num_runs> <output_file> [use_dense_sketch] [block_size]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  spd_matrix_dir   : Directory containing SPD matrices (with metadata.txt)" << std::endl;
@@ -374,6 +376,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "  num_runs         : Number of runs per condition number (for averaging)" << std::endl;
         std::cerr << "  output_file      : Output CSV file for results" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = sparse SASO (default: 0)" << std::endl;
+        std::cerr << "  block_size       : (Optional) Column-block size for precondition+Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "\nExample: " << argv[0] << " ./spd_matrices 1138 100 2.0 3 conditioning_results.csv" << std::endl;
         return 1;
     }
@@ -386,6 +389,7 @@ int main(int argc, char *argv[]) {
     int64_t num_runs = std::stol(argv[5]);
     std::string output_file_arg = argv[6];
     bool use_dense_sketch = (argc >= 8) ? (std::stoi(argv[7]) != 0) : false;
+    int64_t block_size = (argc >= 9) ? std::stol(argv[8]) : 0;
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -436,6 +440,7 @@ int main(int argc, char *argv[]) {
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
     printf("Sketching factor (CQRRT only): %.2f\n", d_factor);
     printf("Sketch type (CQRRT only): %s\n", use_dense_sketch ? "dense Gaussian" : "sparse SASO");
+    printf("Block size (CQRRT only): %ld (0 = full)\n", block_size);
     printf("Runs per condition: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
     printf("Output file: %s\n", output_file.c_str());
@@ -474,6 +479,7 @@ int main(int argc, char *argv[]) {
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
+    out << "# block_size (CQRRT only): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
     out << "# Format: cond_num, cqrrt_*, cholqr_*, scholqr3_* (rel_error, orth_error, max_orth_cols, orth_rate, time), dense_cqrrt_time\n";
@@ -503,6 +509,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
     breakdown << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
+    breakdown << "# block_size (CQRRT only): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
@@ -533,7 +540,7 @@ int main(int argc, char *argv[]) {
         long fastest_dense_cqrrt_time = std::numeric_limits<long>::max();
 
         for (int64_t run = 0; run < num_runs; ++run) {
-            auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, use_dense_sketch, state);
+            auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, use_dense_sketch, block_size, state);
             results.push_back(result);
 
             // Track fastest runs for each algorithm

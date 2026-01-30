@@ -42,6 +42,32 @@ class CQRRT_linops {
         // require O(d*m) storage and O(d*m*n) work for application.
         bool use_dense_sketch;
 
+        // Column-block size for the precondition + Gram computation.
+        //
+        // When block_size > 0, the two expensive linear operator calls:
+        //   (1) A_pre = A * R_sk_inv       (m × n)
+        //   (2) R     = A^T * A_pre         (n × n)
+        // are fused into a column-block loop that processes b columns at a time:
+        //   for each column block j of width b:
+        //     buf (m × b) = A * R_sk_inv[:, j*b : (j+1)*b]
+        //     R[:, j*b : (j+1)*b] = A^T * buf
+        //
+        // This reduces peak memory from O(m*n) to O(m*b), which is significant
+        // when m is large and n is moderate.  The result is mathematically
+        // identical — each column block of R is:
+        //   R[:, j_block] = A^T * (A * R_sk_inv[:, j_block])
+        // which equals the corresponding columns of A^T * A * R_sk_inv.
+        //
+        // When block_size <= 0 or block_size >= n, the full m × n buffer is
+        // allocated and the original (non-blocked) path is used.
+        //
+        // When test_mode is enabled and blocking is active, the Q-factor
+        // computation (which needs the full m × n A_pre) is handled by
+        // recomputing A_pre = A * R_sk_inv after the Gram loop.  This
+        // recomputation is outside the timing region, so it does not
+        // affect benchmark results.
+        int64_t block_size;
+
         CQRRT_linops(
             bool time_subroutines,
             T ep,
@@ -51,6 +77,7 @@ class CQRRT_linops {
             eps = ep;
             nnz = 2;
             use_dense_sketch = false;
+            block_size = 0;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -202,27 +229,119 @@ class CQRRT_linops {
                 linop_precond_t_start = steady_clock::now();
             }
 
-            // Allocate a buffer for A_pre
-            T* A_pre = new T[m * n]();
+            // ================================================================
+            // Precondition + Gram computation: R = A^T * A * R_sk_inv
+            // ================================================================
+            //
+            // This section computes the Gram matrix for Cholesky QR:
+            //   R = (R_sk_inv)^T * A^T * A * R_sk_inv
+            // The (R_sk_inv)^T left-multiply is handled later via TRMM.
+            // Here we compute the inner product:  R = A^T * (A * R_sk_inv).
+            //
+            // Two paths are available:
+            //
+            // (a) FULL MATERIALIZATION (original):
+            //     Allocate m × n buffer A_pre, compute A_pre = A * R_sk_inv,
+            //     then R = A^T * A_pre.  Memory: O(m*n).
+            //
+            // (b) COLUMN-BLOCK PROCESSING (memory-efficient):
+            //     Process b columns at a time.  For each column block j:
+            //       buf (m × b_j) = A * R_sk_inv[:, j : j+b_j]
+            //       R[:, j : j+b_j] = A^T * buf
+            //     Memory: O(m*b).  Never forms the full A_pre.
+            //     The result is mathematically identical because:
+            //       R[:, j_block] = A^T * (A * R_sk_inv[:, j_block])
+            //     is the j-th column block of A^T * A * R_sk_inv.
+            //
+            //     All operator types (Dense, Sparse, Composite, CholSolver)
+            //     support arbitrary column counts in operator(), so no
+            //     modifications to the linear operator interface are needed.
+            //
+            //     When test_mode is on, the Q-factor (Q = A_pre * R_chol^{-1})
+            //     needs the full m × n A_pre.  In that case, A_pre is
+            //     recomputed after the Gram loop, outside the timing region.
+            //     This costs an extra operator application but does NOT affect
+            //     the benchmark timings.
+            //
+            // ================================================================
 
-            // Multiply A * R_sk_inv, where A is a GLO and R_sk_inv is a dense matrix.
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, R_sk_inv, n, (T)0.0, A_pre, m);
+            // Determine effective block width.
+            // block_size <= 0 or >= n means "no blocking" (full width).
+            int64_t b_eff = (this->block_size > 0 && this->block_size < n)
+                          ? this->block_size : n;
 
-            if(this -> timing) {
-                linop_precond_t_stop = steady_clock::now();
-                linop_gram_t_start = steady_clock::now();
+            // A_pre buffer:
+            //   Full path:  m × n  (kept alive for Q-factor in test_mode)
+            //   Block path: m × b_eff  (temporary, freed after Gram loop;
+            //                           if test_mode, a full m × n buffer is
+            //                           allocated later for Q computation)
+            T* A_pre = new T[m * b_eff]();
+
+            if (b_eff == n) {
+                // --- Full materialization path (original) ---
+
+                // Step 1: A_pre (m × n) = A * R_sk_inv (m × n × n)
+                //   A is m × n, R_sk_inv is n × n, A_pre is m × n.
+                //   Side::Left: C = alpha * op(A) * op(B) + beta * C
+                //   where op(A) = A (m × n), op(B) = R_sk_inv (n × n), C = A_pre (m × n).
+                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, R_sk_inv, n, (T)0.0, A_pre, m);
+
+                if(this -> timing) {
+                    linop_precond_t_stop = steady_clock::now();
+                    linop_gram_t_start = steady_clock::now();
+                }
+
+                // Step 2: R (n × n) = A^T * A_pre (n × m × m × n = n × n)
+                //   Since SYRK is not defined for non-dense operators, we use
+                //   an explicit A^T * A_pre to form the Gram matrix.
+                //   op(A) = A^T (n × m), op(B) = A_pre (m × n), C = R (n × n).
+                A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
+
+                if(this -> timing) {
+                    linop_gram_t_stop = steady_clock::now();
+                }
+            } else {
+                // --- Column-block processing path (memory-efficient) ---
+                //
+                // Process n columns in blocks of width b_eff.
+                // The last block may be narrower if n is not divisible by b_eff.
+                //
+                // For each block starting at column j with width b_j:
+                //   (1) buf (m × b_j) = A * R_sk_inv[:, j : j+b_j]
+                //       R_sk_inv is n × n in ColMajor with ld = n.
+                //       Column j starts at R_sk_inv + j * n.
+                //       We multiply A (m × n) by this n × b_j slice.
+                //
+                //   (2) R[:, j : j+b_j] (n × b_j) = A^T * buf
+                //       A^T is n × m, buf is m × b_j, result is n × b_j.
+                //       R is n × n with ld = ldr.
+                //       Column j starts at R + j * ldr.
+                //
+                // Total FLOPs are the same as the full path; only memory differs.
+
+                for (int64_t j = 0; j < n; j += b_eff) {
+                    int64_t b_j = std::min(b_eff, n - j);
+
+                    // (1) buf = A * R_sk_inv[:, j : j+b_j]
+                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                      m, b_j, n, (T)1.0, R_sk_inv + j * n, n, (T)0.0, A_pre, m);
+
+                    // (2) R[:, j : j+b_j] = A^T * buf
+                    A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
+                      n, b_j, m, (T)1.0, A_pre, m, (T)0.0, R + j * ldr, ldr);
+                }
+
+                if(this -> timing) {
+                    // In column-block mode, precondition and Gram are fused
+                    // into a single loop.  Report the entire loop as
+                    // linop_precond; linop_gram is zero.
+                    linop_precond_t_stop = steady_clock::now();
+                    linop_gram_t_start  = linop_precond_t_stop;
+                    linop_gram_t_stop   = linop_precond_t_stop;
+                }
             }
 
-            // Do Cholesky QR
-            //blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
-            // Since SYRK, used in the original implementation of CQRRT, is not defined for non-dense operators, perform an explicit ((R_sk)^-1)^T * A^T * A * (R_sk)^-1
-
-            // A^T * A_pre = A^T * A * R_sk_inv
-            // Try CSR format
-            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
-
             if(this -> timing) {
-                linop_gram_t_stop = steady_clock::now();
                 trmm_gram_t_start = steady_clock::now();
             }
 
@@ -244,6 +363,17 @@ class CQRRT_linops {
             if(this->test_mode) {
                 if(this->timing)
                     q_t_start = steady_clock::now();
+
+                if (b_eff < n) {
+                    // Column-block Gram was used: A_pre is only m × b_eff,
+                    // too small for Q.  Recompute A_pre = A * R_sk_inv in
+                    // full.  This is outside the timing region, so the extra
+                    // operator application does not affect benchmark results.
+                    delete[] A_pre;
+                    A_pre = new T[m * n]();
+                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                      m, n, n, (T)1.0, R_sk_inv, n, (T)0.0, A_pre, m);
+                }
 
                 // Reuse A_pre storage for Q (Q = A_pre * R_chol^{-1})
                 this->Q_rows = m;
@@ -316,7 +446,9 @@ class CQRRT_linops {
             delete[] tau;
             delete[] Eye;
 
-            // Only delete A_pre if not in test mode (otherwise Q owns it)
+            // Only delete A_pre if not in test mode (otherwise Q owns it).
+            // When test_mode + blocking: the small block buffer was freed
+            // and replaced with a full m × n buffer in the Q section above.
             if(!this->test_mode) {
                 delete[] A_pre;
             }
