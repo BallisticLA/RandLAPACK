@@ -1280,6 +1280,8 @@ public:
         if constexpr (requires { S.buff; S.layout; S.dist; }) {
             // Dense sketch operator: extract buffer and use SpMM directly
             // (avoids full densification of the sparse matrix A).
+            std::fprintf(stderr, "[DEBUG] SparseLinOp: DenseSkOp path - using efficient sparse-dense multiplication (m=%ld, n=%ld, k=%ld)\n",
+                        (long)m, (long)n, (long)k);
             if (S.buff == nullptr) {
                 RandBLAS::fill_dense(S);
             }
@@ -1289,9 +1291,13 @@ public:
             if (S.layout != layout) {
                 adjusted_trans = (trans_S == Op::NoTrans) ? Op::Trans : Op::NoTrans;
             }
+            std::fprintf(stderr, "[DEBUG] SparseLinOp: Calling sparse-dense operator (side=%d, sparse matrix: %ld x %ld)\n",
+                        (int)side, (long)n_rows, (long)n_cols);
             (*this)(side, layout, trans_A, adjusted_trans, m, n, k, alpha, S.buff, S.dist.dim_major, beta, C, ldc);
         } else {
             // Sparse/unknown sketch operator: must densify A for sketch_general.
+            std::fprintf(stderr, "[DEBUG] SparseLinOp: DENSIFICATION path - inefficient! (sparse matrix: %ld x %ld, nnz would be densified)\n",
+                        (long)n_rows, (long)n_cols);
             std::cerr << "SparseLinOp: Sketching requires full densification of the sparse operator ("
                       << n_rows << " x " << n_cols << "). This is currently inefficient." << std::endl;
 

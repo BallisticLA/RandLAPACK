@@ -510,6 +510,7 @@ int main(int argc, char *argv[]) {
     out << "# block_size (CQRRT only): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
+    out << "# Format: per-algorithm quality metrics (rel_error, orth_error, max_orth_cols, orth_flag, time) and speedups\n";
     out << "m,n,aspect_ratio,density,"
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
