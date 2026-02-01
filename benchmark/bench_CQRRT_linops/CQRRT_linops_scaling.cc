@@ -29,6 +29,16 @@ using std::chrono::steady_clock;
 using std::chrono::duration_cast;
 using std::chrono::microseconds;
 
+// Common quality + timing fields shared by all algorithms
+template <typename T>
+struct alg_quality {
+    T rel_error;            // ||A - QR|| / ||A||
+    T orth_error;           // ||Q^T Q - I|| / sqrt(n)
+    bool is_orthonormal;    // Is full Q block orthonormal?
+    int64_t max_orth_cols;  // Maximum orthonormal prefix
+    long time;              // Total computation time (microseconds)
+};
+
 template <typename T>
 struct scaling_result {
     int64_t m;                // Number of rows
@@ -36,12 +46,10 @@ struct scaling_result {
     T density;                // Sparse matrix density
     T aspect_ratio;           // m / n
 
-    // CQRRT results
-    T cqrrt_rel_error;        // ||A - QR|| / ||A||
-    T cqrrt_orth_error;       // ||Q^T Q - I|| / sqrt(n)
-    bool cqrrt_is_orthonormal;
-    int64_t cqrrt_max_orth_cols;
-    long cqrrt_time;          // Total time (microseconds)
+    alg_quality<T> cqrrt;
+    alg_quality<T> cholqr;
+    alg_quality<T> scholqr3;
+    alg_quality<T> dense_cqrrt;
 
     // CQRRT subroutine times (from fastest run)
     long cqrrt_saso_time;
@@ -54,27 +62,13 @@ struct scaling_result {
     long cqrrt_finalize_time;
     long cqrrt_rest_time;
 
-    // CholQR results
-    T cholqr_rel_error;
-    T cholqr_orth_error;
-    bool cholqr_is_orthonormal;
-    int64_t cholqr_max_orth_cols;
-    long cholqr_time;
-
-    // CholQR subroutine times (5 entries: materialize, gram, potrf, rest, total)
+    // CholQR subroutine times
     long cholqr_materialize_time;
     long cholqr_gram_time;
     long cholqr_potrf_time;
     long cholqr_rest_time;
 
-    // sCholQR3 results
-    T scholqr3_rel_error;
-    T scholqr3_orth_error;
-    bool scholqr3_is_orthonormal;
-    int64_t scholqr3_max_orth_cols;
-    long scholqr3_time;
-
-    // sCholQR3 subroutine times (12 entries)
+    // sCholQR3 subroutine times
     long scholqr3_materialize_time;
     long scholqr3_gram1_time;
     long scholqr3_potrf1_time;
@@ -87,8 +81,15 @@ struct scaling_result {
     long scholqr3_update3_time;
     long scholqr3_rest_time;
 
-    // Dense CQRRT (original rl_cqrrt) results - time only
-    long dense_cqrrt_time;
+    // Dense CQRRT subroutine times
+    long dense_cqrrt_materialize_time;
+    long dense_cqrrt_saso_time;
+    long dense_cqrrt_qr_time;
+    long dense_cqrrt_precond_time;
+    long dense_cqrrt_gram_time;
+    long dense_cqrrt_potrf_time;
+    long dense_cqrrt_finalize_time;
+    long dense_cqrrt_rest_time;
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -140,6 +141,22 @@ static void measure_orthogonality(
     }
 }
 
+// Compute ||A - QR|| / ||A|| for factorization quality measurement
+template <typename T>
+static T compute_factorization_error(
+    const T* Q, const T* R, const T* A_ref,
+    int64_t m, int64_t n, T norm_A) {
+    std::vector<T> QR(m * n, 0.0);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
+               1.0, Q, m, R, n, 0.0, QR.data(), m);
+    T norm_diff = 0.0;
+    for (int64_t i = 0; i < m * n; ++i) {
+        T d = A_ref[i] - QR[i];
+        norm_diff += d * d;
+    }
+    return std::sqrt(norm_diff) / norm_A;
+}
+
 template <typename T, typename RNG>
 static scaling_result<T> run_single_test(
     int64_t m,
@@ -175,7 +192,7 @@ static scaling_result<T> run_single_test(
     // ============================================================
     {
         // Initialize with first run
-        result.cqrrt_time = std::numeric_limits<long>::max();
+        result.cqrrt.time = std::numeric_limits<long>::max();
         result.cqrrt_saso_time = 0;
         result.cqrrt_qr_time = 0;
         result.cqrrt_trtri_time = 0;
@@ -204,8 +221,8 @@ static scaling_result<T> run_single_test(
             long run_time = CQRRT_QR.times[9];  // total_t_dur
 
             // Track fastest run and its subroutine times
-            if (run_time < result.cqrrt_time) {
-                result.cqrrt_time = run_time;
+            if (run_time < result.cqrrt.time) {
+                result.cqrrt.time = run_time;
                 result.cqrrt_saso_time = CQRRT_QR.times[0];
                 result.cqrrt_qr_time = CQRRT_QR.times[1];
                 result.cqrrt_trtri_time = CQRRT_QR.times[2];
@@ -216,18 +233,8 @@ static scaling_result<T> run_single_test(
                 result.cqrrt_finalize_time = CQRRT_QR.times[7];
                 result.cqrrt_rest_time = CQRRT_QR.times[8];
 
-                // Compute factorization error for fastest run
-                std::vector<T> QR(m * n, 0.0);
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-                           1.0, CQRRT_QR.Q, m, R_cqrrt.data(), n, 0.0, QR.data(), m);
-
-                T norm_diff = 0.0;
-                for (int64_t i = 0; i < m * n; ++i) {
-                    T diff = A_dense[i] - QR[i];
-                    norm_diff += diff * diff;
-                }
-                norm_diff = std::sqrt(norm_diff);
-                best_rel_error = norm_diff / norm_A;
+                best_rel_error = compute_factorization_error(
+                    CQRRT_QR.Q, R_cqrrt.data(), A_dense.data(), m, n, norm_A);
 
                 // Measure orthogonality
                 measure_orthogonality(CQRRT_QR.Q, m, n, best_orth_error,
@@ -235,17 +242,17 @@ static scaling_result<T> run_single_test(
             }
         }
 
-        result.cqrrt_rel_error = best_rel_error;
-        result.cqrrt_orth_error = best_orth_error;
-        result.cqrrt_is_orthonormal = best_is_orthonormal;
-        result.cqrrt_max_orth_cols = best_max_orth_cols;
+        result.cqrrt.rel_error = best_rel_error;
+        result.cqrrt.orth_error = best_orth_error;
+        result.cqrrt.is_orthonormal = best_is_orthonormal;
+        result.cqrrt.max_orth_cols = best_max_orth_cols;
     }
 
     // ============================================================
     // Run CholQR (unpreconditioned Cholesky QR) - multiple runs
     // ============================================================
     {
-        result.cholqr_time = std::numeric_limits<long>::max();
+        result.cholqr.time = std::numeric_limits<long>::max();
         result.cholqr_materialize_time = 0;
         result.cholqr_gram_time = 0;
         result.cholqr_potrf_time = 0;
@@ -264,25 +271,15 @@ static scaling_result<T> run_single_test(
 
             long run_time = CholQR_alg.times[4];  // total
 
-            if (run_time < result.cholqr_time) {
-                result.cholqr_time = run_time;
+            if (run_time < result.cholqr.time) {
+                result.cholqr.time = run_time;
                 result.cholqr_materialize_time = CholQR_alg.times[0];
                 result.cholqr_gram_time = CholQR_alg.times[1];
                 result.cholqr_potrf_time = CholQR_alg.times[2];
                 result.cholqr_rest_time = CholQR_alg.times[3];
 
-                // Compute factorization error
-                std::vector<T> QR(m * n, 0.0);
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-                           1.0, CholQR_alg.Q, m, R_cholqr.data(), n, 0.0, QR.data(), m);
-
-                T norm_diff = 0.0;
-                for (int64_t i = 0; i < m * n; ++i) {
-                    T diff = A_dense[i] - QR[i];
-                    norm_diff += diff * diff;
-                }
-                norm_diff = std::sqrt(norm_diff);
-                best_rel_error = norm_diff / norm_A;
+                best_rel_error = compute_factorization_error(
+                    CholQR_alg.Q, R_cholqr.data(), A_dense.data(), m, n, norm_A);
 
                 // Measure orthogonality
                 measure_orthogonality(CholQR_alg.Q, m, n, best_orth_error,
@@ -290,17 +287,17 @@ static scaling_result<T> run_single_test(
             }
         }
 
-        result.cholqr_rel_error = best_rel_error;
-        result.cholqr_orth_error = best_orth_error;
-        result.cholqr_is_orthonormal = best_is_orthonormal;
-        result.cholqr_max_orth_cols = best_max_orth_cols;
+        result.cholqr.rel_error = best_rel_error;
+        result.cholqr.orth_error = best_orth_error;
+        result.cholqr.is_orthonormal = best_is_orthonormal;
+        result.cholqr.max_orth_cols = best_max_orth_cols;
     }
 
     // ============================================================
     // Run sCholQR3 (shifted Cholesky QR with 3 iterations) - multiple runs
     // ============================================================
     {
-        result.scholqr3_time = std::numeric_limits<long>::max();
+        result.scholqr3.time = std::numeric_limits<long>::max();
         result.scholqr3_materialize_time = 0;
         result.scholqr3_gram1_time = 0;
         result.scholqr3_potrf1_time = 0;
@@ -326,8 +323,8 @@ static scaling_result<T> run_single_test(
 
             long run_time = sCholQR3_alg.times[11];  // total
 
-            if (run_time < result.scholqr3_time) {
-                result.scholqr3_time = run_time;
+            if (run_time < result.scholqr3.time) {
+                result.scholqr3.time = run_time;
                 result.scholqr3_materialize_time = sCholQR3_alg.times[0];
                 result.scholqr3_gram1_time = sCholQR3_alg.times[1];
                 result.scholqr3_potrf1_time = sCholQR3_alg.times[2];
@@ -340,18 +337,8 @@ static scaling_result<T> run_single_test(
                 result.scholqr3_update3_time = sCholQR3_alg.times[9];
                 result.scholqr3_rest_time = sCholQR3_alg.times[10];
 
-                // Compute factorization error
-                std::vector<T> QR(m * n, 0.0);
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-                           1.0, sCholQR3_alg.Q, m, R_scholqr3.data(), n, 0.0, QR.data(), m);
-
-                T norm_diff = 0.0;
-                for (int64_t i = 0; i < m * n; ++i) {
-                    T diff = A_dense[i] - QR[i];
-                    norm_diff += diff * diff;
-                }
-                norm_diff = std::sqrt(norm_diff);
-                best_rel_error = norm_diff / norm_A;
+                best_rel_error = compute_factorization_error(
+                    sCholQR3_alg.Q, R_scholqr3.data(), A_dense.data(), m, n, norm_A);
 
                 // Measure orthogonality
                 measure_orthogonality(sCholQR3_alg.Q, m, n, best_orth_error,
@@ -359,47 +346,84 @@ static scaling_result<T> run_single_test(
             }
         }
 
-        result.scholqr3_rel_error = best_rel_error;
-        result.scholqr3_orth_error = best_orth_error;
-        result.scholqr3_is_orthonormal = best_is_orthonormal;
-        result.scholqr3_max_orth_cols = best_max_orth_cols;
+        result.scholqr3.rel_error = best_rel_error;
+        result.scholqr3.orth_error = best_orth_error;
+        result.scholqr3.is_orthonormal = best_is_orthonormal;
+        result.scholqr3.max_orth_cols = best_max_orth_cols;
     }
 
     // ============================================================
     // Run Dense CQRRT (materialize operator, then call rl_cqrrt) - multiple runs
     // ============================================================
     {
-        result.dense_cqrrt_time = std::numeric_limits<long>::max();
+        result.dense_cqrrt.time = std::numeric_limits<long>::max();
+        result.dense_cqrrt_materialize_time = 0;
+        result.dense_cqrrt_saso_time = 0;
+        result.dense_cqrrt_qr_time = 0;
+        result.dense_cqrrt_precond_time = 0;
+        result.dense_cqrrt_gram_time = 0;
+        result.dense_cqrrt_potrf_time = 0;
+        result.dense_cqrrt_finalize_time = 0;
+        result.dense_cqrrt_rest_time = 0;
+
+        T best_rel_error = 0.0;
+        T best_orth_error = 0.0;
+        bool best_is_orthonormal = false;
+        int64_t best_max_orth_cols = 0;
 
         for (int64_t run = 0; run < num_runs; ++run) {
-            auto dense_cqrrt_start = steady_clock::now();
-
             // Step 1: Materialize the operator by multiplying with identity
             T* I_mat = new T[n * n]();
             RandLAPACK::util::eye(n, n, I_mat);
             T* A_materialized = new T[m * n]();
+
+            auto materialize_start = steady_clock::now();
             A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                     m, n, n, (T)1.0, I_mat, n, (T)0.0, A_materialized, m);
+            auto materialize_stop = steady_clock::now();
+            long materialize_time = duration_cast<microseconds>(materialize_stop - materialize_start).count();
 
-            // Step 2: Call Q-less rl_cqrrt on the dense matrix
+            delete[] I_mat;
+
+            // Step 2: Call rl_cqrrt with timing and Q-factor enabled
             std::vector<T> R_dense(n * n, 0.0);
             auto state_copy = state;
-            RandLAPACK::CQRRT<T, RNG> dense_alg(false, tol);  // timing=false
-            dense_alg.compute_Q = false;
+            RandLAPACK::CQRRT<T, RNG> dense_alg(true, tol);  // timing=true
+            dense_alg.compute_Q = true;
             dense_alg.orthogonalization = false;
             dense_alg.nnz = 2;
             dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
 
-            auto dense_cqrrt_stop = steady_clock::now();
-            long run_time = duration_cast<microseconds>(dense_cqrrt_stop - dense_cqrrt_start).count();
+            // Total = materialization + algorithm total (Q excluded from algo total)
+            long run_time = materialize_time + dense_alg.times[9];
 
-            if (run_time < result.dense_cqrrt_time) {
-                result.dense_cqrrt_time = run_time;
+            if (run_time < result.dense_cqrrt.time) {
+                result.dense_cqrrt.time = run_time;
+                result.dense_cqrrt_materialize_time = materialize_time;
+                result.dense_cqrrt_saso_time     = dense_alg.times[0];
+                result.dense_cqrrt_qr_time       = dense_alg.times[1];
+                result.dense_cqrrt_precond_time  = dense_alg.times[3];
+                result.dense_cqrrt_gram_time     = dense_alg.times[4];
+                result.dense_cqrrt_potrf_time    = dense_alg.times[6];
+                result.dense_cqrrt_finalize_time = dense_alg.times[7];
+                result.dense_cqrrt_rest_time     = dense_alg.times[8];
+
+                // A_materialized now contains Q (overwritten by rl_cqrrt)
+                best_rel_error = compute_factorization_error(
+                    A_materialized, R_dense.data(), A_dense.data(), m, n, norm_A);
+
+                // Measure orthogonality
+                measure_orthogonality(A_materialized, m, n, best_orth_error,
+                                     best_is_orthonormal, best_max_orth_cols);
             }
 
-            delete[] I_mat;
             delete[] A_materialized;
         }
+
+        result.dense_cqrrt.rel_error = best_rel_error;
+        result.dense_cqrrt.orth_error = best_orth_error;
+        result.dense_cqrrt.is_orthonormal = best_is_orthonormal;
+        result.dense_cqrrt.max_orth_cols = best_max_orth_cols;
     }
 
     return result;
@@ -490,7 +514,7 @@ int main(int argc, char *argv[]) {
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
         << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
-        << "dense_cqrrt_time_us,"
+        << "dense_cqrrt_rel_error,dense_cqrrt_orth_error,dense_cqrrt_max_orth_cols,dense_cqrrt_is_orth,dense_cqrrt_time_us,"
         << "speedup_cqrrt_over_cholqr,speedup_cqrrt_over_scholqr3,speedup_cqrrt_over_dense\n";
 
     // Prepare runtime breakdown file with date/time prefix
@@ -508,10 +532,12 @@ int main(int argc, char *argv[]) {
     breakdown << "# CQRRT: saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
     breakdown << "# CholQR: materialize, gram, potrf, rest, total\n";
     breakdown << "# sCholQR3: materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
+    breakdown << "# Dense CQRRT: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "m,n,"
               << "cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
               << "cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
-              << "scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total\n";
+              << "scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
+              << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total\n";
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {
@@ -522,20 +548,21 @@ int main(int argc, char *argv[]) {
 
         auto result = run_single_test<double>(m, n, density, d_factor, use_dense_sketch, block_size, num_runs, state);
 
-        double speedup_cqrrt_over_cholqr = (result.cqrrt_time > 0) ?
-            static_cast<double>(result.cholqr_time) / result.cqrrt_time : 0.0;
-        double speedup_cqrrt_over_scholqr3 = (result.cqrrt_time > 0) ?
-            static_cast<double>(result.scholqr3_time) / result.cqrrt_time : 0.0;
-        double speedup_cqrrt_over_dense = (result.cqrrt_time > 0) ?
-            static_cast<double>(result.dense_cqrrt_time) / result.cqrrt_time : 0.0;
+        double speedup_cqrrt_over_cholqr = (result.cqrrt.time > 0) ?
+            static_cast<double>(result.cholqr.time) / result.cqrrt.time : 0.0;
+        double speedup_cqrrt_over_scholqr3 = (result.cqrrt.time > 0) ?
+            static_cast<double>(result.scholqr3.time) / result.cqrrt.time : 0.0;
+        double speedup_cqrrt_over_dense = (result.cqrrt.time > 0) ?
+            static_cast<double>(result.dense_cqrrt.time) / result.cqrrt.time : 0.0;
 
         printf("  CQRRT:   orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
-               result.cqrrt_orth_error, result.cqrrt_max_orth_cols, n, result.cqrrt_time);
+               result.cqrrt.orth_error, result.cqrrt.max_orth_cols, n, result.cqrrt.time);
         printf("  CholQR:  orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
-               result.cholqr_orth_error, result.cholqr_max_orth_cols, n, result.cholqr_time);
+               result.cholqr.orth_error, result.cholqr.max_orth_cols, n, result.cholqr.time);
         printf("  sCholQR3: orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
-               result.scholqr3_orth_error, result.scholqr3_max_orth_cols, n, result.scholqr3_time);
-        printf("  Dense CQRRT: time=%ld us\n", result.dense_cqrrt_time);
+               result.scholqr3.orth_error, result.scholqr3.max_orth_cols, n, result.scholqr3.time);
+        printf("  Dense CQRRT: orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
+               result.dense_cqrrt.orth_error, result.dense_cqrrt.max_orth_cols, n, result.dense_cqrrt.time);
         printf("  Speedup CQRRT over: CholQR=%.2fx, sCholQR3=%.2fx, Dense=%.2fx\n\n",
                speedup_cqrrt_over_cholqr, speedup_cqrrt_over_scholqr3, speedup_cqrrt_over_dense);
 
@@ -544,16 +571,18 @@ int main(int argc, char *argv[]) {
             << result.m << "," << result.n << "," << result.aspect_ratio << ","
             << std::setprecision(3) << result.density << ","
             << std::scientific << std::setprecision(6)
-            << result.cqrrt_rel_error << "," << result.cqrrt_orth_error << ","
-            << result.cqrrt_max_orth_cols << "," << (result.cqrrt_is_orthonormal ? 1 : 0) << ","
-            << result.cqrrt_time << ","
-            << result.cholqr_rel_error << "," << result.cholqr_orth_error << ","
-            << result.cholqr_max_orth_cols << "," << (result.cholqr_is_orthonormal ? 1 : 0) << ","
-            << result.cholqr_time << ","
-            << result.scholqr3_rel_error << "," << result.scholqr3_orth_error << ","
-            << result.scholqr3_max_orth_cols << "," << (result.scholqr3_is_orthonormal ? 1 : 0) << ","
-            << result.scholqr3_time << ","
-            << result.dense_cqrrt_time << ","
+            << result.cqrrt.rel_error << "," << result.cqrrt.orth_error << ","
+            << result.cqrrt.max_orth_cols << "," << (result.cqrrt.is_orthonormal ? 1 : 0) << ","
+            << result.cqrrt.time << ","
+            << result.cholqr.rel_error << "," << result.cholqr.orth_error << ","
+            << result.cholqr.max_orth_cols << "," << (result.cholqr.is_orthonormal ? 1 : 0) << ","
+            << result.cholqr.time << ","
+            << result.scholqr3.rel_error << "," << result.scholqr3.orth_error << ","
+            << result.scholqr3.max_orth_cols << "," << (result.scholqr3.is_orthonormal ? 1 : 0) << ","
+            << result.scholqr3.time << ","
+            << result.dense_cqrrt.rel_error << "," << result.dense_cqrrt.orth_error << ","
+            << result.dense_cqrrt.max_orth_cols << "," << (result.dense_cqrrt.is_orthonormal ? 1 : 0) << ","
+            << result.dense_cqrrt.time << ","
             << std::fixed << std::setprecision(3) << speedup_cqrrt_over_cholqr << "," << speedup_cqrrt_over_scholqr3 << "," << speedup_cqrrt_over_dense << "\n";
         out.flush();
 
@@ -564,18 +593,30 @@ int main(int argc, char *argv[]) {
                   << result.cqrrt_trtri_time << "," << result.cqrrt_linop_precond_time << ","
                   << result.cqrrt_linop_gram_time << "," << result.cqrrt_trmm_gram_time << ","
                   << result.cqrrt_potrf_time << "," << result.cqrrt_finalize_time << ","
-                  << result.cqrrt_rest_time << "," << result.cqrrt_time << ","
+                  << result.cqrrt_rest_time << "," << result.cqrrt.time << ","
                   // CholQR (5 values)
                   << result.cholqr_materialize_time << "," << result.cholqr_gram_time << ","
                   << result.cholqr_potrf_time << "," << result.cholqr_rest_time << ","
-                  << result.cholqr_time << ","
+                  << result.cholqr.time << ","
                   // sCholQR3 (12 values)
                   << result.scholqr3_materialize_time << "," << result.scholqr3_gram1_time << ","
                   << result.scholqr3_potrf1_time << "," << result.scholqr3_trsm1_time << ","
                   << result.scholqr3_syrk2_time << "," << result.scholqr3_potrf2_time << ","
                   << result.scholqr3_update2_time << "," << result.scholqr3_syrk3_time << ","
                   << result.scholqr3_potrf3_time << "," << result.scholqr3_update3_time << ","
-                  << result.scholqr3_rest_time << "," << result.scholqr3_time << "\n";
+                  << result.scholqr3_rest_time << "," << result.scholqr3.time << ","
+                  // Dense CQRRT (11 values)
+                  << result.dense_cqrrt_materialize_time << ","
+                  << result.dense_cqrrt_saso_time << ","
+                  << result.dense_cqrrt_qr_time << ","
+                  << 0 << ","  // trtri (always 0 for dense)
+                  << result.dense_cqrrt_precond_time << ","
+                  << result.dense_cqrrt_gram_time << ","
+                  << 0 << ","  // trmm_gram (always 0 for dense)
+                  << result.dense_cqrrt_potrf_time << ","
+                  << result.dense_cqrrt_finalize_time << ","
+                  << result.dense_cqrrt_rest_time << ","
+                  << result.dense_cqrrt.time << "\n";
         breakdown.flush();
     }
 

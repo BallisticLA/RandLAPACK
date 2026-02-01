@@ -1465,50 +1465,52 @@ public:
         T* C,
         int64_t ldc
     ) {
-        std::cerr << "SparseLinOp: Sketching requires full densification of the sparse operator ("
-                  << n_rows << " x " << n_cols << "). This is currently inefficient." << std::endl;
+        if constexpr (requires { S.buff; S.layout; S.dist; }) {
+            // Dense sketch operator: extract buffer and use SpMM directly
+            // (avoids full densification of the sparse matrix A).
+            if (S.buff == nullptr) {
+                RandBLAS::fill_dense(S);
+            }
+            // Handle layout mismatch: a RowMajor m×n buffer is the same memory
+            // as a ColMajor n×m buffer, so we flip the transpose flag.
+            Op adjusted_trans = trans_S;
+            if (S.layout != layout) {
+                adjusted_trans = (trans_S == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+            }
+            (*this)(side, layout, trans_A, adjusted_trans, m, n, k, alpha, S.buff, S.dist.dim_major, beta, C, ldc);
+        } else {
+            // Sparse/unknown sketch operator: must densify A for sketch_general.
+            std::cerr << "SparseLinOp: Sketching requires full densification of the sparse operator ("
+                      << n_rows << " x " << n_cols << "). This is currently inefficient." << std::endl;
 
-        // Densify the sparse matrix A
-        T* A_dense = new T[n_rows * n_cols]();
-        int64_t lda = (layout == Layout::ColMajor) ? n_rows : n_cols;
-        RandLAPACK::util::sparse_to_dense_summing_duplicates(A_sp, layout, A_dense);
+            T* A_dense = new T[n_rows * n_cols]();
+            int64_t lda = (layout == Layout::ColMajor) ? n_rows : n_cols;
+            RandLAPACK::util::sparse_to_dense_summing_duplicates(A_sp, layout, A_dense);
 
-        if (side == Side::Left) {
-            // C = alpha * op(A) * op(S) + beta * C
-            // op(A) is m×k, op(S) is k×n, C is m×n
-            auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
-
-            // Layout-aware ldc check
-            if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+            if (side == Side::Left) {
+                auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
+                randblas_require(rows_A == n_rows);
+                randblas_require(cols_A == n_cols);
+                if (layout == Layout::ColMajor) {
+                    randblas_require(ldc >= m);
+                } else {
+                    randblas_require(ldc >= n);
+                }
+                RandBLAS::sketch_general(layout, trans_A, trans_S, m, n, k, alpha, A_dense, lda, S, beta, C, ldc);
             } else {
-                randblas_require(ldc >= n);
+                auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
+                randblas_require(rows_A == n_rows);
+                randblas_require(cols_A == n_cols);
+                if (layout == Layout::ColMajor) {
+                    randblas_require(ldc >= m);
+                } else {
+                    randblas_require(ldc >= n);
+                }
+                RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_dense, lda, beta, C, ldc);
             }
 
-            // Right sketch in RandBLAS terms: B = alpha * op(A) * op(S) + beta * B
-            RandBLAS::sketch_general(layout, trans_A, trans_S, m, n, k, alpha, A_dense, lda, S, beta, C, ldc);
-
-        } else {  // Side::Right
-            // C = alpha * op(S) * op(A) + beta * C
-            // op(S) is m×k, op(A) is k×n, C is m×n
-            auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
-
-            // Layout-aware ldc check
-            if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
-            } else {
-                randblas_require(ldc >= n);
-            }
-
-            // Left sketch in RandBLAS terms: B = alpha * op(S) * op(A) + beta * B
-            RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_dense, lda, beta, C, ldc);
+            delete[] A_dense;
         }
-
-        delete[] A_dense;
     }
 
     // =====================================================================
