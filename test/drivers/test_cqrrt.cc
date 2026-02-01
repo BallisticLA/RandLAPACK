@@ -7,6 +7,45 @@
 #include <fstream>
 #include <gtest/gtest.h>
 
+// ============================================================================
+// Unified Testing Framework for CQRRT
+// ============================================================================
+
+/// Configuration structure for CQRRT tests
+/// Encapsulates all parameters needed to run a CQRRT test case
+template <typename T>
+struct CQRRTTestConfig {
+    // Matrix dimensions
+    int64_t m;           ///< Number of rows
+    int64_t n;           ///< Number of columns
+    int64_t k;           ///< Rank (for matrix generation)
+
+    // Algorithm parameters
+    T d_factor;          ///< Damping factor
+    T tol;               ///< Tolerance for algorithm
+    int64_t nnz = 2;     ///< Number of nonzeros in sketch (default: 2)
+
+    // Matrix generation (polynomial only for CQRRT)
+    T cond_num = 2.0;    ///< Condition number
+    T exponent = 2.0;    ///< Decay exponent
+
+    // Test metadata
+    const char* description = "";
+};
+
+/// Helper function to create mat_gen_info from CQRRT config
+template <typename T>
+RandLAPACK::gen::mat_gen_info<T> create_cqrrt_matrix_info(const CQRRTTestConfig<T>& config) {
+    int64_t m = config.m;
+    int64_t n = config.n;
+
+    RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = config.cond_num;
+    m_info.rank = config.k;
+    m_info.exponent = config.exponent;
+    return m_info;
+}
+
 class TestCQRRT : public ::testing::Test
 {
     protected:
@@ -115,56 +154,59 @@ class TestCQRRT : public ::testing::Test
 
         CQRRT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, d_factor, state);
 
-        error_check(norm_A, all_data); 
+        error_check(norm_A, all_data);
+    }
+
+    /// Unified test function for CQRRT using configuration-based approach
+    /// This function encapsulates the common pattern of all CQRRT tests
+    template <typename T, typename RNG = r123::Philox4x32>
+    static void test_cqrrt_unified(const CQRRTTestConfig<T>& config) {
+        auto state = RandBLAS::RNGState<RNG>();
+        T norm_A = 0;
+
+        // Create test data container
+        CQRRTTestData<T> all_data(config.m, config.n, config.k);
+
+        // Create and configure CQRRT instance
+        RandLAPACK::CQRRT<T, RNG> CQRRT(false, config.tol);
+        CQRRT.nnz = config.nnz;
+
+        // Generate matrix
+        RandLAPACK::gen::mat_gen_info<T> m_info = create_cqrrt_matrix_info(config);
+        RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+        // Run test validation
+        norm_and_copy_computational_helper(norm_A, all_data);
+        test_CQRRT_general(config.d_factor, norm_A, all_data, CQRRT, state);
     }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRT, CQRRT_full_rank_no_hqrrp) {
-    int64_t m = 10;
-    int64_t n = 5;
-    int64_t k = 5;
-    double d_factor = 2;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
-    CQRRT.nnz = 2;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-
-    test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
+    test_cqrrt_unified<double>({
+        .m = 10,
+        .n = 5,
+        .k = 5,
+        .d_factor = 2.0,
+        .tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85),
+        .nnz = 2,
+        .cond_num = 2.0,
+        .exponent = 2.0,
+        .description = "Small full rank test"
+    });
 }
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRT, CQRRT_large_full_rank) {
-    int64_t m = 5000;
-    int64_t n = 5000;
-    int64_t k = 5000;
-    double d_factor = 2;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRT<double, r123::Philox4x32> CQRRT(false, tol);
-    CQRRT.nnz = 2;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-
-    test_CQRRT_general(d_factor, norm_A, all_data, CQRRT, state);
+    test_cqrrt_unified<double>({
+        .m = 5000,
+        .n = 5000,
+        .k = 5000,
+        .d_factor = 2.0,
+        .tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85),
+        .nnz = 2,
+        .cond_num = 2.0,
+        .exponent = 2.0,
+        .description = "Large full rank test"
+    });
 }
