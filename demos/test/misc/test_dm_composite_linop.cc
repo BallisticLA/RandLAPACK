@@ -241,7 +241,7 @@ protected:
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
             vector<T> B_dense_col(rows_B * cols_B, 0.0);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense_col.data());
+            RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense_col.data());
             compute_reference_gemm(layout, m, n, k_dense, alpha, intermediate, B_dense_col, beta, C_reference, ldc);
         } else {
             auto B_dense_col = generate_dense_matrix<T>(rows_B, cols_B, Layout::ColMajor, state);
@@ -316,7 +316,7 @@ protected:
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
             vector<T> B_dense_col(rows_B * cols_B, 0.0);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense_col.data());
+            RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense_col.data());
             compute_reference_gemm(layout, m, n, dim_chol, alpha, intermediate, B_dense_col, beta, C_reference, ldc);
         } else {
             auto B_dense_col = generate_dense_matrix<T>(rows_B, cols_B, Layout::ColMajor, state);
@@ -382,7 +382,7 @@ protected:
 
         // Densify sparse_mat_csc and compute chol_op * sparse_mat_dense -> intermediate
         vector<T> sparse_mat_dense(dim_chol * k_sparse, 0.0);
-        RandLAPACK::util::sparse_to_dense_summing_duplicates(sparse_mat_csc, Layout::ColMajor, sparse_mat_dense.data());
+        RandLAPACK::util::sparse_to_dense(sparse_mat_csc, Layout::ColMajor, sparse_mat_dense.data());
 
         vector<T> intermediate(m * k_sparse, 0.0);
         chol_op(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k_sparse, dim_chol,
@@ -395,7 +395,7 @@ protected:
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
             vector<T> B_dense_col(rows_B * cols_B, 0.0);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense_col.data());
+            RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense_col.data());
             compute_reference_gemm(layout, m, n, k_sparse, alpha, intermediate, B_dense_col, beta, C_reference, ldc);
         } else {
             auto B_dense = generate_dense_matrix<T>(rows_B, cols_B, layout, state);
@@ -466,7 +466,7 @@ protected:
 
         // Densify sparse_mat_csc and compute sparse_mat * chol_op -> intermediate
         vector<T> sparse_mat_dense(rows_sparse * dim_chol, 0.0);
-        RandLAPACK::util::sparse_to_dense_summing_duplicates(sparse_mat_csc, Layout::ColMajor, sparse_mat_dense.data());
+        RandLAPACK::util::sparse_to_dense(sparse_mat_csc, Layout::ColMajor, sparse_mat_dense.data());
 
         auto intermediate = compute_mat_times_chol(sparse_mat_dense, rows_sparse, dim_chol, chol_op);
 
@@ -477,7 +477,7 @@ protected:
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
             vector<T> B_dense_col(rows_B * cols_B, 0.0);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense_col.data());
+            RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense_col.data());
             compute_reference_gemm(layout, m, n, dim_chol, alpha, intermediate, B_dense_col, beta, C_reference, ldc);
         } else {
             auto B_dense = generate_dense_matrix<T>(rows_B, cols_B, layout, state);
@@ -556,7 +556,7 @@ protected:
         // Compute reference: chol_op * sparse_op * dense_op
         // Step 1: Densify sparse_mat and compute sparse_mat * dense_mat -> intermediate1
         vector<T> sparse_mat_dense(dim_chol * k_sparse, 0.0);
-        RandLAPACK::util::sparse_to_dense_summing_duplicates(sparse_mat_csc, Layout::ColMajor, sparse_mat_dense.data());
+        RandLAPACK::util::sparse_to_dense(sparse_mat_csc, Layout::ColMajor, sparse_mat_dense.data());
 
         vector<T> intermediate1(dim_chol * k_final, 0.0);
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, dim_chol, k_final, k_sparse, 1.0,
@@ -574,7 +574,7 @@ protected:
                            alpha, B_csc, beta, C_composite.data(), ldc);
 
             vector<T> B_dense_col(rows_B * cols_B, 0.0);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense_col.data());
+            RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense_col.data());
             compute_reference_gemm(layout, m, n, k_final, alpha, intermediate2, B_dense_col, beta, C_reference, ldc);
         } else {
             auto B_dense_col = generate_dense_matrix<T>(rows_B, cols_B, Layout::ColMajor, state);

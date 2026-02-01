@@ -456,4 +456,4 @@ class CQRRT_linops {
             return 0;
         }
 };
-} // end namespace RandLAPACK
+} // end namespace RandLAPACK_demos

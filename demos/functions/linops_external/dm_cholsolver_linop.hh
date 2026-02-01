@@ -467,7 +467,7 @@ public:
 
         // Densify: convert sparse B to a dense matrix.
         T* B_dense = new T[rows_B * cols_B]();
-        RandLAPACK::util::sparse_to_dense_summing_duplicates(B_sp, layout, B_dense);
+        RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
 
         // Delegate to the dense operator.
         (*this)(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);

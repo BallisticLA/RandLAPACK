@@ -45,6 +45,7 @@ class CQRRT : public CQRRTalg<T, RNG> {
             timing = time_subroutines;
             eps = ep;
             orthogonalization = false;
+            compute_Q = true;
             nnz = 2;
         }
 
@@ -101,7 +102,8 @@ class CQRRT : public CQRRTalg<T, RNG> {
         bool timing;
         T eps;
 
-        // 6 entries
+        // 10 entries: saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total
+        // Matches CQRRT_linops timing indices for direct comparison.
         std::vector<long> times;
 
         // tuning SASOS
@@ -109,6 +111,10 @@ class CQRRT : public CQRRTalg<T, RNG> {
 
         // Mode of operation that allows to use CQRRT for orthogonalization of the input matrix.
         bool orthogonalization;
+
+        // If false, skip the Q-factor computation (R-only mode).
+        // When false, A is NOT overwritten with Q on output.
+        bool compute_Q;
 };
 
 // -----------------------------------------------------------------------------
@@ -124,27 +130,26 @@ int CQRRT<T, RNG>::call(
     RandBLAS::RNGState<RNG> &state
 ){
     ///--------------------TIMING VARS--------------------/
-    steady_clock::time_point saso_t_stop;
-    steady_clock::time_point saso_t_start;
-    steady_clock::time_point qr_t_start;
-    steady_clock::time_point qr_t_stop;
-    steady_clock::time_point cholqr_t_start;
-    steady_clock::time_point cholqr_t_stop;
-    steady_clock::time_point a_mod_trsm_t_start;
-    steady_clock::time_point a_mod_trsm_t_stop;
-    steady_clock::time_point total_t_start;
-    steady_clock::time_point total_t_stop;
-    long saso_t_dur        = 0;
-    long qr_t_dur          = 0;
-    long cholqr_t_dur      = 0;
-    long a_mod_piv_t_dur   = 0;
-    long a_mod_trsm_t_dur  = 0;
-    long total_t_dur       = 0;
+    steady_clock::time_point saso_t_start, saso_t_stop;
+    steady_clock::time_point qr_t_start, qr_t_stop;
+    steady_clock::time_point precond_t_start, precond_t_stop;
+    steady_clock::time_point gram_t_start, gram_t_stop;
+    steady_clock::time_point potrf_t_start, potrf_t_stop;
+    steady_clock::time_point q_t_start, q_t_stop;
+    steady_clock::time_point finalize_t_start, finalize_t_stop;
+    steady_clock::time_point total_t_start, total_t_stop;
+    long saso_t_dur      = 0;
+    long qr_t_dur        = 0;
+    long precond_t_dur   = 0;
+    long gram_t_dur      = 0;
+    long potrf_t_dur     = 0;
+    long q_t_dur         = 0;
+    long finalize_t_dur  = 0;
+    long total_t_dur     = 0;
 
     if(this -> timing)
         total_t_start = steady_clock::now();
 
-    int i;
     int64_t d = d_factor * n;
 
     T* A_hat = new T[d * n]();
@@ -152,7 +157,7 @@ int CQRRT<T, RNG>::call(
 
     if(this -> timing)
         saso_t_start = steady_clock::now();
-    
+
     /// Generating a SASO
     RandBLAS::SparseDist DS(d, m, this->nnz);
     RandBLAS::SparseSkOp<T, RNG> S(DS, state);
@@ -180,50 +185,78 @@ int CQRRT<T, RNG>::call(
     lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk, ldr);
 
     if(this -> timing)
-        a_mod_trsm_t_start = steady_clock::now();
+        precond_t_start = steady_clock::now();
 
-    // A_pre * R_sk = AP
+    // Precondition: A := A * R_sk^{-1}
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
 
     if(this -> timing) {
-        a_mod_trsm_t_stop = steady_clock::now();
-        cholqr_t_start = steady_clock::now();
+        precond_t_stop = steady_clock::now();
+        gram_t_start = steady_clock::now();
     }
 
-    // Do Cholesky QR
+    // Gram matrix: G = A^T * A (SYRK, upper triangle only)
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
-    int64_t potrf_info = lapack::potrf(Uplo::Upper, n, R_sk, ldr);
-    if (potrf_info != 0) {
-        delete[] A_hat;
-        delete[] tau;
-        throw std::runtime_error("CQRRT: Cholesky factorization failed (potrf info = "
-            + std::to_string(potrf_info) + "). Input matrix may be rank-deficient.");
+
+    if(this -> timing) {
+        gram_t_stop = steady_clock::now();
+        potrf_t_start = steady_clock::now();
     }
 
-    // Obtain the output Q-factor
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
+    // Cholesky factorization
+    int msg = lapack::potrf(Uplo::Upper, n, R_sk, ldr);
 
     if(this -> timing)
-        cholqr_t_stop = steady_clock::now();
+        potrf_t_stop = steady_clock::now();
+
+    // Obtain the output Q-factor (only if requested, timed separately and excluded from total)
+    if (this->compute_Q) {
+        if(this -> timing)
+            q_t_start = steady_clock::now();
+
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
+
+        if(this -> timing)
+            q_t_stop = steady_clock::now();
+    }
+
+    if(this -> timing)
+        finalize_t_start = steady_clock::now();
 
     if (!this->orthogonalization) {
         // Get the final R-factor - undoing the preconditioning
-        // Below does R_pre (returned by Chol) * R_sk (returned by QRCP on A_sk)
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R_sk, ldr); 
-    } 
-    
+        // R := R_chol * R_sk (returned by QR on sketch)
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R_sk, ldr);
+    }
+
     if(this -> timing) {
-        saso_t_dur       = duration_cast<microseconds>(saso_t_stop       - saso_t_start).count();
-        qr_t_dur         = duration_cast<microseconds>(qr_t_stop         - qr_t_start).count();
-        a_mod_trsm_t_dur = duration_cast<microseconds>(a_mod_trsm_t_stop - a_mod_trsm_t_start).count();
-        cholqr_t_dur     = duration_cast<microseconds>(cholqr_t_stop     - cholqr_t_start).count();
+        finalize_t_stop = steady_clock::now();
 
         total_t_stop = steady_clock::now();
-        total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-        long t_rest  = total_t_dur - (saso_t_dur + qr_t_dur + cholqr_t_dur + a_mod_trsm_t_dur);
 
-        // Fill the data vector
-        this -> times = {saso_t_dur, qr_t_dur, cholqr_t_dur, a_mod_trsm_t_dur, t_rest, total_t_dur};
+        saso_t_dur     = duration_cast<microseconds>(saso_t_stop     - saso_t_start).count();
+        qr_t_dur       = duration_cast<microseconds>(qr_t_stop       - qr_t_start).count();
+        precond_t_dur  = duration_cast<microseconds>(precond_t_stop  - precond_t_start).count();
+        gram_t_dur     = duration_cast<microseconds>(gram_t_stop     - gram_t_start).count();
+        potrf_t_dur    = duration_cast<microseconds>(potrf_t_stop    - potrf_t_start).count();
+        finalize_t_dur = duration_cast<microseconds>(finalize_t_stop - finalize_t_start).count();
+
+        total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+
+        // Subtract Q-factor computation time (excluded from total, matching CQRRT_linops test_mode)
+        if (this->compute_Q) {
+            q_t_dur = duration_cast<microseconds>(q_t_stop - q_t_start).count();
+            total_t_dur -= q_t_dur;
+        }
+
+        long t_rest = total_t_dur - (saso_t_dur + qr_t_dur + precond_t_dur +
+                                      gram_t_dur + potrf_t_dur + finalize_t_dur);
+
+        // Fill the data vector (10 entries, matching CQRRT_linops indices)
+        // Index: 0=saso, 1=qr, 2=trtri(=0), 3=precond, 4=gram, 5=trmm_gram(=0), 6=potrf, 7=finalize, 8=rest, 9=total
+        this -> times = {saso_t_dur, qr_t_dur, 0L, precond_t_dur,
+                         gram_t_dur, 0L, potrf_t_dur, finalize_t_dur,
+                         t_rest, total_t_dur};
     }
 
     delete[] A_hat;

@@ -124,7 +124,7 @@ protected:
 
             // Compute reference: densify B and use BLAS GEMM with A^{-1}
             vector<T> B_dense(dims.rows_B * dims.cols_B);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, layout, B_dense.data());
+            RandLAPACK::util::sparse_to_dense(B_csc, layout, B_dense.data());
 
             // Compute reference using utility function
             compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,

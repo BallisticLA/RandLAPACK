@@ -234,6 +234,27 @@ RandBLAS::sparse_data::csc::CSCMatrix<T> coo_submatrix_to_csc(
 /// @param[in] cond_num - Target condition number for the matrix
 /// @param[in] state - RNG state for reproducible generation
 ///
+/// @brief Helper function to generate SPD matrix with specified condition number
+///
+/// Generates an SPD matrix A = Q * D * Q^T where:
+/// - D is diagonal with eigenvalues: λ_i = 1 + (cond_num - 1) * (i / (n-1))^2
+///   This gives λ_1 = 1, λ_n = cond_num, so κ(A) = cond_num
+/// - Q is a random orthogonal matrix generated via QR of a Gaussian matrix
+///
+/// This implementation does NOT sum duplicates (avoids the PR 115 bug).
+///
+// Note: gen_spd_mat is now in RandLAPACK::gen namespace (rl_gen.hh)
+// This is just a convenience wrapper for demos
+template <typename T, typename RNG>
+void gen_spd_mat(
+    int64_t n,
+    T cond_num,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    RandLAPACK::gen::gen_spd_mat(n, cond_num, A, state);
+}
+
 template <typename T, typename RNG>
 void generate_spd_matrix_file(
     const std::string& filename,
@@ -241,9 +262,9 @@ void generate_spd_matrix_file(
     T cond_num,
     RandBLAS::RNGState<RNG> &state
 ) {
-    // Generate SPD matrix using RandLAPACK core function
+    // Generate SPD matrix using helper function
     std::vector<T> A(n * n);
-    RandLAPACK::gen::gen_spd_mat(n, cond_num, A.data(), state);
+    gen_spd_mat(n, cond_num, A.data(), state);
 
     // Write to Matrix Market file (coordinate format)
     std::ofstream file(filename);

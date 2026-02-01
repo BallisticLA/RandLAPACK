@@ -103,7 +103,7 @@ TEST_F(TestDmSCholQR3Linops, composite_operator_dense_spd) {
 
     // Compute dense representation for verification
     std::vector<double> B_dense(n_spd * n_sparse_cols, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense.data());
+    RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense.data());
 
     std::vector<double> A_dense(m * n, 0.0);
     A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n_spd,
@@ -182,7 +182,7 @@ TEST_F(TestDmSCholQR3Linops, nested_composite_operator_dense_spd) {
     // Compute dense representation for verification
     // Step 1: Densify SASO and compute SASO * Gaussian -> intermediate
     std::vector<double> saso_dense(m * k_dim, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(saso_csc, Layout::ColMajor, saso_dense.data());
+    RandLAPACK::util::sparse_to_dense(saso_csc, Layout::ColMajor, saso_dense.data());
 
     std::vector<double> intermediate(m * n, 0.0);
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, k_dim,
@@ -316,7 +316,7 @@ TEST_F(TestDmSCholQR3Linops, sparse_matrix_only) {
 
     // Densify for verification
     std::vector<double> A_dense(m * n, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csc, Layout::ColMajor, A_dense.data());
+    RandLAPACK::util::sparse_to_dense(A_csc, Layout::ColMajor, A_dense.data());
 
     // Run sCholQR3
     std::vector<double> R(n * n, 0.0);
@@ -375,7 +375,7 @@ TEST_F(TestDmSCholQR3Linops, composite_operator_sparse_spd) {
 
     // Compute dense representation for verification
     std::vector<double> B_dense(n_spd * n_sparse_cols, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, Layout::ColMajor, B_dense.data());
+    RandLAPACK::util::sparse_to_dense(B_csc, Layout::ColMajor, B_dense.data());
 
     std::vector<double> A_dense(m * n, 0.0);
     A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n_spd,

@@ -182,7 +182,7 @@ static scaling_result<T> run_single_test(
 
     // Compute dense representation for verification
     std::vector<T> A_dense(m * n, 0.0);
-    RandLAPACK::util::sparse_to_dense_summing_duplicates(A_csr, Layout::ColMajor, A_dense.data());
+    RandLAPACK::util::sparse_to_dense(A_csr, Layout::ColMajor, A_dense.data());
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
     T norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);

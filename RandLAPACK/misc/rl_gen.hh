@@ -663,4 +663,66 @@ template <typename T, typename RNG>
     return A;
 }
 
+/// @brief Generate a symmetric positive definite (SPD) matrix with specified condition number.
+///
+/// Generates an SPD matrix A = Q * D * Q^T where:
+/// - D is diagonal with eigenvalues: λ_i = 1 + (cond_num - 1) * ((i-1)/(n-1))^2
+///   This gives λ_1 = 1, λ_n = cond_num, so κ(A) = cond_num
+/// - Q is a random orthogonal matrix generated via QR factorization of a Gaussian matrix
+///
+/// This implementation avoids the duplicate-summing bug present in some earlier versions.
+///
+/// @tparam T Scalar type (double, float, etc.)
+/// @tparam RNG Random number generator type
+///
+/// @param[in] n Dimension of square SPD matrix (n × n)
+/// @param[in] cond_num Target condition number for the matrix
+/// @param[out] A Output buffer for the n×n SPD matrix (column-major)
+/// @param[in,out] state RNG state for reproducible generation
+///
+template <typename T, typename RNG>
+void gen_spd_mat(
+    int64_t n,
+    T cond_num,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    // Step 1: Generate eigenvalues with desired condition number
+    // Use polynomial decay: λ_i = 1 + (cond_num - 1) * ((i-1)/(n-1))^2
+    std::vector<T> eigenvalues(n);
+    eigenvalues[0] = 1.0;  // Smallest eigenvalue
+    if (n > 1) {
+        eigenvalues[n-1] = cond_num;  // Largest eigenvalue
+        for (int64_t i = 1; i < n - 1; ++i) {
+            T t = static_cast<T>(i) / static_cast<T>(n - 1);
+            eigenvalues[i] = 1.0 + (cond_num - 1.0) * t * t;
+        }
+    }
+
+    // Step 2: Generate random orthogonal matrix Q via QR factorization
+    std::vector<T> Q(n * n);
+    std::vector<T> tau(n);
+
+    // Fill Q with Gaussian random entries
+    auto d = RandBLAS::DenseDist(n, n);
+    RandBLAS::fill_dense(d, Q.data(), state);
+
+    // QR factorization to get orthogonal Q
+    lapack::geqrf(n, n, Q.data(), n, tau.data());
+    lapack::orgqr(n, n, n, Q.data(), n, tau.data());
+
+    // Step 3: Form A = Q * D * Q^T
+    // First compute Q_scaled = Q * D (scale columns of Q by eigenvalues)
+    std::vector<T> Q_scaled(n * n);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            Q_scaled[i + j * n] = Q[i + j * n] * eigenvalues[j];
+        }
+    }
+
+    // Then A = Q_scaled * Q^T
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
+               n, n, n, (T)1.0, Q_scaled.data(), n, Q.data(), n, (T)0.0, A, n);
+}
+
 }
