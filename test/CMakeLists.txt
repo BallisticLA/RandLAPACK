@@ -29,6 +29,7 @@ if (GTest_FOUND)
         misc/test_linop_sparse.cc
         misc/test_linop_composite.cc
         misc/test_linop_block_views.cc
+        misc/test_linop_unified.cc
     )
     
     # Create non-CUDA test executable

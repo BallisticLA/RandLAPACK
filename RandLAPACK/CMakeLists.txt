@@ -20,6 +20,7 @@ set(RandLAPACK_cxx_sources
     rl_blaspp.hh
     rl_linops.hh
     rl_pdkernels.hh
+    rl_util_test_linop.hh
 
     rl_cusolver.hh
     rl_cuda_kernels.cuh

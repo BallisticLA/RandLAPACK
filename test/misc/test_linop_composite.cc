@@ -8,7 +8,6 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
 
 using std::vector;
 using blas::Layout;
@@ -16,7 +15,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util::test;
+using namespace RandLAPACK::util;
 
 // Static assertion to verify CompositeOperator satisfies LinearOperator concept
 using DenseOp = RandLAPACK::linops::DenseLinOp<double>;
@@ -38,8 +37,44 @@ protected:
 
     virtual void TearDown() {};
 
-    // Unified test function for CompositeOperator
-    // Handles all combinations of left/right operators, input matrix types, and layouts
+    /// Unified test function for CompositeOperator.
+    ///
+    /// This test verifies that CompositeOperator correctly computes matrix products
+    /// of the form C := alpha * op(L * R) * op(B) + beta * C (side=Left) or
+    /// C := alpha * op(B) * op(L * R) + beta * C (side=Right), where L and R are
+    /// the left and right factor matrices of the composite operator.
+    ///
+    /// Test structure:
+    ///
+    /// 1. MATRIX GENERATION
+    ///    - Generate random matrices L (rows_left × cols_left) and R (rows_right × cols_right)
+    ///      where cols_left == rows_right (= intermediate_dim) so that L * R is well-defined.
+    ///    - L and R may be dense or sparse (controlled by left_sparse, right_sparse flags).
+    ///    - Generate random matrix B with dimensions determined by side and transpose flags.
+    ///    - B may be dense or sparse (controlled by sparse_B flag).
+    ///    - Initialize output matrix C with random values (to test beta != 0 case).
+    ///
+    /// 2. LINEAR OPERATOR CONSTRUCTION
+    ///    - Wrap L in either DenseLinOp or SparseLinOp<CSCMatrix> depending on left_sparse.
+    ///    - Wrap R in either DenseLinOp or SparseLinOp<CSCMatrix> depending on right_sparse.
+    ///    - Construct CompositeOperator from the two linear operators.
+    ///
+    /// 3. COMPUTATION VIA COMPOSITE OPERATOR
+    ///    - Apply the composite operator to compute:
+    ///        Side::Left:  C_composite := alpha * op(L * R) * op(B) + beta * C_composite
+    ///        Side::Right: C_composite := alpha * op(B) * op(L * R) + beta * C_composite
+    ///
+    /// 4. REFERENCE COMPUTATION
+    ///    - Re-generate L, R, B from the same RNG seed to ensure identical matrices.
+    ///    - Convert all matrices to dense column-major format.
+    ///    - Explicitly compute (L * R) via BLAS gemm.
+    ///    - Apply the same operation using BLAS gemm to get C_reference.
+    ///
+    /// 5. VERIFICATION
+    ///    - Compare C_composite and C_reference entry-wise.
+    ///    - Test passes if |C_composite[i,j] - C_reference[i,j]| <= atol + rtol * |C_reference[i,j]|
+    ///      for all entries, where atol = 100 * eps and rtol = 10 * eps (eps = machine epsilon).
+    ///
     template <typename T>
     void test_composite_linop(
         bool left_sparse,   // Left operator: true=sparse, false=dense
@@ -96,33 +131,34 @@ protected:
         }
 
         // Generate left operator matrix
-        vector<T> left_dense;
+        T* left_dense = nullptr;
         if (!left_sparse) {
-            left_dense = generate_dense_matrix<T>(rows_left, cols_left, layout, state);
+            left_dense = new T[rows_left * cols_left];
+            RandLAPACK::gen::gen_random_dense(rows_left, cols_left, left_dense, layout, state);
         }
 
         // Generate right operator matrix
-        vector<T> right_dense;
+        T* right_dense = nullptr;
         if (!right_sparse) {
-            right_dense = generate_dense_matrix<T>(rows_right, cols_right, layout, state);
+            right_dense = new T[rows_right * cols_right];
+            RandLAPACK::gen::gen_random_dense(rows_right, cols_right, right_dense, layout, state);
         }
 
         // Create linear operator objects
         int64_t lda_left = (layout == Layout::ColMajor) ? rows_left : cols_left;
         int64_t lda_right = (layout == Layout::ColMajor) ? rows_right : cols_right;
 
-        // Create output buffers
-        vector<T> C_composite(m * n);
-        vector<T> C_reference(m * n);
-
-        // Initialize test buffers using utility function
-        initialize_test_buffers(C_composite, C_reference);
+        // Create and initialize output buffers with random data for beta testing
+        T* C_composite = new T[m * n];
+        RandLAPACK::gen::gen_random_dense(m, n, C_composite, Layout::ColMajor, state);
+        T* C_reference = new T[m * n];
+        std::copy(C_composite, C_composite + m * n, C_reference);
 
         // Create operators and composite
         if (left_sparse && right_sparse) {
             // Sparse-Sparse composition
-            auto left_csc = generate_sparse_matrix<T>(rows_left, cols_left, density_left, state);
-            auto right_csc = generate_sparse_matrix<T>(rows_right, cols_right, density_right, state);
+            auto left_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_left, cols_left, density_left, state);
+            auto right_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state);
             RandLAPACK::linops::SparseLinOp left_op(rows_left, cols_left, left_csc);
             RandLAPACK::linops::SparseLinOp right_op(rows_right, cols_right, right_csc);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
@@ -133,9 +169,9 @@ protected:
 
         } else if (left_sparse && !right_sparse) {
             // Sparse-Dense composition
-            auto left_csc = generate_sparse_matrix<T>(rows_left, cols_left, density_left, state);
+            auto left_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_left, cols_left, density_left, state);
             RandLAPACK::linops::SparseLinOp left_op(rows_left, cols_left, left_csc);
-            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense.data(), lda_right, layout);
+            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense, lda_right, layout);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
 
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
@@ -144,8 +180,8 @@ protected:
 
         } else if (!left_sparse && right_sparse) {
             // Dense-Sparse composition
-            auto right_csc = generate_sparse_matrix<T>(rows_right, cols_right, density_right, state);
-            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense.data(), lda_left, layout);
+            auto right_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state);
+            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense, lda_left, layout);
             RandLAPACK::linops::SparseLinOp right_op(rows_right, cols_right, right_csc);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
 
@@ -155,8 +191,8 @@ protected:
 
         } else {
             // Dense-Dense composition
-            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense.data(), lda_left, layout);
-            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense.data(), lda_right, layout);
+            RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense, lda_left, layout);
+            RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense, lda_right, layout);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
 
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
@@ -168,74 +204,66 @@ protected:
         // First materialize left and right operators as dense matrices
         // Need to regenerate with same seed for consistent results
         RNGState state_ref(0);
-        vector<T> left_mat_dense(rows_left * cols_left);
-        vector<T> right_mat_dense(rows_right * cols_right);
+        T* left_mat_dense = new T[rows_left * cols_left]();
+        T* right_mat_dense = new T[rows_right * cols_right]();
 
         if (left_sparse) {
-            auto left_csc_ref = generate_sparse_matrix<T>(rows_left, cols_left, density_left, state_ref);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(left_csc_ref, Layout::ColMajor, left_mat_dense.data());
+            auto left_csc_ref = RandLAPACK::gen::gen_sparse_csc<T>(rows_left, cols_left, density_left, state_ref);
+            RandBLAS::sparse_data::csc::csc_to_dense(left_csc_ref, Layout::ColMajor, left_mat_dense);
         } else {
             // Convert to ColMajor if needed
             if (layout == Layout::ColMajor) {
-                left_mat_dense = left_dense;
+                std::copy(left_dense, left_dense + rows_left * cols_left, left_mat_dense);
             } else {
-                for (int64_t i = 0; i < rows_left; ++i) {
-                    for (int64_t j = 0; j < cols_left; ++j) {
-                        left_mat_dense[i + j * rows_left] = left_dense[j + i * cols_left];
-                    }
-                }
+                // RowMajor to ColMajor: irs=cols_left, ics=1 -> irs=1, ics=rows_left
+                RandBLAS::util::omatcopy(rows_left, cols_left, left_dense, cols_left, 1, left_mat_dense, 1, rows_left);
             }
         }
 
         if (right_sparse) {
-            auto right_csc_ref = generate_sparse_matrix<T>(rows_right, cols_right, density_right, state_ref);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(right_csc_ref, Layout::ColMajor, right_mat_dense.data());
+            auto right_csc_ref = RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state_ref);
+            RandBLAS::sparse_data::csc::csc_to_dense(right_csc_ref, Layout::ColMajor, right_mat_dense);
         } else {
             // Convert to ColMajor if needed
             if (layout == Layout::ColMajor) {
-                right_mat_dense = right_dense;
+                std::copy(right_dense, right_dense + rows_right * cols_right, right_mat_dense);
             } else {
-                for (int64_t i = 0; i < rows_right; ++i) {
-                    for (int64_t j = 0; j < cols_right; ++j) {
-                        right_mat_dense[i + j * rows_right] = right_dense[j + i * cols_right];
-                    }
-                }
+                // RowMajor to ColMajor: irs=cols_right, ics=1 -> irs=1, ics=rows_right
+                RandBLAS::util::omatcopy(rows_right, cols_right, right_dense, cols_right, 1, right_mat_dense, 1, rows_right);
             }
         }
 
         // Compute composite = left * right using BLAS gemm (always in ColMajor first)
-        vector<T> composite_colmajor(rows_left * cols_right);
+        T* composite_colmajor = new T[rows_left * cols_right];
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                    rows_left, cols_right, cols_left,
-                   1.0, left_mat_dense.data(), rows_left,
-                   right_mat_dense.data(), rows_right,
-                   0.0, composite_colmajor.data(), rows_left);
+                   1.0, left_mat_dense, rows_left,
+                   right_mat_dense, rows_right,
+                   0.0, composite_colmajor, rows_left);
 
         // Convert composite to the required layout
-        vector<T> composite_dense(rows_left * cols_right);
+        T* composite_dense = new T[rows_left * cols_right];
         if (layout == Layout::ColMajor) {
-            composite_dense = composite_colmajor;
+            std::copy(composite_colmajor, composite_colmajor + rows_left * cols_right, composite_dense);
         } else {  // RowMajor
-            for (int64_t i = 0; i < rows_left; ++i) {
-                for (int64_t j = 0; j < cols_right; ++j) {
-                    composite_dense[j + i * cols_right] = composite_colmajor[i + j * rows_left];
-                }
-            }
+            // ColMajor to RowMajor: irs=1, ics=rows_left -> irs=cols_right, ics=1
+            RandBLAS::util::omatcopy(rows_left, cols_right, composite_colmajor, 1, rows_left, composite_dense, cols_right, 1);
         }
 
         // Now apply the materialized composite operator to B to get reference
         // Need to handle the same dense/sparse B cases
         // Generate the same B matrix for reference computation (reusing state_ref)
-        vector<T> B_dense_ref;
+        T* B_dense_ref = nullptr;
 
         if (sparse_B) {
             // Generate sparse B and densify
-            auto B_csc = generate_sparse_matrix<T>(rows_B, cols_B, density_B, state_ref);
-            B_dense_ref.resize(rows_B * cols_B);
-            RandLAPACK::util::sparse_to_dense_summing_duplicates(B_csc, layout, B_dense_ref.data());
+            auto B_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_B, cols_B, density_B, state_ref);
+            B_dense_ref = new T[rows_B * cols_B]();
+            RandBLAS::sparse_data::csc::csc_to_dense(B_csc, layout, B_dense_ref);
         } else {
-            // Generate dense B using utility function
-            B_dense_ref = generate_dense_matrix<T>(rows_B, cols_B, layout, state_ref);
+            // Generate dense B
+            B_dense_ref = new T[rows_B * cols_B];
+            RandLAPACK::gen::gen_random_dense(rows_B, cols_B, B_dense_ref, layout, state_ref);
         }
 
         // Compute reference using utility function
@@ -244,18 +272,29 @@ protected:
         int64_t ldc_ref = (layout == Layout::ColMajor) ? m : n;
 
         compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
-                               composite_dense.data(), lda_ref, B_dense_ref.data(), ldb_ref,
-                               beta, C_reference.data(), ldc_ref);
+                               composite_dense, lda_ref, B_dense_ref, ldb_ref,
+                               beta, C_reference, ldc_ref);
 
         // Compare results
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
         int64_t ldc_cmp = (layout == Layout::ColMajor) ? m : n;
         test::comparison::matrices_approx_equal(
-            layout, Op::NoTrans, m, n, C_composite.data(), ldc_cmp,
-            C_reference.data(), ldc_cmp, __PRETTY_FUNCTION__, __FILE__, __LINE__,
+            layout, Op::NoTrans, m, n, C_composite, ldc_cmp,
+            C_reference, ldc_cmp, __PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );
+
+        // Clean up
+        delete[] left_mat_dense;
+        delete[] right_mat_dense;
+        delete[] composite_colmajor;
+        delete[] composite_dense;
+        delete[] B_dense_ref;
+        delete[] C_composite;
+        delete[] C_reference;
+        if (left_dense) delete[] left_dense;
+        if (right_dense) delete[] right_dense;
     }
 
     // Helper to test composite operator with different input types
@@ -275,26 +314,29 @@ protected:
         int64_t rows_B,
         int64_t cols_B,
         T density_B,
-        vector<T>& C_composite,
-        vector<T>& C_reference,
+        T* C_composite,
+        T* C_reference,
         RNGState<r123::Philox4x32_R<10>>& state
     ) {
         int64_t ldc = (layout == Layout::ColMajor) ? m : n;
 
         if (sparse_B) {
             // Generate sparse input matrix B using utility function
-            auto B_csc = generate_sparse_matrix<T>(rows_B, cols_B, density_B, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_B, cols_B, density_B, state);
 
             // Apply composite operator
-            composite_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_composite.data(), ldc);
+            composite_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_composite, ldc);
 
         } else {
-            // Generate dense input matrix B using utility function
-            vector<T> B_dense = generate_dense_matrix<T>(rows_B, cols_B, layout, state);
+            // Generate dense input matrix B
+            T* B_dense = new T[rows_B * cols_B];
+            RandLAPACK::gen::gen_random_dense(rows_B, cols_B, B_dense, layout, state);
             int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
 
             // Apply composite operator
-            composite_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense.data(), ldb, beta, C_composite.data(), ldc);
+            composite_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C_composite, ldc);
+
+            delete[] B_dense;
         }
     }
 };
