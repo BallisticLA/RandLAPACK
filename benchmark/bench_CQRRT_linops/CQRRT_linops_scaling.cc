@@ -24,6 +24,7 @@ int main() {return 0;}
 #include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
 #include "../../demos/functions/drivers/dm_cholqr_linops.hh"
 #include "../../demos/functions/drivers/dm_scholqr3_linops.hh"
+#include "../../demos/functions/misc/dm_memory_tracker.hh"
 
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
@@ -37,6 +38,7 @@ struct alg_quality {
     bool is_orthonormal;    // Is full Q block orthonormal?
     int64_t max_orth_cols;  // Maximum orthonormal prefix
     long time;              // Total computation time (microseconds)
+    long peak_rss_kb;       // Peak RSS increase during algorithm call (KB)
 };
 
 template <typename T>
@@ -90,6 +92,12 @@ struct scaling_result {
     long dense_cqrrt_potrf_time;
     long dense_cqrrt_finalize_time;
     long dense_cqrrt_rest_time;
+
+    // Analytical peak working memory (KB)
+    long cqrrt_analytical_kb;
+    long cholqr_analytical_kb;
+    long scholqr3_analytical_kb;
+    long dense_cqrrt_analytical_kb;
 };
 
 // Compute orthogonality metrics for Q-factor
@@ -216,13 +224,17 @@ static scaling_result<T> run_single_test(
             CQRRT_QR.nnz = 5;
             CQRRT_QR.use_dense_sketch = use_dense_sketch;
             CQRRT_QR.block_size = block_size;
+            RandLAPACK_demos::PeakRSSTracker cqrrt_mem;
+            cqrrt_mem.start();
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
+            long run_peak_rss_kb = cqrrt_mem.stop();
 
             long run_time = CQRRT_QR.times[9];  // total_t_dur
 
             // Track fastest run and its subroutine times
             if (run_time < result.cqrrt.time) {
                 result.cqrrt.time = run_time;
+                result.cqrrt.peak_rss_kb = run_peak_rss_kb;
                 result.cqrrt_saso_time = CQRRT_QR.times[0];
                 result.cqrrt_qr_time = CQRRT_QR.times[1];
                 result.cqrrt_trtri_time = CQRRT_QR.times[2];
@@ -267,12 +279,17 @@ static scaling_result<T> run_single_test(
             std::vector<T> R_cholqr(n * n, 0.0);
 
             RandLAPACK_demos::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
+
+            RandLAPACK_demos::PeakRSSTracker cholqr_mem;
+            cholqr_mem.start();
             CholQR_alg.call(A_linop, R_cholqr.data(), n);
+            long run_peak_rss_kb = cholqr_mem.stop();
 
             long run_time = CholQR_alg.times[4];  // total
 
             if (run_time < result.cholqr.time) {
                 result.cholqr.time = run_time;
+                result.cholqr.peak_rss_kb = run_peak_rss_kb;
                 result.cholqr_materialize_time = CholQR_alg.times[0];
                 result.cholqr_gram_time = CholQR_alg.times[1];
                 result.cholqr_potrf_time = CholQR_alg.times[2];
@@ -319,12 +336,17 @@ static scaling_result<T> run_single_test(
             std::vector<T> R_scholqr3(n * n, 0.0);
 
             RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(true, tol, true);  // timing=true, test_mode=true
+
+            RandLAPACK_demos::PeakRSSTracker scholqr3_mem;
+            scholqr3_mem.start();
             sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
+            long run_peak_rss_kb = scholqr3_mem.stop();
 
             long run_time = sCholQR3_alg.times[11];  // total
 
             if (run_time < result.scholqr3.time) {
                 result.scholqr3.time = run_time;
+                result.scholqr3.peak_rss_kb = run_peak_rss_kb;
                 result.scholqr3_materialize_time = sCholQR3_alg.times[0];
                 result.scholqr3_gram1_time = sCholQR3_alg.times[1];
                 result.scholqr3_potrf1_time = sCholQR3_alg.times[2];
@@ -372,6 +394,9 @@ static scaling_result<T> run_single_test(
         int64_t best_max_orth_cols = 0;
 
         for (int64_t run = 0; run < num_runs; ++run) {
+            RandLAPACK_demos::PeakRSSTracker dense_mem;
+            dense_mem.start();
+
             // Step 1: Materialize the operator by multiplying with identity
             T* I_mat = new T[n * n]();
             RandLAPACK::util::eye(n, n, I_mat);
@@ -394,11 +419,14 @@ static scaling_result<T> run_single_test(
             dense_alg.nnz = 2;
             dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
 
+            long run_peak_rss_kb = dense_mem.stop();
+
             // Total = materialization + algorithm total (Q excluded from algo total)
             long run_time = materialize_time + dense_alg.times[9];
 
             if (run_time < result.dense_cqrrt.time) {
                 result.dense_cqrrt.time = run_time;
+                result.dense_cqrrt.peak_rss_kb = run_peak_rss_kb;
                 result.dense_cqrrt_materialize_time = materialize_time;
                 result.dense_cqrrt_saso_time     = dense_alg.times[0];
                 result.dense_cqrrt_qr_time       = dense_alg.times[1];
@@ -425,6 +453,12 @@ static scaling_result<T> run_single_test(
         result.dense_cqrrt.is_orthonormal = best_is_orthonormal;
         result.dense_cqrrt.max_orth_cols = best_max_orth_cols;
     }
+
+    // Compute analytical peak working memory for each algorithm
+    result.cqrrt_analytical_kb = RandLAPACK_demos::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+    result.cholqr_analytical_kb = RandLAPACK_demos::cholqr_linops_analytical_kb<T>(m, n);
+    result.scholqr3_analytical_kb = RandLAPACK_demos::scholqr3_linops_analytical_kb<T>(m, n);
+    result.dense_cqrrt_analytical_kb = RandLAPACK_demos::dense_cqrrt_analytical_kb<T>(m, n, d_factor);
 
     return result;
 }
@@ -510,12 +544,16 @@ int main(int argc, char *argv[]) {
     out << "# block_size (CQRRT only): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
-    out << "# Format: per-algorithm quality metrics (rel_error, orth_error, max_orth_cols, orth_flag, time) and speedups\n";
+    out << "# Format: per-algorithm quality metrics (rel_error, orth_error, max_orth_cols, orth_flag, time), memory (KB), and speedups\n";
     out << "m,n,aspect_ratio,density,"
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
         << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
         << "dense_cqrrt_rel_error,dense_cqrrt_orth_error,dense_cqrrt_max_orth_cols,dense_cqrrt_is_orth,dense_cqrrt_time_us,"
+        << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
+        << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
+        << "scholqr3_peak_rss_kb,scholqr3_analytical_kb,"
+        << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb,"
         << "speedup_cqrrt_over_cholqr,speedup_cqrrt_over_scholqr3,speedup_cqrrt_over_dense\n";
 
     // Prepare runtime breakdown file with date/time prefix
@@ -538,7 +576,11 @@ int main(int argc, char *argv[]) {
               << "cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
               << "cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
               << "scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
-              << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total\n";
+              << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total,"
+              << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
+              << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
+              << "scholqr3_peak_rss_kb,scholqr3_analytical_kb,"
+              << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb\n";
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {
@@ -564,8 +606,14 @@ int main(int argc, char *argv[]) {
                result.scholqr3.orth_error, result.scholqr3.max_orth_cols, n, result.scholqr3.time);
         printf("  Dense CQRRT: orth_err=%.2e, max_orth=%ld/%ld, time=%ld us\n",
                result.dense_cqrrt.orth_error, result.dense_cqrrt.max_orth_cols, n, result.dense_cqrrt.time);
-        printf("  Speedup CQRRT over: CholQR=%.2fx, sCholQR3=%.2fx, Dense=%.2fx\n\n",
+        printf("  Speedup CQRRT over: CholQR=%.2fx, sCholQR3=%.2fx, Dense=%.2fx\n",
                speedup_cqrrt_over_cholqr, speedup_cqrrt_over_scholqr3, speedup_cqrrt_over_dense);
+        printf("  Memory (peak RSS / analytical KB):\n");
+        printf("    CQRRT: %ld / %ld,  CholQR: %ld / %ld,  sCholQR3: %ld / %ld,  Dense: %ld / %ld\n\n",
+               result.cqrrt.peak_rss_kb, result.cqrrt_analytical_kb,
+               result.cholqr.peak_rss_kb, result.cholqr_analytical_kb,
+               result.scholqr3.peak_rss_kb, result.scholqr3_analytical_kb,
+               result.dense_cqrrt.peak_rss_kb, result.dense_cqrrt_analytical_kb);
 
         // Write results
         out << std::fixed << std::setprecision(1)
@@ -584,6 +632,10 @@ int main(int argc, char *argv[]) {
             << result.dense_cqrrt.rel_error << "," << result.dense_cqrrt.orth_error << ","
             << result.dense_cqrrt.max_orth_cols << "," << (result.dense_cqrrt.is_orthonormal ? 1 : 0) << ","
             << result.dense_cqrrt.time << ","
+            << result.cqrrt.peak_rss_kb << "," << result.cqrrt_analytical_kb << ","
+            << result.cholqr.peak_rss_kb << "," << result.cholqr_analytical_kb << ","
+            << result.scholqr3.peak_rss_kb << "," << result.scholqr3_analytical_kb << ","
+            << result.dense_cqrrt.peak_rss_kb << "," << result.dense_cqrrt_analytical_kb << ","
             << std::fixed << std::setprecision(3) << speedup_cqrrt_over_cholqr << "," << speedup_cqrrt_over_scholqr3 << "," << speedup_cqrrt_over_dense << "\n";
         out.flush();
 
@@ -617,7 +669,12 @@ int main(int argc, char *argv[]) {
                   << result.dense_cqrrt_potrf_time << ","
                   << result.dense_cqrrt_finalize_time << ","
                   << result.dense_cqrrt_rest_time << ","
-                  << result.dense_cqrrt.time << "\n";
+                  << result.dense_cqrrt.time << ","
+                  // Memory columns (KB)
+                  << result.cqrrt.peak_rss_kb << "," << result.cqrrt_analytical_kb << ","
+                  << result.cholqr.peak_rss_kb << "," << result.cholqr_analytical_kb << ","
+                  << result.scholqr3.peak_rss_kb << "," << result.scholqr3_analytical_kb << ","
+                  << result.dense_cqrrt.peak_rss_kb << "," << result.dense_cqrrt_analytical_kb << "\n";
         breakdown.flush();
     }
 
