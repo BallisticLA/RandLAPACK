@@ -304,6 +304,20 @@ static conditioning_result<T> run_single_test(
     // ============================================================
     // Run CQRRT (preconditioned Cholesky QR)
     // ============================================================
+    // Peak RSS measured with test_mode=false to exclude Q-factor allocation.
+    // With column-blocking, test_mode reallocates A_pre from m*b_eff to m*n for Q.
+    {
+        std::vector<T> R_rss(n * n, 0.0);
+        auto state_rss = state;
+        RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
+        CQRRT_rss.nnz = 5;
+        CQRRT_rss.use_dense_sketch = use_dense_sketch;
+        CQRRT_rss.block_size = block_size;
+        RandLAPACK_demos::PeakRSSTracker cqrrt_mem;
+        cqrrt_mem.start();
+        CQRRT_rss.call(outer_composite, R_rss.data(), n, d_factor, state_rss);
+        result.cqrrt.peak_rss_kb = cqrrt_mem.stop();
+    }
     {
         std::vector<T> R_cqrrt(n * n, 0.0);
 
@@ -311,11 +325,7 @@ static conditioning_result<T> run_single_test(
         CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
         CQRRT_QR.use_dense_sketch = use_dense_sketch;
         CQRRT_QR.block_size = block_size;
-
-        RandLAPACK_demos::PeakRSSTracker cqrrt_mem;
-        cqrrt_mem.start();
         CQRRT_QR.call(outer_composite, R_cqrrt.data(), n, d_factor, state);
-        result.cqrrt.peak_rss_kb = cqrrt_mem.stop();
 
         result.cqrrt.time = CQRRT_QR.times[9];  // total_t_dur
         result.cqrrt_saso_time = CQRRT_QR.times[0];
@@ -339,6 +349,7 @@ static conditioning_result<T> run_single_test(
     // ============================================================
     // Run CholQR (unpreconditioned Cholesky QR)
     // ============================================================
+    // Peak RSS with test_mode=true is correct: Q reuses A_temp working buffer (no extra allocation).
     {
         std::vector<T> R_cholqr(n * n, 0.0);
 
@@ -366,6 +377,7 @@ static conditioning_result<T> run_single_test(
     // ============================================================
     // Run sCholQR3 (shifted Cholesky QR with 3 iterations)
     // ============================================================
+    // Peak RSS with test_mode=true is correct: Q reuses Q_buf working buffer (always allocated).
     {
         std::vector<T> R_scholqr3(n * n, 0.0);
 
@@ -400,6 +412,7 @@ static conditioning_result<T> run_single_test(
     // ============================================================
     // Run Dense CQRRT (materialize operator, then call rl_cqrrt)
     // ============================================================
+    // Peak RSS with compute_Q=true is correct: Q overwrites A_materialized in-place (no extra allocation).
     {
         RandLAPACK_demos::PeakRSSTracker dense_mem;
         dense_mem.start();

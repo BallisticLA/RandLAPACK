@@ -198,7 +198,23 @@ static scaling_result<T> run_single_test(
     // ============================================================
     // Run CQRRT (preconditioned Cholesky QR) - multiple runs
     // ============================================================
+    // Peak RSS measured separately with test_mode=false to exclude Q-factor allocation.
+    // With column-blocking, test_mode reallocates A_pre from m*b_eff to m*n for Q.
     {
+        // RSS measurement (test_mode=false)
+        {
+            std::vector<T> R_rss(n * n, 0.0);
+            auto state_rss = state;
+            RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
+            CQRRT_rss.nnz = 5;
+            CQRRT_rss.use_dense_sketch = use_dense_sketch;
+            CQRRT_rss.block_size = block_size;
+            RandLAPACK_demos::PeakRSSTracker cqrrt_mem;
+            cqrrt_mem.start();
+            CQRRT_rss.call(A_linop, R_rss.data(), n, d_factor, state_rss);
+            result.cqrrt.peak_rss_kb = cqrrt_mem.stop();
+        }
+
         // Initialize with first run
         result.cqrrt.time = std::numeric_limits<long>::max();
         result.cqrrt_saso_time = 0;
@@ -224,17 +240,13 @@ static scaling_result<T> run_single_test(
             CQRRT_QR.nnz = 5;
             CQRRT_QR.use_dense_sketch = use_dense_sketch;
             CQRRT_QR.block_size = block_size;
-            RandLAPACK_demos::PeakRSSTracker cqrrt_mem;
-            cqrrt_mem.start();
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
-            long run_peak_rss_kb = cqrrt_mem.stop();
 
             long run_time = CQRRT_QR.times[9];  // total_t_dur
 
             // Track fastest run and its subroutine times
             if (run_time < result.cqrrt.time) {
                 result.cqrrt.time = run_time;
-                result.cqrrt.peak_rss_kb = run_peak_rss_kb;
                 result.cqrrt_saso_time = CQRRT_QR.times[0];
                 result.cqrrt_qr_time = CQRRT_QR.times[1];
                 result.cqrrt_trtri_time = CQRRT_QR.times[2];
@@ -263,6 +275,7 @@ static scaling_result<T> run_single_test(
     // ============================================================
     // Run CholQR (unpreconditioned Cholesky QR) - multiple runs
     // ============================================================
+    // Peak RSS with test_mode=true is correct: Q reuses A_temp working buffer (no extra allocation).
     {
         result.cholqr.time = std::numeric_limits<long>::max();
         result.cholqr_materialize_time = 0;
@@ -313,6 +326,7 @@ static scaling_result<T> run_single_test(
     // ============================================================
     // Run sCholQR3 (shifted Cholesky QR with 3 iterations) - multiple runs
     // ============================================================
+    // Peak RSS with test_mode=true is correct: Q reuses Q_buf working buffer (always allocated).
     {
         result.scholqr3.time = std::numeric_limits<long>::max();
         result.scholqr3_materialize_time = 0;
@@ -377,6 +391,7 @@ static scaling_result<T> run_single_test(
     // ============================================================
     // Run Dense CQRRT (materialize operator, then call rl_cqrrt) - multiple runs
     // ============================================================
+    // Peak RSS with compute_Q=true is correct: Q overwrites A_materialized in-place (no extra allocation).
     {
         result.dense_cqrrt.time = std::numeric_limits<long>::max();
         result.dense_cqrrt_materialize_time = 0;
