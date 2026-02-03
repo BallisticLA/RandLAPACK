@@ -165,7 +165,7 @@ residual_error_comp(TestData &all_data, int64_t target_rank) {
     T nrm1 = lapack::lange(Norm::Fro, m, target_rank, all_data.U_cpy, m);
     T nrm2 = lapack::lange(Norm::Fro, n, target_rank, all_data.V_cpy, n);
 
-    return std::hypot(nrm1, nrm2) / all_data.Sigma[0];
+    return std::hypot(nrm1, nrm2) / all_data.Sigma[target_rank- 1];
 }
 
 template <typename T>
