@@ -90,16 +90,21 @@ static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_fac
     return bytes / 1024;
 }
 
-// CholQR_linops: I_mat(n*n) + A_temp(m*n)
+// CholQR_linops: I_mat(n*n) + A_temp(m*b_eff)
 template <typename T>
-static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n) {
-    long bytes = static_cast<long>(sizeof(T)) * ((long)n * n + (long)m * n);
+static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
+    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+    long bytes = static_cast<long>(sizeof(T)) * ((long)n * n + (long)m * b_eff);
     return bytes / 1024;
 }
 
 // sCholQR3_linops: I_mat(n*n) + Q_buf(m*n) + G(n*n) + R_temp(n*n)
+// NOTE: block_size parameter accepted for API consistency, but does NOT reduce
+// peak memory because Q_buf(m*n) is required for iterations 2 and 3.
+// Blocking only reduces memory during iteration 1's Gram computation phase.
 template <typename T>
-static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n) {
+static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
+    (void)block_size;  // Unused - peak memory unchanged by blocking
     long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 3L * n * n);
     return bytes / 1024;
 }

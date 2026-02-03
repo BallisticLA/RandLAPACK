@@ -354,6 +354,7 @@ static conditioning_result<T> run_single_test(
         std::vector<T> R_cholqr(n * n, 0.0);
 
         RandLAPACK_demos::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
+        CholQR_alg.block_size = block_size;
 
         RandLAPACK_demos::PeakRSSTracker cholqr_mem;
         cholqr_mem.start();
@@ -382,6 +383,7 @@ static conditioning_result<T> run_single_test(
         std::vector<T> R_scholqr3(n * n, 0.0);
 
         RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(true, tol, true);  // timing=true, test_mode=true
+        sCholQR3_alg.block_size = block_size;
 
         RandLAPACK_demos::PeakRSSTracker scholqr3_mem;
         scholqr3_mem.start();
@@ -466,8 +468,8 @@ static conditioning_result<T> run_single_test(
 
     // Compute analytical peak working memory for each algorithm
     result.cqrrt_analytical_kb = RandLAPACK_demos::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
-    result.cholqr_analytical_kb = RandLAPACK_demos::cholqr_linops_analytical_kb<T>(m, n);
-    result.scholqr3_analytical_kb = RandLAPACK_demos::scholqr3_linops_analytical_kb<T>(m, n);
+    result.cholqr_analytical_kb = RandLAPACK_demos::cholqr_linops_analytical_kb<T>(m, n, block_size);
+    result.scholqr3_analytical_kb = RandLAPACK_demos::scholqr3_linops_analytical_kb<T>(m, n, block_size);
     result.dense_cqrrt_analytical_kb = RandLAPACK_demos::dense_cqrrt_analytical_kb<T>(m, n, d_factor);
 
     return result;
@@ -487,7 +489,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "  num_runs         : Number of runs per condition number (for averaging)" << std::endl;
         std::cerr << "  output_file      : Output CSV file for results" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = sparse SASO (default: 0)" << std::endl;
-        std::cerr << "  block_size       : (Optional) Column-block size for precondition+Gram (0 = full, default: 0)" << std::endl;
+        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "\nExample: " << argv[0] << " ./spd_matrices 1138 100 2.0 3 conditioning_results.csv" << std::endl;
         return 1;
     }
@@ -551,7 +553,7 @@ int main(int argc, char *argv[]) {
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
     printf("Sketching factor (CQRRT only): %.2f\n", d_factor);
     printf("Sketch type (CQRRT only): %s\n", use_dense_sketch ? "dense Gaussian" : "sparse SASO");
-    printf("Block size (CQRRT only): %ld (0 = full)\n", block_size);
+    printf("Block size (CQRRT, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Runs per condition: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
     printf("Output file: %s\n", output_file.c_str());
@@ -590,7 +592,7 @@ int main(int argc, char *argv[]) {
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
-    out << "# block_size (CQRRT only): " << block_size << " (0 = full)\n";
+    out << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
     out << "# Format: cond_num, then per-algorithm: rel_error, orth_error, max_orth_cols, orth_rate, time (mean/std), memory (KB)\n";
@@ -628,7 +630,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
     breakdown << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
-    breakdown << "# block_size (CQRRT only): " << block_size << " (0 = full)\n";
+    breakdown << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";

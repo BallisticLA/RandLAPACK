@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <algorithm>
 
 using namespace std::chrono;
 
@@ -46,6 +47,30 @@ class sCholQR3_linops {
         // 12 entries for detailed breakdown
         std::vector<long> times;
 
+        // Column-block size for iteration 1's Gram computation.
+        //
+        // When block_size > 0, the first iteration's Gram matrix computation:
+        //   (1) A_temp = A * I       (m × n) - materialize the operator
+        //   (2) G      = A^T * A_temp (n × n) - Gram matrix
+        // is fused into a column-block loop that processes b columns at a time:
+        //   for each column block j of width b:
+        //     buf (m × b) = A * I[:, j*b : (j+1)*b]
+        //     G[:, j*b : (j+1)*b] = A^T * buf
+        //
+        // IMPORTANT: Unlike CholQR and CQRRT, blocking provides LIMITED benefit
+        // for sCholQR3 because:
+        //   - Iterations 2 and 3 use SYRK on Q_buf, requiring the full m × n buffer
+        //   - The TRSM updates operate on the full Q_buf in-place
+        //   - Peak memory is still O(m*n) due to Q_buf requirements
+        //
+        // Blocking only reduces memory during iteration 1's Gram computation,
+        // after which the full m × n Q_buf must be allocated for the remaining
+        // operations.
+        //
+        // When block_size <= 0 or block_size >= n, the full m × n buffer is
+        // allocated from the start and the original path is used.
+        int64_t block_size;
+
         sCholQR3_linops(
             bool time_subroutines,
             T ep,
@@ -53,6 +78,7 @@ class sCholQR3_linops {
         ) {
             timing = time_subroutines;
             eps = ep;
+            block_size = 0;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -133,29 +159,92 @@ class sCholQR3_linops {
             //================================================================
             // Step 1: Shifted Cholesky QR1
             //================================================================
+            // Determine effective block width for iteration 1's Gram computation.
+            // block_size <= 0 or >= n means "no blocking" (full width).
+            int64_t b_eff = (this->block_size > 0 && this->block_size < n)
+                          ? this->block_size : n;
+
             if(this->timing)
                 materialize_t_start = steady_clock::now();
 
-            // Materialize A: Q_buf = A * I
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, I_mat, n, (T)0.0, Q_buf, m);
+            if (b_eff == n) {
+                // --- Full materialization path (original) ---
 
-            if(this->timing) {
-                materialize_t_stop = steady_clock::now();
-                gram1_t_start = steady_clock::now();
-            }
+                // Materialize A: Q_buf = A * I
+                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, I_mat, n, (T)0.0, Q_buf, m);
 
-            // Compute ||A||_F for the shift
-            T norm_A = lapack::lange(Norm::Fro, m, n, Q_buf, m);
+                if(this->timing) {
+                    materialize_t_stop = steady_clock::now();
+                    gram1_t_start = steady_clock::now();
+                }
 
-            // Compute shift = 11 * eps * n * ||A||_F^2
-            T shift = 11 * std::numeric_limits<T>::epsilon() * n * std::pow(norm_A, 2);
+                // Compute ||A||_F for the shift
+                T norm_A = lapack::lange(Norm::Fro, m, n, Q_buf, m);
 
-            // Compute Gram matrix: G = A^T * A
-            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
+                // Compute shift = 11 * eps * n * ||A||_F^2
+                T shift = 11 * std::numeric_limits<T>::epsilon() * n * std::pow(norm_A, 2);
 
-            // Add shift to diagonal: G = G + shift * I
-            for (int64_t i = 0; i < n; ++i) {
-                G[i * (n + 1)] += shift;
+                // Compute Gram matrix: G = A^T * A
+                A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
+
+                // Add shift to diagonal: G = G + shift * I
+                for (int64_t i = 0; i < n; ++i) {
+                    G[i * (n + 1)] += shift;
+                }
+
+                if(this->timing) {
+                    gram1_t_stop = steady_clock::now();
+                }
+            } else {
+                // --- Column-block processing path (memory-efficient for Gram) ---
+                //
+                // Use a smaller buffer (m × b_eff) for the Gram computation,
+                // then allocate the full Q_buf before TRSM.
+                //
+                // ||A||_F² = trace(A^T * A) = sum of diagonal elements of G,
+                // so we can compute the norm from G after the blocked computation.
+
+                T* A_temp = new T[m * b_eff]();
+
+                // Compute Gram matrix G = A^T * A using column blocks
+                for (int64_t j = 0; j < n; j += b_eff) {
+                    int64_t b_j = std::min(b_eff, n - j);
+
+                    // (1) buf = A * I[:, j : j+b_j]
+                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                      m, b_j, n, (T)1.0, I_mat + j * n, n, (T)0.0, A_temp, m);
+
+                    // (2) G[:, j : j+b_j] = A^T * buf
+                    A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
+                      n, b_j, m, (T)1.0, A_temp, m, (T)0.0, G + j * n, n);
+                }
+
+                delete[] A_temp;
+
+                if(this->timing) {
+                    // In column-block mode, materialize and Gram are fused.
+                    // Report the entire loop as materialize; gram is zero.
+                    materialize_t_stop = steady_clock::now();
+                    gram1_t_start = materialize_t_stop;
+                    gram1_t_stop = materialize_t_stop;
+                }
+
+                // Compute ||A||_F from trace(G) = ||A||_F²
+                T norm_A_sq = 0;
+                for (int64_t i = 0; i < n; ++i) {
+                    norm_A_sq += G[i * (n + 1)];
+                }
+
+                // Compute shift = 11 * eps * n * ||A||_F^2
+                T shift = 11 * std::numeric_limits<T>::epsilon() * n * norm_A_sq;
+
+                // Add shift to diagonal: G = G + shift * I
+                for (int64_t i = 0; i < n; ++i) {
+                    G[i * (n + 1)] += shift;
+                }
+
+                // Now materialize full A into Q_buf for TRSM and subsequent iterations
+                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, I_mat, n, (T)0.0, Q_buf, m);
             }
 
             // Zero out lower triangle before Cholesky
@@ -164,7 +253,6 @@ class sCholQR3_linops {
             }
 
             if(this->timing) {
-                gram1_t_stop = steady_clock::now();
                 potrf1_t_start = steady_clock::now();
             }
 
