@@ -13,7 +13,7 @@
 #include <cmath>
 #include <cstdint>
 
-namespace RandLAPACK_demos {
+namespace RandLAPACK {
 
 // Read current Resident Set Size (RSS) in KB from /proc/self/status.
 // Returns -1 on failure (e.g., non-Linux platforms).
@@ -119,4 +119,4 @@ static inline long dense_cqrrt_analytical_kb(int64_t m, int64_t n, double d_fact
     return bytes / 1024;
 }
 
-} // namespace RandLAPACK_demos
+} // namespace RandLAPACK

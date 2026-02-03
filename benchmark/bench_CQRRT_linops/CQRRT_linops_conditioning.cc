@@ -23,13 +23,15 @@ int main() {return 0;}
 #include <Eigen/Sparse>
 #include <unsupported/Eigen/SparseExtra>
 
-// Need to include demos utilities
+// Linops algorithms (now in main RandLAPACK)
+#include "rl_cqrrt_linops.hh"
+#include "rl_cholqr_linops.hh"
+#include "rl_scholqr3_linops.hh"
+#include "rl_memory_tracker.hh"
+
+// Demos utilities (Eigen-dependent, stay in demos)
 #include "../../demos/functions/linops_external/dm_cholsolver_linop.hh"
-#include "../../demos/functions/drivers/dm_cqrrt_linops.hh"
-#include "../../demos/functions/drivers/dm_cholqr_linops.hh"
-#include "../../demos/functions/drivers/dm_scholqr3_linops.hh"
 #include "../../demos/functions/misc/dm_util.hh"
-#include "../../demos/functions/misc/dm_memory_tracker.hh"
 
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
@@ -309,11 +311,11 @@ static conditioning_result<T> run_single_test(
     {
         std::vector<T> R_rss(n * n, 0.0);
         auto state_rss = state;
-        RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
+        RandLAPACK::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
         CQRRT_rss.nnz = 5;
         CQRRT_rss.use_dense_sketch = use_dense_sketch;
         CQRRT_rss.block_size = block_size;
-        RandLAPACK_demos::PeakRSSTracker cqrrt_mem;
+        RandLAPACK::PeakRSSTracker cqrrt_mem;
         cqrrt_mem.start();
         CQRRT_rss.call(outer_composite, R_rss.data(), n, d_factor, state_rss);
         result.cqrrt.peak_rss_kb = cqrrt_mem.stop();
@@ -321,7 +323,7 @@ static conditioning_result<T> run_single_test(
     {
         std::vector<T> R_cqrrt(n * n, 0.0);
 
-        RandLAPACK_demos::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
+        RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
         CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
         CQRRT_QR.use_dense_sketch = use_dense_sketch;
         CQRRT_QR.block_size = block_size;
@@ -353,10 +355,10 @@ static conditioning_result<T> run_single_test(
     {
         std::vector<T> R_cholqr(n * n, 0.0);
 
-        RandLAPACK_demos::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
+        RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
         CholQR_alg.block_size = block_size;
 
-        RandLAPACK_demos::PeakRSSTracker cholqr_mem;
+        RandLAPACK::PeakRSSTracker cholqr_mem;
         cholqr_mem.start();
         CholQR_alg.call(outer_composite, R_cholqr.data(), n);
         result.cholqr.peak_rss_kb = cholqr_mem.stop();
@@ -382,10 +384,10 @@ static conditioning_result<T> run_single_test(
     {
         std::vector<T> R_scholqr3(n * n, 0.0);
 
-        RandLAPACK_demos::sCholQR3_linops<T> sCholQR3_alg(true, tol, true);  // timing=true, test_mode=true
+        RandLAPACK::sCholQR3_linops<T> sCholQR3_alg(true, tol, true);  // timing=true, test_mode=true
         sCholQR3_alg.block_size = block_size;
 
-        RandLAPACK_demos::PeakRSSTracker scholqr3_mem;
+        RandLAPACK::PeakRSSTracker scholqr3_mem;
         scholqr3_mem.start();
         sCholQR3_alg.call(outer_composite, R_scholqr3.data(), n);
         result.scholqr3.peak_rss_kb = scholqr3_mem.stop();
@@ -416,7 +418,7 @@ static conditioning_result<T> run_single_test(
     // ============================================================
     // Peak RSS with compute_Q=true is correct: Q overwrites A_materialized in-place (no extra allocation).
     {
-        RandLAPACK_demos::PeakRSSTracker dense_mem;
+        RandLAPACK::PeakRSSTracker dense_mem;
         dense_mem.start();
 
         // Step 1: Materialize the operator by multiplying with identity
@@ -467,10 +469,10 @@ static conditioning_result<T> run_single_test(
     }
 
     // Compute analytical peak working memory for each algorithm
-    result.cqrrt_analytical_kb = RandLAPACK_demos::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
-    result.cholqr_analytical_kb = RandLAPACK_demos::cholqr_linops_analytical_kb<T>(m, n, block_size);
-    result.scholqr3_analytical_kb = RandLAPACK_demos::scholqr3_linops_analytical_kb<T>(m, n, block_size);
-    result.dense_cqrrt_analytical_kb = RandLAPACK_demos::dense_cqrrt_analytical_kb<T>(m, n, d_factor);
+    result.cqrrt_analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+    result.cholqr_analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
+    result.scholqr3_analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
+    result.dense_cqrrt_analytical_kb = RandLAPACK::dense_cqrrt_analytical_kb<T>(m, n, d_factor);
 
     return result;
 }

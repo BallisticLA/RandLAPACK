@@ -8,7 +8,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
 
-#include "../../functions/drivers/dm_scholqr3_linops.hh"
+#include <rl_scholqr3_linops.hh>
 #include "../../functions/linops_external/dm_cholsolver_linop.hh"
 #include "../../functions/misc/dm_util.hh"
 #include "../utils/dm_test_utils.hh"
@@ -16,7 +16,8 @@
 #include <RandBLAS.hh>
 #include <gtest/gtest.h>
 
-using namespace RandLAPACK_demos;
+using namespace RandLAPACK_demos;  // For CholSolverLinOp (Eigen-dependent)
+using RandLAPACK::sCholQR3_linops; // Algorithm now in main RandLAPACK
 
 class TestDmSCholQR3Linops : public ::testing::Test {
 protected:

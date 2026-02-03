@@ -14,7 +14,7 @@
 
 using namespace std::chrono;
 
-namespace RandLAPACK_demos {
+namespace RandLAPACK {
 
 /// Shifted Cholesky QR3 algorithm for computing QR factorization via linear operators.
 ///
@@ -417,4 +417,4 @@ class sCholQR3_linops {
         }
 };
 
-} // end namespace RandLAPACK_demos
+} // end namespace RandLAPACK

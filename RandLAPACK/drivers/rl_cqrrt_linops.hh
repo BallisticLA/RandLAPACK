@@ -16,7 +16,7 @@
 
 using namespace std::chrono;
 
-namespace RandLAPACK_demos {
+namespace RandLAPACK {
 
 template <typename T, typename RNG = RandBLAS::DefaultRNG>
 class CQRRT_linops {
@@ -93,7 +93,7 @@ class CQRRT_linops {
         /// Computes an R-factor of the unpivoted QR factorization of the form:
         ///     A= QR,
         /// where Q and R are of size m-by-n and n-by-n;
-        /// operates similarly to ../../../RandLAPACK/drivers/rl_cqrrt.hh, but returns a Q-less factorization
+        /// operates similarly to rl_cqrrt.hh, but returns a Q-less factorization
         /// and accepts linear operators.
         ///
         /// @note This algorithm expects A to be full-rank (rank = n). Rank-deficient inputs may result
@@ -456,4 +456,4 @@ class CQRRT_linops {
             return 0;
         }
 };
-} // end namespace RandLAPACK_demos
+} // end namespace RandLAPACK

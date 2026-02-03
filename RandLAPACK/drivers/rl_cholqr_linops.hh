@@ -12,7 +12,7 @@
 
 using namespace std::chrono;
 
-namespace RandLAPACK_demos {
+namespace RandLAPACK {
 
 template <typename T>
 class CholQR_linops {
@@ -323,4 +323,4 @@ class CholQR_linops {
         }
 };
 
-} // end namespace RandLAPACK_demos
+} // end namespace RandLAPACK
