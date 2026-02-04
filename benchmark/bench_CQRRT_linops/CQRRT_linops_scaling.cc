@@ -275,8 +275,21 @@ static scaling_result<T> run_single_test(
     // ============================================================
     // Run CholQR (unpreconditioned Cholesky QR) - multiple runs
     // ============================================================
-    // Peak RSS with test_mode=true is correct: Q reuses A_temp working buffer (no extra allocation).
+    // Peak RSS measured separately with test_mode=false to exclude Q-factor allocation.
+    // With column-blocking, test_mode reallocates A_temp from m*b_eff to m*n for Q.
     {
+        // RSS measurement (test_mode=false)
+        {
+            std::vector<T> R_rss(n * n, 0.0);
+            RandLAPACK::CholQR_linops<T> CholQR_rss(false, tol, false);
+            CholQR_rss.block_size = block_size;
+            RandLAPACK::PeakRSSTracker cholqr_mem;
+            cholqr_mem.start();
+            CholQR_rss.call(A_linop, R_rss.data(), n);
+            result.cholqr.peak_rss_kb = cholqr_mem.stop();
+        }
+
+        // Initialize with first run
         result.cholqr.time = std::numeric_limits<long>::max();
         result.cholqr_materialize_time = 0;
         result.cholqr_gram_time = 0;
@@ -293,17 +306,12 @@ static scaling_result<T> run_single_test(
 
             RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
             CholQR_alg.block_size = block_size;
-
-            RandLAPACK::PeakRSSTracker cholqr_mem;
-            cholqr_mem.start();
             CholQR_alg.call(A_linop, R_cholqr.data(), n);
-            long run_peak_rss_kb = cholqr_mem.stop();
 
             long run_time = CholQR_alg.times[4];  // total
 
             if (run_time < result.cholqr.time) {
                 result.cholqr.time = run_time;
-                result.cholqr.peak_rss_kb = run_peak_rss_kb;
                 result.cholqr_materialize_time = CholQR_alg.times[0];
                 result.cholqr_gram_time = CholQR_alg.times[1];
                 result.cholqr_potrf_time = CholQR_alg.times[2];
@@ -598,6 +606,17 @@ int main(int argc, char *argv[]) {
               << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
               << "scholqr3_peak_rss_kb,scholqr3_analytical_kb,"
               << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb\n";
+
+    // Warmup run to trigger library initialization (MKL thread pools, memory allocators, etc.)
+    // This ensures first reported iteration has accurate memory measurements.
+    {
+        printf("Performing warmup run (not reported)...\n");
+        int64_t warmup_m = sizes[0].first;
+        int64_t warmup_n = sizes[0].second;
+        auto warmup_state = state;  // Use copy to not affect main RNG sequence
+        run_single_test<double>(warmup_m, warmup_n, density, d_factor, use_dense_sketch, block_size, 1, warmup_state);
+        printf("Warmup complete, starting measurements.\n\n");
+    }
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {

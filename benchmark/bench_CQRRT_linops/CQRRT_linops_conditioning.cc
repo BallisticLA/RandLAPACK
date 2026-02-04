@@ -351,17 +351,25 @@ static conditioning_result<T> run_single_test(
     // ============================================================
     // Run CholQR (unpreconditioned Cholesky QR)
     // ============================================================
-    // Peak RSS with test_mode=true is correct: Q reuses A_temp working buffer (no extra allocation).
+    // Peak RSS measured separately with test_mode=false to exclude Q-factor allocation.
+    // With column-blocking, test_mode reallocates A_temp from m*b_eff to m*n for Q.
     {
+        // RSS measurement (test_mode=false)
+        {
+            std::vector<T> R_rss(n * n, 0.0);
+            RandLAPACK::CholQR_linops<T> CholQR_rss(false, tol, false);
+            CholQR_rss.block_size = block_size;
+            RandLAPACK::PeakRSSTracker cholqr_mem;
+            cholqr_mem.start();
+            CholQR_rss.call(outer_composite, R_rss.data(), n);
+            result.cholqr.peak_rss_kb = cholqr_mem.stop();
+        }
+
         std::vector<T> R_cholqr(n * n, 0.0);
 
         RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
         CholQR_alg.block_size = block_size;
-
-        RandLAPACK::PeakRSSTracker cholqr_mem;
-        cholqr_mem.start();
         CholQR_alg.call(outer_composite, R_cholqr.data(), n);
-        result.cholqr.peak_rss_kb = cholqr_mem.stop();
 
         result.cholqr.time = CholQR_alg.times[4];  // total
         result.cholqr_materialize_time = CholQR_alg.times[0];
@@ -649,6 +657,17 @@ int main(int argc, char *argv[]) {
               << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
               << "scholqr3_peak_rss_kb,scholqr3_analytical_kb,"
               << "dense_cqrrt_peak_rss_kb,dense_cqrrt_analytical_kb\n";
+
+    // Warmup run to trigger library initialization (MKL thread pools, memory allocators, etc.)
+    // This ensures first reported iteration has accurate memory measurements.
+    {
+        printf("Performing warmup run (not reported)...\n");
+        double warmup_cond = matrix_files[0].first;
+        std::string warmup_file = matrix_files[0].second;
+        auto warmup_state = state;  // Use copy to not affect main RNG sequence
+        run_single_test<double>(warmup_file, warmup_cond, m, k_dim, n, d_factor, use_dense_sketch, block_size, warmup_state);
+        printf("Warmup complete, starting measurements.\n\n");
+    }
 
     // Run conditioning study
     for (size_t i = 0; i < matrix_files.size(); ++i) {
