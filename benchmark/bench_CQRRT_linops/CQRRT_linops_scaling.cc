@@ -45,7 +45,8 @@ template <typename T>
 struct scaling_result {
     int64_t m;                // Number of rows
     int64_t n;                // Number of columns
-    T density;                // Sparse matrix density
+    T cond_num;               // Target condition number
+    T density;                // Sparse matrix density (computed from actual nnz)
     T aspect_ratio;           // m / n
 
     alg_quality<T> cqrrt;
@@ -54,6 +55,7 @@ struct scaling_result {
     alg_quality<T> dense_cqrrt;
 
     // CQRRT subroutine times (from fastest run)
+    long cqrrt_alloc_time;
     long cqrrt_saso_time;
     long cqrrt_qr_time;
     long cqrrt_trtri_time;
@@ -65,12 +67,14 @@ struct scaling_result {
     long cqrrt_rest_time;
 
     // CholQR subroutine times
+    long cholqr_alloc_time;
     long cholqr_materialize_time;
     long cholqr_gram_time;
     long cholqr_potrf_time;
     long cholqr_rest_time;
 
     // sCholQR3 subroutine times
+    long scholqr3_alloc_time;
     long scholqr3_materialize_time;
     long scholqr3_gram1_time;
     long scholqr3_potrf1_time;
@@ -169,6 +173,7 @@ template <typename T, typename RNG>
 static scaling_result<T> run_single_test(
     int64_t m,
     int64_t n,
+    T cond_num,
     T density,
     T d_factor,
     bool use_dense_sketch,
@@ -179,11 +184,15 @@ static scaling_result<T> run_single_test(
     scaling_result<T> result;
     result.m = m;
     result.n = n;
-    result.density = density;
+    result.cond_num = cond_num;
     result.aspect_ratio = static_cast<T>(m) / static_cast<T>(n);
 
-    // Generate sparse matrix A: m × n
-    auto A_coo = RandLAPACK::gen::gen_sparse_mat<T>(m, n, density, state);
+    // Compute bandwidth from target density: density ≈ (bandwidth + 1) / n
+    int64_t bandwidth = std::max((int64_t)1, std::min(n - 1, (int64_t)std::round(density * n - 1)));
+
+    // Generate sparse matrix A: m × n with controlled condition number
+    auto A_coo = RandLAPACK::gen::gen_sparse_cond_mat<T>(m, n, cond_num, state, bandwidth);
+    result.density = static_cast<T>(A_coo.nnz) / (static_cast<T>(m) * n);
     RandBLAS::sparse_data::csr::CSRMatrix<T> A_csr(m, n);
     RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
@@ -217,6 +226,7 @@ static scaling_result<T> run_single_test(
 
         // Initialize with first run
         result.cqrrt.time = std::numeric_limits<long>::max();
+        result.cqrrt_alloc_time = 0;
         result.cqrrt_saso_time = 0;
         result.cqrrt_qr_time = 0;
         result.cqrrt_trtri_time = 0;
@@ -242,20 +252,21 @@ static scaling_result<T> run_single_test(
             CQRRT_QR.block_size = block_size;
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
 
-            long run_time = CQRRT_QR.times[9];  // total_t_dur
+            long run_time = CQRRT_QR.times[10];  // total_t_dur
 
             // Track fastest run and its subroutine times
             if (run_time < result.cqrrt.time) {
                 result.cqrrt.time = run_time;
-                result.cqrrt_saso_time = CQRRT_QR.times[0];
-                result.cqrrt_qr_time = CQRRT_QR.times[1];
-                result.cqrrt_trtri_time = CQRRT_QR.times[2];
-                result.cqrrt_linop_precond_time = CQRRT_QR.times[3];
-                result.cqrrt_linop_gram_time = CQRRT_QR.times[4];
-                result.cqrrt_trmm_gram_time = CQRRT_QR.times[5];
-                result.cqrrt_potrf_time = CQRRT_QR.times[6];
-                result.cqrrt_finalize_time = CQRRT_QR.times[7];
-                result.cqrrt_rest_time = CQRRT_QR.times[8];
+                result.cqrrt_alloc_time = CQRRT_QR.times[0];
+                result.cqrrt_saso_time = CQRRT_QR.times[1];
+                result.cqrrt_qr_time = CQRRT_QR.times[2];
+                result.cqrrt_trtri_time = CQRRT_QR.times[3];
+                result.cqrrt_linop_precond_time = CQRRT_QR.times[4];
+                result.cqrrt_linop_gram_time = CQRRT_QR.times[5];
+                result.cqrrt_trmm_gram_time = CQRRT_QR.times[6];
+                result.cqrrt_potrf_time = CQRRT_QR.times[7];
+                result.cqrrt_finalize_time = CQRRT_QR.times[8];
+                result.cqrrt_rest_time = CQRRT_QR.times[9];
 
                 best_rel_error = compute_factorization_error(
                     CQRRT_QR.Q, R_cqrrt.data(), A_dense.data(), m, n, norm_A);
@@ -291,6 +302,7 @@ static scaling_result<T> run_single_test(
 
         // Initialize with first run
         result.cholqr.time = std::numeric_limits<long>::max();
+        result.cholqr_alloc_time = 0;
         result.cholqr_materialize_time = 0;
         result.cholqr_gram_time = 0;
         result.cholqr_potrf_time = 0;
@@ -308,14 +320,15 @@ static scaling_result<T> run_single_test(
             CholQR_alg.block_size = block_size;
             CholQR_alg.call(A_linop, R_cholqr.data(), n);
 
-            long run_time = CholQR_alg.times[4];  // total
+            long run_time = CholQR_alg.times[5];  // total
 
             if (run_time < result.cholqr.time) {
                 result.cholqr.time = run_time;
-                result.cholqr_materialize_time = CholQR_alg.times[0];
-                result.cholqr_gram_time = CholQR_alg.times[1];
-                result.cholqr_potrf_time = CholQR_alg.times[2];
-                result.cholqr_rest_time = CholQR_alg.times[3];
+                result.cholqr_alloc_time = CholQR_alg.times[0];
+                result.cholqr_materialize_time = CholQR_alg.times[1];
+                result.cholqr_gram_time = CholQR_alg.times[2];
+                result.cholqr_potrf_time = CholQR_alg.times[3];
+                result.cholqr_rest_time = CholQR_alg.times[4];
 
                 best_rel_error = compute_factorization_error(
                     CholQR_alg.Q, R_cholqr.data(), A_dense.data(), m, n, norm_A);
@@ -338,6 +351,7 @@ static scaling_result<T> run_single_test(
     // Peak RSS with test_mode=true is correct: Q reuses Q_buf working buffer (always allocated).
     {
         result.scholqr3.time = std::numeric_limits<long>::max();
+        result.scholqr3_alloc_time = 0;
         result.scholqr3_materialize_time = 0;
         result.scholqr3_gram1_time = 0;
         result.scholqr3_potrf1_time = 0;
@@ -366,22 +380,23 @@ static scaling_result<T> run_single_test(
             sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
             long run_peak_rss_kb = scholqr3_mem.stop();
 
-            long run_time = sCholQR3_alg.times[11];  // total
+            long run_time = sCholQR3_alg.times[12];  // total
 
             if (run_time < result.scholqr3.time) {
                 result.scholqr3.time = run_time;
                 result.scholqr3.peak_rss_kb = run_peak_rss_kb;
-                result.scholqr3_materialize_time = sCholQR3_alg.times[0];
-                result.scholqr3_gram1_time = sCholQR3_alg.times[1];
-                result.scholqr3_potrf1_time = sCholQR3_alg.times[2];
-                result.scholqr3_trsm1_time = sCholQR3_alg.times[3];
-                result.scholqr3_syrk2_time = sCholQR3_alg.times[4];
-                result.scholqr3_potrf2_time = sCholQR3_alg.times[5];
-                result.scholqr3_update2_time = sCholQR3_alg.times[6];
-                result.scholqr3_syrk3_time = sCholQR3_alg.times[7];
-                result.scholqr3_potrf3_time = sCholQR3_alg.times[8];
-                result.scholqr3_update3_time = sCholQR3_alg.times[9];
-                result.scholqr3_rest_time = sCholQR3_alg.times[10];
+                result.scholqr3_alloc_time = sCholQR3_alg.times[0];
+                result.scholqr3_materialize_time = sCholQR3_alg.times[1];
+                result.scholqr3_gram1_time = sCholQR3_alg.times[2];
+                result.scholqr3_potrf1_time = sCholQR3_alg.times[3];
+                result.scholqr3_trsm1_time = sCholQR3_alg.times[4];
+                result.scholqr3_syrk2_time = sCholQR3_alg.times[5];
+                result.scholqr3_potrf2_time = sCholQR3_alg.times[6];
+                result.scholqr3_update2_time = sCholQR3_alg.times[7];
+                result.scholqr3_syrk3_time = sCholQR3_alg.times[8];
+                result.scholqr3_potrf3_time = sCholQR3_alg.times[9];
+                result.scholqr3_update3_time = sCholQR3_alg.times[10];
+                result.scholqr3_rest_time = sCholQR3_alg.times[11];
 
                 best_rel_error = compute_factorization_error(
                     sCholQR3_alg.Q, R_scholqr3.data(), A_dense.data(), m, n, norm_A);
@@ -490,24 +505,25 @@ static scaling_result<T> run_single_test(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 9 || argc > 11) {
+    if (argc < 10 || argc > 12) {
         std::cerr << "Usage: " << argv[0]
-                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <density> <d_factor> <num_runs> <output_dir> [use_dense_sketch] [block_size]"
+                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <cond_num> <density> <d_factor> <num_runs> <output_dir> [use_dense_sketch] [block_size]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  aspect_ratio     : Ratio m/n (e.g., 20 means n = m/20)" << std::endl;
         std::cerr << "  m_start          : Starting number of rows (smallest matrix)" << std::endl;
         std::cerr << "  m_end            : Ending number of rows (largest matrix)" << std::endl;
         std::cerr << "  num_sizes        : Number of matrix sizes to test" << std::endl;
-        std::cerr << "  density          : Sparse matrix density (e.g., 0.1)" << std::endl;
+        std::cerr << "  cond_num         : Target condition number for the sparse matrix (e.g., 1e4)" << std::endl;
+        std::cerr << "  density          : Target density (e.g., 0.1); bandwidth derived as round(density*n - 1)" << std::endl;
         std::cerr << "  d_factor         : Sketching dimension factor for CQRRT (e.g., 2.0)" << std::endl;
         std::cerr << "  num_runs         : Number of runs per matrix size (for timing)" << std::endl;
         std::cerr << "  output_dir       : Directory to write output files" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = sparse SASO (default: 0)" << std::endl;
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
-        std::cerr << "  " << argv[0] << " 20 500 10000 50 0.1 2.0 3 ./output" << std::endl;
-        std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, all with aspect ratio 20:1, 3 runs each)" << std::endl;
+        std::cerr << "  " << argv[0] << " 20 500 10000 50 1e4 0.1 2.0 3 ./output" << std::endl;
+        std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, aspect ratio 20:1, κ=1e4, density≈0.1, 3 runs each)" << std::endl;
         return 1;
     }
 
@@ -516,12 +532,13 @@ int main(int argc, char *argv[]) {
     int64_t m_start = std::stol(argv[2]);
     int64_t m_end = std::stol(argv[3]);
     int64_t num_sizes = std::stol(argv[4]);
-    double density = std::stod(argv[5]);
-    double d_factor = std::stod(argv[6]);
-    int64_t num_runs = std::stol(argv[7]);
-    std::string output_dir = argv[8];
-    bool use_dense_sketch = (argc >= 10) ? (std::stoi(argv[9]) != 0) : false;
-    int64_t block_size = (argc >= 11) ? std::stol(argv[10]) : 0;
+    double cond_num = std::stod(argv[5]);
+    double density = std::stod(argv[6]);
+    double d_factor = std::stod(argv[7]);
+    int64_t num_runs = std::stol(argv[8]);
+    std::string output_dir = argv[9];
+    bool use_dense_sketch = (argc >= 11) ? (std::stoi(argv[10]) != 0) : false;
+    int64_t block_size = (argc >= 12) ? std::stol(argv[11]) : 0;
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -547,7 +564,8 @@ int main(int argc, char *argv[]) {
            sizes.front().first, sizes.front().second,
            sizes.back().first, sizes.back().second);
     printf("Number of test sizes: %zu\n", sizes.size());
-    printf("Density: %.3f\n", density);
+    printf("Condition number: %.2e\n", cond_num);
+    printf("Target density: %.3f\n", density);
     printf("d_factor (CQRRT): %.2f\n", d_factor);
     printf("Sketch type (CQRRT): %s\n", use_dense_sketch ? "dense Gaussian" : "sparse SASO");
     printf("Block size (CQRRT, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
@@ -563,14 +581,15 @@ int main(int argc, char *argv[]) {
     std::ofstream out(output_file);
     out << "# CQRRT vs CholQR vs sCholQR3 vs Dense CQRRT Scaling Study Results\n";
     out << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
-    out << "# Density: " << density << "\n";
+    out << "# Condition number: " << cond_num << "\n";
+    out << "# Target density: " << density << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
     out << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
     out << "# Format: per-algorithm quality metrics (rel_error, orth_error, max_orth_cols, orth_flag, time), memory (KB), and speedups\n";
-    out << "m,n,aspect_ratio,density,"
+    out << "m,n,aspect_ratio,cond_num,density,"
         << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
         << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
         << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
@@ -586,21 +605,22 @@ int main(int argc, char *argv[]) {
     std::ofstream breakdown(breakdown_file);
     breakdown << "# Runtime Breakdown for All Algorithms (from fastest run per matrix size)\n";
     breakdown << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
-    breakdown << "# Density: " << density << "\n";
+    breakdown << "# Condition number: " << cond_num << "\n";
+    breakdown << "# Target density: " << density << "\n";
     breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
     breakdown << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
     breakdown << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
-    breakdown << "# CQRRT: saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
-    breakdown << "# CholQR: materialize, gram, potrf, rest, total\n";
-    breakdown << "# sCholQR3: materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
+    breakdown << "# CQRRT: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
+    breakdown << "# CholQR: alloc, materialize, gram, potrf, rest, total\n";
+    breakdown << "# sCholQR3: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
     breakdown << "# Dense CQRRT: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "m,n,"
-              << "cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
-              << "cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
-              << "scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
+              << "cqrrt_alloc,cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
+              << "cholqr_alloc,cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
+              << "scholqr3_alloc,scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
               << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total,"
               << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
               << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
@@ -614,7 +634,7 @@ int main(int argc, char *argv[]) {
         int64_t warmup_m = sizes[0].first;
         int64_t warmup_n = sizes[0].second;
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
-        run_single_test<double>(warmup_m, warmup_n, density, d_factor, use_dense_sketch, block_size, 1, warmup_state);
+        run_single_test<double>(warmup_m, warmup_n, cond_num, density, d_factor, use_dense_sketch, block_size, 1, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
     }
 
@@ -625,7 +645,7 @@ int main(int argc, char *argv[]) {
         printf("Testing %ld x %ld (aspect ratio %.1f) [%zu/%zu]...\n",
                m, n, static_cast<double>(m) / n, i + 1, sizes.size());
 
-        auto result = run_single_test<double>(m, n, density, d_factor, use_dense_sketch, block_size, num_runs, state);
+        auto result = run_single_test<double>(m, n, cond_num, density, d_factor, use_dense_sketch, block_size, num_runs, state);
 
         double speedup_cqrrt_over_cholqr = (result.cqrrt.time > 0) ?
             static_cast<double>(result.cholqr.time) / result.cqrrt.time : 0.0;
@@ -654,7 +674,8 @@ int main(int argc, char *argv[]) {
         // Write results
         out << std::fixed << std::setprecision(1)
             << result.m << "," << result.n << "," << result.aspect_ratio << ","
-            << std::setprecision(3) << result.density << ","
+            << std::scientific << std::setprecision(6) << result.cond_num << ","
+            << std::fixed << std::setprecision(6) << result.density << ","
             << std::scientific << std::setprecision(6)
             << result.cqrrt.rel_error << "," << result.cqrrt.orth_error << ","
             << result.cqrrt.max_orth_cols << "," << (result.cqrrt.is_orthonormal ? 1 : 0) << ","
@@ -677,18 +698,18 @@ int main(int argc, char *argv[]) {
 
         // Write runtime breakdown for all algorithms
         breakdown << result.m << "," << result.n << ","
-                  // CQRRT (10 values)
-                  << result.cqrrt_saso_time << "," << result.cqrrt_qr_time << ","
+                  // CQRRT (11 values)
+                  << result.cqrrt_alloc_time << "," << result.cqrrt_saso_time << "," << result.cqrrt_qr_time << ","
                   << result.cqrrt_trtri_time << "," << result.cqrrt_linop_precond_time << ","
                   << result.cqrrt_linop_gram_time << "," << result.cqrrt_trmm_gram_time << ","
                   << result.cqrrt_potrf_time << "," << result.cqrrt_finalize_time << ","
                   << result.cqrrt_rest_time << "," << result.cqrrt.time << ","
-                  // CholQR (5 values)
-                  << result.cholqr_materialize_time << "," << result.cholqr_gram_time << ","
+                  // CholQR (6 values)
+                  << result.cholqr_alloc_time << "," << result.cholqr_materialize_time << "," << result.cholqr_gram_time << ","
                   << result.cholqr_potrf_time << "," << result.cholqr_rest_time << ","
                   << result.cholqr.time << ","
-                  // sCholQR3 (12 values)
-                  << result.scholqr3_materialize_time << "," << result.scholqr3_gram1_time << ","
+                  // sCholQR3 (13 values)
+                  << result.scholqr3_alloc_time << "," << result.scholqr3_materialize_time << "," << result.scholqr3_gram1_time << ","
                   << result.scholqr3_potrf1_time << "," << result.scholqr3_trsm1_time << ","
                   << result.scholqr3_syrk2_time << "," << result.scholqr3_potrf2_time << ","
                   << result.scholqr3_update2_time << "," << result.scholqr3_syrk3_time << ","

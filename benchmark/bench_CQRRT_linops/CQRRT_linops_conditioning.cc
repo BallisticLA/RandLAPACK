@@ -58,6 +58,7 @@ struct conditioning_result {
     alg_quality<T> dense_cqrrt;
 
     // CQRRT subroutine times (from fastest run)
+    long cqrrt_alloc_time;
     long cqrrt_saso_time;
     long cqrrt_qr_time;
     long cqrrt_trtri_time;
@@ -69,12 +70,14 @@ struct conditioning_result {
     long cqrrt_rest_time;
 
     // CholQR subroutine times
+    long cholqr_alloc_time;
     long cholqr_materialize_time;
     long cholqr_gram_time;
     long cholqr_potrf_time;
     long cholqr_rest_time;
 
     // sCholQR3 subroutine times
+    long scholqr3_alloc_time;
     long scholqr3_materialize_time;
     long scholqr3_gram1_time;
     long scholqr3_potrf1_time;
@@ -329,16 +332,17 @@ static conditioning_result<T> run_single_test(
         CQRRT_QR.block_size = block_size;
         CQRRT_QR.call(outer_composite, R_cqrrt.data(), n, d_factor, state);
 
-        result.cqrrt.time = CQRRT_QR.times[9];  // total_t_dur
-        result.cqrrt_saso_time = CQRRT_QR.times[0];
-        result.cqrrt_qr_time = CQRRT_QR.times[1];
-        result.cqrrt_trtri_time = CQRRT_QR.times[2];
-        result.cqrrt_linop_precond_time = CQRRT_QR.times[3];
-        result.cqrrt_linop_gram_time = CQRRT_QR.times[4];
-        result.cqrrt_trmm_gram_time = CQRRT_QR.times[5];
-        result.cqrrt_potrf_time = CQRRT_QR.times[6];
-        result.cqrrt_finalize_time = CQRRT_QR.times[7];
-        result.cqrrt_rest_time = CQRRT_QR.times[8];
+        result.cqrrt.time = CQRRT_QR.times[10];  // total_t_dur
+        result.cqrrt_alloc_time = CQRRT_QR.times[0];
+        result.cqrrt_saso_time = CQRRT_QR.times[1];
+        result.cqrrt_qr_time = CQRRT_QR.times[2];
+        result.cqrrt_trtri_time = CQRRT_QR.times[3];
+        result.cqrrt_linop_precond_time = CQRRT_QR.times[4];
+        result.cqrrt_linop_gram_time = CQRRT_QR.times[5];
+        result.cqrrt_trmm_gram_time = CQRRT_QR.times[6];
+        result.cqrrt_potrf_time = CQRRT_QR.times[7];
+        result.cqrrt_finalize_time = CQRRT_QR.times[8];
+        result.cqrrt_rest_time = CQRRT_QR.times[9];
 
         result.cqrrt.rel_error = compute_factorization_error(
             CQRRT_QR.Q, R_cqrrt.data(), A_dense.data(), m, n, norm_A);
@@ -371,11 +375,12 @@ static conditioning_result<T> run_single_test(
         CholQR_alg.block_size = block_size;
         CholQR_alg.call(outer_composite, R_cholqr.data(), n);
 
-        result.cholqr.time = CholQR_alg.times[4];  // total
-        result.cholqr_materialize_time = CholQR_alg.times[0];
-        result.cholqr_gram_time = CholQR_alg.times[1];
-        result.cholqr_potrf_time = CholQR_alg.times[2];
-        result.cholqr_rest_time = CholQR_alg.times[3];
+        result.cholqr.time = CholQR_alg.times[5];  // total
+        result.cholqr_alloc_time = CholQR_alg.times[0];
+        result.cholqr_materialize_time = CholQR_alg.times[1];
+        result.cholqr_gram_time = CholQR_alg.times[2];
+        result.cholqr_potrf_time = CholQR_alg.times[3];
+        result.cholqr_rest_time = CholQR_alg.times[4];
 
         result.cholqr.rel_error = compute_factorization_error(
             CholQR_alg.Q, R_cholqr.data(), A_dense.data(), m, n, norm_A);
@@ -400,18 +405,19 @@ static conditioning_result<T> run_single_test(
         sCholQR3_alg.call(outer_composite, R_scholqr3.data(), n);
         result.scholqr3.peak_rss_kb = scholqr3_mem.stop();
 
-        result.scholqr3.time = sCholQR3_alg.times[11];  // total
-        result.scholqr3_materialize_time = sCholQR3_alg.times[0];
-        result.scholqr3_gram1_time = sCholQR3_alg.times[1];
-        result.scholqr3_potrf1_time = sCholQR3_alg.times[2];
-        result.scholqr3_trsm1_time = sCholQR3_alg.times[3];
-        result.scholqr3_syrk2_time = sCholQR3_alg.times[4];
-        result.scholqr3_potrf2_time = sCholQR3_alg.times[5];
-        result.scholqr3_update2_time = sCholQR3_alg.times[6];
-        result.scholqr3_syrk3_time = sCholQR3_alg.times[7];
-        result.scholqr3_potrf3_time = sCholQR3_alg.times[8];
-        result.scholqr3_update3_time = sCholQR3_alg.times[9];
-        result.scholqr3_rest_time = sCholQR3_alg.times[10];
+        result.scholqr3.time = sCholQR3_alg.times[12];  // total
+        result.scholqr3_alloc_time = sCholQR3_alg.times[0];
+        result.scholqr3_materialize_time = sCholQR3_alg.times[1];
+        result.scholqr3_gram1_time = sCholQR3_alg.times[2];
+        result.scholqr3_potrf1_time = sCholQR3_alg.times[3];
+        result.scholqr3_trsm1_time = sCholQR3_alg.times[4];
+        result.scholqr3_syrk2_time = sCholQR3_alg.times[5];
+        result.scholqr3_potrf2_time = sCholQR3_alg.times[6];
+        result.scholqr3_update2_time = sCholQR3_alg.times[7];
+        result.scholqr3_syrk3_time = sCholQR3_alg.times[8];
+        result.scholqr3_potrf3_time = sCholQR3_alg.times[9];
+        result.scholqr3_update3_time = sCholQR3_alg.times[10];
+        result.scholqr3_rest_time = sCholQR3_alg.times[11];
 
         result.scholqr3.rel_error = compute_factorization_error(
             sCholQR3_alg.Q, R_scholqr3.data(), A_dense.data(), m, n, norm_A);
@@ -644,14 +650,14 @@ int main(int argc, char *argv[]) {
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
-    breakdown << "# CQRRT: saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
-    breakdown << "# CholQR: materialize, gram, potrf, rest, total\n";
-    breakdown << "# sCholQR3: materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
+    breakdown << "# CQRRT: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
+    breakdown << "# CholQR: alloc, materialize, gram, potrf, rest, total\n";
+    breakdown << "# sCholQR3: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
     breakdown << "# Dense CQRRT: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "cond_num,"
-              << "cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
-              << "cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
-              << "scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
+              << "cqrrt_alloc,cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
+              << "cholqr_alloc,cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
+              << "scholqr3_alloc,scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
               << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total,"
               << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
               << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
@@ -817,7 +823,8 @@ int main(int argc, char *argv[]) {
         // Write runtime breakdown from fastest runs for all algorithms
         breakdown << std::scientific << std::setprecision(6)
                   << cond_num << ","
-                  // CQRRT (10 values)
+                  // CQRRT (11 values)
+                  << fastest_cqrrt.cqrrt_alloc_time << ","
                   << fastest_cqrrt.cqrrt_saso_time << ","
                   << fastest_cqrrt.cqrrt_qr_time << ","
                   << fastest_cqrrt.cqrrt_trtri_time << ","
@@ -828,13 +835,15 @@ int main(int argc, char *argv[]) {
                   << fastest_cqrrt.cqrrt_finalize_time << ","
                   << fastest_cqrrt.cqrrt_rest_time << ","
                   << fastest_cqrrt.cqrrt.time << ","
-                  // CholQR (5 values)
+                  // CholQR (6 values)
+                  << fastest_cholqr.cholqr_alloc_time << ","
                   << fastest_cholqr.cholqr_materialize_time << ","
                   << fastest_cholqr.cholqr_gram_time << ","
                   << fastest_cholqr.cholqr_potrf_time << ","
                   << fastest_cholqr.cholqr_rest_time << ","
                   << fastest_cholqr.cholqr.time << ","
-                  // sCholQR3 (12 values)
+                  // sCholQR3 (13 values)
+                  << fastest_scholqr3.scholqr3_alloc_time << ","
                   << fastest_scholqr3.scholqr3_materialize_time << ","
                   << fastest_scholqr3.scholqr3_gram1_time << ","
                   << fastest_scholqr3.scholqr3_potrf1_time << ","

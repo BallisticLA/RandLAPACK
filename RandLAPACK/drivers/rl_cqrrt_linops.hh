@@ -31,7 +31,7 @@ class CQRRT_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 10 entries: saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total
+        // 11 entries: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total
         std::vector<long> times;
 
         // tuning SASOS
@@ -140,6 +140,7 @@ class CQRRT_linops {
             RandBLAS::RNGState<RNG> &state
         ) {
             ///--------------------TIMING VARS--------------------/
+            steady_clock::time_point alloc_t_start, alloc_t_stop;
             steady_clock::time_point saso_t_start, saso_t_stop;
             steady_clock::time_point qr_t_start, qr_t_stop;
             steady_clock::time_point trtri_t_start, trtri_t_stop;
@@ -150,6 +151,7 @@ class CQRRT_linops {
             steady_clock::time_point finalize_t_start, finalize_t_stop;
             steady_clock::time_point total_t_start, total_t_stop;
             steady_clock::time_point q_t_start, q_t_stop;
+            long alloc_t_dur        = 0;
             long saso_t_dur         = 0;
             long qr_t_dur           = 0;
             long trtri_t_dur        = 0;
@@ -169,11 +171,18 @@ class CQRRT_linops {
 
             int64_t d = d_factor * n;
 
-            T* A_hat = new T[d * n]();
-            T* tau   = new T[n]();
-
             if(this -> timing)
+                alloc_t_start = steady_clock::now();
+
+            // No zero-init: first use is with beta=0.0 which overwrites all elements
+            T* A_hat = new T[d * n];
+            // No zero-init: geqrf writes the output
+            T* tau   = new T[n];
+
+            if(this -> timing) {
+                alloc_t_stop = steady_clock::now();
                 saso_t_start = steady_clock::now();
+            }
 
             /// Generate and apply the sketching operator to the linear operator.
             // Side::Right means the operator A is on the right side: C = op(S) * op(A)
@@ -275,7 +284,8 @@ class CQRRT_linops {
             //   Block path: m × b_eff  (temporary, freed after Gram loop;
             //                           if test_mode, a full m × n buffer is
             //                           allocated later for Q computation)
-            T* A_pre = new T[m * b_eff]();
+            // No zero-init: first use is with beta=0.0 which overwrites all elements
+            T* A_pre = new T[m * b_eff];
 
             if (b_eff == n) {
                 // --- Full materialization path (original) ---
@@ -370,7 +380,8 @@ class CQRRT_linops {
                     // full.  This is outside the timing region, so the extra
                     // operator application does not affect benchmark results.
                     delete[] A_pre;
-                    A_pre = new T[m * n]();
+                    // No zero-init: beta=0.0 overwrites all elements
+                    A_pre = new T[m * n];
                     A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                       m, n, n, (T)1.0, R_sk_inv, n, (T)0.0, A_pre, m);
                 }
@@ -414,6 +425,7 @@ class CQRRT_linops {
                 // Note: First iteration may show inflated times due to cold cache effects.
                 total_t_stop = steady_clock::now();
 
+                alloc_t_dur        = duration_cast<microseconds>(alloc_t_stop        - alloc_t_start).count();
                 saso_t_dur         = duration_cast<microseconds>(saso_t_stop         - saso_t_start).count();
                 qr_t_dur           = duration_cast<microseconds>(qr_t_stop           - qr_t_start).count();
                 trtri_t_dur        = duration_cast<microseconds>(trtri_t_stop        - trtri_t_start).count();
@@ -431,12 +443,12 @@ class CQRRT_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                long t_rest  = total_t_dur - (saso_t_dur + qr_t_dur + trtri_t_dur + linop_precond_t_dur +
+                long t_rest  = total_t_dur - (alloc_t_dur + saso_t_dur + qr_t_dur + trtri_t_dur + linop_precond_t_dur +
                                               linop_gram_t_dur + trmm_gram_t_dur + potrf_t_dur + finalize_t_dur);
 
-                // Fill the data vector (10 entries)
-                // Index: 0=saso, 1=qr, 2=trtri, 3=linop_precond, 4=linop_gram, 5=trmm_gram, 6=potrf, 7=finalize, 8=rest, 9=total
-                this -> times = {saso_t_dur, qr_t_dur, trtri_t_dur, linop_precond_t_dur,
+                // Fill the data vector (11 entries)
+                // Index: 0=alloc, 1=saso, 2=qr, 3=trtri, 4=linop_precond, 5=linop_gram, 6=trmm_gram, 7=potrf, 8=finalize, 9=rest, 10=total
+                this -> times = {alloc_t_dur, saso_t_dur, qr_t_dur, trtri_t_dur, linop_precond_t_dur,
                                  linop_gram_t_dur, trmm_gram_t_dur, potrf_t_dur, finalize_t_dur,
                                  t_rest, total_t_dur};
             }

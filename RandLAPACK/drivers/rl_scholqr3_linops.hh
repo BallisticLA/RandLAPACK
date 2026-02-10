@@ -43,8 +43,8 @@ class sCholQR3_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // Timing: [materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total]
-        // 12 entries for detailed breakdown
+        // Timing: [alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total]
+        // 13 entries for detailed breakdown
         std::vector<long> times;
 
         // Column-block size for iteration 1's Gram computation.
@@ -112,6 +112,7 @@ class sCholQR3_linops {
             int64_t ldr
         ) {
             ///--------------------TIMING VARS--------------------/
+            steady_clock::time_point alloc_t_start, alloc_t_stop;
             steady_clock::time_point materialize_t_start, materialize_t_stop;
             steady_clock::time_point gram1_t_start, gram1_t_stop;
             steady_clock::time_point potrf1_t_start, potrf1_t_stop;
@@ -124,6 +125,7 @@ class sCholQR3_linops {
             steady_clock::time_point update3_t_start, update3_t_stop;
             steady_clock::time_point total_t_start, total_t_stop;
             steady_clock::time_point q_t_start, q_t_stop;
+            long alloc_t_dur = 0;
             long materialize_t_dur = 0;
             long gram1_t_dur = 0;
             long potrf1_t_dur = 0;
@@ -143,18 +145,27 @@ class sCholQR3_linops {
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
 
-            // Create identity matrix for materializing A
+            if(this->timing)
+                alloc_t_start = steady_clock::now();
+
+            // Create identity matrix for materializing A (needs zero-init for off-diagonal)
             T* I_mat = new T[n * n]();
             RandLAPACK::util::eye(n, n, I_mat);
 
             // Allocate buffer for Q (will hold A initially, then Q after each iteration)
-            T* Q_buf = new T[m * n]();
+            // No zero-init: first use is with beta=0.0 which overwrites all elements
+            T* Q_buf = new T[m * n];
 
             // Allocate buffer for Gram matrix / R-factor updates
-            T* G = new T[n * n]();
+            // No zero-init: first use is with beta=0.0 which overwrites all elements
+            T* G = new T[n * n];
 
             // Allocate buffer for temporary R factor
-            T* R_temp = new T[n * n]();
+            // No zero-init: first use is lacpy which overwrites
+            T* R_temp = new T[n * n];
+
+            if(this->timing)
+                alloc_t_stop = steady_clock::now();
 
             //================================================================
             // Step 1: Shifted Cholesky QR1
@@ -204,7 +215,8 @@ class sCholQR3_linops {
                 // ||A||_F² = trace(A^T * A) = sum of diagonal elements of G,
                 // so we can compute the norm from G after the blocked computation.
 
-                T* A_temp = new T[m * b_eff]();
+                // No zero-init: first use is with beta=0.0 which overwrites all elements
+                T* A_temp = new T[m * b_eff];
 
                 // Compute Gram matrix G = A^T * A using column blocks
                 for (int64_t j = 0; j < n; j += b_eff) {
@@ -374,6 +386,7 @@ class sCholQR3_linops {
             if(this->timing) {
                 total_t_stop = steady_clock::now();
 
+                alloc_t_dur = duration_cast<microseconds>(alloc_t_stop - alloc_t_start).count();
                 materialize_t_dur = duration_cast<microseconds>(materialize_t_stop - materialize_t_start).count();
                 gram1_t_dur = duration_cast<microseconds>(gram1_t_stop - gram1_t_start).count();
                 potrf1_t_dur = duration_cast<microseconds>(potrf1_t_stop - potrf1_t_start).count();
@@ -392,12 +405,12 @@ class sCholQR3_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                long rest_t_dur = total_t_dur - (materialize_t_dur + gram1_t_dur + potrf1_t_dur + trsm1_t_dur +
+                long rest_t_dur = total_t_dur - (alloc_t_dur + materialize_t_dur + gram1_t_dur + potrf1_t_dur + trsm1_t_dur +
                                                  syrk2_t_dur + potrf2_t_dur + update2_t_dur +
                                                  syrk3_t_dur + potrf3_t_dur + update3_t_dur);
 
-                // Fill the data vector: [materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total]
-                this->times = {materialize_t_dur, gram1_t_dur, potrf1_t_dur, trsm1_t_dur,
+                // Fill the data vector: [alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total]
+                this->times = {alloc_t_dur, materialize_t_dur, gram1_t_dur, potrf1_t_dur, trsm1_t_dur,
                                syrk2_t_dur, potrf2_t_dur, update2_t_dur,
                                syrk3_t_dur, potrf3_t_dur, update3_t_dur,
                                rest_t_dur, total_t_dur};

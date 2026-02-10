@@ -27,7 +27,7 @@ class CholQR_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 5 entries: materialize, gram, potrf, rest, total
+        // 6 entries: alloc, materialize, gram, potrf, rest, total
         std::vector<long> times;
 
         // Column-block size for the materialize + Gram computation.
@@ -110,6 +110,8 @@ class CholQR_linops {
             int64_t ldr
         ) {
             ///--------------------TIMING VARS--------------------/
+            steady_clock::time_point alloc_t_start;
+            steady_clock::time_point alloc_t_stop;
             steady_clock::time_point materialize_t_start;
             steady_clock::time_point materialize_t_stop;
             steady_clock::time_point gram_t_start;
@@ -118,6 +120,7 @@ class CholQR_linops {
             steady_clock::time_point potrf_t_stop;
             steady_clock::time_point total_t_start;
             steady_clock::time_point total_t_stop;
+            long alloc_t_dur = 0;
             long materialize_t_dur = 0;
             long gram_t_dur  = 0;
             long potrf_t_dur = 0;
@@ -139,7 +142,10 @@ class CholQR_linops {
             // 2. Compute A_temp = A * I (materializes A as m x n dense)
             // 3. Compute R = A^T * A_temp
 
-            // Create identity matrix
+            if(this->timing)
+                alloc_t_start = steady_clock::now();
+
+            // Create identity matrix (needs zero-init for off-diagonal elements)
             T* I_mat = new T[n * n]();
             RandLAPACK::util::eye(n, n, I_mat);
 
@@ -180,10 +186,13 @@ class CholQR_linops {
             //   Block path: m × b_eff  (temporary, freed after Gram loop;
             //                           if test_mode, a full m × n buffer is
             //                           allocated later for Q computation)
-            T* A_temp = new T[m * b_eff]();
+            // No zero-init needed: first use is with beta=0.0 which overwrites all elements.
+            T* A_temp = new T[m * b_eff];
 
-            if(this->timing)
+            if(this->timing) {
+                alloc_t_stop = steady_clock::now();
                 materialize_t_start = steady_clock::now();
+            }
 
             if (b_eff == n) {
                 // --- Full materialization path (original) ---
@@ -270,7 +279,8 @@ class CholQR_linops {
                     // full.  This is outside the timing region, so the extra
                     // operator application does not affect benchmark results.
                     delete[] A_temp;
-                    A_temp = new T[m * n]();
+                    // No zero-init: beta=0.0 overwrites all elements
+                    A_temp = new T[m * n];
                     A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                       m, n, n, (T)1.0, I_mat, n, (T)0.0, A_temp, m);
                 }
@@ -292,6 +302,7 @@ class CholQR_linops {
                 // Stop timing BEFORE cleanup operations to exclude deallocation costs
                 total_t_stop = steady_clock::now();
 
+                alloc_t_dur = duration_cast<microseconds>(alloc_t_stop - alloc_t_start).count();
                 materialize_t_dur = duration_cast<microseconds>(materialize_t_stop - materialize_t_start).count();
                 gram_t_dur  = duration_cast<microseconds>(gram_t_stop  - gram_t_start).count();
                 potrf_t_dur = duration_cast<microseconds>(potrf_t_stop - potrf_t_start).count();
@@ -303,10 +314,10 @@ class CholQR_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                long rest_t_dur = total_t_dur - (materialize_t_dur + gram_t_dur + potrf_t_dur);
+                long rest_t_dur = total_t_dur - (alloc_t_dur + materialize_t_dur + gram_t_dur + potrf_t_dur);
 
-                // Fill the data vector: [materialize, gram, potrf, rest, total]
-                this->times = {materialize_t_dur, gram_t_dur, potrf_t_dur, rest_t_dur, total_t_dur};
+                // Fill the data vector: [alloc, materialize, gram, potrf, rest, total]
+                this->times = {alloc_t_dur, materialize_t_dur, gram_t_dur, potrf_t_dur, rest_t_dur, total_t_dur};
             }
 
             // Cleanup - now outside the timing region to avoid timing artifacts
