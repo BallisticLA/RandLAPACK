@@ -456,7 +456,7 @@ static scaling_result<T> run_single_test(
             RandLAPACK::CQRRT<T, RNG> dense_alg(true, tol);  // timing=true
             dense_alg.compute_Q = true;
             dense_alg.orthogonalization = false;
-            dense_alg.nnz = 2;
+            dense_alg.nnz = 5;
             dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
 
             long run_peak_rss_kb = dense_mem.stop();
@@ -549,7 +549,7 @@ int main(int argc, char *argv[]) {
     std::vector<std::pair<int64_t, int64_t>> sizes;
     for (int64_t i = 0; i < num_sizes; ++i) {
         // Linear interpolation from m_start to m_end
-        int64_t m = m_start + (m_end - m_start) * i / (num_sizes - 1);
+        int64_t m = (num_sizes == 1) ? m_start : m_start + (m_end - m_start) * i / (num_sizes - 1);
         int64_t n = static_cast<int64_t>(m / aspect_ratio);
         if (n < 1) n = 1;  // Ensure at least 1 column
         sizes.push_back({m, n});

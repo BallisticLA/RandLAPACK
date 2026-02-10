@@ -222,8 +222,6 @@ class CQRRT_linops {
                 trtri_t_start = steady_clock::now();
 
             // Instead of doing TRTRI to find R_sk_inv, we do TRSM with an identity, since trtri is not optimized in MKL
-            //lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_sk, n);
-            //T* R_sk_inv = R_sk;  // Rename for clarity - R_sk is now inverted
             T* Eye = new T[n * n]();
             RandLAPACK::util::eye(n, n, Eye);
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, Eye, n);
@@ -456,7 +454,7 @@ class CQRRT_linops {
             // Cleanup - now outside the timing region to avoid timing artifacts
             delete[] A_hat;
             delete[] tau;
-            delete[] Eye;
+            delete[] R_sk_inv;
 
             // Only delete A_pre if not in test mode (otherwise Q owns it).
             // When test_mode + blocking: the small block buffer was freed

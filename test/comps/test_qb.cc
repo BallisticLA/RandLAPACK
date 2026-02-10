@@ -357,3 +357,85 @@ TEST_F(TestQB, Polynomial_Decay_zero_tol2)
     delete all_data;
     delete all_algs;
 }
+
+// Test QB with copy_A = false (no-copy mode for memory savings)
+// Uses tolerance-based check since no-copy QB may terminate early on ill-conditioned problems
+TEST_F(TestQB, NoCopy_Polynomial_Decay)
+{
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 5;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 10;
+    double tol = (double) 0.1;
+    auto state = RandBLAS::RNGState();
+
+    bool verbose = false;
+    bool cond_check = true;
+    bool orth_check = true;
+
+    auto all_data = new QBTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+
+    // Enable no-copy mode
+    all_algs->QB.copy_A = false;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, (*all_data).A.data(), state);
+
+    double norm_A = lapack::lange(Norm::Fro, m, n, (*all_data).A.data(), m);
+    test_QB2_k_eq_min(block_sz, tol, norm_A, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
+}
+
+// Test that copy_A = false does not modify the input matrix
+TEST_F(TestQB, NoCopy_Preserves_Input)
+{
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 50;
+    int64_t p = 2;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 10;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+    auto state = RandBLAS::RNGState();
+
+    bool verbose = false;
+    bool cond_check = false;
+    bool orth_check = false;
+
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration);
+    all_algs->QB.copy_A = false;
+
+    // Generate matrix
+    std::vector<double> A(m * n, 0.0);
+    std::vector<double> A_backup(m * n, 0.0);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
+    RandLAPACK::gen::mat_gen(m_info, A.data(), state);
+
+    // Save a copy before QB call
+    blas::copy(m * n, A.data(), 1, A_backup.data(), 1);
+
+    double* Q = nullptr;
+    double* BT = nullptr;
+    all_algs->QB.call(m, n, A.data(), k, block_sz, tol, Q, BT, state);
+
+    // Verify A was not modified: ||A - A_backup||_F should be 0
+    blas::axpy(m * n, -1.0, A_backup.data(), 1, A.data(), 1);
+    double diff = lapack::lange(Norm::Fro, m, n, A.data(), m);
+    printf("FRO NORM OF A_after - A_before: %e\n", diff);
+    ASSERT_EQ(diff, 0.0);
+
+    free(Q);
+    free(BT);
+    delete all_algs;
+}
