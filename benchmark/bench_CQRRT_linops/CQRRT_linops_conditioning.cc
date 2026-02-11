@@ -224,6 +224,7 @@ static conditioning_result<T> run_single_test(
     T d_factor,
     bool use_dense_sketch,
     int64_t block_size,
+    int64_t sketch_nnz,
     RandBLAS::RNGState<RNG>& state) {
 
     conditioning_result<T> result;
@@ -315,7 +316,7 @@ static conditioning_result<T> run_single_test(
         std::vector<T> R_rss(n * n, 0.0);
         auto state_rss = state;
         RandLAPACK::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
-        CQRRT_rss.nnz = 5;
+        CQRRT_rss.nnz = sketch_nnz;
         CQRRT_rss.use_dense_sketch = use_dense_sketch;
         CQRRT_rss.block_size = block_size;
         RandLAPACK::PeakRSSTracker cqrrt_mem;
@@ -327,7 +328,7 @@ static conditioning_result<T> run_single_test(
         std::vector<T> R_cqrrt(n * n, 0.0);
 
         RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
-        CQRRT_QR.nnz = 5;  // Optimal for sparse SPD matrices (from parameter study)
+        CQRRT_QR.nnz = sketch_nnz;
         CQRRT_QR.use_dense_sketch = use_dense_sketch;
         CQRRT_QR.block_size = block_size;
         CQRRT_QR.call(outer_composite, R_cqrrt.data(), n, d_factor, state);
@@ -453,7 +454,7 @@ static conditioning_result<T> run_single_test(
         RandLAPACK::CQRRT<T, RNG> dense_alg(true, tol);  // timing=true
         dense_alg.compute_Q = true;
         dense_alg.orthogonalization = false;
-        dense_alg.nnz = 2;
+        dense_alg.nnz = sketch_nnz;
         auto state_copy = state;
         dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
 
@@ -493,9 +494,9 @@ static conditioning_result<T> run_single_test(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 7 || argc > 9) {
+    if (argc < 7 || argc > 10) {
         std::cerr << "Usage: " << argv[0]
-                  << " <spd_matrix_dir> <k_dim> <n_cols> <d_factor> <num_runs> <output_file> [use_dense_sketch] [block_size]"
+                  << " <spd_matrix_dir> <k_dim> <n_cols> <d_factor> <num_runs> <output_file> [use_dense_sketch] [block_size] [sketch_nnz]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  spd_matrix_dir   : Directory containing SPD matrices (with metadata.txt)" << std::endl;
@@ -506,6 +507,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "  output_file      : Output CSV file for results" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = sparse SASO (default: 0)" << std::endl;
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
+        std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
         std::cerr << "\nExample: " << argv[0] << " ./spd_matrices 1138 100 2.0 3 conditioning_results.csv" << std::endl;
         return 1;
     }
@@ -519,6 +521,7 @@ int main(int argc, char *argv[]) {
     std::string output_file_arg = argv[6];
     bool use_dense_sketch = (argc >= 8) ? (std::stoi(argv[7]) != 0) : false;
     int64_t block_size = (argc >= 9) ? std::stol(argv[8]) : 0;
+    int64_t sketch_nnz = (argc >= 10) ? std::stol(argv[9]) : 5;
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -569,6 +572,7 @@ int main(int argc, char *argv[]) {
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
     printf("Sketching factor (CQRRT only): %.2f\n", d_factor);
     printf("Sketch type (CQRRT only): %s\n", use_dense_sketch ? "dense Gaussian" : "sparse SASO");
+    printf("Sketch nnz (CQRRT only): %ld\n", sketch_nnz);
     printf("Block size (CQRRT, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Runs per condition: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
@@ -608,6 +612,7 @@ int main(int argc, char *argv[]) {
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
+    out << "# sketch_nnz (CQRRT only): " << sketch_nnz << "\n";
     out << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
@@ -646,6 +651,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
     breakdown << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
+    breakdown << "# sketch_nnz (CQRRT only): " << sketch_nnz << "\n";
     breakdown << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
@@ -671,7 +677,7 @@ int main(int argc, char *argv[]) {
         double warmup_cond = matrix_files[0].first;
         std::string warmup_file = matrix_files[0].second;
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
-        run_single_test<double>(warmup_file, warmup_cond, m, k_dim, n, d_factor, use_dense_sketch, block_size, warmup_state);
+        run_single_test<double>(warmup_file, warmup_cond, m, k_dim, n, d_factor, use_dense_sketch, block_size, sketch_nnz, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
     }
 
@@ -694,7 +700,7 @@ int main(int argc, char *argv[]) {
         long fastest_dense_cqrrt_time = std::numeric_limits<long>::max();
 
         for (int64_t run = 0; run < num_runs; ++run) {
-            auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, use_dense_sketch, block_size, state);
+            auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, use_dense_sketch, block_size, sketch_nnz, state);
             results.push_back(result);
 
             // Track fastest runs for each algorithm

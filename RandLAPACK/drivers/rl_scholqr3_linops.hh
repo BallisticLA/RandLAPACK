@@ -233,14 +233,6 @@ class sCholQR3_linops {
 
                 delete[] A_temp;
 
-                if(this->timing) {
-                    // In column-block mode, materialize and Gram are fused.
-                    // Report the entire loop as materialize; gram is zero.
-                    materialize_t_stop = steady_clock::now();
-                    gram1_t_start = materialize_t_stop;
-                    gram1_t_stop = materialize_t_stop;
-                }
-
                 // Compute ||A||_F from trace(G) = ||A||_F²
                 T norm_A_sq = 0;
                 for (int64_t i = 0; i < n; ++i) {
@@ -257,6 +249,14 @@ class sCholQR3_linops {
 
                 // Now materialize full A into Q_buf for TRSM and subsequent iterations
                 A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, I_mat, n, (T)0.0, Q_buf, m);
+
+                if(this->timing) {
+                    // In column-block mode, materialize and Gram are fused.
+                    // Report the blocked Gram loop + full materialization as materialize; gram is zero.
+                    materialize_t_stop = steady_clock::now();
+                    gram1_t_start = materialize_t_stop;
+                    gram1_t_stop = materialize_t_stop;
+                }
             }
 
             // Zero out lower triangle before Cholesky

@@ -178,6 +178,7 @@ static scaling_result<T> run_single_test(
     T d_factor,
     bool use_dense_sketch,
     int64_t block_size,
+    int64_t sketch_nnz,
     int64_t num_runs,
     RandBLAS::RNGState<RNG>& state) {
 
@@ -215,7 +216,7 @@ static scaling_result<T> run_single_test(
             std::vector<T> R_rss(n * n, 0.0);
             auto state_rss = state;
             RandLAPACK::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
-            CQRRT_rss.nnz = 5;
+            CQRRT_rss.nnz = sketch_nnz;
             CQRRT_rss.use_dense_sketch = use_dense_sketch;
             CQRRT_rss.block_size = block_size;
             RandLAPACK::PeakRSSTracker cqrrt_mem;
@@ -247,7 +248,7 @@ static scaling_result<T> run_single_test(
             auto state_copy = state;
 
             RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
-            CQRRT_QR.nnz = 5;
+            CQRRT_QR.nnz = sketch_nnz;
             CQRRT_QR.use_dense_sketch = use_dense_sketch;
             CQRRT_QR.block_size = block_size;
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
@@ -456,7 +457,7 @@ static scaling_result<T> run_single_test(
             RandLAPACK::CQRRT<T, RNG> dense_alg(true, tol);  // timing=true
             dense_alg.compute_Q = true;
             dense_alg.orthogonalization = false;
-            dense_alg.nnz = 5;
+            dense_alg.nnz = sketch_nnz;
             dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
 
             long run_peak_rss_kb = dense_mem.stop();
@@ -505,9 +506,9 @@ static scaling_result<T> run_single_test(
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 10 || argc > 12) {
+    if (argc < 10 || argc > 13) {
         std::cerr << "Usage: " << argv[0]
-                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <cond_num> <density> <d_factor> <num_runs> <output_dir> [use_dense_sketch] [block_size]"
+                  << " <aspect_ratio> <m_start> <m_end> <num_sizes> <cond_num> <density> <d_factor> <num_runs> <output_dir> [use_dense_sketch] [block_size] [sketch_nnz]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  aspect_ratio     : Ratio m/n (e.g., 20 means n = m/20)" << std::endl;
@@ -521,6 +522,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "  output_dir       : Directory to write output files" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = sparse SASO (default: 0)" << std::endl;
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
+        std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
         std::cerr << "  " << argv[0] << " 20 500 10000 50 1e4 0.1 2.0 3 ./output" << std::endl;
         std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, aspect ratio 20:1, κ=1e4, density≈0.1, 3 runs each)" << std::endl;
@@ -539,6 +541,7 @@ int main(int argc, char *argv[]) {
     std::string output_dir = argv[9];
     bool use_dense_sketch = (argc >= 11) ? (std::stoi(argv[10]) != 0) : false;
     int64_t block_size = (argc >= 12) ? std::stol(argv[11]) : 0;
+    int64_t sketch_nnz = (argc >= 13) ? std::stol(argv[12]) : 5;
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -568,6 +571,7 @@ int main(int argc, char *argv[]) {
     printf("Target density: %.3f\n", density);
     printf("d_factor (CQRRT): %.2f\n", d_factor);
     printf("Sketch type (CQRRT): %s\n", use_dense_sketch ? "dense Gaussian" : "sparse SASO");
+    printf("Sketch nnz (CQRRT): %ld\n", sketch_nnz);
     printf("Block size (CQRRT, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Runs per size: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
@@ -585,6 +589,7 @@ int main(int argc, char *argv[]) {
     out << "# Target density: " << density << "\n";
     out << "# d_factor (CQRRT only): " << d_factor << "\n";
     out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
+    out << "# sketch_nnz (CQRRT only): " << sketch_nnz << "\n";
     out << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
@@ -609,6 +614,7 @@ int main(int argc, char *argv[]) {
     breakdown << "# Target density: " << density << "\n";
     breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
     breakdown << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
+    breakdown << "# sketch_nnz (CQRRT only): " << sketch_nnz << "\n";
     breakdown << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
@@ -634,7 +640,7 @@ int main(int argc, char *argv[]) {
         int64_t warmup_m = sizes[0].first;
         int64_t warmup_n = sizes[0].second;
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
-        run_single_test<double>(warmup_m, warmup_n, cond_num, density, d_factor, use_dense_sketch, block_size, 1, warmup_state);
+        run_single_test<double>(warmup_m, warmup_n, cond_num, density, d_factor, use_dense_sketch, block_size, sketch_nnz, 1, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
     }
 
@@ -645,7 +651,7 @@ int main(int argc, char *argv[]) {
         printf("Testing %ld x %ld (aspect ratio %.1f) [%zu/%zu]...\n",
                m, n, static_cast<double>(m) / n, i + 1, sizes.size());
 
-        auto result = run_single_test<double>(m, n, cond_num, density, d_factor, use_dense_sketch, block_size, num_runs, state);
+        auto result = run_single_test<double>(m, n, cond_num, density, d_factor, use_dense_sketch, block_size, sketch_nnz, num_runs, state);
 
         double speedup_cqrrt_over_cholqr = (result.cqrrt.time > 0) ?
             static_cast<double>(result.cholqr.time) / result.cqrrt.time : 0.0;
