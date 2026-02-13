@@ -170,8 +170,6 @@ static void call_all_algs(
     // Instead of computing max_krylov_iters from target_rank, we pre-specify
     // the maximum number of Krylov iters via num_matmuls.
     all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
-    all_algs.ABRIK.num_threads_min = 4;
-    all_algs.ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // timing vars
     long dur_ABRIK = 0;

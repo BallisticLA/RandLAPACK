@@ -22,6 +22,7 @@
 #include "RandLAPACK/comps/rl_syrf.hh"
 #include "RandLAPACK/comps/rl_orth.hh"
 #include "RandLAPACK/comps/rl_rpchol.hh"
+#include "RandLAPACK/comps/rl_bk.hh"
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"

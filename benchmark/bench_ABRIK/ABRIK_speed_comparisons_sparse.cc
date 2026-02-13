@@ -354,8 +354,6 @@ static void call_all_algs(
 
     // Additional params setup.
     all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
-    all_algs.ABRIK.num_threads_min = 4;
-    all_algs.ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     // timing vars
     long dur_ABRIK = 0;
@@ -407,9 +405,7 @@ static void call_all_algs(
 
         state_alg = state;
 
-        /*
         // ---- SVDS (Spectra, sparse) ----
-        // When un-commenting, use EigenTypes<T>::SpMatrix for the Spectra solver.
         using ESpMatrix = typename EigenTypes<T>::SpMatrix;
         using EMatrix   = typename EigenTypes<T>::Matrix;
         using EVector   = typename EigenTypes<T>::Vector;
@@ -448,7 +444,6 @@ static void call_all_algs(
         delete[] all_data.Sigma; all_data.Sigma = nullptr;
 
         state_alg = state;
-        */
 
         // Write CSV data row
         outfile << b_sz << ", " << all_algs.ABRIK.max_krylov_iters << ", " << target_rank << ", "

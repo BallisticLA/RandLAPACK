@@ -16,6 +16,7 @@ set(RandLAPACK_cxx_sources
     rl_syps.hh
     rl_syrf.hh
     rl_rpchol.hh
+    rl_bk.hh
     rl_gen.hh
     rl_blaspp.hh
     rl_linops.hh

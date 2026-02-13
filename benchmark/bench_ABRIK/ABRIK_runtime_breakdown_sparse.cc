@@ -119,10 +119,8 @@ static void call_all_algs(
     // Additional params setup.
     RandLAPACK::ABRIK<T, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
     ABRIK.max_krylov_iters = num_matmuls;
-    ABRIK.num_threads_min = 4;
     if (use_cqrrt)
         ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
-    ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     auto state_alg = state;
 
