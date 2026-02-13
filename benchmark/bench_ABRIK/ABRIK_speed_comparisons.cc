@@ -18,8 +18,8 @@ which is computed as "sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F / sqrt(target_rank
 // External libs includes
 #include <Eigen/Dense>
 #include <Spectra/contrib/PartialSVDSolver.h>
-using Matrix = Eigen::MatrixXf;
-using Vector = Eigen::VectorXf;
+using Matrix = Eigen::MatrixXd;
+using Vector = Eigen::VectorXd;
 
 template <typename T>
 struct ABRIK_benchmark_data {
@@ -113,7 +113,7 @@ static void data_regen(RandLAPACK::gen::mat_gen_info<T> m_info,
 
     if (overwrite_A) {
         RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
-        Eigen::Map<Eigen::MatrixXf>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXf>(all_data.A, m, n);
+        Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
         if (all_data.A_lowrank_svd != nullptr)
             lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     }
@@ -165,7 +165,7 @@ residual_error_comp(TestData &all_data, int64_t target_rank) {
     T nrm1 = lapack::lange(Norm::Fro, m, target_rank, all_data.U_cpy, m);
     T nrm2 = lapack::lange(Norm::Fro, n, target_rank, all_data.V_cpy, n);
 
-    return std::hypot(nrm1, nrm2);
+    return std::hypot(nrm1, nrm2) / all_data.Sigma[target_rank - 1];
 }
 
 template <typename T>
@@ -520,18 +520,18 @@ int main(int argc, char *argv[]) {
     for (const auto &val : matmuls)
         oss2 << val << ", ";
     std::string matmuls_string = oss2.str();
-    float tol                = std::pow(std::numeric_limits<float>::epsilon(), 0.85);
+    double tol                = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
     auto state                = RandBLAS::RNGState();
     auto state_constant       = state;
-    float norm_A_lowrank     = 0;
+    double norm_A_lowrank     = 0;
     int64_t m = 0, n = 0;
 
     // Generate the input matrix.
-    RandLAPACK::gen::mat_gen_info<float> m_info(m, n, RandLAPACK::gen::custom_input);
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::custom_input);
     m_info.filename = argv[2];
     m_info.workspace_query_mod = 1;
     // Workspace query;
-    RandLAPACK::gen::mat_gen<float>(m_info, NULL, state);
+    RandLAPACK::gen::mat_gen<double>(m_info, NULL, state);
 
     // Update basic params.
     m = m_info.rows;
@@ -542,7 +542,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Allocate basic workspace.
-    ABRIK_benchmark_data<float> all_data(m, n, tol);
+    ABRIK_benchmark_data<double> all_data(m, n, tol);
     // Fill the data matrix;
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
@@ -551,20 +551,20 @@ int main(int argc, char *argv[]) {
     int64_t passes_per_iteration = 1;
     // Block size will need to be altered.
     int64_t block_sz = 0;
-    ABRIK_algorithm_objects<float, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
+    ABRIK_algorithm_objects<double, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
 
     // Copying input data into a Spectra (Eigen) matrix object
-    Eigen::Map<Eigen::MatrixXf>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXf>(all_data.A, m, n);
+    Eigen::Map<Eigen::MatrixXd>(all_data.A_spectra.data(), all_data.A_spectra.rows(), all_data.A_spectra.cols()) = Eigen::Map<const Eigen::MatrixXd>(all_data.A, m, n);
 
     // Optional pass of lowrank SVD matrix into the benchmark
     if (std::string(argv[3]) != ".") {
         printf("Lowrank A input.\n");
-        RandLAPACK::gen::mat_gen_info<float> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
+        RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
         m_info_A_svd.filename            = argv[3];
         m_info_A_svd.workspace_query_mod = 0;
-        all_data.A_lowrank_svd       = new float[m * n]();
-        all_data.A_lowrank_svd_const = new float[m * n]();
-        RandLAPACK::gen::mat_gen<float>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
+        all_data.A_lowrank_svd       = new double[m * n]();
+        all_data.A_lowrank_svd_const = new double[m * n]();
+        RandLAPACK::gen::mat_gen<double>(m_info_A_svd, all_data.A_lowrank_svd_const, state);
         lapack::lacpy(MatrixType::General, m, n, all_data.A_lowrank_svd_const, m, all_data.A_lowrank_svd, m);
     
         // Pre-compute norm(A lowrank) for future benchmarking
