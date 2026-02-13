@@ -90,7 +90,7 @@ struct conditioning_result {
     long scholqr3_update3_time;
     long scholqr3_rest_time;
 
-    // Dense CQRRT subroutine times
+    // CQRRT_expl subroutine times
     long dense_cqrrt_materialize_time;
     long dense_cqrrt_saso_time;
     long dense_cqrrt_qr_time;
@@ -429,7 +429,7 @@ static conditioning_result<T> run_single_test(
     }
 
     // ============================================================
-    // Run Dense CQRRT (materialize operator, then call rl_cqrrt)
+    // Run CQRRT_expl (materialize operator, then call rl_cqrrt)
     // ============================================================
     // Peak RSS with compute_Q=true is correct: Q overwrites A_materialized in-place (no extra allocation).
     {
@@ -496,32 +496,32 @@ int main(int argc, char *argv[]) {
 
     if (argc < 7 || argc > 10) {
         std::cerr << "Usage: " << argv[0]
-                  << " <spd_matrix_dir> <k_dim> <n_cols> <d_factor> <num_runs> <output_file> [use_dense_sketch] [block_size] [sketch_nnz]"
+                  << " <output_file> <num_runs> <spd_matrix_dir> <k_dim> <n_cols> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
+        std::cerr << "  output_file      : Output CSV file for results" << std::endl;
+        std::cerr << "  num_runs         : Number of runs per condition number (for averaging)" << std::endl;
         std::cerr << "  spd_matrix_dir   : Directory containing SPD matrices (with metadata.txt)" << std::endl;
         std::cerr << "  k_dim            : Intermediate dimension (SASO cols / Gaussian rows)" << std::endl;
         std::cerr << "  n_cols           : Final number of columns (Gaussian cols)" << std::endl;
         std::cerr << "  d_factor         : Sketching dimension factor (e.g., 2.0)" << std::endl;
-        std::cerr << "  num_runs         : Number of runs per condition number (for averaging)" << std::endl;
-        std::cerr << "  output_file      : Output CSV file for results" << std::endl;
-        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
-        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
-        std::cerr << "\nExample: " << argv[0] << " ./spd_matrices 1138 100 2.0 3 conditioning_results.csv" << std::endl;
+        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
+        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
+        std::cerr << "\nExample: " << argv[0] << " conditioning_results.csv 3 ./spd_matrices 1138 100 2.0" << std::endl;
         return 1;
     }
 
     // Parse arguments
-    std::string spd_dir = argv[1];
-    int64_t k_dim = std::stol(argv[2]);
-    int64_t n = std::stol(argv[3]);
-    double d_factor = std::stod(argv[4]);
-    int64_t num_runs = std::stol(argv[5]);
-    std::string output_file_arg = argv[6];
-    bool use_dense_sketch = (argc >= 8) ? (std::stoi(argv[7]) != 0) : false;
+    std::string output_file_arg = argv[1];
+    int64_t num_runs = std::stol(argv[2]);
+    std::string spd_dir = argv[3];
+    int64_t k_dim = std::stol(argv[4]);
+    int64_t n = std::stol(argv[5]);
+    double d_factor = std::stod(argv[6]);
+    int64_t sketch_nnz = (argc >= 8) ? std::stol(argv[7]) : 5;
     int64_t block_size = (argc >= 9) ? std::stol(argv[8]) : 0;
-    int64_t sketch_nnz = (argc >= 10) ? std::stol(argv[9]) : 5;
+    bool use_dense_sketch = (argc >= 10) ? (std::stoi(argv[9]) != 0) : false;
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -862,7 +862,7 @@ int main(int argc, char *argv[]) {
                   << fastest_scholqr3.scholqr3_update3_time << ","
                   << fastest_scholqr3.scholqr3_rest_time << ","
                   << fastest_scholqr3.scholqr3.time << ","
-                  // Dense CQRRT (11 values: materialize, saso, qr, trtri=0, precond, gram, trmm_gram=0, potrf, finalize, rest, total)
+                  // CQRRT_expl (11 values: materialize, saso, qr, trtri=0, precond, gram, trmm_gram=0, potrf, finalize, rest, total)
                   << fastest_dense_cqrrt.dense_cqrrt_materialize_time << ","
                   << fastest_dense_cqrrt.dense_cqrrt_saso_time << ","
                   << fastest_dense_cqrrt.dense_cqrrt_qr_time << ","

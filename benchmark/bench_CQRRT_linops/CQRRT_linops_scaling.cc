@@ -87,7 +87,7 @@ struct scaling_result {
     long scholqr3_update3_time;
     long scholqr3_rest_time;
 
-    // Dense CQRRT subroutine times
+    // CQRRT_expl subroutine times
     long dense_cqrrt_materialize_time;
     long dense_cqrrt_saso_time;
     long dense_cqrrt_qr_time;
@@ -415,7 +415,7 @@ static scaling_result<T> run_single_test(
     }
 
     // ============================================================
-    // Run Dense CQRRT (materialize operator, then call rl_cqrrt) - multiple runs
+    // Run CQRRT_expl (materialize operator, then call rl_cqrrt) - multiple runs
     // ============================================================
     // Peak RSS with compute_Q=true is correct: Q overwrites A_materialized in-place (no extra allocation).
     {
@@ -508,39 +508,39 @@ int main(int argc, char *argv[]) {
 
     if (argc < 10 || argc > 13) {
         std::cerr << "Usage: " << argv[0]
-                  << " <m_start> <m_end> <num_sizes> <aspect_ratio> <cond_num> <density> <d_factor> <num_runs> <output_dir> [block_size] [sketch_nnz] [use_dense_sketch]"
+                  << " <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
+        std::cerr << "  output_dir       : Directory to write output files" << std::endl;
+        std::cerr << "  num_sizes        : Number of matrix sizes to test" << std::endl;
+        std::cerr << "  num_runs         : Number of runs per matrix size (for timing)" << std::endl;
         std::cerr << "  m_start          : Starting number of rows (smallest matrix)" << std::endl;
         std::cerr << "  m_end            : Ending number of rows (largest matrix)" << std::endl;
-        std::cerr << "  num_sizes        : Number of matrix sizes to test" << std::endl;
         std::cerr << "  aspect_ratio     : Ratio m/n (e.g., 20 means n = m/20)" << std::endl;
         std::cerr << "  cond_num         : Target condition number for the sparse matrix (e.g., 1e4)" << std::endl;
         std::cerr << "  density          : Target density (e.g., 0.1); bandwidth derived as round(density*n - 1)" << std::endl;
         std::cerr << "  d_factor         : Sketching dimension factor for CQRRT_linop (e.g., 2.0)" << std::endl;
-        std::cerr << "  num_runs         : Number of runs per matrix size (for timing)" << std::endl;
-        std::cerr << "  output_dir       : Directory to write output files" << std::endl;
-        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
+        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
-        std::cerr << "  " << argv[0] << " 500 10000 50 20 1e4 0.1 2.0 3 ./output" << std::endl;
+        std::cerr << "  " << argv[0] << " ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
         std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, aspect ratio 20:1, κ=1e4, density≈0.1, 3 runs each)" << std::endl;
         return 1;
     }
 
     // Parse arguments
-    int64_t m_start = std::stol(argv[1]);
-    int64_t m_end = std::stol(argv[2]);
-    int64_t num_sizes = std::stol(argv[3]);
-    double aspect_ratio = std::stod(argv[4]);
-    double cond_num = std::stod(argv[5]);
-    double density = std::stod(argv[6]);
-    double d_factor = std::stod(argv[7]);
-    int64_t num_runs = std::stol(argv[8]);
-    std::string output_dir = argv[9];
-    int64_t block_size = (argc >= 11) ? std::stol(argv[10]) : 0;
-    int64_t sketch_nnz = (argc >= 12) ? std::stol(argv[11]) : 5;
+    std::string output_dir = argv[1];
+    int64_t num_sizes = std::stol(argv[2]);
+    int64_t num_runs = std::stol(argv[3]);
+    int64_t m_start = std::stol(argv[4]);
+    int64_t m_end = std::stol(argv[5]);
+    double aspect_ratio = std::stod(argv[6]);
+    double cond_num = std::stod(argv[7]);
+    double density = std::stod(argv[8]);
+    double d_factor = std::stod(argv[9]);
+    int64_t sketch_nnz = (argc >= 11) ? std::stol(argv[10]) : 5;
+    int64_t block_size = (argc >= 12) ? std::stol(argv[11]) : 0;
     bool use_dense_sketch = (argc >= 13) ? (std::stoi(argv[12]) != 0) : false;
 
     // Generate date/time prefix
@@ -721,7 +721,7 @@ int main(int argc, char *argv[]) {
                   << result.scholqr3_update2_time << "," << result.scholqr3_syrk3_time << ","
                   << result.scholqr3_potrf3_time << "," << result.scholqr3_update3_time << ","
                   << result.scholqr3_rest_time << "," << result.scholqr3.time << ","
-                  // Dense CQRRT (11 values)
+                  // CQRRT_expl (11 values)
                   << result.dense_cqrrt_materialize_time << ","
                   << result.dense_cqrrt_saso_time << ","
                   << result.dense_cqrrt_qr_time << ","
