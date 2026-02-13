@@ -505,8 +505,8 @@ int main(int argc, char *argv[]) {
         std::cerr << "  d_factor         : Sketching dimension factor (e.g., 2.0)" << std::endl;
         std::cerr << "  num_runs         : Number of runs per condition number (for averaging)" << std::endl;
         std::cerr << "  output_file      : Output CSV file for results" << std::endl;
-        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = sparse SASO (default: 0)" << std::endl;
-        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
+        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
+        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
         std::cerr << "\nExample: " << argv[0] << " ./spd_matrices 1138 100 2.0 3 conditioning_results.csv" << std::endl;
         return 1;
@@ -566,14 +566,14 @@ int main(int argc, char *argv[]) {
     // Get OpenMP thread count
     int num_threads = omp_get_max_threads();
 
-    printf("\n=== CQRRT vs CholQR vs sCholQR3 vs Dense CQRRT Conditioning Study ===\n");
+    printf("\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Conditioning Study ===\n");
     printf("SPD matrix directory: %s\n", spd_dir.c_str());
     printf("Number of condition numbers: %ld\n", num_matrices);
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
-    printf("Sketching factor (CQRRT only): %.2f\n", d_factor);
-    printf("Sketch type (CQRRT only): %s\n", use_dense_sketch ? "dense Gaussian" : "sparse SASO");
-    printf("Sketch nnz (CQRRT only): %ld\n", sketch_nnz);
-    printf("Block size (CQRRT, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
+    printf("Sketching factor (CQRRT_linop only): %.2f\n", d_factor);
+    printf("Sketch type (CQRRT_linop only): %s\n", use_dense_sketch ? "dense Gaussian" : "SASO");
+    printf("Sketch nnz (CQRRT_linop only): %ld\n", sketch_nnz);
+    printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Runs per condition: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
     printf("Output file: %s\n", output_file.c_str());
@@ -607,13 +607,13 @@ int main(int argc, char *argv[]) {
 
     // Open output file
     std::ofstream out(output_file);
-    out << "# CQRRT vs CholQR vs sCholQR3 vs Dense CQRRT Conditioning Study Results\n";
+    out << "# CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Conditioning Study Results\n";
     out << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
-    out << "# d_factor (CQRRT only): " << d_factor << "\n";
-    out << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
-    out << "# sketch_nnz (CQRRT only): " << sketch_nnz << "\n";
-    out << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
+    out << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
+    out << "# sketch_type (CQRRT_linop only): " << (use_dense_sketch ? "dense Gaussian" : "SASO") << "\n";
+    out << "# sketch_nnz (CQRRT_linop only): " << sketch_nnz << "\n";
+    out << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
     out << "# Format: cond_num, then per-algorithm: rel_error, orth_error, max_orth_cols, orth_rate, time (mean/std), memory (KB)\n";
@@ -649,17 +649,17 @@ int main(int argc, char *argv[]) {
     breakdown << "# Runtime Breakdown for All Algorithms (from fastest run per condition number)\n";
     breakdown << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
     breakdown << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
-    breakdown << "# d_factor (CQRRT only): " << d_factor << "\n";
-    breakdown << "# sketch_type (CQRRT only): " << (use_dense_sketch ? "dense Gaussian" : "sparse SASO") << "\n";
-    breakdown << "# sketch_nnz (CQRRT only): " << sketch_nnz << "\n";
-    breakdown << "# block_size (CQRRT, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
+    breakdown << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
+    breakdown << "# sketch_type (CQRRT_linop only): " << (use_dense_sketch ? "dense Gaussian" : "SASO") << "\n";
+    breakdown << "# sketch_nnz (CQRRT_linop only): " << sketch_nnz << "\n";
+    breakdown << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
     breakdown << "# OpenMP threads: " << num_threads << "\n";
     breakdown << "# Times are in microseconds\n";
-    breakdown << "# CQRRT: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
+    breakdown << "# CQRRT_linop: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
     breakdown << "# CholQR: alloc, materialize, gram, potrf, rest, total\n";
     breakdown << "# sCholQR3: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
-    breakdown << "# Dense CQRRT: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
+    breakdown << "# CQRRT_expl: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "cond_num,"
               << "cqrrt_alloc,cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
               << "cholqr_alloc,cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
@@ -722,13 +722,13 @@ int main(int argc, char *argv[]) {
             }
 
             printf("  Run %ld/%ld:\n", run + 1, num_runs);
-            printf("    CQRRT:   orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+            printf("    CQRRT_linop: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.cqrrt.orth_error, result.cqrrt.max_orth_cols, n, result.cqrrt.time);
-            printf("    CholQR:  orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+            printf("    CholQR:      orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.cholqr.orth_error, result.cholqr.max_orth_cols, n, result.cholqr.time);
-            printf("    sCholQR3: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+            printf("    sCholQR3:    orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.scholqr3.orth_error, result.scholqr3.max_orth_cols, n, result.scholqr3.time);
-            printf("    Dense CQRRT: orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
+            printf("    CQRRT_expl:  orth_error=%.6e, max_orth_cols=%ld/%ld, time=%ld μs\n",
                    result.dense_cqrrt.orth_error, result.dense_cqrrt.max_orth_cols, n, result.dense_cqrrt.time);
         }
 
@@ -809,18 +809,18 @@ int main(int argc, char *argv[]) {
         out.flush();
 
         printf("  Summary:\n");
-        printf("    CQRRT:   orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
+        printf("    CQRRT_linop: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                cqrrt_orth_err_mean, cqrrt_orth_err_std, cqrrt_max_orth_mean, cqrrt_max_orth_std, cqrrt_orth_rate);
-        printf("    CholQR:  orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
+        printf("    CholQR:      orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                cholqr_orth_err_mean, cholqr_orth_err_std, cholqr_max_orth_mean, cholqr_max_orth_std, cholqr_orth_rate);
-        printf("    sCholQR3: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
+        printf("    sCholQR3:    orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                scholqr3_orth_err_mean, scholqr3_orth_err_std, scholqr3_max_orth_mean, scholqr3_max_orth_std, scholqr3_orth_rate);
-        printf("    Dense CQRRT: orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
+        printf("    CQRRT_expl:  orth_error=%.6e±%.6e, max_orth=%.1f±%.1f, orth_rate=%.2f\n",
                dense_cqrrt_orth_err_mean, dense_cqrrt_orth_err_std, dense_cqrrt_max_orth_mean, dense_cqrrt_max_orth_std, dense_cqrrt_orth_rate);
         printf("                 time=%.1f±%.1f μs\n",
                dense_cqrrt_time_mean, dense_cqrrt_time_std);
         printf("  Memory (peak RSS / analytical KB):\n");
-        printf("    CQRRT: %ld / %ld,  CholQR: %ld / %ld,  sCholQR3: %ld / %ld,  Dense: %ld / %ld\n\n",
+        printf("    CQRRT_linop: %ld / %ld,  CholQR: %ld / %ld,  sCholQR3: %ld / %ld,  CQRRT_expl: %ld / %ld\n\n",
                fastest_cqrrt.cqrrt.peak_rss_kb, fastest_cqrrt.cqrrt_analytical_kb,
                fastest_cholqr.cholqr.peak_rss_kb, fastest_cholqr.cholqr_analytical_kb,
                fastest_scholqr3.scholqr3.peak_rss_kb, fastest_scholqr3.scholqr3_analytical_kb,
