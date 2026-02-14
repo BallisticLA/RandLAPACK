@@ -13,13 +13,13 @@ import pickle as pkl
 spmatrix : TypeAlias = spar.coo_matrix | spar.csc_matrix | spar.csr_matrix
 
 
-paths = [
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=0.00263982s/amd_true',
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=25.8342s/amd_true',
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-64k/abs-tol/t=0.019081s/amd_true',
-    # '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-266k/abs-tol/t=0.00117647s/amd_true',
-    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-2123k/abs-tol/t=0.00117647s/amd_true',
-    '/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-1024k/abs-tol/t=1.22302e-05s/amd_true',
+paths : list[tuple[str, int]] = [
+    ('/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=0.00263982s/amd_false', 247,),
+    ('/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/weir-20k/abs-tol/t=25.8342s/amd_false', 294),
+    ('/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-64k/abs-tol/t=0.019081s/amd_false',541),
+    ('/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-266k/abs-tol/t=0.00117647s/amd_false',500),
+    ('/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/sloshing-2123k/abs-tol/t=0.00117647s/amd_false',5000),
+    ('/Users/rjmurr/Documents/randnla/RandLAPACK/demos/sparse-data-matrices/erdc-staged/cap-rise-1024k/abs-tol/t=1.22302e-05s/amd_false',2138)
 ]
 
 
@@ -227,9 +227,8 @@ if __name__ == '__main__':
     }
 
 
-    iters = 500
-
-    for p in paths:
+    for p, iters in paths:
+        iters = max(iters, 550)
         A, b, x0, xf = read_system(p)
         if ('2123k' in p) or ('1024k' in p):
             x_direct = xf
