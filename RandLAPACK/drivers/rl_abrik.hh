@@ -5,6 +5,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
+#include "rl_util_linop.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -54,6 +55,11 @@ class ABRIK {
 
         int64_t singular_triplets_found;
 
+        // Adaptive mode: check SVD residual after BK and resume if needed.
+        bool adaptive;             // Enable adaptive residual checking (default: false).
+        int adaptive_increment;    // Extra BK iterations per retry (0 = use max_krylov_iters).
+        int adaptive_max_retries;  // Hard limit on resume attempts (default: 10).
+
         ABRIK(
             bool verb,
             bool time_subroutines,
@@ -65,6 +71,9 @@ class ABRIK {
             tol = ep;
             max_krylov_iters = INT_MAX;
             singular_triplets_found = 0;
+            adaptive = false;
+            adaptive_increment = 0;
+            adaptive_max_retries = 10;
         }
 
         /// Computes an SVD of the form:
@@ -190,46 +199,124 @@ class ABRIK {
 
                 int64_t m = A.n_rows;
                 int64_t n = A.n_cols;
+                int increment = (this->adaptive_increment > 0)
+                              ? this->adaptive_increment : this->max_krylov_iters;
 
-                // Phase: SVD on band matrix + factor reconstruction
+                T* U_hat  = nullptr;
+                T* VT_hat = nullptr;
+                int retries = 0;
+
+                // SVD + reconstruction loop (runs once in non-adaptive mode).
+                while (true) {
+                    // Phase: SVD on band matrix + factor reconstruction
+                    if(this -> timing)
+                        allocation_t_start = steady_clock::now();
+
+                    // Internal SVD workspace — freed in this function.
+                    U_hat  = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
+                    VT_hat = ( T * ) malloc( end_cols * end_cols * sizeof( T ) );
+
+                    // Output arrays — ownership transfers to caller (use delete[]).
+                    Sigma = new T[std::min(end_cols, end_rows)]();
+                    U     = new T[m * end_cols]();
+                    V     = new T[n * end_cols]();
+
+                    if(this -> timing) {
+                        allocation_t_stop = steady_clock::now();
+                        driver_alloc_t_dur += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                        get_factors_t_start = steady_clock::now();
+                    }
+
+                    if (this->adaptive) {
+                        // Adaptive: run gesdd on a copy to preserve R/S for potential resume.
+                        T* svd_input = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
+                        if (final_iter_is_odd) {
+                            lapack::lacpy(MatrixType::General, end_rows, end_cols, R, n, svd_input, end_rows);
+                        } else {
+                            lapack::lacpy(MatrixType::General, end_rows, end_cols, S, n + k, svd_input, end_rows);
+                        }
+                        lapack::gesdd(Job::SomeVec, end_rows, end_cols, svd_input, end_rows,
+                                      Sigma, U_hat, end_rows, VT_hat, end_cols);
+                        free(svd_input);
+                    } else {
+                        // Non-adaptive: gesdd overwrites R or S directly (they're freed below).
+                        if (final_iter_is_odd) {
+                            lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n,
+                                          Sigma, U_hat, end_rows, VT_hat, end_cols);
+                        } else {
+                            lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k,
+                                          Sigma, U_hat, end_rows, VT_hat, end_cols);
+                        }
+                    }
+
+                    // U = X_ev * U_hat
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows,
+                               1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
+                    // V = Y_od * V_hat
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols,
+                               1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
+
+                    this->singular_triplets_found = end_cols;
+
+                    if(this -> timing) {
+                        get_factors_t_stop = steady_clock::now();
+                        get_factors_t_dur  += duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
+                    }
+
+                    if (!this->adaptive) break;
+
+                    // --- Adaptive residual check ---
+                    T residual = linops::svd_residual<T>(A, U, V, Sigma, end_cols);
+
+                    if (residual <= this->tol) {
+                        if (this->verbose)
+                            printf("ABRIK adaptive: converged, residual %e <= tol %e after %d retries.\n",
+                                   residual, this->tol, retries);
+                        break;
+                    }
+
+                    if (bk_obj.termination_reason == BKTermination::norm_converged) {
+                        std::cerr << "ABRIK adaptive: BK terminated via norm convergence. "
+                                  << "Cannot improve further. Residual = " << residual
+                                  << ", tol = " << this->tol << std::endl;
+                        break;
+                    }
+                    if (bk_obj.termination_reason == BKTermination::rank_deficient) {
+                        std::cerr << "ABRIK adaptive: BK terminated due to rank deficiency. "
+                                  << "Cannot improve further. Residual = " << residual
+                                  << ", tol = " << this->tol << std::endl;
+                        break;
+                    }
+                    if (retries >= this->adaptive_max_retries) {
+                        std::cerr << "ABRIK adaptive: reached max retries (" << this->adaptive_max_retries
+                                  << "). Residual = " << residual << ", tol = " << this->tol << std::endl;
+                        break;
+                    }
+
+                    // Not satisfied, BK stopped at max_iters: discard current factors, resume BK.
+                    delete[] U;     U     = nullptr;
+                    delete[] V;     V     = nullptr;
+                    delete[] Sigma; Sigma = nullptr;
+                    free(U_hat);    U_hat  = nullptr;
+                    free(VT_hat);   VT_hat = nullptr;
+
+                    bk_obj.max_krylov_iters += increment;
+                    status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
+                                           end_rows, end_cols, final_iter_is_odd, state);
+
+                    this->num_krylov_iters = bk_obj.num_krylov_iters;
+                    this->norm_R_end       = bk_obj.norm_R_end;
+
+                    if (status != 0) {
+                        // BK resume failed (realloc failure); BK already cleaned up its buffers.
+                        return status;
+                    }
+
+                    ++retries;
+                }
+
                 if(this -> timing)
                     allocation_t_start = steady_clock::now();
-
-                // Internal SVD workspace — freed in this function (gesdd fully overwrites these).
-                T* U_hat  = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
-                T* VT_hat = ( T * ) malloc( end_cols * end_cols * sizeof( T ) );
-
-                // Output arrays — ownership transfers to caller (use delete[]).
-                Sigma = new T[std::min(end_cols, end_rows)]();
-                U     = new T[m * end_cols]();
-                V     = new T[n * end_cols]();
-
-                if(this -> timing) {
-                    allocation_t_stop = steady_clock::now();
-                    driver_alloc_t_dur += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-                    get_factors_t_start = steady_clock::now();
-                }
-
-                if (final_iter_is_odd) {
-                    // [U_hat, Sigma, V_hat] = svd(R')
-                    lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
-                } else {
-                    // [U_hat, Sigma, V_hat] = svd(S)
-                    lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k, Sigma, U_hat, end_rows, VT_hat, end_cols);
-                }
-
-                // U = X_ev * U_hat
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
-                // V = Y_od * V_hat
-                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols, 1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
-
-                this->singular_triplets_found = end_cols;
-
-                if(this -> timing) {
-                    get_factors_t_stop = steady_clock::now();
-                    get_factors_t_dur  = duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
-                    allocation_t_start = steady_clock::now();
-                }
 
                 // Free BK-allocated buffers and SVD workspace
                 free(Y_od);

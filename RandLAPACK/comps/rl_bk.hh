@@ -33,6 +33,13 @@ struct BKSubroutines {
     enum QR_explicit {geqrf_ungqr, cqrrt};
 };
 
+/// Reason BK terminated its main loop.
+enum class BKTermination {
+    max_iters_reached, ///< Reached max_krylov_iters without convergence (resumable).
+    norm_converged,    ///< norm_R exceeded threshold (A's spectral content exhausted).
+    rank_deficient     ///< Near-zero diagonal entry in R or S (subspace can't grow).
+};
+
 template <typename T, typename RNG>
 class BK {
     public:
@@ -46,6 +53,7 @@ class BK {
         int max_krylov_iters;
         std::vector<long> times;
         T norm_R_end;
+        BKTermination termination_reason;
 
         BK(
             bool verb,
@@ -147,6 +155,25 @@ class BK {
             return this->call(A_linop, k, X_ev, Y_od, R, S, end_rows, end_cols, final_iter_is_odd, state);
         }
 
+        /// Resume a previous BK computation with more iterations.
+        /// X_ev, Y_od, R, S must be non-null from a prior call().
+        /// Increase max_krylov_iters before calling.
+        template <RandLAPACK::linops::LinearOperator GLO>
+        int resume(
+            GLO& A,
+            int64_t k,
+            T* &X_ev,
+            T* &Y_od,
+            T* &R,
+            T* &S,
+            int64_t &end_rows,
+            int64_t &end_cols,
+            bool &final_iter_is_odd,
+            RandBLAS::RNGState<RNG> &state
+        ) {
+            return this->call_impl(A, k, X_ev, Y_od, R, S, end_rows, end_cols, final_iter_is_odd, state, true);
+        }
+
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
@@ -159,6 +186,24 @@ class BK {
             int64_t &end_cols,
             bool &final_iter_is_odd,
             RandBLAS::RNGState<RNG> &state
+        ) {
+            return this->call_impl(A, k, X_ev, Y_od, R, S, end_rows, end_cols, final_iter_is_odd, state, false);
+        }
+
+    private:
+        template <RandLAPACK::linops::LinearOperator GLO>
+        int call_impl(
+            GLO& A,
+            int64_t k,
+            T* &X_ev,
+            T* &Y_od,
+            T* &R,
+            T* &S,
+            int64_t &end_rows,
+            int64_t &end_cols,
+            bool &final_iter_is_odd,
+            RandBLAS::RNGState<RNG> &state,
+            bool resuming
         ){
                 steady_clock::time_point allocation_t_start;
                 steady_clock::time_point allocation_t_stop;
@@ -195,53 +240,82 @@ class BK {
                 long norm_t_dur        = 0;
                 long bk_total_t_dur    = 0;
 
-                if(this -> timing) {
+                if(this -> timing)
                     bk_total_t_start = steady_clock::now();
-                    allocation_t_start  = steady_clock::now();
-                }
 
                 int64_t m = A.n_rows;
                 int64_t n = A.n_cols;
-                int64_t iter = 0, iter_od = 0, iter_ev = 0;
-                end_rows = 0;
-                end_cols = 0;
-                T norm_R = 0;
                 int max_iters = this->max_krylov_iters;
 
-                // We need a full copy of X and Y all the way through the algorithm
-                // due to an operation with X_odd and Y_odd happening at the end.
-                // Below pointers stay the same throughout the alg; the space will be alloacted iteratively
-                // Space for Y_i and Y_odd.
-                Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
-                int64_t curr_Y_cols = k;
-                // Space for X_i and X_ev.
-                X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
-                int64_t curr_X_cols = k;
+                // Loop state — initialized differently for fresh start vs resume.
+                int64_t iter, iter_od, iter_ev;
+                int64_t curr_X_cols, curr_Y_cols;
+                T norm_R;
+                T* Y_i;
+                T* X_i;
+                T* R_i;
+                T* R_ii;
+                T* S_i;
+                T* S_ii;
 
-                // While R and S matrices are structured (both band), we cannot make use of this structure through
-                // BLAS-level functions.
-                // Note also that we store a transposed version of R.
-                //
-                // At each iterations, matrices R and S grow by b_sz.
-                // At the end, size of R would by d x d and size of S would
-                // be (d + 1) x d, where d = numiters_complete * b_sz, d <= n.
-                // Note that the total amount of iterations will always be numiters <= n * 2 / block_size
-                R   = ( T * ) calloc( n * k, sizeof( T ) );
-                S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
+                if (!resuming) {
+                    // --- Fresh start: allocate output buffers and initialize state ---
+                    if(this -> timing)
+                        allocation_t_start = steady_clock::now();
 
-                // These buffers are pure GEMM outputs (beta=0.0), no need to zero-initialize.
+                    iter = 0; iter_od = 0; iter_ev = 0;
+                    end_rows = 0; end_cols = 0;
+                    norm_R = 0;
+
+                    // Space for Y_i and Y_odd.
+                    Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
+                    curr_Y_cols = k;
+                    // Space for X_i and X_ev.
+                    X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
+                    curr_X_cols = k;
+
+                    // R and S are band matrices stored dense; R is stored transposed.
+                    R   = ( T * ) calloc( n * k, sizeof( T ) );
+                    S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
+
+                    // Initialize pointers.
+                    Y_i  = Y_od;
+                    X_i  = X_ev;
+                    R_i  = NULL;
+                    R_ii = R;
+                    S_i  = S;
+                    S_ii = &S[k];
+
+                    if(this -> timing) {
+                        allocation_t_stop  = steady_clock::now();
+                        allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                    }
+                } else {
+                    // --- Resume: reconstruct loop state from stored members ---
+                    // Only valid after a prior call() that terminated with max_iters_reached.
+                    iter     = this->num_krylov_iters;
+                    norm_R   = this->norm_R_end;
+                    iter_od  = 1 + iter / 2;
+                    iter_ev  = (iter + 1) / 2;
+                    curr_X_cols = (1 + iter_ev) * k;
+                    curr_Y_cols = iter_od * k;
+
+                    // Reconstruct pointers into existing buffers.
+                    X_i  = &X_ev[m * (curr_X_cols - k)];
+                    Y_i  = &Y_od[n * (curr_Y_cols - k)];
+                    R_i  = &R[iter_ev * k];
+                    R_ii = &R[(n * k * iter_ev) + k + (k * (iter_ev - 1))];
+                    S_i  = &S[(n + k) * k * (iter_od - 1)];
+                    S_ii = &S[(n + k) * k * (iter_od - 1) + k + ((iter_od - 1) * k)];
+
+                    // Advance past the completed iteration so the while-loop starts at the next one.
+                    ++iter;
+                }
+
+                // Internal temporaries — shared for both paths.
+                // These are pure scratch buffers (beta=0.0 GEMM outputs), no need to zero-initialize.
                 T* Y_orth_buf = ( T * ) malloc( k * n * sizeof( T ) );
                 T* X_orth_buf = ( T * ) malloc( k * (n + k) * sizeof( T ) );
-
-                // Pointers allocation
-                // Below pointers will be offset by (n or m) * k at every even iteration.
-                T* Y_i  = Y_od;
-                T* X_i  = X_ev;
-                // S and S pointers are offset at every step.
-                T* R_i  = NULL;
-                T* R_ii = R;
-                T* S_i  = S;
-                T* S_ii = &S[k];
                 // tau space for QR (geqrf fully overwrites it)
                 T* tau = ( T * ) malloc( k * sizeof( T ) );
                 // Declared here (before cleanup lambda) so cleanup can free it.
@@ -262,11 +336,6 @@ class BK {
                     return -1;
                 };
 
-                if(this -> timing) {
-                    allocation_t_stop  = steady_clock::now();
-                    allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-                }
-
                 // Pre-compute Fro norm of an input matrix.
                 T norm_A = A.fro_nrm();
                 T sq_tol = std::pow(this->tol, 2);
@@ -282,68 +351,68 @@ class BK {
                     R_11_trans = ( T * ) calloc( k * k, sizeof( T ) );
                 }
 
-                if(this -> timing)
-                    sketching_t_start  = steady_clock::now();
-
-                // Generate a dense Gaussian random matrix.
-                // We are using the plain dense operator instead of DenseSkOp here since
-                // the space in which the dense operator is stored will be reused later, and
-                // also needs to be used together with the input's abstract linear operator form.
-                RandBLAS::DenseDist D(n, k);
-                state = RandBLAS::fill_dense(D, Y_i, state);
-
-                if(this -> timing) {
-                    sketching_t_stop  = steady_clock::now();
-                    sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
-                    gemm_A_t_start = steady_clock::now();
-                }
-
-                // [X_ev, ~] = qr(A * Y_i, 0)
-                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
-
-                if(this -> timing) {
-                    gemm_A_t_stop = steady_clock::now();
-                    gemm_A_t_dur  = duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
-                }
-
-                if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                if (!resuming) {
+                    // --- Fresh start: sketch generation, first GEMM, first QR ---
                     if(this -> timing)
-                        qr_t_start = steady_clock::now();
+                        sketching_t_start  = steady_clock::now();
 
-                    CQRRT -> call(m, k, X_i, m, R_11_trans, k, d_factor, state);
-
-                    if(this -> timing) {
-                        qr_t_stop = steady_clock::now();
-                        qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                    }
-                } else {
-
-                    if(this -> timing)
-                        qr_t_start = steady_clock::now();
-
-                    lapack::geqrf(m, k, X_i, m, tau);
+                    // Generate a dense Gaussian random matrix.
+                    RandBLAS::DenseDist D(n, k);
+                    state = RandBLAS::fill_dense(D, Y_i, state);
 
                     if(this -> timing) {
-                        qr_t_stop = steady_clock::now();
-                        qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                        ungqr_t_start  = steady_clock::now();
+                        sketching_t_stop  = steady_clock::now();
+                        sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
+                        gemm_A_t_start = steady_clock::now();
                     }
 
-                    // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
-                    lapack::ungqr(m, k, k, X_i, m, tau);
+                    // [X_ev, ~] = qr(A * Y_i, 0)
+                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
 
                     if(this -> timing) {
-                        ungqr_t_stop  = steady_clock::now();
-                        ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                        gemm_A_t_stop = steady_clock::now();
+                        gemm_A_t_dur  = duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
                     }
+
+                    if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
+                        if(this -> timing)
+                            qr_t_start = steady_clock::now();
+
+                        CQRRT -> call(m, k, X_i, m, R_11_trans, k, d_factor, state);
+
+                        if(this -> timing) {
+                            qr_t_stop = steady_clock::now();
+                            qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                        }
+                    } else {
+
+                        if(this -> timing)
+                            qr_t_start = steady_clock::now();
+
+                        lapack::geqrf(m, k, X_i, m, tau);
+
+                        if(this -> timing) {
+                            qr_t_stop = steady_clock::now();
+                            qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
+                            ungqr_t_start  = steady_clock::now();
+                        }
+
+                        // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
+                        lapack::ungqr(m, k, k, X_i, m, tau);
+
+                        if(this -> timing) {
+                            ungqr_t_stop  = steady_clock::now();
+                            ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
+                        }
+                    }
+
+                    // Advance odd iteration count.
+                    ++iter_od;
+                    // Advance iteration count.
+                    ++iter;
                 }
 
-                // Advance odd iteration count.
-                ++iter_od;
-                // Advance iteration count.
-                ++iter;
-
-                // Iterate until in-loop termination criteria is met.
+                // Main loop — shared for both fresh start and resume.
                 while(1) {
                     if(this -> timing)
                         main_loop_t_start = steady_clock::now();
@@ -436,6 +505,7 @@ class BK {
                         // Early termination
                         // if (abs(R(end)) <= sqrt(eps('T')))
                         if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
+                            this->termination_reason = BKTermination::rank_deficient;
                             break;
                         }
 
@@ -540,6 +610,7 @@ class BK {
                         // Early termination
                         // if (abs(S(end)) <= sqrt(eps('T')))
                         if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
+                            this->termination_reason = BKTermination::rank_deficient;
                             break;
                         }
 
@@ -583,13 +654,14 @@ class BK {
                     }
 
                     if (iter >= max_iters) {
+                        this->termination_reason = BKTermination::max_iters_reached;
                         break;
                     }
 
                     ++iter;
                     //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
                     if(norm_R > threshold) {
-                        // Threshold termination.
+                        this->termination_reason = BKTermination::norm_converged;
                         break;
                     }
                 }

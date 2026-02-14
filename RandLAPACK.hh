@@ -6,8 +6,11 @@
 #include "RandLAPACK/rl_lapackpp.hh"
 #include "RandBLAS.hh"
 
+// util
+#include "RandLAPACK/util/rl_util.hh"
+#include "RandLAPACK/util/rl_util_linop.hh"
+
 // misc
-#include "RandLAPACK/misc/rl_util.hh"
 #include "RandLAPACK/misc/rl_linops.hh"
 #include "RandLAPACK/misc/rl_gen.hh"
 #include "RandLAPACK/misc/rl_pdkernels.hh"
