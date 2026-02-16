@@ -33,7 +33,6 @@ using std::chrono::microseconds;
 // Common quality + timing fields shared by all algorithms
 template <typename T>
 struct alg_quality {
-    T rel_error;            // ||A - QR|| / ||A||
     T orth_error;           // ||Q^T Q - I|| / sqrt(n)
     bool is_orthonormal;    // Is full Q block orthonormal?
     int64_t max_orth_cols;  // Maximum orthonormal prefix
@@ -153,20 +152,16 @@ static void measure_orthogonality(
     }
 }
 
-// Compute ||A - QR|| / ||A|| for factorization quality measurement
-template <typename T>
-static T compute_factorization_error(
-    const T* Q, const T* R, const T* A_ref,
-    int64_t m, int64_t n, T norm_A) {
-    std::vector<T> QR(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-               1.0, Q, m, R, n, 0.0, QR.data(), m);
-    T norm_diff = 0.0;
-    for (int64_t i = 0; i < m * n; ++i) {
-        T d = A_ref[i] - QR[i];
-        norm_diff += d * d;
-    }
-    return std::sqrt(norm_diff) / norm_A;
+// Compute Q = A * R^{-1} uniformly for all algorithms.
+// Inverts R in-place, then applies the operator: Q = A_op * R_inv.
+// WARNING: R is destroyed (overwritten with R^{-1}).
+template <typename T, typename GLO>
+static void compute_Q_from_R(
+    GLO& A_op, T* R, int64_t ldr,
+    T* Q_out, int64_t m, int64_t n) {
+    lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R, ldr);
+    A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+         m, n, n, (T)1.0, R, ldr, (T)0.0, Q_out, m);
 }
 
 template <typename T, typename RNG>
@@ -198,12 +193,10 @@ static scaling_result<T> run_single_test(
     RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
 
-    // Compute dense representation for verification
-    std::vector<T> A_dense(m * n, 0.0);
-    RandLAPACK::util::sparse_to_dense(A_csr, Layout::ColMajor, A_dense.data());
-
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
-    T norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);
+
+    // Single reusable Q buffer for uniform Q = A * R^{-1} computation across all algorithms
+    std::vector<T> Q_uniform(m * n);
 
     // ============================================================
     // Run CQRRT (preconditioned Cholesky QR) - multiple runs
@@ -238,7 +231,6 @@ static scaling_result<T> run_single_test(
         result.cqrrt_finalize_time = 0;
         result.cqrrt_rest_time = 0;
 
-        T best_rel_error = 0.0;
         T best_orth_error = 0.0;
         bool best_is_orthonormal = false;
         int64_t best_max_orth_cols = 0;
@@ -247,7 +239,7 @@ static scaling_result<T> run_single_test(
             std::vector<T> R_cqrrt(n * n, 0.0);
             auto state_copy = state;
 
-            RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
+            RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, false);  // timing=true, test_mode=false
             CQRRT_QR.nnz = sketch_nnz;
             CQRRT_QR.use_dense_sketch = use_dense_sketch;
             CQRRT_QR.block_size = block_size;
@@ -269,16 +261,13 @@ static scaling_result<T> run_single_test(
                 result.cqrrt_finalize_time = CQRRT_QR.times[8];
                 result.cqrrt_rest_time = CQRRT_QR.times[9];
 
-                best_rel_error = compute_factorization_error(
-                    CQRRT_QR.Q, R_cqrrt.data(), A_dense.data(), m, n, norm_A);
-
-                // Measure orthogonality
-                measure_orthogonality(CQRRT_QR.Q, m, n, best_orth_error,
+                // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+                compute_Q_from_R(A_linop, R_cqrrt.data(), n, Q_uniform.data(), m, n);
+                measure_orthogonality(Q_uniform.data(), m, n, best_orth_error,
                                      best_is_orthonormal, best_max_orth_cols);
             }
         }
 
-        result.cqrrt.rel_error = best_rel_error;
         result.cqrrt.orth_error = best_orth_error;
         result.cqrrt.is_orthonormal = best_is_orthonormal;
         result.cqrrt.max_orth_cols = best_max_orth_cols;
@@ -309,7 +298,6 @@ static scaling_result<T> run_single_test(
         result.cholqr_potrf_time = 0;
         result.cholqr_rest_time = 0;
 
-        T best_rel_error = 0.0;
         T best_orth_error = 0.0;
         bool best_is_orthonormal = false;
         int64_t best_max_orth_cols = 0;
@@ -317,7 +305,7 @@ static scaling_result<T> run_single_test(
         for (int64_t run = 0; run < num_runs; ++run) {
             std::vector<T> R_cholqr(n * n, 0.0);
 
-            RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
+            RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, false);  // timing=true, test_mode=false
             CholQR_alg.block_size = block_size;
             CholQR_alg.call(A_linop, R_cholqr.data(), n);
 
@@ -331,16 +319,13 @@ static scaling_result<T> run_single_test(
                 result.cholqr_potrf_time = CholQR_alg.times[3];
                 result.cholqr_rest_time = CholQR_alg.times[4];
 
-                best_rel_error = compute_factorization_error(
-                    CholQR_alg.Q, R_cholqr.data(), A_dense.data(), m, n, norm_A);
-
-                // Measure orthogonality
-                measure_orthogonality(CholQR_alg.Q, m, n, best_orth_error,
+                // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+                compute_Q_from_R(A_linop, R_cholqr.data(), n, Q_uniform.data(), m, n);
+                measure_orthogonality(Q_uniform.data(), m, n, best_orth_error,
                                      best_is_orthonormal, best_max_orth_cols);
             }
         }
 
-        result.cholqr.rel_error = best_rel_error;
         result.cholqr.orth_error = best_orth_error;
         result.cholqr.is_orthonormal = best_is_orthonormal;
         result.cholqr.max_orth_cols = best_max_orth_cols;
@@ -365,7 +350,6 @@ static scaling_result<T> run_single_test(
         result.scholqr3_update3_time = 0;
         result.scholqr3_rest_time = 0;
 
-        T best_rel_error = 0.0;
         T best_orth_error = 0.0;
         bool best_is_orthonormal = false;
         int64_t best_max_orth_cols = 0;
@@ -373,7 +357,7 @@ static scaling_result<T> run_single_test(
         for (int64_t run = 0; run < num_runs; ++run) {
             std::vector<T> R_scholqr3(n * n, 0.0);
 
-            RandLAPACK::sCholQR3_linops<T> sCholQR3_alg(true, tol, true);  // timing=true, test_mode=true
+            RandLAPACK::sCholQR3_linops<T> sCholQR3_alg(true, tol, false);  // timing=true, test_mode=false
             sCholQR3_alg.block_size = block_size;
 
             RandLAPACK::PeakRSSTracker scholqr3_mem;
@@ -399,16 +383,13 @@ static scaling_result<T> run_single_test(
                 result.scholqr3_update3_time = sCholQR3_alg.times[10];
                 result.scholqr3_rest_time = sCholQR3_alg.times[11];
 
-                best_rel_error = compute_factorization_error(
-                    sCholQR3_alg.Q, R_scholqr3.data(), A_dense.data(), m, n, norm_A);
-
-                // Measure orthogonality
-                measure_orthogonality(sCholQR3_alg.Q, m, n, best_orth_error,
+                // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+                compute_Q_from_R(A_linop, R_scholqr3.data(), n, Q_uniform.data(), m, n);
+                measure_orthogonality(Q_uniform.data(), m, n, best_orth_error,
                                      best_is_orthonormal, best_max_orth_cols);
             }
         }
 
-        result.scholqr3.rel_error = best_rel_error;
         result.scholqr3.orth_error = best_orth_error;
         result.scholqr3.is_orthonormal = best_is_orthonormal;
         result.scholqr3.max_orth_cols = best_max_orth_cols;
@@ -429,7 +410,6 @@ static scaling_result<T> run_single_test(
         result.dense_cqrrt_finalize_time = 0;
         result.dense_cqrrt_rest_time = 0;
 
-        T best_rel_error = 0.0;
         T best_orth_error = 0.0;
         bool best_is_orthonormal = false;
         int64_t best_max_orth_cols = 0;
@@ -451,16 +431,18 @@ static scaling_result<T> run_single_test(
 
             delete[] I_mat;
 
-            // Step 2: Call rl_cqrrt with timing and Q-factor enabled
+            // Step 2: Call rl_cqrrt with timing, Q-factor disabled (computed uniformly below)
             std::vector<T> R_dense(n * n, 0.0);
             auto state_copy = state;
             RandLAPACK::CQRRT<T, RNG> dense_alg(true, tol);  // timing=true
-            dense_alg.compute_Q = true;
+            dense_alg.compute_Q = false;
             dense_alg.orthogonalization = false;
             dense_alg.nnz = sketch_nnz;
             dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
 
             long run_peak_rss_kb = dense_mem.stop();
+
+            delete[] A_materialized;  // No longer needed (Q computed via operator)
 
             // Total = materialization + algorithm total (Q excluded from algo total)
             long run_time = materialize_time + dense_alg.times[9];
@@ -477,19 +459,13 @@ static scaling_result<T> run_single_test(
                 result.dense_cqrrt_finalize_time = dense_alg.times[7];
                 result.dense_cqrrt_rest_time     = dense_alg.times[8];
 
-                // A_materialized now contains Q (overwritten by rl_cqrrt)
-                best_rel_error = compute_factorization_error(
-                    A_materialized, R_dense.data(), A_dense.data(), m, n, norm_A);
-
-                // Measure orthogonality
-                measure_orthogonality(A_materialized, m, n, best_orth_error,
+                // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+                compute_Q_from_R(A_linop, R_dense.data(), n, Q_uniform.data(), m, n);
+                measure_orthogonality(Q_uniform.data(), m, n, best_orth_error,
                                      best_is_orthonormal, best_max_orth_cols);
             }
-
-            delete[] A_materialized;
         }
 
-        result.dense_cqrrt.rel_error = best_rel_error;
         result.dense_cqrrt.orth_error = best_orth_error;
         result.dense_cqrrt.is_orthonormal = best_is_orthonormal;
         result.dense_cqrrt.max_orth_cols = best_max_orth_cols;
@@ -593,12 +569,12 @@ int main(int argc, char *argv[]) {
     out << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
-    out << "# Format: per-algorithm quality metrics (rel_error, orth_error, max_orth_cols, orth_flag, time), memory (KB), and speedups\n";
+    out << "# Format: per-algorithm quality metrics (orth_error, max_orth_cols, orth_flag, time), memory (KB), and speedups\n";
     out << "m,n,aspect_ratio,cond_num,density,"
-        << "cqrrt_rel_error,cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
-        << "cholqr_rel_error,cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
-        << "scholqr3_rel_error,scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
-        << "dense_cqrrt_rel_error,dense_cqrrt_orth_error,dense_cqrrt_max_orth_cols,dense_cqrrt_is_orth,dense_cqrrt_time_us,"
+        << "cqrrt_orth_error,cqrrt_max_orth_cols,cqrrt_is_orth,cqrrt_time_us,"
+        << "cholqr_orth_error,cholqr_max_orth_cols,cholqr_is_orth,cholqr_time_us,"
+        << "scholqr3_orth_error,scholqr3_max_orth_cols,scholqr3_is_orth,scholqr3_time_us,"
+        << "dense_cqrrt_orth_error,dense_cqrrt_max_orth_cols,dense_cqrrt_is_orth,dense_cqrrt_time_us,"
         << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
         << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
         << "scholqr3_peak_rss_kb,scholqr3_analytical_kb,"
@@ -683,16 +659,16 @@ int main(int argc, char *argv[]) {
             << std::scientific << std::setprecision(6) << result.cond_num << ","
             << std::fixed << std::setprecision(6) << result.density << ","
             << std::scientific << std::setprecision(6)
-            << result.cqrrt.rel_error << "," << result.cqrrt.orth_error << ","
+            << result.cqrrt.orth_error << ","
             << result.cqrrt.max_orth_cols << "," << (result.cqrrt.is_orthonormal ? 1 : 0) << ","
             << result.cqrrt.time << ","
-            << result.cholqr.rel_error << "," << result.cholqr.orth_error << ","
+            << result.cholqr.orth_error << ","
             << result.cholqr.max_orth_cols << "," << (result.cholqr.is_orthonormal ? 1 : 0) << ","
             << result.cholqr.time << ","
-            << result.scholqr3.rel_error << "," << result.scholqr3.orth_error << ","
+            << result.scholqr3.orth_error << ","
             << result.scholqr3.max_orth_cols << "," << (result.scholqr3.is_orthonormal ? 1 : 0) << ","
             << result.scholqr3.time << ","
-            << result.dense_cqrrt.rel_error << "," << result.dense_cqrrt.orth_error << ","
+            << result.dense_cqrrt.orth_error << ","
             << result.dense_cqrrt.max_orth_cols << "," << (result.dense_cqrrt.is_orthonormal ? 1 : 0) << ","
             << result.dense_cqrrt.time << ","
             << result.cqrrt.peak_rss_kb << "," << result.cqrrt_analytical_kb << ","

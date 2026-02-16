@@ -40,7 +40,6 @@ using std::chrono::microseconds;
 // Common quality + timing fields shared by all algorithms
 template <typename T>
 struct alg_quality {
-    T rel_error;            // ||A - QR|| / ||A||
     T orth_error;           // ||Q^T Q - I|| / sqrt(n)
     bool is_orthonormal;    // Is full Q block orthonormal?
     int64_t max_orth_cols;  // Maximum orthonormal prefix
@@ -156,20 +155,16 @@ static void measure_orthogonality(
     }
 }
 
-// Compute ||A - QR|| / ||A|| for factorization quality measurement
-template <typename T>
-static T compute_factorization_error(
-    const T* Q, const T* R, const T* A_ref,
-    int64_t m, int64_t n, T norm_A) {
-    std::vector<T> QR(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-               1.0, Q, m, R, n, 0.0, QR.data(), m);
-    T norm_diff = 0.0;
-    for (int64_t i = 0; i < m * n; ++i) {
-        T d = A_ref[i] - QR[i];
-        norm_diff += d * d;
-    }
-    return std::sqrt(norm_diff) / norm_A;
+// Compute Q = A * R^{-1} uniformly for all algorithms.
+// Inverts R in-place, then applies the operator: Q = A_op * R_inv.
+// WARNING: R is destroyed (overwritten with R^{-1}).
+template <typename T, typename GLO>
+static void compute_Q_from_R(
+    GLO& A_op, T* R, int64_t ldr,
+    T* Q_out, int64_t m, int64_t n) {
+    lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R, ldr);
+    A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+         m, n, n, (T)1.0, R, ldr, (T)0.0, Q_out, m);
 }
 
 // Compute mean/std/rate statistics for one algorithm's quality metrics across runs
@@ -178,36 +173,31 @@ static void compute_quality_stats(
     const std::vector<conditioning_result<T>>& results,
     std::function<const alg_quality<T>&(const conditioning_result<T>&)> get,
     int64_t num_runs,
-    double& rel_err_mean, double& rel_err_std,
     double& orth_err_mean, double& orth_err_std,
     double& max_orth_mean, double& max_orth_std,
     double& orth_rate,
     double& time_mean, double& time_std)
 {
-    rel_err_mean = orth_err_mean = max_orth_mean = time_mean = 0;
+    orth_err_mean = max_orth_mean = time_mean = 0;
     int orth_count = 0;
     for (const auto& r : results) {
         const auto& q = get(r);
-        rel_err_mean += q.rel_error;
         orth_err_mean += q.orth_error;
         max_orth_mean += q.max_orth_cols;
         time_mean += q.time;
         if (q.is_orthonormal) orth_count++;
     }
-    rel_err_mean /= num_runs;
     orth_err_mean /= num_runs;
     max_orth_mean /= num_runs;
     time_mean /= num_runs;
 
-    rel_err_std = orth_err_std = max_orth_std = time_std = 0;
+    orth_err_std = max_orth_std = time_std = 0;
     for (const auto& r : results) {
         const auto& q = get(r);
-        rel_err_std += (q.rel_error - rel_err_mean) * (q.rel_error - rel_err_mean);
         orth_err_std += (q.orth_error - orth_err_mean) * (q.orth_error - orth_err_mean);
         max_orth_std += (q.max_orth_cols - max_orth_mean) * (q.max_orth_cols - max_orth_mean);
         time_std += (q.time - time_mean) * (q.time - time_mean);
     }
-    rel_err_std = std::sqrt(rel_err_std / num_runs);
     orth_err_std = std::sqrt(orth_err_std / num_runs);
     max_orth_std = std::sqrt(max_orth_std / num_runs);
     time_std = std::sqrt(time_std / num_runs);
@@ -238,22 +228,18 @@ static conditioning_result<T> run_single_test(
         A_inv_linop.factorize();
     } catch (const std::exception& e) {
         printf("    Cholesky factorization failed for κ=%.6e - matrix too ill-conditioned\n", cond_num);
-        result.cqrrt.rel_error = std::numeric_limits<T>::quiet_NaN();
         result.cqrrt.orth_error = std::numeric_limits<T>::quiet_NaN();
         result.cqrrt.is_orthonormal = false;
         result.cqrrt.max_orth_cols = -1;
         result.cqrrt.time = 0;
-        result.cholqr.rel_error = std::numeric_limits<T>::quiet_NaN();
         result.cholqr.orth_error = std::numeric_limits<T>::quiet_NaN();
         result.cholqr.is_orthonormal = false;
         result.cholqr.max_orth_cols = -1;
         result.cholqr.time = 0;
-        result.scholqr3.rel_error = std::numeric_limits<T>::quiet_NaN();
         result.scholqr3.orth_error = std::numeric_limits<T>::quiet_NaN();
         result.scholqr3.is_orthonormal = false;
         result.scholqr3.max_orth_cols = -1;
         result.scholqr3.time = 0;
-        result.dense_cqrrt.rel_error = std::numeric_limits<T>::quiet_NaN();
         result.dense_cqrrt.orth_error = std::numeric_limits<T>::quiet_NaN();
         result.dense_cqrrt.is_orthonormal = false;
         result.dense_cqrrt.max_orth_cols = -1;
@@ -290,22 +276,10 @@ static conditioning_result<T> run_single_test(
     RandLAPACK::linops::CompositeOperator inner_composite(m, n, saso_linop, gaussian_linop);
     RandLAPACK::linops::CompositeOperator outer_composite(m, n, A_inv_linop, inner_composite);
 
-    // Compute dense representation for verification.
-    // Use SpMM directly on the CSC (avoids m×k dense copy of SASO).
-    // Scope-limit intermediate to free it after A_dense is computed.
-    std::vector<T> A_dense(m * n, 0.0);
-    {
-        std::vector<T> intermediate(m * n, 0.0);
-        RandBLAS::sparse_data::left_spmm(
-            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-            m, n, k_dim, (T)1.0, saso_csc, 0, 0,
-            gaussian_mat.data(), k_dim, (T)0.0, intermediate.data(), m);
-        A_inv_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, m,
-                    (T)1.0, intermediate.data(), m, (T)0.0, A_dense.data(), m);
-    }
-
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
-    T norm_A = lapack::lange(Norm::Fro, m, n, A_dense.data(), m);
+
+    // Single reusable Q buffer for uniform Q = A * R^{-1} computation across all algorithms
+    std::vector<T> Q_uniform(m * n);
 
     // ============================================================
     // Run CQRRT (preconditioned Cholesky QR)
@@ -327,7 +301,7 @@ static conditioning_result<T> run_single_test(
     {
         std::vector<T> R_cqrrt(n * n, 0.0);
 
-        RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, true);  // timing=true, test_mode=true
+        RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, false);  // timing=true, test_mode=false
         CQRRT_QR.nnz = sketch_nnz;
         CQRRT_QR.use_dense_sketch = use_dense_sketch;
         CQRRT_QR.block_size = block_size;
@@ -345,11 +319,9 @@ static conditioning_result<T> run_single_test(
         result.cqrrt_finalize_time = CQRRT_QR.times[8];
         result.cqrrt_rest_time = CQRRT_QR.times[9];
 
-        result.cqrrt.rel_error = compute_factorization_error(
-            CQRRT_QR.Q, R_cqrrt.data(), A_dense.data(), m, n, norm_A);
-
-        // Measure orthogonality
-        measure_orthogonality(CQRRT_QR.Q, m, n, result.cqrrt.orth_error,
+        // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+        compute_Q_from_R(outer_composite, R_cqrrt.data(), n, Q_uniform.data(), m, n);
+        measure_orthogonality(Q_uniform.data(), m, n, result.cqrrt.orth_error,
                              result.cqrrt.is_orthonormal, result.cqrrt.max_orth_cols);
     }
 
@@ -372,7 +344,7 @@ static conditioning_result<T> run_single_test(
 
         std::vector<T> R_cholqr(n * n, 0.0);
 
-        RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, true);  // timing=true, test_mode=true
+        RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, false);  // timing=true, test_mode=false
         CholQR_alg.block_size = block_size;
         CholQR_alg.call(outer_composite, R_cholqr.data(), n);
 
@@ -383,11 +355,9 @@ static conditioning_result<T> run_single_test(
         result.cholqr_potrf_time = CholQR_alg.times[3];
         result.cholqr_rest_time = CholQR_alg.times[4];
 
-        result.cholqr.rel_error = compute_factorization_error(
-            CholQR_alg.Q, R_cholqr.data(), A_dense.data(), m, n, norm_A);
-
-        // Measure orthogonality
-        measure_orthogonality(CholQR_alg.Q, m, n, result.cholqr.orth_error,
+        // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+        compute_Q_from_R(outer_composite, R_cholqr.data(), n, Q_uniform.data(), m, n);
+        measure_orthogonality(Q_uniform.data(), m, n, result.cholqr.orth_error,
                              result.cholqr.is_orthonormal, result.cholqr.max_orth_cols);
     }
 
@@ -398,7 +368,7 @@ static conditioning_result<T> run_single_test(
     {
         std::vector<T> R_scholqr3(n * n, 0.0);
 
-        RandLAPACK::sCholQR3_linops<T> sCholQR3_alg(true, tol, true);  // timing=true, test_mode=true
+        RandLAPACK::sCholQR3_linops<T> sCholQR3_alg(true, tol, false);  // timing=true, test_mode=false
         sCholQR3_alg.block_size = block_size;
 
         RandLAPACK::PeakRSSTracker scholqr3_mem;
@@ -420,11 +390,9 @@ static conditioning_result<T> run_single_test(
         result.scholqr3_update3_time = sCholQR3_alg.times[10];
         result.scholqr3_rest_time = sCholQR3_alg.times[11];
 
-        result.scholqr3.rel_error = compute_factorization_error(
-            sCholQR3_alg.Q, R_scholqr3.data(), A_dense.data(), m, n, norm_A);
-
-        // Measure orthogonality
-        measure_orthogonality(sCholQR3_alg.Q, m, n, result.scholqr3.orth_error,
+        // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+        compute_Q_from_R(outer_composite, R_scholqr3.data(), n, Q_uniform.data(), m, n);
+        measure_orthogonality(Q_uniform.data(), m, n, result.scholqr3.orth_error,
                              result.scholqr3.is_orthonormal, result.scholqr3.max_orth_cols);
     }
 
@@ -449,16 +417,18 @@ static conditioning_result<T> run_single_test(
 
         delete[] I_mat;
 
-        // Step 2: Call rl_cqrrt with timing and Q-factor enabled
+        // Step 2: Call rl_cqrrt with timing, Q-factor disabled (computed uniformly below)
         std::vector<T> R_dense(n * n, 0.0);
         RandLAPACK::CQRRT<T, RNG> dense_alg(true, tol);  // timing=true
-        dense_alg.compute_Q = true;
+        dense_alg.compute_Q = false;
         dense_alg.orthogonalization = false;
         dense_alg.nnz = sketch_nnz;
         auto state_copy = state;
         dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
 
         result.dense_cqrrt.peak_rss_kb = dense_mem.stop();
+
+        delete[] A_materialized;  // No longer needed (Q computed via operator)
 
         // Extract subroutine times (10-element vector matching CQRRT_linops indices)
         result.dense_cqrrt_saso_time     = dense_alg.times[0];
@@ -472,15 +442,10 @@ static conditioning_result<T> run_single_test(
         // Total = materialization + algorithm total (Q excluded from algo total)
         result.dense_cqrrt.time = result.dense_cqrrt_materialize_time + dense_alg.times[9];
 
-        // A_materialized now contains Q (overwritten by rl_cqrrt when compute_Q=true)
-        result.dense_cqrrt.rel_error = compute_factorization_error(
-            A_materialized, R_dense.data(), A_dense.data(), m, n, norm_A);
-
-        // Measure orthogonality
-        measure_orthogonality(A_materialized, m, n, result.dense_cqrrt.orth_error,
+        // Uniform Q computation: Q = A * R^{-1} via operator (R inverted in-place)
+        compute_Q_from_R(outer_composite, R_dense.data(), n, Q_uniform.data(), m, n);
+        measure_orthogonality(Q_uniform.data(), m, n, result.dense_cqrrt.orth_error,
                              result.dense_cqrrt.is_orthonormal, result.dense_cqrrt.max_orth_cols);
-
-        delete[] A_materialized;
     }
 
     // Compute analytical peak working memory for each algorithm
@@ -616,24 +581,20 @@ int main(int argc, char *argv[]) {
     out << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
     out << "# OpenMP threads: " << num_threads << "\n";
-    out << "# Format: cond_num, then per-algorithm: rel_error, orth_error, max_orth_cols, orth_rate, time (mean/std), memory (KB)\n";
+    out << "# Format: cond_num, then per-algorithm: orth_error, max_orth_cols, orth_rate, time (mean/std), memory (KB)\n";
     out << "cond_num,"
-        << "cqrrt_rel_error_mean,cqrrt_rel_error_std,"
         << "cqrrt_orth_error_mean,cqrrt_orth_error_std,"
         << "cqrrt_max_orth_cols_mean,cqrrt_max_orth_cols_std,"
         << "cqrrt_orth_rate,"
         << "cqrrt_time_mean,cqrrt_time_std,"
-        << "cholqr_rel_error_mean,cholqr_rel_error_std,"
         << "cholqr_orth_error_mean,cholqr_orth_error_std,"
         << "cholqr_max_orth_cols_mean,cholqr_max_orth_cols_std,"
         << "cholqr_orth_rate,"
         << "cholqr_time_mean,cholqr_time_std,"
-        << "scholqr3_rel_error_mean,scholqr3_rel_error_std,"
         << "scholqr3_orth_error_mean,scholqr3_orth_error_std,"
         << "scholqr3_max_orth_cols_mean,scholqr3_max_orth_cols_std,"
         << "scholqr3_orth_rate,"
         << "scholqr3_time_mean,scholqr3_time_std,"
-        << "dense_cqrrt_rel_error_mean,dense_cqrrt_rel_error_std,"
         << "dense_cqrrt_orth_error_mean,dense_cqrrt_orth_error_std,"
         << "dense_cqrrt_max_orth_cols_mean,dense_cqrrt_max_orth_cols_std,"
         << "dense_cqrrt_orth_rate,"
@@ -739,42 +700,38 @@ int main(int argc, char *argv[]) {
         const auto& fastest_dense_cqrrt = results[fastest_dense_cqrrt_idx];
 
         // Compute statistics for all algorithms
-        double cqrrt_rel_err_mean, cqrrt_rel_err_std, cqrrt_orth_err_mean, cqrrt_orth_err_std;
+        double cqrrt_orth_err_mean, cqrrt_orth_err_std;
         double cqrrt_max_orth_mean, cqrrt_max_orth_std, cqrrt_orth_rate;
         double cqrrt_time_mean, cqrrt_time_std;
         compute_quality_stats<double>(results,
             [](const auto& r) -> const auto& { return r.cqrrt; }, num_runs,
-            cqrrt_rel_err_mean, cqrrt_rel_err_std,
             cqrrt_orth_err_mean, cqrrt_orth_err_std,
             cqrrt_max_orth_mean, cqrrt_max_orth_std,
             cqrrt_orth_rate, cqrrt_time_mean, cqrrt_time_std);
 
-        double cholqr_rel_err_mean, cholqr_rel_err_std, cholqr_orth_err_mean, cholqr_orth_err_std;
+        double cholqr_orth_err_mean, cholqr_orth_err_std;
         double cholqr_max_orth_mean, cholqr_max_orth_std, cholqr_orth_rate;
         double cholqr_time_mean, cholqr_time_std;
         compute_quality_stats<double>(results,
             [](const auto& r) -> const auto& { return r.cholqr; }, num_runs,
-            cholqr_rel_err_mean, cholqr_rel_err_std,
             cholqr_orth_err_mean, cholqr_orth_err_std,
             cholqr_max_orth_mean, cholqr_max_orth_std,
             cholqr_orth_rate, cholqr_time_mean, cholqr_time_std);
 
-        double scholqr3_rel_err_mean, scholqr3_rel_err_std, scholqr3_orth_err_mean, scholqr3_orth_err_std;
+        double scholqr3_orth_err_mean, scholqr3_orth_err_std;
         double scholqr3_max_orth_mean, scholqr3_max_orth_std, scholqr3_orth_rate;
         double scholqr3_time_mean, scholqr3_time_std;
         compute_quality_stats<double>(results,
             [](const auto& r) -> const auto& { return r.scholqr3; }, num_runs,
-            scholqr3_rel_err_mean, scholqr3_rel_err_std,
             scholqr3_orth_err_mean, scholqr3_orth_err_std,
             scholqr3_max_orth_mean, scholqr3_max_orth_std,
             scholqr3_orth_rate, scholqr3_time_mean, scholqr3_time_std);
 
-        double dense_cqrrt_rel_err_mean, dense_cqrrt_rel_err_std, dense_cqrrt_orth_err_mean, dense_cqrrt_orth_err_std;
+        double dense_cqrrt_orth_err_mean, dense_cqrrt_orth_err_std;
         double dense_cqrrt_max_orth_mean, dense_cqrrt_max_orth_std, dense_cqrrt_orth_rate;
         double dense_cqrrt_time_mean, dense_cqrrt_time_std;
         compute_quality_stats<double>(results,
             [](const auto& r) -> const auto& { return r.dense_cqrrt; }, num_runs,
-            dense_cqrrt_rel_err_mean, dense_cqrrt_rel_err_std,
             dense_cqrrt_orth_err_mean, dense_cqrrt_orth_err_std,
             dense_cqrrt_max_orth_mean, dense_cqrrt_max_orth_std,
             dense_cqrrt_orth_rate, dense_cqrrt_time_mean, dense_cqrrt_time_std);
@@ -782,22 +739,18 @@ int main(int argc, char *argv[]) {
         // Write results
         out << std::scientific << std::setprecision(6)
             << cond_num << ","
-            << cqrrt_rel_err_mean << "," << cqrrt_rel_err_std << ","
             << cqrrt_orth_err_mean << "," << cqrrt_orth_err_std << ","
             << cqrrt_max_orth_mean << "," << cqrrt_max_orth_std << ","
             << cqrrt_orth_rate << ","
             << cqrrt_time_mean << "," << cqrrt_time_std << ","
-            << cholqr_rel_err_mean << "," << cholqr_rel_err_std << ","
             << cholqr_orth_err_mean << "," << cholqr_orth_err_std << ","
             << cholqr_max_orth_mean << "," << cholqr_max_orth_std << ","
             << cholqr_orth_rate << ","
             << cholqr_time_mean << "," << cholqr_time_std << ","
-            << scholqr3_rel_err_mean << "," << scholqr3_rel_err_std << ","
             << scholqr3_orth_err_mean << "," << scholqr3_orth_err_std << ","
             << scholqr3_max_orth_mean << "," << scholqr3_max_orth_std << ","
             << scholqr3_orth_rate << ","
             << scholqr3_time_mean << "," << scholqr3_time_std << ","
-            << dense_cqrrt_rel_err_mean << "," << dense_cqrrt_rel_err_std << ","
             << dense_cqrrt_orth_err_mean << "," << dense_cqrrt_orth_err_std << ","
             << dense_cqrrt_max_orth_mean << "," << dense_cqrrt_max_orth_std << ","
             << dense_cqrrt_orth_rate << ","
