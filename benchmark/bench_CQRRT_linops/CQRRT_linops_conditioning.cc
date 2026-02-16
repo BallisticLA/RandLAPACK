@@ -457,36 +457,20 @@ static conditioning_result<T> run_single_test(
     return result;
 }
 
-int main(int argc, char *argv[]) {
+template <typename T>
+static int run_benchmark(int argc, char *argv[]) {
 
-    if (argc < 7 || argc > 10) {
-        std::cerr << "Usage: " << argv[0]
-                  << " <output_file> <num_runs> <spd_matrix_dir> <k_dim> <n_cols> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
-                  << std::endl;
-        std::cerr << "\nArguments:" << std::endl;
-        std::cerr << "  output_file      : Output CSV file for results" << std::endl;
-        std::cerr << "  num_runs         : Number of runs per condition number (for averaging)" << std::endl;
-        std::cerr << "  spd_matrix_dir   : Directory containing SPD matrices (with metadata.txt)" << std::endl;
-        std::cerr << "  k_dim            : Intermediate dimension (SASO cols / Gaussian rows)" << std::endl;
-        std::cerr << "  n_cols           : Final number of columns (Gaussian cols)" << std::endl;
-        std::cerr << "  d_factor         : Sketching dimension factor (e.g., 2.0)" << std::endl;
-        std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
-        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
-        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
-        std::cerr << "\nExample: " << argv[0] << " conditioning_results.csv 3 ./spd_matrices 1138 100 2.0" << std::endl;
-        return 1;
-    }
-
-    // Parse arguments
-    std::string output_file_arg = argv[1];
-    int64_t num_runs = std::stol(argv[2]);
-    std::string spd_dir = argv[3];
-    int64_t k_dim = std::stol(argv[4]);
-    int64_t n = std::stol(argv[5]);
-    double d_factor = std::stod(argv[6]);
-    int64_t sketch_nnz = (argc >= 8) ? std::stol(argv[7]) : 5;
-    int64_t block_size = (argc >= 9) ? std::stol(argv[8]) : 0;
-    bool use_dense_sketch = (argc >= 10) ? (std::stoi(argv[9]) != 0) : false;
+    // Parse arguments (argv[1] = precision, already consumed by main)
+    std::string output_file_arg = argv[2];
+    int64_t num_runs = std::stol(argv[3]);
+    std::string spd_dir = argv[4];
+    int64_t k_dim = std::stol(argv[5]);
+    int64_t n = std::stol(argv[6]);
+    double d_factor = std::stod(argv[7]);
+    int64_t sketch_nnz = (argc >= 9) ? std::stol(argv[8]) : 5;
+    int64_t block_size = (argc >= 10) ? std::stol(argv[9]) : 0;
+    bool use_dense_sketch = (argc >= 11) ? (std::stoi(argv[10]) != 0) : false;
+    std::string precision = argv[1];
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -532,6 +516,7 @@ int main(int argc, char *argv[]) {
     int num_threads = omp_get_max_threads();
 
     printf("\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Conditioning Study ===\n");
+    printf("Precision: %s\n", precision.c_str());
     printf("SPD matrix directory: %s\n", spd_dir.c_str());
     printf("Number of condition numbers: %ld\n", num_matrices);
     printf("Matrix dimensions: %ld x %ld x %ld\n", m, k_dim, n);
@@ -573,6 +558,7 @@ int main(int argc, char *argv[]) {
     // Open output file
     std::ofstream out(output_file);
     out << "# CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Conditioning Study Results\n";
+    out << "# Precision: " << precision << "\n";
     out << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
     out << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     out << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
@@ -608,6 +594,7 @@ int main(int argc, char *argv[]) {
     std::string breakdown_file = output_file.substr(0, output_file.find_last_of('.')) + "_breakdown.csv";
     std::ofstream breakdown(breakdown_file);
     breakdown << "# Runtime Breakdown for All Algorithms (from fastest run per condition number)\n";
+    breakdown << "# Precision: " << precision << "\n";
     breakdown << "# Composite operator: CholSolver(κ) * (SASO * Gaussian)\n";
     breakdown << "# Matrix dimensions: " << m << " x " << k_dim << " x " << n << "\n";
     breakdown << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
@@ -638,7 +625,7 @@ int main(int argc, char *argv[]) {
         double warmup_cond = matrix_files[0].first;
         std::string warmup_file = matrix_files[0].second;
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
-        run_single_test<double>(warmup_file, warmup_cond, m, k_dim, n, d_factor, use_dense_sketch, block_size, sketch_nnz, warmup_state);
+        run_single_test<T>(warmup_file, warmup_cond, m, k_dim, n, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
     }
 
@@ -650,7 +637,7 @@ int main(int argc, char *argv[]) {
         printf("Testing condition number %.6e (%zu/%zu)...\n", cond_num, i + 1, matrix_files.size());
 
         // Run multiple times for statistics
-        std::vector<conditioning_result<double>> results;
+        std::vector<conditioning_result<T>> results;
         int64_t fastest_cqrrt_idx = 0;
         int64_t fastest_cholqr_idx = 0;
         int64_t fastest_scholqr3_idx = 0;
@@ -661,7 +648,7 @@ int main(int argc, char *argv[]) {
         long fastest_dense_cqrrt_time = std::numeric_limits<long>::max();
 
         for (int64_t run = 0; run < num_runs; ++run) {
-            auto result = run_single_test<double>(filepath, cond_num, m, k_dim, n, d_factor, use_dense_sketch, block_size, sketch_nnz, state);
+            auto result = run_single_test<T>(filepath, (T)cond_num, m, k_dim, n, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, state);
             results.push_back(result);
 
             // Track fastest runs for each algorithm
@@ -703,7 +690,7 @@ int main(int argc, char *argv[]) {
         double cqrrt_orth_err_mean, cqrrt_orth_err_std;
         double cqrrt_max_orth_mean, cqrrt_max_orth_std, cqrrt_orth_rate;
         double cqrrt_time_mean, cqrrt_time_std;
-        compute_quality_stats<double>(results,
+        compute_quality_stats<T>(results,
             [](const auto& r) -> const auto& { return r.cqrrt; }, num_runs,
             cqrrt_orth_err_mean, cqrrt_orth_err_std,
             cqrrt_max_orth_mean, cqrrt_max_orth_std,
@@ -712,7 +699,7 @@ int main(int argc, char *argv[]) {
         double cholqr_orth_err_mean, cholqr_orth_err_std;
         double cholqr_max_orth_mean, cholqr_max_orth_std, cholqr_orth_rate;
         double cholqr_time_mean, cholqr_time_std;
-        compute_quality_stats<double>(results,
+        compute_quality_stats<T>(results,
             [](const auto& r) -> const auto& { return r.cholqr; }, num_runs,
             cholqr_orth_err_mean, cholqr_orth_err_std,
             cholqr_max_orth_mean, cholqr_max_orth_std,
@@ -721,7 +708,7 @@ int main(int argc, char *argv[]) {
         double scholqr3_orth_err_mean, scholqr3_orth_err_std;
         double scholqr3_max_orth_mean, scholqr3_max_orth_std, scholqr3_orth_rate;
         double scholqr3_time_mean, scholqr3_time_std;
-        compute_quality_stats<double>(results,
+        compute_quality_stats<T>(results,
             [](const auto& r) -> const auto& { return r.scholqr3; }, num_runs,
             scholqr3_orth_err_mean, scholqr3_orth_err_std,
             scholqr3_max_orth_mean, scholqr3_max_orth_std,
@@ -730,7 +717,7 @@ int main(int argc, char *argv[]) {
         double dense_cqrrt_orth_err_mean, dense_cqrrt_orth_err_std;
         double dense_cqrrt_max_orth_mean, dense_cqrrt_max_orth_std, dense_cqrrt_orth_rate;
         double dense_cqrrt_time_mean, dense_cqrrt_time_std;
-        compute_quality_stats<double>(results,
+        compute_quality_stats<T>(results,
             [](const auto& r) -> const auto& { return r.dense_cqrrt; }, num_runs,
             dense_cqrrt_orth_err_mean, dense_cqrrt_orth_err_std,
             dense_cqrrt_max_orth_mean, dense_cqrrt_max_orth_std,
@@ -844,5 +831,37 @@ int main(int argc, char *argv[]) {
     printf("========================================\n");
 
     return 0;
+}
+
+int main(int argc, char *argv[]) {
+
+    if (argc < 8 || argc > 11) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision> <output_file> <num_runs> <spd_matrix_dir> <k_dim> <n_cols> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << std::endl;
+        std::cerr << "\nArguments:" << std::endl;
+        std::cerr << "  precision        : Floating-point type: 'double' or 'float'" << std::endl;
+        std::cerr << "  output_file      : Output CSV file for results" << std::endl;
+        std::cerr << "  num_runs         : Number of runs per condition number (for averaging)" << std::endl;
+        std::cerr << "  spd_matrix_dir   : Directory containing SPD matrices (with metadata.txt)" << std::endl;
+        std::cerr << "  k_dim            : Intermediate dimension (SASO cols / Gaussian rows)" << std::endl;
+        std::cerr << "  n_cols           : Final number of columns (Gaussian cols)" << std::endl;
+        std::cerr << "  d_factor         : Sketching dimension factor (e.g., 2.0)" << std::endl;
+        std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
+        std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
+        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
+        std::cerr << "\nExample: " << argv[0] << " double conditioning_results.csv 3 ./spd_matrices 1138 100 2.0" << std::endl;
+        return 1;
+    }
+
+    std::string precision = argv[1];
+    if (precision == "double") {
+        return run_benchmark<double>(argc, argv);
+    } else if (precision == "float") {
+        return run_benchmark<float>(argc, argv);
+    } else {
+        std::cerr << "Error: precision must be 'double' or 'float', got '" << precision << "'" << std::endl;
+        return 1;
+    }
 }
 #endif

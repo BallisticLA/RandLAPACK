@@ -480,13 +480,15 @@ static scaling_result<T> run_single_test(
     return result;
 }
 
-int main(int argc, char *argv[]) {
+template <typename T>
+static int run_benchmark(int argc, char *argv[]) {
 
-    if (argc < 10 || argc > 13) {
+    if (argc < 11 || argc > 14) {
         std::cerr << "Usage: " << argv[0]
-                  << " <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
+        std::cerr << "  precision        : 'double' or 'float'" << std::endl;
         std::cerr << "  output_dir       : Directory to write output files" << std::endl;
         std::cerr << "  num_sizes        : Number of matrix sizes to test" << std::endl;
         std::cerr << "  num_runs         : Number of runs per matrix size (for timing)" << std::endl;
@@ -500,24 +502,25 @@ int main(int argc, char *argv[]) {
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
-        std::cerr << "  " << argv[0] << " ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
+        std::cerr << "  " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
         std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, aspect ratio 20:1, κ=1e4, density≈0.1, 3 runs each)" << std::endl;
         return 1;
     }
 
     // Parse arguments
-    std::string output_dir = argv[1];
-    int64_t num_sizes = std::stol(argv[2]);
-    int64_t num_runs = std::stol(argv[3]);
-    int64_t m_start = std::stol(argv[4]);
-    int64_t m_end = std::stol(argv[5]);
-    double aspect_ratio = std::stod(argv[6]);
-    double cond_num = std::stod(argv[7]);
-    double density = std::stod(argv[8]);
-    double d_factor = std::stod(argv[9]);
-    int64_t sketch_nnz = (argc >= 11) ? std::stol(argv[10]) : 5;
-    int64_t block_size = (argc >= 12) ? std::stol(argv[11]) : 0;
-    bool use_dense_sketch = (argc >= 13) ? (std::stoi(argv[12]) != 0) : false;
+    std::string precision = argv[1];
+    std::string output_dir = argv[2];
+    int64_t num_sizes = std::stol(argv[3]);
+    int64_t num_runs = std::stol(argv[4]);
+    int64_t m_start = std::stol(argv[5]);
+    int64_t m_end = std::stol(argv[6]);
+    double aspect_ratio = std::stod(argv[7]);
+    double cond_num = std::stod(argv[8]);
+    double density = std::stod(argv[9]);
+    double d_factor = std::stod(argv[10]);
+    int64_t sketch_nnz = (argc >= 12) ? std::stol(argv[11]) : 5;
+    int64_t block_size = (argc >= 13) ? std::stol(argv[12]) : 0;
+    bool use_dense_sketch = (argc >= 14) ? (std::stoi(argv[13]) != 0) : false;
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -538,6 +541,7 @@ int main(int argc, char *argv[]) {
     int num_threads = omp_get_max_threads();
 
     printf("\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Scaling Study ===\n");
+    printf("Precision: %s\n", precision.c_str());
     printf("Fixed aspect ratio: %.1f:1 (m/n)\n", aspect_ratio);
     printf("Matrix sizes: %ld x %ld to %ld x %ld\n",
            sizes.front().first, sizes.front().second,
@@ -560,6 +564,7 @@ int main(int argc, char *argv[]) {
     std::string output_file = output_dir + "/" + date_prefix + "scaling_results.csv";
     std::ofstream out(output_file);
     out << "# CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Scaling Study Results\n";
+    out << "# Precision: " << precision << "\n";
     out << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     out << "# Condition number: " << cond_num << "\n";
     out << "# Target density: " << density << "\n";
@@ -585,6 +590,7 @@ int main(int argc, char *argv[]) {
     std::string breakdown_file = output_dir + "/" + date_prefix + "scaling_breakdown.csv";
     std::ofstream breakdown(breakdown_file);
     breakdown << "# Runtime Breakdown for All Algorithms (from fastest run per matrix size)\n";
+    breakdown << "# Precision: " << precision << "\n";
     breakdown << "# Fixed aspect ratio: " << aspect_ratio << ":1\n";
     breakdown << "# Condition number: " << cond_num << "\n";
     breakdown << "# Target density: " << density << "\n";
@@ -616,7 +622,7 @@ int main(int argc, char *argv[]) {
         int64_t warmup_m = sizes[0].first;
         int64_t warmup_n = sizes[0].second;
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
-        run_single_test<double>(warmup_m, warmup_n, cond_num, density, d_factor, use_dense_sketch, block_size, sketch_nnz, 1, warmup_state);
+        run_single_test<T>(warmup_m, warmup_n, (T)cond_num, (T)density, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, 1, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
     }
 
@@ -627,7 +633,7 @@ int main(int argc, char *argv[]) {
         printf("Testing %ld x %ld (aspect ratio %.1f) [%zu/%zu]...\n",
                m, n, static_cast<double>(m) / n, i + 1, sizes.size());
 
-        auto result = run_single_test<double>(m, n, cond_num, density, d_factor, use_dense_sketch, block_size, sketch_nnz, num_runs, state);
+        auto result = run_single_test<T>(m, n, (T)cond_num, (T)density, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, num_runs, state);
 
         double speedup_cqrrt_over_cholqr = (result.cqrrt.time > 0) ?
             static_cast<double>(result.cholqr.time) / result.cqrrt.time : 0.0;
@@ -726,5 +732,25 @@ int main(int argc, char *argv[]) {
     printf("========================================\n");
 
     return 0;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 11 || argc > 14) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << std::endl;
+        std::cerr << "  precision: 'double' or 'float'" << std::endl;
+        std::cerr << "\nExample: " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
+        return 1;
+    }
+    std::string precision = argv[1];
+    if (precision == "double") {
+        return run_benchmark<double>(argc, argv);
+    } else if (precision == "float") {
+        return run_benchmark<float>(argc, argv);
+    } else {
+        std::cerr << "Error: precision must be 'double' or 'float', got '" << precision << "'" << std::endl;
+        return 1;
+    }
 }
 #endif
