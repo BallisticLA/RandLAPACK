@@ -21,6 +21,7 @@ Timings in microseconds.
 #include <RandBLAS.hh>
 #include <fstream>
 #include <iomanip>
+#include <ctime>
 #include <string>
 
 // External libs includes
@@ -244,7 +245,6 @@ static void call_all_algs(
         singular_triplets_found_SVDS = std::min((int64_t) (b_sz * num_matmuls / 2), n - 2);
 
         auto start_svds = steady_clock::now();
-        printf("nev: %ld, nvc: %ld\n", singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n - 1));
         Spectra::PartialSVDSolver<EMatrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n - 1));
         svds.compute();
         auto stop_svds = steady_clock::now();
@@ -378,11 +378,16 @@ static void run_benchmark(int argc, char *argv[]) {
 
     printf("Finished data preparation\n");
 
+    // Generate date/time prefix
+    std::time_t now = std::time(nullptr);
+    char date_prefix[20];
+    std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
+
     // Build output file path
-    std::string output_filename = "_ABRIK_speed_comparisons.csv";
+    std::string output_filename = std::string(date_prefix) + "ABRIK_speed_comparisons.csv";
     std::string path;
     if (std::string(argv[2]) != ".") {
-        path = argv[2] + output_filename;
+        path = std::string(argv[2]) + "/" + output_filename;
     } else {
         path = output_filename;
     }

@@ -19,6 +19,7 @@ Subroutine timings (microseconds):
 
 #include <RandBLAS.hh>
 #include <fstream>
+#include <ctime>
 
 using Subroutines = RandLAPACK::ABRIKSubroutines;
 
@@ -140,11 +141,16 @@ static void run_benchmark(int argc, char *argv[]) {
 
     printf("Finished data preparation\n");
 
+    // Generate date/time prefix
+    std::time_t now = std::time(nullptr);
+    char date_prefix[20];
+    std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
+
     // Build output file path
-    std::string output_filename = "_ABRIK_runtime_breakdown.csv";
+    std::string output_filename = std::string(date_prefix) + "ABRIK_runtime_breakdown.csv";
     std::string path;
     if (std::string(argv[2]) != ".") {
-        path = argv[2] + output_filename;
+        path = std::string(argv[2]) + "/" + output_filename;
     } else {
         path = output_filename;
     }
