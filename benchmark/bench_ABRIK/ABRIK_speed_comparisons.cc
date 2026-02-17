@@ -1,5 +1,5 @@
 /*
-ABRIK speed comparison benchmark - runs ABRIK, RSVD, SVDS (Spectra), and full SVD (GESDD).
+ABRIK speed comparison benchmark - runs ABRIK, RSVD, SVDS (Spectra), and optionally full SVD (GESDD).
 Precision (float or double) is specified as the first CLI argument.
 The user provides a matrix file, numbers of Krylov iterations, block sizes, and a target rank.
 
@@ -153,6 +153,7 @@ static void call_all_algs(
     int64_t b_sz,
     int64_t num_matmuls,
     int64_t target_rank,
+    bool run_gesdd,
     ABRIK_algorithm_objects<T, RNG> &all_algs,
     ABRIK_benchmark_data<T> &all_data,
     RandBLAS::RNGState<RNG> &state,
@@ -277,7 +278,7 @@ static void call_all_algs(
 
         // ---- SVD (GESDD) ----
         // There is no reason to run SVD many times, as it always outputs the same result.
-        if ((b_sz == 16) && (num_matmuls == 4) && ((i == 0) || (i == 1))) {
+        if (run_gesdd && (i == 0)) {
             auto start_svd = steady_clock::now();
             all_data.U     = new T[m * n]();
             all_data.Sigma = new T[n]();
@@ -319,8 +320,8 @@ template <typename T>
 static void run_benchmark(int argc, char *argv[]) {
     using EMatrix = typename EigenTypes<T>::Matrix;
 
-    if (argc < 11) {
-        std::cerr << "Usage: " << argv[0] << " <precision> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <target_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+    if (argc < 12) {
+        std::cerr << "Usage: " << argv[0] << " <precision> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <target_rank> <run_gesdd> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
         return;
     }
 
@@ -328,16 +329,17 @@ static void run_benchmark(int argc, char *argv[]) {
     int64_t m_expected        = std::stol(argv[5]);
     int64_t n_expected        = std::stol(argv[6]);
     int64_t target_rank       = std::stol(argv[7]);
+    bool run_gesdd            = (std::stoi(argv[8]) != 0);
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < std::stol(argv[8]); ++i)
-        b_sz.push_back(std::stoi(argv[i + 10]));
+    for (int i = 0; i < std::stol(argv[9]); ++i)
+        b_sz.push_back(std::stoi(argv[i + 11]));
     std::ostringstream oss1;
     for (const auto &val : b_sz)
         oss1 << val << ", ";
     std::string b_sz_string = oss1.str();
     std::vector<int64_t> matmuls;
-    for (int i = 0; i < std::stol(argv[9]); ++i)
-        matmuls.push_back(std::stoi(argv[i + 10 + std::stol(argv[8])]));
+    for (int i = 0; i < std::stol(argv[10]); ++i)
+        matmuls.push_back(std::stoi(argv[i + 11 + std::stol(argv[9])]));
     std::ostringstream oss2;
     for (const auto &val : matmuls)
         oss2 << val << ", ";
@@ -396,6 +398,7 @@ static void run_benchmark(int argc, char *argv[]) {
          << "# Matmul counts: " << matmuls_string << "\n"
          << "# Runs per configuration: " << num_runs << "\n"
          << "# Tolerance: " << tol << "\n"
+         << "# Run GESDD: " << (run_gesdd ? "yes" : "no") << "\n"
          << "# Residual metric: sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sigma_{target_rank}\n"
          << "# Timings in microseconds\n";
     // Write CSV column header
@@ -409,7 +412,7 @@ static void run_benchmark(int argc, char *argv[]) {
     size_t i = 0, j = 0;
     for (; i < b_sz.size(); ++i) {
         for (; j < matmuls.size(); ++j) {
-            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], target_rank, all_algs, all_data, state_constant, file);
+            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], target_rank, run_gesdd, all_algs, all_data, state_constant, file);
         }
         j = 0;
     }
@@ -417,7 +420,7 @@ static void run_benchmark(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <precision: double|float> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <target_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <precision: double|float> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <target_rank> <run_gesdd> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
         return 1;
     }
 

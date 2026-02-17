@@ -6,9 +6,7 @@ Precision (float or double) is specified as the first CLI argument.
 Output: CSV file with '#'-prefixed metadata header, column names, then data rows.
 ABRIK allocates U/V/Sigma with new[] internally -> cleanup with delete[].
 
-Residual metrics:
-  - Vector: sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sigma_{target_rank}
-  - Value:  vector_error * spectral_gap / sigma_1
+Residual metric: sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sigma_{target_rank}.
 Timings in microseconds.
 */
 
@@ -237,19 +235,6 @@ residual_error_vectors_comp(LinOp& A_linop, int64_t m, int64_t n,
     return std::hypot(nrm1, nrm2) / Sigma[target_rank - 1];
 }
 
-// Assesses the quality of approximation of singular values specifically.
-template <typename T>
-static T
-residual_error_values_comp(T* Sigma, int64_t target_rank, T triplet_error) {
-    T spectral_gap;
-    if (target_rank == 1) {
-        spectral_gap = Sigma[0];
-    } else {
-        spectral_gap = Sigma[target_rank - 2] - Sigma[target_rank - 1];
-    }
-    return triplet_error * spectral_gap / Sigma[0];
-}
-
 // Helper function to write matrices to Matrix Market format (MATLAB-compatible)
 template <typename T>
 void write_matrix_to_file(const std::string& filename, const T* matrix, int64_t rows, int64_t cols, bool is_vector = false) {
@@ -362,9 +347,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     T residual_err_vec_SVDS  = 0;
-    T residual_err_val_SVDS  = 0;
     T residual_err_vec_ABRIK = 0;
-    T residual_err_val_ABRIK = 0;
 
     int64_t singular_triplets_target_ABRIK = 0;
     int64_t singular_triplets_found_SVDS   = 0;
@@ -386,8 +369,6 @@ static void call_all_algs(
 
         residual_err_vec_ABRIK = residual_error_vectors_comp<T>(all_data.A_linop, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_ABRIK);
         printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sigma_{k}: %.16e\n", residual_err_vec_ABRIK);
-        residual_err_val_ABRIK = residual_error_values_comp<T>(all_data.Sigma, singular_triplets_target_ABRIK, residual_err_vec_ABRIK);
-        printf("ABRIK residual error * spectral gap / sigma[0]: %.16e\n", residual_err_val_ABRIK);
 
         // Write ABRIK output matrices to files if requested (only on first run)
         if (write_output_matrices && i == 0) {
@@ -435,8 +416,6 @@ static void call_all_algs(
 
         residual_err_vec_SVDS = residual_error_vectors_comp<T>(all_data.A_linop, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_SVDS);
         printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sigma_{k}: %.16e\n", residual_err_vec_SVDS);
-        residual_err_val_SVDS = residual_error_values_comp<T>(all_data.Sigma, singular_triplets_target_SVDS, residual_err_vec_SVDS);
-        printf("SVDS residual error * spectral gap / sigma[0]: %.16e\n", residual_err_val_SVDS);
 
         // Cleanup SVDS outputs (new[])
         delete[] all_data.U;     all_data.U     = nullptr;
@@ -447,8 +426,8 @@ static void call_all_algs(
 
         // Write CSV data row
         outfile << b_sz << ", " << all_algs.ABRIK.max_krylov_iters << ", " << target_rank << ", "
-                << residual_err_vec_ABRIK << ", " << residual_err_val_ABRIK << ", " << dur_ABRIK << ", "
-                << residual_err_vec_SVDS << ", " << residual_err_val_SVDS << ", " << dur_svds << "\n";
+                << residual_err_vec_ABRIK << ", " << dur_ABRIK << ", "
+                << residual_err_vec_SVDS << ", " << dur_svds << "\n";
         outfile.flush();
     }
 }
@@ -534,13 +513,12 @@ static void run_benchmark(int argc, char *argv[]) {
          << "# Tolerance: " << tol << "\n"
          << "# Run GESDD: " << (run_gesdd ? "yes" : "no") << "\n"
          << "# Write matrices: " << (write_matrices ? "yes" : "no") << "\n"
-         << "# Residual metric (vec): sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sigma_{target_rank}\n"
-         << "# Residual metric (val): vec_error * spectral_gap / sigma_1\n"
+         << "# Residual metric: sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sigma_{target_rank}\n"
          << "# Timings in microseconds\n";
     // Write CSV column header
     file << "b_sz, num_matmuls, target_rank, "
-         << "err_vec_ABRIK, err_val_ABRIK, dur_ABRIK, "
-         << "err_vec_SVDS, err_val_SVDS, dur_SVDS\n";
+         << "err_ABRIK, dur_ABRIK, "
+         << "err_SVDS, dur_SVDS\n";
     file.flush();
 
     // Run direct GESDD if requested
