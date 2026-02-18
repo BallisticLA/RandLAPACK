@@ -6,7 +6,7 @@ Precision (float or double) is specified as the first CLI argument.
 Output: CSV file with '#'-prefixed metadata header, column names, then data rows.
 ABRIK allocates U/V/Sigma with new[] internally -> cleanup with delete[].
 
-Residual metric: sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sigma_{target_rank}.
+Residual metric: sqrt(||S^{-1}AV - U||^2_F + ||(A'U)S^{-1} - V||^2_F).
 Timings in microseconds.
 */
 
@@ -212,20 +212,19 @@ residual_error_vectors_comp(LinOp& A_linop, int64_t m, int64_t n,
     T* U_cpy = new T[m * target_rank]();
     T* V_cpy = new T[n * target_rank]();
 
-    lapack::lacpy(MatrixType::General, m, target_rank, U, m, U_cpy, m);
-    lapack::lacpy(MatrixType::General, n, target_rank, V, n, V_cpy, n);
-
-    // AV - US: scale columns of U_cpy by Sigma, then compute AV - US
-    for (int i = 0; i < target_rank; ++i)
-        blas::scal(m, Sigma[i], &U_cpy[m * i], 1);
+    // S^{-1}AV - U
     A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, target_rank, n,
-            (T)1, V, n, (T)-1, U_cpy, m);
-
-    // A'U - VS: scale columns of V_cpy by Sigma, then compute A'U - VS
+            (T)1, V, n, (T)0, U_cpy, m);
     for (int i = 0; i < target_rank; ++i)
-        blas::scal(n, Sigma[i], &V_cpy[i * n], 1);
+        blas::scal(m, (T)1 / Sigma[i], &U_cpy[m * i], 1);
+    blas::axpy(m * target_rank, (T)-1, U, 1, U_cpy, 1);
+
+    // (A'U)S^{-1} - V
     A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, target_rank, m,
-            (T)1, U, m, (T)-1, V_cpy, n);
+            (T)1, U, m, (T)0, V_cpy, n);
+    for (int i = 0; i < target_rank; ++i)
+        blas::scal(n, (T)1 / Sigma[i], &V_cpy[i * n], 1);
+    blas::axpy(n * target_rank, (T)-1, V, 1, V_cpy, 1);
 
     T nrm1 = lapack::lange(Norm::Fro, m, target_rank, U_cpy, m);
     T nrm2 = lapack::lange(Norm::Fro, n, target_rank, V_cpy, n);
@@ -233,7 +232,7 @@ residual_error_vectors_comp(LinOp& A_linop, int64_t m, int64_t n,
     delete[] U_cpy;
     delete[] V_cpy;
 
-    return std::hypot(nrm1, nrm2) / Sigma[target_rank - 1];
+    return std::hypot(nrm1, nrm2);
 }
 
 // Helper function to write matrices to Matrix Market format (MATLAB-compatible)
@@ -321,115 +320,112 @@ void compute_direct_gesdd(const typename EigenTypes<T>::SpMatrix& A_sparse, int6
     printf("==========================================\n\n");
 }
 
+// ---- ABRIK sweep (sparse) ----
+// Loops over (b_sz, num_matmuls, run). ABRIK allocates with new[] internally.
+// Sparse input is not modified — no regen needed.
 template <typename T, typename RNG, RandBLAS::sparse_data::SparseMatrix SpMat>
-static void call_all_algs(
+static void run_abrik_sweep_sparse(
     int64_t num_runs,
-    int64_t b_sz,
-    int64_t num_matmuls,
+    std::vector<int64_t> &b_sz_vec,
+    std::vector<int64_t> &matmuls_vec,
     int64_t target_rank,
     ABRIK_algorithm_objects<T, RNG> &all_algs,
     ABRIK_benchmark_data<T, SpMat> &all_data,
     RandBLAS::RNGState<RNG> &state,
     std::ofstream &outfile,
-    std::string input_path,
     std::string output_dir,
     bool write_output_matrices) {
 
-    auto m   = all_data.row;
-    auto n   = all_data.col;
+    auto m = all_data.row;
+    auto n = all_data.col;
 
-    // Additional params setup.
-    all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
+    for (auto b_sz : b_sz_vec) {
+        for (auto num_matmuls : matmuls_vec) {
+            all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
 
-    // timing vars
-    long dur_ABRIK = 0;
-    long dur_svds = 0;
+            for (int i = 0; i < num_runs; ++i) {
+                auto state_alg = state;
+                printf("\nABRIK: b_sz=%ld, mm=%ld, run %d\n", b_sz, num_matmuls, i);
 
-    auto state_alg = state;
+                auto start = steady_clock::now();
+                all_algs.ABRIK.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
+                auto stop = steady_clock::now();
+                long dur = duration_cast<microseconds>(stop - start).count();
 
-    T residual_err_vec_SVDS  = 0;
-    T residual_err_vec_ABRIK = 0;
+                int64_t k_found = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
+                T err = residual_error_vectors_comp<T>(all_data.A_linop, m, n, all_data.U, all_data.V, all_data.Sigma, k_found);
+                printf("  err=%.16e, time=%ld us\n", err, dur);
 
-    int64_t singular_triplets_target_ABRIK = 0;
-    int64_t singular_triplets_found_SVDS   = 0;
-    int64_t singular_triplets_target_SVDS  = 0;
+                outfile << "ABRIK, " << b_sz << ", " << num_matmuls << ", 0, "
+                        << target_rank << ", " << err << ", " << dur << "\n";
+                outfile.flush();
+
+                // Write ABRIK output matrices to files if requested (only on first run of first config)
+                if (write_output_matrices && i == 0) {
+                    int64_t full_size = all_algs.ABRIK.singular_triplets_found;
+                    std::string prefix = output_dir + "/ABRIK_bsz" + std::to_string(b_sz) + "_mm" + std::to_string(num_matmuls);
+                    write_matrix_to_file(prefix + "_U.mtx", all_data.U, m, full_size, false);
+                    write_matrix_to_file(prefix + "_V.mtx", all_data.V, n, full_size, false);
+                    write_matrix_to_file(prefix + "_Sigma.mtx", all_data.Sigma, full_size, 1, true);
+                }
+
+                delete[] all_data.U;     all_data.U     = nullptr;
+                delete[] all_data.V;     all_data.V     = nullptr;
+                delete[] all_data.Sigma; all_data.Sigma = nullptr;
+            }
+        }
+    }
+}
+
+// ---- SVDS sweep (Spectra, sparse) ----
+// Runs num_runs times with nev = target_rank.
+template <typename T, RandBLAS::sparse_data::SparseMatrix SpMat>
+static void run_svds_sweep_sparse(
+    int64_t num_runs,
+    int64_t target_rank,
+    ABRIK_benchmark_data<T, SpMat> &all_data,
+    std::ofstream &outfile) {
+
+    using ESpMatrix = typename EigenTypes<T>::SpMatrix;
+    using EMatrix   = typename EigenTypes<T>::Matrix;
+    using EVector   = typename EigenTypes<T>::Vector;
+
+    auto m = all_data.row;
+    auto n = all_data.col;
+    int64_t nev = target_rank;
+    int64_t ncv = std::min(2 * nev + 1, n - 1);
 
     for (int i = 0; i < num_runs; ++i) {
-        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
+        printf("\nSVDS: nev=%ld, ncv=%ld, run %d\n", nev, ncv, i);
 
-        // ---- ABRIK ----
-        // ABRIK allocates U, V, Sigma with new[] internally.
-        auto start_ABRIK = steady_clock::now();
-        all_algs.ABRIK.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
-        auto stop_ABRIK = steady_clock::now();
-        dur_ABRIK = duration_cast<microseconds>(stop_ABRIK - start_ABRIK).count();
-        printf("TOTAL TIME FOR ABRIK %ld\n", dur_ABRIK);
-
-        singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
-        printf("Singular triplets: %ld\n", singular_triplets_target_ABRIK);
-
-        residual_err_vec_ABRIK = residual_error_vectors_comp<T>(all_data.A_linop, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_ABRIK);
-        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sigma_{k}: %.16e\n", residual_err_vec_ABRIK);
-
-        // Write ABRIK output matrices to files if requested (only on first run)
-        if (write_output_matrices && i == 0) {
-            int64_t full_abrik_output_size = all_algs.ABRIK.singular_triplets_found;
-            std::string prefix = output_dir + "/ABRIK_bsz" + std::to_string(b_sz) + "_mm" + std::to_string(num_matmuls);
-            write_matrix_to_file(prefix + "_U.mtx", all_data.U, m, full_abrik_output_size, false);
-            write_matrix_to_file(prefix + "_V.mtx", all_data.V, n, full_abrik_output_size, false);
-            write_matrix_to_file(prefix + "_Sigma.mtx", all_data.Sigma, full_abrik_output_size, 1, true);
-        }
-
-        // Cleanup ABRIK outputs (new[])
-        delete[] all_data.U;     all_data.U     = nullptr;
-        delete[] all_data.V;     all_data.V     = nullptr;
-        delete[] all_data.Sigma; all_data.Sigma = nullptr;
-
-        state_alg = state;
-
-        // ---- SVDS (Spectra, sparse) ----
-        using ESpMatrix = typename EigenTypes<T>::SpMatrix;
-        using EMatrix   = typename EigenTypes<T>::Matrix;
-        using EVector   = typename EigenTypes<T>::Vector;
-
-        singular_triplets_found_SVDS = std::min((int64_t) (b_sz * num_matmuls / 2), n - 2);
-
-        auto start_svds = steady_clock::now();
-        Spectra::PartialSVDSolver<ESpMatrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n - 1));
+        auto start = steady_clock::now();
+        Spectra::PartialSVDSolver<ESpMatrix> svds(all_data.A_spectra, nev, ncv);
         svds.compute();
-        auto stop_svds = steady_clock::now();
-        dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
-        printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
+        auto stop = steady_clock::now();
+        long dur = duration_cast<microseconds>(stop - start).count();
 
-        EMatrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
-        EMatrix V_spectra = svds.matrix_V(singular_triplets_found_SVDS);
+        EMatrix U_spectra = svds.matrix_U(nev);
+        EMatrix V_spectra = svds.matrix_V(nev);
         EVector S_spectra = svds.singular_values();
 
-        all_data.U     = new T[m * singular_triplets_found_SVDS]();
-        all_data.V     = new T[n * singular_triplets_found_SVDS]();
-        all_data.Sigma = new T[singular_triplets_found_SVDS]();
+        all_data.U     = new T[m * nev]();
+        all_data.V     = new T[n * nev]();
+        all_data.Sigma = new T[nev]();
 
-        Eigen::Map<EMatrix>(all_data.U, m, singular_triplets_found_SVDS)  = U_spectra;
-        Eigen::Map<EMatrix>(all_data.V, n, singular_triplets_found_SVDS)  = V_spectra;
-        Eigen::Map<EVector>(all_data.Sigma, singular_triplets_found_SVDS) = S_spectra;
+        Eigen::Map<EMatrix>(all_data.U, m, nev) = U_spectra;
+        Eigen::Map<EMatrix>(all_data.V, n, nev) = V_spectra;
+        Eigen::Map<EVector>(all_data.Sigma, nev) = S_spectra;
 
-        singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
+        T err = residual_error_vectors_comp<T>(all_data.A_linop, m, n, all_data.U, all_data.V, all_data.Sigma, nev);
+        printf("  err=%.16e, time=%ld us\n", err, dur);
 
-        residual_err_vec_SVDS = residual_error_vectors_comp<T>(all_data.A_linop, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_SVDS);
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sigma_{k}: %.16e\n", residual_err_vec_SVDS);
+        outfile << "SVDS, 0, 0, 0, "
+                << target_rank << ", " << err << ", " << dur << "\n";
+        outfile.flush();
 
-        // Cleanup SVDS outputs (new[])
         delete[] all_data.U;     all_data.U     = nullptr;
         delete[] all_data.V;     all_data.V     = nullptr;
         delete[] all_data.Sigma; all_data.Sigma = nullptr;
-
-        state_alg = state;
-
-        // Write CSV data row
-        outfile << b_sz << ", " << all_algs.ABRIK.max_krylov_iters << ", " << target_rank << ", "
-                << residual_err_vec_ABRIK << ", " << dur_ABRIK << ", "
-                << residual_err_vec_SVDS << ", " << dur_svds << "\n";
-        outfile.flush();
     }
 }
 
@@ -437,10 +433,14 @@ template <typename T>
 static void run_benchmark(int argc, char *argv[]) {
 
     if (argc < 12) {
-        std::cerr << "Usage: " << argv[0] << " <precision> <output_directory_path> <input_matrix_path> <num_runs> <target_rank> <run_gesdd> <write_matrices> <submatrix_dim_ratio> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision> <output_dir> <input_matrix_path> <num_runs>"
+                  << " <target_rank> <run_gesdd> <write_matrices> <submatrix_dim_ratio>"
+                  << " <num_block_sizes> <num_matmul_sizes>"
+                  << " <block_sizes...> <matmul_sizes...>" << std::endl;
         std::cerr << "  run_gesdd: 1 to run direct GESDD, 0 to skip" << std::endl;
         std::cerr << "  write_matrices: 1 to write U,V,Sigma to files, 0 to skip" << std::endl;
-        std::cerr << "  submatrix_dim_ratio: ratio of input matrix to use (e.g., 0.5 for half, 1.0 for full matrix)" << std::endl;
+        std::cerr << "  submatrix_dim_ratio: ratio of input matrix to use (e.g., 0.5 for half, 1.0 for full)" << std::endl;
         return;
     }
 
@@ -450,23 +450,39 @@ static void run_benchmark(int argc, char *argv[]) {
     int64_t target_rank       = std::stol(argv[5]);
     bool run_gesdd            = (std::stoi(argv[6]) != 0);
     bool write_matrices       = (std::stoi(argv[7]) != 0);
+    int64_t num_block_sizes   = std::stol(argv[9]);
+    int64_t num_matmul_sizes  = std::stol(argv[10]);
+
+    int64_t expected_argc = 11 + num_block_sizes + num_matmul_sizes;
+    if (argc < expected_argc) {
+        std::cerr << "Error: expected " << expected_argc << " arguments, got " << argc << std::endl;
+        return;
+    }
+
+    // Parse block sizes (for ABRIK)
+    int64_t offset = 11;
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < std::stol(argv[9]); ++i)
-        b_sz.push_back(std::stoi(argv[i + 11]));
-    std::ostringstream oss1;
-    for (const auto &val : b_sz)
-        oss1 << val << ", ";
-    std::string b_sz_string = oss1.str();
+    for (int64_t i = 0; i < num_block_sizes; ++i)
+        b_sz.push_back(std::stol(argv[offset + i]));
+    offset += num_block_sizes;
+
+    // Parse matmul counts (for ABRIK)
     std::vector<int64_t> matmuls;
-    for (int i = 0; i < std::stol(argv[10]); ++i)
-        matmuls.push_back(std::stoi(argv[i + 11 + std::stol(argv[9])]));
-    std::ostringstream oss2;
-    for (const auto &val : matmuls)
-        oss2 << val << ", ";
-    std::string matmuls_string = oss2.str();
-    T tol                      = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
-    auto state                 = RandBLAS::RNGState();
-    auto state_constant        = state;
+    for (int64_t i = 0; i < num_matmul_sizes; ++i)
+        matmuls.push_back(std::stol(argv[offset + i]));
+
+    // Build display strings for metadata
+    auto vec_to_string = [](const std::vector<int64_t> &v) {
+        std::ostringstream oss;
+        for (const auto &val : v) oss << val << ", ";
+        return oss.str();
+    };
+    std::string b_sz_string    = vec_to_string(b_sz);
+    std::string matmuls_string = vec_to_string(matmuls);
+
+    T tol              = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
+    auto state         = RandBLAS::RNGState();
+    auto state_constant = state;
 
     // Ensure output directory exists if we're writing matrices
     if (write_matrices) {
@@ -492,12 +508,11 @@ static void run_benchmark(int argc, char *argv[]) {
 
     printf("Finished data preparation\n");
 
-    // Generate date/time prefix
+    // Generate date/time prefix for output filename
     std::time_t now = std::time(nullptr);
     char date_prefix[20];
     std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
 
-    // Build output file path
     std::string output_filename = std::string(date_prefix) + "ABRIK_speed_comparisons_sparse.csv";
     std::string path;
     if (std::string(argv[2]) != ".") {
@@ -519,31 +534,36 @@ static void run_benchmark(int argc, char *argv[]) {
          << "# Tolerance: " << tol << "\n"
          << "# Run GESDD: " << (run_gesdd ? "yes" : "no") << "\n"
          << "# Write matrices: " << (write_matrices ? "yes" : "no") << "\n"
-         << "# Residual metric: sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sigma_{target_rank}\n"
+         << "# Residual metric: sqrt(||S^{-1}AV - U||^2_F + ||(A'U)S^{-1} - V||^2_F)\n"
          << "# Timings in microseconds\n";
-    // Write CSV column header
-    file << "b_sz, num_matmuls, target_rank, "
-         << "err_ABRIK, dur_ABRIK, "
-         << "err_SVDS, dur_SVDS\n";
+
+    // Write CSV column header (unified format matching dense benchmark)
+    file << "algorithm, b_sz, num_matmuls, p, target_rank, error, duration_us\n";
     file.flush();
 
-    // Run direct GESDD if requested
+    // Run direct GESDD if requested (separate from CSV output)
     if (run_gesdd) {
         compute_direct_gesdd<T>(all_data.A_spectra, m, n, target_rank, std::string(argv[2]), write_matrices);
     }
 
-    size_t i = 0, j = 0;
-    for (; i < b_sz.size(); ++i) {
-        for (; j < matmuls.size(); ++j) {
-            call_all_algs(num_runs, b_sz[i], matmuls[j], target_rank, all_algs, all_data, state_constant, file, std::string(argv[3]), std::string(argv[2]), write_matrices);
-        }
-        j = 0;
-    }
+    // Run each algorithm sweep independently
+    printf("\n=== ABRIK sweep (%zu block sizes x %zu matmul counts x %d runs) ===\n",
+           b_sz.size(), matmuls.size(), num_runs);
+    run_abrik_sweep_sparse(num_runs, b_sz, matmuls, target_rank, all_algs, all_data, state_constant, file, std::string(argv[2]), write_matrices);
+
+    printf("\n=== SVDS sweep (%d runs, nev=%ld) ===\n", num_runs, target_rank);
+    run_svds_sweep_sparse(num_runs, target_rank, all_data, file);
+
+    printf("\nBenchmark complete. Output: %s\n", path.c_str());
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <precision: double|float> <output_directory_path> <input_matrix_path> <num_runs> <target_rank> <run_gesdd> <write_matrices> <submatrix_dim_ratio> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision> <output_dir> <input_matrix_path> <num_runs>"
+                  << " <target_rank> <run_gesdd> <write_matrices> <submatrix_dim_ratio>"
+                  << " <num_block_sizes> <num_matmul_sizes>"
+                  << " <block_sizes...> <matmul_sizes...>" << std::endl;
         return 1;
     }
 
