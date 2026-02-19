@@ -533,7 +533,8 @@ static T fro_diff_upper(const T* A, const T* B, int64_t n, int64_t lda, int64_t 
     return std::sqrt(s);
 }
 
-// diag_mode: 1 = normal (independent paths), 2 = quick-path (copy linop sketch to expl)
+// diag_mode: 1 = normal (independent paths), 2 = quick-path (copy linop sketch to expl),
+//            3 = unified (expl path also uses A_linop for precondition & gram)
 template <typename T, typename RNG>
 static void run_diagnostic(
     int64_t m, int64_t n, T cond_num, T density,
@@ -698,22 +699,73 @@ static void run_diagnostic(
     printf("  ||R_sk_inv_linop - expl||      = %.6e  (relative: %.6e)\n",
            (double)diff_Rskinv, (double)(diff_Rskinv / norm_Rskinv));
 
+    // QR sensitivity metric: || |R_sk| * |R_sk^{-1}| ||_2  (spectral norm)
+    // From eq. (2.21) in Martinsson & Tropp: bounds QR perturbation as
+    //   max{||δR||/||R||, ||δQ||} ≤ c * θ * || |R| |R^{-1}| ||_2
+    // where θ = ||δA||_F / ||A||_F is the input perturbation.
+    {
+        // Build |R_sk| and |R_sk^{-1}| (n x n, upper triangular with abs values)
+        T* absR    = new T[n * n]();
+        T* absRinv = new T[n * n]();
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i <= j; ++i) {
+                absR[i + j * n]    = std::abs(A_hat_linop[i + j * d]);  // R_sk from QR output (ld=d)
+                absRinv[i + j * n] = std::abs(R_sk_inv_linop[i + j * n]);
+            }
+        }
+        // Product = |R_sk| * |R_sk^{-1}|  (upper tri × upper tri = upper tri, but store as general)
+        T* prod = new T[n * n]();
+        blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
+                   n, n, (T)1.0, absR, n, absRinv, n);
+        // absRinv now holds the product; compute its spectral norm via SVD
+        T* svals = new T[n];
+        lapack::gesdd(lapack::Job::NoVec, n, n, absRinv, n, svals, nullptr, n, nullptr, n);
+        T spectral_norm = svals[0];  // largest singular value
+        // Also report κ(R_sk) = ||R_sk||_2 * ||R_sk^{-1}||_2 for comparison
+        T* R_sk_copy = new T[n * n]();
+        lapack::lacpy(MatrixType::Upper, n, n, A_hat_linop, d, R_sk_copy, n);
+        T* svals_R = new T[n];
+        lapack::gesdd(lapack::Job::NoVec, n, n, R_sk_copy, n, svals_R, nullptr, n, nullptr, n);
+        T sigma_max = svals_R[0];
+        T sigma_min = svals_R[n - 1];
+        T cond_R = sigma_max / sigma_min;
+        printf("\n  QR sensitivity analysis (eq. 2.21):\n");
+        printf("    || |R_sk| * |R_sk^{-1}| ||_2 = %.6e\n", (double)spectral_norm);
+        printf("    κ(R_sk) = σ_max/σ_min        = %.6e\n", (double)cond_R);
+        printf("    θ (sketch rel. diff)          = %.6e\n", (double)(diff_Ahat / norm_Ahat));
+        printf("    Predicted ||δR||/||R|| bound  ≈ %.6e\n", (double)(spectral_norm * diff_Ahat / norm_Ahat));
+        printf("    Observed  ||δR||/||R||        = %.6e\n", (double)(diff_Rsk / norm_Rsk));
+        delete[] absR;
+        delete[] absRinv;
+        delete[] prod;
+        delete[] svals;
+        delete[] R_sk_copy;
+        delete[] svals_R;
+    }
+
     // ==================================================================
     // Step 4: Precondition  A_pre = A * R_sk_inv
     //   linop path:  SparseLinOp left_spmm (CSR * dense)
-    //   expl path:   dense GEMM
+    //   expl path:   dense GEMM  (or SparseLinOp if diag_mode==3)
     // ==================================================================
     T* A_pre_linop = new T[m * n];
     A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
             m, n, n, (T)1.0, R_sk_inv_linop, n, (T)0.0, A_pre_linop, m);
 
     T* A_pre_expl = new T[m * n];
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-               m, n, n, (T)1.0, A_mat_via_op, m, R_sk_inv_expl, n, (T)0.0, A_pre_expl, m);
+    if (diag_mode == 3) {
+        // Unified: use A_linop (spmm) for expl path too
+        A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                m, n, n, (T)1.0, R_sk_inv_expl, n, (T)0.0, A_pre_expl, m);
+    } else {
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                   m, n, n, (T)1.0, A_mat_via_op, m, R_sk_inv_expl, n, (T)0.0, A_pre_expl, m);
+    }
 
     T norm_Apre = fro_norm(A_pre_linop, m, n, m);
     T diff_Apre = fro_diff(A_pre_linop, A_pre_expl, m, n, m, m);
-    printf("\nStep 4: Precondition  A_pre = A * R_sk_inv\n");
+    printf("\nStep 4: Precondition  A_pre = A * R_sk_inv  %s\n",
+           (diag_mode == 3) ? "[UNIFIED: both use A_linop]" : "");
     printf("  ||A_pre||_F                    = %.6e\n", (double)norm_Apre);
     printf("  ||A_pre_linop - A_pre_expl||   = %.6e  (relative: %.6e)\n",
            (double)diff_Apre, (double)(diff_Apre / norm_Apre));
@@ -721,19 +773,26 @@ static void run_diagnostic(
     // ==================================================================
     // Step 5: Gram matrix  G = A^T * A_pre
     //   linop path:  SparseLinOp left_spmm with Op::Trans (CSC kernel)
-    //   expl path:   dense GEMM
+    //   expl path:   dense GEMM  (or SparseLinOp if diag_mode==3)
     // ==================================================================
     T* G_linop = new T[n * n]();
     A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
             n, n, m, (T)1.0, A_pre_linop, m, (T)0.0, G_linop, n);
 
     T* G_expl = new T[n * n]();
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-               n, n, m, (T)1.0, A_mat_via_op, m, A_pre_expl, m, (T)0.0, G_expl, n);
+    if (diag_mode == 3) {
+        // Unified: use A_linop (spmm) for expl path too
+        A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
+                n, n, m, (T)1.0, A_pre_expl, m, (T)0.0, G_expl, n);
+    } else {
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+                   n, n, m, (T)1.0, A_mat_via_op, m, A_pre_expl, m, (T)0.0, G_expl, n);
+    }
 
     T norm_G = fro_norm(G_linop, n, n, n);
     T diff_G = fro_diff(G_linop, G_expl, n, n, n, n);
-    printf("\nStep 5: Gram  G = A^T * A_pre\n");
+    printf("\nStep 5: Gram  G = A^T * A_pre  %s\n",
+           (diag_mode == 3) ? "[UNIFIED: both use A_linop]" : "");
     printf("  ||G||_F                        = %.6e\n", (double)norm_G);
     printf("  ||G_linop - G_expl||           = %.6e  (relative: %.6e)\n",
            (double)diff_G, (double)(diff_G / norm_G));
@@ -871,7 +930,7 @@ static int run_benchmark(int argc, char *argv[]) {
         std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
-        std::cerr << "  diag_mode        : (Optional) 0 = off, 1 = normal (independent paths), 2 = quick-path (copy sketch) (default: 0)" << std::endl;
+        std::cerr << "  diag_mode        : (Optional) 0 = off, 1 = normal, 2 = quick-path (copy sketch), 3 = unified (expl uses spmm) (default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
         std::cerr << "  " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
         std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, aspect ratio 20:1, κ=1e4, density≈0.1, 3 runs each)" << std::endl;
@@ -929,7 +988,7 @@ static int run_benchmark(int argc, char *argv[]) {
     printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Runs per size: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
-    const char* diag_mode_str = (diag_mode == 0) ? "off" : (diag_mode == 1) ? "normal" : "quick-path";
+    const char* diag_mode_str = (diag_mode == 0) ? "off" : (diag_mode == 1) ? "normal" : (diag_mode == 2) ? "quick-path" : "unified";
     printf("Diagnostic mode: %s (%d)\n", diag_mode_str, diag_mode);
     printf("=====================================\n\n");
 
@@ -1125,7 +1184,7 @@ int main(int argc, char *argv[]) {
                   << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch] [diag_mode]"
                   << std::endl;
         std::cerr << "  precision: 'double' or 'float'" << std::endl;
-        std::cerr << "  diag_mode: 0=off (default), 1=normal, 2=quick-path (copy sketch)" << std::endl;
+        std::cerr << "  diag_mode: 0=off (default), 1=normal, 2=quick-path, 3=unified (expl uses spmm)" << std::endl;
         std::cerr << "\nExample: " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
         return 1;
     }
