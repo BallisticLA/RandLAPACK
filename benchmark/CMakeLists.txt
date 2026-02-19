@@ -75,7 +75,7 @@ include(FetchContent)
 FetchContent_Declare(
         eigen_lib
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-        GIT_TAG master
+        GIT_TAG 3.4.1
         GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(eigen_lib)
