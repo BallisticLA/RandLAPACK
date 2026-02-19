@@ -480,12 +480,382 @@ static scaling_result<T> run_single_test(
     return result;
 }
 
+// =============================================================================
+// Diagnostic: compare intermediate results of CQRRT_linop vs CQRRT_expl
+// to pinpoint where the orthogonality gap originates.
+// =============================================================================
+
+// Helper: Frobenius norm of a general m x n ColMajor matrix
+template <typename T>
+static T fro_norm(const T* A, int64_t m, int64_t n, int64_t lda) {
+    T s = 0;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < m; ++i) {
+            T v = A[i + j * lda];
+            s += v * v;
+        }
+    return std::sqrt(s);
+}
+
+// Helper: Frobenius norm of upper triangle of n x n ColMajor matrix
+template <typename T>
+static T fro_norm_upper(const T* A, int64_t n, int64_t lda) {
+    T s = 0;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i <= j; ++i) {
+            T v = A[i + j * lda];
+            s += v * v;
+        }
+    return std::sqrt(s);
+}
+
+// Helper: Frobenius norm of difference of two general m x n ColMajor matrices
+template <typename T>
+static T fro_diff(const T* A, const T* B, int64_t m, int64_t n, int64_t lda, int64_t ldb) {
+    T s = 0;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < m; ++i) {
+            T v = A[i + j * lda] - B[i + j * ldb];
+            s += v * v;
+        }
+    return std::sqrt(s);
+}
+
+// Helper: Frobenius norm of difference of upper triangles of two n x n matrices
+template <typename T>
+static T fro_diff_upper(const T* A, const T* B, int64_t n, int64_t lda, int64_t ldb) {
+    T s = 0;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i <= j; ++i) {
+            T v = A[i + j * lda] - B[i + j * ldb];
+            s += v * v;
+        }
+    return std::sqrt(s);
+}
+
+// diag_mode: 1 = normal (independent paths), 2 = quick-path (copy linop sketch to expl)
+template <typename T, typename RNG>
+static void run_diagnostic(
+    int64_t m, int64_t n, T cond_num, T density,
+    T d_factor, int64_t sketch_nnz, int64_t block_size,
+    bool use_dense_sketch, int diag_mode,
+    RandBLAS::RNGState<RNG>& state)
+{
+    using RandBLAS::sparse_data::csr::CSRMatrix;
+    printf("\n");
+    printf("================================================================\n");
+    printf("  DIAGNOSTIC: CQRRT_linop vs CQRRT_expl intermediate comparison\n");
+    printf("  Matrix size: %ld x %ld, cond=%.1e, density=%.3f\n", m, n, (double)cond_num, (double)density);
+    printf("================================================================\n\n");
+
+    int64_t d = (int64_t)(d_factor * n);
+
+    // ---- Generate sparse matrix (same as benchmark) ----
+    int64_t bandwidth = std::max((int64_t)1, std::min(n - 1, (int64_t)std::round(density * n - 1)));
+    auto A_coo = RandLAPACK::gen::gen_sparse_cond_mat<T>(m, n, cond_num, state, bandwidth);
+    CSRMatrix<T> A_csr(m, n);
+    RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
+    RandLAPACK::linops::SparseLinOp<CSRMatrix<T>> A_linop(m, n, A_csr);
+
+    // ==================================================================
+    // Step 0: Check materialization (operator * I vs direct conversion)
+    // ==================================================================
+    T* A_mat_via_op = new T[m * n]();
+    {
+        T* I_mat = new T[n * n]();
+        RandLAPACK::util::eye(n, n, I_mat);
+        A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                m, n, n, (T)1.0, I_mat, n, (T)0.0, A_mat_via_op, m);
+        delete[] I_mat;
+    }
+    T* A_mat_direct = new T[m * n]();
+    RandLAPACK::util::sparse_to_dense(A_csr, Layout::ColMajor, A_mat_direct);
+
+    T norm_A = fro_norm(A_mat_direct, m, n, m);
+    T diff_mat = fro_diff(A_mat_via_op, A_mat_direct, m, n, m, m);
+    printf("Step 0: Materialization check (A_linop * I  vs  csr_to_dense)\n");
+    printf("  ||A||_F              = %.6e\n", (double)norm_A);
+    printf("  ||A_op - A_direct||  = %.6e  (relative: %.6e)\n",
+           (double)diff_mat, (double)(diff_mat / norm_A));
+
+    // ==================================================================
+    // Step 1: Sketch  S * A
+    //   linop path:  SparseLinOp sketch operator (spgemm or left_spmm)
+    //   expl path:   sketch_general(S, A_dense)
+    // ==================================================================
+    auto state_linop = state;
+    auto state_expl  = state;
+
+    T* A_hat_linop = new T[d * n];
+    T* A_hat_expl  = new T[d * n];
+    T* tau_linop   = new T[n];
+    T* tau_expl    = new T[n];
+
+    // -- linop sketch (same as CQRRT_linops::call) --
+    {
+        RandBLAS::SparseDist DS(d, m, sketch_nnz);
+        RandBLAS::SparseSkOp<T, RNG> S(DS, state_linop);
+        state_linop = S.next_state;
+        RandBLAS::fill_sparse(S);
+        A_linop(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                d, n, m, (T)1.0, S, (T)0.0, A_hat_linop, d);
+    }
+    // -- expl sketch (same as CQRRT::call) --
+    {
+        RandBLAS::SparseDist DS(d, m, sketch_nnz);
+        RandBLAS::SparseSkOp<T, RNG> S(DS, state_expl);
+        state_expl = S.next_state;
+        // sketch_general auto-fills S
+        RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                 d, n, m, (T)1.0, S, 0, 0, A_mat_via_op, m, (T)0.0, A_hat_expl, d);
+    }
+
+    T norm_Ahat = fro_norm(A_hat_linop, d, n, d);
+    T diff_Ahat = fro_diff(A_hat_linop, A_hat_expl, d, n, d, d);
+    printf("\nStep 1: Sketch  A_hat = S * A\n");
+    printf("  ||A_hat||_F                    = %.6e\n", (double)norm_Ahat);
+    printf("  ||A_hat_linop - A_hat_expl||   = %.6e  (relative: %.6e)\n",
+           (double)diff_Ahat, (double)(diff_Ahat / norm_Ahat));
+
+    if (diag_mode == 2) {
+        // QUICK PATH: Copy linop sketch into expl, forcing identical QR inputs.
+        // Tests whether the sketch difference is the sole root cause of downstream divergence.
+        printf("\n  *** QUICK PATH: Copying A_hat_linop -> A_hat_expl to force identical QR inputs ***\n");
+        std::copy(A_hat_linop, A_hat_linop + d * n, A_hat_expl);
+    }
+
+    // ==================================================================
+    // Step 2: QR factorization of A_hat
+    // ==================================================================
+    lapack::geqrf(d, n, A_hat_linop, d, tau_linop);
+    lapack::geqrf(d, n, A_hat_expl,  d, tau_expl);
+
+    T norm_Rsk = fro_norm_upper(A_hat_linop, n, d);
+    T diff_Rsk = fro_diff_upper(A_hat_linop, A_hat_expl, n, d, d);
+    printf("\nStep 2: QR  =>  R_sk (upper triangle of A_hat)\n");
+    printf("  ||R_sk||_F                     = %.6e\n", (double)norm_Rsk);
+    printf("  ||R_sk_linop - R_sk_expl||     = %.6e  (relative: %.6e)\n",
+           (double)diff_Rsk, (double)(diff_Rsk / norm_Rsk));
+
+    // Sign-normalized comparison: multiply each column j by sign(R_sk[j,j])
+    // to remove the sign ambiguity in Householder QR.
+    {
+        T* R_norm_linop = new T[n * n]();
+        T* R_norm_expl  = new T[n * n]();
+        // Copy upper triangles into n x n buffers
+        lapack::lacpy(MatrixType::Upper, n, n, A_hat_linop, d, R_norm_linop, n);
+        lapack::lacpy(MatrixType::Upper, n, n, A_hat_expl,  d, R_norm_expl,  n);
+        // Normalize: column j *= sign(diag[j])
+        for (int64_t j = 0; j < n; ++j) {
+            T sign_l = (R_norm_linop[j + j * n] >= 0) ? (T)1.0 : (T)-1.0;
+            T sign_e = (R_norm_expl[j  + j * n] >= 0) ? (T)1.0 : (T)-1.0;
+            for (int64_t i = 0; i <= j; ++i) {
+                R_norm_linop[i + j * n] *= sign_l;
+                R_norm_expl[i  + j * n] *= sign_e;
+            }
+        }
+        T norm_Rsk_norm = fro_norm_upper(R_norm_linop, n, n);
+        T diff_Rsk_norm = fro_diff_upper(R_norm_linop, R_norm_expl, n, n, n);
+        // Count sign flips
+        int sign_flips = 0;
+        for (int64_t j = 0; j < n; ++j) {
+            T d_l = A_hat_linop[j + j * d];
+            T d_e = A_hat_expl[j  + j * d];
+            if ((d_l >= 0) != (d_e >= 0)) ++sign_flips;
+        }
+        printf("  Sign-normalized (diag > 0):\n");
+        printf("    ||R_sk_norm||_F              = %.6e\n", (double)norm_Rsk_norm);
+        printf("    ||R_norm_linop - R_norm_expl|| = %.6e  (relative: %.6e)\n",
+               (double)diff_Rsk_norm, (double)(diff_Rsk_norm / norm_Rsk_norm));
+        printf("    Diagonal sign flips: %d / %ld\n", sign_flips, n);
+        delete[] R_norm_linop;
+        delete[] R_norm_expl;
+    }
+
+    // ==================================================================
+    // Step 3: Invert R_sk
+    //   linop path:  TRSM with identity using A_hat (ld=d)
+    //   expl path:   lacpy upper to R(ld=n), then TRSM with identity
+    // ==================================================================
+    T* R_sk_inv_linop = new T[n * n]();
+    RandLAPACK::util::eye(n, n, R_sk_inv_linop);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
+               n, n, (T)1.0, A_hat_linop, d, R_sk_inv_linop, n);
+    if (n > 1) lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &R_sk_inv_linop[1], n);
+
+    T* R_sk_expl_buf = new T[n * n]();  // copy of R_sk with ld=n (as in CQRRT)
+    lapack::lacpy(MatrixType::Upper, n, n, A_hat_expl, d, R_sk_expl_buf, n);
+    T* R_sk_inv_expl = new T[n * n]();
+    RandLAPACK::util::eye(n, n, R_sk_inv_expl);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
+               n, n, (T)1.0, R_sk_expl_buf, n, R_sk_inv_expl, n);
+    if (n > 1) lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &R_sk_inv_expl[1], n);
+
+    T norm_Rskinv = fro_norm_upper(R_sk_inv_linop, n, n);
+    T diff_Rskinv = fro_diff_upper(R_sk_inv_linop, R_sk_inv_expl, n, n, n);
+    printf("\nStep 3: Invert R_sk  =>  R_sk_inv\n");
+    printf("  ||R_sk_inv||_F                 = %.6e\n", (double)norm_Rskinv);
+    printf("  ||R_sk_inv_linop - expl||      = %.6e  (relative: %.6e)\n",
+           (double)diff_Rskinv, (double)(diff_Rskinv / norm_Rskinv));
+
+    // ==================================================================
+    // Step 4: Precondition  A_pre = A * R_sk_inv
+    //   linop path:  SparseLinOp left_spmm (CSR * dense)
+    //   expl path:   dense GEMM
+    // ==================================================================
+    T* A_pre_linop = new T[m * n];
+    A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            m, n, n, (T)1.0, R_sk_inv_linop, n, (T)0.0, A_pre_linop, m);
+
+    T* A_pre_expl = new T[m * n];
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+               m, n, n, (T)1.0, A_mat_via_op, m, R_sk_inv_expl, n, (T)0.0, A_pre_expl, m);
+
+    T norm_Apre = fro_norm(A_pre_linop, m, n, m);
+    T diff_Apre = fro_diff(A_pre_linop, A_pre_expl, m, n, m, m);
+    printf("\nStep 4: Precondition  A_pre = A * R_sk_inv\n");
+    printf("  ||A_pre||_F                    = %.6e\n", (double)norm_Apre);
+    printf("  ||A_pre_linop - A_pre_expl||   = %.6e  (relative: %.6e)\n",
+           (double)diff_Apre, (double)(diff_Apre / norm_Apre));
+
+    // ==================================================================
+    // Step 5: Gram matrix  G = A^T * A_pre
+    //   linop path:  SparseLinOp left_spmm with Op::Trans (CSC kernel)
+    //   expl path:   dense GEMM
+    // ==================================================================
+    T* G_linop = new T[n * n]();
+    A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
+            n, n, m, (T)1.0, A_pre_linop, m, (T)0.0, G_linop, n);
+
+    T* G_expl = new T[n * n]();
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+               n, n, m, (T)1.0, A_mat_via_op, m, A_pre_expl, m, (T)0.0, G_expl, n);
+
+    T norm_G = fro_norm(G_linop, n, n, n);
+    T diff_G = fro_diff(G_linop, G_expl, n, n, n, n);
+    printf("\nStep 5: Gram  G = A^T * A_pre\n");
+    printf("  ||G||_F                        = %.6e\n", (double)norm_G);
+    printf("  ||G_linop - G_expl||           = %.6e  (relative: %.6e)\n",
+           (double)diff_G, (double)(diff_G / norm_G));
+
+    // ==================================================================
+    // Step 6: TRMM  G = R_sk_inv^T * G
+    // ==================================================================
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit,
+               n, n, (T)1.0, R_sk_inv_linop, n, G_linop, n);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit,
+               n, n, (T)1.0, R_sk_inv_expl, n, G_expl, n);
+
+    T norm_Gfull = fro_norm(G_linop, n, n, n);
+    T diff_Gfull = fro_diff(G_linop, G_expl, n, n, n, n);
+    printf("\nStep 6: TRMM  G_full = R_sk_inv^T * G\n");
+    printf("  ||G_full||_F                   = %.6e\n", (double)norm_Gfull);
+    printf("  ||G_full_linop - G_full_expl|| = %.6e  (relative: %.6e)\n",
+           (double)diff_Gfull, (double)(diff_Gfull / norm_Gfull));
+
+    // ==================================================================
+    // Step 7: Cholesky  potrf(G_full)
+    // ==================================================================
+    // Zero lower triangle before potrf (matching linop path in rl_cqrrt.hh)
+    if (n > 1) {
+        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G_linop[1], n);
+        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G_expl[1], n);
+    }
+    int info_linop = lapack::potrf(Uplo::Upper, n, G_linop, n);
+    int info_expl  = lapack::potrf(Uplo::Upper, n, G_expl,  n);
+    // G_linop and G_expl now contain R_chol
+
+    T norm_Rchol = fro_norm_upper(G_linop, n, n);
+    T diff_Rchol = fro_diff_upper(G_linop, G_expl, n, n, n);
+    printf("\nStep 7: Cholesky  R_chol = chol(G_full)\n");
+    printf("  potrf info: linop=%d, expl=%d\n", info_linop, info_expl);
+    printf("  ||R_chol||_F                   = %.6e\n", (double)norm_Rchol);
+    printf("  ||R_chol_linop - R_chol_expl|| = %.6e  (relative: %.6e)\n",
+           (double)diff_Rchol, (double)(diff_Rchol / norm_Rchol));
+
+    // ==================================================================
+    // Step 8: Finalize  R = R_chol * R_sk
+    // ==================================================================
+    // Zero lower triangle of R_chol
+    if (n > 1) {
+        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G_linop[1], n);
+        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G_expl[1], n);
+    }
+    blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
+               n, n, (T)1.0, A_hat_linop, d, G_linop, n);
+    blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
+               n, n, (T)1.0, A_hat_expl, d, G_expl, n);
+    // G_linop and G_expl now contain R_final
+
+    T norm_Rfinal = fro_norm_upper(G_linop, n, n);
+    T diff_Rfinal = fro_diff_upper(G_linop, G_expl, n, n, n);
+    printf("\nStep 8: Finalize  R = R_chol * R_sk\n");
+    printf("  ||R_final||_F                  = %.6e\n", (double)norm_Rfinal);
+    printf("  ||R_final_linop - R_final_expl|| = %.6e  (relative: %.6e)\n",
+           (double)diff_Rfinal, (double)(diff_Rfinal / norm_Rfinal));
+
+    // ==================================================================
+    // Step 9: Q-factor  Q = A * R^{-1}  (both use A_linop)
+    // ==================================================================
+    T* R_linop_copy = new T[n * n]();
+    T* R_expl_copy  = new T[n * n]();
+    lapack::lacpy(MatrixType::Upper, n, n, G_linop, n, R_linop_copy, n);
+    lapack::lacpy(MatrixType::Upper, n, n, G_expl,  n, R_expl_copy,  n);
+
+    std::vector<T> Q_linop(m * n);
+    std::vector<T> Q_expl(m * n);
+    compute_Q_from_R(A_linop, R_linop_copy, n, Q_linop.data(), m, n);
+    compute_Q_from_R(A_linop, R_expl_copy,  n, Q_expl.data(),  m, n);
+
+    T norm_Q = fro_norm(Q_linop.data(), m, n, m);
+    T diff_Q = fro_diff(Q_linop.data(), Q_expl.data(), m, n, m, m);
+    printf("\nStep 9: Q-factor  Q = A * R^{-1}  (both via A_linop)\n");
+    printf("  ||Q||_F                        = %.6e\n", (double)norm_Q);
+    printf("  ||Q_linop - Q_expl||           = %.6e  (relative: %.6e)\n",
+           (double)diff_Q, (double)(diff_Q / norm_Q));
+
+    // ==================================================================
+    // Step 10: Orthogonality
+    // ==================================================================
+    T orth_linop = 0, orth_expl = 0;
+    bool orth_flag_l = false, orth_flag_e = false;
+    int64_t max_orth_l = 0, max_orth_e = 0;
+    measure_orthogonality(Q_linop.data(), m, n, orth_linop, orth_flag_l, max_orth_l);
+    measure_orthogonality(Q_expl.data(),  m, n, orth_expl,  orth_flag_e, max_orth_e);
+
+    printf("\nStep 10: Orthogonality  ||Q^T Q - I||_F / sqrt(n)\n");
+    printf("  linop: %.6e   (max_orth_cols=%ld)\n", (double)orth_linop, max_orth_l);
+    printf("  expl:  %.6e   (max_orth_cols=%ld)\n", (double)orth_expl,  max_orth_e);
+    printf("  diff:  %.6e\n", (double)(orth_linop - orth_expl));
+
+    printf("\n================================================================\n");
+    printf("  DIAGNOSTIC COMPLETE\n");
+    printf("================================================================\n\n");
+
+    // Cleanup
+    delete[] A_mat_via_op;
+    delete[] A_mat_direct;
+    delete[] A_hat_linop;
+    delete[] A_hat_expl;
+    delete[] tau_linop;
+    delete[] tau_expl;
+    delete[] R_sk_inv_linop;
+    delete[] R_sk_inv_expl;
+    delete[] R_sk_expl_buf;
+    delete[] A_pre_linop;
+    delete[] A_pre_expl;
+    delete[] G_linop;
+    delete[] G_expl;
+    delete[] R_linop_copy;
+    delete[] R_expl_copy;
+}
+
 template <typename T>
 static int run_benchmark(int argc, char *argv[]) {
 
-    if (argc < 11 || argc > 14) {
+    if (argc < 11 || argc > 15) {
         std::cerr << "Usage: " << argv[0]
-                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch] [diag_mode]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  precision        : 'double' or 'float'" << std::endl;
@@ -501,9 +871,12 @@ static int run_benchmark(int argc, char *argv[]) {
         std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
+        std::cerr << "  diag_mode        : (Optional) 0 = off, 1 = normal (independent paths), 2 = quick-path (copy sketch) (default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
         std::cerr << "  " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
         std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, aspect ratio 20:1, κ=1e4, density≈0.1, 3 runs each)" << std::endl;
+        std::cerr << "\nDiagnostic example (quick-path on 6000x60):" << std::endl;
+        std::cerr << "  " << argv[0] << " double /tmp/diag 1 3 6000 6000 100 1e6 0.01 1.25 2 100 0 2" << std::endl;
         return 1;
     }
 
@@ -521,6 +894,7 @@ static int run_benchmark(int argc, char *argv[]) {
     int64_t sketch_nnz = (argc >= 12) ? std::stol(argv[11]) : 5;
     int64_t block_size = (argc >= 13) ? std::stol(argv[12]) : 0;
     bool use_dense_sketch = (argc >= 14) ? (std::stoi(argv[13]) != 0) : false;
+    int diag_mode = (argc >= 15) ? std::stoi(argv[14]) : 0;  // 0=off, 1=normal, 2=quick-path
 
     // Generate date/time prefix
     std::time_t now = std::time(nullptr);
@@ -555,6 +929,8 @@ static int run_benchmark(int argc, char *argv[]) {
     printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Runs per size: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
+    const char* diag_mode_str = (diag_mode == 0) ? "off" : (diag_mode == 1) ? "normal" : "quick-path";
+    printf("Diagnostic mode: %s (%d)\n", diag_mode_str, diag_mode);
     printf("=====================================\n\n");
 
     // Initialize RNG
@@ -624,6 +1000,15 @@ static int run_benchmark(int argc, char *argv[]) {
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
         run_single_test<T>(warmup_m, warmup_n, (T)cond_num, (T)density, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, 1, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
+    }
+
+    // Run diagnostic comparison before the main scaling loop (if requested)
+    if (diag_mode > 0) {
+        int64_t diag_m = sizes[0].first;
+        int64_t diag_n = sizes[0].second;
+        auto diag_state = state;
+        run_diagnostic<T>(diag_m, diag_n, (T)cond_num, (T)density,
+                          (T)d_factor, sketch_nnz, block_size, use_dense_sketch, diag_mode, diag_state);
     }
 
     // Run scaling study
@@ -735,11 +1120,12 @@ static int run_benchmark(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 11 || argc > 14) {
+    if (argc < 11 || argc > 15) {
         std::cerr << "Usage: " << argv[0]
-                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch] [diag_mode]"
                   << std::endl;
         std::cerr << "  precision: 'double' or 'float'" << std::endl;
+        std::cerr << "  diag_mode: 0=off (default), 1=normal, 2=quick-path (copy sketch)" << std::endl;
         std::cerr << "\nExample: " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
         return 1;
     }
