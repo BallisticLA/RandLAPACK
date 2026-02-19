@@ -194,6 +194,65 @@ static void run_abrik_sweep(
     }
 }
 
+// ---- ABRIK adaptive sweep ----
+// Runs ABRIK in adaptive mode: starts with initial_iters Krylov iterations,
+// then resumes (adding adaptive_increment per retry) until residual <= tol.
+// Reports the total iterations used and the final accuracy.
+template <typename T, typename RNG>
+static void run_abrik_adaptive_sweep(
+    RandLAPACK::gen::mat_gen_info<T> m_info,
+    int64_t num_runs,
+    std::vector<int64_t> &b_sz_vec,
+    int64_t initial_iters,
+    int64_t adaptive_increment,
+    int64_t target_rank,
+    ABRIK_algorithm_objects<T, RNG> &all_algs,
+    ABRIK_benchmark_data<T> &all_data,
+    RandBLAS::RNGState<RNG> &state,
+    std::ofstream &outfile) {
+
+    auto m = all_data.row;
+    auto n = all_data.col;
+
+    for (auto b_sz : b_sz_vec) {
+        all_algs.RSVD.block_sz = b_sz;
+        all_algs.ABRIK.adaptive = true;
+        all_algs.ABRIK.adaptive_increment = (int) adaptive_increment;
+        all_algs.ABRIK.adaptive_max_retries = 50;
+
+        for (int i = 0; i < num_runs; ++i) {
+            auto state_alg = state;
+            all_algs.ABRIK.max_krylov_iters = (int) initial_iters;
+
+            printf("\nABRIK_adaptive: b_sz=%ld, init_iters=%ld, increment=%ld, run %d\n",
+                   b_sz, initial_iters, adaptive_increment, i);
+
+            auto start = steady_clock::now();
+            all_algs.ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
+            auto stop = steady_clock::now();
+            long dur = duration_cast<microseconds>(stop - start).count();
+
+            int64_t k_found = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
+            int total_iters = all_algs.ABRIK.num_krylov_iters;
+            T err = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, k_found);
+            printf("  err=%.16e, time=%ld us, total_iters=%d\n", err, dur, total_iters);
+
+            // Write as ABRIK_adaptive; use num_matmuls column for total_iters
+            outfile << "ABRIK_adaptive, " << b_sz << ", " << total_iters << ", 0, "
+                    << target_rank << ", " << err << ", " << dur << "\n";
+            outfile.flush();
+
+            delete[] all_data.U;     all_data.U     = nullptr;
+            delete[] all_data.V;     all_data.V     = nullptr;
+            delete[] all_data.Sigma; all_data.Sigma = nullptr;
+            regen_input(m_info, all_data, state);
+        }
+    }
+
+    // Restore non-adaptive mode for subsequent sweeps
+    all_algs.ABRIK.adaptive = false;
+}
+
 // ---- RSVD sweep ----
 // Loops over (p_value, run). Sets passes_over_data at runtime.
 // RSVD allocates with calloc internally — must use free().
@@ -268,7 +327,7 @@ static void run_svds_sweep(
 
         auto start = steady_clock::now();
         Spectra::PartialSVDSolver<EMatrix> svds(all_data.A_spectra, nev, ncv);
-        svds.compute();
+        svds.compute(1000, all_data.tolerance);
         auto stop = steady_clock::now();
         long dur = duration_cast<microseconds>(stop - start).count();
 
@@ -468,6 +527,11 @@ static void run_benchmark(int argc, char *argv[]) {
     printf("\n=== ABRIK sweep (%zu block sizes x %zu matmul counts x %d runs) ===\n",
            b_sz.size(), matmuls.size(), num_runs);
     run_abrik_sweep(m_info, num_runs, b_sz, matmuls, target_rank, all_algs, all_data, state_constant, file);
+
+    printf("\n=== ABRIK adaptive sweep (%zu block sizes x %d runs, init=4, incr=4) ===\n",
+           b_sz.size(), num_runs);
+    run_abrik_adaptive_sweep(m_info, num_runs, b_sz, /*initial_iters=*/4, /*adaptive_increment=*/4,
+                             target_rank, all_algs, all_data, state_constant, file);
 
     printf("\n=== RSVD sweep (%zu p values x %d runs) ===\n",
            p_values.size(), num_runs);
