@@ -400,7 +400,7 @@ static void run_svds_sweep_sparse(
 
         auto start = steady_clock::now();
         Spectra::PartialSVDSolver<ESpMatrix> svds(all_data.A_spectra, nev, ncv);
-        svds.compute();
+        svds.compute(1000, all_data.tolerance);
         auto stop = steady_clock::now();
         long dur = duration_cast<microseconds>(stop - start).count();
 
