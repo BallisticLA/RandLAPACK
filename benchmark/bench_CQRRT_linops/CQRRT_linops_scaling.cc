@@ -154,15 +154,22 @@ static void measure_orthogonality(
 }
 
 // Compute Q = A * R^{-1} uniformly for all algorithms.
-// Inverts R in-place, then applies the operator: Q = A_op * R_inv.
-// WARNING: R is destroyed (overwritten with R^{-1}).
+// Materializes A into Q_out, then solves Q * R = A via trsm (avoids forming R^{-1}).
+// This is more numerically stable than forming the explicit inverse via trtri or trsm.
+// R is NOT destroyed.
 template <typename T, typename GLO>
 static void compute_Q_from_R(
     GLO& A_op, T* R, int64_t ldr,
     T* Q_out, int64_t m, int64_t n) {
-    lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R, ldr);
+    // Step 1: Materialize A into Q_out: Q_out = A * I
+    T* Eye = new T[n * n]();
+    RandLAPACK::util::eye(n, n, Eye);
     A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-         m, n, n, (T)1.0, R, ldr, (T)0.0, Q_out, m);
+         m, n, n, (T)1.0, Eye, n, (T)0.0, Q_out, m);
+    delete[] Eye;
+    // Step 2: Solve Q * R = A for Q via trsm (backward stable, no explicit inverse)
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
+               Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_out, m);
 }
 
 template <typename T, typename RNG>
@@ -312,7 +319,6 @@ static std::vector<scaling_result<T>> run_single_test(
     // ============================================================
     // Run sCholQR3 (shifted Cholesky QR with 3 iterations) - multiple runs
     // ============================================================
-    // Peak RSS with test_mode=true is correct: Q reuses Q_buf working buffer (always allocated).
     {
         for (int64_t run = 0; run < num_runs; ++run) {
             std::vector<T> R_scholqr3(n * n, 0.0);
@@ -339,7 +345,7 @@ static std::vector<scaling_result<T>> run_single_test(
             results[run].scholqr3_update3_time = sCholQR3_alg.times[10];
             results[run].scholqr3_rest_time = sCholQR3_alg.times[11];
 
-            // Uniform Q computation for every run
+            // Uniform Q computation (same as all other algorithms)
             compute_Q_from_R(A_linop, R_scholqr3.data(), n, Q_uniform.data(), m, n);
             measure_orthogonality(Q_uniform.data(), m, n,
                                  results[run].scholqr3.orth_error,

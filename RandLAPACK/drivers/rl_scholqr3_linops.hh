@@ -43,6 +43,14 @@ class sCholQR3_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
+        // Individual Cholesky factors from each iteration (n × n upper triangular).
+        // Stored so that Q can be reconstructed via three sequential trsm steps:
+        //   Q = A * I;  Q *= G1^{-1};  Q *= G2^{-1};  Q *= G3^{-1};
+        // This is more stable than solving with the accumulated R = G3*G2*G1.
+        std::vector<T> G1_factor;
+        std::vector<T> G2_factor;
+        std::vector<T> G3_factor;
+
         // Timing: [alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total]
         // 13 entries for detailed breakdown
         std::vector<long> times;
@@ -153,16 +161,16 @@ class sCholQR3_linops {
             RandLAPACK::util::eye(n, n, I_mat);
 
             // Allocate buffer for Q (will hold A initially, then Q after each iteration)
-            // No zero-init: first use is with beta=0.0 which overwrites all elements
-            T* Q_buf = new T[m * n];
+            T* Q_buf = new T[m * n]();
 
             // Allocate buffer for Gram matrix / R-factor updates
-            // No zero-init: first use is with beta=0.0 which overwrites all elements
-            T* G = new T[n * n];
+            T* G = new T[n * n]();
 
             // Allocate buffer for temporary R factor
-            // No zero-init: first use is lacpy which overwrites
-            T* R_temp = new T[n * n];
+            // Zero-init required: lacpy copies only the upper triangle, but trmm
+            // reads R_temp as a general matrix. Without zeroing, the uninitialized
+            // lower triangle corrupts the upper-triangle result during R accumulation.
+            T* R_temp = new T[n * n]();
 
             if(this->timing)
                 alloc_t_stop = steady_clock::now();
@@ -271,6 +279,10 @@ class sCholQR3_linops {
             // Cholesky factorization: G = R1^T * R1
             lapack::potrf(Uplo::Upper, n, G, n);
 
+            // Save G1 factor
+            this->G1_factor.resize(n * n, (T)0.0);
+            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G1_factor.data(), n);
+
             // Copy R1 to R (accumulate R factor)
             lapack::lacpy(MatrixType::Upper, n, n, G, n, R, ldr);
 
@@ -307,6 +319,10 @@ class sCholQR3_linops {
 
             // Cholesky factorization: G = R2^T * R2
             lapack::potrf(Uplo::Upper, n, G, n);
+
+            // Save G2 factor
+            this->G2_factor.resize(n * n, (T)0.0);
+            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G2_factor.data(), n);
 
             if(this->timing) {
                 potrf2_t_stop = steady_clock::now();
@@ -349,6 +365,10 @@ class sCholQR3_linops {
 
             // Cholesky factorization: G = R3^T * R3
             lapack::potrf(Uplo::Upper, n, G, n);
+
+            // Save G3 factor
+            this->G3_factor.resize(n * n, (T)0.0);
+            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G3_factor.data(), n);
 
             if(this->timing) {
                 potrf3_t_stop = steady_clock::now();
