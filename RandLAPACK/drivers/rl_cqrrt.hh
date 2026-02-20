@@ -12,11 +12,6 @@
 #include <chrono>
 #include <numeric>
 
-// TEMPORARY: Uncomment to use CQRRT_linops-style computation path for apples-to-apples comparison.
-// Uses explicit R_sk inverse + GEMM instead of TRSM + SYRK.
-// Revert by commenting out this #define.
-// #define CQRRT_USE_LINOP_PATH
-
 using namespace std::chrono;
 
 namespace RandLAPACK {
@@ -189,127 +184,6 @@ int CQRRT<T, RNG>::call(
     T* R_sk  = R;
     lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, R_sk, ldr);
 
-#ifdef CQRRT_USE_LINOP_PATH
-    // ================================================================
-    // TEMPORARY: CQRRT_linops-style computation path
-    // Uses explicit inverse + GEMM to match the operator-based code path.
-    // ================================================================
-    steady_clock::time_point trtri_t_start, trtri_t_stop;
-    steady_clock::time_point trmm_gram_t_start, trmm_gram_t_stop;
-    long trtri_t_dur = 0;
-    long trmm_gram_t_dur = 0;
-
-    if(this -> timing)
-        trtri_t_start = steady_clock::now();
-
-    // Step 1: Explicitly invert R_sk (matching CQRRT_linops: TRSM with identity)
-    T* R_sk_inv = new T[n * n]();
-    RandLAPACK::util::eye(n, n, R_sk_inv);
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, R_sk, ldr, R_sk_inv, n);
-    if (n > 1) {
-        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &R_sk_inv[1], n);
-    }
-
-    if(this -> timing) {
-        trtri_t_stop = steady_clock::now();
-        precond_t_start = steady_clock::now();
-    }
-
-    // Step 2: A_pre = A * R_sk_inv via GEMM (instead of TRSM on A)
-    T* A_pre = new T[m * n];
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, A, lda, R_sk_inv, n, (T)0.0, A_pre, m);
-
-    if(this -> timing) {
-        precond_t_stop = steady_clock::now();
-        gram_t_start = steady_clock::now();
-    }
-
-    // Step 3: R = A^T * A_pre via GEMM (instead of SYRK on A)
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A, lda, A_pre, m, (T)0.0, R_sk, ldr);
-
-    if(this -> timing) {
-        gram_t_stop = steady_clock::now();
-        trmm_gram_t_start = steady_clock::now();
-    }
-
-    // Step 4: R = R_sk_inv^T * R via TRMM (matching CQRRT_linops)
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T)1.0, R_sk_inv, n, R_sk, ldr);
-
-    if(this -> timing)
-        trmm_gram_t_stop = steady_clock::now();
-
-    // Clean lower triangle before Cholesky (may contain garbage from GEMM Gram)
-    if (n > 1) {
-        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &R_sk[1], ldr);
-    }
-
-    if(this -> timing)
-        potrf_t_start = steady_clock::now();
-
-    // Cholesky factorization
-    lapack::potrf(Uplo::Upper, n, R_sk, ldr);
-
-    if(this -> timing)
-        potrf_t_stop = steady_clock::now();
-
-    // Q-factor (if requested): Q = A_pre * R_chol^{-1}
-    if (this->compute_Q) {
-        if(this -> timing)
-            q_t_start = steady_clock::now();
-
-        // Copy A_pre into A, then solve A * R_chol = A_pre
-        lapack::lacpy(MatrixType::General, m, n, A_pre, m, A, lda);
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
-
-        if(this -> timing)
-            q_t_stop = steady_clock::now();
-    }
-
-    if(this -> timing)
-        finalize_t_start = steady_clock::now();
-
-    if (!this->orthogonalization) {
-        // R := R_chol * R_sk
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R_sk, ldr);
-    }
-
-    if(this -> timing) {
-        finalize_t_stop = steady_clock::now();
-
-        total_t_stop = steady_clock::now();
-
-        saso_t_dur     = duration_cast<microseconds>(saso_t_stop     - saso_t_start).count();
-        qr_t_dur       = duration_cast<microseconds>(qr_t_stop       - qr_t_start).count();
-        trtri_t_dur    = duration_cast<microseconds>(trtri_t_stop    - trtri_t_start).count();
-        precond_t_dur  = duration_cast<microseconds>(precond_t_stop  - precond_t_start).count();
-        gram_t_dur     = duration_cast<microseconds>(gram_t_stop     - gram_t_start).count();
-        trmm_gram_t_dur = duration_cast<microseconds>(trmm_gram_t_stop - trmm_gram_t_start).count();
-        potrf_t_dur    = duration_cast<microseconds>(potrf_t_stop    - potrf_t_start).count();
-        finalize_t_dur = duration_cast<microseconds>(finalize_t_stop - finalize_t_start).count();
-
-        total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-
-        if (this->compute_Q) {
-            q_t_dur = duration_cast<microseconds>(q_t_stop - q_t_start).count();
-            total_t_dur -= q_t_dur;
-        }
-
-        long t_rest = total_t_dur - (saso_t_dur + qr_t_dur + trtri_t_dur + precond_t_dur +
-                                      gram_t_dur + trmm_gram_t_dur + potrf_t_dur + finalize_t_dur);
-
-        this -> times = {saso_t_dur, qr_t_dur, trtri_t_dur, precond_t_dur,
-                         gram_t_dur, trmm_gram_t_dur, potrf_t_dur, finalize_t_dur,
-                         t_rest, total_t_dur};
-    }
-
-    delete[] R_sk_inv;
-    delete[] A_pre;
-
-#else
-    // ================================================================
-    // Original CQRRT path: direct TRSM + SYRK
-    // ================================================================
-
     if(this -> timing)
         precond_t_start = steady_clock::now();
 
@@ -384,7 +258,6 @@ int CQRRT<T, RNG>::call(
                          gram_t_dur, 0L, potrf_t_dur, finalize_t_dur,
                          t_rest, total_t_dur};
     }
-#endif
 
     delete[] A_hat;
     delete[] tau;
