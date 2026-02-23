@@ -203,11 +203,9 @@ static std::vector<scaling_result<T>> run_single_test(
         if (r > 0) run_states[r].key.incr(r);
     }
 
-    // Compute bandwidth from target density: density ≈ (bandwidth + 1) / n
-    int64_t bandwidth = std::max((int64_t)1, std::min(n - 1, (int64_t)std::round(density * n - 1)));
-
-    // Generate sparse matrix A: m × n with controlled condition number
-    auto A_coo = RandLAPACK::gen::gen_sparse_cond_mat<T>(m, n, cond_num, state, bandwidth);
+    // Generate sparse matrix A: m × n with controlled condition number.
+    // The generator computes right/left Givens split internally from target density.
+    auto A_coo = RandLAPACK::gen::gen_sparse_cond_mat<T>(m, n, cond_num, state, density);
     T actual_density = static_cast<T>(A_coo.nnz) / (static_cast<T>(m) * n);
     for (int64_t r = 0; r < num_runs; ++r) {
         results[r].density = actual_density;
@@ -447,8 +445,8 @@ static int run_benchmark(int argc, char *argv[]) {
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
         std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
-        std::cerr << "  " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
-        std::cerr << "  (Tests 50 matrices from 500x25 to 10000x500, aspect ratio 20:1, κ=1e4, density≈0.1, 3 runs each)" << std::endl;
+        std::cerr << "  " << argv[0] << " double ./output 30 3 1000 30000 100 1e9 0.05 2.0 4 100" << std::endl;
+        std::cerr << "  (Tests 30 matrices from 1000x10 to 30000x300, aspect ratio 100:1, κ=1e9, density≈0.05, 3 runs each)" << std::endl;
         return 1;
     }
 
@@ -463,7 +461,10 @@ static int run_benchmark(int argc, char *argv[]) {
     double cond_num = std::stod(argv[8]);
     double density = std::stod(argv[9]);
     double d_factor = std::stod(argv[10]);
-    int64_t sketch_nnz = (argc >= 12) ? std::stol(argv[11]) : 5;
+    // Default sketch_nnz=4: the Givens-based matrix generator produces
+    // high-coherence matrices (non-uniform leverage scores), so nnz >= 4
+    // is needed for reliable SASO sketching (nnz=2 causes sporadic spikes).
+    int64_t sketch_nnz = (argc >= 12) ? std::stol(argv[11]) : 4;
     int64_t block_size = (argc >= 13) ? std::stol(argv[12]) : 0;
     bool use_dense_sketch = (argc >= 14) ? (std::stoi(argv[13]) != 0) : false;
 

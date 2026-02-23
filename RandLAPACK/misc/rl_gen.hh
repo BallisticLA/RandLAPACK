@@ -12,6 +12,7 @@
 #include <sstream>
 #include <fstream>
 #include <unordered_map>
+#include <cstring>
 
 namespace RandLAPACK::gen {
 
@@ -593,27 +594,43 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
 
 /// Generate a tall sparse m×n matrix with a specified condition number.
 ///
-/// Constructs the matrix by stacking copies of the transpose of a banded Cholesky
-/// factor. The method:
-///   1. Generates an n×n banded SPD seed matrix (pentadiagonal by default)
-///   2. Computes its eigenvalue range via LAPACK sbev
-///   3. Applies a diagonal shift to achieve κ(G) = cond_num²
-///   4. Computes banded Cholesky: G = L L^T via LAPACK pbtrf
-///   5. Stacks ceil(m/n) copies of L^T to form the m×n output matrix
+/// Constructs A with exactly prescribed singular values:
+///   1. Compute σ_i log-spaced from 1 to 1/κ
+///   2. Generate Haar-random orthogonal V via QR of Gaussian (geqrf + orgqr)
+///   3. Top n rows = diag(σ) · V^T — gives A^T A = V · diag(σ²) · V^T,
+///      a generic SPD matrix with fully random eigenvectors
+///   4. Apply m-n left Givens rotations to spread rows from top n to all
+///      remaining rows — preserves A^T A exactly since (GA)^T(GA) = A^T A
 ///
-/// The resulting matrix has κ₂(A) = cond_num exactly (up to minor perturbation
-/// when m is not a multiple of n). Sparsity is ~(2*bandwidth+1) nonzeros per row.
+/// The Haar-random V guarantees A^T A is fully generic (not diagonally
+/// dominant, not tridiagonal, not near-diagonal). This ensures CholQR
+/// fails catastrophically when κ² exceeds 1/ε, with no seed-dependent
+/// variability in failure magnitude.
+///
+/// Left Givens rotations are orthogonal, so singular values are preserved
+/// exactly: κ(A) = σ_1/σ_n = cond_num.
+///
+/// NOTE ON COHERENCE: The resulting matrix has high coherence in the sense
+/// of leverage score theory (see [BOOK §3.3]). Rows paired with the top
+/// singular values have much larger norms than those paired with small
+/// singular values, so leverage scores are non-uniform. Coherence C(A)
+/// can approach m (the worst case), compared to C(A) = n (optimal) for
+/// the old banded pbtrf-based generator which stacked identical L^T copies.
+/// Consequence: uniform row-sampling sketches (including SASOs) require a
+/// larger embedding dimension d (i.e., d_factor >= 2.0) and higher nnz
+/// per column (nnz >= 4) than they would for a low-coherence matrix.
 ///
 /// @tparam T       Scalar type (double, float)
 /// @tparam RNG     Random number generator type
 ///
-/// @param[in]     m          Number of rows (must satisfy m >= n)
-/// @param[in]     n          Number of columns
-/// @param[in]     cond_num   Target condition number (must be >= 1)
-/// @param[in,out] state      RNG state for reproducible generation
-/// @param[in]     bandwidth  Half-bandwidth of the banded seed (default: 2 = pentadiagonal)
+/// @param[in]     m               Number of rows (must satisfy m >= n)
+/// @param[in]     n               Number of columns
+/// @param[in]     cond_num        Target condition number (must be >= 1)
+/// @param[in,out] state           RNG state for reproducible generation
+/// @param[in]     target_density  Target fraction of nonzeros (0,1].
+///                                Set to 0 for diagonal-only (A^T A = diag(σ²)).
 ///
-/// @return COO matrix of dimensions m×n with the specified condition number
+/// @return COO matrix of dimensions m×n with exactly the specified condition number
 ///
 template <typename T, typename RNG>
 RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
@@ -621,7 +638,7 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
     int64_t n,
     T cond_num,
     RandBLAS::RNGState<RNG> &state,
-    int64_t bandwidth = 2
+    T target_density = (T)0.0
 ) {
     using namespace RandBLAS::sparse_data;
 
@@ -629,115 +646,103 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
     randblas_require(n >= 1);
     randblas_require(cond_num >= (T)1.0);
 
-    int64_t kd = bandwidth;
-    int64_t ldab = kd + 1;
-
-    // ---- Step 1: Build n×n banded SPD seed in LAPACK lower-banded format ----
-    // AB layout (Uplo::Lower): AB[(i-j) + j*ldab] = A(i,j) for j <= i <= min(n-1, j+kd)
-    // Row 0 of AB = diagonal, row b of AB = b-th subdiagonal.
-    std::vector<T> AB(ldab * n, (T)0.0);
-
-    // Diagonal: large enough for diagonal dominance
-    for (int64_t j = 0; j < n; ++j) {
-        AB[0 + j * ldab] = (T)(2 * (kd + 1));
-    }
-
-    // Off-diagonal bands: small random positive values
-    RandBLAS::DenseDist dist(1, 1);
-    for (int64_t band = 1; band <= kd; ++band) {
-        for (int64_t j = 0; j < n - band; ++j) {
-            // Entry A(j+band, j) stored at AB[band + j*ldab]
-            T val;
-            state = RandBLAS::fill_dense(dist, &val, state);
-            AB[band + j * ldab] = std::abs(val) * (T)0.5;
-        }
-    }
-
-    // ---- Step 2: Compute eigenvalue range via sbev ----
-    // sbev destroys AB, so work on a copy
-    std::vector<T> AB_eig(AB);
-    std::vector<T> eigenvalues(n);
-    T z_dummy;
-    int64_t info = lapack::sbev(
-        lapack::Job::NoVec, lapack::Uplo::Lower,
-        n, kd, AB_eig.data(), ldab,
-        eigenvalues.data(), &z_dummy, 1
-    );
-    if (info != 0) {
-        throw std::runtime_error(
-            "gen_sparse_cond_coo: sbev failed with info = " + std::to_string(info));
-    }
-    T lambda_min = eigenvalues[0];
-    T lambda_max = eigenvalues[n - 1];
-
-    // ---- Step 3: Compute diagonal shift for κ(G) = cond_num² ----
-    T kappa_sq = cond_num * cond_num;
-    T alpha = (T)0.0;
-    if (cond_num > (T)1.0) {
-        alpha = (lambda_max - kappa_sq * lambda_min) / (kappa_sq - (T)1.0);
+    // ---- Step 1: Compute singular values (log-spaced from 1 to 1/κ) ----
+    std::vector<T> sigma(n);
+    if (n == 1) {
+        sigma[0] = (T)1.0;
     } else {
-        // cond_num == 1: shift to make all eigenvalues equal to lambda_max
-        alpha = lambda_max - lambda_min;
+        T log_cond = std::log(cond_num);
+        for (int64_t i = 0; i < n; ++i) {
+            sigma[i] = std::exp(-((T)i / (T)(n - 1)) * log_cond);
+        }
     }
 
-    // ---- Step 4: Apply shift and compute banded Cholesky ----
+    // ---- Step 2: Build top n×n block as B = diag(σ) · V^T ----
+    // V is a Haar-random orthogonal matrix from QR of a Gaussian.
+    // This gives A^T A = V · diag(σ²) · V^T — a generic SPD matrix with
+    // fully random eigenvectors. Guarantees CholQR fails catastrophically
+    // when κ² exceeds 1/ε (no stochastic variability from Givens mixing).
+    std::vector<T> V(n * n);
+    std::vector<T> tau(n);
+    auto d_gauss = RandBLAS::DenseDist(n, n);
+    state = RandBLAS::fill_dense(d_gauss, V.data(), state);
+    lapack::geqrf(n, n, V.data(), n, tau.data());
+    lapack::orgqr(n, n, n, V.data(), n, tau.data());
+
+    // A is m×n column-major. Top n rows = diag(σ) · V^T, bottom rows = 0.
+    // B(i,j) = σ_i · V^T(i,j) = σ_i · V(j,i)
+    std::vector<T> A(m * n, (T)0.0);
     for (int64_t j = 0; j < n; ++j) {
-        AB[0 + j * ldab] += alpha;
-    }
-
-    info = lapack::pbtrf(lapack::Uplo::Lower, n, kd, AB.data(), ldab);
-    if (info != 0) {
-        throw std::runtime_error(
-            "gen_sparse_cond_coo: pbtrf failed with info = " + std::to_string(info));
-    }
-    // AB now contains L in lower-banded format:
-    //   L(i,j) = AB[(i-j) + j*ldab]  for j <= i <= min(n-1, j+kd)
-
-    // ---- Step 5: Stack copies of L^T into m×n COO ----
-    // L^T has entry at (i,j) when 0 <= j-i <= kd, i.e., j in [i, min(n-1, i+kd)]
-    // Value: L^T(i,j) = L(j,i) = AB[(j-i) + i*ldab]
-
-    int64_t k_copies = (m + n - 1) / n;  // ceil(m/n)
-
-    // Count nnz per L^T block (same for all full blocks)
-    int64_t nnz_per_full_block = 0;
-    for (int64_t i = 0; i < n; ++i) {
-        for (int64_t j = i; j <= std::min(n - 1, i + kd); ++j) {
-            ++nnz_per_full_block;
+        for (int64_t i = 0; i < n; ++i) {
+            A[i + j * m] = sigma[i] * V[j + i * n];
         }
     }
 
-    // Count total nnz (last block may be truncated)
+    // Helper: convert random Gaussian to uniform index in [0, N).
+    auto to_index = [](T val, int64_t N) -> int64_t {
+        uint64_t bits = 0;
+        static_assert(sizeof(T) <= sizeof(uint64_t));
+        std::memcpy(&bits, &val, sizeof(T));
+        return (int64_t)(bits % (uint64_t)N);
+    };
+
+    // Left Givens: populate ALL remaining rows (m - n) for full row coverage.
+    //   Each copies entries from a populated row to a zero row.
+    //   This does not change A^T A (left orthogonal transforms preserve it).
+    int64_t n_left  = (target_density > (T)0.0) ? (m - n) : (int64_t)0;
+
+    // Generate random values for left rotations: 2 per rotation.
+    int64_t rand_count = 2 * n_left;
+    std::vector<T> rv;
+    if (rand_count > 0) {
+        rv.resize(rand_count);
+        auto rd = RandBLAS::DenseDist(rand_count, 1);
+        state = RandBLAS::fill_dense(rd, rv.data(), state);
+    }
+
+    int64_t vi = 0;
+
+    // ---- Step 3b: Left Givens rotations (distribute rows) ----
+    // Each rotation mixes a populated row with a zero row, spreading entries
+    // without changing A^T A.
+    for (int64_t rot = 0; rot < n_left && vi + 2 <= (int64_t)rv.size(); ++rot) {
+        // Pick a random row from the top n (always populated).
+        int64_t ri = to_index(rv[vi++], n);
+
+        // Pick a random zero row (from rows n..m-1).
+        int64_t rj = n + to_index(rv[vi++], m - n);
+
+        T theta = rv[vi - 1];
+        T c = std::cos(theta);
+        T s = std::sin(theta);
+
+        // Mix row ri (populated) with row rj (may be zero or previously populated).
+        for (int64_t col = 0; col < n; ++col) {
+            T ai = A[ri + col * m];
+            T aj = A[rj + col * m];
+            A[ri + col * m] =  c * ai + s * aj;
+            A[rj + col * m] = -s * ai + c * aj;
+        }
+    }
+
+    // ---- Step 4: Convert dense to COO ----
     int64_t total_nnz = 0;
-    for (int64_t blk = 0; blk < k_copies; ++blk) {
-        int64_t row_offset = blk * n;
-        if (row_offset + n <= m) {
-            total_nnz += nnz_per_full_block;
-        } else {
-            // Truncated last block
-            int64_t rows_left = m - row_offset;
-            for (int64_t i = 0; i < rows_left; ++i) {
-                for (int64_t j = i; j <= std::min(n - 1, i + kd); ++j) {
-                    ++total_nnz;
-                }
-            }
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < m; ++i) {
+            if (A[i + j * m] != (T)0.0) ++total_nnz;
         }
     }
 
-    // Build COO matrix
     coo::COOMatrix<T> A_coo(m, n);
     A_coo.reserve(total_nnz);
 
     int64_t idx = 0;
-    for (int64_t blk = 0; blk < k_copies; ++blk) {
-        int64_t row_offset = blk * n;
-        int64_t rows_in_block = std::min(n, m - row_offset);
-        for (int64_t i = 0; i < rows_in_block; ++i) {
-            for (int64_t j = i; j <= std::min(n - 1, i + kd); ++j) {
-                A_coo.rows[idx] = row_offset + i;
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < m; ++i) {
+            if (A[i + j * m] != (T)0.0) {
+                A_coo.rows[idx] = i;
                 A_coo.cols[idx] = j;
-                // L^T(i,j) = L(j,i) = AB[(j-i) + i*ldab]
-                A_coo.vals[idx] = AB[(j - i) + i * ldab];
+                A_coo.vals[idx] = A[i + j * m];
                 ++idx;
             }
         }
@@ -754,9 +759,9 @@ RandBLAS::sparse_data::CSCMatrix<T> gen_sparse_cond_csc(
     int64_t n,
     T cond_num,
     RandBLAS::RNGState<RNG> &state,
-    int64_t bandwidth = 2
+    T target_density = (T)0.0
 ) {
-    auto coo = gen_sparse_cond_coo<T>(m, n, cond_num, state, bandwidth);
+    auto coo = gen_sparse_cond_coo<T>(m, n, cond_num, state, target_density);
     RandBLAS::sparse_data::CSCMatrix<T> csc(m, n);
     RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
     return csc;
@@ -769,9 +774,9 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_mat(
     int64_t n,
     T cond_num,
     RandBLAS::RNGState<RNG> &state,
-    int64_t bandwidth = 2
+    T target_density = (T)0.0
 ) {
-    return gen_sparse_cond_coo<T>(m, n, cond_num, state, bandwidth);
+    return gen_sparse_cond_coo<T>(m, n, cond_num, state, target_density);
 }
 
 /// 'Entry point' routine for matrix generation.
