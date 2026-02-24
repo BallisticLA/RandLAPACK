@@ -175,7 +175,7 @@ add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_
 
 # CQRRT_linops benchmarks
 add_benchmark(NAME CQRRT_linops_conditioning  CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_conditioning.cc  LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME CQRRT_linops_scaling       CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_scaling.cc       LINK_LIBS ${Benchmark_libs})
+add_benchmark(NAME CQRRT_linops_scaling       CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_scaling.cc       LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME generate_dense_spd         CXX_SOURCES bench_CQRRT_linops/generate_dense_spd.cc         LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME generate_sparse_spd        CXX_SOURCES bench_CQRRT_linops/generate_sparse_spd.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME verify_spd_generation      CXX_SOURCES bench_CQRRT_linops/verify_spd_generation.cc      LINK_LIBS ${Benchmark_libs_external})
