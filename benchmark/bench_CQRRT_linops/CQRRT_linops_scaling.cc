@@ -186,7 +186,6 @@ static std::vector<scaling_result<T>> run_algorithms(
     T cond_num,
     T density,
     T d_factor,
-    bool use_dense_sketch,
     int64_t block_size,
     int64_t sketch_nnz,
     int64_t num_runs,
@@ -220,7 +219,6 @@ static std::vector<scaling_result<T>> run_algorithms(
             auto state_rss = run_states[0];
             RandLAPACK::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
             CQRRT_rss.nnz = sketch_nnz;
-            CQRRT_rss.use_dense_sketch = use_dense_sketch;
             CQRRT_rss.block_size = block_size;
             RandLAPACK::PeakRSSTracker cqrrt_mem;
             cqrrt_mem.start();
@@ -234,7 +232,6 @@ static std::vector<scaling_result<T>> run_algorithms(
 
             RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, false);  // timing=true, test_mode=false
             CQRRT_QR.nnz = sketch_nnz;
-            CQRRT_QR.use_dense_sketch = use_dense_sketch;
             CQRRT_QR.block_size = block_size;
             CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
 
@@ -419,7 +416,6 @@ static std::vector<scaling_result<T>> run_single_test(
     T cond_num,
     T density,
     T d_factor,
-    bool use_dense_sketch,
     int64_t block_size,
     int64_t sketch_nnz,
     int64_t num_runs,
@@ -440,7 +436,32 @@ static std::vector<scaling_result<T>> run_single_test(
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
 
     return run_algorithms(A_linop, m, n, cond_num, actual_density, d_factor,
-                          use_dense_sketch, block_size, sketch_nnz, num_runs, run_states);
+                          block_size, sketch_nnz, num_runs, run_states);
+}
+
+// Compute the 2-norm condition number of a sparse linear operator by
+// materializing it and computing singular values via LAPACK gesvd.
+// For tall-skinny matrices (m >> n), only n singular values are computed.
+template <typename T, typename SpLinOp>
+static T compute_condition_number(SpLinOp& A_linop, int64_t m, int64_t n) {
+    // Materialize A into dense column-major storage
+    std::vector<T> A_dense(m * n, 0.0);
+    T* Eye = new T[n * n]();
+    RandLAPACK::util::eye(n, n, Eye);
+    A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            m, n, n, (T)1.0, Eye, n, (T)0.0, A_dense.data(), m);
+    delete[] Eye;
+
+    // Compute singular values only (no U or V) via divide-and-conquer
+    std::vector<T> sigma(n);
+    lapack::gesdd(lapack::Job::NoVec,
+                  m, n, A_dense.data(), m, sigma.data(),
+                  nullptr, 1, nullptr, 1);
+
+    T cond = sigma[0] / sigma[n - 1];
+    printf("  Condition number: %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
+           (double)cond, (double)sigma[0], (double)sigma[n - 1]);
+    return cond;
 }
 
 // File-input entry point: loads a Matrix Market file, then runs algorithms.
@@ -448,10 +469,10 @@ template <typename T, typename RNG>
 static std::vector<scaling_result<T>> run_single_test_from_file(
     const std::string& filename,
     T d_factor,
-    bool use_dense_sketch,
     int64_t block_size,
     int64_t sketch_nnz,
     int64_t num_runs,
+    bool compute_cond,
     RandBLAS::RNGState<RNG>& state) {
 
     // Pre-generate per-run RNG states
@@ -470,9 +491,14 @@ static std::vector<scaling_result<T>> run_single_test_from_file(
     RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
 
-    T nan_cond = std::numeric_limits<T>::quiet_NaN();
-    return run_algorithms(A_linop, m, n, nan_cond, actual_density, d_factor,
-                          use_dense_sketch, block_size, sketch_nnz, num_runs, run_states);
+    T cond_num = std::numeric_limits<T>::quiet_NaN();
+    if (compute_cond) {
+        printf("Computing condition number via SVD (%ld x %ld)...\n", m, n);
+        cond_num = compute_condition_number<T>(A_linop, m, n);
+    }
+
+    return run_algorithms(A_linop, m, n, cond_num, actual_density, d_factor,
+                          block_size, sketch_nnz, num_runs, run_states);
 }
 
 // Forward declarations for shared helpers (defined below run_benchmark)
@@ -485,7 +511,7 @@ static void print_console_summary(
     const std::vector<scaling_result<T>>& all_runs, int64_t num_runs, int64_t n);
 static void write_csv_headers(
     std::ofstream& out, std::ofstream& breakdown,
-    const std::string& precision, double d_factor, bool use_dense_sketch,
+    const std::string& precision, double d_factor,
     int64_t sketch_nnz, int64_t block_size, int64_t num_runs, int num_threads,
     const std::string& extra_comment);
 static void prepend_runtime(const std::string& filepath, double seconds);
@@ -493,9 +519,9 @@ static void prepend_runtime(const std::string& filepath, double seconds);
 template <typename T>
 static int run_benchmark(int argc, char *argv[]) {
 
-    if (argc < 11 || argc > 14) {
+    if (argc < 11 || argc > 13) {
         std::cerr << "Usage: " << argv[0]
-                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size]"
                   << std::endl;
         std::cerr << "\nArguments:" << std::endl;
         std::cerr << "  precision        : 'double' or 'float'" << std::endl;
@@ -508,9 +534,8 @@ static int run_benchmark(int argc, char *argv[]) {
         std::cerr << "  cond_num         : Target condition number for the sparse matrix (e.g., 1e4)" << std::endl;
         std::cerr << "  density          : Target density (e.g., 0.1); bandwidth derived as round(density*n - 1)" << std::endl;
         std::cerr << "  d_factor         : Sketching dimension factor for CQRRT_linop (e.g., 2.0)" << std::endl;
-        std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 5)" << std::endl;
+        std::cerr << "  sketch_nnz       : (Optional) Nonzeros per column in SASO sketch (default: 4)" << std::endl;
         std::cerr << "  block_size       : (Optional) Column-block size for CQRRT_linop/CholQR/sCholQR3 Gram (0 = full, default: 0)" << std::endl;
-        std::cerr << "  use_dense_sketch : (Optional) 1 = dense Gaussian sketch, 0 = SASO (default: 0)" << std::endl;
         std::cerr << "\nExample:" << std::endl;
         std::cerr << "  " << argv[0] << " double ./output 30 3 1000 30000 100 1e9 0.05 2.0 4 100" << std::endl;
         std::cerr << "  (Tests 30 matrices from 1000x10 to 30000x300, aspect ratio 100:1, κ=1e9, density≈0.05, 3 runs each)" << std::endl;
@@ -533,7 +558,6 @@ static int run_benchmark(int argc, char *argv[]) {
     // is needed for reliable SASO sketching (nnz=2 causes sporadic spikes).
     int64_t sketch_nnz = (argc >= 12) ? std::stol(argv[11]) : 4;
     int64_t block_size = (argc >= 13) ? std::stol(argv[12]) : 0;
-    bool use_dense_sketch = (argc >= 14) ? (std::stoi(argv[13]) != 0) : false;
 
     auto benchmark_start = steady_clock::now();
 
@@ -565,7 +589,6 @@ static int run_benchmark(int argc, char *argv[]) {
     printf("Condition number: %.2e\n", cond_num);
     printf("Target density: %.3f\n", density);
     printf("d_factor (CQRRT_linop): %.2f\n", d_factor);
-    printf("Sketch type (CQRRT_linop): %s\n", use_dense_sketch ? "dense Gaussian" : "SASO");
     printf("Sketch nnz (CQRRT_linop): %ld\n", sketch_nnz);
     printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Runs per size: %ld\n", num_runs);
@@ -585,7 +608,7 @@ static int run_benchmark(int argc, char *argv[]) {
     extra << "# Fixed aspect ratio: " << aspect_ratio << ":1\n"
           << "# Condition number: " << cond_num << "\n"
           << "# Target density: " << density << "\n";
-    write_csv_headers(out, breakdown, precision, d_factor, use_dense_sketch,
+    write_csv_headers(out, breakdown, precision, d_factor,
                       sketch_nnz, block_size, num_runs, num_threads, extra.str());
 
     // Warmup run to trigger library initialization (MKL thread pools, memory allocators, etc.)
@@ -595,7 +618,7 @@ static int run_benchmark(int argc, char *argv[]) {
         int64_t warmup_m = sizes[0].first;
         int64_t warmup_n = sizes[0].second;
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
-        run_single_test<T>(warmup_m, warmup_n, (T)cond_num, (T)density, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, 1, warmup_state);
+        run_single_test<T>(warmup_m, warmup_n, (T)cond_num, (T)density, (T)d_factor, block_size, sketch_nnz, 1, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
     }
 
@@ -606,7 +629,7 @@ static int run_benchmark(int argc, char *argv[]) {
         printf("Testing %ld x %ld (aspect ratio %.1f) [%zu/%zu]...\n",
                m, n, static_cast<double>(m) / n, i + 1, sizes.size());
 
-        auto all_runs = run_single_test<T>(m, n, (T)cond_num, (T)density, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, num_runs, state);
+        auto all_runs = run_single_test<T>(m, n, (T)cond_num, (T)density, (T)d_factor, block_size, sketch_nnz, num_runs, state);
 
         print_console_summary(all_runs, num_runs, n);
         write_results_to_csv(all_runs, num_runs, out, breakdown);
@@ -741,7 +764,7 @@ static void print_console_summary(
 // Write CSV headers shared by both modes
 static void write_csv_headers(
     std::ofstream& out, std::ofstream& breakdown,
-    const std::string& precision, double d_factor, bool use_dense_sketch,
+    const std::string& precision, double d_factor,
     int64_t sketch_nnz, int64_t block_size, int64_t num_runs, int num_threads,
     const std::string& extra_comment) {
 
@@ -749,7 +772,6 @@ static void write_csv_headers(
     out << "# Precision: " << precision << "\n";
     if (!extra_comment.empty()) out << extra_comment;
     out << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
-    out << "# sketch_type (CQRRT_linop only): " << (use_dense_sketch ? "dense Gaussian" : "SASO") << "\n";
     out << "# sketch_nnz (CQRRT_linop only): " << sketch_nnz << "\n";
     out << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     out << "# num_runs: " << num_runs << "\n";
@@ -769,7 +791,6 @@ static void write_csv_headers(
     breakdown << "# Precision: " << precision << "\n";
     if (!extra_comment.empty()) breakdown << extra_comment;
     breakdown << "# d_factor (CQRRT_linop only): " << d_factor << "\n";
-    breakdown << "# sketch_type (CQRRT_linop only): " << (use_dense_sketch ? "dense Gaussian" : "SASO") << "\n";
     breakdown << "# sketch_nnz (CQRRT_linop only): " << sketch_nnz << "\n";
     breakdown << "# block_size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
     breakdown << "# num_runs: " << num_runs << "\n";
@@ -809,7 +830,7 @@ static void prepend_runtime(const std::string& filepath, double seconds) {
 // File-input mode: benchmark a single external Matrix Market matrix
 template <typename T>
 static int run_benchmark_from_file(int argc, char *argv[]) {
-    // Args: <precision> <output_dir> <num_runs> <input_file> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]
+    // Args: <precision> <output_dir> <num_runs> <input_file> <d_factor> [sketch_nnz] [block_size] [compute_cond]
     std::string precision = argv[1];
     std::string output_dir = argv[2];
     int64_t num_runs = std::stol(argv[3]);
@@ -817,7 +838,7 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     double d_factor = std::stod(argv[5]);
     int64_t sketch_nnz = (argc >= 7) ? std::stol(argv[6]) : 4;
     int64_t block_size = (argc >= 8) ? std::stol(argv[7]) : 0;
-    bool use_dense_sketch = (argc >= 9) ? (std::stoi(argv[8]) != 0) : false;
+    bool compute_cond = (argc >= 9) ? (std::stoi(argv[8]) != 0) : false;
 
     auto benchmark_start = steady_clock::now();
 
@@ -832,9 +853,9 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     printf("Precision: %s\n", precision.c_str());
     printf("Input file: %s\n", input_file.c_str());
     printf("d_factor (CQRRT_linop): %.2f\n", d_factor);
-    printf("Sketch type (CQRRT_linop): %s\n", use_dense_sketch ? "dense Gaussian" : "SASO");
     printf("Sketch nnz (CQRRT_linop): %ld\n", sketch_nnz);
     printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
+    printf("Compute condition number: %s\n", compute_cond ? "yes" : "no");
     printf("Runs: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
     printf("=====================================\n\n");
@@ -855,20 +876,20 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     std::ofstream breakdown(breakdown_file);
 
     std::string extra_comment = "# Input file: " + input_file + "\n";
-    write_csv_headers(out, breakdown, precision, d_factor, use_dense_sketch,
+    write_csv_headers(out, breakdown, precision, d_factor,
                       sketch_nnz, block_size, num_runs, num_threads, extra_comment);
 
     // Warmup run with a small synthetic matrix
     {
         printf("Performing warmup run (not reported)...\n");
         auto warmup_state = state;
-        run_single_test<T>(1000, 50, (T)1e4, (T)0.1, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, 1, warmup_state);
+        run_single_test<T>(1000, 50, (T)1e4, (T)0.1, (T)d_factor, block_size, sketch_nnz, 1, warmup_state);
         printf("Warmup complete, starting measurements.\n\n");
     }
 
     // Run benchmark on the file-loaded matrix
     printf("Loading matrix from %s...\n", input_file.c_str());
-    auto all_runs = run_single_test_from_file<T>(input_file, (T)d_factor, use_dense_sketch, block_size, sketch_nnz, num_runs, state);
+    auto all_runs = run_single_test_from_file<T>(input_file, (T)d_factor, block_size, sketch_nnz, num_runs, compute_cond, state);
 
     int64_t m = all_runs[0].m;
     int64_t n = all_runs[0].n;
@@ -897,24 +918,26 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
     // Detect mode from argument count:
-    //   File-input mode: 6-9 args (precision, output_dir, num_runs, input_file, d_factor, [sketch_nnz], [block_size], [use_dense_sketch])
-    //   Generate mode:  11-14 args (precision, output_dir, num_sizes, num_runs, m_start, m_end, aspect_ratio, cond_num, density, d_factor, ...)
+    //   File-input mode: 6-9 args (precision, output_dir, num_runs, input_file, d_factor, [sketch_nnz], [block_size], [compute_cond])
+    //   Generate mode:  11-13 args (precision, output_dir, num_sizes, num_runs, m_start, m_end, aspect_ratio, cond_num, density, d_factor, [sketch_nnz], [block_size])
     bool is_file_mode = (argc >= 6 && argc <= 9);
-    bool is_generate_mode = (argc >= 11 && argc <= 14);
+    bool is_generate_mode = (argc >= 11 && argc <= 13);
 
     if (!is_file_mode && !is_generate_mode) {
         std::cerr << "Usage (generate mode):" << std::endl;
         std::cerr << "  " << argv[0]
-                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << " <precision> <output_dir> <num_sizes> <num_runs> <m_start> <m_end> <aspect_ratio> <cond_num> <density> <d_factor> [sketch_nnz] [block_size]"
                   << std::endl;
         std::cerr << "\nUsage (file-input mode):" << std::endl;
         std::cerr << "  " << argv[0]
-                  << " <precision> <output_dir> <num_runs> <input_file.mtx> <d_factor> [sketch_nnz] [block_size] [use_dense_sketch]"
+                  << " <precision> <output_dir> <num_runs> <input_file.mtx> <d_factor> [sketch_nnz] [block_size] [compute_cond]"
                   << std::endl;
-        std::cerr << "\n  precision: 'double' or 'float'" << std::endl;
+        std::cerr << "\n  precision    : 'double' or 'float'" << std::endl;
+        std::cerr << "  compute_cond : (Optional, file mode only) 1 = compute condition number via SVD (default: 0)" << std::endl;
         std::cerr << "\nExamples:" << std::endl;
-        std::cerr << "  " << argv[0] << " double ./output 50 3 500 10000 20 1e4 0.1 2.0" << std::endl;
+        std::cerr << "  " << argv[0] << " double ./output 30 3 1000 30000 100 1e9 0.05 2.0 4 100" << std::endl;
         std::cerr << "  " << argv[0] << " double ./output 3 ./matrix.mtx 2.0" << std::endl;
+        std::cerr << "  " << argv[0] << " double ./output 3 ./matrix.mtx 2.0 4 0 1  # with condition number" << std::endl;
         return 1;
     }
 
