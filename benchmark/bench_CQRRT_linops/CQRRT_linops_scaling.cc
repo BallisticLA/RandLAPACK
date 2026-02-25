@@ -189,7 +189,8 @@ static std::vector<scaling_result<T>> run_algorithms(
     int64_t block_size,
     int64_t sketch_nnz,
     int64_t num_runs,
-    std::vector<RandBLAS::RNGState<RNG>>& run_states) {
+    std::vector<RandBLAS::RNGState<RNG>>& run_states,
+    bool skip_dense) {
 
     std::vector<scaling_result<T>> results(num_runs);
     for (int64_t r = 0; r < num_runs; ++r) {
@@ -341,7 +342,8 @@ static std::vector<scaling_result<T>> run_algorithms(
     // Run CQRRT_expl (materialize operator, then call rl_cqrrt) - multiple runs
     // ============================================================
     // Peak RSS with compute_Q=true is correct: Q overwrites A_materialized in-place (no extra allocation).
-    {
+    // Skipped when skip_dense=true (e.g., for large file-input matrices where m*n dense doesn't fit in memory).
+    if (!skip_dense) {
         for (int64_t run = 0; run < num_runs; ++run) {
             RandLAPACK::PeakRSSTracker dense_mem;
             dense_mem.start();
@@ -391,7 +393,7 @@ static std::vector<scaling_result<T>> run_algorithms(
                                  results[run].dense_cqrrt.is_orthonormal,
                                  results[run].dense_cqrrt.max_orth_cols);
         }
-    }
+    } // if (!skip_dense)
 
     // Compute analytical peak working memory for each algorithm (same for all runs)
     long cqrrt_akb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
@@ -436,7 +438,7 @@ static std::vector<scaling_result<T>> run_single_test(
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
 
     return run_algorithms(A_linop, m, n, cond_num, actual_density, d_factor,
-                          block_size, sketch_nnz, num_runs, run_states);
+                          block_size, sketch_nnz, num_runs, run_states, false);
 }
 
 // Compute the 2-norm condition number of a sparse linear operator by
@@ -473,6 +475,7 @@ static std::vector<scaling_result<T>> run_single_test_from_file(
     int64_t sketch_nnz,
     int64_t num_runs,
     bool compute_cond,
+    bool skip_dense,
     RandBLAS::RNGState<RNG>& state) {
 
     // Pre-generate per-run RNG states
@@ -498,7 +501,7 @@ static std::vector<scaling_result<T>> run_single_test_from_file(
     }
 
     return run_algorithms(A_linop, m, n, cond_num, actual_density, d_factor,
-                          block_size, sketch_nnz, num_runs, run_states);
+                          block_size, sketch_nnz, num_runs, run_states, skip_dense);
 }
 
 // Forward declarations for shared helpers (defined below run_benchmark)
@@ -830,7 +833,7 @@ static void prepend_runtime(const std::string& filepath, double seconds) {
 // File-input mode: benchmark a single external Matrix Market matrix
 template <typename T>
 static int run_benchmark_from_file(int argc, char *argv[]) {
-    // Args: <precision> <output_dir> <num_runs> <input_file> <d_factor> [sketch_nnz] [block_size] [compute_cond]
+    // Args: <precision> <output_dir> <num_runs> <input_file> <d_factor> [sketch_nnz] [block_size] [compute_cond] [skip_dense]
     std::string precision = argv[1];
     std::string output_dir = argv[2];
     int64_t num_runs = std::stol(argv[3]);
@@ -839,6 +842,7 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     int64_t sketch_nnz = (argc >= 7) ? std::stol(argv[6]) : 4;
     int64_t block_size = (argc >= 8) ? std::stol(argv[7]) : 0;
     bool compute_cond = (argc >= 9) ? (std::stoi(argv[8]) != 0) : false;
+    bool skip_dense = (argc >= 10) ? (std::stoi(argv[9]) != 0) : false;
 
     auto benchmark_start = steady_clock::now();
 
@@ -856,6 +860,7 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     printf("Sketch nnz (CQRRT_linop): %ld\n", sketch_nnz);
     printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
     printf("Compute condition number: %s\n", compute_cond ? "yes" : "no");
+    printf("Skip dense CQRRT: %s\n", skip_dense ? "yes" : "no");
     printf("Runs: %ld\n", num_runs);
     printf("OpenMP threads: %d\n", num_threads);
     printf("=====================================\n\n");
@@ -889,7 +894,7 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
 
     // Run benchmark on the file-loaded matrix
     printf("Loading matrix from %s...\n", input_file.c_str());
-    auto all_runs = run_single_test_from_file<T>(input_file, (T)d_factor, block_size, sketch_nnz, num_runs, compute_cond, state);
+    auto all_runs = run_single_test_from_file<T>(input_file, (T)d_factor, block_size, sketch_nnz, num_runs, compute_cond, skip_dense, state);
 
     int64_t m = all_runs[0].m;
     int64_t n = all_runs[0].n;
@@ -918,9 +923,9 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
     // Detect mode from argument count:
-    //   File-input mode: 6-9 args (precision, output_dir, num_runs, input_file, d_factor, [sketch_nnz], [block_size], [compute_cond])
+    //   File-input mode: 6-10 args (precision, output_dir, num_runs, input_file, d_factor, [sketch_nnz], [block_size], [compute_cond], [skip_dense])
     //   Generate mode:  11-13 args (precision, output_dir, num_sizes, num_runs, m_start, m_end, aspect_ratio, cond_num, density, d_factor, [sketch_nnz], [block_size])
-    bool is_file_mode = (argc >= 6 && argc <= 9);
+    bool is_file_mode = (argc >= 6 && argc <= 10);
     bool is_generate_mode = (argc >= 11 && argc <= 13);
 
     if (!is_file_mode && !is_generate_mode) {
@@ -930,14 +935,15 @@ int main(int argc, char *argv[]) {
                   << std::endl;
         std::cerr << "\nUsage (file-input mode):" << std::endl;
         std::cerr << "  " << argv[0]
-                  << " <precision> <output_dir> <num_runs> <input_file.mtx> <d_factor> [sketch_nnz] [block_size] [compute_cond]"
+                  << " <precision> <output_dir> <num_runs> <input_file.mtx> <d_factor> [sketch_nnz] [block_size] [compute_cond] [skip_dense]"
                   << std::endl;
         std::cerr << "\n  precision    : 'double' or 'float'" << std::endl;
         std::cerr << "  compute_cond : (Optional, file mode only) 1 = compute condition number via SVD (default: 0)" << std::endl;
+        std::cerr << "  skip_dense   : (Optional, file mode only) 1 = skip dense CQRRT_expl (default: 0)" << std::endl;
         std::cerr << "\nExamples:" << std::endl;
         std::cerr << "  " << argv[0] << " double ./output 30 3 1000 30000 100 1e9 0.05 2.0 4 100" << std::endl;
         std::cerr << "  " << argv[0] << " double ./output 3 ./matrix.mtx 2.0" << std::endl;
-        std::cerr << "  " << argv[0] << " double ./output 3 ./matrix.mtx 2.0 4 0 1  # with condition number" << std::endl;
+        std::cerr << "  " << argv[0] << " double ./output 3 ./matrix.mtx 2.0 4 0 1 1  # with cond number, skip dense" << std::endl;
         return 1;
     }
 
