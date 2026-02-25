@@ -1122,7 +1122,7 @@ public:
         // spgemm supports op(A) * B (opA only), so we can use it when trans_B == NoTrans.
         #if defined(RandBLAS_HAS_MKL)
         if (trans_B == Op::NoTrans) {
-            RandBLAS::spgemm(layout, trans_A, m, n, k, alpha, A_sp, B_sp, beta, C, ldc);
+            RandBLAS::spgemm(layout, trans_A, alpha, A_sp, B_sp, beta, C, ldc);
             return;
         }
         #endif
@@ -1194,7 +1194,7 @@ public:
             // (B_sp is first arg with opA=trans_B, A_sp is second arg with no op).
             #if defined(RandBLAS_HAS_MKL)
             if (trans_A == Op::NoTrans) {
-                RandBLAS::spgemm(layout, trans_B, m, n, k, alpha, B_sp, A_sp, beta, C, ldc);
+                RandBLAS::spgemm(layout, trans_B, alpha, B_sp, A_sp, beta, C, ldc);
                 return;
             }
             #endif
@@ -1311,7 +1311,7 @@ public:
                     randblas_require(cols_A == n_cols);
                     if (layout == Layout::ColMajor) randblas_require(ldc >= m);
                     else randblas_require(ldc >= n);
-                    RandBLAS::spgemm(layout, trans_A, m, n, k, alpha, A_sp, S_coo, beta, C, ldc);
+                    RandBLAS::spgemm(layout, trans_A, alpha, A_sp, S_coo, beta, C, ldc);
                     return;
                 }
                 if (side == Side::Right && trans_A == Op::NoTrans) {
@@ -1321,7 +1321,7 @@ public:
                     randblas_require(cols_A == n_cols);
                     if (layout == Layout::ColMajor) randblas_require(ldc >= m);
                     else randblas_require(ldc >= n);
-                    RandBLAS::spgemm(layout, trans_S, m, n, k, alpha, S_coo, A_sp, beta, C, ldc);
+                    RandBLAS::spgemm(layout, trans_S, alpha, S_coo, A_sp, beta, C, ldc);
                     return;
                 }
             }
