@@ -232,11 +232,17 @@ fi
 echo "RandLAPACK configured and built successfully"
 echo ""
 
+# If GPU support is disabled, prevent demos and benchmarks from auto-detecting CUDA
+DISABLE_CUDA_FLAG=""
+if [[ "$RANDLAPACK_CUDA" == "OFF" ]]; then
+    DISABLE_CUDA_FLAG="-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE"
+fi
+
 # Configure and build RandLAPACK-demos
 echo "=========================================="
 echo "Configuring and building RandLAPACK demos..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/demos/ -B $RANDNLA_PROJECT_DIR/build/demos-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR"
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/demos/ -B $RANDNLA_PROJECT_DIR/build/demos-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK demos configuration failed!"
     exit 1
@@ -253,7 +259,7 @@ echo ""
 echo "=========================================="
 echo "Configuring and building RandLAPACK benchmarks..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR"
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK benchmarks configuration failed!"
     exit 1
