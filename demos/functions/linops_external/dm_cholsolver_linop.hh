@@ -16,11 +16,16 @@
 
 namespace RandLAPACK_demos {
 
-/// Linear operator representing A^{-1} for a sparse symmetric positive definite matrix A
-/// loaded from a Matrix Market file.
+/// Linear operator representing A^{-1} (or L^{-1} in half-solve mode) for a sparse
+/// symmetric positive definite matrix A loaded from a Matrix Market file.
 ///
-/// The inverse is applied via sparse Cholesky factorization (A = L * L^T):
+/// Full-solve mode (default):
 ///   A^{-1} * x = L^{-T} * L^{-1} * x  (forward then backward substitution).
+///
+/// Half-solve mode (half_solve=true):
+///   L^{-1} * x  (forward substitution only).
+///   This is useful for generalized least-squares and generalized SVD problems where
+///   the problem reduces to Q-less QR of L^{-1}V, with LL^T = K.
 ///
 /// Eigen computes the Cholesky factorization; the L factor is then extracted and all
 /// subsequent triangular solves use RandBLAS sparse TRSM for bulk multi-column solves.
@@ -31,14 +36,14 @@ namespace RandLAPACK_demos {
 ///
 /// Operator dispatch summary:
 ///
-///   A^{-1} is ALWAYS applied via sparse L factor (RandBLAS sparse TRSM).
+///   The inverse is ALWAYS applied via sparse L factor (RandBLAS sparse TRSM).
 ///   There is no dense L path -- A is loaded from a sparse Matrix Market file.
 ///
 ///   The B input determines which operator() overload is called:
 ///
 ///   1. Dense B (const T* B):
-///      Core implementation. Copies op(B) into a work buffer, applies two sparse
-///      TRSMs (forward and backward substitution with L), then accumulates into C.
+///      Core implementation. Copies op(B) into a work buffer, applies sparse
+///      TRSMs (one for half-solve, two for full-solve), then accumulates into C.
 ///
 ///   2. Sparse B (SpMatB& B_sp, e.g., CSCMatrix or COOMatrix):
 ///      Densifies B first, then delegates to the dense B operator.
@@ -60,6 +65,10 @@ struct CholSolverLinOp {
     const int64_t n_cols;
     std::string matrix_file;
 
+    /// When true, applies only L^{-1} (forward substitution) instead of
+    /// A^{-1} = L^{-T} L^{-1} (forward + backward substitution).
+    bool half_solve;
+
     /// Eigen sparse Cholesky solver configured with natural ordering (no fill-reducing
     /// permutations), which is required for CQRRT compatibility.
     Eigen::SimplicialLLT<Eigen::SparseMatrix<T>, Eigen::Lower, Eigen::NaturalOrdering<int>> chol_solver;
@@ -73,11 +82,15 @@ struct CholSolverLinOp {
 
     /// Constructor: reads dimensions from the Matrix Market file header.
     /// The matrix data is NOT loaded until factorize() is called (lazy initialization).
+    /// @param half_solve  If true, applies L^{-1} only (forward substitution).
+    ///                    If false (default), applies A^{-1} = L^{-T} L^{-1}.
     CholSolverLinOp(
-        const std::string& filename
+        const std::string& filename,
+        bool half_solve = false
     ) : n_rows(read_matrix_dimension(filename, 0)),
         n_cols(read_matrix_dimension(filename, 1)),
         matrix_file(filename),
+        half_solve(half_solve),
         factorization_done(false) {
         randblas_require(n_rows == n_cols); // Must be square for Cholesky
     }
@@ -268,18 +281,25 @@ public:
     }
 
     /// Dense operator (Side version):
-    ///   Side::Left:  C := alpha * A^{-1} * op(B) + beta * C
-    ///   Side::Right: C := alpha * op(B) * (first n cols of A^{-1}) + beta * C
+    ///   Full-solve (half_solve=false):
+    ///     Side::Left:  C := alpha * A^{-1} * op(B) + beta * C
+    ///     Side::Right: C := alpha * op(B) * (first n cols of A^{-1}) + beta * C
+    ///   Half-solve (half_solve=true):
+    ///     Side::Left:  C := alpha * L^{-1} * op(B) + beta * C
+    ///     Side::Right: C := alpha * op(B) * L^{-1} + beta * C
     ///
-    /// For SPD matrices, A^T = A, so trans_A is accepted but has no effect.
+    /// For SPD matrices, A^{-T} = A^{-1}, so trans_A has no effect in full-solve mode.
+    /// In half_solve mode, trans_A matters: NoTrans → L^{-1}, Trans → L^{-T}.
     ///
-    /// A^{-1} is applied via two sparse triangular solves with Cholesky factor L:
+    /// Full-solve uses two sparse triangular solves with Cholesky factor L:
     ///   1. Forward substitution:  solve L * y = x      (Op::NoTrans on lower-triangular L)
     ///   2. Backward substitution: solve L^T * z = y    (Op::Trans on lower-triangular L)
+    /// Half-solve uses only step 1.
     ///
     /// @param side     Left or Right multiplication by A^{-1}.
     /// @param layout   ColMajor or RowMajor storage for B and C.
-    /// @param trans_A  Transpose on A^{-1} (no effect since A is SPD).
+    /// @param trans_A  Transpose on the operator: NoTrans → L^{-1} (half) or A^{-1} (full),
+    ///                 Trans → L^{-T} (half) or A^{-1} (full, no effect since SPD).
     /// @param trans_B  Whether to use B or B^T.
     /// @param m        Number of rows of C.
     /// @param n        Number of columns of C.
@@ -347,14 +367,26 @@ public:
             // Flip layout so TRSM interprets W as op(B)^T (k x m).
             auto flipped = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
             auto L_csc = make_L_csc();
-            // Forward substitution: W := L^{-1} * op(B)^T  (in flipped layout)
-            RandBLAS::sparse_data::trsm(flipped, Op::NoTrans, (T)1.0, L_csc,
-                                        Uplo::Lower, Diag::NonUnit, m, W, ldw);
-            // Backward substitution: W := L^{-T} * W = A^{-1} * op(B)^T  (in flipped layout)
-            RandBLAS::sparse_data::trsm(flipped, Op::Trans, (T)1.0, L_csc,
-                                        Uplo::Lower, Diag::NonUnit, m, W, ldw);
+            if (half_solve) {
+                // Half-solve Side::Right:
+                // NoTrans: want op(B) * L^{-1}. In flipped layout, use Op::Trans
+                //   → L^{-T} in flipped, reinterprets as (L^{-T})^T = L^{-1} on right.
+                // Trans: want op(B) * L^{-T}. In flipped layout, use Op::NoTrans
+                //   → L^{-1} in flipped, reinterprets as (L^{-1})^T = L^{-T} on right.
+                Op trsm_op = (trans_A == Op::Trans) ? Op::NoTrans : Op::Trans;
+                RandBLAS::sparse_data::trsm(flipped, trsm_op, (T)1.0, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, m, W, ldw);
+            } else {
+                // Full-solve Side::Right: op(B) * A^{-1} = op(B) * L^{-T} L^{-1}.
+                // Forward substitution: W := L^{-1} * op(B)^T  (in flipped layout)
+                RandBLAS::sparse_data::trsm(flipped, Op::NoTrans, (T)1.0, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, m, W, ldw);
+                // Backward substitution: W := L^{-T} * W = A^{-1} * op(B)^T  (in flipped layout)
+                RandBLAS::sparse_data::trsm(flipped, Op::Trans, (T)1.0, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, m, W, ldw);
+            }
 
-            // In the caller's layout, W now holds op(B) * A^{-1} (m x k).
+            // In the caller's layout, W now holds op(B) * L^{-1} (half) or op(B) * A^{-1} (full).
             // Accumulate the first n columns into C (m x n), since n <= k.
             accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
             delete[] W;
@@ -382,13 +414,20 @@ public:
             // Avoids allocating a separate k x n work buffer.
             copy_op_B(layout, trans_B, k, n, B, ldb, C, ldc);
 
-            // Forward substitution: C := L^{-1} * op(B)
-            RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
-                                        Uplo::Lower, Diag::NonUnit, n, C, ldc);
-
-            // Backward substitution with alpha: C := alpha * A^{-1} * op(B)
-            RandBLAS::sparse_data::trsm(layout, Op::Trans, alpha, L_csc,
-                                        Uplo::Lower, Diag::NonUnit, n, C, ldc);
+            if (half_solve) {
+                // Half-solve: apply L^{-1} (NoTrans) or L^{-T} (Trans).
+                Op trsm_op = (trans_A == Op::Trans) ? Op::Trans : Op::NoTrans;
+                RandBLAS::sparse_data::trsm(layout, trsm_op, alpha, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, n, C, ldc);
+            } else {
+                // Full-solve: C := alpha * A^{-1} * op(B) = alpha * L^{-T} L^{-1} * op(B).
+                // Forward substitution: C := L^{-1} * op(B)
+                RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, n, C, ldc);
+                // Backward substitution with alpha: C := alpha * L^{-T} * C
+                RandBLAS::sparse_data::trsm(layout, Op::Trans, alpha, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, n, C, ldc);
+            }
         } else {
             // General path: allocate W, TRSM on W, accumulate into C.
             int64_t ldw = (layout == Layout::ColMajor) ? k : n;
@@ -396,13 +435,20 @@ public:
 
             copy_op_B(layout, trans_B, k, n, B, ldb, W, ldw);
 
-            // Forward substitution: W := L^{-1} * op(B)
-            RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
-                                        Uplo::Lower, Diag::NonUnit, n, W, ldw);
-
-            // Backward substitution: W := L^{-T} * W = A^{-1} * op(B)
-            RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
-                                        Uplo::Lower, Diag::NonUnit, n, W, ldw);
+            if (half_solve) {
+                // Half-solve: apply L^{-1} (NoTrans) or L^{-T} (Trans).
+                Op trsm_op = (trans_A == Op::Trans) ? Op::Trans : Op::NoTrans;
+                RandBLAS::sparse_data::trsm(layout, trsm_op, (T)1.0, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, n, W, ldw);
+            } else {
+                // Full-solve: W := A^{-1} * op(B) = L^{-T} L^{-1} * op(B).
+                // Forward substitution: W := L^{-1} * op(B)
+                RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, n, W, ldw);
+                // Backward substitution: W := L^{-T} * W
+                RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
+                                            Uplo::Lower, Diag::NonUnit, n, W, ldw);
+            }
 
             // C := beta * C + alpha * W
             accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);

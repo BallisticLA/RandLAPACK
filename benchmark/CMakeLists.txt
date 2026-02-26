@@ -180,6 +180,8 @@ add_benchmark(NAME generate_dense_spd         CXX_SOURCES bench_CQRRT_linops/gen
 add_benchmark(NAME generate_sparse_spd        CXX_SOURCES bench_CQRRT_linops/generate_sparse_spd.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME verify_spd_generation      CXX_SOURCES bench_CQRRT_linops/verify_spd_generation.cc      LINK_LIBS ${Benchmark_libs_external})
 
+add_benchmark(NAME GSVD_benchmark             CXX_SOURCES bench_CQRRT_linops/GSVD_benchmark.cc        LINK_LIBS ${Benchmark_libs_external})
+
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)
     message(STATUS "Building GPU benchmarks...")
