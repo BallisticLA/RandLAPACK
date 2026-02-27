@@ -588,19 +588,75 @@ public:
 
             if (trans_A == Op::NoTrans) {
                 // C = alpha * op(S) * (LinOp1 * LinOp2) + beta * C
-                // Strategy: temp = op(S) * LinOp1, then C = alpha * temp * LinOp2 + beta * C
-                int64_t temp_cols = left_op.n_cols;
-                T* temp = new T[m * temp_cols]();
-                int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
+                //
+                // Default strategy: temp = op(S) * LinOp1, then C = temp * LinOp2.
+                //   Requires materializing S when LinOp1 is an implicit inverse (e.g., CholSolverLinOp).
+                //
+                // Blocked strategy (when n < left_op.n_cols):
+                //   Process LinOp2's columns in blocks of size b from right to left:
+                //     V_block = LinOp2 * I[:, j:j+b]    →  m_inner × b  dense
+                //     W       = LinOp1 * V_block         →  n_rows  × b  (TRSM with b cols)
+                //     C[:, j:j+b] = alpha * op(S) * W + beta * C[:, j:j+b]   (sketch_general)
+                //   Avoids materializing S (sketch_general handles sparse S natively).
+                //   TRSM columns: n instead of d ≈ 2n.
+                //   Working memory: O(m_inner * b) instead of O(m * left_op.n_cols).
 
-                // Step 1: temp = op(S) * LinOp1, dimension (m × left_op.n_cols)
-                left_op(Side::Right, layout, Op::NoTrans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
+                bool use_blocked = (n < left_op.n_cols);
 
-                // Step 2: C = alpha * temp * LinOp2 + beta * C
-                // temp is (m × left_op.n_cols), LinOp2 is (left_op.n_cols × n_cols)
-                right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
+                if (use_blocked && layout == Layout::ColMajor) {
+                    constexpr int64_t block_size = 64;
+                    int64_t m_inner = right_op.n_rows;  // = left_op.n_cols
 
-                delete[] temp;
+                    // Pre-allocate reusable buffers (max block size)
+                    int64_t b_max = std::min(block_size, n);
+                    T* eye_block = new T[n_cols * b_max]();
+                    T* V_block   = new T[m_inner * b_max]();
+                    T* W         = new T[left_op.n_rows * b_max]();
+
+                    for (int64_t j = 0; j < n; j += block_size) {
+                        int64_t b = std::min(block_size, n - j);
+
+                        // Build identity submatrix for columns [j, j+b) of LinOp2
+                        std::fill_n(eye_block, n_cols * b, (T)0.0);
+                        for (int64_t i = 0; i < b; ++i)
+                            eye_block[(j + i) + i * n_cols] = (T)1.0;  // ColMajor: col i, row (j+i)
+
+                        // Step 1: V_block = LinOp2 * I[:, j:j+b]  (extract b columns)
+                        right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                 m_inner, b, n_cols, (T)1.0, eye_block, n_cols,
+                                 (T)0.0, V_block, m_inner);
+
+                        // Step 2: W = LinOp1 * V_block  (e.g., TRSM with b columns)
+                        left_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                left_op.n_rows, b, m_inner, (T)1.0, V_block, m_inner,
+                                (T)0.0, W, left_op.n_rows);
+
+                        // Step 3: C[:, j:j+b] = alpha * op(S) * W + beta * C[:, j:j+b]
+                        T* C_col = C + j * ldc;  // ColMajor: column j starts at offset j*ldc
+                        RandBLAS::sketch_general(
+                            Layout::ColMajor, trans_S, Op::NoTrans,
+                            m, b, left_op.n_rows, alpha, S, W, left_op.n_rows,
+                            beta, C_col, ldc);
+                    }
+
+                    delete[] eye_block;
+                    delete[] V_block;
+                    delete[] W;
+
+                } else {
+                    // Original strategy (or RowMajor fallback)
+                    int64_t temp_cols = left_op.n_cols;
+                    T* temp = new T[m * temp_cols]();
+                    int64_t ldt = (layout == Layout::ColMajor) ? m : temp_cols;
+
+                    // Step 1: temp = op(S) * LinOp1, dimension (m × left_op.n_cols)
+                    left_op(Side::Right, layout, Op::NoTrans, trans_S, m, temp_cols, k, (T)1.0, S, (T)0.0, temp, ldt);
+
+                    // Step 2: C = alpha * temp * LinOp2 + beta * C
+                    right_op(Side::Right, layout, Op::NoTrans, Op::NoTrans, m, n, temp_cols, alpha, temp, ldt, beta, C, ldc);
+
+                    delete[] temp;
+                }
 
             } else {  // trans_A == Op::Trans
                 // C = alpha * op(S) * (LinOp1 * LinOp2)^T + beta * C
