@@ -362,19 +362,16 @@ static void write_breakdown_csv(
 
 template <typename T>
 static void print_summary(const std::string& alg_name, const std::vector<gsvd_result<T>>& results) {
-    std::cout << "\n  " << alg_name << ":\n";
+    printf("\n  %s:\n", alg_name.c_str());
     for (const auto& r : results) {
-        std::cout << "    Run " << r.run_idx
-                  << ": orth=" << std::scientific << std::setprecision(2) << r.orth_error
-                  << " cols=" << r.max_orth_cols
-                  << " QR=" << r.qr_time_us << "us"
-                  << " LS_err=" << std::scientific << std::setprecision(2) << r.ls_rel_error
-                  << " AppA=" << r.app_a_time_us << "us"
-                  << " AppB=" << r.app_b_time_us << "us"
-                  << " AppC=" << r.app_c_time_us << "us"
-                  << " RSS=" << r.peak_rss_kb << "KB"
-                  << " Anal=" << r.analytical_kb << "KB"
-                  << "\n";
+        printf("    Run %ld: orth_err=%.2e, max_orth=%ld/%ld, QR=%ld us\n",
+               (long)r.run_idx, (double)r.orth_error, (long)r.max_orth_cols, (long)r.n, r.qr_time_us);
+        if (r.app_a_time_us > 0 || r.ls_rel_error > 0) {
+            printf("           LS_err=%.2e, App(a)=%ld us, App(b)=%ld us, App(c)=%ld us\n",
+                   (double)r.ls_rel_error, r.app_a_time_us, r.app_b_time_us, r.app_c_time_us);
+        }
+        printf("           Memory: peak_RSS=%ld KB, predicted=%ld KB\n",
+               r.peak_rss_kb, r.analytical_kb);
     }
 }
 
