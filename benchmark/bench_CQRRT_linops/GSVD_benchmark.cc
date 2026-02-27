@@ -442,6 +442,7 @@ int run_benchmark(int argc, char* argv[]) {
     // Step 3: Form composite operator L^{-1} * V
     // ================================================================
     RandLAPACK::linops::CompositeOperator LiV_op(m, n, L_inv_op, V_linop);
+    LiV_op.sketch_block_size = block_size;
     std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n";
 
     // ================================================================

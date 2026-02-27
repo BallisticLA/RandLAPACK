@@ -107,6 +107,10 @@ public:
     LinOp1 &left_op;         // Reference to the left operator
     LinOp2 &right_op;        // Reference to the right operator
 
+    /// Block size for the parallel blocked sketch strategy.
+    /// 0 (default) disables blocking and uses the original materialization strategy.
+    int64_t sketch_block_size = 0;
+
     CompositeOperator(
         const int64_t n_rows,
         const int64_t n_cols,
@@ -601,47 +605,54 @@ public:
                 //   TRSM columns: n instead of d ≈ 2n.
                 //   Working memory: O(m_inner * b) instead of O(m * left_op.n_cols).
 
-                bool use_blocked = (n < left_op.n_cols);
+                bool use_blocked = (sketch_block_size > 0 && layout == Layout::ColMajor);
 
-                if (use_blocked && layout == Layout::ColMajor) {
-                    constexpr int64_t block_size = 64;
+                if (use_blocked) {
+                    int64_t block_size = sketch_block_size;
                     int64_t m_inner = right_op.n_rows;  // = left_op.n_cols
-
-                    // Pre-allocate reusable buffers (max block size)
+                    int64_t n_rows_left = left_op.n_rows;
                     int64_t b_max = std::min(block_size, n);
-                    T* eye_block = new T[n_cols * b_max]();
-                    T* V_block   = new T[m_inner * b_max]();
-                    T* W         = new T[left_op.n_rows * b_max]();
+                    int64_t n_blocks = (n + block_size - 1) / block_size;
 
-                    for (int64_t j = 0; j < n; j += block_size) {
-                        int64_t b = std::min(block_size, n - j);
+                    #pragma omp parallel
+                    {
+                        // Per-thread buffers
+                        T* eye_block = new T[n_cols * b_max];
+                        T* V_block   = new T[m_inner * b_max];
+                        T* W         = new T[n_rows_left * b_max];
 
-                        // Build identity submatrix for columns [j, j+b) of LinOp2
-                        std::fill_n(eye_block, n_cols * b, (T)0.0);
-                        for (int64_t i = 0; i < b; ++i)
-                            eye_block[(j + i) + i * n_cols] = (T)1.0;  // ColMajor: col i, row (j+i)
+                        #pragma omp for schedule(static)
+                        for (int64_t blk = 0; blk < n_blocks; ++blk) {
+                            int64_t j = blk * block_size;
+                            int64_t b = std::min(block_size, n - j);
 
-                        // Step 1: V_block = LinOp2 * I[:, j:j+b]  (extract b columns)
-                        right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                 m_inner, b, n_cols, (T)1.0, eye_block, n_cols,
-                                 (T)0.0, V_block, m_inner);
+                            // Build identity submatrix for columns [j, j+b) of LinOp2
+                            std::fill_n(eye_block, n_cols * b, (T)0.0);
+                            for (int64_t i = 0; i < b; ++i)
+                                eye_block[(j + i) + i * n_cols] = (T)1.0;  // ColMajor: col i, row (j+i)
 
-                        // Step 2: W = LinOp1 * V_block  (e.g., TRSM with b columns)
-                        left_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                left_op.n_rows, b, m_inner, (T)1.0, V_block, m_inner,
-                                (T)0.0, W, left_op.n_rows);
+                            // Step 1: V_block = LinOp2 * I[:, j:j+b]  (extract b columns)
+                            right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                     m_inner, b, n_cols, (T)1.0, eye_block, n_cols,
+                                     (T)0.0, V_block, m_inner);
 
-                        // Step 3: C[:, j:j+b] = alpha * op(S) * W + beta * C[:, j:j+b]
-                        T* C_col = C + j * ldc;  // ColMajor: column j starts at offset j*ldc
-                        RandBLAS::sketch_general(
-                            Layout::ColMajor, trans_S, Op::NoTrans,
-                            m, b, left_op.n_rows, alpha, S, W, left_op.n_rows,
-                            beta, C_col, ldc);
-                    }
+                            // Step 2: W = LinOp1 * V_block  (e.g., TRSM with b columns)
+                            left_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                    n_rows_left, b, m_inner, (T)1.0, V_block, m_inner,
+                                    (T)0.0, W, n_rows_left);
 
-                    delete[] eye_block;
-                    delete[] V_block;
-                    delete[] W;
+                            // Step 3: C[:, j:j+b] = alpha * op(S) * W + beta * C[:, j:j+b]
+                            T* C_col = C + j * ldc;  // ColMajor: column j starts at offset j*ldc
+                            RandBLAS::sketch_general(
+                                Layout::ColMajor, trans_S, Op::NoTrans,
+                                m, b, n_rows_left, alpha, S, W, n_rows_left,
+                                beta, C_col, ldc);
+                        }
+
+                        delete[] eye_block;
+                        delete[] V_block;
+                        delete[] W;
+                    } // end omp parallel
 
                 } else {
                     // Original strategy (or RowMajor fallback)
