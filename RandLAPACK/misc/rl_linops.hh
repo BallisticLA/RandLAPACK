@@ -612,47 +612,42 @@ public:
                     int64_t m_inner = right_op.n_rows;  // = left_op.n_cols
                     int64_t n_rows_left = left_op.n_rows;
                     int64_t b_max = std::min(block_size, n);
-                    int64_t n_blocks = (n + block_size - 1) / block_size;
 
-                    #pragma omp parallel
-                    {
-                        // Per-thread buffers
-                        T* eye_block = new T[n_cols * b_max];
-                        T* V_block   = new T[m_inner * b_max];
-                        T* W         = new T[n_rows_left * b_max];
+                    // Single set of reusable buffers — serial loop to avoid
+                    // per-thread allocation that would negate memory savings.
+                    T* eye_block = new T[n_cols * b_max];
+                    T* V_block   = new T[m_inner * b_max];
+                    T* W         = new T[n_rows_left * b_max];
 
-                        #pragma omp for schedule(static)
-                        for (int64_t blk = 0; blk < n_blocks; ++blk) {
-                            int64_t j = blk * block_size;
-                            int64_t b = std::min(block_size, n - j);
+                    for (int64_t j = 0; j < n; j += block_size) {
+                        int64_t b = std::min(block_size, n - j);
 
-                            // Build identity submatrix for columns [j, j+b) of LinOp2
-                            std::fill_n(eye_block, n_cols * b, (T)0.0);
-                            for (int64_t i = 0; i < b; ++i)
-                                eye_block[(j + i) + i * n_cols] = (T)1.0;  // ColMajor: col i, row (j+i)
+                        // Build identity submatrix for columns [j, j+b) of LinOp2
+                        std::fill_n(eye_block, n_cols * b, (T)0.0);
+                        for (int64_t i = 0; i < b; ++i)
+                            eye_block[(j + i) + i * n_cols] = (T)1.0;  // ColMajor: col i, row (j+i)
 
-                            // Step 1: V_block = LinOp2 * I[:, j:j+b]  (extract b columns)
-                            right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                     m_inner, b, n_cols, (T)1.0, eye_block, n_cols,
-                                     (T)0.0, V_block, m_inner);
+                        // Step 1: V_block = LinOp2 * I[:, j:j+b]  (extract b columns)
+                        right_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                 m_inner, b, n_cols, (T)1.0, eye_block, n_cols,
+                                 (T)0.0, V_block, m_inner);
 
-                            // Step 2: W = LinOp1 * V_block  (e.g., TRSM with b columns)
-                            left_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                                    n_rows_left, b, m_inner, (T)1.0, V_block, m_inner,
-                                    (T)0.0, W, n_rows_left);
+                        // Step 2: W = LinOp1 * V_block  (e.g., TRSM with b columns)
+                        left_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                n_rows_left, b, m_inner, (T)1.0, V_block, m_inner,
+                                (T)0.0, W, n_rows_left);
 
-                            // Step 3: C[:, j:j+b] = alpha * op(S) * W + beta * C[:, j:j+b]
-                            T* C_col = C + j * ldc;  // ColMajor: column j starts at offset j*ldc
-                            RandBLAS::sketch_general(
-                                Layout::ColMajor, trans_S, Op::NoTrans,
-                                m, b, n_rows_left, alpha, S, W, n_rows_left,
-                                beta, C_col, ldc);
-                        }
+                        // Step 3: C[:, j:j+b] = alpha * op(S) * W + beta * C[:, j:j+b]
+                        T* C_col = C + j * ldc;  // ColMajor: column j starts at offset j*ldc
+                        RandBLAS::sketch_general(
+                            Layout::ColMajor, trans_S, Op::NoTrans,
+                            m, b, n_rows_left, alpha, S, W, n_rows_left,
+                            beta, C_col, ldc);
+                    }
 
-                        delete[] eye_block;
-                        delete[] V_block;
-                        delete[] W;
-                    } // end omp parallel
+                    delete[] eye_block;
+                    delete[] V_block;
+                    delete[] W;
 
                 } else {
                     // Original strategy (or RowMajor fallback)

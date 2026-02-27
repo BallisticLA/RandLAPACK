@@ -388,7 +388,7 @@ int run_benchmark(int argc, char* argv[]) {
     if (argc < 7) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file> <V_file> <d_factor>"
-                  << " [sketch_nnz] [block_size]\n";
+                  << " [sketch_nnz] [block_size] [skip_apps]\n";
         return 1;
     }
 
@@ -399,6 +399,7 @@ int run_benchmark(int argc, char* argv[]) {
     T d_factor             = std::stod(argv[6]);
     int64_t sketch_nnz     = (argc >= 8) ? std::stol(argv[7]) : 4;
     int64_t block_size     = (argc >= 9) ? std::stol(argv[8]) : 0;
+    bool skip_apps         = (argc >= 10) ? (std::stol(argv[9]) != 0) : false;
 
     std::cout << "=== GSVD/Generalized LS Benchmark ===\n";
     std::cout << "  K file: " << K_file << "\n";
@@ -406,6 +407,7 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "  d_factor: " << d_factor << "\n";
     std::cout << "  sketch_nnz: " << sketch_nnz << "\n";
     std::cout << "  block_size: " << block_size << "\n";
+    std::cout << "  skip_apps: " << (skip_apps ? "yes" : "no") << "\n";
     std::cout << "  num_runs: " << num_runs << "\n";
     std::cout << "  OpenMP threads: " << omp_get_max_threads() << "\n\n";
 
@@ -432,9 +434,12 @@ int run_benchmark(int argc, char* argv[]) {
     auto chol_stop = steady_clock::now();
     long chol_time_us = duration_cast<microseconds>(chol_stop - chol_start).count();
 
-    // Also create full K^{-1} for App (a)
-    RandLAPACK_demos::CholSolverLinOp<T> K_inv_op(K_file, /*half_solve=*/false);
-    K_inv_op.factorize();
+    // Also create full K^{-1} for App (a) — only needed when running apps
+    std::unique_ptr<RandLAPACK_demos::CholSolverLinOp<T>> K_inv_op_ptr;
+    if (!skip_apps) {
+        K_inv_op_ptr = std::make_unique<RandLAPACK_demos::CholSolverLinOp<T>>(K_file, /*half_solve=*/false);
+        K_inv_op_ptr->factorize();
+    }
 
     std::cout << "done (" << chol_time_us << " us)\n";
 
@@ -446,22 +451,24 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n";
 
     // ================================================================
-    // Step 4: Generate synthetic RHS: b = V * x_true
+    // Step 4: Generate synthetic RHS: b = V * x_true (only when running apps)
     // ================================================================
     RandBLAS::RNGState<RNG> rng_state(42);
     std::vector<T> x_true(n);
-    {
+    std::vector<T> b(m, 0.0);
+    T x_true_norm = 0.0;
+    if (!skip_apps) {
         RandBLAS::DenseDist D(n, 1);
         auto next_state = RandBLAS::fill_dense(D, x_true.data(), rng_state);
         rng_state = next_state;
+
+        V_linop(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+                m, 1, n, (T)1.0, x_true.data(), n, (T)0.0, b.data(), m);
+
+        x_true_norm = blas::nrm2(n, x_true.data(), 1);
+        std::cout << "Generated b = V * x_true (||x_true|| = " << x_true_norm << ")\n";
     }
-
-    std::vector<T> b(m, 0.0);
-    V_linop(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-            m, 1, n, (T)1.0, x_true.data(), n, (T)0.0, b.data(), m);
-
-    T x_true_norm = blas::nrm2(n, x_true.data(), 1);
-    std::cout << "Generated b = V * x_true (||x_true|| = " << x_true_norm << ")\n\n";
+    std::cout << "\n";
 
     // ================================================================
     // Prepare RNG states for each run
@@ -525,20 +532,24 @@ int run_benchmark(int argc, char* argv[]) {
         compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
         measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
 
-        // App (a): Generalized LS
-        std::vector<T> x_computed(n, 0.0);
-        app_generalized_ls(K_inv_op, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
-        blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-        res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
+        // Applications (skippable)
+        std::vector<T> sigma_c(n, 0.0);
+        if (!skip_apps) {
+            // App (a): Generalized LS
+            std::vector<T> x_computed(n, 0.0);
+            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
+            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
+            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
 
-        // App (b): Generalized singular values
-        std::vector<T> sigma_b(n, 0.0);
-        app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
+            // App (b): Generalized singular values
+            std::vector<T> sigma_b(n, 0.0);
+            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
 
-        // App (c): Generalized singular vectors
-        std::vector<T> sigma_c(n, 0.0), V_R(n * n, 0.0), U_R(n * n, 0.0);
-        app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                              res.right_svec_orth_error, res.app_c_time_us);
+            // App (c): Generalized singular vectors
+            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
+            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
+                                  res.right_svec_orth_error, res.app_c_time_us);
+        }
 
         res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
         res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
@@ -577,20 +588,24 @@ int run_benchmark(int argc, char* argv[]) {
         compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
         measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
 
-        // App (a): Generalized LS
-        std::vector<T> x_computed(n, 0.0);
-        app_generalized_ls(K_inv_op, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
-        blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-        res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
+        // Applications (skippable)
+        std::vector<T> sigma_c(n, 0.0);
+        if (!skip_apps) {
+            // App (a): Generalized LS
+            std::vector<T> x_computed(n, 0.0);
+            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
+            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
+            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
 
-        // App (b)
-        std::vector<T> sigma_b(n, 0.0);
-        app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
+            // App (b)
+            std::vector<T> sigma_b(n, 0.0);
+            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
 
-        // App (c)
-        std::vector<T> sigma_c(n, 0.0), V_R(n * n, 0.0), U_R(n * n, 0.0);
-        app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                              res.right_svec_orth_error, res.app_c_time_us);
+            // App (c)
+            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
+            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
+                                  res.right_svec_orth_error, res.app_c_time_us);
+        }
 
         res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
         res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
@@ -629,20 +644,24 @@ int run_benchmark(int argc, char* argv[]) {
         compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
         measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
 
-        // App (a): Generalized LS
-        std::vector<T> x_computed(n, 0.0);
-        app_generalized_ls(K_inv_op, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
-        blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-        res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
+        // Applications (skippable)
+        std::vector<T> sigma_c(n, 0.0);
+        if (!skip_apps) {
+            // App (a): Generalized LS
+            std::vector<T> x_computed(n, 0.0);
+            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
+            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
+            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
 
-        // App (b)
-        std::vector<T> sigma_b(n, 0.0);
-        app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
+            // App (b)
+            std::vector<T> sigma_b(n, 0.0);
+            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
 
-        // App (c)
-        std::vector<T> sigma_c(n, 0.0), V_R(n * n, 0.0), U_R(n * n, 0.0);
-        app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                              res.right_svec_orth_error, res.app_c_time_us);
+            // App (c)
+            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
+            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
+                                  res.right_svec_orth_error, res.app_c_time_us);
+        }
 
         res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
         res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
@@ -686,7 +705,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file> <V_file> <d_factor>"
-                  << " [sketch_nnz] [block_size]\n";
+                  << " [sketch_nnz] [block_size] [skip_apps]\n";
         return 1;
     }
 
