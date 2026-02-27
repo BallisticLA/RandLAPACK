@@ -40,6 +40,7 @@ int main() {return 0;}
 #include "rl_cqrrt_linops.hh"
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
+#include "rl_memory_tracker.hh"
 
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
@@ -84,6 +85,10 @@ struct gsvd_result {
 
     // QR timing breakdown (from algo.times[])
     std::vector<long> qr_breakdown;
+
+    // Memory tracking
+    long peak_rss_kb;       // Peak RSS increase during QR call (KB)
+    long analytical_kb;     // Analytical peak working memory (KB)
 };
 
 // ============================================================================
@@ -267,7 +272,8 @@ static void write_csv_header(std::ofstream& out, int64_t m, int64_t n, int num_r
         << "app_a_time_us,ls_rel_error,"
         << "app_b_time_us,"
         << "app_c_time_us,right_svec_orth_error,"
-        << "total_a_time_us,total_b_time_us,total_c_time_us\n";
+        << "total_a_time_us,total_b_time_us,total_c_time_us,"
+        << "peak_rss_kb,analytical_kb\n";
 }
 
 template <typename T>
@@ -282,7 +288,8 @@ static void write_csv_row(std::ofstream& out, const gsvd_result<T>& r) {
         << r.app_b_time_us << ","
         << r.app_c_time_us << ","
         << std::scientific << std::setprecision(6) << r.right_svec_orth_error << ","
-        << r.total_a_time_us << "," << r.total_b_time_us << "," << r.total_c_time_us
+        << r.total_a_time_us << "," << r.total_b_time_us << "," << r.total_c_time_us << ","
+        << r.peak_rss_kb << "," << r.analytical_kb
         << "\n";
 }
 
@@ -365,6 +372,8 @@ static void print_summary(const std::string& alg_name, const std::vector<gsvd_re
                   << " AppA=" << r.app_a_time_us << "us"
                   << " AppB=" << r.app_b_time_us << "us"
                   << " AppC=" << r.app_c_time_us << "us"
+                  << " RSS=" << r.peak_rss_kb << "KB"
+                  << " Anal=" << r.analytical_kb << "KB"
                   << "\n";
     }
 }
@@ -502,10 +511,14 @@ int run_benchmark(int argc, char* argv[]) {
         RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
         algo.nnz = sketch_nnz;
         algo.block_size = block_size;
+        RandLAPACK::PeakRSSTracker cqrrt_mem;
+        cqrrt_mem.start();
         algo.call(LiV_op, R.data(), n, d_factor, state);
+        res.peak_rss_kb = cqrrt_mem.stop();
         res.qr_time_us = algo.times[10];
         // CQRRT breakdown: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
+        res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
 
         // Orthogonality
         compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
@@ -550,10 +563,14 @@ int run_benchmark(int argc, char* argv[]) {
         std::vector<T> R(n * n, 0.0);
         RandLAPACK::CholQR_linops<T> algo(true, tol, false);
         algo.block_size = block_size;
+        RandLAPACK::PeakRSSTracker cholqr_mem;
+        cholqr_mem.start();
         algo.call(LiV_op, R.data(), n);
+        res.peak_rss_kb = cholqr_mem.stop();
         res.qr_time_us = algo.times[5];
         // CholQR breakdown: alloc, materialize, gram, potrf, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 6);
+        res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
 
         // Orthogonality
         compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
@@ -598,10 +615,14 @@ int run_benchmark(int argc, char* argv[]) {
         std::vector<T> R(n * n, 0.0);
         RandLAPACK::sCholQR3_linops<T> algo(true, tol, false);
         algo.block_size = block_size;
+        RandLAPACK::PeakRSSTracker scholqr3_mem;
+        scholqr3_mem.start();
         algo.call(LiV_op, R.data(), n);
+        res.peak_rss_kb = scholqr3_mem.stop();
         res.qr_time_us = algo.times[12];
         // sCholQR3 breakdown: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 13);
+        res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
 
         // Orthogonality
         compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
