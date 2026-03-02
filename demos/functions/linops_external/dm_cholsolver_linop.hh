@@ -52,10 +52,14 @@ namespace RandLAPACK_demos {
 ///   3. Sketching operator (SkOp& S, e.g., SparseSkOp or DenseSkOp):
 ///      Materializes S to a dense matrix, then delegates to the dense B operator.
 ///
-/// CQRRT compatibility:
-///   Natural ordering (no permutations) is required for CQRRT to work correctly.
-///   Fill-reducing permutations (AMD, COLAMD) break CQRRT's numerical stability,
-///   causing non-orthogonal Q factors.
+/// Fill-reducing ordering:
+///   Uses AMD (Approximate Minimum Degree) ordering to reduce fill-in in L.
+///   The factorization computes P^T A P = L L^T, where P is a permutation matrix.
+///   All solves apply P / P^T around the triangular solves so that the operator
+///   is mathematically equivalent to the unpermuted version:
+///     Full-solve:       A^{-1} x  = P^T L^{-T} L^{-1} P x
+///     Half-solve NoTrans: M x     = L^{-1} P x        (so M^T M = A^{-1})
+///     Half-solve Trans:   M^T x   = P^T L^{-T} x
 ///
 /// Compatible with RandLAPACK::linops::CompositeOperator.
 template <typename T>
@@ -65,18 +69,28 @@ struct CholSolverLinOp {
     const int64_t n_cols;
     std::string matrix_file;
 
-    /// When true, applies only L^{-1} (forward substitution) instead of
-    /// A^{-1} = L^{-T} L^{-1} (forward + backward substitution).
+    /// When true, applies only L^{-1} P (forward substitution with permutation)
+    /// instead of A^{-1} = P^T L^{-T} L^{-1} P.
     bool half_solve;
 
-    /// Eigen sparse Cholesky solver configured with natural ordering (no fill-reducing
-    /// permutations), which is required for CQRRT compatibility.
-    Eigen::SimplicialLLT<Eigen::SparseMatrix<T>, Eigen::Lower, Eigen::NaturalOrdering<int>> chol_solver;
+    /// Eigen sparse Cholesky solver with AMD fill-reducing ordering.
+    /// Factorizes P^T A P = L L^T where P minimizes fill-in in L.
+    Eigen::SimplicialLLT<Eigen::SparseMatrix<T>, Eigen::Lower, Eigen::AMDOrdering<int>> chol_solver;
 
     /// Lower-triangular Cholesky factor L, extracted from Eigen after factorization.
     /// Stored as an Eigen compressed CSC sparse matrix. Its raw CSC arrays (valuePtr,
     /// innerIndexPtr, outerIndexPtr) are wrapped by make_L_csc() for use with RandBLAS.
     Eigen::SparseMatrix<T> L_sparse;
+
+    /// Forward permutation: perm_fwd[i] = j means row i of P*x takes row j of x.
+    /// Equivalently, (P*x)[i] = x[perm_fwd[i]].
+    /// Used to apply P before forward substitution.
+    std::vector<int> perm_fwd;
+
+    /// Inverse permutation: perm_inv[j] = i means row j of P^T*x takes row i of x.
+    /// Equivalently, (P^T*x)[j] = x[perm_inv[j]].
+    /// Used to apply P^T after backward substitution.
+    std::vector<int> perm_inv;
 
     bool factorization_done;
 
@@ -127,6 +141,37 @@ private:
             L_sparse.valuePtr(), L_sparse.innerIndexPtr(), L_sparse.outerIndexPtr(),
             RandBLAS::sparse_data::IndexBase::Zero
         );
+    }
+
+    /// Apply a row permutation to an m x ncols matrix X, in-place.
+    /// After this call, row i of X contains what was previously row perm[i].
+    ///
+    /// Uses LAPACK's lapmr (ColMajor) or lapmt (RowMajor) for efficient
+    /// in-place cycle-following permutation with O(m) temporary (for the
+    /// 1-based index copy required by LAPACK).
+    ///
+    /// @param layout  Storage layout of X.
+    /// @param m       Number of rows of X (= length of perm).
+    /// @param ncols   Number of columns of X.
+    /// @param perm    0-based permutation vector: result row i = source row perm[i].
+    /// @param X       Matrix to permute, modified in-place.
+    /// @param ldx     Leading dimension of X.
+    void apply_row_perm(Layout layout, int64_t m, int64_t ncols,
+                        const int* perm, T* X, int64_t ldx) {
+        // Convert 0-based (Eigen) to 1-based (LAPACK convention).
+        // Use a copy because lapmr/lapmt may modify K internally.
+        std::vector<int64_t> K(m);
+        for (int64_t i = 0; i < m; ++i)
+            K[i] = (int64_t)perm[i] + 1;
+
+        if (layout == Layout::ColMajor) {
+            // lapmr with forwrd=true: result_row[i] = original_row[K[i]-1].
+            lapack::lapmr(true, m, ncols, X, ldx, K.data());
+        } else {
+            // RowMajor m x ncols is stored as ColMajor ncols x m in memory.
+            // Permuting rows of RowMajor = permuting columns of ColMajor view.
+            lapack::lapmt(true, ncols, m, X, ldx, K.data());
+        }
     }
 
     /// Copy op(B) into a contiguous work buffer W.
@@ -258,6 +303,19 @@ public:
         L_sparse = chol_solver.matrixL();
         randblas_require(L_sparse.isCompressed());
 
+        // Step 4: Extract permutation vectors from P^T A P = L L^T.
+        // Eigen's permutationP() returns P such that P * A * P^T = L L^T (Eigen convention),
+        // which means P^T (A) P = L L^T in our convention where P permutes rows.
+        // permutationP().indices()[i] = j means P maps row i to row j.
+        const auto& perm_indices = chol_solver.permutationP().indices();
+        int64_t nn = n_rows;
+        perm_fwd.resize(nn);
+        perm_inv.resize(nn);
+        for (int64_t i = 0; i < nn; ++i) {
+            perm_fwd[i] = perm_indices[i];
+            perm_inv[perm_indices[i]] = i;
+        }
+
         factorization_done = true;
     }
 
@@ -284,12 +342,15 @@ public:
     ///   Full-solve (half_solve=false):
     ///     Side::Left:  C := alpha * A^{-1} * op(B) + beta * C
     ///     Side::Right: C := alpha * op(B) * (first n cols of A^{-1}) + beta * C
-    ///   Half-solve (half_solve=true):
-    ///     Side::Left:  C := alpha * L^{-1} * op(B) + beta * C
-    ///     Side::Right: C := alpha * op(B) * L^{-1} + beta * C
+    ///   Half-solve (half_solve=true), with M = L^{-1} P:
+    ///     Side::Left:  C := alpha * M * op(B) + beta * C     (NoTrans)
+    ///                  C := alpha * M^T * op(B) + beta * C   (Trans)
+    ///     Side::Right: C := alpha * op(B) * M + beta * C     (NoTrans)
+    ///                  C := alpha * op(B) * M^T + beta * C   (Trans)
     ///
+    /// where P is the AMD fill-reducing permutation from P^T A P = L L^T.
     /// For SPD matrices, A^{-T} = A^{-1}, so trans_A has no effect in full-solve mode.
-    /// In half_solve mode, trans_A matters: NoTrans → L^{-1}, Trans → L^{-T}.
+    /// In half_solve mode, trans_A selects M (NoTrans) or M^T (Trans).
     ///
     /// Full-solve uses two sparse triangular solves with Cholesky factor L:
     ///   1. Forward substitution:  solve L * y = x      (Op::NoTrans on lower-triangular L)
@@ -367,26 +428,42 @@ public:
             // Flip layout so TRSM interprets W as op(B)^T (k x m).
             auto flipped = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
             auto L_csc = make_L_csc();
+
+            // In flipped layout, W is a k x m matrix.  All permutations act on its
+            // k rows (= the k columns of the caller's-layout m x k matrix).
+            //
+            // Permutation math (flipped-layout left-side view):
+            //   Half NoTrans: want op(B) * M = op(B) * L^{-1} P
+            //     In flipped: P^T L^{-T} op(B)^T → TRSM(Trans), then P^T on rows.
+            //   Half Trans:   want op(B) * M^T = op(B) * P^T L^{-T}
+            //     In flipped: L^{-1} P op(B)^T → P on rows, then TRSM(NoTrans).
+            //   Full:         want op(B) * A^{-1} = op(B) * P^T L^{-T} L^{-1} P
+            //     In flipped: P^T L^{-T} L^{-1} P op(B)^T
+            //       → P on rows, TRSM(NoTrans), TRSM(Trans), P^T on rows.
+
             if (half_solve) {
-                // Half-solve Side::Right:
-                // NoTrans: want op(B) * L^{-1}. In flipped layout, use Op::Trans
-                //   → L^{-T} in flipped, reinterprets as (L^{-T})^T = L^{-1} on right.
-                // Trans: want op(B) * L^{-T}. In flipped layout, use Op::NoTrans
-                //   → L^{-1} in flipped, reinterprets as (L^{-1})^T = L^{-T} on right.
-                Op trsm_op = (trans_A == Op::Trans) ? Op::NoTrans : Op::Trans;
-                RandBLAS::sparse_data::trsm(flipped, trsm_op, (T)1.0, L_csc,
-                                            Uplo::Lower, Diag::NonUnit, m, W, ldw);
+                if (trans_A == Op::NoTrans) {
+                    // op(B) * L^{-1} P: TRSM first, then permute.
+                    RandBLAS::sparse_data::trsm(flipped, Op::Trans, (T)1.0, L_csc,
+                                                Uplo::Lower, Diag::NonUnit, m, W, ldw);
+                    apply_row_perm(flipped, k, m, perm_inv.data(), W, ldw);
+                } else {
+                    // op(B) * P^T L^{-T}: permute first, then TRSM.
+                    apply_row_perm(flipped, k, m, perm_fwd.data(), W, ldw);
+                    RandBLAS::sparse_data::trsm(flipped, Op::NoTrans, (T)1.0, L_csc,
+                                                Uplo::Lower, Diag::NonUnit, m, W, ldw);
+                }
             } else {
-                // Full-solve Side::Right: op(B) * A^{-1} = op(B) * L^{-T} L^{-1}.
-                // Forward substitution: W := L^{-1} * op(B)^T  (in flipped layout)
+                // Full-solve Side::Right: op(B) * P^T L^{-T} L^{-1} P.
+                apply_row_perm(flipped, k, m, perm_fwd.data(), W, ldw);
                 RandBLAS::sparse_data::trsm(flipped, Op::NoTrans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, m, W, ldw);
-                // Backward substitution: W := L^{-T} * W = A^{-1} * op(B)^T  (in flipped layout)
                 RandBLAS::sparse_data::trsm(flipped, Op::Trans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, m, W, ldw);
+                apply_row_perm(flipped, k, m, perm_inv.data(), W, ldw);
             }
 
-            // In the caller's layout, W now holds op(B) * L^{-1} (half) or op(B) * A^{-1} (full).
+            // In the caller's layout, W now holds op(B) * M (half) or op(B) * A^{-1} (full).
             // Accumulate the first n columns into C (m x n), since n <= k.
             accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
             delete[] W;
@@ -409,24 +486,36 @@ public:
 
         auto L_csc = make_L_csc();
 
+        // Permutation math for Side::Left (P^T A P = L L^T):
+        //   Half NoTrans (M = L^{-1} P):     apply P to rows, then L^{-1} TRSM.
+        //   Half Trans   (M^T = P^T L^{-T}): L^{-T} TRSM, then apply P^T to rows.
+        //   Full (A^{-1} = P^T L^{-T} L^{-1} P):
+        //     apply P, L^{-1} TRSM, L^{-T} TRSM, apply P^T.
+
         if (beta == (T)0.0) {
             // Fast path: copy op(B) directly into C, TRSM in-place.
-            // Avoids allocating a separate k x n work buffer.
             copy_op_B(layout, trans_B, k, n, B, ldb, C, ldc);
 
             if (half_solve) {
-                // Half-solve: apply L^{-1} (NoTrans) or L^{-T} (Trans).
-                Op trsm_op = (trans_A == Op::Trans) ? Op::Trans : Op::NoTrans;
-                RandBLAS::sparse_data::trsm(layout, trsm_op, alpha, L_csc,
-                                            Uplo::Lower, Diag::NonUnit, n, C, ldc);
+                if (trans_A == Op::NoTrans) {
+                    // M = L^{-1} P: permute rows by P, then forward solve.
+                    apply_row_perm(layout, k, n, perm_fwd.data(), C, ldc);
+                    RandBLAS::sparse_data::trsm(layout, Op::NoTrans, alpha, L_csc,
+                                                Uplo::Lower, Diag::NonUnit, n, C, ldc);
+                } else {
+                    // M^T = P^T L^{-T}: backward solve, then permute rows by P^T.
+                    RandBLAS::sparse_data::trsm(layout, Op::Trans, alpha, L_csc,
+                                                Uplo::Lower, Diag::NonUnit, n, C, ldc);
+                    apply_row_perm(layout, k, n, perm_inv.data(), C, ldc);
+                }
             } else {
-                // Full-solve: C := alpha * A^{-1} * op(B) = alpha * L^{-T} L^{-1} * op(B).
-                // Forward substitution: C := L^{-1} * op(B)
+                // Full-solve: C := alpha * P^T L^{-T} L^{-1} P * op(B).
+                apply_row_perm(layout, k, n, perm_fwd.data(), C, ldc);
                 RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, C, ldc);
-                // Backward substitution with alpha: C := alpha * L^{-T} * C
                 RandBLAS::sparse_data::trsm(layout, Op::Trans, alpha, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, C, ldc);
+                apply_row_perm(layout, k, n, perm_inv.data(), C, ldc);
             }
         } else {
             // General path: allocate W, TRSM on W, accumulate into C.
@@ -436,18 +525,22 @@ public:
             copy_op_B(layout, trans_B, k, n, B, ldb, W, ldw);
 
             if (half_solve) {
-                // Half-solve: apply L^{-1} (NoTrans) or L^{-T} (Trans).
-                Op trsm_op = (trans_A == Op::Trans) ? Op::Trans : Op::NoTrans;
-                RandBLAS::sparse_data::trsm(layout, trsm_op, (T)1.0, L_csc,
-                                            Uplo::Lower, Diag::NonUnit, n, W, ldw);
+                if (trans_A == Op::NoTrans) {
+                    apply_row_perm(layout, k, n, perm_fwd.data(), W, ldw);
+                    RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
+                                                Uplo::Lower, Diag::NonUnit, n, W, ldw);
+                } else {
+                    RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
+                                                Uplo::Lower, Diag::NonUnit, n, W, ldw);
+                    apply_row_perm(layout, k, n, perm_inv.data(), W, ldw);
+                }
             } else {
-                // Full-solve: W := A^{-1} * op(B) = L^{-T} L^{-1} * op(B).
-                // Forward substitution: W := L^{-1} * op(B)
+                apply_row_perm(layout, k, n, perm_fwd.data(), W, ldw);
                 RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, W, ldw);
-                // Backward substitution: W := L^{-T} * W
                 RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, W, ldw);
+                apply_row_perm(layout, k, n, perm_inv.data(), W, ldw);
             }
 
             // C := beta * C + alpha * W
