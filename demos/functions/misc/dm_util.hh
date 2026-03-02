@@ -299,4 +299,107 @@ void generate_spd_matrix_file(
     file.close();
 }
 
+/***********************************************************************
+ *                                                                     *
+ *       GENERAL INVERTIBLE MATRIX GENERATION AND I/O                  *
+ *                                                                     *
+ ***********************************************************************/
+
+/// Generate a random invertible (non-symmetric) matrix and save to Matrix Market file.
+///
+/// Generates A = Q1 * D * Q2^T where:
+/// - D is diagonal with singular values: sigma_i = 1 + (cond_num - 1) * (i / (n-1))^2
+///   This gives sigma_1 = 1, sigma_n = cond_num, so kappa(A) = cond_num
+/// - Q1, Q2 are independent random orthogonal matrices (from QR of Gaussian matrices)
+///
+/// Unlike gen_spd_mat, this produces a general (non-symmetric) matrix since Q1 != Q2.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam RNG - Random number generator type
+///
+/// @param[in] filename - Path to output Matrix Market file
+/// @param[in] n - Dimension of square matrix (n x n)
+/// @param[in] cond_num - Target condition number for the matrix
+/// @param[in] state - RNG state for reproducible generation
+///
+template <typename T, typename RNG>
+void generate_invertible_matrix_file(
+    const std::string& filename,
+    int64_t n,
+    T cond_num,
+    RandBLAS::RNGState<RNG> &state
+) {
+    // Step 1: Generate singular values with desired condition number
+    std::vector<T> singvals(n);
+    singvals[0] = 1.0;  // Smallest singular value
+    if (n > 1) {
+        singvals[n-1] = cond_num;  // Largest singular value
+        for (int64_t i = 1; i < n - 1; ++i) {
+            T t = static_cast<T>(i) / static_cast<T>(n - 1);
+            singvals[i] = 1.0 + (cond_num - 1.0) * t * t;
+        }
+    }
+
+    // Step 2: Generate two independent random orthogonal matrices Q1, Q2
+    std::vector<T> Q1(n * n);
+    std::vector<T> Q2(n * n);
+    std::vector<T> tau(n);
+
+    auto d1 = RandBLAS::DenseDist(n, n);
+    state = RandBLAS::fill_dense(d1, Q1.data(), state);
+    lapack::geqrf(n, n, Q1.data(), n, tau.data());
+    lapack::orgqr(n, n, n, Q1.data(), n, tau.data());
+
+    auto d2 = RandBLAS::DenseDist(n, n);
+    state = RandBLAS::fill_dense(d2, Q2.data(), state);
+    lapack::geqrf(n, n, Q2.data(), n, tau.data());
+    lapack::orgqr(n, n, n, Q2.data(), n, tau.data());
+
+    // Step 3: Form A = Q1 * D * Q2^T
+    // First compute Q1_scaled = Q1 * D (scale columns of Q1 by singular values)
+    std::vector<T> Q1_scaled(n * n);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            Q1_scaled[i + j * n] = Q1[i + j * n] * singvals[j];
+        }
+    }
+
+    // Then A = Q1_scaled * Q2^T
+    std::vector<T> A(n * n);
+    blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::Trans,
+               n, n, n, (T)1.0, Q1_scaled.data(), n, Q2.data(), n, (T)0.0, A.data(), n);
+
+    // Step 4: Write to Matrix Market file (coordinate format)
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open file for writing: " + filename);
+    }
+
+    // Set full double precision to preserve invertibility
+    file << std::scientific << std::setprecision(17);
+
+    file << "%%MatrixMarket matrix coordinate real general\n";
+
+    // Count nonzeros (entries with magnitude > threshold)
+    int64_t nnz = 0;
+    for (int64_t i = 0; i < n * n; ++i) {
+        if (std::abs(A[i]) > 1e-14) {
+            ++nnz;
+        }
+    }
+
+    file << n << " " << n << " " << nnz << "\n";
+
+    // Write nonzero entries (Matrix Market uses 1-based indexing)
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            if (std::abs(A[i + j * n]) > 1e-14) {
+                file << (i + 1) << " " << (j + 1) << " " << A[i + j * n] << "\n";
+            }
+        }
+    }
+
+    file.close();
+}
+
 } // namespace RandLAPACK_demos

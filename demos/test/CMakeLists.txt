@@ -13,6 +13,7 @@ if (GTest_FOUND)
         drivers/test_dm_cholqr_linops.cc
         drivers/test_dm_scholqr3_linops.cc
         misc/test_dm_cholsolver_linop.cc
+        misc/test_dm_lusolver_linop.cc
         misc/test_dm_composite_linop.cc
     )
 

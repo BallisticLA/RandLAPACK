@@ -1,8 +1,7 @@
 #pragma once
 
+#include "dm_solver_linop_util.hh"
 #include "rl_util.hh"
-#include "rl_blaspp.hh"
-#include "rl_lapackpp.hh"
 #include "rl_linops.hh"
 #include "../misc/dm_util.hh"
 
@@ -101,8 +100,8 @@ struct CholSolverLinOp {
     CholSolverLinOp(
         const std::string& filename,
         bool half_solve = false
-    ) : n_rows(read_matrix_dimension(filename, 0)),
-        n_cols(read_matrix_dimension(filename, 1)),
+    ) : n_rows(solver_util::read_matrix_dimension(filename, 0)),
+        n_cols(solver_util::read_matrix_dimension(filename, 1)),
         matrix_file(filename),
         half_solve(half_solve),
         factorization_done(false) {
@@ -110,27 +109,6 @@ struct CholSolverLinOp {
     }
 
 private:
-
-    /// Read a single dimension (rows or cols) from a Matrix Market file header.
-    /// @param dim_index  0 for rows, 1 for cols.
-    static int64_t read_matrix_dimension(const std::string& filename, int dim_index) {
-        std::ifstream file(filename);
-        randblas_require(file.is_open());
-
-        // Skip comment lines (start with '%')
-        std::string line;
-        do {
-            std::getline(file, line);
-        } while (line[0] == '%');
-
-        // First non-comment line contains: rows cols nnz
-        std::istringstream iss(line);
-        int64_t rows, cols, nnz;
-        iss >> rows >> cols >> nnz;
-        file.close();
-
-        return (dim_index == 0) ? rows : cols;
-    }
 
     /// Create a RandBLAS CSCMatrix view that wraps L_sparse's raw CSC arrays.
     /// Eigen uses int for sparse indices, so we use CSCMatrix<T, int> (not int64_t).
@@ -141,132 +119,6 @@ private:
             L_sparse.valuePtr(), L_sparse.innerIndexPtr(), L_sparse.outerIndexPtr(),
             RandBLAS::sparse_data::IndexBase::Zero
         );
-    }
-
-    /// Apply a row permutation to an m x ncols matrix X, in-place.
-    /// After this call, row i of X contains what was previously row perm[i].
-    ///
-    /// Uses LAPACK's lapmr (ColMajor) or lapmt (RowMajor) for efficient
-    /// in-place cycle-following permutation with O(m) temporary (for the
-    /// 1-based index copy required by LAPACK).
-    ///
-    /// @param layout  Storage layout of X.
-    /// @param m       Number of rows of X (= length of perm).
-    /// @param ncols   Number of columns of X.
-    /// @param perm    0-based permutation vector: result row i = source row perm[i].
-    /// @param X       Matrix to permute, modified in-place.
-    /// @param ldx     Leading dimension of X.
-    void apply_row_perm(Layout layout, int64_t m, int64_t ncols,
-                        const int* perm, T* X, int64_t ldx) {
-        // Convert 0-based (Eigen) to 1-based (LAPACK convention).
-        // Use a copy because lapmr/lapmt may modify K internally.
-        std::vector<int64_t> K(m);
-        for (int64_t i = 0; i < m; ++i)
-            K[i] = (int64_t)perm[i] + 1;
-
-        if (layout == Layout::ColMajor) {
-            // lapmr with forwrd=true: result_row[i] = original_row[K[i]-1].
-            lapack::lapmr(true, m, ncols, X, ldx, K.data());
-        } else {
-            // RowMajor m x ncols is stored as ColMajor ncols x m in memory.
-            // Permuting rows of RowMajor = permuting columns of ColMajor view.
-            lapack::lapmt(true, ncols, m, X, ldx, K.data());
-        }
-    }
-
-    /// Copy op(B) into a contiguous work buffer W.
-    ///
-    /// Both B (or its transpose) and W use the same layout. After the copy,
-    /// W contains op(B) with dimensions rows_op x cols_op and leading dimension ldw.
-    ///
-    /// This is needed because RandBLAS sparse TRSM overwrites its B argument in-place,
-    /// and the caller's B is const.
-    ///
-    /// For NoTrans, lapack::lacpy handles the copy in one call (supports both layouts
-    /// and different leading dimensions). For Trans, we fall back to strided blas::copy
-    /// loops since lacpy does not support transpose.
-    ///
-    /// @param layout   Storage layout for both B and W.
-    /// @param trans_B  Whether to apply B or B^T.
-    /// @param rows_op  Number of rows of op(B).
-    /// @param cols_op  Number of columns of op(B).
-    /// @param B        Source matrix (const, not modified).
-    /// @param ldb      Leading dimension of B.
-    /// @param W        Destination work buffer (must be pre-allocated).
-    /// @param ldw      Leading dimension of W.
-    void copy_op_B(Layout layout, Op trans_B, int64_t rows_op, int64_t cols_op,
-                   const T* B, int64_t ldb, T* W, int64_t ldw) {
-        if (trans_B == Op::NoTrans) {
-            // No transpose: B and op(B) have the same shape (rows_op x cols_op).
-            // lacpy copies an m x n submatrix from one leading dimension to another.
-            // It is always ColMajor, so for RowMajor we swap dimensions: a RowMajor
-            // rows_op x cols_op matrix is the same memory as ColMajor cols_op x rows_op.
-            if (layout == Layout::ColMajor) {
-                lapack::lacpy(lapack::MatrixType::General, rows_op, cols_op, B, ldb, W, ldw);
-            } else {
-                lapack::lacpy(lapack::MatrixType::General, cols_op, rows_op, B, ldb, W, ldw);
-            }
-        } else {
-            // Transpose: B is cols_op x rows_op before transpose, op(B) = B^T is rows_op x cols_op.
-            // lacpy cannot transpose, so we copy column-by-column (ColMajor) or row-by-row (RowMajor).
-            // Each iteration reads a strided slice of B and writes a contiguous slice of W.
-            if (layout == Layout::ColMajor) {
-                // Column j of op(B) = row j of B.
-                // Row j of B (ColMajor cols_op x rows_op): starts at B + j, stride ldb.
-                // Column j of W: contiguous at W + j*ldw.
-#if defined(_OPENMP)
-                #pragma omp parallel for schedule(static)
-#endif
-                for (int64_t j = 0; j < cols_op; ++j)
-                    blas::copy(rows_op, B + j, ldb, W + j * ldw, 1);
-            } else {
-                // Row i of op(B) = column i of B.
-                // Column i of B (RowMajor cols_op x rows_op): starts at B + i, stride ldb.
-                // Row i of W: contiguous at W + i*ldw.
-#if defined(_OPENMP)
-                #pragma omp parallel for schedule(static)
-#endif
-                for (int64_t i = 0; i < rows_op; ++i)
-                    blas::copy(cols_op, B + i, ldb, W + i * ldw, 1);
-            }
-        }
-    }
-
-    /// Accumulate: C := beta * C + alpha * W.
-    ///
-    /// Both C and W are m x n in the given layout. Operates column-by-column (ColMajor)
-    /// or row-by-row (RowMajor) to correctly handle non-contiguous C (when ldc > m or ldc > n).
-    ///
-    /// @param layout  Storage layout for both C and W.
-    /// @param m       Number of rows.
-    /// @param n       Number of columns.
-    /// @param alpha   Scalar multiplier for W.
-    /// @param W       Source matrix (m x n).
-    /// @param ldw     Leading dimension of W.
-    /// @param beta    Scalar multiplier for C (applied before adding alpha * W).
-    /// @param C       Destination matrix (m x n), modified in-place.
-    /// @param ldc     Leading dimension of C.
-    void accumulate(Layout layout, int64_t m, int64_t n, T alpha,
-                    const T* W, int64_t ldw, T beta, T* C, int64_t ldc) {
-        if (layout == Layout::ColMajor) {
-            // Each column is contiguous: scale then add.
-#if defined(_OPENMP)
-            #pragma omp parallel for schedule(static)
-#endif
-            for (int64_t j = 0; j < n; ++j) {
-                blas::scal(m, beta, C + j * ldc, 1);
-                blas::axpy(m, alpha, W + j * ldw, 1, C + j * ldc, 1);
-            }
-        } else {
-            // Each row is contiguous: scale then add.
-#if defined(_OPENMP)
-            #pragma omp parallel for schedule(static)
-#endif
-            for (int64_t i = 0; i < m; ++i) {
-                blas::scal(n, beta, C + i * ldc, 1);
-                blas::axpy(n, alpha, W + i * ldw, 1, C + i * ldc, 1);
-            }
-        }
     }
 
 public:
@@ -423,7 +275,7 @@ public:
             int64_t ldw = (layout == Layout::ColMajor) ? m : k;
             T* W = new T[m * k]();
 
-            copy_op_B(layout, trans_B, m, k, B, ldb, W, ldw);
+            solver_util::copy_op_B(layout, trans_B, m, k, B, ldb, W, ldw);
 
             // Flip layout so TRSM interprets W as op(B)^T (k x m).
             auto flipped = (layout == Layout::ColMajor) ? Layout::RowMajor : Layout::ColMajor;
@@ -446,26 +298,26 @@ public:
                     // op(B) * L^{-1} P: TRSM first, then permute.
                     RandBLAS::sparse_data::trsm(flipped, Op::Trans, (T)1.0, L_csc,
                                                 Uplo::Lower, Diag::NonUnit, m, W, ldw);
-                    apply_row_perm(flipped, k, m, perm_inv.data(), W, ldw);
+                    solver_util::apply_row_perm(flipped, k, m, perm_inv.data(), W, ldw);
                 } else {
                     // op(B) * P^T L^{-T}: permute first, then TRSM.
-                    apply_row_perm(flipped, k, m, perm_fwd.data(), W, ldw);
+                    solver_util::apply_row_perm(flipped, k, m, perm_fwd.data(), W, ldw);
                     RandBLAS::sparse_data::trsm(flipped, Op::NoTrans, (T)1.0, L_csc,
                                                 Uplo::Lower, Diag::NonUnit, m, W, ldw);
                 }
             } else {
                 // Full-solve Side::Right: op(B) * P^T L^{-T} L^{-1} P.
-                apply_row_perm(flipped, k, m, perm_fwd.data(), W, ldw);
+                solver_util::apply_row_perm(flipped, k, m, perm_fwd.data(), W, ldw);
                 RandBLAS::sparse_data::trsm(flipped, Op::NoTrans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, m, W, ldw);
                 RandBLAS::sparse_data::trsm(flipped, Op::Trans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, m, W, ldw);
-                apply_row_perm(flipped, k, m, perm_inv.data(), W, ldw);
+                solver_util::apply_row_perm(flipped, k, m, perm_inv.data(), W, ldw);
             }
 
             // In the caller's layout, W now holds op(B) * M (half) or op(B) * A^{-1} (full).
             // Accumulate the first n columns into C (m x n), since n <= k.
-            accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
+            solver_util::accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
             delete[] W;
             return;
         }
@@ -494,57 +346,57 @@ public:
 
         if (beta == (T)0.0) {
             // Fast path: copy op(B) directly into C, TRSM in-place.
-            copy_op_B(layout, trans_B, k, n, B, ldb, C, ldc);
+            solver_util::copy_op_B(layout, trans_B, k, n, B, ldb, C, ldc);
 
             if (half_solve) {
                 if (trans_A == Op::NoTrans) {
                     // M = L^{-1} P: permute rows by P, then forward solve.
-                    apply_row_perm(layout, k, n, perm_fwd.data(), C, ldc);
+                    solver_util::apply_row_perm(layout, k, n, perm_fwd.data(), C, ldc);
                     RandBLAS::sparse_data::trsm(layout, Op::NoTrans, alpha, L_csc,
                                                 Uplo::Lower, Diag::NonUnit, n, C, ldc);
                 } else {
                     // M^T = P^T L^{-T}: backward solve, then permute rows by P^T.
                     RandBLAS::sparse_data::trsm(layout, Op::Trans, alpha, L_csc,
                                                 Uplo::Lower, Diag::NonUnit, n, C, ldc);
-                    apply_row_perm(layout, k, n, perm_inv.data(), C, ldc);
+                    solver_util::apply_row_perm(layout, k, n, perm_inv.data(), C, ldc);
                 }
             } else {
                 // Full-solve: C := alpha * P^T L^{-T} L^{-1} P * op(B).
-                apply_row_perm(layout, k, n, perm_fwd.data(), C, ldc);
+                solver_util::apply_row_perm(layout, k, n, perm_fwd.data(), C, ldc);
                 RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, C, ldc);
                 RandBLAS::sparse_data::trsm(layout, Op::Trans, alpha, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, C, ldc);
-                apply_row_perm(layout, k, n, perm_inv.data(), C, ldc);
+                solver_util::apply_row_perm(layout, k, n, perm_inv.data(), C, ldc);
             }
         } else {
             // General path: allocate W, TRSM on W, accumulate into C.
             int64_t ldw = (layout == Layout::ColMajor) ? k : n;
             T* W = new T[k * n]();
 
-            copy_op_B(layout, trans_B, k, n, B, ldb, W, ldw);
+            solver_util::copy_op_B(layout, trans_B, k, n, B, ldb, W, ldw);
 
             if (half_solve) {
                 if (trans_A == Op::NoTrans) {
-                    apply_row_perm(layout, k, n, perm_fwd.data(), W, ldw);
+                    solver_util::apply_row_perm(layout, k, n, perm_fwd.data(), W, ldw);
                     RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
                                                 Uplo::Lower, Diag::NonUnit, n, W, ldw);
                 } else {
                     RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
                                                 Uplo::Lower, Diag::NonUnit, n, W, ldw);
-                    apply_row_perm(layout, k, n, perm_inv.data(), W, ldw);
+                    solver_util::apply_row_perm(layout, k, n, perm_inv.data(), W, ldw);
                 }
             } else {
-                apply_row_perm(layout, k, n, perm_fwd.data(), W, ldw);
+                solver_util::apply_row_perm(layout, k, n, perm_fwd.data(), W, ldw);
                 RandBLAS::sparse_data::trsm(layout, Op::NoTrans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, W, ldw);
                 RandBLAS::sparse_data::trsm(layout, Op::Trans, (T)1.0, L_csc,
                                             Uplo::Lower, Diag::NonUnit, n, W, ldw);
-                apply_row_perm(layout, k, n, perm_inv.data(), W, ldw);
+                solver_util::apply_row_perm(layout, k, n, perm_inv.data(), W, ldw);
             }
 
             // C := beta * C + alpha * W
-            accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
+            solver_util::accumulate(layout, m, n, alpha, W, ldw, beta, C, ldc);
             delete[] W;
         }
     }
