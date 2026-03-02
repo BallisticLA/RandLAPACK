@@ -335,7 +335,8 @@ static void write_breakdown_csv(
     out << "# Times are in microseconds\n";
     out << "# CQRRT_linop breakdown (11): alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
     out << "# CholQR breakdown (6): alloc, materialize, gram, potrf, rest, total\n";
-    out << "# sCholQR3 breakdown (13): alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
+    out << "# sCholQR3 breakdown (13): alloc, gram1, potrf1, m_update1, gram2, potrf2, update2, gram3, potrf3, update3, q_mat, rest, total\n";
+    out << "# sCholQR3_basic breakdown (13): alloc, gram1, potrf1, q_factor, syrk2, potrf2, update2, syrk3, potrf3, update3, q_mat, rest, total\n";
 
     // Column header: m, n, run, algorithm, then all breakdown times
     // Max breakdown length is 13 (sCholQR3)
@@ -633,7 +634,7 @@ int run_benchmark(int argc, char* argv[]) {
         algo.call(LiV_op, R.data(), n);
         res.peak_rss_kb = scholqr3_mem.stop();
         res.qr_time_us = algo.times[12];
-        // sCholQR3 breakdown: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total
+        // sCholQR3 breakdown: alloc, gram1, potrf1, m_update1, gram2, potrf2, update2, gram3, potrf3, update3, q_mat, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 13);
         res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
 
@@ -668,6 +669,61 @@ int run_benchmark(int argc, char* argv[]) {
         all_svals.push_back(sigma_c);
     }
     print_summary("sCholQR3", scholqr3_results);
+
+    // ================================================================
+    // sCholQR3_basic (non-blocked, matches standard pseudocode)
+    // ================================================================
+    std::cout << "\n=== sCholQR3_basic ===\n";
+    std::vector<gsvd_result<T>> scholqr3_basic_results(num_runs);
+    for (int64_t r = 0; r < num_runs; ++r) {
+        auto& res = scholqr3_basic_results[r];
+        res.m = m; res.n = n; res.run_idx = r;
+        res.alg_name = "sCholQR3_basic";
+        res.chol_time_us = chol_time_us;
+
+        // Q-less QR
+        std::vector<T> R(n * n, 0.0);
+        RandLAPACK::sCholQR3_linops_basic<T> algo(true, tol, false);
+        RandLAPACK::PeakRSSTracker scholqr3_basic_mem;
+        scholqr3_basic_mem.start();
+        algo.call(LiV_op, R.data(), n);
+        res.peak_rss_kb = scholqr3_basic_mem.stop();
+        res.qr_time_us = algo.times[12];
+        // sCholQR3_basic breakdown: alloc, gram1, potrf1, q_factor, syrk2, potrf2, update2, syrk3, potrf3, update3, q_mat, rest, total
+        res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 13);
+        res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
+
+        // Orthogonality
+        compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
+        measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
+
+        // Applications (skippable)
+        std::vector<T> sigma_c(n, 0.0);
+        if (!skip_apps) {
+            // App (a): Generalized LS
+            std::vector<T> x_computed(n, 0.0);
+            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
+            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
+            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
+
+            // App (b)
+            std::vector<T> sigma_b(n, 0.0);
+            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
+
+            // App (c)
+            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
+            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
+                                  res.right_svec_orth_error, res.app_c_time_us);
+        }
+
+        res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
+        res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
+        res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
+
+        all_results.push_back(res);
+        all_svals.push_back(sigma_c);
+    }
+    print_summary("sCholQR3_basic", scholqr3_basic_results);
 
     // ================================================================
     // Write CSV output

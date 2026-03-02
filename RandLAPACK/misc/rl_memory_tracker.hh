@@ -98,13 +98,20 @@ static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t blo
     return bytes / 1024;
 }
 
-// sCholQR3_linops: I_mat(n*n) + Q_buf(m*n) + G(n*n) + R_temp(n*n)
-// NOTE: block_size parameter accepted for API consistency, but does NOT reduce
-// peak memory because Q_buf(m*n) is required for iterations 2 and 3.
-// Blocking only reduces memory during iteration 1's Gram computation phase.
+// sCholQR3_linops (fully-blocked): G(n*n) + R_temp(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
+// No m x n buffer during QR iterations; all Gram matrices computed through blocked linop calls.
 template <typename T>
 static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
-    (void)block_size;  // Unused - peak memory unchanged by blocking
+    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+    long bytes = static_cast<long>(sizeof(T)) * (3L * n * n + (long)(m + n) * b_eff);
+    return bytes / 1024;
+}
+
+// sCholQR3_linops_basic: Q_buf(m*n) + G(n*n) + R_temp(n*n) + M(n*n)
+// Materializes Q = A * R1^{-1} after iteration 1, then uses dense syrk for iterations 2-3.
+// No blocking — always O(m*n + n^2) peak.
+template <typename T>
+static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
     long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 3L * n * n);
     return bytes / 1024;
 }
