@@ -31,7 +31,10 @@ class CQRRT_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 11 entries: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total
+        // 11 entries: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
+        //   fwd      = LinOp NoTrans: A * R_sk_inv (accumulated over blocks)
+        //   adj      = LinOp Trans:   A^T * buf    (accumulated over blocks)
+        //   trmm     = R_sk_inv^T * G (dense trmm, completes Gram)
         std::vector<long> times;
 
         // tuning SASOS
@@ -140,12 +143,11 @@ class CQRRT_linops {
             RandBLAS::RNGState<RNG> &state
         ) {
             ///--------------------TIMING VARS--------------------/
+            steady_clock::time_point t_start, t_stop;
             steady_clock::time_point alloc_t_start, alloc_t_stop;
             steady_clock::time_point saso_t_start, saso_t_stop;
             steady_clock::time_point qr_t_start, qr_t_stop;
             steady_clock::time_point trtri_t_start, trtri_t_stop;
-            steady_clock::time_point linop_precond_t_start, linop_precond_t_stop;
-            steady_clock::time_point linop_gram_t_start, linop_gram_t_stop;
             steady_clock::time_point trmm_gram_t_start, trmm_gram_t_stop;
             steady_clock::time_point potrf_t_start, potrf_t_stop;
             steady_clock::time_point finalize_t_start, finalize_t_stop;
@@ -155,8 +157,8 @@ class CQRRT_linops {
             long saso_t_dur         = 0;
             long qr_t_dur           = 0;
             long trtri_t_dur        = 0;
-            long linop_precond_t_dur = 0;
-            long linop_gram_t_dur   = 0;
+            long fwd_t_dur          = 0;
+            long adj_t_dur          = 0;
             long trmm_gram_t_dur    = 0;
             long potrf_t_dur        = 0;
             long finalize_t_dur     = 0;
@@ -233,7 +235,6 @@ class CQRRT_linops {
 
             if(this -> timing) {
                 trtri_t_stop = steady_clock::now();
-                linop_precond_t_start = steady_clock::now();
             }
 
             // ================================================================
@@ -292,22 +293,17 @@ class CQRRT_linops {
                 //   A is m × n, R_sk_inv is n × n, A_pre is m × n.
                 //   Side::Left: C = alpha * op(A) * op(B) + beta * C
                 //   where op(A) = A (m × n), op(B) = R_sk_inv (n × n), C = A_pre (m × n).
+                if(this->timing) t_start = steady_clock::now();
                 A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, R_sk_inv, n, (T)0.0, A_pre, m);
-
-                if(this -> timing) {
-                    linop_precond_t_stop = steady_clock::now();
-                    linop_gram_t_start = steady_clock::now();
-                }
+                if(this->timing) { t_stop = steady_clock::now(); fwd_t_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
 
                 // Step 2: R (n × n) = A^T * A_pre (n × m × m × n = n × n)
                 //   Since SYRK is not defined for non-dense operators, we use
                 //   an explicit A^T * A_pre to form the Gram matrix.
                 //   op(A) = A^T (n × m), op(B) = A_pre (m × n), C = R (n × n).
+                if(this->timing) t_start = steady_clock::now();
                 A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_pre, m, (T)0.0, R, ldr);
-
-                if(this -> timing) {
-                    linop_gram_t_stop = steady_clock::now();
-                }
+                if(this->timing) { t_stop = steady_clock::now(); adj_t_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
             } else {
                 // --- Column-block processing path (memory-efficient) ---
                 //
@@ -327,25 +323,26 @@ class CQRRT_linops {
                 //
                 // Total FLOPs are the same as the full path; only memory differs.
 
+                long fwd_accum = 0, adj_accum = 0;
                 for (int64_t j = 0; j < n; j += b_eff) {
                     int64_t b_j = std::min(b_eff, n - j);
 
-                    // (1) buf = A * R_sk_inv[:, j : j+b_j]
+                    // (1) buf = A * R_sk_inv[:, j : j+b_j]  (NoTrans = fwd)
+                    if(this->timing) t_start = steady_clock::now();
                     A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                       m, b_j, n, (T)1.0, R_sk_inv + j * n, n, (T)0.0, A_pre, m);
+                    if(this->timing) { t_stop = steady_clock::now(); fwd_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
 
-                    // (2) R[:, j : j+b_j] = A^T * buf
+                    // (2) R[:, j : j+b_j] = A^T * buf  (Trans = adj)
+                    if(this->timing) t_start = steady_clock::now();
                     A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
                       n, b_j, m, (T)1.0, A_pre, m, (T)0.0, R + j * ldr, ldr);
+                    if(this->timing) { t_stop = steady_clock::now(); adj_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
                 }
 
                 if(this -> timing) {
-                    // In column-block mode, precondition and Gram are fused
-                    // into a single loop.  Report the entire loop as
-                    // linop_precond; linop_gram is zero.
-                    linop_precond_t_stop = steady_clock::now();
-                    linop_gram_t_start  = linop_precond_t_stop;
-                    linop_gram_t_stop   = linop_precond_t_stop;
+                    fwd_t_dur = fwd_accum;
+                    adj_t_dur = adj_accum;
                 }
             }
 
@@ -427,8 +424,7 @@ class CQRRT_linops {
                 saso_t_dur         = duration_cast<microseconds>(saso_t_stop         - saso_t_start).count();
                 qr_t_dur           = duration_cast<microseconds>(qr_t_stop           - qr_t_start).count();
                 trtri_t_dur        = duration_cast<microseconds>(trtri_t_stop        - trtri_t_start).count();
-                linop_precond_t_dur = duration_cast<microseconds>(linop_precond_t_stop - linop_precond_t_start).count();
-                linop_gram_t_dur   = duration_cast<microseconds>(linop_gram_t_stop   - linop_gram_t_start).count();
+                // fwd_t_dur and adj_t_dur already set (in both full and blocked paths)
                 trmm_gram_t_dur    = duration_cast<microseconds>(trmm_gram_t_stop    - trmm_gram_t_start).count();
                 potrf_t_dur        = duration_cast<microseconds>(potrf_t_stop        - potrf_t_start).count();
                 finalize_t_dur     = duration_cast<microseconds>(finalize_t_stop     - finalize_t_start).count();
@@ -441,13 +437,13 @@ class CQRRT_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                long t_rest  = total_t_dur - (alloc_t_dur + saso_t_dur + qr_t_dur + trtri_t_dur + linop_precond_t_dur +
-                                              linop_gram_t_dur + trmm_gram_t_dur + potrf_t_dur + finalize_t_dur);
+                long t_rest  = total_t_dur - (alloc_t_dur + saso_t_dur + qr_t_dur + trtri_t_dur + fwd_t_dur +
+                                              adj_t_dur + trmm_gram_t_dur + potrf_t_dur + finalize_t_dur);
 
                 // Fill the data vector (11 entries)
-                // Index: 0=alloc, 1=saso, 2=qr, 3=trtri, 4=linop_precond, 5=linop_gram, 6=trmm_gram, 7=potrf, 8=finalize, 9=rest, 10=total
-                this -> times = {alloc_t_dur, saso_t_dur, qr_t_dur, trtri_t_dur, linop_precond_t_dur,
-                                 linop_gram_t_dur, trmm_gram_t_dur, potrf_t_dur, finalize_t_dur,
+                // Index: 0=alloc, 1=sketch, 2=qr, 3=tri_inv, 4=fwd, 5=adj, 6=trmm, 7=chol, 8=finalize, 9=rest, 10=total
+                this -> times = {alloc_t_dur, saso_t_dur, qr_t_dur, trtri_t_dur, fwd_t_dur,
+                                 adj_t_dur, trmm_gram_t_dur, potrf_t_dur, finalize_t_dur,
                                  t_rest, total_t_dur};
             }
 

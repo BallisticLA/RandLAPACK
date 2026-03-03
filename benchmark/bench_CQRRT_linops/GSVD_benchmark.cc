@@ -15,7 +15,7 @@ int main() {return 0;}
 //
 // Usage:
 //   ./GSVD_benchmark <precision> <output_dir> <num_runs> <K_file> <V_file>
-//                    <d_factor> [sketch_nnz] [block_size]
+//                    <d_factor> [sketch_nnz] [block_size] [skip_apps] [compute_cond]
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -45,58 +45,6 @@ int main() {return 0;}
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
 using std::chrono::microseconds;
-
-// ============================================================================
-// Condition number diagnostic
-// ============================================================================
-
-// Materialize a linear operator and compute its condition number,
-// both raw and after column normalization.
-template <typename T, typename LinOp>
-static void print_condition_number(LinOp& A_linop, int64_t m, int64_t n) {
-    std::cout << "\nCondition number diagnostics for L^{-1}V:\n";
-
-    // Materialize A into dense column-major storage: A = A_linop * I
-    std::vector<T> A_dense(m * n, 0.0);
-    std::vector<T> Eye(n * n, 0.0);
-    RandLAPACK::util::eye(n, n, Eye.data());
-    A_linop(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-            m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
-
-    // Compute column norms
-    std::vector<T> col_norms(n);
-    for (int64_t j = 0; j < n; ++j)
-        col_norms[j] = blas::nrm2(m, &A_dense[j * m], 1);
-
-    T cn_min = *std::min_element(col_norms.begin(), col_norms.end());
-    T cn_max = *std::max_element(col_norms.begin(), col_norms.end());
-    printf("  Column norm range: [%.6e, %.6e], ratio: %.6e\n",
-           (double)cn_min, (double)cn_max, (double)(cn_max / cn_min));
-
-    // Copy for column-normalized version (gesdd is destructive)
-    std::vector<T> A_normed(A_dense);
-    for (int64_t j = 0; j < n; ++j)
-        blas::scal(m, (T)1.0 / col_norms[j], &A_normed[j * m], 1);
-
-    // SVD on raw matrix
-    std::vector<T> sigma(n);
-    lapack::gesdd(lapack::Job::NoVec,
-                  m, n, A_dense.data(), m, sigma.data(),
-                  nullptr, 1, nullptr, 1);
-    printf("  Raw:     kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
-           (double)(sigma[0] / sigma[n - 1]), (double)sigma[0], (double)sigma[n - 1]);
-
-    // SVD on column-normalized matrix
-    std::vector<T> sigma_normed(n);
-    lapack::gesdd(lapack::Job::NoVec,
-                  m, n, A_normed.data(), m, sigma_normed.data(),
-                  nullptr, 1, nullptr, 1);
-    printf("  ColNorm: kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
-           (double)(sigma_normed[0] / sigma_normed[n - 1]),
-           (double)sigma_normed[0], (double)sigma_normed[n - 1]);
-
-    std::cout << "\n";
-}
 
 // ============================================================================
 // Result struct
@@ -345,28 +293,6 @@ static void write_csv_row(std::ofstream& out, const gsvd_result<T>& r) {
         << "\n";
 }
 
-template <typename T>
-static void write_svals_csv(
-    const std::string& filename,
-    const std::vector<gsvd_result<T>>& results,
-    const std::vector<std::vector<T>>& all_svals,
-    int64_t n)
-{
-    std::ofstream out(filename);
-    out << "# Generalized singular values\n";
-    out << "run,algorithm";
-    for (int64_t i = 0; i < n; ++i) out << ",sigma_" << i;
-    out << "\n";
-
-    for (size_t idx = 0; idx < results.size(); ++idx) {
-        out << results[idx].run_idx << "," << results[idx].alg_name;
-        for (int64_t i = 0; i < n; ++i) {
-            out << "," << std::scientific << std::setprecision(10) << all_svals[idx][i];
-        }
-        out << "\n";
-    }
-}
-
 // ============================================================================
 // Breakdown CSV output
 // ============================================================================
@@ -385,15 +311,15 @@ static void write_breakdown_csv(
     out << "# Runs per algorithm: " << num_runs << "\n";
     out << "# OpenMP threads: " << omp_get_max_threads() << "\n";
     out << "# Times are in microseconds\n";
-    out << "# CQRRT_linop breakdown (11): alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
-    out << "# CholQR breakdown (6): alloc, materialize, gram, potrf, rest, total\n";
-    out << "# sCholQR3 breakdown (13): alloc, gram1, potrf1, m_update1, gram2, potrf2, update2, gram3, potrf3, update3, q_mat, rest, total\n";
-    out << "# sCholQR3_basic breakdown (13): alloc, gram1, potrf1, q_factor, syrk2, potrf2, update2, syrk3, potrf3, update3, q_mat, rest, total\n";
+    out << "# CQRRT_linop breakdown (11): alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total\n";
+    out << "# CholQR breakdown (6): alloc, fwd, adj, chol, rest, total\n";
+    out << "# sCholQR3 breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total\n";
+    out << "# sCholQR3_basic breakdown (15): alloc, fwd1, adj1, chol1, trsm1, fwd_q, syrk2, chol2, upd2, syrk3, chol3, upd3, q_mat, rest, total\n";
 
     // Column header: m, n, run, algorithm, then all breakdown times
-    // Max breakdown length is 13 (sCholQR3)
+    // Max breakdown length is 18 (sCholQR3)
     out << "m,n,run,algorithm";
-    for (int i = 0; i < 13; ++i) out << ",t" << i;
+    for (int i = 0; i < 18; ++i) out << ",t" << i;
     out << "\n";
 
     for (const auto& r : results) {
@@ -401,8 +327,8 @@ static void write_breakdown_csv(
         for (size_t i = 0; i < r.qr_breakdown.size(); ++i) {
             out << "," << r.qr_breakdown[i];
         }
-        // Pad with zeros if fewer than 13 columns
-        for (size_t i = r.qr_breakdown.size(); i < 13; ++i) {
+        // Pad with zeros if fewer than 18 columns
+        for (size_t i = r.qr_breakdown.size(); i < 18; ++i) {
             out << ",0";
         }
         out << "\n";
@@ -438,7 +364,7 @@ int run_benchmark(int argc, char* argv[]) {
     if (argc < 7) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file> <V_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps]\n";
+                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond]\n";
         return 1;
     }
 
@@ -450,6 +376,7 @@ int run_benchmark(int argc, char* argv[]) {
     int64_t sketch_nnz     = (argc >= 8) ? std::stol(argv[7]) : 4;
     int64_t block_size     = (argc >= 9) ? std::stol(argv[8]) : 0;
     bool skip_apps         = (argc >= 10) ? (std::stol(argv[9]) != 0) : false;
+    bool compute_cond      = (argc >= 11) ? (std::stol(argv[10]) != 0) : false;
 
     std::cout << "=== GSVD/Generalized LS Benchmark ===\n";
     std::cout << "  K file: " << K_file << "\n";
@@ -458,6 +385,7 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "  sketch_nnz: " << sketch_nnz << "\n";
     std::cout << "  block_size: " << block_size << "\n";
     std::cout << "  skip_apps: " << (skip_apps ? "yes" : "no") << "\n";
+    std::cout << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n";
     std::cout << "  num_runs: " << num_runs << "\n";
     std::cout << "  OpenMP threads: " << omp_get_max_threads() << "\n\n";
 
@@ -501,7 +429,8 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n";
 
     // Condition number diagnostic (materializes L^{-1}V, runs two SVDs)
-    print_condition_number<T>(LiV_op, m, n);
+    if (compute_cond)
+        RandLAPACK_demos::print_condition_diagnostics<T>(LiV_op, m, n, "L^{-1}V");
 
     // ================================================================
     // Step 4: Generate synthetic RHS: b = V * x_true (only when running apps)
@@ -539,7 +468,6 @@ int run_benchmark(int argc, char* argv[]) {
 
     // Storage for all results
     std::vector<gsvd_result<T>> all_results;
-    std::vector<std::vector<T>> all_svals;
 
     // ================================================================
     // Run warmup (unreported)
@@ -577,7 +505,7 @@ int run_benchmark(int argc, char* argv[]) {
         algo.call(LiV_op, R.data(), n, d_factor, state);
         res.peak_rss_kb = cqrrt_mem.stop();
         res.qr_time_us = algo.times[10];
-        // CQRRT breakdown: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total
+        // CQRRT breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
         res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
 
@@ -609,7 +537,6 @@ int run_benchmark(int argc, char* argv[]) {
         res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
 
         all_results.push_back(res);
-        all_svals.push_back(sigma_c);
     }
     print_summary("CQRRT_linop", cqrrt_results);
 
@@ -633,7 +560,7 @@ int run_benchmark(int argc, char* argv[]) {
         algo.call(LiV_op, R.data(), n);
         res.peak_rss_kb = cholqr_mem.stop();
         res.qr_time_us = algo.times[5];
-        // CholQR breakdown: alloc, materialize, gram, potrf, rest, total
+        // CholQR breakdown: alloc, fwd, adj, chol, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 6);
         res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
 
@@ -665,7 +592,6 @@ int run_benchmark(int argc, char* argv[]) {
         res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
 
         all_results.push_back(res);
-        all_svals.push_back(sigma_c);
     }
     print_summary("CholQR", cholqr_results);
 
@@ -688,9 +614,9 @@ int run_benchmark(int argc, char* argv[]) {
         scholqr3_mem.start();
         algo.call(LiV_op, R.data(), n);
         res.peak_rss_kb = scholqr3_mem.stop();
-        res.qr_time_us = algo.times[12];
-        // sCholQR3 breakdown: alloc, gram1, potrf1, m_update1, gram2, potrf2, update2, gram3, potrf3, update3, q_mat, rest, total
-        res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 13);
+        res.qr_time_us = algo.times[17];
+        // sCholQR3 breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total
+        res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 18);
         res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
 
         // Orthogonality
@@ -721,7 +647,6 @@ int run_benchmark(int argc, char* argv[]) {
         res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
 
         all_results.push_back(res);
-        all_svals.push_back(sigma_c);
     }
     print_summary("sCholQR3", scholqr3_results);
 
@@ -743,9 +668,9 @@ int run_benchmark(int argc, char* argv[]) {
         scholqr3_basic_mem.start();
         algo.call(LiV_op, R.data(), n);
         res.peak_rss_kb = scholqr3_basic_mem.stop();
-        res.qr_time_us = algo.times[12];
-        // sCholQR3_basic breakdown: alloc, gram1, potrf1, q_factor, syrk2, potrf2, update2, syrk3, potrf3, update3, q_mat, rest, total
-        res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 13);
+        res.qr_time_us = algo.times[14];
+        // sCholQR3_basic breakdown (15): alloc, fwd1, adj1, chol1, trsm1, fwd_q, syrk2, chol2, upd2, syrk3, chol3, upd3, q_mat, rest, total
+        res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 15);
         res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
 
         // Orthogonality
@@ -776,7 +701,6 @@ int run_benchmark(int argc, char* argv[]) {
         res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
 
         all_results.push_back(res);
-        all_svals.push_back(sigma_c);
     }
     print_summary("sCholQR3_basic", scholqr3_basic_results);
 
@@ -789,7 +713,6 @@ int run_benchmark(int argc, char* argv[]) {
     strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", localtime(&now));
 
     std::string results_file   = output_dir + "/" + time_buf + "_gsvd_results.csv";
-    std::string svals_file     = output_dir + "/" + time_buf + "_gsvd_svals.csv";
     std::string breakdown_file = output_dir + "/" + time_buf + "_gsvd_breakdown.csv";
 
     std::ofstream out(results_file);
@@ -799,9 +722,6 @@ int run_benchmark(int argc, char* argv[]) {
     }
     out.close();
     std::cout << "\n\nResults written to " << results_file << "\n";
-
-    write_svals_csv(svals_file, all_results, all_svals, n);
-    std::cout << "Singular values written to " << svals_file << "\n";
 
     write_breakdown_csv(breakdown_file, all_results, m, n, num_runs);
     std::cout << "Runtime breakdown written to " << breakdown_file << "\n";

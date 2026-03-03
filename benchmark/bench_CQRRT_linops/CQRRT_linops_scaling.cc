@@ -442,24 +442,11 @@ static std::vector<scaling_result<T>> run_single_test(
 }
 
 // Compute the 2-norm condition number of a sparse linear operator by
-// materializing it and computing singular values via LAPACK gesvd.
-// For tall-skinny matrices (m >> n), only n singular values are computed.
+// materializing it and computing singular values via LAPACK gesdd.
 template <typename T, typename SpLinOp>
 static T compute_condition_number(SpLinOp& A_linop, int64_t m, int64_t n) {
-    // Materialize A into dense column-major storage
-    std::vector<T> A_dense(m * n, 0.0);
-    T* Eye = new T[n * n]();
-    RandLAPACK::util::eye(n, n, Eye);
-    A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-            m, n, n, (T)1.0, Eye, n, (T)0.0, A_dense.data(), m);
-    delete[] Eye;
-
-    // Compute singular values only (no U or V) via divide-and-conquer
-    std::vector<T> sigma(n);
-    lapack::gesdd(lapack::Job::NoVec,
-                  m, n, A_dense.data(), m, sigma.data(),
-                  nullptr, 1, nullptr, 1);
-
+    auto A_dense = RandLAPACK::util::materialize_linop<T>(A_linop, m, n);
+    auto sigma = RandLAPACK::util::compute_singular_values<T>(A_dense.data(), m, n);
     T cond = sigma[0] / sigma[n - 1];
     printf("  Condition number: %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
            (double)cond, (double)sigma[0], (double)sigma[n - 1]);

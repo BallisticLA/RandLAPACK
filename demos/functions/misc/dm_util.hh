@@ -402,4 +402,51 @@ void generate_invertible_matrix_file(
     file.close();
 }
 
+/***********************************************************************
+ *                                                                     *
+ *              LINEAR OPERATOR DIAGNOSTICS                            *
+ *                                                                     *
+ ***********************************************************************/
+
+/// Compute and print condition number diagnostics for a linear operator.
+///
+/// Materializes the operator, computes condition number both raw and after
+/// column normalization, and prints a diagnostic summary.
+///
+template <typename T, typename LinOp>
+void print_condition_diagnostics(LinOp& A_linop, int64_t m, int64_t n,
+                                 const std::string& label = "operator") {
+    printf("\nCondition number diagnostics for %s:\n", label.c_str());
+
+    auto A_dense = RandLAPACK::util::materialize_linop<T>(A_linop, m, n);
+
+    // Compute column norms
+    std::vector<T> col_norms(n);
+    for (int64_t j = 0; j < n; ++j)
+        col_norms[j] = blas::nrm2(m, &A_dense[j * m], 1);
+
+    T cn_min = *std::min_element(col_norms.begin(), col_norms.end());
+    T cn_max = *std::max_element(col_norms.begin(), col_norms.end());
+    printf("  Column norm range: [%.6e, %.6e], ratio: %.6e\n",
+           (double)cn_min, (double)cn_max, (double)(cn_max / cn_min));
+
+    // Copy for column-normalized version (gesdd is destructive)
+    std::vector<T> A_normed(A_dense);
+    for (int64_t j = 0; j < n; ++j)
+        blas::scal(m, (T)1.0 / col_norms[j], &A_normed[j * m], 1);
+
+    // SVD on raw matrix
+    auto sigma = RandLAPACK::util::compute_singular_values<T>(A_dense.data(), m, n);
+    printf("  Raw:     kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
+           (double)(sigma[0] / sigma[n - 1]), (double)sigma[0], (double)sigma[n - 1]);
+
+    // SVD on column-normalized matrix
+    auto sigma_normed = RandLAPACK::util::compute_singular_values<T>(A_normed.data(), m, n);
+    printf("  ColNorm: kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
+           (double)(sigma_normed[0] / sigma_normed[n - 1]),
+           (double)sigma_normed[0], (double)sigma_normed[n - 1]);
+
+    printf("\n");
+}
+
 } // namespace RandLAPACK_demos

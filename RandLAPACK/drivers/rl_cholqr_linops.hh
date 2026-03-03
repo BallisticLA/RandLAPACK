@@ -27,7 +27,9 @@ class CholQR_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 6 entries: alloc, materialize, gram, potrf, rest, total
+        // 6 entries: alloc, fwd, adj, chol, rest, total
+        //   fwd  = LinOp NoTrans: A * I (accumulated over blocks)
+        //   adj  = LinOp Trans:   A^T * buf (accumulated over blocks)
         std::vector<long> times;
 
         // Column-block size for the materialize + Gram computation.
@@ -112,17 +114,14 @@ class CholQR_linops {
             ///--------------------TIMING VARS--------------------/
             steady_clock::time_point alloc_t_start;
             steady_clock::time_point alloc_t_stop;
-            steady_clock::time_point materialize_t_start;
-            steady_clock::time_point materialize_t_stop;
-            steady_clock::time_point gram_t_start;
-            steady_clock::time_point gram_t_stop;
             steady_clock::time_point potrf_t_start;
             steady_clock::time_point potrf_t_stop;
             steady_clock::time_point total_t_start;
             steady_clock::time_point total_t_stop;
+            steady_clock::time_point t_start, t_stop;
             long alloc_t_dur = 0;
-            long materialize_t_dur = 0;
-            long gram_t_dur  = 0;
+            long fwd_t_dur = 0;
+            long adj_t_dur  = 0;
             long potrf_t_dur = 0;
             long total_t_dur = 0;
             long q_t_dur     = 0;
@@ -191,26 +190,20 @@ class CholQR_linops {
 
             if(this->timing) {
                 alloc_t_stop = steady_clock::now();
-                materialize_t_start = steady_clock::now();
             }
 
             if (b_eff == n) {
                 // --- Full materialization path (original) ---
 
                 // Step 1: Materialize A by computing A_temp = A * I
+                if(this->timing) t_start = steady_clock::now();
                 A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, (T)1.0, I_mat, n, (T)0.0, A_temp, m);
-
-                if(this->timing) {
-                    materialize_t_stop = steady_clock::now();
-                    gram_t_start = steady_clock::now();
-                }
+                if(this->timing) { t_stop = steady_clock::now(); fwd_t_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
 
                 // Step 2: Compute R = A^T * A_temp (using the linear operator's transpose)
+                if(this->timing) t_start = steady_clock::now();
                 A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, m, (T)1.0, A_temp, m, (T)0.0, R, ldr);
-
-                if(this->timing) {
-                    gram_t_stop = steady_clock::now();
-                }
+                if(this->timing) { t_stop = steady_clock::now(); adj_t_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
             } else {
                 // --- Column-block processing path (memory-efficient) ---
                 //
@@ -230,25 +223,25 @@ class CholQR_linops {
                 //
                 // Total FLOPs are the same as the full path; only memory differs.
 
+                long fwd_accum = 0, adj_accum = 0;
                 for (int64_t j = 0; j < n; j += b_eff) {
                     int64_t b_j = std::min(b_eff, n - j);
 
                     // (1) buf = A * I[:, j : j+b_j]
+                    if(this->timing) t_start = steady_clock::now();
                     A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                       m, b_j, n, (T)1.0, I_mat + j * n, n, (T)0.0, A_temp, m);
+                    if(this->timing) { t_stop = steady_clock::now(); fwd_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
 
                     // (2) R[:, j : j+b_j] = A^T * buf
+                    if(this->timing) t_start = steady_clock::now();
                     A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
                       n, b_j, m, (T)1.0, A_temp, m, (T)0.0, R + j * ldr, ldr);
+                    if(this->timing) { t_stop = steady_clock::now(); adj_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
                 }
-
                 if(this->timing) {
-                    // In column-block mode, materialize and Gram are fused
-                    // into a single loop.  Report the entire loop as
-                    // materialize; gram is zero.
-                    materialize_t_stop = steady_clock::now();
-                    gram_t_start  = materialize_t_stop;
-                    gram_t_stop   = materialize_t_stop;
+                    fwd_t_dur = fwd_accum;
+                    adj_t_dur = adj_accum;
                 }
             }
 
@@ -303,8 +296,7 @@ class CholQR_linops {
                 total_t_stop = steady_clock::now();
 
                 alloc_t_dur = duration_cast<microseconds>(alloc_t_stop - alloc_t_start).count();
-                materialize_t_dur = duration_cast<microseconds>(materialize_t_stop - materialize_t_start).count();
-                gram_t_dur  = duration_cast<microseconds>(gram_t_stop  - gram_t_start).count();
+                // fwd_t_dur and adj_t_dur already set (in both full and blocked paths)
                 potrf_t_dur = duration_cast<microseconds>(potrf_t_stop - potrf_t_start).count();
                 total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
 
@@ -314,10 +306,10 @@ class CholQR_linops {
                     total_t_dur -= q_t_dur;
                 }
 
-                long rest_t_dur = total_t_dur - (alloc_t_dur + materialize_t_dur + gram_t_dur + potrf_t_dur);
+                long rest_t_dur = total_t_dur - (alloc_t_dur + fwd_t_dur + adj_t_dur + potrf_t_dur);
 
-                // Fill the data vector: [alloc, materialize, gram, potrf, rest, total]
-                this->times = {alloc_t_dur, materialize_t_dur, gram_t_dur, potrf_t_dur, rest_t_dur, total_t_dur};
+                // Fill the data vector: [alloc, fwd, adj, chol, rest, total]
+                this->times = {alloc_t_dur, fwd_t_dur, adj_t_dur, potrf_t_dur, rest_t_dur, total_t_dur};
             }
 
             // Cleanup - now outside the timing region to avoid timing artifacts
