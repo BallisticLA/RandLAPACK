@@ -47,6 +47,58 @@ using std::chrono::duration_cast;
 using std::chrono::microseconds;
 
 // ============================================================================
+// Condition number diagnostic
+// ============================================================================
+
+// Materialize a linear operator and compute its condition number,
+// both raw and after column normalization.
+template <typename T, typename LinOp>
+static void print_condition_number(LinOp& A_linop, int64_t m, int64_t n) {
+    std::cout << "\nCondition number diagnostics for L^{-1}V:\n";
+
+    // Materialize A into dense column-major storage: A = A_linop * I
+    std::vector<T> A_dense(m * n, 0.0);
+    std::vector<T> Eye(n * n, 0.0);
+    RandLAPACK::util::eye(n, n, Eye.data());
+    A_linop(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+            m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
+
+    // Compute column norms
+    std::vector<T> col_norms(n);
+    for (int64_t j = 0; j < n; ++j)
+        col_norms[j] = blas::nrm2(m, &A_dense[j * m], 1);
+
+    T cn_min = *std::min_element(col_norms.begin(), col_norms.end());
+    T cn_max = *std::max_element(col_norms.begin(), col_norms.end());
+    printf("  Column norm range: [%.6e, %.6e], ratio: %.6e\n",
+           (double)cn_min, (double)cn_max, (double)(cn_max / cn_min));
+
+    // Copy for column-normalized version (gesdd is destructive)
+    std::vector<T> A_normed(A_dense);
+    for (int64_t j = 0; j < n; ++j)
+        blas::scal(m, (T)1.0 / col_norms[j], &A_normed[j * m], 1);
+
+    // SVD on raw matrix
+    std::vector<T> sigma(n);
+    lapack::gesdd(lapack::Job::NoVec,
+                  m, n, A_dense.data(), m, sigma.data(),
+                  nullptr, 1, nullptr, 1);
+    printf("  Raw:     kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
+           (double)(sigma[0] / sigma[n - 1]), (double)sigma[0], (double)sigma[n - 1]);
+
+    // SVD on column-normalized matrix
+    std::vector<T> sigma_normed(n);
+    lapack::gesdd(lapack::Job::NoVec,
+                  m, n, A_normed.data(), m, sigma_normed.data(),
+                  nullptr, 1, nullptr, 1);
+    printf("  ColNorm: kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
+           (double)(sigma_normed[0] / sigma_normed[n - 1]),
+           (double)sigma_normed[0], (double)sigma_normed[n - 1]);
+
+    std::cout << "\n";
+}
+
+// ============================================================================
 // Result struct
 // ============================================================================
 
@@ -447,6 +499,9 @@ int run_benchmark(int argc, char* argv[]) {
     RandLAPACK::linops::CompositeOperator LiV_op(m, n, L_inv_op, V_linop);
     LiV_op.sketch_block_size = block_size;
     std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n";
+
+    // Condition number diagnostic (materializes L^{-1}V, runs two SVDs)
+    print_condition_number<T>(LiV_op, m, n);
 
     // ================================================================
     // Step 4: Generate synthetic RHS: b = V * x_true (only when running apps)
