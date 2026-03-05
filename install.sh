@@ -10,9 +10,14 @@
 # Stop execution on error
 set -e
 
-# Determine the appropriate shell config file (zsh on macOS, bash on Linux)
+# Determine the appropriate shell config file:
+#   zsh (default on macOS)       → ~/.zshrc
+#   bash on macOS (login shell)  → ~/.bash_profile  (macOS terminals don't source ~/.bashrc)
+#   bash on Linux                → ~/.bashrc
 if [[ "$(basename "${SHELL:-bash}")" == "zsh" ]]; then
     SHELL_RC="$HOME/.zshrc"
+elif [[ "$(uname)" == "Darwin" ]]; then
+    SHELL_RC="$HOME/.bash_profile"
 else
     SHELL_RC="$HOME/.bashrc"
 fi
@@ -95,14 +100,15 @@ if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
     fi
 fi
 
-# Consider adding a block that interacts with BLAS and LAPACK library versions
-# that are available on the given system.
-# For now, before installing the RandLAPACK project, 
-# consider adding the proper BLAS and LAPACK libraries to PATH, LDPATH and CPATH like such:
-# export BLAS_LAPACK_ROOT=*Point to the top-level library directory*
-# export LIBRARY_PATH=$BLAS_LAPACK_ROOT/lib
-# export LD_LIBRARY_PATH=$BLAS_LAPACK_ROOT/lib
-# export CPATH=$BLAS_LAPACK_ROOT/include
+# On macOS, OpenBLAS must be installed via Homebrew before running this script:
+#   brew install openblas
+# On Linux, ensure your BLAS/LAPACK installation (MKL, AOCL, OpenBLAS, etc.) is on PATH.
+if [[ "$(uname)" == "Darwin" ]]; then
+    if [[ ! -f /opt/homebrew/opt/openblas/lib/libopenblas.dylib ]]; then
+        echo "ERROR: OpenBLAS not found. Install it first: brew install openblas"
+        exit 1
+    fi
+fi
 
 # Get the directory where the script is located
 SCRIPT_DIR=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
