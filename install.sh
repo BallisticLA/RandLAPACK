@@ -210,7 +210,27 @@ echo "All libraries placed in: $RANDNLA_PROJECT_DIR/lib"
 
 # Configure, build, and install BLAS++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL  -DCMAKE_BUILD_TYPE=Release -Dblas_int=int64 -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ 
+# On macOS, Homebrew OpenBLAS is LP64 (int32); Linux typically has ILP64 (int64) BLAS available.
+# The macOS CLT does not expose C++ stdlib headers in its default search path — export CXXFLAGS
+# so cmake picks them up via CMAKE_CXX_FLAGS_INIT for all subsequent cmake invocations.
+BLAS_INT="int64"
+MACOS_BLAS_FLAGS=""
+MACOS_LAPACK_FLAGS=""
+if [[ "$(uname)" == "Darwin" ]]; then
+    BLAS_INT="int32"
+    MACOS_SDK_PATH=$(xcrun --show-sdk-path)
+    export CXXFLAGS="-isystem ${MACOS_SDK_PATH}/usr/include/c++/v1"
+    # Homebrew OpenBLAS is keg-only; pass full path and Fortran mangling directly.
+    MACOS_BLAS_FLAGS="-DBLAS_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib -Dblas_fortran=add"
+    # OpenBLAS bundles LAPACK; point lapackpp at the same library.
+    MACOS_LAPACK_FLAGS="-DLAPACK_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib"
+fi
+cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ \
+    -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
+    -DCMAKE_BUILD_TYPE=Release \
+    -Dblas_int=$BLAS_INT \
+    -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ \
+    $MACOS_BLAS_FLAGS
 make  -C $RANDNLA_PROJECT_DIR/build/blaspp-build/ -j20 install
 
 # Check if lib or lib64 folder name will be in use
@@ -223,7 +243,7 @@ fi
 
 # Configure, build, and install LAPACK++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON
+cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS
 make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
 # Configure, build, and install RandLAPACK
 echo "=========================================="
