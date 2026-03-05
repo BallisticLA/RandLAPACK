@@ -108,6 +108,10 @@ if [[ "$(uname)" == "Darwin" ]]; then
         echo "ERROR: OpenBLAS not found. Install it first: brew install openblas"
         exit 1
     fi
+    if [[ ! -f /opt/homebrew/opt/libomp/lib/libomp.dylib ]]; then
+        echo "ERROR: libomp not found. Install it first: brew install libomp"
+        exit 1
+    fi
 fi
 
 # Get the directory where the script is located
@@ -222,21 +226,28 @@ echo "All libraries placed in: $RANDNLA_PROJECT_DIR/lib"
 BLAS_INT="int64"
 MACOS_BLAS_FLAGS=""
 MACOS_LAPACK_FLAGS=""
+MACOS_OPENMP_FLAGS=""
 if [[ "$(uname)" == "Darwin" ]]; then
     BLAS_INT="int32"
     MACOS_SDK_PATH=$(xcrun --show-sdk-path)
-    export CXXFLAGS="-isystem ${MACOS_SDK_PATH}/usr/include/c++/v1"
+    # SDK C++ headers + Apple Clang OpenMP flags (no native OpenMP; use Homebrew libomp).
+    # Appending to CXXFLAGS/LDFLAGS lets cmake pick them up via CMAKE_CXX_FLAGS_INIT and
+    # CMAKE_EXE_LINKER_FLAGS_INIT for all try_compile tests, including FindOpenMP.
+    export CXXFLAGS="-isystem ${MACOS_SDK_PATH}/usr/include/c++/v1 -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
+    export LDFLAGS="-L/opt/homebrew/opt/libomp/lib"
     # Homebrew OpenBLAS is keg-only; pass full path and Fortran mangling directly.
     MACOS_BLAS_FLAGS="-DBLAS_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib -Dblas_fortran=add"
     # OpenBLAS bundles LAPACK; point lapackpp at the same library.
     MACOS_LAPACK_FLAGS="-DLAPACK_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib"
+    # Explicit library path hints for cmake's FindOpenMP (no spaces in values — safe to word-split).
+    MACOS_OPENMP_FLAGS="-DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib"
 fi
 cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ \
     -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
     -DCMAKE_BUILD_TYPE=Release \
     -Dblas_int=$BLAS_INT \
     -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ \
-    $MACOS_BLAS_FLAGS
+    $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS
 make  -C $RANDNLA_PROJECT_DIR/build/blaspp-build/ -j20 install
 
 # Check if lib or lib64 folder name will be in use
@@ -249,13 +260,13 @@ fi
 
 # Configure, build, and install LAPACK++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS
+cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
 make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
 # Configure, build, and install RandLAPACK
 echo "=========================================="
 echo "Configuring and building RandLAPACK..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_OPENMP_FLAGS
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK configuration failed!"
     exit 1
@@ -278,7 +289,7 @@ fi
 echo "=========================================="
 echo "Configuring and building RandLAPACK demos..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/demos/ -B $RANDNLA_PROJECT_DIR/build/demos-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/demos/ -B $RANDNLA_PROJECT_DIR/build/demos-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK demos configuration failed!"
     exit 1
@@ -295,7 +306,7 @@ echo ""
 echo "=========================================="
 echo "Configuring and building RandLAPACK benchmarks..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK benchmarks configuration failed!"
     exit 1
