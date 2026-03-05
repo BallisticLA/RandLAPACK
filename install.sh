@@ -1,14 +1,21 @@
+#!/bin/bash
 # Make sure to enable the script via "chmod +x install.sh"
 #
 # This script automatically installs RandLAPACK library with all of its dependencies, as well as builds the RandLAPACK benchmark files (done separately).
-# The project layout will be as such: the directory where the RandLAPACK project was originally located will contain the top-level "RandNLA-project" project direcory with three subdirectories: 
-# lib: contains library files for RandLAPACK, blaspp, and lapackpp; 
+# The project layout will be as such: the directory where the RandLAPACK project was originally located will contain the top-level "RandNLA-project" project direcory with three subdirectories:
+# lib: contains library files for RandLAPACK, blaspp, and lapackpp;
 # install: will contain the installed RandLAPACK-install, blaspp-install, lapackpp-install and random123;
 # build: will contain builds for RandLAPACK-build, benchmark-build, blaspp-build, lapackpp-build.
 # Prerequisites for installation can be seen in the INSTALL.md file.
-#!/bin/bash
 # Stop execution on error
 set -e
+
+# Determine the appropriate shell config file (zsh on macOS, bash on Linux)
+if [[ "$(basename "${SHELL:-bash}")" == "zsh" ]]; then
+    SHELL_RC="$HOME/.zshrc"
+else
+    SHELL_RC="$HOME/.bashrc"
+fi
 
 # Check for GCC version
 PREFERRED_GCC_VERSION="13.3.0"
@@ -30,7 +37,7 @@ RELOAD_SHELL=0
 RANDLAPACK_CUDA="OFF"
 RANDNLA_PROJECT_GPU_AVAIL="none"
 # Detect NVIDIA GPU
-echo "Detecting a GPU..." | tee -a $LOG_FILE
+echo "Detecting a GPU..."
 if command -v nvidia-smi &> /dev/null; then
     # NVIDIA GPU found. Ask user if they want to proceed with GPU support or not.
     read -p "NVIDIA GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
@@ -42,13 +49,14 @@ if command -v nvidia-smi &> /dev/null; then
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         RANDLAPACK_CUDA="ON"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" ~/.bashrc; then
-            echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
+        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" $SHELL_RC; then
+            echo "#Added via RandLAPACK/install.sh" >> $SHELL_RC
+            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> $SHELL_RC
             RELOAD_SHELL=1
         fi
     fi
-elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
+elif { command -v lspci &>/dev/null && lspci | grep -i "VGA" | grep -qi "AMD"; } || \
+     { [[ "$(uname)" == "Darwin" ]] && system_profiler SPDisplaysDataType 2>/dev/null | grep -qi "AMD"; }; then
     # AMD GPU found. Ask user if they want to proceed with GPU support or not.
     read -p "AMD GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
     if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
@@ -59,14 +67,14 @@ elif lspci | grep -i "VGA" | grep -i "AMD" &> /dev/null; then
         RANDLAPACK_CUDA="ON"
         RANDNLA_PROJECT_GPU_AVAIL="auto"
         # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" ~/.bashrc; then
-            echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> ~/.bashrc
+        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" $SHELL_RC; then
+            echo "#Added via RandLAPACK/install.sh" >> $SHELL_RC
+            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> $SHELL_RC
             RELOAD_SHELL=1
         fi
     fi
 else
-    echo "No NVIDIA GPU detected." | tee -a $LOG_FILE
+    echo "No NVIDIA GPU detected."
 fi
 
 if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
@@ -110,10 +118,12 @@ else
     RANDNLA_PROJECT_DIR="$PARENT_DIR/RandNLA-project"
     # We want to make sure that RANDNLA_PROJECT_DIR variable is in the
     # user's bashrc so that it can be used by our other bash scripts.
-    RANDNLA_PROJECT_DIR_ABSOLUTE_PATH=$(realpath "$RANDNLA_PROJECT_DIR")
-    if ! grep -q "export RANDNLA_PROJECT_DIR=" ~/.bashrc; then
-        echo "#Added via RandLAPACK/install.sh" >> ~/.bashrc
-        echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> ~/.bashrc
+    # $RANDNLA_PROJECT_DIR is already absolute (derived from realpath of script path);
+    # avoid calling realpath on a path that may not exist yet (macOS BSD realpath requires existence)
+    RANDNLA_PROJECT_DIR_ABSOLUTE_PATH="$RANDNLA_PROJECT_DIR"
+    if ! grep -q "export RANDNLA_PROJECT_DIR=" $SHELL_RC; then
+        echo "#Added via RandLAPACK/install.sh" >> $SHELL_RC
+        echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> $SHELL_RC
         RELOAD_SHELL=1
     fi
 fi
@@ -282,7 +292,7 @@ echo "Benchmark executables: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
 echo ""
 
 if [ $RELOAD_SHELL -eq 1 ]; then
-    # Source from bash and spawn a new shell so that the variable change takes place
-    echo "Writing variables into bashrc"
-    bash -c "source ~/.bashrc && exec bash"
+    # Source the shell config and spawn a new shell so that the variable change takes place
+    echo "Writing variables into $SHELL_RC"
+    exec "${SHELL:-bash}" -c "source $SHELL_RC && exec ${SHELL:-bash}"
 fi
