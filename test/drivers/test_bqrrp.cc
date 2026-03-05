@@ -10,6 +10,77 @@
 
 using Subroutines = RandLAPACK::BQRRPSubroutines;
 
+// ============================================================================
+// Unified Testing Framework for BQRRP
+// ============================================================================
+
+/// Matrix distribution types for test matrix generation
+enum class MatrixDistribution {
+    Gaussian,
+    Polynomial,
+    Step
+};
+
+/// Configuration structure for BQRRP tests
+/// Encapsulates all parameters needed to run a BQRRP test case
+template <typename T>
+struct BQRRPTestConfig {
+    // Matrix dimensions
+    int64_t m;           ///< Number of rows
+    int64_t n;           ///< Number of columns
+    int64_t k;           ///< Rank (for low-rank matrices)
+
+    // Algorithm parameters
+    int64_t b_sz;        ///< Block size
+    T d_factor;          ///< Damping factor for pivoting
+
+    // BQRRP configuration options
+    Subroutines::QRTall qr_tall = Subroutines::QRTall::cholqr;
+    Subroutines::QRCPWide qrcp_wide = Subroutines::QRCPWide::geqp3;
+    Subroutines::ApplyTransQ apply_trans_q = Subroutines::ApplyTransQ::ormqr;
+    int64_t internal_nb = 10;
+
+    // Matrix generation
+    MatrixDistribution dist_type = MatrixDistribution::Gaussian;
+    T cond_num = 1.0;    ///< Condition number (for polynomial/step)
+    T exponent = 2.0;    ///< Decay exponent (for polynomial)
+
+    // Test metadata (optional, for documentation)
+    const char* description = "";
+};
+
+/// Helper function to create mat_gen_info from config
+template <typename T>
+RandLAPACK::gen::mat_gen_info<T> create_matrix_info(const BQRRPTestConfig<T>& config) {
+    // mat_gen_info constructor requires non-const references, so create local copies
+    int64_t m = config.m;
+    int64_t n = config.n;
+
+    switch (config.dist_type) {
+        case MatrixDistribution::Gaussian:
+            return RandLAPACK::gen::mat_gen_info<T>(m, n, RandLAPACK::gen::gaussian);
+
+        case MatrixDistribution::Polynomial: {
+            RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::polynomial);
+            m_info.cond_num = config.cond_num;
+            m_info.rank = config.k;
+            m_info.exponent = config.exponent;
+            return m_info;
+        }
+
+        case MatrixDistribution::Step: {
+            RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::step);
+            m_info.cond_num = config.cond_num;
+            m_info.rank = config.k;
+            m_info.exponent = config.exponent;
+            return m_info;
+        }
+    }
+
+    // Should never reach here, but return a default to avoid warnings
+    return RandLAPACK::gen::mat_gen_info<T>(m, n, RandLAPACK::gen::gaussian);
+}
+
 class TestBQRRP : public ::testing::Test
 {
     protected:
@@ -145,120 +216,109 @@ class TestBQRRP : public ::testing::Test
             error_check(norm_A, all_data, atol);
         }
     }
+
+    /// Unified test function for BQRRP using configuration-based approach
+    /// This function encapsulates the common pattern of all BQRRP tests
+    template <typename T, typename RNG = r123::Philox4x32>
+    static void test_bqrrp_unified(const BQRRPTestConfig<T>& config) {
+        auto state = RandBLAS::RNGState<RNG>();
+        T norm_A = 0;
+
+        // Create test data container
+        BQRRPTestData<T> all_data(config.m, config.n, config.k);
+
+        // Create and configure BQRRP instance
+        RandLAPACK::BQRRP<T, RNG> BQRRP(true, config.b_sz);
+        BQRRP.qr_tall = config.qr_tall;
+        BQRRP.qrcp_wide = config.qrcp_wide;
+        BQRRP.apply_trans_q = config.apply_trans_q;
+        BQRRP.internal_nb = config.internal_nb;
+
+        // Generate matrix based on distribution type
+        RandLAPACK::gen::mat_gen_info<T> m_info = create_matrix_info(config);
+        RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+        // Run test validation
+        norm_and_copy_computational_helper(norm_A, all_data);
+        test_BQRRP_general(config.d_factor, norm_A, all_data, BQRRP, state);
+    }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_full_rank_basic) {
-    int64_t m = 5000;//5000;
-    int64_t n = 2000;//2000;
-    int64_t k = 2000;
-    double d_factor = 1;//1.0;
-    int64_t b_sz = 500;//500;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 5000,
+        .n = 2000,
+        .k = 2000,
+        .b_sz = 500,
+        .d_factor = 1.0,
+        .qr_tall = Subroutines::QRTall::cholqr,
+        .dist_type = MatrixDistribution::Gaussian,
+        .description = "Full rank, basic block size"
+    });
 }
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_full_rank_block_change) {
-    int64_t m = 5000;//5000;
-    int64_t n = 2000;//2000;
-    int64_t k = 2000;
-    double d_factor = 1;//1.0;
-    int64_t b_sz = 700;//500;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 5000,
+        .n = 2000,
+        .k = 2000,
+        .b_sz = 700,
+        .d_factor = 1.0,
+        .qr_tall = Subroutines::QRTall::cholqr,
+        .dist_type = MatrixDistribution::Gaussian,
+        .description = "Full rank, larger block size"
+    });
 }
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_low_rank) {
-    int64_t m = 5000;
-    int64_t n = 2000;
-    int64_t k = 100;
-    double d_factor = 2.0;
-    int64_t b_sz = 200;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 5000,
+        .n = 2000,
+        .k = 100,
+        .b_sz = 200,
+        .d_factor = 2.0,
+        .qr_tall = Subroutines::QRTall::cholqr,
+        .dist_type = MatrixDistribution::Polynomial,
+        .cond_num = 2.0,
+        .exponent = 2.0,
+        .description = "Low rank polynomial decay"
+    });
 }
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_pivot_qual) {
-    int64_t m = std::pow(2, 10);
-    int64_t n = std::pow(2, 10);
-    int64_t k = std::pow(2, 10);
-    double d_factor = 1.25;
-    int64_t b_sz = 256;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall    = Subroutines::QRTall::cholqr;
-    BQRRP.qrcp_wide  = Subroutines::QRCPWide::geqp3;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::step);
-    m_info.cond_num = std::pow(10, 10);
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 1024,
+        .n = 1024,
+        .k = 1024,
+        .b_sz = 256,
+        .d_factor = 1.25,
+        .qr_tall = Subroutines::QRTall::cholqr,
+        .qrcp_wide = Subroutines::QRCPWide::geqp3,
+        .dist_type = MatrixDistribution::Step,
+        .cond_num = std::pow(10, 10),
+        .exponent = 2.0,
+        .description = "Pivot quality test with ill-conditioned step matrix"
+    });
 }
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestBQRRP, BQRRP_gemqrt) {
-    int64_t m = 5000;//5000;
-    int64_t n = 2800;//2000;
-    int64_t k = 2800;
-    double d_factor = 1;//1.0;
-    int64_t b_sz = 900;//500;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall       = Subroutines::QRTall::cholqr;
-    BQRRP.apply_trans_q = Subroutines::ApplyTransQ::gemqrt;
-    BQRRP.internal_nb = 10;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 5000,
+        .n = 2800,
+        .k = 2800,
+        .b_sz = 900,
+        .d_factor = 1.0,
+        .qr_tall = Subroutines::QRTall::cholqr,
+        .apply_trans_q = Subroutines::ApplyTransQ::gemqrt,
+        .internal_nb = 10,
+        .dist_type = MatrixDistribution::Gaussian,
+        .description = "GEMQRT transformation test"
+    });
 }
 
 // Note: If Subprocess killed exception -> reload vscode
@@ -348,65 +408,44 @@ TEST_F(TestBQRRP, BQRRP_zero_mat) {
 }
 
 TEST_F(TestBQRRP, BQRRP_qrf) {
-    int64_t m = 5000;//5000;
-    int64_t n = 2800;//2000;
-    int64_t k = 2800;
-    double d_factor = 1;//1.0;
-    int64_t b_sz = 900;//500;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = Subroutines::QRTall::geqrf;
-    BQRRP.internal_nb = 10;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 5000,
+        .n = 2800,
+        .k = 2800,
+        .b_sz = 900,
+        .d_factor = 1.0,
+        .qr_tall = Subroutines::QRTall::geqrf,
+        .internal_nb = 10,
+        .dist_type = MatrixDistribution::Gaussian,
+        .description = "GEQRF QR algorithm test"
+    });
 }
 
 TEST_F(TestBQRRP, BQRRP_qrt) {
-    int64_t m = 5000;//5000;
-    int64_t n = 2800;//2000;
-    int64_t k = 2800;
-    double d_factor = 1;//1.0;
-    int64_t b_sz = 900;//500;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = Subroutines::QRTall::geqrt;
-    BQRRP.internal_nb = 10;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 5000,
+        .n = 2800,
+        .k = 2800,
+        .b_sz = 900,
+        .d_factor = 1.0,
+        .qr_tall = Subroutines::QRTall::geqrt,
+        .internal_nb = 10,
+        .dist_type = MatrixDistribution::Gaussian,
+        .description = "GEQRT QR algorithm test"
+    });
 }
 
 TEST_F(TestBQRRP, BQRRP_cholqr_nb) {
-    int64_t m = 5000;//5000;
-    int64_t n = 2800;//2000;
-    int64_t k = 2800;
-    double d_factor = 1;//1.0;
-    int64_t b_sz = 900;//500;
-    double norm_A = 0;
-    auto state = RandBLAS::RNGState();
-
-    BQRRPTestData<double> all_data(m, n, k);
-    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
-    BQRRP.qr_tall = Subroutines::QRTall::cholqr;
-    BQRRP.internal_nb = 7;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+    test_bqrrp_unified<double>({
+        .m = 5000,
+        .n = 2800,
+        .k = 2800,
+        .b_sz = 900,
+        .d_factor = 1.0,
+        .qr_tall = Subroutines::QRTall::cholqr,
+        .internal_nb = 7,
+        .dist_type = MatrixDistribution::Gaussian,
+        .description = "CholQR with different internal block size"
+    });
 }
 #endif

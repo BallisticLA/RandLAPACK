@@ -72,12 +72,28 @@ jobs:
           make -j2 install
           ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
 
+      - name: build demos
+        run: |
+          cd ..
+          mkdir demos-build
+          mkdir fetchcontent-cache
+          cd demos-build
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DFETCHCONTENT_BASE_DIR=`pwd`/../fetchcontent-cache \
+            -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake/RandLAPACK \
+            -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp \
+            -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
+            -DRandom123_DIR=`pwd`/../Random123-install/include/ \
+            ../RandLAPACK/demos
+          make -j2
+
       - name: build benchmarks
         run: |
           cd ..
           mkdir benchmark-build
           cd benchmark-build
           cmake -DCMAKE_BINARY_DIR=`pwd` \
+            -DFETCHCONTENT_BASE_DIR=`pwd`/../fetchcontent-cache \
             -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake/RandLAPACK \
             ../RandLAPACK/benchmark
           make -j2

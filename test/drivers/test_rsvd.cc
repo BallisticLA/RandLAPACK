@@ -165,7 +165,7 @@ class TestRSVD : public ::testing::Test
 };
 
 TEST_F(TestRSVD, SimpleTest)
-{ 
+{
     int64_t m = 10;
     int64_t n = 10;
     int64_t k = 5;
@@ -186,6 +186,74 @@ TEST_F(TestRSVD, SimpleTest)
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
     m_info.cond_num = 2;
     m_info.rank = k;
+    RandLAPACK::gen::mat_gen(m_info, (*all_data).A.data(), state);
+
+    computational_helper(*all_data);
+    test_RSVD1_general(tol, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
+}
+
+// Test RSVD with copy_A = false (no-copy mode)
+TEST_F(TestRSVD, NoCopy_SimpleTest)
+{
+    int64_t m = 10;
+    int64_t n = 10;
+    int64_t k = 5;
+    int64_t p = 10;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 2;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.5625);
+    auto state = RandBLAS::RNGState();
+
+    bool verbose = false;
+    bool cond_check = true;
+    bool orth_check = true;
+
+    auto all_data = new RSVDTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
+
+    // Enable no-copy mode
+    all_algs->QB.copy_A = false;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2;
+    m_info.rank = k;
+    RandLAPACK::gen::mat_gen(m_info, (*all_data).A.data(), state);
+
+    computational_helper(*all_data);
+    test_RSVD1_general(tol, *all_data, *all_algs, state);
+
+    delete all_data;
+    delete all_algs;
+}
+
+// Larger RSVD test with copy_A = false
+TEST_F(TestRSVD, NoCopy_LargerTest)
+{
+    int64_t m = 100;
+    int64_t n = 100;
+    int64_t k = 20;
+    int64_t p = 5;
+    int64_t passes_per_iteration = 1;
+    int64_t block_sz = 5;
+    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.5625);
+    auto state = RandBLAS::RNGState();
+
+    bool verbose = false;
+    bool cond_check = true;
+    bool orth_check = true;
+
+    auto all_data = new RSVDTestData<double>(m, n, k);
+    auto all_algs = new algorithm_objects<double, r123::Philox4x32>(verbose, cond_check, orth_check, p, passes_per_iteration, block_sz);
+
+    all_algs->QB.copy_A = false;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
+    m_info.cond_num = 2025;
+    m_info.rank = k;
+    m_info.exponent = 2.0;
     RandLAPACK::gen::mat_gen(m_info, (*all_data).A.data(), state);
 
     computational_helper(*all_data);

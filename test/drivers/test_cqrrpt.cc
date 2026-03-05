@@ -9,6 +9,71 @@
 
 using Subroutines = RandLAPACK::CQRRPTSubroutines;
 
+// ============================================================================
+// Unified Testing Framework for CQRRPT
+// ============================================================================
+
+/// Matrix distribution types for test matrix generation
+enum class CQRRPTMatrixDistribution {
+    Polynomial,
+    Adversarial
+};
+
+/// Configuration structure for CQRRPT tests
+/// Encapsulates all parameters needed to run a CQRRPT test case
+template <typename T>
+struct CQRRPTTestConfig {
+    // Matrix dimensions
+    int64_t m;           ///< Number of rows
+    int64_t n;           ///< Number of columns
+    int64_t k;           ///< Rank (for low-rank matrices)
+
+    // Algorithm parameters
+    T d_factor;          ///< Damping factor for pivoting
+    T tol;               ///< Tolerance for rank determination
+    int64_t nnz = 2;     ///< Number of nonzeros in sketch (default: 2)
+
+    // CQRRPT configuration options
+    Subroutines::QRCP qrcp = Subroutines::QRCP::geqp3;
+    bool orthogonalization = false;  ///< Enable orthogonalization mode
+
+    // Matrix generation
+    CQRRPTMatrixDistribution dist_type = CQRRPTMatrixDistribution::Polynomial;
+    T cond_num = 2.0;    ///< Condition number (for polynomial)
+    T exponent = 2.0;    ///< Decay exponent (for polynomial)
+    T scaling = 1e7;     ///< Scaling factor (for adversarial)
+
+    // Test metadata
+    const char* description = "";
+    bool use_orthogonalization_test = false;  ///< Use orthogonalization validation instead of standard
+};
+
+/// Helper function to create mat_gen_info from CQRRPT config
+template <typename T>
+RandLAPACK::gen::mat_gen_info<T> create_cqrrpt_matrix_info(const CQRRPTTestConfig<T>& config) {
+    int64_t m = config.m;
+    int64_t n = config.n;
+
+    switch (config.dist_type) {
+        case CQRRPTMatrixDistribution::Polynomial: {
+            RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::polynomial);
+            m_info.cond_num = config.cond_num;
+            m_info.rank = config.k;
+            m_info.exponent = config.exponent;
+            return m_info;
+        }
+
+        case CQRRPTMatrixDistribution::Adversarial: {
+            RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::adverserial);
+            m_info.scaling = config.scaling;
+            return m_info;
+        }
+    }
+
+    // Should never reach here
+    return RandLAPACK::gen::mat_gen_info<T>(m, n, RandLAPACK::gen::polynomial);
+}
+
 class TestCQRRPT : public ::testing::Test
 {
     protected:
@@ -179,127 +244,117 @@ class TestCQRRPT : public ::testing::Test
         ASSERT_GE(detected_rank, k_expected - 5);  // Allow some slack in rank detection
         ASSERT_LE(detected_rank, k_expected + 5);
     }
+
+    /// Unified test function for CQRRPT using configuration-based approach
+    /// This function encapsulates the common pattern of all CQRRPT tests
+    template <typename T, typename RNG = r123::Philox4x32>
+    static void test_cqrrpt_unified(const CQRRPTTestConfig<T>& config) {
+        auto state = RandBLAS::RNGState<RNG>();
+        T norm_A = 0;
+
+        // Create test data container
+        CQRRPTTestData<T> all_data(config.m, config.n, config.k);
+
+        // Create and configure CQRRPT instance
+        RandLAPACK::CQRRPT<T, RNG> CQRRPT(false, config.tol);
+        CQRRPT.nnz = config.nnz;
+        CQRRPT.qrcp = config.qrcp;
+        CQRRPT.orthogonalization = config.orthogonalization;
+
+        // Generate matrix based on distribution type
+        RandLAPACK::gen::mat_gen_info<T> m_info = create_cqrrpt_matrix_info(config);
+        RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+        // Run test validation (standard or orthogonalization mode)
+        norm_and_copy_computational_helper(norm_A, all_data);
+        if (config.use_orthogonalization_test) {
+            test_CQRRPT_orthogonalization(config.d_factor, norm_A, all_data, CQRRPT, state);
+        } else {
+            test_CQRRPT_general(config.d_factor, norm_A, all_data, CQRRPT, state);
+        }
+    }
 };
 
 // Note: If Subprocess killed exception -> reload vscode
 TEST_F(TestCQRRPT, CQRRPT_full_rank_no_hqrrp) {
-    int64_t m = 10;
-    int64_t n = 5;
-    int64_t k = 5;
-    double d_factor = 2;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.qrcp = Subroutines::QRCP::geqp3;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+    test_cqrrpt_unified<double>({
+        .m = 10,
+        .n = 5,
+        .k = 5,
+        .d_factor = 2.0,
+        .tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85),
+        .nnz = 2,
+        .qrcp = Subroutines::QRCP::geqp3,
+        .dist_type = CQRRPTMatrixDistribution::Polynomial,
+        .cond_num = 2.0,
+        .exponent = 2.0,
+        .description = "Full rank with geqp3"
+    });
 }
 
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_hqrrp) {
-    int64_t m = 10000;
-    int64_t n = 200;
-    int64_t k = 100;
-    double d_factor = 2;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.qrcp = Subroutines::QRCP::hqrrp;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+    test_cqrrpt_unified<double>({
+        .m = 10000,
+        .n = 200,
+        .k = 100,
+        .d_factor = 2.0,
+        .tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85),
+        .nnz = 2,
+        .qrcp = Subroutines::QRCP::hqrrp,
+        .dist_type = CQRRPTMatrixDistribution::Polynomial,
+        .cond_num = 2.0,
+        .exponent = 2.0,
+        .description = "Low rank with HQRRP"
+    });
 }
 #if !defined(__APPLE__)
 TEST_F(TestCQRRPT, CQRRPT_low_rank_with_bqrrp) {
-    int64_t m = 10000;
-    int64_t n = 200;
-    int64_t k = 100;
-    double d_factor = 2;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.qrcp = Subroutines::QRCP::bqrrp;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 2;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+    test_cqrrpt_unified<double>({
+        .m = 10000,
+        .n = 200,
+        .k = 100,
+        .d_factor = 2.0,
+        .tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85),
+        .nnz = 2,
+        .qrcp = Subroutines::QRCP::bqrrp,
+        .dist_type = CQRRPTMatrixDistribution::Polynomial,
+        .cond_num = 2.0,
+        .exponent = 2.0,
+        .description = "Low rank with BQRRP"
+    });
 }
 #endif
 // Using L2 norm rank estimation here is similar to using raive estimation.
 // Fro norm underestimates rank even worse.
 TEST_F(TestCQRRPT, CQRRPT_bad_orth) {
-    int64_t m = 10e4;
-    int64_t n = 300;
-    int64_t k = 0;
-    double d_factor = 1;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.qrcp = Subroutines::QRCP::geqp3;
-
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::adverserial);
-    m_info.scaling = 1e7;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_general(d_factor, norm_A, all_data, CQRRPT, state);
+    test_cqrrpt_unified<double>({
+        .m = static_cast<int64_t>(10e4),
+        .n = 300,
+        .k = 0,
+        .d_factor = 1.0,
+        .tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75),
+        .nnz = 2,
+        .qrcp = Subroutines::QRCP::geqp3,
+        .dist_type = CQRRPTMatrixDistribution::Adversarial,
+        .scaling = 1e7,
+        .description = "Adversarial matrix (bad orthogonalization case)"
+    });
 }
 
 TEST_F(TestCQRRPT, CQRRPT_orthogonalization_mode_low_rank) {
-    int64_t m = 1000;
-    int64_t n = 100;
-    int64_t k = 60;  // True rank < n
-    double d_factor = 2;
-    double norm_A = 0;
-    double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85);
-    auto state = RandBLAS::RNGState();
-
-    CQRRPTTestData<double> all_data(m, n, k);
-    RandLAPACK::CQRRPT<double, r123::Philox4x32> CQRRPT(false, tol);
-    CQRRPT.nnz = 2;
-    CQRRPT.qrcp = Subroutines::QRCP::geqp3;
-    CQRRPT.orthogonalization = true;  // Enable orthogonalization mode
-
-    // Generate a low-rank matrix (rank k < n)
-    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::polynomial);
-    m_info.cond_num = 100;
-    m_info.rank = k;
-    m_info.exponent = 2.0;
-    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
-
-    norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_orthogonalization(d_factor, norm_A, all_data, CQRRPT, state);
+    test_cqrrpt_unified<double>({
+        .m = 1000,
+        .n = 100,
+        .k = 60,  // True rank < n
+        .d_factor = 2.0,
+        .tol = std::pow(std::numeric_limits<double>::epsilon(), 0.85),
+        .nnz = 2,
+        .qrcp = Subroutines::QRCP::geqp3,
+        .orthogonalization = true,
+        .dist_type = CQRRPTMatrixDistribution::Polynomial,
+        .cond_num = 100.0,
+        .exponent = 2.0,
+        .description = "Orthogonalization mode test (completes basis)",
+        .use_orthogonalization_test = true
+    });
 }

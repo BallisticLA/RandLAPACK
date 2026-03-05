@@ -127,6 +127,7 @@ class QB : public QBalg<T, RNG> {
         RandLAPACK::Stabilization<T> &orth;
         bool verbose;
         bool orth_check;
+        bool copy_A = true;  // Set to false to skip copying A (saves memory)
 };
 
 // -----------------------------------------------------------------------------
@@ -159,7 +160,8 @@ int QB<T, RNG>::call(
     BT = ( T * ) calloc(n * b_sz, sizeof( T ) );
     // Allocate buffers
     T* QtQi  = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
-    T* A_cpy = ( T * ) calloc( m * n,       sizeof( T ) );
+    T* A_cpy = nullptr;
+    T* A_work = nullptr;
     // Declate pointers to the iteration buffers.
     T* Q_i;
     T* BT_i;
@@ -167,8 +169,15 @@ int QB<T, RNG>::call(
     // pre-compute nrom
     T norm_A = lapack::lange(Norm::Fro, m, n, A, m);
 
-    // Copy the initial data to avoid unwanted modification
-    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    if (this->copy_A) {
+        // Copy the initial data to avoid unwanted modification
+        A_cpy = ( T * ) calloc( m * n, sizeof( T ) );
+        lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+        A_work = A_cpy;
+    } else {
+        // No-copy mode: work directly with original A (read-only)
+        A_work = A;
+    }
 
     while(curr_sz < k) {
         // Dynamically changing block size.
@@ -188,7 +197,7 @@ int QB<T, RNG>::call(
         BT_i = &BT[n * curr_sz];
 
         // Calling RangeFinder
-        if(this->rf.call(m, n, A_cpy, b_sz, Q_i, state)) {
+        if(this->rf.call(m, n, A_work, b_sz, Q_i, state)) {
             // RF failed
             k = curr_sz;
             free(A_cpy);
@@ -215,7 +224,7 @@ int QB<T, RNG>::call(
         }
 
         //B_i' = A' * Q_i'
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, A_cpy, m, Q_i, m, 0.0, BT_i, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, A_work, m, Q_i, m, 0.0, BT_i, n);
 
         // Updating B norm estimation
         T norm_B_i = lapack::lange(Norm::Fro, n, b_sz, BT_i, n);
@@ -255,9 +264,11 @@ int QB<T, RNG>::call(
             return 0;
         }
 
-        // This step is only necessary for the next iteration
-        // A = A - Q_i * B_i
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A_cpy, m);
+        // Deflation step: only in copy mode (no-copy relies on reorthogonalization)
+        if (this->copy_A) {
+            // A = A - Q_i * B_i
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A_work, m);
+        }
     }
 
     free(A_cpy);
