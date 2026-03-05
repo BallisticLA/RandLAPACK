@@ -155,17 +155,21 @@ public:
         L_sparse = chol_solver.matrixL();
         randblas_require(L_sparse.isCompressed());
 
-        // Step 4: Extract permutation vectors from P^T A P = L L^T.
-        // Eigen's permutationP() returns P such that P * A * P^T = L L^T (Eigen convention),
-        // which means P^T (A) P = L L^T in our convention where P permutes rows.
-        // permutationP().indices()[i] = j means P maps row i to row j.
+        // Step 4: Extract permutation vectors from P A P^T = L L^T.
+        // Eigen permutation convention: P_sigma(e_i) = e_{sigma(i)}, so
+        // (P * v)[j] = v[sigma^{-1}(j)].  Our apply_row_perm does a gather:
+        // result[i] = source[perm[i]], which corresponds to P^{-1} when perm = sigma.
+        //
+        // We define perm_fwd as the array such that apply_row_perm(perm_fwd) = P.
+        // Since apply_row_perm(perm) = "gather with perm" = P^{-1} when perm = sigma,
+        // we need perm_fwd = sigma^{-1} (so gather with sigma^{-1} gives P).
         const auto& perm_indices = chol_solver.permutationP().indices();
         int64_t nn = n_rows;
         perm_fwd.resize(nn);
         perm_inv.resize(nn);
         for (int64_t i = 0; i < nn; ++i) {
-            perm_fwd[i] = perm_indices[i];
-            perm_inv[perm_indices[i]] = i;
+            perm_fwd[perm_indices[i]] = i;  // sigma^{-1}: gather gives P
+            perm_inv[i] = perm_indices[i];   // sigma:      gather gives P^{-1} = P^T
         }
 
         factorization_done = true;

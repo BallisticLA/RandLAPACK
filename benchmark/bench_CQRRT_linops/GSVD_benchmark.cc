@@ -23,6 +23,8 @@ int main() {return 0;}
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
+#include <Eigen/Dense>
+#include <Eigen/SparseCholesky>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -429,8 +431,111 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n";
 
     // Condition number diagnostic (materializes L^{-1}V, runs two SVDs)
-    if (compute_cond)
+    if (compute_cond) {
+        // Export L_eigen (triangular) and P to files for Python comparison
+        {
+            std::string out_dir = "/home/mymel/data/QLCQRRT_benchmark/input_matrices";
+
+            // Write L_eigen as MatrixMarket
+            std::string L_file = out_dir + "/FEM_Problem_2_L_eigen.mtx";
+            std::ofstream Lf(L_file);
+            Lf << "%%MatrixMarket matrix coordinate real general\n";
+            Lf << m << " " << m << " " << L_inv_op.L_sparse.nonZeros() << "\n";
+            Lf << std::setprecision(17);
+            for (int64_t j = 0; j < m; ++j)
+                for (typename Eigen::SparseMatrix<T>::InnerIterator it(L_inv_op.L_sparse, j); it; ++it)
+                    Lf << (it.row()+1) << " " << (j+1) << " " << it.value() << "\n";
+            Lf.close();
+            printf("Wrote L_eigen to %s (%lld nnz)\n", L_file.c_str(),
+                   (long long)L_inv_op.L_sparse.nonZeros());
+
+            // Write permutation vector (0-indexed)
+            std::string P_file = out_dir + "/FEM_Problem_2_P_eigen.txt";
+            std::ofstream Pf(P_file);
+            for (int64_t i = 0; i < m; ++i)
+                Pf << L_inv_op.perm_fwd[i] << "\n";
+            Pf.close();
+            printf("Wrote P_eigen to %s (%lld entries)\n", P_file.c_str(), (long long)m);
+        }
+
         RandLAPACK_demos::print_condition_diagnostics<T>(LiV_op, m, n, "L^{-1}V");
+
+        // Cross-check: test on first nc=10 columns to save memory.
+        {
+            const int64_t nc = std::min((int64_t)10, n);
+            printf("\n  === Diagnostic on first %lld columns ===\n", (long long)nc);
+
+            // Materialize V_dense (full, needed for permutation)
+            auto V_dense = RandLAPACK::util::materialize_linop<T>(V_linop, m, n);
+            Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>> V_eig(V_dense.data(), m, n);
+
+            // PV_small = first nc columns of PV (m x nc)
+            Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> PV_small(m, nc);
+            for (int64_t i = 0; i < m; ++i)
+                for (int64_t j = 0; j < nc; ++j)
+                    PV_small(i, j) = V_eig(L_inv_op.perm_fwd[i], j);
+
+            // Apply our CholSolverLinOp half-solve directly to first nc cols of V
+            std::vector<T> V_small(m * nc, 0.0);
+            for (int64_t j = 0; j < nc; ++j)
+                for (int64_t i = 0; i < m; ++i)
+                    V_small[i + j * m] = V_dense[i + j * m];
+
+            std::vector<T> Z_ours(m * nc, 0.0);
+            L_inv_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                     m, nc, m, (T)1.0, V_small.data(), m, (T)0.0, Z_ours.data(), m);
+
+            Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>> Z_eig(Z_ours.data(), m, nc);
+
+            // Residual: ||L*Z - PV|| / ||PV||
+            Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> LZ = L_inv_op.L_sparse * Z_eig;
+            double res = (LZ - PV_small).norm() / PV_small.norm();
+            printf("  TRSM residual: ||L*Z - PV|| / ||PV|| = %.4e\n", res);
+
+            // SVD of Z_ours (m x nc)
+            auto sigma = RandLAPACK::util::compute_singular_values<T>(Z_ours.data(), m, nc);
+            printf("  SVD(Z_ours, %lld cols): sigma_max=%.6e, sigma_min=%.6e, kappa=%.6e\n",
+                   (long long)nc, (double)sigma[0], (double)sigma[nc-1],
+                   (double)(sigma[0] / sigma[nc-1]));
+
+            // Eigen's OWN sparse triangular solve for comparison (NOT full solve)
+            // Use L_sparse.triangularView<Lower>().solveInPlace() directly on PV
+            Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> Z_eigen_trsv = PV_small;  // copy PV
+            L_inv_op.L_sparse.template triangularView<Eigen::Lower>().solveInPlace(Z_eigen_trsv);
+
+            // Residual of Eigen's sparse TRSV
+            Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic> LZ_eigen = L_inv_op.L_sparse * Z_eigen_trsv;
+            double res_eigen = (LZ_eigen - PV_small).norm() / PV_small.norm();
+            printf("  Eigen TRSV residual: ||L*Z_eigen - PV|| / ||PV|| = %.4e\n", res_eigen);
+
+            // SVD of Eigen's TRSV result
+            std::vector<T> Z_eigen_buf(m * nc);
+            for (int64_t j = 0; j < nc; ++j)
+                for (int64_t i = 0; i < m; ++i)
+                    Z_eigen_buf[i + j * m] = Z_eigen_trsv(i, j);
+            auto sigma_eigen = RandLAPACK::util::compute_singular_values<T>(Z_eigen_buf.data(), m, nc);
+            printf("  SVD(Z_eigen, %lld cols): sigma_max=%.6e, sigma_min=%.6e, kappa=%.6e\n",
+                   (long long)nc, (double)sigma_eigen[0], (double)sigma_eigen[nc-1],
+                   (double)(sigma_eigen[0] / sigma_eigen[nc-1]));
+
+            // Direct comparison: ||Z_ours - Z_eigen|| / ||Z_eigen||
+            double trsm_diff = (Z_eig - Z_eigen_trsv).norm() / Z_eigen_trsv.norm();
+            printf("  ||Z_ours - Z_eigen||/||Z_eigen|| = %.4e\n", trsm_diff);
+
+            // Column-by-column comparison
+            printf("\n  Column-by-column comparison:\n");
+            for (int64_t j = 0; j < nc; ++j) {
+                double cn_ours  = Z_eig.col(j).norm();
+                double cn_eigen = Z_eigen_trsv.col(j).norm();
+                double cn_diff  = (Z_eig.col(j) - Z_eigen_trsv.col(j)).norm();
+                printf("    col %lld: ||ours||=%.4e  ||eigen||=%.4e  ||diff||=%.4e  rel=%.4e\n",
+                       (long long)j, cn_ours, cn_eigen, cn_diff, cn_diff/cn_eigen);
+            }
+        }
+
+        std::cout << "Early exit after condition diagnostic.\n";
+        return 0;
+    }
 
     // ================================================================
     // Step 4: Generate synthetic RHS: b = V * x_true (only when running apps)
