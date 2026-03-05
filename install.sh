@@ -231,16 +231,18 @@ if [[ "$(uname)" == "Darwin" ]]; then
     BLAS_INT="int32"
     MACOS_SDK_PATH=$(xcrun --show-sdk-path)
     # SDK C++ headers + Apple Clang OpenMP flags (no native OpenMP; use Homebrew libomp).
-    # Appending to CXXFLAGS/LDFLAGS lets cmake pick them up via CMAKE_CXX_FLAGS_INIT and
-    # CMAKE_EXE_LINKER_FLAGS_INIT for all try_compile tests, including FindOpenMP.
+    # Appending to CXXFLAGS/CFLAGS lets cmake pick them up via CMAKE_CXX_FLAGS_INIT /
+    # CMAKE_C_FLAGS_INIT for all try_compile tests, including FindOpenMP.
     export CXXFLAGS="-isystem ${MACOS_SDK_PATH}/usr/include/c++/v1 -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
+    export CFLAGS="-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
     export LDFLAGS="-L/opt/homebrew/opt/libomp/lib"
     # Homebrew OpenBLAS is keg-only; pass full path and Fortran mangling directly.
     MACOS_BLAS_FLAGS="-DBLAS_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib -Dblas_fortran=add"
     # OpenBLAS bundles LAPACK; point lapackpp at the same library.
     MACOS_LAPACK_FLAGS="-DLAPACK_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib"
-    # Explicit library path hints for cmake's FindOpenMP (no spaces in values — safe to word-split).
-    MACOS_OPENMP_FLAGS="-DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib"
+    # Explicit hints for cmake's FindOpenMP (C and CXX).
+    # Flags use semicolon cmake-list syntax to avoid bash word-splitting on spaces.
+    MACOS_OPENMP_FLAGS="-DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib -DOpenMP_C_FLAGS=-Xpreprocessor;-fopenmp -DOpenMP_CXX_FLAGS=-Xpreprocessor;-fopenmp"
 fi
 cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ \
     -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
