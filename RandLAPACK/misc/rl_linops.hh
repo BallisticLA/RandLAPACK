@@ -897,6 +897,70 @@ CSCRowBlock<T, sint_t> csc_row_block(
     return CSCRowBlock<T, sint_t>{std::move(vals), std::move(colptr), std::move(rowidxs), row_count, A.n_cols, block_nnz};
 }
 
+/// Split a CSR matrix into num_blocks equal-sized row blocks.
+/// Requires A.n_rows is divisible by num_blocks.
+template <typename T, typename sint_t>
+std::vector<CSRRowBlockView<T, sint_t>> csr_split_row_blocks(
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0 && A.n_rows % num_blocks == 0);
+    int64_t block_size = A.n_rows / num_blocks;
+    std::vector<CSRRowBlockView<T, sint_t>> blocks;
+    blocks.reserve(num_blocks);
+    for (int64_t b = 0; b < num_blocks; ++b)
+        blocks.push_back(csr_row_block(A, b * block_size, block_size));
+    return blocks;
+}
+
+/// Split a CSC matrix into num_blocks equal-sized column blocks.
+/// Requires A.n_cols is divisible by num_blocks.
+template <typename T, typename sint_t>
+std::vector<CSCColBlockView<T, sint_t>> csc_split_col_blocks(
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0 && A.n_cols % num_blocks == 0);
+    int64_t block_size = A.n_cols / num_blocks;
+    std::vector<CSCColBlockView<T, sint_t>> blocks;
+    blocks.reserve(num_blocks);
+    for (int64_t b = 0; b < num_blocks; ++b)
+        blocks.push_back(csc_col_block(A, b * block_size, block_size));
+    return blocks;
+}
+
+/// Split a CSR matrix into num_blocks equal-sized column blocks (cross-direction, owned).
+/// Requires A.n_cols is divisible by num_blocks.
+template <typename T, typename sint_t>
+std::vector<CSRColBlock<T, sint_t>> csr_split_col_blocks(
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0 && A.n_cols % num_blocks == 0);
+    int64_t block_size = A.n_cols / num_blocks;
+    std::vector<CSRColBlock<T, sint_t>> blocks;
+    blocks.reserve(num_blocks);
+    for (int64_t b = 0; b < num_blocks; ++b)
+        blocks.push_back(csr_col_block(A, b * block_size, block_size));
+    return blocks;
+}
+
+/// Split a CSC matrix into num_blocks equal-sized row blocks (cross-direction, owned).
+/// Requires A.n_rows is divisible by num_blocks.
+template <typename T, typename sint_t>
+std::vector<CSCRowBlock<T, sint_t>> csc_split_row_blocks(
+    RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
+    int64_t num_blocks
+) {
+    randblas_require(num_blocks > 0 && A.n_rows % num_blocks == 0);
+    int64_t block_size = A.n_rows / num_blocks;
+    std::vector<CSCRowBlock<T, sint_t>> blocks;
+    blocks.reserve(num_blocks);
+    for (int64_t b = 0; b < num_blocks; ++b)
+        blocks.push_back(csc_row_block(A, b * block_size, block_size));
+    return blocks;
+}
+
 /*********************************************************/
 /*                                                       */
 /*                   SparseLinOp                         */

@@ -551,6 +551,16 @@ void sparse_to_dense(
     }
 }
 
+/// Alias for sparse_to_dense. Sums duplicate entries (default behavior).
+template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = typename SpMat::scalar_t>
+void sparse_to_dense_summing_duplicates(
+    const SpMat &sp_mat,
+    blas::Layout layout,
+    T *dense_mat
+) {
+    sparse_to_dense(sp_mat, layout, dense_mat);
+}
+
 // ============================================================================
 // Test Utilities (for linear operator tests)
 // ============================================================================
