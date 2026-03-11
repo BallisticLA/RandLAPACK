@@ -17,12 +17,13 @@
 #include <type_traits>
 #include <optional>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
 
 using blas::Layout;
 using blas::Op;
 using blas::Side;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util; // for MatrixDimensions, calculate_dimensions, compute_gemm_reference
+using namespace RandLAPACK::util::test;
 
 // ============================================================================
 // Operator type tags for template specialization

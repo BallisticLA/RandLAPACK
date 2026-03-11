@@ -712,6 +712,10 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
         // Pick a random zero row (from rows n..m-1).
         int64_t rj = n + to_index(rv[vi++], m - n);
 
+        // Reuse the same random value as the rotation angle. This creates a
+        // statistical correlation between rj and theta, but is harmless here:
+        // the rotation remains orthogonal regardless of theta, and preserving
+        // A^T A exactly is what matters. This avoids consuming an extra RNG value.
         T theta = rv[vi - 1];
         T c = std::cos(theta);
         T s = std::sin(theta);

@@ -8,6 +8,7 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
 
 using std::vector;
 using blas::Layout;
@@ -15,7 +16,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util;
+using namespace RandLAPACK::util::test;
 
 // Static assertion to verify CompositeOperator satisfies LinearOperator concept
 using DenseOp = RandLAPACK::linops::DenseLinOp<double>;
