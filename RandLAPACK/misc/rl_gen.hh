@@ -495,6 +495,11 @@ void gen_random_dense(
 /// Creates a sparse matrix with uniformly random positions and values from the specified distribution.
 /// Duplicate (row, col) entries are merged by summing their values.
 ///
+/// @note Future migration: RandBLAS >= commit 7c03be6 provides
+/// RandBLAS::testing::random_coo/csr/csc in RandBLAS/testing/sparse_data.hh,
+/// which use geometric skips (no duplicate handling, slightly lower constant factor).
+/// Once RandBLAS is updated, gen_sparse_coo/csc should be replaced by those.
+///
 /// @tparam T - Scalar type (double, float, etc.)
 /// @tparam RNG - Random number generator type
 ///
