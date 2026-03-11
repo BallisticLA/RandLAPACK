@@ -12,6 +12,7 @@
 #include <sstream>
 #include <fstream>
 #include <unordered_map>
+#include <cstring>
 
 namespace RandLAPACK::gen {
 
@@ -591,6 +592,193 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
     return gen_sparse_coo<T>(m, n, density, state, dist);
 }
 
+/// Generate a tall sparse m×n matrix with a specified condition number.
+///
+/// Constructs A with exactly prescribed singular values:
+///   1. Compute σ_i log-spaced from 1 to 1/κ
+///   2. Generate Haar-random orthogonal V via QR of Gaussian (geqrf + orgqr)
+///   3. Top n rows = diag(σ) · V^T — gives A^T A = V · diag(σ²) · V^T,
+///      a generic SPD matrix with fully random eigenvectors
+///   4. Apply m-n left Givens rotations to spread rows from top n to all
+///      remaining rows — preserves A^T A exactly since (GA)^T(GA) = A^T A
+///
+/// The Haar-random V guarantees A^T A is fully generic (not diagonally
+/// dominant, not tridiagonal, not near-diagonal). This ensures CholQR
+/// fails catastrophically when κ² exceeds 1/ε, with no seed-dependent
+/// variability in failure magnitude.
+///
+/// Left Givens rotations are orthogonal, so singular values are preserved
+/// exactly: κ(A) = σ_1/σ_n = cond_num.
+///
+/// NOTE ON COHERENCE: The resulting matrix has high coherence in the sense
+/// of leverage score theory (see [BOOK §3.3]). Rows paired with the top
+/// singular values have much larger norms than those paired with small
+/// singular values, so leverage scores are non-uniform. Coherence C(A)
+/// can approach m (the worst case), compared to C(A) = n (optimal) for
+/// the old banded pbtrf-based generator which stacked identical L^T copies.
+/// Consequence: uniform row-sampling sketches (including SASOs) require a
+/// larger embedding dimension d (i.e., d_factor >= 2.0) and higher nnz
+/// per column (nnz >= 4) than they would for a low-coherence matrix.
+///
+/// @tparam T       Scalar type (double, float)
+/// @tparam RNG     Random number generator type
+///
+/// @param[in]     m               Number of rows (must satisfy m >= n)
+/// @param[in]     n               Number of columns
+/// @param[in]     cond_num        Target condition number (must be >= 1)
+/// @param[in,out] state           RNG state for reproducible generation
+/// @param[in]     target_density  Target fraction of nonzeros (0,1].
+///                                Set to 0 for diagonal-only (A^T A = diag(σ²)).
+///
+/// @return COO matrix of dimensions m×n with exactly the specified condition number
+///
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
+    int64_t m,
+    int64_t n,
+    T cond_num,
+    RandBLAS::RNGState<RNG> &state,
+    T target_density = (T)0.0
+) {
+    using namespace RandBLAS::sparse_data;
+
+    randblas_require(m >= n);
+    randblas_require(n >= 1);
+    randblas_require(cond_num >= (T)1.0);
+
+    // ---- Step 1: Compute singular values (log-spaced from 1 to 1/κ) ----
+    std::vector<T> sigma(n);
+    if (n == 1) {
+        sigma[0] = (T)1.0;
+    } else {
+        T log_cond = std::log(cond_num);
+        for (int64_t i = 0; i < n; ++i) {
+            sigma[i] = std::exp(-((T)i / (T)(n - 1)) * log_cond);
+        }
+    }
+
+    // ---- Step 2: Build top n×n block as B = diag(σ) · V^T ----
+    // V is a Haar-random orthogonal matrix from QR of a Gaussian.
+    // This gives A^T A = V · diag(σ²) · V^T — a generic SPD matrix with
+    // fully random eigenvectors. Guarantees CholQR fails catastrophically
+    // when κ² exceeds 1/ε (no stochastic variability from Givens mixing).
+    std::vector<T> V(n * n);
+    std::vector<T> tau(n);
+    auto d_gauss = RandBLAS::DenseDist(n, n);
+    state = RandBLAS::fill_dense(d_gauss, V.data(), state);
+    lapack::geqrf(n, n, V.data(), n, tau.data());
+    lapack::orgqr(n, n, n, V.data(), n, tau.data());
+
+    // A is m×n column-major. Top n rows = diag(σ) · V^T, bottom rows = 0.
+    // B(i,j) = σ_i · V^T(i,j) = σ_i · V(j,i)
+    std::vector<T> A(m * n, (T)0.0);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            A[i + j * m] = sigma[i] * V[j + i * n];
+        }
+    }
+
+    // Helper: convert random Gaussian to uniform index in [0, N).
+    auto to_index = [](T val, int64_t N) -> int64_t {
+        uint64_t bits = 0;
+        static_assert(sizeof(T) <= sizeof(uint64_t));
+        std::memcpy(&bits, &val, sizeof(T));
+        return (int64_t)(bits % (uint64_t)N);
+    };
+
+    // Left Givens: populate ALL remaining rows (m - n) for full row coverage.
+    //   Each copies entries from a populated row to a zero row.
+    //   This does not change A^T A (left orthogonal transforms preserve it).
+    int64_t n_left  = (target_density > (T)0.0) ? (m - n) : (int64_t)0;
+
+    // Generate random values for left rotations: 2 per rotation.
+    int64_t rand_count = 2 * n_left;
+    std::vector<T> rv;
+    if (rand_count > 0) {
+        rv.resize(rand_count);
+        auto rd = RandBLAS::DenseDist(rand_count, 1);
+        state = RandBLAS::fill_dense(rd, rv.data(), state);
+    }
+
+    int64_t vi = 0;
+
+    // ---- Step 3b: Left Givens rotations (distribute rows) ----
+    // Each rotation mixes a populated row with a zero row, spreading entries
+    // without changing A^T A.
+    for (int64_t rot = 0; rot < n_left && vi + 2 <= (int64_t)rv.size(); ++rot) {
+        // Pick a random row from the top n (always populated).
+        int64_t ri = to_index(rv[vi++], n);
+
+        // Pick a random zero row (from rows n..m-1).
+        int64_t rj = n + to_index(rv[vi++], m - n);
+
+        T theta = rv[vi - 1];
+        T c = std::cos(theta);
+        T s = std::sin(theta);
+
+        // Mix row ri (populated) with row rj (may be zero or previously populated).
+        for (int64_t col = 0; col < n; ++col) {
+            T ai = A[ri + col * m];
+            T aj = A[rj + col * m];
+            A[ri + col * m] =  c * ai + s * aj;
+            A[rj + col * m] = -s * ai + c * aj;
+        }
+    }
+
+    // ---- Step 4: Convert dense to COO ----
+    int64_t total_nnz = 0;
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < m; ++i) {
+            if (A[i + j * m] != (T)0.0) ++total_nnz;
+        }
+    }
+
+    coo::COOMatrix<T> A_coo(m, n);
+    A_coo.reserve(total_nnz);
+
+    int64_t idx = 0;
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < m; ++i) {
+            if (A[i + j * m] != (T)0.0) {
+                A_coo.rows[idx] = i;
+                A_coo.cols[idx] = j;
+                A_coo.vals[idx] = A[i + j * m];
+                ++idx;
+            }
+        }
+    }
+
+    return A_coo;
+}
+
+/// Generate a tall sparse m×n matrix with a specified condition number (CSC format).
+/// Convenience wrapper around gen_sparse_cond_coo that converts to CSC.
+template <typename T, typename RNG>
+RandBLAS::sparse_data::CSCMatrix<T> gen_sparse_cond_csc(
+    int64_t m,
+    int64_t n,
+    T cond_num,
+    RandBLAS::RNGState<RNG> &state,
+    T target_density = (T)0.0
+) {
+    auto coo = gen_sparse_cond_coo<T>(m, n, cond_num, state, target_density);
+    RandBLAS::sparse_data::CSCMatrix<T> csc(m, n);
+    RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
+    return csc;
+}
+
+/// Alias for gen_sparse_cond_coo (matching gen_sparse_mat pattern)
+template <typename T, typename RNG>
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_mat(
+    int64_t m,
+    int64_t n,
+    T cond_num,
+    RandBLAS::RNGState<RNG> &state,
+    T target_density = (T)0.0
+) {
+    return gen_sparse_cond_coo<T>(m, n, cond_num, state, target_density);
+}
+
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
 template <typename T, typename RNG>
@@ -661,6 +849,68 @@ template <typename T, typename RNG>
     ::std::vector<T> A(info.rows * info.cols, 0.0);
     mat_gen(info, A.data(), state);
     return A;
+}
+
+/// @brief Generate a symmetric positive definite (SPD) matrix with specified condition number.
+///
+/// Generates an SPD matrix A = Q * D * Q^T where:
+/// - D is diagonal with eigenvalues: λ_i = 1 + (cond_num - 1) * ((i-1)/(n-1))^2
+///   This gives λ_1 = 1, λ_n = cond_num, so κ(A) = cond_num
+/// - Q is a random orthogonal matrix generated via QR factorization of a Gaussian matrix
+///
+/// This implementation avoids the duplicate-summing bug present in some earlier versions.
+///
+/// @tparam T Scalar type (double, float, etc.)
+/// @tparam RNG Random number generator type
+///
+/// @param[in] n Dimension of square SPD matrix (n × n)
+/// @param[in] cond_num Target condition number for the matrix
+/// @param[out] A Output buffer for the n×n SPD matrix (column-major)
+/// @param[in,out] state RNG state for reproducible generation
+///
+template <typename T, typename RNG>
+void gen_spd_mat(
+    int64_t n,
+    T cond_num,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    // Step 1: Generate eigenvalues with desired condition number
+    // Use polynomial decay: λ_i = 1 + (cond_num - 1) * ((i-1)/(n-1))^2
+    std::vector<T> eigenvalues(n);
+    eigenvalues[0] = 1.0;  // Smallest eigenvalue
+    if (n > 1) {
+        eigenvalues[n-1] = cond_num;  // Largest eigenvalue
+        for (int64_t i = 1; i < n - 1; ++i) {
+            T t = static_cast<T>(i) / static_cast<T>(n - 1);
+            eigenvalues[i] = 1.0 + (cond_num - 1.0) * t * t;
+        }
+    }
+
+    // Step 2: Generate random orthogonal matrix Q via QR factorization
+    std::vector<T> Q(n * n);
+    std::vector<T> tau(n);
+
+    // Fill Q with Gaussian random entries
+    auto d = RandBLAS::DenseDist(n, n);
+    RandBLAS::fill_dense(d, Q.data(), state);
+
+    // QR factorization to get orthogonal Q
+    lapack::geqrf(n, n, Q.data(), n, tau.data());
+    lapack::orgqr(n, n, n, Q.data(), n, tau.data());
+
+    // Step 3: Form A = Q * D * Q^T
+    // First compute Q_scaled = Q * D (scale columns of Q by eigenvalues)
+    std::vector<T> Q_scaled(n * n);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            Q_scaled[i + j * n] = Q[i + j * n] * eigenvalues[j];
+        }
+    }
+
+    // Then A = Q_scaled * Q^T
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
+               n, n, n, (T)1.0, Q_scaled.data(), n, Q.data(), n, (T)0.0, A, n);
 }
 
 }
