@@ -51,7 +51,7 @@ void rpc_data_svd(
         randblas_require(lda >= m);
         lda_sk = d;
     }
-    RandBLAS::util::safe_scal(d*n, 0.0, A_sk, 1);
+    RandBLAS::util::safe_scal(d*n, 0.0, A_sk);
     RandBLAS::sketch_general(
         layout,
         Op::NoTrans,
