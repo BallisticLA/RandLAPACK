@@ -195,6 +195,54 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
     C_reference = C_test;
 }
 
+// ============================================================================
+// Linear Operator Materialization and Analysis
+// ============================================================================
+
+/// Materialize a linear operator into dense column-major storage.
+///
+/// Computes A_dense = A_linop * I by applying the operator to the identity matrix.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+/// @tparam LinOp - Linear operator type supporting operator() with BLAS calling convention
+///
+/// @param[in] A_linop - The linear operator to materialize
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+///
+/// @return Dense m x n column-major matrix
+///
+template <typename T, typename LinOp>
+::std::vector<T> materialize_linop(LinOp& A_linop, int64_t m, int64_t n) {
+    ::std::vector<T> A_dense(m * n, 0.0);
+    ::std::vector<T> Eye(n * n, 0.0);
+    ::RandLAPACK::util::eye(n, n, Eye.data());
+    A_linop(::blas::Side::Left, ::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
+            m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
+    return A_dense;
+}
+
+/// Compute singular values of a dense column-major matrix via gesdd.
+///
+/// Note: the input matrix is destroyed (overwritten) by gesdd.
+///
+/// @tparam T - Scalar type (double, float, etc.)
+///
+/// @param[in,out] A_dense - Dense m x n matrix (destroyed on output)
+/// @param[in] m - Number of rows
+/// @param[in] n - Number of columns
+///
+/// @return Vector of n singular values in decreasing order
+///
+template <typename T>
+::std::vector<T> compute_singular_values(T* A_dense, int64_t m, int64_t n) {
+    ::std::vector<T> sigma(n);
+    ::lapack::gesdd(::lapack::Job::NoVec,
+                    m, n, A_dense, m, sigma.data(),
+                    nullptr, 1, nullptr, 1);
+    return sigma;
+}
+
 }  // namespace test
 }  // namespace util
 }  // namespace RandLAPACK

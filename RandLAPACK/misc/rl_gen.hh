@@ -481,7 +481,7 @@ void gen_random_dense(
     RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
 ) {
     RandBLAS::DenseDist D(m, n, dist);
-    RandBLAS::fill_dense(D, A, state);
+    state = RandBLAS::fill_dense(D, A, state);
 
     // RandBLAS generates ColMajor; convert to RowMajor if needed
     if (layout == blas::Layout::RowMajor) {
@@ -580,7 +580,7 @@ RandBLAS::sparse_data::CSCMatrix<T> gen_sparse_csc(
     return csc;
 }
 
-/// Alias for gen_sparse_coo for backwards compatibility
+/// Alias for gen_sparse_coo with a shorter name.
 template <typename T, typename RNG>
 RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
     int64_t m,
@@ -767,7 +767,7 @@ RandBLAS::sparse_data::CSCMatrix<T> gen_sparse_cond_csc(
     return csc;
 }
 
-/// Alias for gen_sparse_cond_coo (matching gen_sparse_mat pattern)
+/// Alias for gen_sparse_cond_coo with a shorter name.
 template <typename T, typename RNG>
 RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_mat(
     int64_t m,

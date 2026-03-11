@@ -551,7 +551,13 @@ void sparse_to_dense(
     }
 }
 
-/// Alias for sparse_to_dense. Sums duplicate entries (default behavior).
+/// Convert a sparse matrix to dense, treating duplicate (row, col) entries by summing their values.
+///
+/// This is an alias for sparse_to_dense(). It exists to make caller intent explicit: when the
+/// source matrix was generated with possibly duplicate indices (e.g., from gen_sparse_mat via
+/// COO format), the underlying RandBLAS conversion routines (coo_to_dense, csr_to_dense,
+/// csc_to_dense) sum duplicate entries rather than overwriting. Calling this named alias signals
+/// that the caller is aware of and relying on this summing behavior.
 template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = typename SpMat::scalar_t>
 void sparse_to_dense_summing_duplicates(
     const SpMat &sp_mat,
@@ -647,50 +653,6 @@ void compute_gemm_reference(
         // C := alpha * op(B) * op(A) + beta * C
         blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A, lda, beta, C, ldc);
     }
-}
-
-/// Materialize a linear operator into dense column-major storage.
-///
-/// Computes A_dense = A_linop * I by applying the operator to the identity matrix.
-///
-/// @tparam T - Scalar type (double, float, etc.)
-/// @tparam LinOp - Linear operator type supporting operator() with BLAS calling convention
-///
-/// @param[in] A_linop - The linear operator to materialize
-/// @param[in] m - Number of rows
-/// @param[in] n - Number of columns
-///
-/// @return Dense m x n matrix in column-major layout
-///
-template <typename T, typename LinOp>
-std::vector<T> materialize_linop(LinOp& A_linop, int64_t m, int64_t n) {
-    std::vector<T> A_dense(m * n, 0.0);
-    std::vector<T> Eye(n * n, 0.0);
-    eye(n, n, Eye.data());
-    A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-            m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
-    return A_dense;
-}
-
-/// Compute singular values of a dense column-major matrix via gesdd.
-///
-/// Note: the input matrix is destroyed (overwritten) by gesdd.
-///
-/// @tparam T - Scalar type (double, float, etc.)
-///
-/// @param[in,out] A_dense - Dense m x n matrix (destroyed on output)
-/// @param[in] m - Number of rows
-/// @param[in] n - Number of columns
-///
-/// @return Vector of n singular values in decreasing order
-///
-template <typename T>
-std::vector<T> compute_singular_values(T* A_dense, int64_t m, int64_t n) {
-    std::vector<T> sigma(n);
-    lapack::gesdd(lapack::Job::NoVec,
-                  m, n, A_dense, m, sigma.data(),
-                  nullptr, 1, nullptr, 1);
-    return sigma;
 }
 
 } // end namespace util
