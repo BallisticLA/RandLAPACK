@@ -131,105 +131,87 @@ protected:
             cols_B = cb;
         }
 
-        // Generate left operator matrix
+        // Generate all operator data up front so both the main and reference paths use
+        // identical matrices without needing to re-derive state positions.
         T* left_dense = nullptr;
         if (!left_sparse) {
             left_dense = new T[rows_left * cols_left];
             RandLAPACK::gen::gen_random_dense(rows_left, cols_left, left_dense, layout, state);
         }
 
-        // Generate right operator matrix
         T* right_dense = nullptr;
         if (!right_sparse) {
             right_dense = new T[rows_right * cols_right];
             RandLAPACK::gen::gen_random_dense(rows_right, cols_right, right_dense, layout, state);
         }
 
-        // Create linear operator objects
-        int64_t lda_left = (layout == Layout::ColMajor) ? rows_left : cols_left;
-        int64_t lda_right = (layout == Layout::ColMajor) ? rows_right : cols_right;
+        // CSCMatrix has deleted copy/move assignment; use heap allocation with C++17 prvalue elision.
+        using CSCMat = RandBLAS::sparse_data::CSCMatrix<T>;
+        CSCMat* left_csc  = left_sparse  ? new CSCMat(RandLAPACK::gen::gen_sparse_csc<T>(rows_left,  cols_left,  density_left,  state)) : nullptr;
+        CSCMat* right_csc = right_sparse ? new CSCMat(RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state)) : nullptr;
 
         // Create and initialize output buffers with random data for beta testing
+        int64_t lda_left  = (layout == Layout::ColMajor) ? rows_left  : cols_left;
+        int64_t lda_right = (layout == Layout::ColMajor) ? rows_right : cols_right;
         T* C_composite = new T[m * n];
         RandLAPACK::gen::gen_random_dense(m, n, C_composite, Layout::ColMajor, state);
         T* C_reference = new T[m * n];
         std::copy(C_composite, C_composite + m * n, C_reference);
 
-        // Create operators and composite
+        // Snapshot state for B generation: both the main and reference paths start from here.
+        RNGState state_for_B = state;
+
+        // Create operators from pre-generated data and run test
         if (left_sparse && right_sparse) {
-            // Sparse-Sparse composition
-            auto left_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_left, cols_left, density_left, state);
-            auto right_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state);
-            RandLAPACK::linops::SparseLinOp left_op(rows_left, cols_left, left_csc);
-            RandLAPACK::linops::SparseLinOp right_op(rows_right, cols_right, right_csc);
+            RandLAPACK::linops::SparseLinOp left_op(rows_left, cols_left, *left_csc);
+            RandLAPACK::linops::SparseLinOp right_op(rows_right, cols_right, *right_csc);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
-
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
                                      m, n, k, alpha, beta, rows_B, cols_B, density_B,
                                      C_composite, C_reference, state);
-
         } else if (left_sparse && !right_sparse) {
-            // Sparse-Dense composition
-            auto left_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_left, cols_left, density_left, state);
-            RandLAPACK::linops::SparseLinOp left_op(rows_left, cols_left, left_csc);
+            RandLAPACK::linops::SparseLinOp left_op(rows_left, cols_left, *left_csc);
             RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense, lda_right, layout);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
-
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
                                      m, n, k, alpha, beta, rows_B, cols_B, density_B,
                                      C_composite, C_reference, state);
-
         } else if (!left_sparse && right_sparse) {
-            // Dense-Sparse composition
-            auto right_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state);
             RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense, lda_left, layout);
-            RandLAPACK::linops::SparseLinOp right_op(rows_right, cols_right, right_csc);
+            RandLAPACK::linops::SparseLinOp right_op(rows_right, cols_right, *right_csc);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
-
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
                                      m, n, k, alpha, beta, rows_B, cols_B, density_B,
                                      C_composite, C_reference, state);
-
         } else {
-            // Dense-Dense composition
             RandLAPACK::linops::DenseLinOp left_op(rows_left, cols_left, left_dense, lda_left, layout);
             RandLAPACK::linops::DenseLinOp right_op(rows_right, cols_right, right_dense, lda_right, layout);
             RandLAPACK::linops::CompositeOperator composite_op(rows_left, cols_right, left_op, right_op);
-
             test_composite_with_input(composite_op, sparse_B, side, layout, trans_A, trans_B,
                                      m, n, k, alpha, beta, rows_B, cols_B, density_B,
                                      C_composite, C_reference, state);
         }
 
-        // Compute reference by materializing composite operator
-        // First materialize left and right operators as dense matrices
-        // Need to regenerate with same seed for consistent results
-        RNGState state_ref(0);
-        T* left_mat_dense = new T[rows_left * cols_left]();
+        // Reference: materialize composite operator and apply to the same B.
+        T* left_mat_dense  = new T[rows_left  * cols_left]();
         T* right_mat_dense = new T[rows_right * cols_right]();
 
         if (left_sparse) {
-            auto left_csc_ref = RandLAPACK::gen::gen_sparse_csc<T>(rows_left, cols_left, density_left, state_ref);
-            RandBLAS::sparse_data::csc::csc_to_dense(left_csc_ref, Layout::ColMajor, left_mat_dense);
+            RandBLAS::sparse_data::csc::csc_to_dense(*left_csc, Layout::ColMajor, left_mat_dense);
         } else {
-            // Convert to ColMajor if needed
             if (layout == Layout::ColMajor) {
                 std::copy(left_dense, left_dense + rows_left * cols_left, left_mat_dense);
             } else {
-                // RowMajor to ColMajor: irs=cols_left, ics=1 -> irs=1, ics=rows_left
                 RandBLAS::util::omatcopy(rows_left, cols_left, left_dense, cols_left, 1, left_mat_dense, 1, rows_left);
             }
         }
 
         if (right_sparse) {
-            auto right_csc_ref = RandLAPACK::gen::gen_sparse_csc<T>(rows_right, cols_right, density_right, state_ref);
-            RandBLAS::sparse_data::csc::csc_to_dense(right_csc_ref, Layout::ColMajor, right_mat_dense);
+            RandBLAS::sparse_data::csc::csc_to_dense(*right_csc, Layout::ColMajor, right_mat_dense);
         } else {
-            // Convert to ColMajor if needed
             if (layout == Layout::ColMajor) {
                 std::copy(right_dense, right_dense + rows_right * cols_right, right_mat_dense);
             } else {
-                // RowMajor to ColMajor: irs=cols_right, ics=1 -> irs=1, ics=rows_right
                 RandBLAS::util::omatcopy(rows_right, cols_right, right_dense, cols_right, 1, right_mat_dense, 1, rows_right);
             }
         }
@@ -242,29 +224,22 @@ protected:
                    right_mat_dense, rows_right,
                    0.0, composite_colmajor, rows_left);
 
-        // Convert composite to the required layout
         T* composite_dense = new T[rows_left * cols_right];
         if (layout == Layout::ColMajor) {
             std::copy(composite_colmajor, composite_colmajor + rows_left * cols_right, composite_dense);
-        } else {  // RowMajor
-            // ColMajor to RowMajor: irs=1, ics=rows_left -> irs=cols_right, ics=1
+        } else {
             RandBLAS::util::omatcopy(rows_left, cols_right, composite_colmajor, 1, rows_left, composite_dense, cols_right, 1);
         }
 
-        // Now apply the materialized composite operator to B to get reference
-        // Need to handle the same dense/sparse B cases
-        // Generate the same B matrix for reference computation (reusing state_ref)
+        // Generate B for reference from state_for_B (same position as test_composite_with_input used)
         T* B_dense_ref = nullptr;
-
         if (sparse_B) {
-            // Generate sparse B and densify
-            auto B_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_B, cols_B, density_B, state_ref);
+            auto B_csc = RandLAPACK::gen::gen_sparse_csc<T>(rows_B, cols_B, density_B, state_for_B);
             B_dense_ref = new T[rows_B * cols_B]();
             RandBLAS::sparse_data::csc::csc_to_dense(B_csc, layout, B_dense_ref);
         } else {
-            // Generate dense B
             B_dense_ref = new T[rows_B * cols_B];
-            RandLAPACK::gen::gen_random_dense(rows_B, cols_B, B_dense_ref, layout, state_ref);
+            RandLAPACK::gen::gen_random_dense(rows_B, cols_B, B_dense_ref, layout, state_for_B);
         }
 
         // Compute reference using utility function
@@ -294,8 +269,10 @@ protected:
         delete[] B_dense_ref;
         delete[] C_composite;
         delete[] C_reference;
-        if (left_dense) delete[] left_dense;
+        if (left_dense)  delete[] left_dense;
         if (right_dense) delete[] right_dense;
+        if (left_csc)    delete left_csc;
+        if (right_csc)   delete right_csc;
     }
 
     // Helper to test composite operator with different input types
