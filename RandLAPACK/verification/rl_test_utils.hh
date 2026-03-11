@@ -1,23 +1,31 @@
-// Common utilities for linear operator tests
-// Provides helper functions to reduce code duplication across linop tests
+// Verification utilities for RandLAPACK tests
+//
+// This header provides helper functions for verifying correctness of linear
+// operator implementations. It is not part of the public RandLAPACK API and
+// should only be used in test code.
+//
+// Note: Most of these utilities exist in the RandBLAS tests/ folder as well
+// but are not packaged with a RandBLAS installation. Once RandBLAS exposes
+// official verification utilities, these should be replaced accordingly.
+// See: https://github.com/BallisticLA/RandLAPACK/issues/121
 
 #pragma once
 
 #include <blas.hh>
+#include <lapack.hh>
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>
 #include <vector>
 
 namespace RandLAPACK {
-namespace util {
-namespace test {
+namespace verification {
 
 // ============================================================================
 // Matrix Generation Helpers
 // ============================================================================
 
-/// Generate a random dense matrix with the specified layout
-/// Note: RandBLAS::fill_dense always generates ColMajor, so we convert if needed
+/// Generate a random dense matrix with the specified layout.
+/// Note: RandBLAS::fill_dense always generates ColMajor, so we transpose if needed.
 template <typename T>
 ::std::vector<T> generate_dense_matrix(
     int64_t rows,
@@ -27,7 +35,7 @@ template <typename T>
 ) {
     ::std::vector<T> mat(rows * cols);
     ::RandBLAS::DenseDist D(rows, cols);
-    ::RandBLAS::fill_dense(D, mat.data(), state);
+    state = ::RandBLAS::fill_dense(D, mat.data(), state);
 
     // Convert to RowMajor if needed (RandBLAS generates ColMajor)
     if (layout == ::blas::Layout::RowMajor) {
@@ -42,7 +50,7 @@ template <typename T>
     return mat;
 }
 
-/// Generate a random sparse matrix in CSC format
+/// Generate a random sparse matrix in CSC format.
 template <typename T>
 ::RandBLAS::sparse_data::CSCMatrix<T> generate_sparse_matrix(
     int64_t rows,
@@ -60,15 +68,15 @@ template <typename T>
 // Dimension Calculation Helpers
 // ============================================================================
 
-/// Structure to hold matrix dimensions and leading dimensions
+/// Dimensions and leading dimensions for a linear operator multiplication.
 struct MatrixDimensions {
     int64_t rows_A, cols_A;  // Operator matrix dimensions
     int64_t rows_B, cols_B;  // Input matrix dimensions
     int64_t lda, ldb, ldc;   // Leading dimensions
 };
 
-/// Calculate all dimensions for a linear operator multiplication
-/// Handles both Side::Left and Side::Right cases
+/// Calculate all dimensions for a linear operator multiplication.
+/// Handles both Side::Left (C = op(A)*op(B)) and Side::Right (C = op(B)*op(A)).
 template <typename T>
 MatrixDimensions calculate_dimensions(
     ::blas::Side side,
@@ -82,31 +90,24 @@ MatrixDimensions calculate_dimensions(
     MatrixDimensions dims;
 
     if (side == ::blas::Side::Left) {
-        // Side::Left: C := alpha * op(A) * op(B) + beta * C
         // A is the operator (m × k), B is the input (k × n)
         auto [ra, ca] = ::RandBLAS::dims_before_op(m, k, trans_A);
         auto [rb, cb] = ::RandBLAS::dims_before_op(k, n, trans_B);
-        dims.rows_A = ra;
-        dims.cols_A = ca;
-        dims.rows_B = rb;
-        dims.cols_B = cb;
+        dims.rows_A = ra; dims.cols_A = ca;
+        dims.rows_B = rb; dims.cols_B = cb;
     } else {
-        // Side::Right: C := alpha * op(B) * op(A) + beta * C
         // A is the operator (k × n), B is the input (m × k)
         auto [ra, ca] = ::RandBLAS::dims_before_op(k, n, trans_A);
         auto [rb, cb] = ::RandBLAS::dims_before_op(m, k, trans_B);
-        dims.rows_A = ra;
-        dims.cols_A = ca;
-        dims.rows_B = rb;
-        dims.cols_B = cb;
+        dims.rows_A = ra; dims.cols_A = ca;
+        dims.rows_B = rb; dims.cols_B = cb;
     }
 
-    // Calculate leading dimensions based on layout
     if (layout == ::blas::Layout::ColMajor) {
         dims.lda = dims.rows_A;
         dims.ldb = dims.rows_B;
         dims.ldc = m;
-    } else {  // RowMajor
+    } else {
         dims.lda = dims.cols_A;
         dims.ldb = dims.cols_B;
         dims.ldc = n;
@@ -119,8 +120,9 @@ MatrixDimensions calculate_dimensions(
 // Reference Computation Helpers
 // ============================================================================
 
-/// Compute reference result using BLAS GEMM
-/// Handles both Side::Left and Side::Right cases
+/// Compute a GEMM reference result.
+/// Side::Left:  C = alpha * op(A) * op(B) + beta * C
+/// Side::Right: C = alpha * op(B) * op(A) + beta * C
 template <typename T>
 void compute_gemm_reference(
     ::blas::Side side,
@@ -140,10 +142,8 @@ void compute_gemm_reference(
     int64_t ldc
 ) {
     if (side == ::blas::Side::Left) {
-        // C := alpha * op(A) * op(B) + beta * C
         ::blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
     } else {
-        // C := alpha * op(B) * op(A) + beta * C
         ::blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A, lda, beta, C, ldc);
     }
 }
@@ -152,8 +152,7 @@ void compute_gemm_reference(
 // Layout Conversion Helper
 // ============================================================================
 
-/// Convert matrix layout in-place
-/// Note: This assumes the matrix is currently in 'from_layout' and converts to 'to_layout'
+/// Convert matrix layout in-place between ColMajor and RowMajor.
 template <typename T>
 void convert_layout_inplace(
     ::std::vector<T>& mat,
@@ -166,32 +165,25 @@ void convert_layout_inplace(
 
     ::std::vector<T> temp = mat;
     if (from_layout == ::blas::Layout::ColMajor && to_layout == ::blas::Layout::RowMajor) {
-        // ColMajor to RowMajor
-        for (int64_t i = 0; i < rows; ++i) {
-            for (int64_t j = 0; j < cols; ++j) {
+        for (int64_t i = 0; i < rows; ++i)
+            for (int64_t j = 0; j < cols; ++j)
                 mat[j + i * cols] = temp[i + j * rows];
-            }
-        }
     } else {
-        // RowMajor to ColMajor
-        for (int64_t i = 0; i < rows; ++i) {
-            for (int64_t j = 0; j < cols; ++j) {
+        for (int64_t i = 0; i < rows; ++i)
+            for (int64_t j = 0; j < cols; ++j)
                 mat[i + j * rows] = temp[j + i * cols];
-            }
-        }
     }
 }
 
 // ============================================================================
-// Test Data Initialization Helper
+// Test Data Initialization
 // ============================================================================
 
-/// Initialize test output buffers with random data for beta testing
+/// Initialize output buffers with random data for beta != 0 tests.
 template <typename T>
 void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_reference) {
-    for (auto& c : C_test) {
+    for (auto& c : C_test)
         c = static_cast<T>(rand()) / RAND_MAX;
-    }
     C_reference = C_test;
 }
 
@@ -199,19 +191,8 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 // Linear Operator Materialization and Analysis
 // ============================================================================
 
-/// Materialize a linear operator into dense column-major storage.
-///
-/// Computes A_dense = A_linop * I by applying the operator to the identity matrix.
-///
-/// @tparam T - Scalar type (double, float, etc.)
-/// @tparam LinOp - Linear operator type supporting operator() with BLAS calling convention
-///
-/// @param[in] A_linop - The linear operator to materialize
-/// @param[in] m - Number of rows
-/// @param[in] n - Number of columns
-///
-/// @return Dense m x n column-major matrix
-///
+/// Materialize a linear operator into a dense column-major matrix.
+/// Computes A_dense = A_linop * I by applying the operator to the identity.
 template <typename T, typename LinOp>
 ::std::vector<T> materialize_linop(LinOp& A_linop, int64_t m, int64_t n) {
     ::std::vector<T> A_dense(m * n, 0.0);
@@ -223,17 +204,7 @@ template <typename T, typename LinOp>
 }
 
 /// Compute singular values of a dense column-major matrix via gesdd.
-///
-/// Note: the input matrix is destroyed (overwritten) by gesdd.
-///
-/// @tparam T - Scalar type (double, float, etc.)
-///
-/// @param[in,out] A_dense - Dense m x n matrix (destroyed on output)
-/// @param[in] m - Number of rows
-/// @param[in] n - Number of columns
-///
-/// @return Vector of n singular values in decreasing order
-///
+/// Note: input matrix is destroyed on output.
 template <typename T>
 ::std::vector<T> compute_singular_values(T* A_dense, int64_t m, int64_t n) {
     ::std::vector<T> sigma(n);
@@ -243,6 +214,5 @@ template <typename T>
     return sigma;
 }
 
-}  // namespace test
-}  // namespace util
+}  // namespace verification
 }  // namespace RandLAPACK

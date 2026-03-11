@@ -17,13 +17,13 @@
 #include <type_traits>
 #include <optional>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
+#include "../../RandLAPACK/verification/rl_test_utils.hh"
 
 using blas::Layout;
 using blas::Op;
 using blas::Side;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util::test;
+using namespace RandLAPACK::verification;
 
 // ============================================================================
 // Operator type tags for template specialization

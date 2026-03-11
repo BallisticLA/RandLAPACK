@@ -14,7 +14,7 @@
 #include <math.h>
 #include <lapack.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../RandLAPACK/misc/rl_util_test_linop.hh"
+#include "../../RandLAPACK/verification/rl_test_utils.hh"
 
 using std::vector;
 using blas::Layout;
@@ -22,7 +22,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util::test;
+using namespace RandLAPACK::verification;
 
 // ============================================================================
 // DenseLinOp Block View Tests
