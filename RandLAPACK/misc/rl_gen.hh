@@ -730,27 +730,8 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
     }
 
     // ---- Step 4: Convert dense to COO ----
-    int64_t total_nnz = 0;
-    for (int64_t j = 0; j < n; ++j) {
-        for (int64_t i = 0; i < m; ++i) {
-            if (A[i + j * m] != (T)0.0) ++total_nnz;
-        }
-    }
-
     coo::COOMatrix<T> A_coo(m, n);
-    A_coo.reserve(total_nnz);
-
-    int64_t idx = 0;
-    for (int64_t j = 0; j < n; ++j) {
-        for (int64_t i = 0; i < m; ++i) {
-            if (A[i + j * m] != (T)0.0) {
-                A_coo.rows[idx] = i;
-                A_coo.cols[idx] = j;
-                A_coo.vals[idx] = A[i + j * m];
-                ++idx;
-            }
-        }
-    }
+    coo::dense_to_coo(::blas::Layout::ColMajor, A.data(), (T)0.0, A_coo);
 
     return A_coo;
 }
@@ -897,7 +878,7 @@ void gen_spd_mat(
 
     // Fill Q with Gaussian random entries
     auto d = RandBLAS::DenseDist(n, n);
-    RandBLAS::fill_dense(d, Q.data(), state);
+    state = RandBLAS::fill_dense(d, Q.data(), state);
 
     // QR factorization to get orthogonal Q
     lapack::geqrf(n, n, Q.data(), n, tau.data());
