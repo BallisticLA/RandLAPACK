@@ -1539,7 +1539,7 @@ protected:
         RNGState state(42);
         Layout layout = Layout::ColMajor;
 
-        auto L_csc = generate_sparse_matrix<T>(m, p, density, state);
+        auto L_csc = RandLAPACK::gen::gen_sparse_coo<T>(m, p, density, state).as_owning_csc();
         vector<T> R_data = generate_dense_matrix<T>(p, n, layout, state);
         vector<T> B(n * k);
         { RNGState s2(99); DenseDist D(n, k); RandBLAS::fill_dense(D, B.data(), s2); }
@@ -1586,7 +1586,7 @@ protected:
         Layout layout = Layout::ColMajor;
 
         vector<T> L_data = generate_dense_matrix<T>(m, p, layout, state);
-        auto R_csc = generate_sparse_matrix<T>(p, n, density, state);
+        auto R_csc = RandLAPACK::gen::gen_sparse_coo<T>(p, n, density, state).as_owning_csc();
         vector<T> B(k * m);
         { RNGState s2(99); DenseDist D(k, m); RandBLAS::fill_dense(D, B.data(), s2); }
 
@@ -1631,7 +1631,7 @@ protected:
         Layout layout = Layout::ColMajor;
 
         vector<T> L_data = generate_dense_matrix<T>(m, p, layout, state);
-        auto R_csc = generate_sparse_matrix<T>(p, n, density, state);
+        auto R_csc = RandLAPACK::gen::gen_sparse_coo<T>(p, n, density, state).as_owning_csc();
         vector<T> B(col_count * k);
         { RNGState s2(99); DenseDist D(col_count, k); RandBLAS::fill_dense(D, B.data(), s2); }
 

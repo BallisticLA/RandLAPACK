@@ -381,7 +381,7 @@ private:
         int64_t m,
         int64_t n,
         int64_t k,
-        const MatrixDimensions& dims,
+        const MatmulDimensions& dims,
         T density_B,
         RNGState<r123::Philox4x32_R<10>>& state
     ) {
@@ -425,7 +425,7 @@ private:
         }
 
         // Compute reference using BLAS GEMM
-        compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
+        sided_gemm(side, layout, trans_A, trans_B, m, n, k, alpha,
                                A_dense, dims.lda, B_dense, dims.ldb,
                                beta, C_reference, dims.ldc);
 
@@ -448,7 +448,7 @@ private:
 
         // E = err_alpha * |A| * |B| + err_beta * |C_old|
         // (E was initialized with |C_old|)
-        compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, err_alpha,
+        sided_gemm(side, layout, trans_A, trans_B, m, n, k, err_alpha,
                                A_abs, dims.lda, B_abs, dims.ldb,
                                err_beta, E, dims.ldc);
 

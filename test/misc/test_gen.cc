@@ -6,7 +6,7 @@
 #include <RandBLAS.hh>
 #include <gtest/gtest.h>
 
-class TestGen : public ::testing::Test
+class TestGeneratorsMutateState : public ::testing::Test
 {
     protected:
 
@@ -123,10 +123,10 @@ class TestGen : public ::testing::Test
     }
 };
 
-TEST_F(TestGen, sparse_cond_coo_mutates_state)           { test_gen_sparse_cond_coo_mutates_state<double>(); }
-TEST_F(TestGen, sparse_cond_coo_no_density_mutates_state) { test_gen_sparse_cond_coo_no_density_mutates_state<double>(); }
-TEST_F(TestGen, sparse_from_singvals_mutates_state)      { test_gen_sparse_from_singvals_mutates_state<double>(); }
-TEST_F(TestGen, random_dense_mutates_state)              { test_gen_random_dense_mutates_state<double>(); }
-TEST_F(TestGen, sparse_coo_mutates_state)                { test_gen_sparse_coo_mutates_state<double>(); }
-TEST_F(TestGen, spd_from_eigvals_mutates_state)          { test_gen_spd_from_eigvals_mutates_state<double>(); }
-TEST_F(TestGen, spd_mat_mutates_state)                   { test_gen_spd_mat_mutates_state<double>(); }
+TEST_F(TestGeneratorsMutateState, sparse_cond_coo_mutates_state)           { test_gen_sparse_cond_coo_mutates_state<double>(); }
+TEST_F(TestGeneratorsMutateState, sparse_cond_coo_no_density_mutates_state) { test_gen_sparse_cond_coo_no_density_mutates_state<double>(); }
+TEST_F(TestGeneratorsMutateState, sparse_from_singvals_mutates_state)      { test_gen_sparse_from_singvals_mutates_state<double>(); }
+TEST_F(TestGeneratorsMutateState, random_dense_mutates_state)              { test_gen_random_dense_mutates_state<double>(); }
+TEST_F(TestGeneratorsMutateState, sparse_coo_mutates_state)                { test_gen_sparse_coo_mutates_state<double>(); }
+TEST_F(TestGeneratorsMutateState, spd_from_eigvals_mutates_state)          { test_gen_spd_from_eigvals_mutates_state<double>(); }
+TEST_F(TestGeneratorsMutateState, spd_mat_mutates_state)                   { test_gen_spd_mat_mutates_state<double>(); }

@@ -1,5 +1,7 @@
 #pragma once
 
+// Public API: SparseLinOp — linear operator backed by a sparse matrix (CSR, CSC, or COO).
+
 #include "rl_concepts.hh"
 #include "rl_sparse_views.hh"
 #include "rl_blaspp.hh"
@@ -133,24 +135,13 @@ public:
         T* C,
         int64_t ldc
     ) {
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
-        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
-        randblas_require(rows_submat_A <= n_rows);
-        randblas_require(cols_submat_A <= n_cols);
-
-        // Layout-aware dimension checks
-        if (layout == Layout::ColMajor) {
-            randblas_require(ldb >= rows_B);
-            randblas_require(ldc >= m);
-        } else {  // RowMajor
-            randblas_require(ldb >= cols_B);
-            randblas_require(ldc >= n);
-        }
-
-        RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+        (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
     }
 
-    /// @brief Sparse-dense multiplication with explicit side specification
+    /// @brief Sparse-dense multiplication with explicit side specification.
+    /// Side refers to the side on which this operator appears.
+    ///   Side::Left:  C = alpha * op(A_sp) * op(B) + beta * C
+    ///   Side::Right: C = alpha * op(B) * op(A_sp) + beta * C
     void operator()(
         Side side,
         Layout layout,
@@ -167,25 +158,36 @@ public:
         int64_t ldc
     ) {
         if (side == Side::Left) {
-            // Left multiplication: delegate to non-sided dense operator
-            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B, ldb, beta, C, ldc);
-        } else {
-            // Side::Right: C := alpha * op(B) * op(A_sp) + beta * C
+            // C := alpha * op(A_sp) * op(B) + beta * C
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
+            randblas_require(rows_submat_A <= n_rows);
+            randblas_require(cols_submat_A <= n_cols);
+
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldb >= rows_B);
+                randblas_require(ldc >= m);
+            } else {
+                randblas_require(ldb >= cols_B);
+                randblas_require(ldc >= n);
+            }
+
+            RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+        } else {  // Side::Right
+            // C := alpha * op(B) * op(A_sp) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(k, n, trans_A);
             randblas_require(rows_submat_A <= n_rows);
             randblas_require(cols_submat_A <= n_cols);
 
-            // Layout-aware dimension checks
             if (layout == Layout::ColMajor) {
                 randblas_require(ldb >= rows_B);
                 randblas_require(ldc >= m);
-            } else {  // RowMajor
+            } else {
                 randblas_require(ldb >= cols_B);
                 randblas_require(ldc >= n);
             }
 
-            // Use RandBLAS right_spmm: C := alpha * op(B) * op(A_sp) + beta * C
             RandBLAS::sparse_data::right_spmm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A_sp, 0, 0, beta, C, ldc);
         }
     }
@@ -205,36 +207,13 @@ public:
         T* C,
         int64_t ldc
     ) {
-        // Validate input dimensions
-        auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
-        auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
-        randblas_require(rows_submat_A <= n_rows);
-        randblas_require(cols_submat_A <= n_cols);
-
-        // Layout-aware ldc validation
-        if (layout == Layout::ColMajor) {
-            randblas_require(ldc >= m);
-        } else {  // RowMajor
-            randblas_require(ldc >= n);
-        }
-
-        // C := alpha * op(A_sp) * op(B_sp) + beta * C
-        #if defined(RandBLAS_HAS_MKL)
-        if (trans_B == Op::NoTrans) {
-            RandBLAS::spgemm(layout, trans_A, alpha, A_sp, B_sp, beta, C, ldc);
-            return;
-        }
-        #endif
-
-        // Fallback: densify B_sp and use sparse-dense multiplication.
-        T* B_dense = new T[rows_B * cols_B]();
-        int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
-        RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
-        (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
-        delete[] B_dense;
+        (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
     }
 
-    /// @brief Sparse-sparse multiplication with explicit side specification
+    /// @brief Sparse-sparse multiplication with explicit side specification.
+    /// Side refers to the side on which this operator appears.
+    ///   Side::Left:  C = alpha * op(A_sp) * op(B_sp) + beta * C
+    ///   Side::Right: C = alpha * op(B_sp) * op(A_sp) + beta * C
     template <RandBLAS::sparse_data::SparseMatrix SpMatB>
     void operator()(
         Side side,
@@ -251,11 +230,34 @@ public:
         int64_t ldc
     ) {
         if (side == Side::Left) {
-            // Left multiplication: delegate to default sparse operator
-            (*this)(layout, trans_A, trans_B, m, n, k, alpha, B_sp, beta, C, ldc);
-        } else {  // side == Side::Right
-            // Right multiplication: C := alpha * op(B_sp) * op(A_sp) + beta * C
+            // C := alpha * op(A_sp) * op(B_sp) + beta * C
+            auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
+            auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
+            randblas_require(rows_submat_A <= n_rows);
+            randblas_require(cols_submat_A <= n_cols);
 
+            if (layout == Layout::ColMajor) {
+                randblas_require(ldc >= m);
+            } else {
+                randblas_require(ldc >= n);
+            }
+
+            #if defined(RandBLAS_HAS_MKL)
+            if (trans_B == Op::NoTrans) {
+                RandBLAS::spgemm(layout, trans_A, alpha, A_sp, B_sp, beta, C, ldc);
+                return;
+            }
+            #endif
+
+            // Fallback: densify B_sp and use sparse-dense multiplication.
+            T* B_dense = new T[rows_B * cols_B]();
+            int64_t ldb = (layout == Layout::ColMajor) ? rows_B : cols_B;
+            RandLAPACK::util::sparse_to_dense(B_sp, layout, B_dense);
+            (*this)(Side::Left, layout, trans_A, trans_B, m, n, k, alpha, B_dense, ldb, beta, C, ldc);
+            delete[] B_dense;
+
+        } else {  // Side::Right
+            // C := alpha * op(B_sp) * op(A_sp) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(k, n, trans_A);
             randblas_require(rows_submat_A <= n_rows);
@@ -283,7 +285,7 @@ public:
         }
     }
 
-    /// Sketching operator multiplication without explicit Side parameter.
+    /// Left-multiply this by a sketching operator.
     /// Computes C = alpha * op(S) * op(A) + beta * C (equivalent to Side::Right).
     template <RandBLAS::SketchingOperator SkOp>
     void operator()(
@@ -303,6 +305,7 @@ public:
     }
 
     /// Sketching operator multiplication with sparse linear operator.
+    /// Side refers to the side on which this operator appears.
     ///   Side::Left:  C = alpha * op(A) * op(S) + beta * C
     ///   Side::Right: C = alpha * op(S) * op(A) + beta * C
     template <RandBLAS::SketchingOperator SkOp>

@@ -25,7 +25,6 @@ namespace testing {
 // ============================================================================
 
 /// Generate a random dense matrix with the specified layout.
-/// Note: RandBLAS::fill_dense always generates ColMajor, so we transpose if needed.
 template <typename T>
 ::std::vector<T> generate_dense_matrix(
     int64_t rows,
@@ -35,30 +34,8 @@ template <typename T>
 ) {
     ::std::vector<T> mat(rows * cols);
     ::RandBLAS::DenseDist D(rows, cols);
-    state = ::RandBLAS::fill_dense(D, mat.data(), state);
-
-    // Convert to RowMajor if needed (RandBLAS generates ColMajor)
-    if (layout == ::blas::Layout::RowMajor) {
-        ::std::vector<T> temp = mat;
-        for (int64_t i = 0; i < rows; ++i) {
-            for (int64_t j = 0; j < cols; ++j) {
-                mat[j + i * cols] = temp[i + j * rows];
-            }
-        }
-    }
-
+    state = ::RandBLAS::fill_dense_unpacked(layout, D, rows, cols, 0, 0, mat.data(), state);
     return mat;
-}
-
-/// Generate a random sparse matrix in CSC format.
-template <typename T>
-::RandBLAS::sparse_data::CSCMatrix<T> generate_sparse_matrix(
-    int64_t rows,
-    int64_t cols,
-    T density,
-    ::RandBLAS::RNGState<>& state
-) {
-    return ::RandLAPACK::gen::gen_sparse_coo<T>(rows, cols, density, state).as_owning_csc();
 }
 
 // ============================================================================
@@ -66,7 +43,7 @@ template <typename T>
 // ============================================================================
 
 /// Dimensions and leading dimensions for a linear operator multiplication.
-struct MatrixDimensions {
+struct MatmulDimensions {
     int64_t rows_A, cols_A;  // Operator matrix dimensions
     int64_t rows_B, cols_B;  // Input matrix dimensions
     int64_t lda, ldb, ldc;   // Leading dimensions
@@ -75,7 +52,7 @@ struct MatrixDimensions {
 /// Calculate all dimensions for a linear operator multiplication.
 /// Handles both Side::Left (C = op(A)*op(B)) and Side::Right (C = op(B)*op(A)).
 template <typename T>
-MatrixDimensions calculate_dimensions(
+MatmulDimensions calculate_dimensions(
     ::blas::Side side,
     ::blas::Layout layout,
     ::blas::Op trans_A,
@@ -84,7 +61,7 @@ MatrixDimensions calculate_dimensions(
     int64_t n,
     int64_t k
 ) {
-    MatrixDimensions dims;
+    MatmulDimensions dims;
 
     if (side == ::blas::Side::Left) {
         // A is the operator (m × k), B is the input (k × n)
@@ -121,7 +98,7 @@ MatrixDimensions calculate_dimensions(
 /// Side::Left:  C = alpha * op(A) * op(B) + beta * C
 /// Side::Right: C = alpha * op(B) * op(A) + beta * C
 template <typename T>
-void compute_gemm_reference(
+void sided_gemm(
     ::blas::Side side,
     ::blas::Layout layout,
     ::blas::Op trans_A,
@@ -179,8 +156,10 @@ void convert_layout_inplace(
 /// Initialize output buffers with random data for beta != 0 tests.
 template <typename T>
 void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_reference) {
-    for (auto& c : C_test)
-        c = static_cast<T>(rand()) / RAND_MAX;
+    int64_t len = static_cast<int64_t>(C_test.size());
+    ::RandBLAS::DenseDist D(len, 1);
+    ::RandBLAS::RNGState<> seed(42);
+    ::RandBLAS::fill_dense(D, C_test.data(), seed);
     C_reference = C_test;
 }
 
@@ -190,6 +169,18 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 
 /// Materialize a linear operator into a dense column-major matrix.
 /// Computes A_dense = A_linop * I by applying the operator to the identity.
+///
+/// WARNING: This function uses operator() to materialize, which makes it
+/// unsuitable for testing operator() itself (circular reasoning). For
+/// correctness tests of individual linop types, prefer type-specific
+/// materialization:
+///   - DenseLinOp:   copy A_buff directly
+///   - SparseLinOp:  use RandLAPACK::util::sparse_to_dense on A_sp
+///   - CompositeOperator: materialize each operand independently, then
+///     compute the product with blas::gemm
+/// This function is appropriate for tests that assume operator() is correct
+/// and need a dense representation for some other purpose (e.g., computing
+/// singular values, comparing block views against the full operator).
 template <typename T, typename LinOp>
 ::std::vector<T> materialize_linop(LinOp& A_linop, int64_t m, int64_t n) {
     ::std::vector<T> A_dense(m * n, 0.0);
@@ -205,9 +196,10 @@ template <typename T, typename LinOp>
 template <typename T>
 ::std::vector<T> compute_singular_values(T* A_dense, int64_t m, int64_t n) {
     ::std::vector<T> sigma(n);
-    ::lapack::gesdd(::lapack::Job::NoVec,
+    int64_t info = ::lapack::gesdd(::lapack::Job::NoVec,
                     m, n, A_dense, m, sigma.data(),
                     nullptr, 1, nullptr, 1);
+    randblas_require(info == 0);
     return sigma;
 }
 

@@ -1,5 +1,8 @@
 #pragma once
 
+// Public API: ExplicitSymLinOp, RegExplicitSymLinOp, SpectralPrecond —
+// symmetric linear operators for use with SymmetricLinearOperator-templated algorithms.
+
 #include "rl_concepts.hh"
 #include "rl_blaspp.hh"
 
@@ -11,11 +14,43 @@
 
 namespace RandLAPACK::linops {
 
+// Symmetric linear operators for use with algorithms templated on
+// SymmetricLinearOperator. Three concrete types are provided:
+//
+//   ExplicitSymLinOp      — wraps a dense symmetric matrix (upper or lower
+//                           triangle, any layout). Applies C := alpha*A*B + beta*C
+//                           via blas::symm, handling layout mismatches between A
+//                           and (B, C) by flipping the Uplo parameter.
+//
+//   RegExplicitSymLinOp   — regularized symmetric operator representing A + diag(mu).
+//                           When regularization is enabled (_eval_includes_reg),
+//                           the operator applies C := alpha*(A + mu*I)*B + beta*C.
+//                           Supports per-column regularization parameters for
+//                           multi-shift solves. Upper-triangle, ColMajor only.
+//
+//   SpectralPrecond       — spectral preconditioner for systems (G + mu*I)x = b.
+//                           Represents P = V*diag(D)*V' + I, where V holds
+//                           approximate top eigenvectors of G and D is derived from
+//                           the corresponding eigenvalues and regularization parameter.
+//                           Used by preconditioned conjugate gradient (pcg).
+
 /*********************************************************/
 /*                                                       */
 /*                  ExplicitSymLinOp                     */
 /*                                                       */
 /*********************************************************/
+
+/// Dense symmetric linear operator satisfying SymmetricLinearOperator.
+///
+/// Wraps a pointer to a symmetric matrix stored in either upper or lower
+/// triangle, in either row-major or column-major layout. The SYMM-like
+/// callable computes C := alpha * A * B + beta * C via blas::symm.
+///
+/// If the layout requested for (B, C) differs from buff_layout, the Uplo
+/// parameter is flipped so that the same physical triangle is read correctly.
+///
+/// Also provides element access via operator()(i, j), which currently
+/// requires upper-triangle, column-major storage.
 template <typename T>
 struct ExplicitSymLinOp {
 
@@ -77,6 +112,22 @@ struct ExplicitSymLinOp {
 /*               RegExplicitSymLinOp                     */
 /*                                                       */
 /*********************************************************/
+
+/// Regularized dense symmetric linear operator satisfying SymmetricLinearOperator.
+///
+/// Represents A + diag(mu), where A is a symmetric matrix (upper triangle,
+/// column-major) and mu is a vector of regularization parameters. When
+/// _eval_includes_reg is true, the SYMM-like callable computes
+///     C := alpha * (A + mu_j * I) * B_j + beta * C_j
+/// for each column j of (B, C), where mu_j = regs[min(j, num_ops-1)].
+/// When _eval_includes_reg is false, only the unregularized A*B is computed.
+///
+/// Supports multi-shift solves: num_ops regularization values can be stored,
+/// one per right-hand side. If num_ops == 1, that single value is broadcast
+/// to all columns.
+///
+/// Element access operator()(i, j) returns A(i,j) + regs[0]*delta(i,j)
+/// when regularization is enabled and num_ops == 1.
 template <typename T>
 struct RegExplicitSymLinOp {
 
@@ -152,11 +203,29 @@ struct RegExplicitSymLinOp {
 /*                  SpectralPrecond                      */
 /*                                                       */
 /*********************************************************/
+
+/// Spectral preconditioner satisfying SymmetricLinearOperator.
+///
+/// Represents the linear operator P = V * diag(D) * V' + I, where V holds
+/// approximate top eigenvectors of a positive semidefinite matrix G, and
+/// D = (lambda_min + mu) / (lambda + mu) - 1 for each approximate eigenvalue
+/// lambda. This is used by preconditioned conjugate gradient (pcg) to
+/// accelerate solves of (G + mu*I)x = b.
+///
+/// The SYMM-like callable computes C := alpha * P * B + beta * C in four steps:
+///   1. W = V' * B
+///   2. W = diag(D) * W   (element-wise)
+///   3. C = beta * C + alpha * B
+///   4. C = alpha * V * W + C
+///
+/// Supports multiple regularization parameters (one per right-hand side)
+/// via set_D_from_eigs_and_regs(). If num_ops == 1, the single D vector
+/// is broadcast across all columns.
 template<typename T>
 struct SpectralPrecond {
 
     using scalar_t = T;
-    const int64_t m; // an alias for dim, keeping for backward compatibility reasons.
+    const int64_t m; ///< Alias for dim (backward compatibility).
     const int64_t dim;
     int64_t dim_pre;
     int64_t num_rhs;

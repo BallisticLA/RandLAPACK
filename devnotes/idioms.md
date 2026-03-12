@@ -47,8 +47,9 @@ require specific member variables (`n_rows`, `n_cols` or `dim`) and a callable
 operator with a GEMM-like or SYMM-like signature.
 
 ```cpp
+// example signature using a C++20 concept in the template parameter
 template <linops::SymmetricLinearOperator SLO>
-int call(SLO &A, int64_t &k, T tol, std::vector<T> &V, ...);
+void run_algorithm(SLO &A, int64_t &k, T tol, std::vector<T> &V);
 ```
 
 Benefits over unconstrained `typename`:
@@ -195,7 +196,7 @@ variables for each dimension.
 
 Transposing a sparse matrix doesn't copy data. Instead, a CSR matrix is
 reinterpreted as CSC (and vice versa) by swapping the roles of row and column
-index arrays. The same physical memory represents both the original and its
+index arrays. The same physical memory is used to represent both the original and its
 transpose.
 
 RandBLAS's `right_spmm` exploits this: rather than implementing a separate

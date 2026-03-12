@@ -1,5 +1,7 @@
 #pragma once
 
+// Public API: LinearOperator and SymmetricLinearOperator concepts.
+
 #include "rl_blaspp.hh"
 
 #include <concepts>

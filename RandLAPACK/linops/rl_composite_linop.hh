@@ -1,5 +1,7 @@
 #pragma once
 
+// Public API: CompositeOperator — implicit product of two linear operators.
+
 #include "rl_concepts.hh"
 #include "rl_blaspp.hh"
 
@@ -369,7 +371,7 @@ public:
         }
     }
 
-    /// Sketching operator multiplication without explicit Side parameter.
+    /// Left-multiply this by a sketching operator.
     /// Computes C = alpha * op(S) * op(L1 * L2) + beta * C (equivalent to Side::Right),
     /// where L1 and L2 are the left and right operators of this composite.
     template <RandBLAS::SketchingOperator SkOp>
@@ -390,6 +392,7 @@ public:
     }
 
     /// Sketching operator multiplication with composite linear operator.
+    /// Side refers to the side on which this operator appears.
     ///   Side::Left:  C = alpha * op(L1 * L2) * op(S) + beta * C
     ///   Side::Right: C = alpha * op(S) * op(L1 * L2) + beta * C
     /// where L1 and L2 are the left and right operators of this composite.

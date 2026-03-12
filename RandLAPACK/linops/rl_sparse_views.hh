@@ -1,5 +1,11 @@
 #pragma once
 
+// Internal header — not part of the public RandLAPACK API.
+//
+// Sparse block view types and free functions used by SparseLinOp to implement
+// row_block(), col_block(), and submatrix(). Users should interact with these
+// through SparseLinOp's public interface rather than using them directly.
+
 #include "RandBLAS/sparse_data/base.hh"
 
 #include <RandBLAS.hh>
