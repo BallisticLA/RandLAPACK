@@ -554,7 +554,7 @@ void sparse_to_dense(
 /// Convert a sparse matrix to dense, treating duplicate (row, col) entries by summing their values.
 ///
 /// This is an alias for sparse_to_dense(). It exists to make caller intent explicit: when the
-/// source matrix was generated with possibly duplicate indices (e.g., from gen_sparse_mat via
+/// source matrix was generated with possibly duplicate indices (e.g., from gen_sparse_coo via
 /// COO format), the underlying RandBLAS conversion routines (coo_to_dense, csr_to_dense,
 /// csc_to_dense) sum duplicate entries rather than overwriting. Calling this named alias signals
 /// that the caller is aware of and relying on this summing behavior.

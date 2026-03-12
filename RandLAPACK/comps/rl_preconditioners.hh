@@ -51,7 +51,7 @@ void rpc_data_svd(
         randblas_require(lda >= m);
         lda_sk = d;
     }
-    RandBLAS::util::safe_scal(d*n, 0.0, A_sk);
+    RandBLAS::util::safe_scal(d*n, (T) 0.0, A_sk);
     RandBLAS::sketch_general(
         layout,
         Op::NoTrans,
@@ -59,7 +59,7 @@ void rpc_data_svd(
         d, n, m,
         1.0, S, 0, 0,
         A, lda,
-        0.0, A_sk, lda_sk
+        (T) 0.0, A_sk, lda_sk
     );
 
     // step 2: apply an LAPACK SVD function to A_sk and process the output.
@@ -350,7 +350,7 @@ STATE rpchol_pc_data(
     std::vector<int64_t> selection(k, -1);
     state = RandLAPACK::rp_cholesky(n, A_stateless, k, selection.data(), V, b, state);
     // ^ A_stateless \approx VV'; need to convert VV' into its eigendecomposition.
-    std::vector<T> work(k*k, 0.0);
+    std::vector<T> work(k*k, (T) 0.0);
     lapack::gesdd(lapack::Job::OverwriteVec, n, k, V, n, eigvals, nullptr, 1, work.data(), k);
     // V has been overwritten with its (nontrivial) left singular vectors
     for (int64_t i = 0; i < k; ++i) 

@@ -204,7 +204,11 @@ int CQRRT<T, RNG>::call(
     }
 
     // Cholesky factorization
-    int msg = lapack::potrf(Uplo::Upper, n, R_sk, ldr);
+    if (lapack::potrf(Uplo::Upper, n, R_sk, ldr)) {
+        delete[] A_hat;
+        delete[] tau;
+        return 1;
+    }
 
     if(this -> timing)
         potrf_t_stop = steady_clock::now();

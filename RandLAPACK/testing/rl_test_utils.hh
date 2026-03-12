@@ -1,4 +1,4 @@
-// Verification utilities for RandLAPACK tests
+// Testing utilities for RandLAPACK tests
 //
 // This header provides helper functions for verifying correctness of linear
 // operator implementations. It is not part of the public RandLAPACK API and
@@ -18,7 +18,7 @@
 #include <vector>
 
 namespace RandLAPACK {
-namespace verification {
+namespace testing {
 
 // ============================================================================
 // Matrix Generation Helpers
@@ -58,10 +58,7 @@ template <typename T>
     T density,
     ::RandBLAS::RNGState<>& state
 ) {
-    auto coo = ::RandLAPACK::gen::gen_sparse_mat<T>(rows, cols, density, state);
-    ::RandBLAS::sparse_data::CSCMatrix<T> csc(rows, cols);
-    ::RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
-    return csc;
+    return ::RandLAPACK::gen::gen_sparse_coo<T>(rows, cols, density, state).as_owning_csc();
 }
 
 // ============================================================================
@@ -214,5 +211,5 @@ template <typename T>
     return sigma;
 }
 
-}  // namespace verification
+}  // namespace testing
 }  // namespace RandLAPACK
