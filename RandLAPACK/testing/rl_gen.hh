@@ -480,7 +480,7 @@ void gen_random_dense(
     RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
 ) {
     RandBLAS::DenseDist D(m, n, dist);
-    RandBLAS::fill_dense(D, A, state);
+    state = RandBLAS::fill_dense(D, A, state);
 
     // RandBLAS generates ColMajor; convert to RowMajor if needed
     if (layout == blas::Layout::RowMajor) {
@@ -493,6 +493,11 @@ void gen_random_dense(
 /// Generate a random sparse matrix in COO format.
 /// Creates a sparse matrix with uniformly random positions and values from the specified distribution.
 /// Duplicate (row, col) entries are merged by summing their values.
+///
+/// @note Future migration: RandBLAS >= commit 7c03be6 provides
+/// RandBLAS::testing::random_coo/csr/csc in RandBLAS/testing/sparse_data.hh,
+/// which use geometric skips (no duplicate handling, slightly lower constant factor).
+/// Once RandBLAS is updated, gen_sparse_coo/csc should be replaced by those.
 ///
 /// @tparam T - Scalar type (double, float, etc.)
 /// @tparam RNG - Random number generator type
@@ -551,45 +556,132 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_coo(
     return A_coo;
 }
 
-/// Generate a random sparse matrix in CSC format.
-/// Convenience wrapper around gen_sparse_coo that converts to CSC.
+
+
+/// Generate a tall sparse m×n matrix with prescribed singular values.
 ///
-/// @tparam T - Scalar type (double, float, etc.)
-/// @tparam RNG - Random number generator type
+/// Constructs A with the given singular values by:
+///   1. Generate Haar-random orthogonal V via QR of Gaussian (geqrf + orgqr)
+///   2. Top n rows = diag(σ) · V^T — gives A^T A = V · diag(σ²) · V^T,
+///      a generic SPD matrix with fully random eigenvectors
+///   3. Apply m-n left Givens rotations to spread rows from top n to all
+///      remaining rows — preserves A^T A exactly since (GA)^T(GA) = A^T A
+///   4. Convert dense intermediate to COO, dropping exact zeros
 ///
-/// @param[in] m - Number of rows
-/// @param[in] n - Number of columns
-/// @param[in] density - Fraction of entries that are nonzero (0 < density <= 1)
-/// @param[in,out] state - RNG state for reproducible generation
-/// @param[in] dist - Distribution for nonzero values (Gaussian or Uniform, default: Gaussian)
+/// The Haar-random V guarantees A^T A is fully generic (not diagonally
+/// dominant, not tridiagonal, not near-diagonal).
 ///
-/// @return CSC matrix with at most m*n*density nonzero entries
+/// Left Givens rotations are orthogonal, so singular values are preserved
+/// exactly: κ(A) = σ_1/σ_n.
+///
+/// @tparam T       Scalar type (double, float)
+/// @tparam RNG     Random number generator type
+///
+/// @param[in]     m               Number of rows (must satisfy m >= n)
+/// @param[in]     n               Number of columns
+/// @param[in]     sigma           Array of n singular values (caller-specified)
+/// @param[in,out] state           RNG state for reproducible generation
+/// @param[in]     target_density  Target fraction of nonzeros (0,1].
+///                                Set to 0 to skip Givens rotations (top n rows only).
+///
+/// @return COO matrix of dimensions m×n with the specified singular values
 ///
 template <typename T, typename RNG>
-RandBLAS::sparse_data::CSCMatrix<T> gen_sparse_csc(
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_from_singvals(
     int64_t m,
     int64_t n,
-    T density,
+    const T* sigma,
     RandBLAS::RNGState<RNG> &state,
-    RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
+    T target_density = (T)0.0
 ) {
-    auto coo = gen_sparse_coo<T>(m, n, density, state, dist);
-    RandBLAS::sparse_data::CSCMatrix<T> csc(m, n);
-    RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
-    return csc;
+    using namespace RandBLAS::sparse_data;
+
+    randblas_require(m >= n);
+    randblas_require(n >= 1);
+
+    // Build top n×n block as B = diag(σ) · V^T.
+    // V is a Haar-random orthogonal matrix from QR of a Gaussian.
+    // This gives A^T A = V · diag(σ²) · V^T — a generic SPD matrix with
+    // fully random eigenvectors.
+    std::vector<T> V(n * n);
+    std::vector<T> tau(n);
+    auto d_gauss = RandBLAS::DenseDist(n, n);
+    state = RandBLAS::fill_dense(d_gauss, V.data(), state);
+    lapack::geqrf(n, n, V.data(), n, tau.data());
+    lapack::orgqr(n, n, n, V.data(), n, tau.data());
+
+    // A is m×n column-major. Top n rows = diag(σ) · V^T, bottom rows = 0.
+    // B(i,j) = σ_i · V^T(i,j) = σ_i · V(j,i)
+    std::vector<T> A(m * n, (T)0.0);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            A[i + j * m] = sigma[i] * V[j + i * n];
+        }
+    }
+
+    // Left Givens rotations: populate remaining rows (m - n) for row coverage.
+    // Each rotation mixes a populated row with a zero row, spreading entries
+    // without changing A^T A (left orthogonal transforms preserve it).
+    int64_t n_left  = (target_density > (T)0.0) ? (m - n) : (int64_t)0;
+
+    std::vector<int64_t> source_rows(n_left);   // indices in [0, n)
+    std::vector<int64_t> target_rows(n_left);   // indices in [0, m-n)
+    std::vector<T> angles(n_left);
+    if (n_left > 0) {
+        state = RandBLAS::sample_indices_iid_uniform(n, n_left, source_rows.data(), state);
+        state = RandBLAS::sample_indices_iid_uniform(m - n, n_left, target_rows.data(), state);
+        auto rd = RandBLAS::DenseDist(n_left, 1);
+        state = RandBLAS::fill_dense(rd, angles.data(), state);
+    }
+
+    for (int64_t rot = 0; rot < n_left; ++rot) {
+        int64_t ri = source_rows[rot];
+        int64_t rj = n + target_rows[rot];
+
+        T c = std::cos(angles[rot]);
+        T s = std::sin(angles[rot]);
+
+        for (int64_t col = 0; col < n; ++col) {
+            T ai = A[ri + col * m];
+            T aj = A[rj + col * m];
+            A[ri + col * m] =  c * ai + s * aj;
+            A[rj + col * m] = -s * ai + c * aj;
+        }
+    }
+
+    // Convert dense to COO, dropping exact zeros.
+    coo::COOMatrix<T> A_coo(m, n);
+    coo::dense_to_coo(::blas::Layout::ColMajor, A.data(), (T)0.0, A_coo);
+
+    return A_coo;
 }
 
-/// Alias for gen_sparse_coo for backwards compatibility
+/// Convenience wrapper: generate a tall sparse m×n matrix with log-spaced
+/// singular values from 1 to 1/cond_num.
 template <typename T, typename RNG>
-RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_mat(
+RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
     int64_t m,
     int64_t n,
-    T density,
+    T cond_num,
     RandBLAS::RNGState<RNG> &state,
-    RandBLAS::ScalarDist dist = RandBLAS::ScalarDist::Gaussian
+    T target_density = (T)0.0
 ) {
-    return gen_sparse_coo<T>(m, n, density, state, dist);
+    randblas_require(cond_num >= (T)1.0);
+
+    std::vector<T> sigma(n);
+    if (n == 1) {
+        sigma[0] = (T)1.0;
+    } else {
+        T log_cond = std::log(cond_num);
+        for (int64_t i = 0; i < n; ++i) {
+            sigma[i] = std::exp(-((T)i / (T)(n - 1)) * log_cond);
+        }
+    }
+
+    return gen_sparse_from_singvals(m, n, sigma.data(), state, target_density);
 }
+
+
 
 /// 'Entry point' routine for matrix generation.
 /// Calls functions for different mat type to fill the contents of a provided standard vector.
@@ -661,6 +753,68 @@ template <typename T, typename RNG>
     ::std::vector<T> A(info.rows * info.cols, 0.0);
     mat_gen(info, A.data(), state);
     return A;
+}
+
+/// Generate an SPD matrix A = Q * diag(eigvals) * Q^T with prescribed eigenvalues.
+///
+/// Q is a Haar-random orthogonal matrix (QR of Gaussian). The eigenvalues
+/// are used exactly as provided — the caller controls the spectral decay.
+///
+/// @param[in]     n        Dimension of square SPD matrix (n × n)
+/// @param[in]     eigvals  Array of n positive eigenvalues
+/// @param[out]    A        Output buffer for the n×n SPD matrix (column-major)
+/// @param[in,out] state    RNG state for reproducible generation
+///
+template <typename T, typename RNG>
+void gen_spd_from_eigvals(
+    int64_t n,
+    const T* eigvals,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    // Generate random orthogonal matrix Q via QR factorization of Gaussian
+    std::vector<T> Q(n * n);
+    std::vector<T> tau(n);
+
+    auto d = RandBLAS::DenseDist(n, n);
+    state = RandBLAS::fill_dense(d, Q.data(), state);
+
+    lapack::geqrf(n, n, Q.data(), n, tau.data());
+    lapack::orgqr(n, n, n, Q.data(), n, tau.data());
+
+    // Form A = Q * D * Q^T: first Q_scaled = Q * D (scale columns by eigenvalues)
+    std::vector<T> Q_scaled(n * n);
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = 0; i < n; ++i) {
+            Q_scaled[i + j * n] = Q[i + j * n] * eigvals[j];
+        }
+    }
+
+    // A = Q_scaled * Q^T
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
+               n, n, n, (T)1.0, Q_scaled.data(), n, Q.data(), n, (T)0.0, A, n);
+}
+
+/// Convenience wrapper: generate an SPD matrix with polynomial eigenvalue decay
+/// from 1 to cond_num (λ_i = 1 + (cond_num - 1) * ((i-1)/(n-1))^2).
+template <typename T, typename RNG>
+void gen_spd_mat(
+    int64_t n,
+    T cond_num,
+    T* A,
+    RandBLAS::RNGState<RNG> &state
+) {
+    std::vector<T> eigenvalues(n);
+    eigenvalues[0] = 1.0;
+    if (n > 1) {
+        eigenvalues[n-1] = cond_num;
+        for (int64_t i = 1; i < n - 1; ++i) {
+            T t = static_cast<T>(i) / static_cast<T>(n - 1);
+            eigenvalues[i] = 1.0 + (cond_num - 1.0) * t * t;
+        }
+    }
+
+    gen_spd_from_eigvals(n, eigenvalues.data(), A, state);
 }
 
 }

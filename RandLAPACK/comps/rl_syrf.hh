@@ -95,7 +95,7 @@ class SYRF {
             if (!callers_work_buff)
                 work_buff = new T[m * k];
 
-            RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff, 1);
+            RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff);
 
             T* Q_dat = util::upsize(m * k, Q);
             syps.call(A, k, state, work_buff, Q_dat);

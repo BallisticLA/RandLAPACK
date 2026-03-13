@@ -16,11 +16,8 @@ set(RandLAPACK_cxx_sources
     rl_syps.hh
     rl_syrf.hh
     rl_rpchol.hh
-    rl_gen.hh
     rl_blaspp.hh
-    rl_linops.hh
     rl_pdkernels.hh
-    rl_util_test_linop.hh
 
     rl_cusolver.hh
     rl_cuda_kernels.cuh
@@ -62,13 +59,17 @@ target_include_directories(
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/comps>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/drivers>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/misc>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/testing>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/linops>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/gpu_functions>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/comps>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/drivers>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/misc>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/linops>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/gpu_functions>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK/testing>
 )
 
 install(

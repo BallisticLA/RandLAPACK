@@ -8,9 +8,14 @@
 
 // misc
 #include "RandLAPACK/misc/rl_util.hh"
-#include "RandLAPACK/misc/rl_linops.hh"
-#include "RandLAPACK/misc/rl_gen.hh"
 #include "RandLAPACK/misc/rl_pdkernels.hh"
+
+// linear operator infrastructure
+#include "RandLAPACK/linops/rl_linops.hh"
+
+// testing utilities (used by benchmarks, so included in umbrella header)
+#include "RandLAPACK/testing/rl_gen.hh"
+#include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Computational routines
 #include "RandLAPACK/comps/rl_determiter.hh"

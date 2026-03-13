@@ -17,12 +17,13 @@
 #include <type_traits>
 #include <optional>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandLAPACK/testing/rl_test_utils.hh"
 
 using blas::Layout;
 using blas::Op;
 using blas::Side;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util; // for MatrixDimensions, calculate_dimensions, compute_gemm_reference
+using namespace RandLAPACK::testing;
 
 // ============================================================================
 // Operator type tags for template specialization
@@ -145,8 +146,8 @@ RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> make_o
 ) {
     data.rows = rows;
     data.cols = cols;
-    // Use emplace since gen_sparse_csc returns by value (already an rvalue)
-    data.csc_mat.emplace(RandLAPACK::gen::gen_sparse_csc<T>(rows, cols, density, state));
+    // Generate COO then convert to CSC (owned) for SparseLinOp
+    data.csc_mat.emplace(RandLAPACK::gen::gen_sparse_coo<T>(rows, cols, density, state).as_owning_csc());
 
     return RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>>(
         rows, cols, *data.csc_mat);
@@ -380,7 +381,7 @@ private:
         int64_t m,
         int64_t n,
         int64_t k,
-        const MatrixDimensions& dims,
+        const MatmulDimensions& dims,
         T density_B,
         RNGState<r123::Philox4x32_R<10>>& state
     ) {
@@ -407,8 +408,8 @@ private:
         densify_operator(op_data, layout, A_dense);
 
         if (sparse_B) {
-            // Generate sparse matrix B
-            auto B_csc = RandLAPACK::gen::gen_sparse_csc<T>(dims.rows_B, dims.cols_B, density_B, state);
+            // Generate sparse B in COO then convert to CSC (owned)
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(dims.rows_B, dims.cols_B, density_B, state).as_owning_csc();
 
             // Compute using LinearOperator with sparse B
             A_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_op, dims.ldc);
@@ -424,7 +425,7 @@ private:
         }
 
         // Compute reference using BLAS GEMM
-        compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
+        sided_gemm(side, layout, trans_A, trans_B, m, n, k, alpha,
                                A_dense, dims.lda, B_dense, dims.ldb,
                                beta, C_reference, dims.ldc);
 
@@ -447,7 +448,7 @@ private:
 
         // E = err_alpha * |A| * |B| + err_beta * |C_old|
         // (E was initialized with |C_old|)
-        compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, err_alpha,
+        sided_gemm(side, layout, trans_A, trans_B, m, n, k, err_alpha,
                                A_abs, dims.lda, B_abs, dims.ldb,
                                err_beta, E, dims.ldc);
 

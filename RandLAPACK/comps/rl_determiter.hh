@@ -1,7 +1,6 @@
 #pragma once
 
 #include "rl_blaspp.hh"
-#include "rl_linops.hh"
 
 #include <iostream>
 #include <vector>

@@ -551,92 +551,20 @@ void sparse_to_dense(
     }
 }
 
-// ============================================================================
-// Test Utilities (for linear operator tests)
-// ============================================================================
-
-/// Structure to hold matrix dimensions and leading dimensions
-struct MatrixDimensions {
-    int64_t rows_A, cols_A;  // Operator matrix dimensions
-    int64_t rows_B, cols_B;  // Input matrix dimensions
-    int64_t lda, ldb, ldc;   // Leading dimensions
-};
-
-/// Calculate all dimensions for a linear operator multiplication
-/// Handles both Side::Left and Side::Right cases
-template <typename T>
-MatrixDimensions calculate_dimensions(
-    blas::Side side,
+/// Convert a sparse matrix to dense, treating duplicate (row, col) entries by summing their values.
+///
+/// This is an alias for sparse_to_dense(). It exists to make caller intent explicit: when the
+/// source matrix was generated with possibly duplicate indices (e.g., from gen_sparse_coo via
+/// COO format), the underlying RandBLAS conversion routines (coo_to_dense, csr_to_dense,
+/// csc_to_dense) sum duplicate entries rather than overwriting. Calling this named alias signals
+/// that the caller is aware of and relying on this summing behavior.
+template <RandBLAS::sparse_data::SparseMatrix SpMat, typename T = typename SpMat::scalar_t>
+void sparse_to_dense_summing_duplicates(
+    const SpMat &sp_mat,
     blas::Layout layout,
-    blas::Op trans_A,
-    blas::Op trans_B,
-    int64_t m,
-    int64_t n,
-    int64_t k
+    T *dense_mat
 ) {
-    MatrixDimensions dims;
-
-    if (side == blas::Side::Left) {
-        // Side::Left: C := alpha * op(A) * op(B) + beta * C
-        // A is the operator (m × k), B is the input (k × n)
-        auto [ra, ca] = RandBLAS::dims_before_op(m, k, trans_A);
-        auto [rb, cb] = RandBLAS::dims_before_op(k, n, trans_B);
-        dims.rows_A = ra;
-        dims.cols_A = ca;
-        dims.rows_B = rb;
-        dims.cols_B = cb;
-    } else {
-        // Side::Right: C := alpha * op(B) * op(A) + beta * C
-        // A is the operator (k × n), B is the input (m × k)
-        auto [ra, ca] = RandBLAS::dims_before_op(k, n, trans_A);
-        auto [rb, cb] = RandBLAS::dims_before_op(m, k, trans_B);
-        dims.rows_A = ra;
-        dims.cols_A = ca;
-        dims.rows_B = rb;
-        dims.cols_B = cb;
-    }
-
-    // Calculate leading dimensions based on layout
-    if (layout == blas::Layout::ColMajor) {
-        dims.lda = dims.rows_A;
-        dims.ldb = dims.rows_B;
-        dims.ldc = m;
-    } else {  // RowMajor
-        dims.lda = dims.cols_A;
-        dims.ldb = dims.cols_B;
-        dims.ldc = n;
-    }
-
-    return dims;
-}
-
-/// Compute reference result using BLAS GEMM
-/// Handles both Side::Left and Side::Right cases
-template <typename T>
-void compute_gemm_reference(
-    blas::Side side,
-    blas::Layout layout,
-    blas::Op trans_A,
-    blas::Op trans_B,
-    int64_t m,
-    int64_t n,
-    int64_t k,
-    T alpha,
-    const T* A,
-    int64_t lda,
-    const T* B,
-    int64_t ldb,
-    T beta,
-    T* C,
-    int64_t ldc
-) {
-    if (side == blas::Side::Left) {
-        // C := alpha * op(A) * op(B) + beta * C
-        blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
-    } else {
-        // C := alpha * op(B) * op(A) + beta * C
-        blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A, lda, beta, C, ldc);
-    }
+    sparse_to_dense(sp_mat, layout, dense_mat);
 }
 
 } // end namespace util
