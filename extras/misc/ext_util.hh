@@ -41,7 +41,7 @@ template <typename T>
 RandBLAS::sparse_data::coo::COOMatrix<T> coo_from_matrix_market(const std::string& filename) {
     using namespace RandBLAS::sparse_data;
 
-    int64_t n_rows, n_cols = 0;
+    int64_t n_rows = 0, n_cols = 0;
     std::vector<int64_t> rows{};
     std::vector<int64_t> cols{};
     std::vector<T> vals{};
@@ -86,7 +86,7 @@ void eigen_sparse_from_matrix_market(
     const std::string& filename,
     Eigen::SparseMatrix<T>& A
 ) {
-    int64_t n_rows, n_cols = 0;
+    int64_t n_rows = 0, n_cols = 0;
     std::vector<int64_t> rows{};
     std::vector<int64_t> cols{};
     std::vector<T> vals{};
@@ -127,7 +127,7 @@ void eigen_sparse_submatrix_from_matrix_market(
     Eigen::SparseMatrix<T>& A,
     T submatrix_dim_ratio
 ) {
-    int64_t n_rows, n_cols = 0;
+    int64_t n_rows = 0, n_cols = 0;
     std::vector<int64_t> rows{};
     std::vector<int64_t> cols{};
     std::vector<T> vals{};

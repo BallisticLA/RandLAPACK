@@ -108,6 +108,12 @@ struct CholSolverLinOp {
 
 private:
 
+    using Layout = blas::Layout;
+    using Op     = blas::Op;
+    using Side   = blas::Side;
+    using Uplo   = blas::Uplo;
+    using Diag   = blas::Diag;
+
     /// Create a RandBLAS CSCMatrix view that wraps L_sparse's raw CSC arrays.
     /// Eigen uses int for sparse indices, so we use CSCMatrix<T, int> (not int64_t).
     /// The expert constructor with own_memory=false avoids copying the data.
