@@ -475,9 +475,7 @@ protected:
     void test_csc_col_block_structure(int64_t m, int64_t n, T density,
                                       int64_t col_start, int64_t col_count) {
         RNGState state(42);
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state);
-        RandBLAS::sparse_data::CSCMatrix<T> A(m, n);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, A);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
 
         auto view = RandLAPACK::linops::csc_col_block(A, col_start, col_count);
 
@@ -512,9 +510,7 @@ protected:
     void test_csc_col_block_spmm(int64_t m, int64_t n, int64_t k, T density,
                                   int64_t col_start, int64_t col_count) {
         RNGState state(42);
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state);
-        RandBLAS::sparse_data::CSCMatrix<T> A(m, n);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, A);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
 
         // Dense B (k x m)
         vector<T> B = generate_dense_matrix<T>(k, m, Layout::ColMajor, state);
@@ -560,9 +556,7 @@ protected:
     template <typename T>
     void test_csc_split(int64_t m, int64_t n, int64_t k, T density, int64_t num_blocks) {
         RNGState state(42);
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state);
-        RandBLAS::sparse_data::CSCMatrix<T> A(m, n);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, A);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
 
         // Dense B (k x m)
         vector<T> B = generate_dense_matrix<T>(k, m, Layout::ColMajor, state);
@@ -889,9 +883,7 @@ protected:
     void test_csc_row_block_structure(int64_t m, int64_t n, T density,
                                       int64_t row_start, int64_t row_count) {
         RNGState state(42);
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state);
-        RandBLAS::sparse_data::CSCMatrix<T> A(m, n);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, A);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
 
         auto block = RandLAPACK::linops::csc_row_block(A, row_start, row_count);
 
@@ -931,9 +923,7 @@ protected:
     void test_csc_row_block_dense(int64_t m, int64_t n, T density,
                                    int64_t row_start, int64_t row_count) {
         RNGState state(42);
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state);
-        RandBLAS::sparse_data::CSCMatrix<T> A(m, n);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, A);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
 
         // Densify full A
         vector<T> A_dense(m * n, 0.0);
@@ -962,9 +952,7 @@ protected:
     template <typename T>
     void test_csc_row_split(int64_t m, int64_t n, T density, int64_t num_blocks) {
         RNGState state(42);
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state);
-        RandBLAS::sparse_data::CSCMatrix<T> A(m, n);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, A);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
 
         // Densify full A
         vector<T> A_dense(m * n, 0.0);
@@ -1066,17 +1054,6 @@ protected:
         RandBLAS::sparse_data::CSRMatrix<T> csr(rows, cols);
         RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
         return csr;
-    }
-
-    /// Generate a random sparse matrix in CSC format.
-    template <typename T>
-    RandBLAS::sparse_data::CSCMatrix<T> generate_csc(
-        int64_t rows, int64_t cols, T density, RNGState<>& state
-    ) {
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(rows, cols, density, state);
-        RandBLAS::sparse_data::CSCMatrix<T> csc(rows, cols);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
-        return csc;
     }
 
     /// Densify a sparse matrix into a ColMajor dense array.
@@ -1194,7 +1171,7 @@ protected:
     void test_csc_linop_row_block(int64_t m, int64_t n, T density,
                                    int64_t row_start, int64_t row_count) {
         RNGState state(42);
-        auto A = generate_csc<T>(m, n, density, state);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
         auto A_dense = to_dense<T>(A, m, n);
 
         RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<T>> op(m, n, A);
@@ -1220,7 +1197,7 @@ protected:
     void test_csc_linop_col_block(int64_t m, int64_t n, T density,
                                    int64_t col_start, int64_t col_count) {
         RNGState state(42);
-        auto A = generate_csc<T>(m, n, density, state);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
         auto A_dense = to_dense<T>(A, m, n);
 
         RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<T>> op(m, n, A);
@@ -1247,7 +1224,7 @@ protected:
                                    int64_t row_start, int64_t col_start,
                                    int64_t row_count, int64_t col_count) {
         RNGState state(42);
-        auto A = generate_csc<T>(m, n, density, state);
+        auto A = RandLAPACK::gen::gen_sparse_coo<T>(m, n, density, state).as_owning_csc();
         auto A_dense = to_dense<T>(A, m, n);
 
         RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<T>> op(m, n, A);

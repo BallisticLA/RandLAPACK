@@ -817,4 +817,32 @@ void gen_spd_mat(
     gen_spd_from_eigvals(n, eigenvalues.data(), A, state);
 }
 
+/// Generate a PSD matrix with polynomial spectral decay via A^T A.
+///
+/// Generates a random matrix with polynomially-decaying singular values
+/// using mat_gen, then forms G = A^T A so that G is PSD with squared spectrum.
+///
+/// @param[in] m         Matrix dimension (m x m)
+/// @param[in] cond_num  Condition number of the intermediate matrix (squared in G)
+/// @param[in] exponent  Polynomial decay exponent (squared in G)
+/// @param[in] seed      RNG seed
+///
+/// @return Dense column-major m x m PSD matrix
+template <typename T>
+std::vector<T> gen_polynomial_decay_psd(int64_t m, T cond_num, T exponent, uint32_t seed) {
+    mat_gen_info<T> mat_info(m, m, polynomial);
+    mat_info.cond_num = std::sqrt(cond_num);
+    mat_info.rank = m;
+    mat_info.exponent = std::sqrt(exponent);
+    mat_info.frac_spectrum_one = 0.05;
+    std::vector<T> A(m * m, 0.0);
+    RandBLAS::RNGState<> data_state(seed);
+    mat_gen(mat_info, A.data(), data_state);
+    std::vector<T> G(m * m, 0.0);
+    blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::NoTrans, m, m, (T)1.0,
+        A.data(), m, (T)0.0, G.data(), m);
+    RandBLAS::symmetrize(blas::Layout::ColMajor, blas::Uplo::Upper, m, G.data(), m);
+    return G;
+}
+
 }
