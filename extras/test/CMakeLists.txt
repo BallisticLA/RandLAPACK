@@ -19,8 +19,7 @@ if (GTest_FOUND)
     endif()
 
     set(RandLAPACK_extras_test_srcs
-        linops/test_ext_cholsolver_linop.cc
-        linops/test_ext_lusolver_linop.cc
+        linops/test_ext_solver_linop_unified.cc
         linops/test_ext_composite_linop.cc
     )
 
