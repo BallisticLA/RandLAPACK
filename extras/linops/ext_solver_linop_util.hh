@@ -14,7 +14,7 @@
 #include <sstream>
 #include <vector>
 
-namespace RandLAPACK_extras {
+namespace RandLAPACK_extras::linops {
 namespace solver_util {
 
 using blas::Layout;
@@ -180,4 +180,4 @@ void accumulate(Layout layout, int64_t m, int64_t n, T alpha,
 }
 
 } // namespace solver_util
-} // namespace RandLAPACK_extras
+} // namespace RandLAPACK_extras::linops

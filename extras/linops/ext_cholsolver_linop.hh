@@ -8,12 +8,10 @@
 #include <RandBLAS.hh>
 #include <RandBLAS/sparse_data/trsm_dispatch.hh>
 #include <string>
-#include <fstream>
-#include <stdexcept>
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 
-namespace RandLAPACK_extras {
+namespace RandLAPACK_extras::linops {
 
 /// Linear operator representing A^{-1} (or L^{-1} in half-solve mode) for a sparse
 /// symmetric positive definite matrix A loaded from a Matrix Market file.
@@ -73,7 +71,7 @@ struct CholSolverLinOp {
     bool half_solve;
 
     /// Eigen sparse Cholesky solver with AMD fill-reducing ordering.
-    /// Factorizes P^T A P = L L^T where P minimizes fill-in in L.
+    /// Factorizes P A P^T = L L^T where P minimizes fill-in in L.
     Eigen::SimplicialLLT<Eigen::SparseMatrix<T>, Eigen::Lower, Eigen::AMDOrdering<int>> chol_solver;
 
     /// Lower-triangular Cholesky factor L, extracted from Eigen after factorization.
@@ -584,4 +582,4 @@ public:
     }
 };
 
-} // namespace RandLAPACK_extras
+} // namespace RandLAPACK_extras::linops

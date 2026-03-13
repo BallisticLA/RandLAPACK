@@ -6,7 +6,6 @@ if (GTest_FOUND)
     set(tmp TRUE)
 
     set(RandLAPACK_test_srcs
-        moremats.hh
         comps/test_determiter.cc
         comps/test_orth.cc
         comps/test_qb.cc
@@ -25,10 +24,10 @@ if (GTest_FOUND)
         drivers/test_orth_linop.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
-        misc/test_linops.cc
-        misc/test_linop_unified.cc
+        linops/test_linops.cc
+        linops/test_linop_unified.cc
         misc/test_gen.cc
-        misc/test_linop_block_views.cc
+        linops/test_linop_block_views.cc
     )
     
     # Create non-CUDA test executable

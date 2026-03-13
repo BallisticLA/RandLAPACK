@@ -2,6 +2,7 @@
 #include "rl_rpchol.hh"
 #include "rl_blaspp.hh"
 #include "rl_gen.hh"
+#include <RandLAPACK/testing/rl_test_utils.hh>
 #include "../RandLAPACK/RandBLAS/test/comparison.hh"
 
 #include <RandBLAS.hh>
@@ -10,18 +11,6 @@
 
 
 using RandBLAS::RNGState;
-
-template <typename T, typename RNG>
-RNGState<RNG> left_multiply_by_orthmat(int64_t m, int64_t n, std::vector<T> &A, RNGState<RNG> state) {
-    using std::vector;
-    vector<T> U(m * m, 0.0);
-    RandBLAS::DenseDist DU(m, m);
-    auto out_state = RandBLAS::fill_dense(DU, U.data(), state);
-    vector<T> tau(m, 0.0);
-    lapack::geqrf(m, m, U.data(), m, tau.data());
-    lapack::ormqr(blas::Side::Left, blas::Op::NoTrans, m, n, m, U.data(), m, tau.data(), A.data(), m);
-    return out_state;
-}
 
 template <typename T>
 void full_gram(int64_t n, std::vector<T> &A, blas::Op op, int64_t k = -1) {

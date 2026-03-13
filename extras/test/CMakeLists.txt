@@ -19,9 +19,9 @@ if (GTest_FOUND)
     endif()
 
     set(RandLAPACK_extras_test_srcs
-        misc/test_ext_cholsolver_linop.cc
-        misc/test_ext_lusolver_linop.cc
-        misc/test_ext_composite_linop.cc
+        linops/test_ext_cholsolver_linop.cc
+        linops/test_ext_lusolver_linop.cc
+        linops/test_ext_composite_linop.cc
     )
 
     # Create test executable

@@ -8,12 +8,10 @@
 #include <RandBLAS.hh>
 #include <RandBLAS/sparse_data/trsm_dispatch.hh>
 #include <string>
-#include <fstream>
-#include <stdexcept>
 #include <Eigen/Sparse>
 #include <Eigen/SparseLU>
 
-namespace RandLAPACK_extras {
+namespace RandLAPACK_extras::linops {
 
 /// Linear operator representing A^{-1} (or L^{-1} P_r in half-solve mode) for a sparse
 /// invertible matrix A loaded from a Matrix Market file.
@@ -591,4 +589,4 @@ public:
     }
 };
 
-} // namespace RandLAPACK_extras
+} // namespace RandLAPACK_extras::linops
