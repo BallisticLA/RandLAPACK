@@ -96,15 +96,13 @@ class CholQR_linops {
         ///     The m-by-n linear operator A.
         ///
         /// @param[out] R
-        ///     Stores n-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Pre-allocated n-by-n buffer. On exit, stores the upper-triangular
+        ///     R factor. Zero entries are not compressed.
         ///
         /// @param[in] ldr
         ///     Leading dimension of R.
         ///
         /// @return = 0: successful exit
-        ///
-
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,

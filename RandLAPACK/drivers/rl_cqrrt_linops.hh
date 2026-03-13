@@ -3,16 +3,12 @@
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
-#include "rl_hqrrp.hh"
-#include "rl_bqrrp.hh"
 #include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
 #include <chrono>
-#include <numeric>
-#include <iomanip>
 
 using namespace std::chrono;
 
@@ -93,47 +89,43 @@ class CQRRT_linops {
             }
         }
 
-        /// Computes an R-factor of the unpivoted QR factorization of the form:
-        ///     A= QR,
-        /// where Q and R are of size m-by-n and n-by-n;
-        /// operates similarly to rl_cqrrt.hh, but returns a Q-less factorization
-        /// and accepts linear operators.
+        /// Computes the R-factor of the unpivoted QR factorization A = QR,
+        /// where Q is m-by-n and R is n-by-n upper triangular.
+        ///
+        /// Operates similarly to rl_cqrrt.hh, but accepts any type satisfying
+        /// the LinearOperator concept and returns a Q-less factorization
+        /// (Q is only computed when test_mode is enabled).
+        ///
+        /// Algorithm:
+        ///   1. Sketch: S*A (d x n), where d = d_factor * n
+        ///   2. QR of sketch: S*A = Q_sk * R_sk
+        ///   3. Precondition: A_pre = A * R_sk^{-1}
+        ///   4. Gram matrix: G = (R_sk^{-1})^T * A^T * A * R_sk^{-1}
+        ///   5. Cholesky: G = R_chol^T * R_chol
+        ///   6. Final R = R_chol * R_sk
         ///
         /// @note This algorithm expects A to be full-rank (rank = n). Rank-deficient inputs may result
         ///       in loss of orthogonality in the Q-factor (when test_mode=true) and numerical instability
         ///       in the R-factor.
         ///
-        /// @param[in] m
-        ///     The number of rows in the matrix A.
-        ///
-        /// @param[in] n
-        ///     The number of columns in the matrix A.
-        ///
         /// @param[in] A
-        ///     The m-by-n linear operator A.
-        ///
-        /// @param[in] d
-        ///     Embedding dimension of a sketch, m >= d >= n.
-        ///
-        /// @param[in] R
-        ///     Represents the upper-triangular R factor of QR factorization.
-        ///     On entry, is empty and may not have any space allocated for it.
-        ///
-        /// @param[in] state
-        ///     RNG state parameter, required for sketching operator generation.
-        ///
-        /// @param[out] A
-        ///     Same as on input.
+        ///     The m-by-n linear operator (m and n read from A.n_rows, A.n_cols).
         ///
         /// @param[out] R
-        ///     Stores n-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Pre-allocated n-by-n buffer. On exit, stores the upper-triangular
+        ///     R factor. Zero entries are not compressed.
+        ///
+        /// @param[in] ldr
+        ///     Leading dimension of R.
+        ///
+        /// @param[in] d_factor
+        ///     Sketch embedding factor. The sketch dimension is d = d_factor * n.
+        ///     Typically d_factor >= 1; larger values improve numerical stability.
+        ///
+        /// @param[in,out] state
+        ///     RNG state for sketching operator generation. Advanced on exit.
         ///
         /// @return = 0: successful exit
-        ///
-
-        // Templated CQRRT call that accepts any linear operator.
-        // This particular implementation aims to work with the combined linear operator.
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
@@ -215,11 +207,8 @@ class CQRRT_linops {
             if(this -> timing)
                 qr_t_stop = steady_clock::now();
 
-            //blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
-            // TRSM, used in the original implementation of CQRRT, is only defined for dense operators.
-            // If A is not just a general dense operator, we handle this step via an explicit inverse and a multiplication.
-
-            // Explicitly invert R_sk to get R_sk_inv
+            // Compute R_sk^{-1} via TRSM with identity (since A may not be dense,
+            // we cannot apply TRSM directly to the operator as in rl_cqrrt.hh).
             if(this -> timing)
                 trtri_t_start = steady_clock::now();
 
@@ -261,7 +250,7 @@ class CQRRT_linops {
             //       R[:, j_block] = A^T * (A * R_sk_inv[:, j_block])
             //     is the j-th column block of A^T * A * R_sk_inv.
             //
-            //     All operator types (Dense, Sparse, Composite, CholSolver)
+            //     All operator types satisfying the LinearOperator concept
             //     support arbitrary column counts in operator(), so no
             //     modifications to the linear operator interface are needed.
             //
