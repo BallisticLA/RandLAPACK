@@ -153,7 +153,7 @@ protected:
         L_inv_op(side, layout, Op::NoTrans, trans_B, m, n, k, alpha, B_dense.data(), dims.ldb, beta, C_halfsv.data(), dims.ldc);
 
         // Compute reference: GEMM with L^{-1} instead of A^{-1}
-        compute_gemm_reference(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
+        sided_gemm(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
                                L_inv.data(), spd_dim, B_dense.data(), dims.ldb,
                                beta, C_reference.data(), dims.ldc);
 
@@ -228,7 +228,7 @@ protected:
 
         if (sparse_B) {
             // Generate sparse matrix B using utility function
-            auto B_csc = generate_sparse_matrix<T>(dims.rows_B, dims.cols_B, density, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(dims.rows_B, dims.cols_B, density, state).as_owning_csc();
 
             // Compute using CholSolverLinOp with sparse B
             A_inv_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_cholsolver.data(), dims.ldc);
@@ -238,7 +238,7 @@ protected:
             RandLAPACK::util::sparse_to_dense(B_csc, layout, B_dense.data());
 
             // Compute reference using utility function
-            compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
+            sided_gemm(side, layout, trans_A, trans_B, m, n, k, alpha,
                                    A_inv.data(), spd_dim, B_dense.data(), dims.ldb,
                                    beta, C_reference.data(), dims.ldc);
 
@@ -258,7 +258,7 @@ protected:
             A_inv_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense.data(), dims.ldb, beta, C_cholsolver.data(), dims.ldc);
 
             // Compute reference using utility function
-            compute_gemm_reference(side, layout, trans_A, trans_B, m, n, k, alpha,
+            sided_gemm(side, layout, trans_A, trans_B, m, n, k, alpha,
                                    A_inv.data(), spd_dim, B_dense.data(), dims.ldb,
                                    beta, C_reference.data(), dims.ldc);
 

@@ -61,16 +61,6 @@ protected:
         return mat;
     }
 
-    // Helper to generate sparse matrix in CSC format
-    template <typename T>
-    static RandBLAS::sparse_data::csc::CSCMatrix<T> generate_sparse_matrix(
-        int64_t rows, int64_t cols, T density, RNGState<r123::Philox4x32_R<10>>& state) {
-        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(rows, cols, density, state);
-        RandBLAS::sparse_data::csc::CSCMatrix<T> csc(rows, cols);
-        RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
-        return csc;
-    }
-
     // Helper to materialize an operator as a dense matrix
     template <typename T, typename LinOp>
     static void materialize_operator(LinOp& op, int64_t rows, int64_t cols, vector<T>& dense_mat) {
@@ -236,7 +226,7 @@ protected:
 
         // Apply composite operator and compute reference
         if (sparse_B) {
-            auto B_csc = generate_sparse_matrix<T>(rows_B, cols_B, density_B, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(rows_B, cols_B, density_B, state).as_owning_csc();
             composite_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, k_dense,
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
@@ -311,7 +301,7 @@ protected:
 
         // Apply composite operator and compute reference
         if (sparse_B) {
-            auto B_csc = generate_sparse_matrix<T>(rows_B, cols_B, density_B, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(rows_B, cols_B, density_B, state).as_owning_csc();
             composite_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, dim_chol,
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
@@ -390,7 +380,7 @@ protected:
 
         // Apply composite operator and compute reference
         if (sparse_B) {
-            auto B_csc = generate_sparse_matrix<T>(rows_B, cols_B, density_B, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(rows_B, cols_B, density_B, state).as_owning_csc();
             composite_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, k_sparse,
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
@@ -472,7 +462,7 @@ protected:
 
         // Apply composite operator and compute reference
         if (sparse_B) {
-            auto B_csc = generate_sparse_matrix<T>(rows_B, cols_B, density_B, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(rows_B, cols_B, density_B, state).as_owning_csc();
             composite_op(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, dim_chol,
                         alpha, B_csc, beta, C_composite.data(), ldc);
 
@@ -569,7 +559,7 @@ protected:
 
         // Apply composite operator and compute reference
         if (sparse_B) {
-            auto B_csc = generate_sparse_matrix<T>(rows_B, cols_B, density_B, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(rows_B, cols_B, density_B, state).as_owning_csc();
             outer_composite(Side::Left, layout, Op::NoTrans, Op::NoTrans, m, n, k_final,
                            alpha, B_csc, beta, C_composite.data(), ldc);
 

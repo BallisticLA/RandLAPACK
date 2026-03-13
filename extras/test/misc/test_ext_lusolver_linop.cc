@@ -153,7 +153,7 @@ protected:
         M_op(side, layout, Op::NoTrans, trans_B, m, n, k, alpha, B_dense.data(), dims.ldb, beta, C_halfsv.data(), dims.ldc);
 
         // Compute reference: GEMM with L^{-1} * P_r
-        compute_gemm_reference(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
+        sided_gemm(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
                                M_ref.data(), dim, B_dense.data(), dims.ldb,
                                beta, C_reference.data(), dims.ldc);
 
@@ -239,7 +239,7 @@ protected:
         RandLAPACK_extras::LUSolverLinOp<T> A_inv_op(filename);
 
         if (sparse_B) {
-            auto B_csc = generate_sparse_matrix<T>(dims.rows_B, dims.cols_B, density, state);
+            auto B_csc = RandLAPACK::gen::gen_sparse_coo<T>(dims.rows_B, dims.cols_B, density, state).as_owning_csc();
 
             A_inv_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_csc, beta, C_lusolver.data(), dims.ldc);
 
@@ -247,7 +247,7 @@ protected:
             RandLAPACK::util::sparse_to_dense(B_csc, layout, B_dense.data());
 
             // For reference GEMM, use trans_A=NoTrans since we already transposed A_inv above
-            compute_gemm_reference(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
+            sided_gemm(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
                                    A_inv.data(), dim, B_dense.data(), dims.ldb,
                                    beta, C_reference.data(), dims.ldc);
 
@@ -264,7 +264,7 @@ protected:
             A_inv_op(side, layout, trans_A, trans_B, m, n, k, alpha, B_dense.data(), dims.ldb, beta, C_lusolver.data(), dims.ldc);
 
             // For reference GEMM, use trans_A=NoTrans since we already transposed A_inv above
-            compute_gemm_reference(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
+            sided_gemm(side, layout, Op::NoTrans, trans_B, m, n, k, alpha,
                                    A_inv.data(), dim, B_dense.data(), dims.ldb,
                                    beta, C_reference.data(), dims.ldc);
 
