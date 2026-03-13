@@ -198,14 +198,14 @@ class CQRRT_linops {
             if (this->use_dense_sketch) {
                 // Dense Gaussian sketch: allocate d x m buffer, fill with Gaussian entries.
                 RandBLAS::DenseDist DD(d, m);
-                RandBLAS::DenseSkOp<T, RNG> S(DD, state);
+                RandBLAS::DenseSkOp S(DD, state);
                 state = S.next_state;
                 RandBLAS::fill_dense(S);
                 A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
             } else {
                 // Sparse SASO sketch: uses nnz nonzeros per column.
                 RandBLAS::SparseDist DS(d, m, this->nnz);
-                RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+                RandBLAS::SparseSkOp S(DS, state);
                 state = S.next_state;
                 RandBLAS::fill_sparse(S);
                 A(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T)1.0, S, (T)0.0, A_hat, d);
