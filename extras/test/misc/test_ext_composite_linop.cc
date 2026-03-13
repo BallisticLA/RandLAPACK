@@ -349,9 +349,7 @@ protected:
         chol_op.factorize();
 
         // Generate sparse operator matrix (dim_chol × k_sparse)
-        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_coo<T>(dim_chol, k_sparse, density_sparse, state);
-        RandBLAS::sparse_data::csc::CSCMatrix<T> sparse_mat_csc(dim_chol, k_sparse);
-        RandBLAS::sparse_data::conversions::coo_to_csc(sparse_mat_coo, sparse_mat_csc);
+        auto sparse_mat_csc = RandLAPACK::gen::gen_sparse_coo<T>(dim_chol, k_sparse, density_sparse, state).as_owning_csc();
         RandLAPACK::linops::SparseLinOp sparse_op(dim_chol, k_sparse, sparse_mat_csc);
 
         // Create composite operator: CholSolver * Sparse
@@ -434,9 +432,7 @@ protected:
         chol_op.factorize();
 
         // Generate sparse operator matrix (rows_sparse × dim_chol)
-        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_coo<T>(rows_sparse, dim_chol, density_sparse, state);
-        RandBLAS::sparse_data::csc::CSCMatrix<T> sparse_mat_csc(rows_sparse, dim_chol);
-        RandBLAS::sparse_data::conversions::coo_to_csc(sparse_mat_coo, sparse_mat_csc);
+        auto sparse_mat_csc = RandLAPACK::gen::gen_sparse_coo<T>(rows_sparse, dim_chol, density_sparse, state).as_owning_csc();
         RandLAPACK::linops::SparseLinOp sparse_op(rows_sparse, dim_chol, sparse_mat_csc);
 
         // Create composite operator: Sparse * CholSolver
@@ -514,9 +510,7 @@ protected:
         chol_op.factorize();
 
         // Generate sparse operator matrix (dim_chol × k_sparse)
-        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_coo<T>(dim_chol, k_sparse, density_sparse, state);
-        RandBLAS::sparse_data::csc::CSCMatrix<T> sparse_mat_csc(dim_chol, k_sparse);
-        RandBLAS::sparse_data::conversions::coo_to_csc(sparse_mat_coo, sparse_mat_csc);
+        auto sparse_mat_csc = RandLAPACK::gen::gen_sparse_coo<T>(dim_chol, k_sparse, density_sparse, state).as_owning_csc();
         RandLAPACK::linops::SparseLinOp sparse_op(dim_chol, k_sparse, sparse_mat_csc);
 
         // Generate dense operator matrix (k_sparse × k_final)
