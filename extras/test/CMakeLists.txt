@@ -10,12 +10,8 @@ if (GTest_FOUND)
 
     # RandBLAS test utilities (comparison.hh) are not installed;
     # resolve them from the source tree via the RandBLAS submodule.
-    find_path(RANDBLAS_SOURCE_DIR
-        NAMES "RandBLAS/RandBLAS.hh"
-        HINTS "${CMAKE_SOURCE_DIR}/../RandBLAS"
-        NO_DEFAULT_PATH
-    )
-    if(RANDBLAS_SOURCE_DIR)
+    set(RANDBLAS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../RandBLAS")
+    if(EXISTS "${RANDBLAS_SOURCE_DIR}/test/comparison.hh")
         include_directories(${RANDBLAS_SOURCE_DIR})
         message(STATUS "RandBLAS source tree found at: ${RANDBLAS_SOURCE_DIR}")
     else()
