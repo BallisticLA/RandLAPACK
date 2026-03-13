@@ -65,7 +65,7 @@ protected:
     template <typename T>
     static RandBLAS::sparse_data::csc::CSCMatrix<T> generate_sparse_matrix(
         int64_t rows, int64_t cols, T density, RNGState<r123::Philox4x32_R<10>>& state) {
-        auto coo = RandLAPACK::gen::gen_sparse_mat<T>(rows, cols, density, state);
+        auto coo = RandLAPACK::gen::gen_sparse_coo<T>(rows, cols, density, state);
         RandBLAS::sparse_data::csc::CSCMatrix<T> csc(rows, cols);
         RandBLAS::sparse_data::conversions::coo_to_csc(coo, csc);
         return csc;
@@ -359,7 +359,7 @@ protected:
         chol_op.factorize();
 
         // Generate sparse operator matrix (dim_chol × k_sparse)
-        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_mat<T>(dim_chol, k_sparse, density_sparse, state);
+        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_coo<T>(dim_chol, k_sparse, density_sparse, state);
         RandBLAS::sparse_data::csc::CSCMatrix<T> sparse_mat_csc(dim_chol, k_sparse);
         RandBLAS::sparse_data::conversions::coo_to_csc(sparse_mat_coo, sparse_mat_csc);
         RandLAPACK::linops::SparseLinOp sparse_op(dim_chol, k_sparse, sparse_mat_csc);
@@ -444,7 +444,7 @@ protected:
         chol_op.factorize();
 
         // Generate sparse operator matrix (rows_sparse × dim_chol)
-        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_mat<T>(rows_sparse, dim_chol, density_sparse, state);
+        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_coo<T>(rows_sparse, dim_chol, density_sparse, state);
         RandBLAS::sparse_data::csc::CSCMatrix<T> sparse_mat_csc(rows_sparse, dim_chol);
         RandBLAS::sparse_data::conversions::coo_to_csc(sparse_mat_coo, sparse_mat_csc);
         RandLAPACK::linops::SparseLinOp sparse_op(rows_sparse, dim_chol, sparse_mat_csc);
@@ -524,7 +524,7 @@ protected:
         chol_op.factorize();
 
         // Generate sparse operator matrix (dim_chol × k_sparse)
-        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_mat<T>(dim_chol, k_sparse, density_sparse, state);
+        auto sparse_mat_coo = RandLAPACK::gen::gen_sparse_coo<T>(dim_chol, k_sparse, density_sparse, state);
         RandBLAS::sparse_data::csc::CSCMatrix<T> sparse_mat_csc(dim_chol, k_sparse);
         RandBLAS::sparse_data::conversions::coo_to_csc(sparse_mat_coo, sparse_mat_csc);
         RandLAPACK::linops::SparseLinOp sparse_op(dim_chol, k_sparse, sparse_mat_csc);

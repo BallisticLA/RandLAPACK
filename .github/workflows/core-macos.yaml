@@ -72,6 +72,20 @@ jobs:
           make -j2 install
           ctest --exclude-regex "^TestABRIK\.ABRIK_catch_instability" --output-on-failure
 
+      - name: build and test extras
+        run: |
+          cd ..
+          mkdir extras-build
+          cd extras-build
+          cmake -DCMAKE_BUILD_TYPE=Release \
+            -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake/RandLAPACK \
+            -Dlapackpp_DIR=`pwd`/../lapackpp-install/lib/cmake/lapackpp \
+            -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
+            -DRandom123_DIR=`pwd`/../Random123-install/include/ \
+            ../RandLAPACK/extras
+          make -j2
+          ctest --output-on-failure
+
       - name: build benchmarks
         run: |
           cd ..

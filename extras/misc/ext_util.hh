@@ -416,7 +416,7 @@ void print_condition_diagnostics(LinOp& A_linop, int64_t m, int64_t n,
                                  const std::string& label = "operator") {
     printf("\nCondition number diagnostics for %s:\n", label.c_str());
 
-    auto A_dense = RandLAPACK::util::materialize_linop<T>(A_linop, m, n);
+    auto A_dense = RandLAPACK::testing::materialize_linop<T>(A_linop, m, n);
 
     // Compute column norms
     std::vector<T> col_norms(n);
@@ -434,12 +434,12 @@ void print_condition_diagnostics(LinOp& A_linop, int64_t m, int64_t n,
         blas::scal(m, (T)1.0 / col_norms[j], &A_normed[j * m], 1);
 
     // SVD on raw matrix
-    auto sigma = RandLAPACK::util::compute_singular_values<T>(A_dense.data(), m, n);
+    auto sigma = RandLAPACK::testing::compute_singular_values<T>(A_dense.data(), m, n);
     printf("  Raw:     kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
            (double)(sigma[0] / sigma[n - 1]), (double)sigma[0], (double)sigma[n - 1]);
 
     // SVD on column-normalized matrix
-    auto sigma_normed = RandLAPACK::util::compute_singular_values<T>(A_normed.data(), m, n);
+    auto sigma_normed = RandLAPACK::testing::compute_singular_values<T>(A_normed.data(), m, n);
     printf("  ColNorm: kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
            (double)(sigma_normed[0] / sigma_normed[n - 1]),
            (double)sigma_normed[0], (double)sigma_normed[n - 1]);

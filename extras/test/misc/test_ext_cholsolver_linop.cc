@@ -13,8 +13,8 @@
 
 #include "../../linops/ext_cholsolver_linop.hh"
 #include "../../misc/ext_util.hh"
-#include "../../../RandLAPACK/RandBLAS/test/comparison.hh"
-#include "../../../RandLAPACK/misc/rl_util_test_linop.hh"
+#include <RandLAPACK/testing/rl_test_utils.hh>
+#include <test/comparison.hh>
 
 using std::vector;
 using blas::Layout;
@@ -22,7 +22,7 @@ using blas::Op;
 using blas::Side;
 using RandBLAS::DenseDist;
 using RandBLAS::RNGState;
-using namespace RandLAPACK::util::test;
+using namespace RandLAPACK::testing;
 
 class TestCholSolverLinOp : public ::testing::Test {
 
