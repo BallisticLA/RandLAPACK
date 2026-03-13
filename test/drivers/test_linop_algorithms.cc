@@ -13,52 +13,33 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "rl_test_utils.hh"
 
 #include <RandBLAS.hh>
 #include <gtest/gtest.h>
 #include <vector>
 #include <cmath>
 
-// ============================================================================
-// Shared verification helpers
-// ============================================================================
-
-/// Verify Q^T Q ≈ I and A ≈ QR.  Returns {factorization_error, orthogonality_error}.
-template <typename T>
-static std::pair<T, T> verify_qr(const T* A, const T* Q, const T* R,
-                                   int64_t m, int64_t n, int64_t ldr) {
-    // ||A - Q*R|| / ||A||
-    std::vector<T> QR(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n,
-               (T)1.0, Q, m, R, ldr, (T)0.0, QR.data(), m);
-    for (int64_t i = 0; i < m * n; ++i)
-        QR[i] = A[i] - QR[i];
-    T norm_AQR = lapack::lange(Norm::Fro, m, n, QR.data(), m);
-    T norm_A   = lapack::lange(Norm::Fro, m, n, A, m);
-
-    // ||Q^T Q - I|| / sqrt(n)
-    std::vector<T> I_ref(n * n);
-    RandLAPACK::util::eye(n, n, I_ref.data());
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m,
-               (T)1.0, Q, m, (T)-1.0, I_ref.data(), n);
-    T norm_orth = lapack::lansy(Norm::Fro, Uplo::Upper, n, I_ref.data(), n);
-
-    return {norm_AQR / norm_A, norm_orth / std::sqrt((T)n)};
-}
-
-/// Verify R-factor only (for tests without test_mode Q).
-/// Recovers Q = A * R^{-1} via TRSM, then checks both metrics.
-template <typename T>
-static std::pair<T, T> verify_R_factor(const T* A_data, int64_t m, int64_t n,
-                                        const T* R, int64_t ldr) {
-    std::vector<T> Q(m * n);
-    std::copy(A_data, A_data + m * n, Q.begin());
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-               Diag::NonUnit, m, n, (T)1.0, R, ldr, Q.data(), m);
-    return verify_qr(A_data, Q.data(), R, m, n, ldr);
-}
+using RandLAPACK::testing::verify_qr;
+using RandLAPACK::testing::verify_R_factor;
 
 static const double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+
+// Convenience: verify QR and assert both errors are below tolerance.
+static void assert_qr_ok(const double* A, const double* Q, const double* R,
+                          int64_t m, int64_t n, int64_t ldr) {
+    auto [fact_err, orth_err] = verify_qr(A, Q, R, m, n, ldr);
+    ASSERT_LE(fact_err, tol);
+    ASSERT_LE(orth_err, tol);
+}
+
+// Convenience: verify R-factor only and assert both errors are below tolerance.
+static void assert_R_ok(const double* A, int64_t m, int64_t n,
+                         const double* R, int64_t ldr) {
+    auto [fact_err, orth_err] = verify_R_factor(A, m, n, R, ldr);
+    ASSERT_LE(fact_err, tol);
+    ASSERT_LE(orth_err, tol);
+}
 
 // ============================================================================
 // CholQR_linops
@@ -85,9 +66,7 @@ TEST_F(TestCholQRLinops, dense_matrix) {
     RandLAPACK::CholQR_linops<double> algo(false, tol, true);
     algo.call(A_linop, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_copy.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestCholQRLinops, sparse_matrix) {
@@ -106,9 +85,7 @@ TEST_F(TestCholQRLinops, sparse_matrix) {
     RandLAPACK::CholQR_linops<double> algo(false, tol, true);
     algo.call(A_linop, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_dense.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestCholQRLinops, composite_dense_sparse) {
@@ -139,9 +116,7 @@ TEST_F(TestCholQRLinops, composite_dense_sparse) {
     RandLAPACK::CholQR_linops<double> algo(false, tol, true);
     algo.call(A_comp, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_dense.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestCholQRLinops, blocked) {
@@ -160,9 +135,7 @@ TEST_F(TestCholQRLinops, blocked) {
     algo.block_size = 10;
     algo.call(A_linop, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_copy.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
 // ============================================================================
@@ -192,9 +165,7 @@ TEST_F(TestCQRRTLinops, dense_matrix) {
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
 
-    auto [fact_err, orth_err] = verify_qr(A_copy.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestCQRRTLinops, composite_dense_sparse) {
@@ -224,9 +195,7 @@ TEST_F(TestCQRRTLinops, composite_dense_sparse) {
     algo.nnz = 2;
     algo.call(A_comp, R.data(), n, d_factor, state);
 
-    auto [fact_err, orth_err] = verify_qr(A_dense.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
 }
 
 // --- Block processing tests ---
@@ -248,9 +217,7 @@ TEST_F(TestCQRRTLinops, block_processing_even_division) {
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
 
-    auto [fact_err, orth_err] = verify_R_factor(A_data.data(), m, n, R.data(), n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_R_ok(A_data.data(), m, n, R.data(), n);
 }
 
 TEST_F(TestCQRRTLinops, block_processing_with_remainder) {
@@ -270,9 +237,7 @@ TEST_F(TestCQRRTLinops, block_processing_with_remainder) {
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
 
-    auto [fact_err, orth_err] = verify_R_factor(A_data.data(), m, n, R.data(), n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_R_ok(A_data.data(), m, n, R.data(), n);
 }
 
 TEST_F(TestCQRRTLinops, block_processing_single_column) {
@@ -292,9 +257,7 @@ TEST_F(TestCQRRTLinops, block_processing_single_column) {
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
 
-    auto [fact_err, orth_err] = verify_R_factor(A_data.data(), m, n, R.data(), n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_R_ok(A_data.data(), m, n, R.data(), n);
 }
 
 TEST_F(TestCQRRTLinops, block_vs_full_agreement) {
@@ -356,9 +319,7 @@ TEST_F(TestSCholQR3Linops, dense_matrix) {
     RandLAPACK::sCholQR3_linops<double> algo(false, tol, true);
     algo.call(A_linop, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_copy.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestSCholQR3Linops, sparse_matrix) {
@@ -377,9 +338,7 @@ TEST_F(TestSCholQR3Linops, sparse_matrix) {
     RandLAPACK::sCholQR3_linops<double> algo(false, tol, true);
     algo.call(A_linop, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_dense.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestSCholQR3Linops, composite_dense_sparse) {
@@ -407,9 +366,7 @@ TEST_F(TestSCholQR3Linops, composite_dense_sparse) {
     RandLAPACK::sCholQR3_linops<double> algo(false, tol, true);
     algo.call(A_comp, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_dense.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestSCholQR3Linops, blocked) {
@@ -428,9 +385,7 @@ TEST_F(TestSCholQR3Linops, blocked) {
     algo.block_size = 10;
     algo.call(A_linop, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_copy.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
 // ============================================================================
@@ -458,9 +413,7 @@ TEST_F(TestSCholQR3LinopsBasic, dense_matrix) {
     RandLAPACK::sCholQR3_linops_basic<double> algo(false, tol, true);
     algo.call(A_linop, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_copy.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
 TEST_F(TestSCholQR3LinopsBasic, composite_dense_sparse) {
@@ -488,7 +441,5 @@ TEST_F(TestSCholQR3LinopsBasic, composite_dense_sparse) {
     RandLAPACK::sCholQR3_linops_basic<double> algo(false, tol, true);
     algo.call(A_comp, R.data(), n);
 
-    auto [fact_err, orth_err] = verify_qr(A_dense.data(), algo.Q, R.data(), m, n, n);
-    ASSERT_LE(fact_err, tol);
-    ASSERT_LE(orth_err, tol);
+    assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
 }

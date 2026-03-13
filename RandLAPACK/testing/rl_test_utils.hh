@@ -203,5 +203,51 @@ template <typename T>
     return sigma;
 }
 
+// ============================================================================
+// QR Factorization Verification
+// ============================================================================
+
+/// Verify a QR factorization: checks both factorization accuracy and
+/// orthogonality of Q.  All matrices are column-major with leading
+/// dimension equal to their row count (except R, whose leading dimension
+/// is ldr).
+///
+/// Returns {factorization_error, orthogonality_error} where:
+///   factorization_error = ||A - Q*R||_F / ||A||_F
+///   orthogonality_error = ||Q^T Q - I||_F / sqrt(n)
+template <typename T>
+::std::pair<T, T> verify_qr(const T* A, const T* Q, const T* R,
+                              int64_t m, int64_t n, int64_t ldr) {
+    // ||A - Q*R|| / ||A||
+    ::std::vector<T> QR(m * n, 0.0);
+    ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
+                 m, n, n, (T)1.0, Q, m, R, ldr, (T)0.0, QR.data(), m);
+    for (int64_t i = 0; i < m * n; ++i)
+        QR[i] = A[i] - QR[i];
+    T norm_AQR = ::lapack::lange(::lapack::Norm::Fro, m, n, QR.data(), m);
+    T norm_A   = ::lapack::lange(::lapack::Norm::Fro, m, n, A, m);
+
+    // ||Q^T Q - I|| / sqrt(n)
+    ::std::vector<T> I_ref(n * n);
+    RandLAPACK::util::eye(n, n, I_ref.data());
+    ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
+                 n, m, (T)1.0, Q, m, (T)-1.0, I_ref.data(), n);
+    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, I_ref.data(), n);
+
+    return {norm_AQR / norm_A, norm_orth / ::std::sqrt((T)n)};
+}
+
+/// Verify an R-factor only (when Q is not explicitly available).
+/// Recovers Q = A * R^{-1} via TRSM, then checks both metrics.
+template <typename T>
+::std::pair<T, T> verify_R_factor(const T* A_data, int64_t m, int64_t n,
+                                    const T* R, int64_t ldr) {
+    ::std::vector<T> Q(m * n);
+    ::std::copy(A_data, A_data + m * n, Q.begin());
+    ::blas::trsm(::blas::Layout::ColMajor, ::blas::Side::Right, ::blas::Uplo::Upper,
+                 ::blas::Op::NoTrans, ::blas::Diag::NonUnit, m, n, (T)1.0, R, ldr, Q.data(), m);
+    return verify_qr(A_data, Q.data(), R, m, n, ldr);
+}
+
 }  // namespace testing
 }  // namespace RandLAPACK
