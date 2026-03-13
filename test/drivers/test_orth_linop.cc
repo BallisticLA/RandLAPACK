@@ -1,5 +1,5 @@
-// Tests for linop-based QR algorithms: CholQR_linops, CQRRT_linops,
-// sCholQR3_linops, sCholQR3_linops_basic.
+// Tests for linop-based orthogonalization algorithms: CholQR_linops,
+// CQRRT_linops, sCholQR3_linops, sCholQR3_linops_basic.
 //
 // Ported from PR #115 (demos/test/drivers/test_dm_{cholqr,cqrrt,scholqr3}_linops.cc).
 // CholSolverLinOp-based composite tests are replaced with DenseLinOp * SparseLinOp
@@ -23,19 +23,26 @@
 using RandLAPACK::testing::verify_qr;
 using RandLAPACK::testing::verify_R_factor;
 
-static const double tol = std::pow(std::numeric_limits<double>::epsilon(), 0.75);
+template <typename T>
+T default_tol() {
+    return std::pow(std::numeric_limits<T>::epsilon(), (T)0.75);
+}
 
 // Convenience: verify QR and assert both errors are below tolerance.
-static void assert_qr_ok(const double* A, const double* Q, const double* R,
-                          int64_t m, int64_t n, int64_t ldr) {
+template <typename T>
+void assert_qr_ok(const T* A, const T* Q, const T* R,
+                   int64_t m, int64_t n, int64_t ldr) {
+    T tol = default_tol<T>();
     auto [fact_err, orth_err] = verify_qr(A, Q, R, m, n, ldr);
     ASSERT_LE(fact_err, tol);
     ASSERT_LE(orth_err, tol);
 }
 
 // Convenience: verify R-factor only and assert both errors are below tolerance.
-static void assert_R_ok(const double* A, int64_t m, int64_t n,
-                         const double* R, int64_t ldr) {
+template <typename T>
+void assert_R_ok(const T* A, int64_t m, int64_t n,
+                  const T* R, int64_t ldr) {
+    T tol = default_tol<T>();
     auto [fact_err, orth_err] = verify_R_factor(A, m, n, R, ldr);
     ASSERT_LE(fact_err, tol);
     ASSERT_LE(orth_err, tol);
@@ -63,7 +70,25 @@ TEST_F(TestCholQRLinops, dense_matrix) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CholQR_linops<double> algo(false, tol, true);
+    RandLAPACK::CholQR_linops<double> algo(false, default_tol<double>(), true);
+    algo.call(A_linop, R.data(), n);
+
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+}
+
+TEST_F(TestCholQRLinops, dense_matrix_float) {
+    int64_t m = 100, n = 50;
+
+    std::vector<float> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<> state(0);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+    std::vector<float> A_copy = A_data;
+
+    RandLAPACK::linops::DenseLinOp<float> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    std::vector<float> R(n * n, 0.0f);
+    RandLAPACK::CholQR_linops<float> algo(false, default_tol<float>(), true);
     algo.call(A_linop, R.data(), n);
 
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
@@ -82,7 +107,7 @@ TEST_F(TestCholQRLinops, sparse_matrix) {
     RandLAPACK::util::sparse_to_dense(A_csc, Layout::ColMajor, A_dense.data());
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CholQR_linops<double> algo(false, tol, true);
+    RandLAPACK::CholQR_linops<double> algo(false, default_tol<double>(), true);
     algo.call(A_linop, R.data(), n);
 
     assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
@@ -113,7 +138,7 @@ TEST_F(TestCholQRLinops, composite_dense_sparse) {
                1.0, L_data.data(), m, R_dense.data(), k, 0.0, A_dense.data(), m);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CholQR_linops<double> algo(false, tol, true);
+    RandLAPACK::CholQR_linops<double> algo(false, default_tol<double>(), true);
     algo.call(A_comp, R.data(), n);
 
     assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
@@ -131,7 +156,7 @@ TEST_F(TestCholQRLinops, blocked) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CholQR_linops<double> algo(false, tol, true);
+    RandLAPACK::CholQR_linops<double> algo(false, default_tol<double>(), true);
     algo.block_size = 10;
     algo.call(A_linop, R.data(), n);
 
@@ -161,7 +186,27 @@ TEST_F(TestCQRRTLinops, dense_matrix) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, tol, true);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    state = RandBLAS::RNGState<>(1);
+    algo.call(A_linop, R.data(), n, d_factor, state);
+
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+}
+
+TEST_F(TestCQRRTLinops, dense_matrix_float) {
+    int64_t m = 100, n = 50;
+    float d_factor = 2.0f;
+
+    std::vector<float> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<> state(0);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+    std::vector<float> A_copy = A_data;
+
+    RandLAPACK::linops::DenseLinOp<float> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    std::vector<float> R(n * n, 0.0f);
+    RandLAPACK::CQRRT_linops<float> algo(false, default_tol<float>(), true);
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
 
@@ -191,7 +236,7 @@ TEST_F(TestCQRRTLinops, composite_dense_sparse) {
                1.0, L_data.data(), m, R_dense.data(), k, 0.0, A_dense.data(), m);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, tol, true);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
     algo.nnz = 2;
     algo.call(A_comp, R.data(), n, d_factor, state);
 
@@ -212,7 +257,7 @@ TEST_F(TestCQRRTLinops, block_processing_even_division) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, tol, false);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), false);
     algo.block_size = 10;
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
@@ -232,7 +277,7 @@ TEST_F(TestCQRRTLinops, block_processing_with_remainder) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, tol, false);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), false);
     algo.block_size = 12;  // 50 / 12 = 4 blocks of 12, remainder of 2
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
@@ -252,7 +297,7 @@ TEST_F(TestCQRRTLinops, block_processing_single_column) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> algo(false, tol, false);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), false);
     algo.block_size = 1;
     state = RandBLAS::RNGState<>(1);
     algo.call(A_linop, R.data(), n, d_factor, state);
@@ -273,13 +318,13 @@ TEST_F(TestCQRRTLinops, block_vs_full_agreement) {
 
     // Full path
     std::vector<double> R_full(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> alg_full(false, tol, false);
+    RandLAPACK::CQRRT_linops<double> alg_full(false, default_tol<double>(), false);
     state = RandBLAS::RNGState<>(1);
     alg_full.call(A_linop, R_full.data(), n, d_factor, state);
 
     // Block path
     std::vector<double> R_block(n * n, 0.0);
-    RandLAPACK::CQRRT_linops<double> alg_block(false, tol, false);
+    RandLAPACK::CQRRT_linops<double> alg_block(false, default_tol<double>(), false);
     alg_block.block_size = 10;
     state = RandBLAS::RNGState<>(1);  // same seed
     alg_block.call(A_linop, R_block.data(), n, d_factor, state);
@@ -316,7 +361,25 @@ TEST_F(TestSCholQR3Linops, dense_matrix) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::sCholQR3_linops<double> algo(false, tol, true);
+    RandLAPACK::sCholQR3_linops<double> algo(false, default_tol<double>(), true);
+    algo.call(A_linop, R.data(), n);
+
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+}
+
+TEST_F(TestSCholQR3Linops, dense_matrix_float) {
+    int64_t m = 100, n = 50;
+
+    std::vector<float> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<> state(0);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+    std::vector<float> A_copy = A_data;
+
+    RandLAPACK::linops::DenseLinOp<float> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    std::vector<float> R(n * n, 0.0f);
+    RandLAPACK::sCholQR3_linops<float> algo(false, default_tol<float>(), true);
     algo.call(A_linop, R.data(), n);
 
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
@@ -335,7 +398,7 @@ TEST_F(TestSCholQR3Linops, sparse_matrix) {
     RandLAPACK::util::sparse_to_dense(A_csc, Layout::ColMajor, A_dense.data());
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::sCholQR3_linops<double> algo(false, tol, true);
+    RandLAPACK::sCholQR3_linops<double> algo(false, default_tol<double>(), true);
     algo.call(A_linop, R.data(), n);
 
     assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
@@ -363,7 +426,7 @@ TEST_F(TestSCholQR3Linops, composite_dense_sparse) {
                1.0, L_data.data(), m, R_dense.data(), k, 0.0, A_dense.data(), m);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::sCholQR3_linops<double> algo(false, tol, true);
+    RandLAPACK::sCholQR3_linops<double> algo(false, default_tol<double>(), true);
     algo.call(A_comp, R.data(), n);
 
     assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);
@@ -381,7 +444,7 @@ TEST_F(TestSCholQR3Linops, blocked) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::sCholQR3_linops<double> algo(false, tol, true);
+    RandLAPACK::sCholQR3_linops<double> algo(false, default_tol<double>(), true);
     algo.block_size = 10;
     algo.call(A_linop, R.data(), n);
 
@@ -410,7 +473,25 @@ TEST_F(TestSCholQR3LinopsBasic, dense_matrix) {
     RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::sCholQR3_linops_basic<double> algo(false, tol, true);
+    RandLAPACK::sCholQR3_linops_basic<double> algo(false, default_tol<double>(), true);
+    algo.call(A_linop, R.data(), n);
+
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+}
+
+TEST_F(TestSCholQR3LinopsBasic, dense_matrix_float) {
+    int64_t m = 100, n = 50;
+
+    std::vector<float> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<> state(0);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+    std::vector<float> A_copy = A_data;
+
+    RandLAPACK::linops::DenseLinOp<float> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    std::vector<float> R(n * n, 0.0f);
+    RandLAPACK::sCholQR3_linops_basic<float> algo(false, default_tol<float>(), true);
     algo.call(A_linop, R.data(), n);
 
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
@@ -438,7 +519,7 @@ TEST_F(TestSCholQR3LinopsBasic, composite_dense_sparse) {
                1.0, L_data.data(), m, R_dense.data(), k, 0.0, A_dense.data(), m);
 
     std::vector<double> R(n * n, 0.0);
-    RandLAPACK::sCholQR3_linops_basic<double> algo(false, tol, true);
+    RandLAPACK::sCholQR3_linops_basic<double> algo(false, default_tol<double>(), true);
     algo.call(A_comp, R.data(), n);
 
     assert_qr_ok(A_dense.data(), algo.Q, R.data(), m, n, n);

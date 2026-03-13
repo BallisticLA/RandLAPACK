@@ -188,6 +188,11 @@ int CQRRT<T, RNG>::call(
         precond_t_start = steady_clock::now();
 
     // Precondition: A := A * R_sk^{-1}
+    if (!RandLAPACK::util::diag_is_nonzero(n, R_sk, ldr)) {
+        delete[] A_hat;
+        delete[] tau;
+        return 1;
+    }
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
 
     if(this -> timing) {

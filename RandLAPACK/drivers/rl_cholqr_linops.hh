@@ -14,6 +14,23 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
+/// Cholesky QR factorization for abstract linear operators.
+///
+/// Computes A = QR where A is any type satisfying the LinearOperator concept
+/// (dense, sparse, composite, etc.). Unlike standard Cholesky QR (rl_cqrrt.hh),
+/// which requires A to be a dense matrix that can be modified in place, this
+/// class works through the operator interface: it only calls A(NoTrans, ...)
+/// and A(Trans, ...) to form the Gram matrix G = A^T A, then factors G = R^T R
+/// via Cholesky.
+///
+/// This is useful when A is too large to store densely, is only available as a
+/// matrix-vector product (e.g., the product of two factors, or a sparse matrix),
+/// or when the caller wants a uniform interface across operator types.
+///
+/// The Q factor is not computed by default (Q-less factorization). When
+/// test_mode is enabled, Q = A * R^{-1} is materialized explicitly for
+/// verification.
+///
 template <typename T>
 class CholQR_linops {
     public:
@@ -146,32 +163,7 @@ class CholQR_linops {
             T* I_mat = new T[n * n]();
             RandLAPACK::util::eye(n, n, I_mat);
 
-            // ================================================================
-            // Materialize + Gram computation: R = A^T * A
-            // ================================================================
-            //
-            // Two paths are available:
-            //
-            // (a) FULL MATERIALIZATION (original):
-            //     Allocate m × n buffer A_temp, compute A_temp = A * I,
-            //     then R = A^T * A_temp.  Memory: O(m*n).
-            //
-            // (b) COLUMN-BLOCK PROCESSING (memory-efficient):
-            //     Process b columns at a time.  For each column block j:
-            //       buf (m × b_j) = A * I[:, j : j+b_j]
-            //       R[:, j : j+b_j] = A^T * buf
-            //     Memory: O(m*b).  Never forms the full A_temp.
-            //     The result is mathematically identical because:
-            //       R[:, j_block] = A^T * (A * I[:, j_block])
-            //     is the j-th column block of A^T * A.
-            //
-            //     When test_mode is on, the Q-factor (Q = A_temp * R^{-1})
-            //     needs the full m × n A_temp.  In that case, A_temp is
-            //     recomputed after the Gram loop, outside the timing region.
-            //     This costs an extra operator application but does NOT affect
-            //     the benchmark timings.
-            //
-            // ================================================================
+            // Gram computation: R = A^T * A
 
             // Determine effective block width.
             // block_size <= 0 or >= n means "no blocking" (full width).
@@ -254,7 +246,11 @@ class CholQR_linops {
 
             // Compute Cholesky factorization: G = R^T * R
             // On exit, the upper triangle of R contains the R-factor
-            lapack::potrf(Uplo::Upper, n, R, ldr);
+            if (lapack::potrf(Uplo::Upper, n, R, ldr)) {
+                delete[] I_mat;
+                delete[] A_temp;
+                return 1;
+            }
 
             if(this->timing)
                 potrf_t_stop = steady_clock::now();

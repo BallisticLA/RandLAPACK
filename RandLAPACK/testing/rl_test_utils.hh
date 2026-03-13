@@ -183,11 +183,8 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 /// singular values, comparing block views against the full operator).
 template <typename T, typename LinOp>
 ::std::vector<T> materialize_linop(LinOp& A_linop, int64_t m, int64_t n) {
-    ::std::vector<T> A_dense(m * n, 0.0);
-    ::std::vector<T> Eye(n * n, 0.0);
-    ::RandLAPACK::util::eye(n, n, Eye.data());
-    A_linop(::blas::Side::Left, ::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
-            m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
+    ::std::vector<T> A_dense(m * n, (T)0.0);
+    ::RandLAPACK::materialize(A_linop, m, n, A_dense.data(), m);
     return A_dense;
 }
 

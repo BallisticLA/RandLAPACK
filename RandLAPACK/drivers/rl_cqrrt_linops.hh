@@ -14,6 +14,21 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
+/// Sketch-preconditioned Cholesky QR for abstract linear operators.
+///
+/// Linop analogue of CQRRT (rl_cqrrt.hh). Computes A = QR where A is any
+/// type satisfying the LinearOperator concept. The algorithm sketches A to
+/// obtain a preconditioner R_sk, then computes the Gram matrix of the
+/// preconditioned operator A * R_sk^{-1} via linop calls, and factors it
+/// with Cholesky.
+///
+/// Unlike rl_cqrrt.hh (which overwrites A in place with TRSM), this class
+/// cannot modify the operator directly. Instead, it computes R_sk^{-1}
+/// explicitly and multiplies through the operator interface.
+///
+/// The Q factor is not computed by default (Q-less factorization). When
+/// test_mode is enabled, Q is materialized for verification.
+///
 template <typename T, typename RNG = RandBLAS::DefaultRNG>
 class CQRRT_linops {
     public:
@@ -215,6 +230,12 @@ class CQRRT_linops {
             // Instead of doing TRTRI to find R_sk_inv, we do TRSM with an identity, since trtri is not optimized in MKL
             T* Eye = new T[n * n]();
             RandLAPACK::util::eye(n, n, Eye);
+            if (!RandLAPACK::util::diag_is_nonzero(n, A_hat, d)) {
+                delete[] A_hat;
+                delete[] tau;
+                delete[] Eye;
+                return 1;
+            }
             blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, Eye, n);
             if (n > 1) {
                 // Clear the below-diagonal
@@ -226,41 +247,9 @@ class CQRRT_linops {
                 trtri_t_stop = steady_clock::now();
             }
 
-            // ================================================================
-            // Precondition + Gram computation: R = A^T * A * R_sk_inv
-            // ================================================================
-            //
-            // This section computes the Gram matrix for Cholesky QR:
-            //   R = (R_sk_inv)^T * A^T * A * R_sk_inv
+            // Gram computation: R = (R_sk_inv)^T * A^T * A * R_sk_inv
             // The (R_sk_inv)^T left-multiply is handled later via TRMM.
-            // Here we compute the inner product:  R = A^T * (A * R_sk_inv).
-            //
-            // Two paths are available:
-            //
-            // (a) FULL MATERIALIZATION (original):
-            //     Allocate m × n buffer A_pre, compute A_pre = A * R_sk_inv,
-            //     then R = A^T * A_pre.  Memory: O(m*n).
-            //
-            // (b) COLUMN-BLOCK PROCESSING (memory-efficient):
-            //     Process b columns at a time.  For each column block j:
-            //       buf (m × b_j) = A * R_sk_inv[:, j : j+b_j]
-            //       R[:, j : j+b_j] = A^T * buf
-            //     Memory: O(m*b).  Never forms the full A_pre.
-            //     The result is mathematically identical because:
-            //       R[:, j_block] = A^T * (A * R_sk_inv[:, j_block])
-            //     is the j-th column block of A^T * A * R_sk_inv.
-            //
-            //     All operator types satisfying the LinearOperator concept
-            //     support arbitrary column counts in operator(), so no
-            //     modifications to the linear operator interface are needed.
-            //
-            //     When test_mode is on, the Q-factor (Q = A_pre * R_chol^{-1})
-            //     needs the full m × n A_pre.  In that case, A_pre is
-            //     recomputed after the Gram loop, outside the timing region.
-            //     This costs an extra operator application but does NOT affect
-            //     the benchmark timings.
-            //
-            // ================================================================
+            // Here we compute: R = A^T * (A * R_sk_inv).
 
             // Determine effective block width.
             // block_size <= 0 or >= n means "no blocking" (full width).
@@ -348,7 +337,13 @@ class CQRRT_linops {
             }
 
             // Cholesky factorization (only reads/writes upper triangle)
-            lapack::potrf(Uplo::Upper, n, R, ldr);
+            if (lapack::potrf(Uplo::Upper, n, R, ldr)) {
+                delete[] A_hat;
+                delete[] tau;
+                delete[] R_sk_inv;
+                delete[] A_pre;
+                return 1;
+            }
 
             if(this -> timing)
                 potrf_t_stop = steady_clock::now();

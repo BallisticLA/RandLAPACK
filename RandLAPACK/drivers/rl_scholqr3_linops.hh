@@ -16,7 +16,12 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-/// Shifted Cholesky QR3 algorithm for computing QR factorization via linear operators.
+/// Shifted Cholesky QR3 for abstract linear operators.
+///
+/// Linop analogue of shifted CholQR3: computes A = QR where A is any type
+/// satisfying the LinearOperator concept. All Gram matrices are formed through
+/// A(NoTrans, ...) and A(Trans, ...) calls, so A can be dense, sparse,
+/// composite, or any other operator type without modification.
 ///
 /// Fully-blocked implementation: never materializes the full m x n operator product
 /// during the QR iterations. All three iterations compute their Gram matrices through
@@ -213,7 +218,11 @@ class sCholQR3_linops {
             // Zero lower triangle, Cholesky: G = R1^T * R1
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            lapack::potrf(Uplo::Upper, n, G, n);
+            if (lapack::potrf(Uplo::Upper, n, G, n)) {
+                delete[] G; delete[] R_temp; delete[] M;
+                delete[] A_temp; delete[] Z_buf;
+                return 1;
+            }
 
             // Save G1 factor
             this->G1_factor.resize(n * n, (T)0.0);
@@ -274,7 +283,11 @@ class sCholQR3_linops {
             // Zero lower triangle, Cholesky: G = R2^T * R2
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            lapack::potrf(Uplo::Upper, n, G, n);
+            if (lapack::potrf(Uplo::Upper, n, G, n)) {
+                delete[] G; delete[] R_temp; delete[] M;
+                delete[] A_temp; delete[] Z_buf;
+                return 2;
+            }
 
             // Save G2 factor
             this->G2_factor.resize(n * n, (T)0.0);
@@ -338,7 +351,11 @@ class sCholQR3_linops {
             // Zero lower triangle, Cholesky: G = R3^T * R3
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            lapack::potrf(Uplo::Upper, n, G, n);
+            if (lapack::potrf(Uplo::Upper, n, G, n)) {
+                delete[] G; delete[] R_temp; delete[] M;
+                delete[] A_temp; delete[] Z_buf;
+                return 3;
+            }
 
             // Save G3 factor
             this->G3_factor.resize(n * n, (T)0.0);
@@ -589,7 +606,10 @@ class sCholQR3_linops_basic {
             // Zero lower triangle, Cholesky: G = R1^T * R1
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            lapack::potrf(Uplo::Upper, n, G, n);
+            if (lapack::potrf(Uplo::Upper, n, G, n)) {
+                delete[] Q_buf; delete[] G; delete[] R_temp; delete[] M;
+                return 1;
+            }
 
             // Save G1 factor
             this->G1_factor.resize(n * n, (T)0.0);
@@ -634,7 +654,10 @@ class sCholQR3_linops_basic {
             // Zero lower triangle, Cholesky: G = R2^T * R2
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            lapack::potrf(Uplo::Upper, n, G, n);
+            if (lapack::potrf(Uplo::Upper, n, G, n)) {
+                delete[] Q_buf; delete[] G; delete[] R_temp; delete[] M;
+                return 2;
+            }
 
             // Save G2 factor
             this->G2_factor.resize(n * n, (T)0.0);
@@ -680,7 +703,10 @@ class sCholQR3_linops_basic {
             // Zero lower triangle, Cholesky: G = R3^T * R3
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            lapack::potrf(Uplo::Upper, n, G, n);
+            if (lapack::potrf(Uplo::Upper, n, G, n)) {
+                delete[] Q_buf; delete[] G; delete[] R_temp; delete[] M;
+                return 3;
+            }
 
             // Save G3 factor
             this->G3_factor.resize(n * n, (T)0.0);
