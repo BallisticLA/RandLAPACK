@@ -277,6 +277,11 @@ int CQRRPT<T, RNG>::call(
     }
 
     // A_pre * R_sp = AP
+    if (!RandLAPACK::util::diag_is_nonzero(k, R_sp, ldr)) {
+        delete[] A_hat;
+        delete[] tau;
+        return 1;
+    }
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing) {

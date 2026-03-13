@@ -124,6 +124,17 @@ void get_U(
     }
 }
 
+/// Returns true if all diagonal entries of an upper-triangular matrix are
+/// nonzero (safe to use in TRSM). Returns false if any diagonal is exactly
+/// zero, which would cause division by zero during triangular solve.
+/// Cost: O(n) — negligible compared to the O(n^2) or O(mn) TRSM that follows.
+template <typename T>
+bool diag_is_nonzero(int64_t n, const T* R, int64_t ldr) {
+    for (int64_t i = 0; i < n; ++i)
+        if (R[i + i * ldr] == (T)0.0) return false;
+    return true;
+}
+
 /// Positions columns of A in accordance with idx vector of length k.
 /// idx array modified ONLY within the scope of this function.
 template <typename T>

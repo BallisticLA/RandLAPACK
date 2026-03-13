@@ -541,7 +541,8 @@ static int64_t CHOLQR_mod_WY(
     blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n_A, m_A, 1.0, buff_A, ldim_A, 0.0, buff_R, ldim_R);
 
     // Perform Cholesky factorization on A.
-    lapack::potrf(Uplo::Upper, n_A, buff_R, ldim_R);
+    if (lapack::potrf(Uplo::Upper, n_A, buff_R, ldim_R))
+        return 1;
     // Find Q = A * inv(R)
 
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m_A, n_A, 1.0, buff_R, ldim_R, buff_A, ldim_A);
