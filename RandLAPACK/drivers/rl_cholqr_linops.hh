@@ -93,7 +93,7 @@ class CholQR_linops {
         ///       in the R-factor.
         ///
         /// @param[in] A
-        ///     The m-by-n linear operator A.
+        ///     The m-by-n linear operator (m and n read from A.n_rows, A.n_cols).
         ///
         /// @param[out] R
         ///     Pre-allocated n-by-n buffer. On exit, stores the upper-triangular

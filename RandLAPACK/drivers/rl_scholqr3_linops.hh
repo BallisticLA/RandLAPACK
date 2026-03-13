@@ -113,17 +113,16 @@ class sCholQR3_linops {
         /// Computes the QR factorization A = QR using shifted Cholesky QR3.
         ///
         /// @param[in] A
-        ///     The m-by-n linear operator A.
+        ///     The m-by-n linear operator (m and n read from A.n_rows, A.n_cols).
         ///
         /// @param[out] R
-        ///     Stores n-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Pre-allocated n-by-n buffer. On exit, stores the upper-triangular
+        ///     R factor. Zero entries are not compressed.
         ///
         /// @param[in] ldr
         ///     Leading dimension of R.
         ///
         /// @return = 0: successful exit
-        ///
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
@@ -503,17 +502,16 @@ class sCholQR3_linops_basic {
         /// Computes the QR factorization A = QR using shifted Cholesky QR3 (basic variant).
         ///
         /// @param[in] A
-        ///     The m-by-n linear operator A.
+        ///     The m-by-n linear operator (m and n read from A.n_rows, A.n_cols).
         ///
         /// @param[out] R
-        ///     Stores n-by-n matrix with upper-triangular R factor.
-        ///     Zero entries are not compressed.
+        ///     Pre-allocated n-by-n buffer. On exit, stores the upper-triangular
+        ///     R factor. Zero entries are not compressed.
         ///
         /// @param[in] ldr
         ///     Leading dimension of R.
         ///
         /// @return = 0: successful exit
-        ///
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
