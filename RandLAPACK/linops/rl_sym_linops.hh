@@ -22,11 +22,10 @@ namespace RandLAPACK::linops {
 //                           via blas::symm, handling layout mismatches between A
 //                           and (B, C) by flipping the Uplo parameter.
 //
-//   RegExplicitSymLinOp   — regularized symmetric operator representing A + diag(mu).
-//                           When regularization is enabled (_eval_includes_reg),
-//                           the operator applies C := alpha*(A + mu*I)*B + beta*C.
-//                           Supports per-column regularization parameters for
-//                           multi-shift solves. Upper-triangle, ColMajor only.
+//   RegExplicitSymLinOp   — a container that implicitly holds num_ops >= 1 symmetric
+//                           linear operators, all of which differ from one another
+//                           by some shift of the identity matrix. See class
+//                           documentation for details.
 //
 //   SpectralPrecond       — spectral preconditioner for systems (G + mu*I)x = b.
 //                           Represents P = V*diag(D)*V' + I, where V holds
@@ -115,16 +114,19 @@ struct ExplicitSymLinOp {
 
 /// Regularized dense symmetric linear operator satisfying SymmetricLinearOperator.
 ///
-/// Represents A + diag(mu), where A is a symmetric matrix (upper triangle,
-/// column-major) and mu is a vector of regularization parameters. When
-/// _eval_includes_reg is true, the SYMM-like callable computes
-///     C := alpha * (A + mu_j * I) * B_j + beta * C_j
-/// for each column j of (B, C), where mu_j = regs[min(j, num_ops-1)].
-/// When _eval_includes_reg is false, only the unregularized A*B is computed.
+/// A container that implicitly holds num_ops >= 1 symmetric linear operators,
+/// all of which differ from one another by some shift of the identity matrix.
+/// The underlying matrix A is stored in upper triangle, column-major layout.
 ///
-/// Supports multi-shift solves: num_ops regularization values can be stored,
-/// one per right-hand side. If num_ops == 1, that single value is broadcast
-/// to all columns.
+/// If num_ops == 1, then operator()(...) has the usual behavior. If num_ops > 1,
+/// then operator()(...) can only be invoked for matrix-matrix products where the
+/// right operand (a dense matrix) has exactly num_ops columns. In this latter
+/// case the i-th column of the input matrix will be acted on by
+///     A + regs[i] * I
+/// where regs is the array of distinct regularization parameters.
+///
+/// When _eval_includes_reg is false, only the unregularized A*B is computed
+/// regardless of num_ops.
 ///
 /// Element access operator()(i, j) returns A(i,j) + regs[0]*delta(i,j)
 /// when regularization is enabled and num_ops == 1.
@@ -214,7 +216,7 @@ struct RegExplicitSymLinOp {
 ///
 /// The SYMM-like callable computes C := alpha * P * B + beta * C in four steps:
 ///   1. W = V' * B
-///   2. W = diag(D) * W   (element-wise)
+///   2. W = diag(D) * W   (apply as row-scaling)
 ///   3. C = beta * C + alpha * B
 ///   4. C = alpha * V * W + C
 ///
