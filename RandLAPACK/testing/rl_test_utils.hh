@@ -253,6 +253,48 @@ template <typename T>
 }
 
 // ============================================================================
+// Orthogonality Measurement
+// ============================================================================
+
+/// Compute the orthogonality error of a column-major Q factor:
+///   ||Q^T Q - I||_F / sqrt(n)
+///
+/// Uses syrk for efficiency (exploits symmetry of Q^T Q - I).
+/// This is the same metric reported by verify_qr, but standalone —
+/// no A or R required.
+template <typename T>
+T orthogonality_error(const T* Q, int64_t m, int64_t n) {
+    ::std::vector<T> I_ref(n * n);
+    ::RandLAPACK::util::eye(n, n, I_ref.data());
+    ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
+                 n, m, (T)1.0, Q, m, (T)-1.0, I_ref.data(), n);
+    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, I_ref.data(), n);
+    return norm_orth / ::std::sqrt((T)n);
+}
+
+/// Find the longest prefix of k columns of Q (column-major, m x n) such that
+/// the first k columns form an orthonormal set, i.e.
+///   ||Q[:, :k]^T Q[:, :k] - I_k||_F / sqrt(k) <= tol
+/// where tol = epsilon^0.75.
+///
+/// Returns k in [0, n]. Returns 0 if even the first column fails.
+/// Useful for benchmarks that need to characterize partial orthogonality
+/// failure (e.g. when CholQR breaks down partway through).
+template <typename T>
+int64_t max_orthonormal_cols(const T* Q, int64_t m, int64_t n) {
+    T tol = ::std::pow(::std::numeric_limits<T>::epsilon(), (T)0.75);
+    int64_t max_cols = 0;
+    for (int64_t k = 1; k <= n; ++k) {
+        T err_k = orthogonality_error(Q, m, k);
+        if (err_k <= tol)
+            max_cols = k;
+        else
+            break;
+    }
+    return max_cols;
+}
+
+// ============================================================================
 // Condition Number Diagnostics
 // ============================================================================
 

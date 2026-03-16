@@ -43,7 +43,7 @@ int main() {return 0;}
 #include "rl_cqrrt_linops.hh"
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
-#include "rl_memory_tracker.hh"
+#include "RandLAPACK/testing/rl_memory_tracker.hh"
 
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
@@ -93,53 +93,6 @@ struct gsvd_result {
     long peak_rss_kb;       // Peak RSS increase during QR call (KB)
     long analytical_kb;     // Analytical peak working memory (KB)
 };
-
-// ============================================================================
-// Orthogonality measurement (reused from CQRRT_linops_scaling pattern)
-// ============================================================================
-
-template <typename T>
-static void measure_orthogonality(
-    const T* Q, int64_t m, int64_t n,
-    T& orth_error, bool& is_orthonormal, int64_t& max_orth_cols) {
-
-    std::vector<T> QtQ(n * n, 0.0);
-    blas::gemm(blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans, n, n, m,
-               1.0, Q, m, Q, m, 0.0, QtQ.data(), n);
-
-    std::vector<T> I_ref(n * n);
-    RandLAPACK::util::eye(n, n, I_ref.data());
-    for (int64_t i = 0; i < n * n; ++i) {
-        QtQ[i] -= I_ref[i];
-    }
-    T norm_orth = lapack::lange(lapack::Norm::Fro, n, n, QtQ.data(), n);
-    orth_error = norm_orth / std::sqrt((T) n);
-
-    T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.75);
-    is_orthonormal = (orth_error <= tol);
-
-    max_orth_cols = 0;
-    for (int64_t k = 1; k <= n; ++k) {
-        std::vector<T> QtQ_k(k * k, 0.0);
-        blas::gemm(blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans, k, k, m,
-                   1.0, Q, m, Q, m, 0.0, QtQ_k.data(), k);
-
-        T error_k = 0.0;
-        for (int64_t j = 0; j < k; ++j) {
-            for (int64_t i = 0; i < k; ++i) {
-                T expected = (i == j) ? 1.0 : 0.0;
-                T diff = QtQ_k[i + j * k] - expected;
-                error_k += diff * diff;
-            }
-        }
-        error_k = std::sqrt(error_k) / std::sqrt((T) k);
-        if (error_k <= tol) {
-            max_orth_cols = k;
-        } else {
-            break;
-        }
-    }
-}
 
 // Compute Q = A * R^{-1} uniformly for all algorithms
 template <typename T, typename GLO>
@@ -252,11 +205,7 @@ static void app_generalized_svecs(
     app_time_us = duration_cast<microseconds>(stop - start).count();
 
     // Verify right singular vector orthogonality: ||V_R^T V_R - I||_F / sqrt(n)
-    std::vector<T> VtV(n * n, 0.0);
-    blas::gemm(blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans, n, n, n,
-               1.0, V_R, n, V_R, n, 0.0, VtV.data(), n);
-    for (int64_t i = 0; i < n; ++i) VtV[i + i * n] -= 1.0;
-    right_svec_orth_error = lapack::lange(lapack::Norm::Fro, n, n, VtV.data(), n) / std::sqrt((T)n);
+    right_svec_orth_error = RandLAPACK::testing::orthogonality_error<T>(V_R, n, n);
 }
 
 // ============================================================================
@@ -508,225 +457,109 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "done\n\n";
 
     // ================================================================
+    // Common per-algorithm loop: run QR, check orthogonality, run apps
+    // ================================================================
+    // call_algo(res, R, run_idx) fills res.qr_time_us, res.qr_breakdown,
+    // res.peak_rss_kb, res.analytical_kb — everything else is shared.
+    auto run_algo = [&](const std::string& name, auto call_algo) {
+        std::cout << "\n=== " << name << " ===\n";
+        std::vector<gsvd_result<T>> results(num_runs);
+        for (int64_t r = 0; r < num_runs; ++r) {
+            auto& res = results[r];
+            res.m = m; res.n = n; res.run_idx = r;
+            res.alg_name = name;
+            res.chol_time_us = chol_time_us;
+
+            std::vector<T> R(n * n, 0.0);
+            call_algo(res, R, r);
+
+            compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
+            res.orth_error     = RandLAPACK::testing::orthogonality_error<T>(Q_buf.data(), m, n);
+            res.is_orthonormal = (res.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
+            res.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_buf.data(), m, n);
+
+            if (!skip_apps) {
+                std::vector<T> x_computed(n, 0.0);
+                app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n,
+                                   b.data(), m, x_computed.data(), res.app_a_time_us);
+                blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
+                res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
+
+                std::vector<T> sigma_b(n, 0.0);
+                app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
+
+                std::vector<T> sigma_c(n, 0.0), V_R(n * n, 0.0), U_R(n * n, 0.0);
+                app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
+                                      res.right_svec_orth_error, res.app_c_time_us);
+            }
+
+            res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
+            res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
+            res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
+            all_results.push_back(res);
+        }
+        print_summary(name, results);
+    };
+
+    // ================================================================
     // CQRRT_linop
     // ================================================================
-    std::cout << "=== CQRRT_linop ===\n";
-    std::vector<gsvd_result<T>> cqrrt_results(num_runs);
-    for (int64_t r = 0; r < num_runs; ++r) {
+    run_algo("CQRRT_linop", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
         auto state = run_states[r];
-        auto& res = cqrrt_results[r];
-        res.m = m; res.n = n; res.run_idx = r;
-        res.alg_name = "CQRRT_linop";
-        res.chol_time_us = chol_time_us;
-
-        // Q-less QR
-        std::vector<T> R(n * n, 0.0);
         RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
-        algo.nnz = sketch_nnz;
-        algo.block_size = block_size;
-        RandLAPACK::PeakRSSTracker cqrrt_mem;
-        cqrrt_mem.start();
+        algo.nnz = sketch_nnz; algo.block_size = block_size;
+        RandLAPACK::PeakRSSTracker mem; mem.start();
         algo.call(LiV_op, R.data(), n, d_factor, state);
-        res.peak_rss_kb = cqrrt_mem.stop();
+        res.peak_rss_kb = mem.stop();
         res.qr_time_us = algo.times[10];
-        // CQRRT breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
+        // breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
         res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
-
-        // Orthogonality
-        compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
-        measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
-
-        // Applications (skippable)
-        std::vector<T> sigma_c(n, 0.0);
-        if (!skip_apps) {
-            // App (a): Generalized LS
-            std::vector<T> x_computed(n, 0.0);
-            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
-            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
-
-            // App (b): Generalized singular values
-            std::vector<T> sigma_b(n, 0.0);
-            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
-
-            // App (c): Generalized singular vectors
-            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
-            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                                  res.right_svec_orth_error, res.app_c_time_us);
-        }
-
-        res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
-        res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
-        res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
-
-        all_results.push_back(res);
-    }
-    print_summary("CQRRT_linop", cqrrt_results);
+    });
 
     // ================================================================
     // CholQR
     // ================================================================
-    std::cout << "\n=== CholQR ===\n";
-    std::vector<gsvd_result<T>> cholqr_results(num_runs);
-    for (int64_t r = 0; r < num_runs; ++r) {
-        auto& res = cholqr_results[r];
-        res.m = m; res.n = n; res.run_idx = r;
-        res.alg_name = "CholQR";
-        res.chol_time_us = chol_time_us;
-
-        // Q-less QR
-        std::vector<T> R(n * n, 0.0);
+    run_algo("CholQR", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t) {
         RandLAPACK::CholQR_linops<T> algo(true, tol, false);
         algo.block_size = block_size;
-        RandLAPACK::PeakRSSTracker cholqr_mem;
-        cholqr_mem.start();
+        RandLAPACK::PeakRSSTracker mem; mem.start();
         algo.call(LiV_op, R.data(), n);
-        res.peak_rss_kb = cholqr_mem.stop();
+        res.peak_rss_kb = mem.stop();
         res.qr_time_us = algo.times[5];
-        // CholQR breakdown: alloc, fwd, adj, chol, rest, total
+        // breakdown: alloc, fwd, adj, chol, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 6);
         res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
-
-        // Orthogonality
-        compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
-        measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
-
-        // Applications (skippable)
-        std::vector<T> sigma_c(n, 0.0);
-        if (!skip_apps) {
-            // App (a): Generalized LS
-            std::vector<T> x_computed(n, 0.0);
-            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
-            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
-
-            // App (b)
-            std::vector<T> sigma_b(n, 0.0);
-            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
-
-            // App (c)
-            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
-            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                                  res.right_svec_orth_error, res.app_c_time_us);
-        }
-
-        res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
-        res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
-        res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
-
-        all_results.push_back(res);
-    }
-    print_summary("CholQR", cholqr_results);
+    });
 
     // ================================================================
     // sCholQR3
     // ================================================================
-    std::cout << "\n=== sCholQR3 ===\n";
-    std::vector<gsvd_result<T>> scholqr3_results(num_runs);
-    for (int64_t r = 0; r < num_runs; ++r) {
-        auto& res = scholqr3_results[r];
-        res.m = m; res.n = n; res.run_idx = r;
-        res.alg_name = "sCholQR3";
-        res.chol_time_us = chol_time_us;
-
-        // Q-less QR
-        std::vector<T> R(n * n, 0.0);
+    run_algo("sCholQR3", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t) {
         RandLAPACK::sCholQR3_linops<T> algo(true, tol, false);
         algo.block_size = block_size;
-        RandLAPACK::PeakRSSTracker scholqr3_mem;
-        scholqr3_mem.start();
+        RandLAPACK::PeakRSSTracker mem; mem.start();
         algo.call(LiV_op, R.data(), n);
-        res.peak_rss_kb = scholqr3_mem.stop();
+        res.peak_rss_kb = mem.stop();
         res.qr_time_us = algo.times[17];
-        // sCholQR3 breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total
+        // breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 18);
         res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
-
-        // Orthogonality
-        compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
-        measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
-
-        // Applications (skippable)
-        std::vector<T> sigma_c(n, 0.0);
-        if (!skip_apps) {
-            // App (a): Generalized LS
-            std::vector<T> x_computed(n, 0.0);
-            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
-            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
-
-            // App (b)
-            std::vector<T> sigma_b(n, 0.0);
-            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
-
-            // App (c)
-            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
-            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                                  res.right_svec_orth_error, res.app_c_time_us);
-        }
-
-        res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
-        res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
-        res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
-
-        all_results.push_back(res);
-    }
-    print_summary("sCholQR3", scholqr3_results);
+    });
 
     // ================================================================
     // sCholQR3_basic (non-blocked, matches standard pseudocode)
     // ================================================================
-    std::cout << "\n=== sCholQR3_basic ===\n";
-    std::vector<gsvd_result<T>> scholqr3_basic_results(num_runs);
-    for (int64_t r = 0; r < num_runs; ++r) {
-        auto& res = scholqr3_basic_results[r];
-        res.m = m; res.n = n; res.run_idx = r;
-        res.alg_name = "sCholQR3_basic";
-        res.chol_time_us = chol_time_us;
-
-        // Q-less QR
-        std::vector<T> R(n * n, 0.0);
+    run_algo("sCholQR3_basic", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t) {
         RandLAPACK::sCholQR3_linops_basic<T> algo(true, tol, false);
-        RandLAPACK::PeakRSSTracker scholqr3_basic_mem;
-        scholqr3_basic_mem.start();
+        RandLAPACK::PeakRSSTracker mem; mem.start();
         algo.call(LiV_op, R.data(), n);
-        res.peak_rss_kb = scholqr3_basic_mem.stop();
+        res.peak_rss_kb = mem.stop();
         res.qr_time_us = algo.times[14];
-        // sCholQR3_basic breakdown (15): alloc, fwd1, adj1, chol1, trsm1, fwd_q, syrk2, chol2, upd2, syrk3, chol3, upd3, q_mat, rest, total
+        // breakdown (15): alloc, fwd1, adj1, chol1, trsm1, fwd_q, syrk2, chol2, upd2, syrk3, chol3, upd3, q_mat, rest, total
         res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 15);
         res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
-
-        // Orthogonality
-        compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
-        measure_orthogonality(Q_buf.data(), m, n, res.orth_error, res.is_orthonormal, res.max_orth_cols);
-
-        // Applications (skippable)
-        std::vector<T> sigma_c(n, 0.0);
-        if (!skip_apps) {
-            // App (a): Generalized LS
-            std::vector<T> x_computed(n, 0.0);
-            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n, b.data(), m, x_computed.data(), res.app_a_time_us);
-            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
-
-            // App (b)
-            std::vector<T> sigma_b(n, 0.0);
-            app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
-
-            // App (c)
-            std::vector<T> V_R(n * n, 0.0), U_R(n * n, 0.0);
-            app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                                  res.right_svec_orth_error, res.app_c_time_us);
-        }
-
-        res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
-        res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
-        res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
-
-        all_results.push_back(res);
-    }
-    print_summary("sCholQR3_basic", scholqr3_basic_results);
+    });
 
     // ================================================================
     // Write CSV output
