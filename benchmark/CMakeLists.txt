@@ -149,6 +149,19 @@ add_benchmark(NAME BQRRP_subroutines_speed            CXX_SOURCES bench_BQRRP/BQ
 add_benchmark(NAME BQRRP_error_analysis               CXX_SOURCES bench_BQRRP/BQRRP_error_analysis.cc               LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME HQRRP_sanity_check                 CXX_SOURCES bench_BQRRP/HQRRP_sanity_check.cc                 LINK_LIBS ${Benchmark_libs})
 
+# CQRRT linops benchmarks (require Eigen + fast_matrix_market + extras headers)
+set(
+    Benchmark_libs_cqrrt_linops
+    RandLAPACK::RandLAPACK
+    Eigen3::Eigen
+    fast_matrix_market
+)
+add_benchmark(NAME GSVD_benchmark              CXX_SOURCES bench_CQRRT_linops/GSVD_benchmark.cc              LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRT_linops_scaling        CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_scaling.cc        LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRT_linops_conditioning   CXX_SOURCES bench_CQRRT_linops/CQRRT_linops_conditioning.cc   LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME generate_dense_spd          CXX_SOURCES bench_CQRRT_linops/generate_dense_spd.cc          LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME generate_sparse_spd         CXX_SOURCES bench_CQRRT_linops/generate_sparse_spd.cc         LINK_LIBS ${Benchmark_libs})
+
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
