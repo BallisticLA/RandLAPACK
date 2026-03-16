@@ -90,12 +90,46 @@ void gen_singvec(
     delete[] tau;
 }
 
+/// Generate a vector of k polynomially-decaying singular values of the form:
+/// s_i = a(i + b)^p, where p is the user-defined exponent constant, a and b are computed
+/// using p and the user-defined condition number parameter. The first
+/// frac_spectrum_one fraction of the singular values are set to one.
+///
+/// @param[in] k                  Number of singular values
+/// @param[in] frac_spectrum_one  Fraction of singular values set to 1.0
+/// @param[in] cond               Condition number (ratio of largest to smallest singular value)
+/// @param[in] p                  Polynomial decay exponent
+///
+/// @return Vector of k singular values
+template <typename T>
+std::vector<T> gen_poly_singvals(
+    int64_t k,
+    T frac_spectrum_one,
+    T cond,
+    T p
+) {
+    std::vector<T> s(k);
+    int offset = (int) floor(k * frac_spectrum_one);
+    T first_entry = 1.0;
+    T last_entry = first_entry / cond;
+    T neg_invp = -((T)1.0)/p;
+    T a = std::pow((std::pow(last_entry, neg_invp) - std::pow(first_entry, neg_invp)) / (k - offset), p);
+    T b = std::pow(a * first_entry, neg_invp) - offset;
+    std::fill(s.begin(), s.begin() + offset, 1.0);
+    int idx = offset;
+    for (int i = offset; i < k; ++i) {
+        s[i] = 1 / (a * std::pow(idx + b, p));
+        ++idx;
+    }
+    return s;
+}
+
 /// Generates a matrix with polynomially-decaying spectrum of the following form:
 /// s_i = a(i + b)^p, where p is the user-defined exponent constant, a and b are computed
-/// using p and the user-defined condition number parameter and the first 10 percent of the 
+/// using p and the user-defined condition number parameter and the first 10 percent of the
 /// singular values are equal to one.
 /// User can optionally choose for the matrix to be diagonal.
-/// The output matrix has k singular values. 
+/// The output matrix has k singular values.
 template <typename T, typename RNG>
 void gen_poly_mat(
     int64_t &m,
@@ -108,27 +142,10 @@ void gen_poly_mat(
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
+    auto s = gen_poly_singvals(k, frac_spectrum_one, cond, p);
 
-    // Predeclare to all nonzero constants, start decay where needed
-    T* s = new T[k]();
     T* S = new T[k * k]();
-
-    // The first 10% of the singular values will be equal to one
-    int offset = (int) floor(k * frac_spectrum_one);
-    T first_entry = 1.0;
-    T last_entry = first_entry / cond;
-    T neg_invp = -((T)1.0)/p;
-    T a = std::pow((std::pow(last_entry, neg_invp) - std::pow(first_entry, neg_invp)) / (k - offset), p);
-    T b = std::pow(a * first_entry, neg_invp) - offset;
-    // apply lambda function to every entry of s
-    std::fill(s, s + offset, 1.0);
-    for (int i = offset; i < k; ++i) {
-        s[i] = 1 / (a * std::pow(offset + b, p));
-        ++offset;
-    }
-
-    // form a diagonal S
-    RandLAPACK::util::diag(k, k, s, k, S);
+    RandLAPACK::util::diag(k, k, s.data(), k, S);
 
     if (diagon) {
         lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
@@ -136,15 +153,35 @@ void gen_poly_mat(
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    delete[] s;
     delete[] S;
 }
 
-/// Generates a matrix with exponentially-decaying spectrum of the following form:
-/// s_i = e^((i + 1) * -t), where t is computed using the user-defined cndition number parameter;
-/// the first 10 percent of the singular values are equal to one.
+/// Generate k exponentially-decaying singular values:
+///   s_i = e^((i + 1) * -t), where t = log(cond) / (k - offset).
+/// The first 10% of the singular values are set to one.
+///
+/// @param[in] k     Number of singular values
+/// @param[in] cond  Condition number
+///
+/// @return Vector of k singular values
+template <typename T>
+std::vector<T> gen_exp_singvals(int64_t k, T cond) {
+    std::vector<T> s(k);
+    int offset = (int) floor(k * 0.1);
+    T t = -log(1 / cond) / (k - offset);
+    T cnt = 0.0;
+    std::fill(s.begin(), s.begin() + offset, 1.0);
+    int idx = offset;
+    for (int i = offset; i < k; ++i) {
+        s[i] = std::exp(++cnt * -t);
+        ++idx;
+    }
+    return s;
+}
+
+/// Generates a matrix with exponentially-decaying spectrum.
 /// User can optionally choose for the matrix to be diagonal.
-/// The output matrix has k singular values. 
+/// The output matrix has k singular values.
 template <typename T, typename RNG>
 void gen_exp_mat(
     int64_t &m,
@@ -155,40 +192,41 @@ void gen_exp_mat(
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* s = new T[k]();
+    auto s = gen_exp_singvals(k, cond);
+
     T* S = new T[k * k]();
+    RandLAPACK::util::diag(k, k, s.data(), k, S);
 
-    // The first 10% of the singular values will be =1
-    int offset = (int) floor(k * 0.1);
-
-    T t = -log(1 / cond) / (k - offset);
-
-    T cnt = 0.0;
-    // apply lambda function to every entry of s
-    // Please make sure that the first singular value is always 1
-    std::fill(s, s + offset, 1.0);
-    for (int i = offset; i < k; ++i) {
-        s[i] = (std::exp(++cnt * -t));
-        ++offset;
-    }
-
-    // form a diagonal S
-    RandLAPACK::util::diag(k, k, s, k, S);
     if (diagon) {
         lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
     } else {
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    delete[] s;
     delete[] S;
+}
+
+/// Generate k staircase singular values with 4 steps controlled by
+/// the condition number, starting at 1.
+///
+/// @param[in] k     Number of singular values
+/// @param[in] cond  Condition number
+///
+/// @return Vector of k singular values
+template <typename T>
+std::vector<T> gen_step_singvals(int64_t k, T cond) {
+    std::vector<T> s(k);
+    int offset = (int) (k / 4);
+    std::fill(s.begin(), s.begin() + offset, 1.0);
+    std::fill(s.begin() + offset, s.begin() + 2 * offset, 8.0 / cond);
+    std::fill(s.begin() + 2 * offset, s.begin() + 3 * offset, 4.0 / cond);
+    std::fill(s.begin() + 3 * offset, s.end(), 1.0 / cond);
+    return s;
 }
 
 /// Generates matrix with a staircase spectrum with 4 steps.
 /// Output matrix is m by n of rank k.
-/// Boolean parameter 'diag' signifies whether the matrix is to be
-/// generated as diagonal.
-/// Parameter 'cond' signfies the condition number of a generated matrix.
+/// User can optionally choose for the matrix to be diagonal.
 template <typename T, typename RNG>
 void gen_step_mat(
     int64_t &m,
@@ -199,21 +237,10 @@ void gen_step_mat(
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
+    auto s = gen_step_singvals(k, cond);
 
-    // Predeclare to all nonzero constants, start decay where needed
-    T* s = new T[k]();
     T* S = new T[k * k]();
-
-    // We will have 4 steps controlled by the condition number size and starting with 1
-    int offset = (int) (k / 4);
-
-    std::fill(s, s + offset, 1.0);
-    std::fill(s + offset, s + 2 * offset, 8.0 / cond);
-    std::fill(s + 2 * offset, s + 3 * offset, 4.0 / cond);
-    std::fill(s + 3 * offset, s + k, 1.0 / cond);
-
-    // form a diagonal S
-    RandLAPACK::util::diag(k, k, s, k, S);
+    RandLAPACK::util::diag(k, k, s.data(), k, S);
 
     if (diagon) {
         lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
@@ -221,7 +248,6 @@ void gen_step_mat(
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    delete[] s;
     delete[] S;
 }
 
@@ -332,12 +358,29 @@ void gen_oleg_adversarial_mat(
     delete[] tau2;
 }
 
+/// Generate singular values for the "bad CholQR" matrix.
+/// The first k values are 1, then values start at 10^-8 and decrease
+/// exponentially, controlled by cond and n.
+///
+/// @param[in] k     Number of singular values (= sketching dimension)
+/// @param[in] n     Number of columns in the target matrix
+/// @param[in] cond  Condition number
+///
+/// @return Vector of k singular values
+template <typename T>
+std::vector<T> gen_bad_cholqr_singvals(int64_t k, int64_t n, T cond) {
+    std::vector<T> s(k, 1.0);
+    int offset = k;
+    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
+    T cnt = 0.0;
+    for (int i = offset; i < k; ++i) {
+        s[i] = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
+    }
+    return s;
+}
+
 /// Per Oleg Balabanov's suggestion, this matrix is supposed to break QB with Cholesky QR.
 /// Output matrix is m by n, full-rank.
-/// Parameter 'k' signifies the dimension of a sketching operator.
-/// Boolean parameter 'diag' signifies whether the matrix is to be
-/// generated as diagonal.
-/// Parameter 'cond' signfies the condition number of a generated matrix.
 template <typename T, typename RNG>
 void gen_bad_cholqr_mat(
     int64_t &m,
@@ -348,35 +391,17 @@ void gen_bad_cholqr_mat(
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-    T* s = new T[k]();
+    auto s = gen_bad_cholqr_singvals(k, n, cond);
+
     T* S = new T[k * k]();
+    RandLAPACK::util::diag(k, k, s.data(), k, S);
 
-    // The first k singular values will be =1
-    int offset = k;
-    std::fill(s, s + offset, 1.0);
-
-    // Then, we start with 10^-8 and decrease exponentially
-    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
-
-    T cnt = 0.0;
-    // apply lambda function to every entry of s
-    // Please make sure that the first singular value is always 1
-    std::for_each(s + offset, s + k,
-        // Lambda expression begins
-        [&t, &cnt](T &entry) {
-                entry = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
-        }
-    );
-
-    // form a diagonal S
-    RandLAPACK::util::diag(k, k, s, k, S);
     if (diagon) {
         lapack::lacpy(MatrixType::General, k, k, S, k, A, k);
     } else {
         RandLAPACK::gen::gen_singvec(m, n, A, k, S, state);
     }
 
-    delete[] s;
     delete[] S;
 }
 
@@ -755,6 +780,27 @@ template <typename T, typename RNG>
     return A;
 }
 
+/// Generate n singular values with quadratic spacing from 1 to cond_num:
+///   sigma_i = 1 + (cond_num - 1) * (i/(n-1))^2.
+///
+/// @param[in] n         Number of singular values
+/// @param[in] cond_num  Condition number (ratio of largest to smallest)
+///
+/// @return Vector of n singular values
+template <typename T>
+std::vector<T> gen_quadratic_singvals(int64_t n, T cond_num) {
+    std::vector<T> s(n);
+    s[0] = 1.0;
+    if (n > 1) {
+        s[n-1] = cond_num;
+        for (int64_t i = 1; i < n - 1; ++i) {
+            T t = static_cast<T>(i) / static_cast<T>(n - 1);
+            s[i] = 1.0 + (cond_num - 1.0) * t * t;
+        }
+    }
+    return s;
+}
+
 /// Generate an SPD matrix A = Q * diag(eigvals) * Q^T with prescribed eigenvalues.
 ///
 /// Q is a Haar-random orthogonal matrix (QR of Gaussian). The eigenvalues
@@ -795,7 +841,7 @@ void gen_spd_from_eigvals(
                n, n, n, (T)1.0, Q_scaled.data(), n, Q.data(), n, (T)0.0, A, n);
 }
 
-/// Convenience wrapper: generate an SPD matrix with polynomial eigenvalue decay
+/// Convenience wrapper: generate an SPD matrix with quadratic eigenvalue decay
 /// from 1 to cond_num (λ_i = 1 + (cond_num - 1) * ((i-1)/(n-1))^2).
 template <typename T, typename RNG>
 void gen_spd_mat(
@@ -804,17 +850,39 @@ void gen_spd_mat(
     T* A,
     RandBLAS::RNGState<RNG> &state
 ) {
-    std::vector<T> eigenvalues(n);
-    eigenvalues[0] = 1.0;
-    if (n > 1) {
-        eigenvalues[n-1] = cond_num;
-        for (int64_t i = 1; i < n - 1; ++i) {
-            T t = static_cast<T>(i) / static_cast<T>(n - 1);
-            eigenvalues[i] = 1.0 + (cond_num - 1.0) * t * t;
-        }
-    }
-
+    auto eigenvalues = gen_quadratic_singvals(n, cond_num);
     gen_spd_from_eigvals(n, eigenvalues.data(), A, state);
+}
+
+/// Generate a PSD matrix with polynomial spectral decay via A^T A.
+///
+/// Uses gen_poly_singvals to generate singular values, gen_singvec to build a
+/// full matrix A with those singular values, then forms G = A^T A so that G
+/// is PSD with squared spectrum.
+///
+/// @param[in] m         Matrix dimension (m x m)
+/// @param[in] cond_num  Condition number of the intermediate matrix (squared in G)
+/// @param[in] exponent  Polynomial decay exponent (squared in G)
+/// @param[in] seed      RNG seed
+///
+/// @return Dense column-major m x m PSD matrix
+template <typename T>
+std::vector<T> gen_poly_mat_psd(int64_t m, T cond_num, T exponent, uint32_t seed) {
+    auto s = gen_poly_singvals(m, (T)0.05, std::sqrt(cond_num), std::sqrt(exponent));
+
+    T* S = new T[m * m]();
+    RandLAPACK::util::diag(m, m, s.data(), m, S);
+
+    std::vector<T> A(m * m, 0.0);
+    RandBLAS::RNGState<> state(seed);
+    gen_singvec(m, m, A.data(), m, S, state);
+    delete[] S;
+
+    std::vector<T> G(m * m, 0.0);
+    blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::NoTrans, m, m, (T)1.0,
+        A.data(), m, (T)0.0, G.data(), m);
+    RandBLAS::symmetrize(blas::Layout::ColMajor, blas::Uplo::Upper, m, G.data(), m);
+    return G;
 }
 
 }
