@@ -10,6 +10,7 @@
 // Usage:
 //   <exe> <output_dir> <matrix_size> <num_matrices> <min_cond> <max_cond>
 
+#include <RandLAPACK.hh>
 #include "rl_gen.hh"
 #include <cmath>
 #include <cstdio>

@@ -922,7 +922,7 @@ struct SparseSPDMatrix {
 /// Generate a banded SPD seed matrix with diagonally-dominant structure.
 /// Diagonal entries are set to 2*(bandwidth+1); off-diagonals are small positive randoms.
 /// Suitable as a seed for diagonal-regularization conditioning studies.
-SparseSPDMatrix gen_banded_spd_seed(
+inline SparseSPDMatrix gen_banded_spd_seed(
     int64_t n, int64_t bandwidth,
     RandBLAS::RNGState<r123::Philox4x32>& state
 ) {
@@ -943,8 +943,8 @@ SparseSPDMatrix gen_banded_spd_seed(
 
 /// Pack lower-triangular COO entries into LAPACK symmetric banded storage (Uplo::Lower).
 /// AB layout (column-major): AB[(i-j) + j*ldab] = A(i,j) for i >= j.
-void pack_lower_banded(
-    const SparseSPDMatrix& A, int64_t kd,
+inline void pack_lower_banded(
+    const SparseSPDMatrix& A,
     std::vector<double>& AB, int64_t ldab
 ) {
     AB.assign(ldab * A.dim, 0.0);
@@ -954,13 +954,13 @@ void pack_lower_banded(
 
 /// Compute the smallest and largest eigenvalues of a banded SPD matrix
 /// using LAPACK sbev, exploiting bandwidth for O(n·kd²) cost.
-void compute_eigenvalue_range(
+inline void compute_eigenvalue_range(
     const SparseSPDMatrix& A, int64_t kd,
     double& lambda_min, double& lambda_max
 ) {
     int64_t ldab = kd + 1;
     std::vector<double> AB;
-    pack_lower_banded(A, kd, AB, ldab);
+    pack_lower_banded(A, AB, ldab);
     std::vector<double> eigenvalues(A.dim);
     double z_dummy;
     int64_t info = lapack::sbev(
@@ -976,7 +976,7 @@ void compute_eigenvalue_range(
 
 /// Write A_seed + alpha*I to a symmetric MatrixMarket (.mtx) file.
 /// Applies the diagonal shift on-the-fly — no per-matrix copy of the COO arrays.
-void write_shifted_spd_matrix(
+inline void write_shifted_spd_matrix(
     const std::string& filename,
     const SparseSPDMatrix& A_seed,
     double alpha
