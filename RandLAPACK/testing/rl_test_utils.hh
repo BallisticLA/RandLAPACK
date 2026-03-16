@@ -187,10 +187,11 @@ void initialize_test_buffers(::std::vector<T>& C_test, ::std::vector<T>& C_refer
 /// and need a dense representation for some other purpose (e.g., computing
 /// singular values, comparing block views against the full operator).
 template <typename T, typename LinOp>
-::std::vector<T> materialize_linop(LinOp& A_linop, int64_t m, int64_t n) {
-    ::std::vector<T> A_dense(m * n, (T)0.0);
-    ::RandLAPACK::materialize(A_linop, m, n, A_dense.data(), m);
-    return A_dense;
+void materialize_linop(LinOp& A_linop, T* A_dense) {
+    int64_t m = A_linop.n_rows;
+    int64_t n = A_linop.n_cols;
+    std::fill(A_dense, A_dense + m * n, (T)0.0);
+    ::RandLAPACK::materialize(A_linop, m, n, A_dense, m);
 }
 
 /// Compute singular values of a dense column-major matrix via gesdd.
@@ -258,39 +259,46 @@ template <typename T>
 /// Materialize a linear operator and print condition number diagnostics,
 /// both raw and after column normalization.
 template <typename T, typename LinOp>
-void print_condition_diagnostics(LinOp& A_linop, int64_t m, int64_t n,
+void print_condition_diagnostics(LinOp& A_linop,
                                  const ::std::string& label = "operator") {
+    int64_t m = A_linop.n_rows;
+    int64_t n = A_linop.n_cols;
     printf("\nCondition number diagnostics for %s:\n", label.c_str());
 
-    auto A_dense = materialize_linop<T>(A_linop, m, n);
+    T* A_dense = new T[m * n]();
+    materialize_linop<T>(A_linop, A_dense);
 
     // Compute column norms
-    ::std::vector<T> col_norms(n);
+    T* col_norms = new T[n]();
     for (int64_t j = 0; j < n; ++j)
         col_norms[j] = ::blas::nrm2(m, &A_dense[j * m], 1);
 
-    T cn_min = *::std::min_element(col_norms.begin(), col_norms.end());
-    T cn_max = *::std::max_element(col_norms.begin(), col_norms.end());
+    T cn_min = *::std::min_element(col_norms, col_norms + n);
+    T cn_max = *::std::max_element(col_norms, col_norms + n);
     printf("  Column norm range: [%.6e, %.6e], ratio: %.6e\n",
            (double)cn_min, (double)cn_max, (double)(cn_max / cn_min));
 
     // Copy for column-normalized version (gesdd is destructive)
-    ::std::vector<T> A_normed(A_dense);
+    T* A_normed = new T[m * n]();
+    ::std::copy(A_dense, A_dense + m * n, A_normed);
     for (int64_t j = 0; j < n; ++j)
         ::blas::scal(m, (T)1.0 / col_norms[j], &A_normed[j * m], 1);
 
     // SVD on raw matrix
-    auto sigma = compute_singular_values<T>(A_dense.data(), m, n);
+    auto sigma = compute_singular_values<T>(A_dense, m, n);
     printf("  Raw:     kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
            (double)(sigma[0] / sigma[n - 1]), (double)sigma[0], (double)sigma[n - 1]);
 
     // SVD on column-normalized matrix
-    auto sigma_normed = compute_singular_values<T>(A_normed.data(), m, n);
+    auto sigma_normed = compute_singular_values<T>(A_normed, m, n);
     printf("  ColNorm: kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
            (double)(sigma_normed[0] / sigma_normed[n - 1]),
            (double)sigma_normed[0], (double)sigma_normed[n - 1]);
 
     printf("\n");
+    delete[] A_dense;
+    delete[] col_norms;
+    delete[] A_normed;
 }
 
 // ============================================================================
@@ -298,7 +306,8 @@ void print_condition_diagnostics(LinOp& A_linop, int64_t m, int64_t n,
 // ============================================================================
 
 /// Write a dense column-major matrix to a Matrix Market coordinate file.
-/// Entries with magnitude <= 1e-14 are treated as structural zeros.
+/// Entries with magnitude <= eps * ||A||_max are treated as structural zeros,
+/// where eps = std::numeric_limits<T>::epsilon().
 ///
 /// @param[in] filename - Path to output .mtx file
 /// @param[in] A       - Dense column-major array (m * n entries)
@@ -319,10 +328,18 @@ void write_dense_to_mtx(
     file << ::std::scientific << ::std::setprecision(17);
     file << "%%MatrixMarket matrix coordinate real general\n";
 
+    // Compute max-norm for relative thresholding
+    T norm_max = (T)0.0;
+    for (int64_t i = 0; i < m * n; ++i) {
+        T val = ::std::abs(A[i]);
+        if (val > norm_max) norm_max = val;
+    }
+    T tol = ::std::numeric_limits<T>::epsilon() * norm_max;
+
     // Count nonzeros
     int64_t nnz = 0;
     for (int64_t i = 0; i < m * n; ++i) {
-        if (::std::abs(A[i]) > 1e-14) ++nnz;
+        if (::std::abs(A[i]) > tol) ++nnz;
     }
 
     file << m << " " << n << " " << nnz << "\n";
@@ -330,7 +347,7 @@ void write_dense_to_mtx(
     // Write entries (Matrix Market uses 1-based indexing)
     for (int64_t j = 0; j < n; ++j) {
         for (int64_t i = 0; i < m; ++i) {
-            if (::std::abs(A[i + j * m]) > 1e-14) {
+            if (::std::abs(A[i + j * m]) > tol) {
                 file << (i + 1) << " " << (j + 1) << " " << A[i + j * m] << "\n";
             }
         }
@@ -360,8 +377,7 @@ void generate_spd_matrix_file(
 /// Generate a random invertible (non-symmetric) n×n matrix and write to
 /// a Matrix Market file.
 ///
-/// Constructs A = Q1 * D * Q2^T where Q1, Q2 are independent random
-/// orthogonal matrices and D = diag(singvals) with
+/// Constructs A = U * diag(singvals) * V^T via gen_singvec, with
 ///   sigma_i = 1 + (cond_num - 1) * (i/(n-1))^2,
 /// giving kappa(A) = cond_num.
 template <typename T, typename RNG>
@@ -371,42 +387,19 @@ void generate_invertible_matrix_file(
     T cond_num,
     ::RandBLAS::RNGState<RNG> &state
 ) {
-    // Generate singular values with desired condition number
-    ::std::vector<T> singvals(n);
-    singvals[0] = 1.0;
-    if (n > 1) {
-        singvals[n-1] = cond_num;
-        for (int64_t i = 1; i < n - 1; ++i) {
-            T t = static_cast<T>(i) / static_cast<T>(n - 1);
-            singvals[i] = 1.0 + (cond_num - 1.0) * t * t;
-        }
-    }
+    auto singvals = ::RandLAPACK::gen::gen_quadratic_singvals(n, cond_num);
 
-    // Generate two independent random orthogonal matrices Q1, Q2
-    ::std::vector<T> Q1(n * n);
-    ::std::vector<T> Q2(n * n);
-    ::std::vector<T> tau(n);
+    // Form A = U * diag(singvals) * V^T
+    T* S = new T[n * n]();
+    ::RandLAPACK::util::diag(n, n, singvals.data(), n, S);
 
-    auto d1 = ::RandBLAS::DenseDist(n, n);
-    state = ::RandBLAS::fill_dense(d1, Q1.data(), state);
-    ::lapack::geqrf(n, n, Q1.data(), n, tau.data());
-    ::lapack::orgqr(n, n, n, Q1.data(), n, tau.data());
+    T* A = new T[n * n]();
+    ::RandLAPACK::gen::gen_singvec(n, n, A, n, S, state);
 
-    auto d2 = ::RandBLAS::DenseDist(n, n);
-    state = ::RandBLAS::fill_dense(d2, Q2.data(), state);
-    ::lapack::geqrf(n, n, Q2.data(), n, tau.data());
-    ::lapack::orgqr(n, n, n, Q2.data(), n, tau.data());
+    write_dense_to_mtx(filename, A, n, n);
 
-    // Form A = Q1 * D * Q2^T (scale columns of Q1 by singular values, then GEMM)
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = 0; i < n; ++i)
-            Q1[i + j * n] *= singvals[j];
-
-    ::std::vector<T> A(n * n);
-    ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::Trans,
-               n, n, n, (T)1.0, Q1.data(), n, Q2.data(), n, (T)0.0, A.data(), n);
-
-    write_dense_to_mtx(filename, A.data(), n, n);
+    delete[] S;
+    delete[] A;
 }
 
 /// Left-multiply a column-major m x n matrix A by a random orthogonal matrix.

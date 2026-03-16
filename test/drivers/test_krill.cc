@@ -17,7 +17,7 @@ using RandBLAS::SparseDist;
 using RandBLAS::RNGState;
 using RandLAPACK::linops::RegExplicitSymLinOp;
 using RandLAPACK::linops::RBFKernelMatrix;
-using RandLAPACK::gen::gen_polynomial_decay_psd;
+using RandLAPACK::gen::gen_poly_mat_psd;
 
 
 class TestKrillIsh: public ::testing::Test {
@@ -104,14 +104,14 @@ class TestKrillIsh: public ::testing::Test {
 
 TEST_F(TestKrillIsh, test_manual_lockstep_nystrom) {
     for (int64_t decay = 2; decay < 4; ++decay) {
-        auto G = gen_polynomial_decay_psd(m, 1e12, (double) decay, 99);
+        auto G = gen_poly_mat_psd(m, 1e12, (double) decay, 99);
         run_nystrom(0, G);
         run_nystrom(1, G);
     }
 }
 
 TEST_F(TestKrillIsh, test_manual_lockstep_rpchol) {
-    auto G = gen_polynomial_decay_psd(m, 1e12, 2.0, 99);
+    auto G = gen_poly_mat_psd(m, 1e12, 2.0, 99);
     run_rpchol(0, G);
     run_rpchol(1, G);
 }
@@ -167,7 +167,7 @@ TEST_F(TestKrillx, test_krill_full_rpchol) {
     T mu_min = 1e-5;
     vector<T> mus {mu_min, mu_min/10, mu_min/100};
     for (int64_t decay = 2; decay < 4; ++decay) {
-        auto G = gen_polynomial_decay_psd(m, 1e12, (T) decay, 99);
+        auto G = gen_poly_mat_psd(m, 1e12, (T) decay, 99);
         RegExplicitSymLinOp G_linop(m, G.data(), m, mus);
         int64_t k = 128;
         run_krill_separable(0, G_linop, k);
