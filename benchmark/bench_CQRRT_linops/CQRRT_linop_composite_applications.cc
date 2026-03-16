@@ -213,23 +213,33 @@ static void app_generalized_svecs(
 // ============================================================================
 
 template <typename T>
+static void write_common_header_comments(
+    std::ofstream& out, int64_t m, int64_t n, int num_runs,
+    const std::string& K_file, const std::string& V_file,
+    T d_factor, int64_t sketch_nnz, int64_t block_size,
+    bool skip_apps, bool compute_cond)
+{
+    time_t now = time(nullptr);
+    out << "# Date: " << ctime(&now)
+        << "# Matrix dimensions: m=" << m << " n=" << n << "\n"
+        << "# Runs per algorithm: " << num_runs << "\n"
+        << "# OpenMP threads: " << omp_get_max_threads() << "\n"
+        << "# K_file: " << K_file << "\n"
+        << "# V_file: " << V_file << "\n"
+        << "# d_factor: " << d_factor << "\n"
+        << "# sketch_nnz: " << sketch_nnz << "\n"
+        << "# block_size: " << block_size << "\n"
+        << "# skip_apps: " << (skip_apps ? 1 : 0) << "\n"
+        << "# compute_cond: " << (compute_cond ? 1 : 0) << "\n";
+}
+
+template <typename T>
 static void write_csv_header(std::ofstream& out, int64_t m, int64_t n, int num_runs,
                              const std::string& K_file, const std::string& V_file,
                              T d_factor, int64_t sketch_nnz, int64_t block_size,
                              bool skip_apps, bool compute_cond) {
-    time_t now = time(nullptr);
     out << "# GSVD Benchmark results\n";
-    out << "# Date: " << ctime(&now);
-    out << "# Matrix dimensions: m=" << m << " n=" << n << "\n";
-    out << "# Runs per algorithm: " << num_runs << "\n";
-    out << "# OpenMP threads: " << omp_get_max_threads() << "\n";
-    out << "# K_file: " << K_file << "\n";
-    out << "# V_file: " << V_file << "\n";
-    out << "# d_factor: " << d_factor << "\n";
-    out << "# sketch_nnz: " << sketch_nnz << "\n";
-    out << "# block_size: " << block_size << "\n";
-    out << "# skip_apps: " << (skip_apps ? 1 : 0) << "\n";
-    out << "# compute_cond: " << (compute_cond ? 1 : 0) << "\n";
+    write_common_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
     out << "m,n,run,algorithm,chol_time_us,qr_time_us,orth_error,max_orth_cols,"
         << "app_a_time_us,ls_rel_error,"
         << "app_b_time_us,"
@@ -269,19 +279,8 @@ static void write_breakdown_csv(
     bool skip_apps, bool compute_cond)
 {
     std::ofstream out(filename);
-    time_t now = time(nullptr);
     out << "# GSVD Benchmark runtime breakdown\n";
-    out << "# Date: " << ctime(&now);
-    out << "# Matrix dimensions: m=" << m << " n=" << n << "\n";
-    out << "# Runs per algorithm: " << num_runs << "\n";
-    out << "# OpenMP threads: " << omp_get_max_threads() << "\n";
-    out << "# K_file: " << K_file << "\n";
-    out << "# V_file: " << V_file << "\n";
-    out << "# d_factor: " << d_factor << "\n";
-    out << "# sketch_nnz: " << sketch_nnz << "\n";
-    out << "# block_size: " << block_size << "\n";
-    out << "# skip_apps: " << (skip_apps ? 1 : 0) << "\n";
-    out << "# compute_cond: " << (compute_cond ? 1 : 0) << "\n";
+    write_common_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
     out << "# Times are in microseconds\n";
     out << "# CQRRT_linop breakdown (11): alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total\n";
     out << "# CholQR breakdown (6): alloc, fwd, adj, chol, rest, total\n";

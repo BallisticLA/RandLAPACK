@@ -539,27 +539,17 @@ static void write_results_to_csv(
     for (int64_t run = 0; run < num_runs; ++run) {
         const auto& result = all_runs[run];
 
+        const alg_quality<T>* algos[] = {&result.cqrrt, &result.cholqr, &result.scholqr3, &result.dense_cqrrt};
+
         out << std::fixed << std::setprecision(1)
             << result.m << "," << result.n << "," << run << "," << result.aspect_ratio << ","
             << std::scientific << std::setprecision(6) << result.cond_num << ","
             << std::fixed << std::setprecision(6) << result.density << ","
-            << std::scientific << std::setprecision(6)
-            << result.cqrrt.orth_error << ","
-            << result.cqrrt.max_orth_cols << "," << (result.cqrrt.is_orthonormal ? 1 : 0) << ","
-            << result.cqrrt.time << ","
-            << result.cholqr.orth_error << ","
-            << result.cholqr.max_orth_cols << "," << (result.cholqr.is_orthonormal ? 1 : 0) << ","
-            << result.cholqr.time << ","
-            << result.scholqr3.orth_error << ","
-            << result.scholqr3.max_orth_cols << "," << (result.scholqr3.is_orthonormal ? 1 : 0) << ","
-            << result.scholqr3.time << ","
-            << result.dense_cqrrt.orth_error << ","
-            << result.dense_cqrrt.max_orth_cols << "," << (result.dense_cqrrt.is_orthonormal ? 1 : 0) << ","
-            << result.dense_cqrrt.time << ","
-            << result.cqrrt.peak_rss_kb << "," << result.cqrrt.analytical_kb << ","
-            << result.cholqr.peak_rss_kb << "," << result.cholqr.analytical_kb << ","
-            << result.scholqr3.peak_rss_kb << "," << result.scholqr3.analytical_kb << ","
-            << result.dense_cqrrt.peak_rss_kb << "," << result.dense_cqrrt.analytical_kb << "\n";
+            << std::scientific << std::setprecision(6);
+        for (const auto* q : algos)
+            out << q->orth_error << "," << q->max_orth_cols << "," << (q->is_orthonormal ? 1 : 0) << "," << q->time << ",";
+        for (int i = 0; i < 4; ++i)
+            out << algos[i]->peak_rss_kb << "," << algos[i]->analytical_kb << (i < 3 ? "," : "\n");
 
         breakdown << result.m << "," << result.n << "," << run << ",";
         for (const auto& t : result.cqrrt.breakdown)       breakdown << t << ",";
