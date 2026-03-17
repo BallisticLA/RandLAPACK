@@ -26,7 +26,9 @@
 #include <iomanip>
 #include <cmath>
 #include <ctime>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <algorithm>
 #include <numeric>
 
@@ -219,7 +221,11 @@ static void write_common_header_comments(
     out << "# Date: " << ctime(&now)
         << "# Matrix dimensions: m=" << m << " n=" << n << "\n"
         << "# Runs per algorithm: " << num_runs << "\n"
+#ifdef _OPENMP
         << "# OpenMP threads: " << omp_get_max_threads() << "\n"
+#else
+        << "# OpenMP threads: 1\n"
+#endif
         << "# K_file: " << K_file << "\n"
         << "# V_file: " << V_file << "\n"
         << "# d_factor: " << d_factor << "\n"
@@ -354,7 +360,11 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "  skip_apps: " << (skip_apps ? "yes" : "no") << "\n";
     std::cout << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n";
     std::cout << "  num_runs: " << num_runs << "\n";
+#ifdef _OPENMP
     std::cout << "  OpenMP threads: " << omp_get_max_threads() << "\n\n";
+#else
+    std::cout << "  OpenMP threads: 1\n\n";
+#endif
 
     // ================================================================
     // Step 1: Load V from Matrix Market

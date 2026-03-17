@@ -15,7 +15,9 @@
 #include <iomanip>
 #include <cmath>
 #include <ctime>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 // Extras utilities for Matrix Market I/O
 #include "../../extras/misc/ext_util.hh"
@@ -447,7 +449,11 @@ static int run_benchmark(int argc, char *argv[]) {
     }
 
     // Get OpenMP thread count
+#ifdef _OPENMP
     int num_threads = omp_get_max_threads();
+#else
+    int num_threads = 1;
+#endif
 
     printf("\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Scaling Study ===\n");
     printf("Precision: %s\n", precision.c_str());
@@ -686,7 +692,11 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     char date_prefix[20];
     std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
 
+#ifdef _OPENMP
     int num_threads = omp_get_max_threads();
+#else
+    int num_threads = 1;
+#endif
 
     printf("\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl (File Input) ===\n");
     printf("Precision: %s\n", precision.c_str());
