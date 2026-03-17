@@ -15,9 +15,10 @@
 
 namespace RandLAPACK {
 
-// Read current Resident Set Size (RSS) in KB from /proc/self/status.
-// Returns -1 on failure (e.g., non-Linux platforms).
+// Read current Resident Set Size (RSS) in KB.
+// Uses /proc/self/status on Linux; returns -1 on unsupported platforms.
 static inline long get_rss_kb() {
+#ifdef __linux__
     std::ifstream status("/proc/self/status");
     std::string line;
     while (std::getline(status, line)) {
@@ -27,6 +28,7 @@ static inline long get_rss_kb() {
             return rss;
         }
     }
+#endif
     return -1;
 }
 

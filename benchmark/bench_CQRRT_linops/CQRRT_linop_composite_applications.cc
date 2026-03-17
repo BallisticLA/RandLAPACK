@@ -1,7 +1,3 @@
-#if defined(__APPLE__)
-int main() {return 0;}
-#else
-
 // Generalized SVD / Generalized LS benchmark
 //
 // Pipeline:
@@ -603,5 +599,3 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 }
-
-#endif // !__APPLE__

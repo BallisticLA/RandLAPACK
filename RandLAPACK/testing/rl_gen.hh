@@ -12,8 +12,6 @@
 #include <sstream>
 #include <fstream>
 #include <unordered_map>
-#include <cstdio>
-#include <stdexcept>
 
 namespace RandLAPACK::gen {
 
@@ -885,114 +883,6 @@ std::vector<T> gen_poly_mat_psd(int64_t m, T cond_num, T exponent, uint32_t seed
         A.data(), m, (T)0.0, G.data(), m);
     RandBLAS::symmetrize(blas::Layout::ColMajor, blas::Uplo::Upper, m, G.data(), m);
     return G;
-}
-
-// ============================================================================
-// Sparse SPD matrix generation (banded structure + diagonal regularization)
-// ============================================================================
-
-/// Sparse SPD matrix in lower-triangular COO storage.
-/// Serves as both the generation scratch space and the seed for diagonal-shift generation.
-struct SparseSPDMatrix {
-    int64_t dim;
-    int64_t num_entries;  // Only lower-triangular entries (including diagonal)
-    std::vector<int64_t> row_indices;
-    std::vector<int64_t> col_indices;
-    std::vector<double> values;
-
-    SparseSPDMatrix(int64_t n) : dim(n), num_entries(0) {}
-
-    void reserve_space(int64_t count) {
-        row_indices.reserve(count);
-        col_indices.reserve(count);
-        values.reserve(count);
-    }
-
-    // Store only lower-triangular entries (i >= j).
-    void add_entry(int64_t i, int64_t j, double val) {
-        if (i >= j) {
-            row_indices.push_back(i);
-            col_indices.push_back(j);
-            values.push_back(val);
-            ++num_entries;
-        }
-    }
-};
-
-/// Generate a banded SPD seed matrix with diagonally-dominant structure.
-/// Diagonal entries are set to 2*(bandwidth+1); off-diagonals are small positive randoms.
-/// Suitable as a seed for diagonal-regularization conditioning studies.
-inline SparseSPDMatrix gen_banded_spd_seed(
-    int64_t n, int64_t bandwidth,
-    RandBLAS::RNGState<r123::Philox4x32>& state
-) {
-    SparseSPDMatrix A(n);
-    A.reserve_space(n + bandwidth * n);
-    RandBLAS::DenseDist dist(1, 1);
-    for (int64_t i = 0; i < n; ++i)
-        A.add_entry(i, i, 2.0 * (bandwidth + 1));
-    for (int64_t band = 1; band <= bandwidth; ++band) {
-        for (int64_t i = band; i < n; ++i) {
-            double val;
-            RandBLAS::fill_dense(dist, &val, state);
-            A.add_entry(i, i - band, std::abs(val) * 0.5);
-        }
-    }
-    return A;
-}
-
-/// Pack lower-triangular COO entries into LAPACK symmetric banded storage (Uplo::Lower).
-/// AB layout (column-major): AB[(i-j) + j*ldab] = A(i,j) for i >= j.
-inline void pack_lower_banded(
-    const SparseSPDMatrix& A,
-    std::vector<double>& AB, int64_t ldab
-) {
-    AB.assign(ldab * A.dim, 0.0);
-    for (int64_t k = 0; k < A.num_entries; ++k)
-        AB[(A.row_indices[k] - A.col_indices[k]) + A.col_indices[k] * ldab] = A.values[k];
-}
-
-/// Compute the smallest and largest eigenvalues of a banded SPD matrix
-/// using LAPACK sbev, exploiting bandwidth for O(n·kd²) cost.
-inline void compute_eigenvalue_range(
-    const SparseSPDMatrix& A, int64_t kd,
-    double& lambda_min, double& lambda_max
-) {
-    int64_t ldab = kd + 1;
-    std::vector<double> AB;
-    pack_lower_banded(A, AB, ldab);
-    std::vector<double> eigenvalues(A.dim);
-    double z_dummy;
-    int64_t info = lapack::sbev(
-        lapack::Job::NoVec, lapack::Uplo::Lower,
-        A.dim, kd, AB.data(), ldab,
-        eigenvalues.data(), &z_dummy, 1
-    );
-    if (info != 0)
-        throw std::runtime_error("lapack::sbev failed with info = " + std::to_string(info));
-    lambda_min = eigenvalues[0];
-    lambda_max = eigenvalues[A.dim - 1];
-}
-
-/// Write A_seed + alpha*I to a symmetric MatrixMarket (.mtx) file.
-/// Applies the diagonal shift on-the-fly — no per-matrix copy of the COO arrays.
-inline void write_shifted_spd_matrix(
-    const std::string& filename,
-    const SparseSPDMatrix& A_seed,
-    double alpha
-) {
-    FILE* f = fopen(filename.c_str(), "w");
-    if (!f)
-        throw std::runtime_error("Cannot open file for writing: " + filename);
-    fprintf(f, "%%%%MatrixMarket matrix coordinate real symmetric\n");
-    fprintf(f, "%ld %ld %ld\n", A_seed.dim, A_seed.dim, A_seed.num_entries);
-    for (int64_t k = 0; k < A_seed.num_entries; ++k) {
-        double val = A_seed.values[k];
-        if (A_seed.row_indices[k] == A_seed.col_indices[k]) val += alpha;
-        fprintf(f, "%ld %ld %.17e\n",
-                A_seed.row_indices[k] + 1, A_seed.col_indices[k] + 1, val);
-    }
-    fclose(f);
 }
 
 }

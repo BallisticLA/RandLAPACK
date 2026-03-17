@@ -27,6 +27,7 @@ if (GTest_FOUND)
         linops/test_linops.cc
         linops/test_linop_unified.cc
         misc/test_gen.cc
+        misc/test_memory_tracker.cc
         linops/test_linop_block_views.cc
     )
     

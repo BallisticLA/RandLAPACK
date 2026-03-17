@@ -1,7 +1,3 @@
-#if defined(__APPLE__)
-int main() {return 0;}
-#else
-
 // CQRRT_linops scaling study - measures performance and accuracy as matrix size varies
 // Tests both CQRRT (preconditioned) and CholQR (unpreconditioned) on tall sparse matrices
 // Supports two modes:
@@ -800,4 +796,3 @@ int main(int argc, char *argv[]) {
         else return run_benchmark<float>(argc, argv);
     }
 }
-#endif

@@ -259,7 +259,7 @@ template <typename T>
 /// Compute the orthogonality error of a column-major Q factor:
 ///   ||Q^T Q - I||_F / sqrt(n)
 ///
-/// Uses syrk for efficiency (exploits symmetry of Q^T Q - I).
+/// Cost: O(mn^2) via syrk (exploits symmetry of Q^T Q).
 /// This is the same metric reported by verify_qr, but standalone —
 /// no A or R required.
 template <typename T>
@@ -280,14 +280,32 @@ T orthogonality_error(const T* Q, int64_t m, int64_t n) {
 /// Returns k in [0, n]. Returns 0 if even the first column fails.
 /// Useful for benchmarks that need to characterize partial orthogonality
 /// failure (e.g. when CholQR breaks down partway through).
+///
+/// Cost: O(mn^2) — computes G = Q^T Q once via syrk, then incrementally
+/// checks ||G[1:k,1:k] - I_k||_F for each prefix k using the identity
+///   ||G[1:k,1:k] - I_k||^2 = ||G[1:k-1,1:k-1] - I_{k-1}||^2
+///                            + (G[k,k]-1)^2 + 2*sum_{j<k} G[j,k]^2
 template <typename T>
 int64_t max_orthonormal_cols(const T* Q, int64_t m, int64_t n) {
     T tol = ::std::pow(::std::numeric_limits<T>::epsilon(), (T)0.75);
+    // Compute full Gram matrix G = Q^T Q (upper triangle) in O(mn^2).
+    ::std::vector<T> G(n * n, (T)0.0);
+    ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
+                 n, m, (T)1.0, Q, m, (T)0.0, G.data(), n);
+    // Incrementally check prefixes.
+    T running_sq = (T)0.0;
     int64_t max_cols = 0;
-    for (int64_t k = 1; k <= n; ++k) {
-        T err_k = orthogonality_error(Q, m, k);
+    for (int64_t k = 0; k < n; ++k) {
+        // Add contribution of column k: diagonal (G[k,k]-1)^2 + off-diag 2*sum G[j,k]^2
+        T diag_err = G[k + k * n] - (T)1.0;
+        running_sq += diag_err * diag_err;
+        for (int64_t j = 0; j < k; ++j) {
+            T off = G[j + k * n];  // upper triangle: G(j,k) where j < k
+            running_sq += (T)2.0 * off * off;
+        }
+        T err_k = ::std::sqrt(running_sq) / ::std::sqrt((T)(k + 1));
         if (err_k <= tol)
-            max_cols = k;
+            max_cols = k + 1;
         else
             break;
     }
