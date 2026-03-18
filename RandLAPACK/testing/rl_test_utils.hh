@@ -221,21 +221,22 @@ template <typename T>
 template <typename T>
 ::std::pair<T, T> verify_qr(const T* A, const T* Q, const T* R,
                               int64_t m, int64_t n, int64_t ldr) {
-    // ||A - Q*R|| / ||A||
-    ::std::vector<T> QR(m * n, 0.0);
+    // ||A - Q*R|| / ||A||  — residual = Q*R - A via gemm with beta=-1 on A copy.
+    T* residual = new T[m * n];
+    ::lapack::lacpy(::lapack::MatrixType::General, m, n, A, m, residual, m);
     ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
-                 m, n, n, (T)1.0, Q, m, R, ldr, (T)0.0, QR.data(), m);
-    for (int64_t i = 0; i < m * n; ++i)
-        QR[i] = A[i] - QR[i];
-    T norm_AQR = ::lapack::lange(::lapack::Norm::Fro, m, n, QR.data(), m);
+                 m, n, n, (T)1.0, Q, m, R, ldr, (T)-1.0, residual, m);
+    T norm_AQR = ::lapack::lange(::lapack::Norm::Fro, m, n, residual, m);
     T norm_A   = ::lapack::lange(::lapack::Norm::Fro, m, n, A, m);
+    delete[] residual;
 
     // ||Q^T Q - I|| / sqrt(n)
-    ::std::vector<T> I_ref(n * n);
-    RandLAPACK::util::eye(n, n, I_ref.data());
+    T* GmI = new T[n * n];
+    RandLAPACK::util::eye(n, n, GmI);
     ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
-                 n, m, (T)1.0, Q, m, (T)-1.0, I_ref.data(), n);
-    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, I_ref.data(), n);
+                 n, m, (T)1.0, Q, m, (T)-1.0, GmI, n);
+    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, GmI, n);
+    delete[] GmI;
 
     return {norm_AQR / norm_A, norm_orth / ::std::sqrt((T)n)};
 }
@@ -245,11 +246,13 @@ template <typename T>
 template <typename T>
 ::std::pair<T, T> verify_R_factor(const T* A_data, int64_t m, int64_t n,
                                     const T* R, int64_t ldr) {
-    ::std::vector<T> Q(m * n);
-    ::std::copy(A_data, A_data + m * n, Q.begin());
+    T* Q = new T[m * n];
+    ::lapack::lacpy(::lapack::MatrixType::General, m, n, A_data, m, Q, m);
     ::blas::trsm(::blas::Layout::ColMajor, ::blas::Side::Right, ::blas::Uplo::Upper,
-                 ::blas::Op::NoTrans, ::blas::Diag::NonUnit, m, n, (T)1.0, R, ldr, Q.data(), m);
-    return verify_qr(A_data, Q.data(), R, m, n, ldr);
+                 ::blas::Op::NoTrans, ::blas::Diag::NonUnit, m, n, (T)1.0, R, ldr, Q, m);
+    auto result = verify_qr(A_data, Q, R, m, n, ldr);
+    delete[] Q;
+    return result;
 }
 
 // ============================================================================
@@ -264,11 +267,12 @@ template <typename T>
 /// no A or R required.
 template <typename T>
 T orthogonality_error(const T* Q, int64_t m, int64_t n) {
-    ::std::vector<T> I_ref(n * n);
-    ::RandLAPACK::util::eye(n, n, I_ref.data());
+    T* GmI = new T[n * n];
+    ::RandLAPACK::util::eye(n, n, GmI);
     ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
-                 n, m, (T)1.0, Q, m, (T)-1.0, I_ref.data(), n);
-    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, I_ref.data(), n);
+                 n, m, (T)1.0, Q, m, (T)-1.0, GmI, n);
+    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, GmI, n);
+    delete[] GmI;
     return norm_orth / ::std::sqrt((T)n);
 }
 
@@ -289,9 +293,9 @@ template <typename T>
 int64_t max_orthonormal_cols(const T* Q, int64_t m, int64_t n) {
     T tol = ::std::pow(::std::numeric_limits<T>::epsilon(), (T)0.75);
     // Compute full Gram matrix G = Q^T Q (upper triangle) in O(mn^2).
-    ::std::vector<T> G(n * n, (T)0.0);
+    T* G = new T[n * n]();
     ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
-                 n, m, (T)1.0, Q, m, (T)0.0, G.data(), n);
+                 n, m, (T)1.0, Q, m, (T)0.0, G, n);
     // Incrementally check prefixes.
     T running_sq = (T)0.0;
     int64_t max_cols = 0;
@@ -309,6 +313,7 @@ int64_t max_orthonormal_cols(const T* Q, int64_t m, int64_t n) {
         else
             break;
     }
+    delete[] G;
     return max_cols;
 }
 
