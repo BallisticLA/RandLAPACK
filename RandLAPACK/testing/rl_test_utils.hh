@@ -221,21 +221,22 @@ template <typename T>
 template <typename T>
 ::std::pair<T, T> verify_qr(const T* A, const T* Q, const T* R,
                               int64_t m, int64_t n, int64_t ldr) {
-    // ||A - Q*R|| / ||A||
-    ::std::vector<T> QR(m * n, 0.0);
+    // ||A - Q*R|| / ||A||  — residual = Q*R - A via gemm with beta=-1 on A copy.
+    T* residual = new T[m * n];
+    ::lapack::lacpy(::lapack::MatrixType::General, m, n, A, m, residual, m);
     ::blas::gemm(::blas::Layout::ColMajor, ::blas::Op::NoTrans, ::blas::Op::NoTrans,
-                 m, n, n, (T)1.0, Q, m, R, ldr, (T)0.0, QR.data(), m);
-    for (int64_t i = 0; i < m * n; ++i)
-        QR[i] = A[i] - QR[i];
-    T norm_AQR = ::lapack::lange(::lapack::Norm::Fro, m, n, QR.data(), m);
+                 m, n, n, (T)1.0, Q, m, R, ldr, (T)-1.0, residual, m);
+    T norm_AQR = ::lapack::lange(::lapack::Norm::Fro, m, n, residual, m);
     T norm_A   = ::lapack::lange(::lapack::Norm::Fro, m, n, A, m);
+    delete[] residual;
 
     // ||Q^T Q - I|| / sqrt(n)
-    ::std::vector<T> I_ref(n * n);
-    RandLAPACK::util::eye(n, n, I_ref.data());
+    T* GmI = new T[n * n];
+    RandLAPACK::util::eye(n, n, GmI);
     ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
-                 n, m, (T)1.0, Q, m, (T)-1.0, I_ref.data(), n);
-    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, I_ref.data(), n);
+                 n, m, (T)1.0, Q, m, (T)-1.0, GmI, n);
+    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, GmI, n);
+    delete[] GmI;
 
     return {norm_AQR / norm_A, norm_orth / ::std::sqrt((T)n)};
 }
@@ -245,11 +246,75 @@ template <typename T>
 template <typename T>
 ::std::pair<T, T> verify_R_factor(const T* A_data, int64_t m, int64_t n,
                                     const T* R, int64_t ldr) {
-    ::std::vector<T> Q(m * n);
-    ::std::copy(A_data, A_data + m * n, Q.begin());
+    T* Q = new T[m * n];
+    ::lapack::lacpy(::lapack::MatrixType::General, m, n, A_data, m, Q, m);
     ::blas::trsm(::blas::Layout::ColMajor, ::blas::Side::Right, ::blas::Uplo::Upper,
-                 ::blas::Op::NoTrans, ::blas::Diag::NonUnit, m, n, (T)1.0, R, ldr, Q.data(), m);
-    return verify_qr(A_data, Q.data(), R, m, n, ldr);
+                 ::blas::Op::NoTrans, ::blas::Diag::NonUnit, m, n, (T)1.0, R, ldr, Q, m);
+    auto result = verify_qr(A_data, Q, R, m, n, ldr);
+    delete[] Q;
+    return result;
+}
+
+// ============================================================================
+// Orthogonality Measurement
+// ============================================================================
+
+/// Compute the orthogonality error of a column-major Q factor:
+///   ||Q^T Q - I||_F / sqrt(n)
+///
+/// Cost: O(mn^2) via syrk (exploits symmetry of Q^T Q).
+/// This is the same metric reported by verify_qr, but standalone —
+/// no A or R required.
+template <typename T>
+T orthogonality_error(const T* Q, int64_t m, int64_t n) {
+    T* GmI = new T[n * n];
+    ::RandLAPACK::util::eye(n, n, GmI);
+    ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
+                 n, m, (T)1.0, Q, m, (T)-1.0, GmI, n);
+    T norm_orth = ::lapack::lansy(::lapack::Norm::Fro, ::blas::Uplo::Upper, n, GmI, n);
+    delete[] GmI;
+    return norm_orth / ::std::sqrt((T)n);
+}
+
+/// Find the longest prefix of k columns of Q (column-major, m x n) such that
+/// the first k columns form an orthonormal set, i.e.
+///   ||Q[:, :k]^T Q[:, :k] - I_k||_F / sqrt(k) <= tol
+/// where tol = epsilon^0.75.
+///
+/// Returns k in [0, n]. Returns 0 if even the first column fails.
+/// Useful for benchmarks that need to characterize partial orthogonality
+/// failure (e.g. when CholQR breaks down partway through).
+///
+/// Cost: O(mn^2) — computes G = Q^T Q once via syrk, then incrementally
+/// checks ||G[1:k,1:k] - I_k||_F for each prefix k using the identity
+///   ||G[1:k,1:k] - I_k||^2 = ||G[1:k-1,1:k-1] - I_{k-1}||^2
+///                            + (G[k,k]-1)^2 + 2*sum_{j<k} G[j,k]^2
+template <typename T>
+int64_t max_orthonormal_cols(const T* Q, int64_t m, int64_t n) {
+    T tol = ::std::pow(::std::numeric_limits<T>::epsilon(), (T)0.75);
+    // Compute full Gram matrix G = Q^T Q (upper triangle) in O(mn^2).
+    T* G = new T[n * n]();
+    ::blas::syrk(::blas::Layout::ColMajor, ::blas::Uplo::Upper, ::blas::Op::Trans,
+                 n, m, (T)1.0, Q, m, (T)0.0, G, n);
+    // Incrementally check prefixes.
+    T running_sq = (T)0.0;
+    int64_t max_cols = 0;
+    for (int64_t k = 0; k < n; ++k) {
+        // Add contribution of column k: diagonal (G[k,k]-1)^2 + off-diag 2*sum G[j,k]^2
+        T diag_err = G[k + k * n] - (T)1.0;
+        running_sq += diag_err * diag_err;
+        for (int64_t j = 0; j < k; ++j) {
+            T off = G[j + k * n];  // upper triangle: G(j,k) where j < k
+            running_sq += (T)2.0 * off * off;
+        }
+        T err_k = ::std::sqrt(running_sq) / ::std::sqrt((T)(k + 1));
+        if (err_k <= tol)
+            max_cols = k + 1;
+        else
+            break;
+    }
+    delete[] G;
+    return max_cols;
 }
 
 // ============================================================================
