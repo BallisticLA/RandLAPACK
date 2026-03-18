@@ -27,6 +27,7 @@ Timings in microseconds.
 // External libs includes
 #include <Eigen/Dense>
 #include <Spectra/contrib/PartialSVDSolver.h>
+#include "BudgetedSVDSolver.hh"
 
 // Traits struct mapping scalar type T to Eigen matrix/vector types.
 template <typename T> struct EigenTypes;
@@ -188,7 +189,6 @@ static void call_all_algs(
     int64_t singular_triplets_target_ABRIK = 0;
     int64_t singular_triplets_found_RSVD  = 0;
     int64_t singular_triplets_target_RSVD = 0;
-    int64_t singular_triplets_found_SVDS  = 0;
     int64_t singular_triplets_target_SVDS = 0;
 
     for (int i = 0; i < num_runs; ++i) {
@@ -237,43 +237,48 @@ static void call_all_algs(
         state_alg = state;
         regen_input(m_info, all_data, state);
 
-        // ---- SVDS (Spectra) ----
-        // Despite my earlier expectations, estimating a larger number of
-        // singular triplets via SVDS does improve the quality of the first singular triplets.
-        // As such, aiming for just the "target rank" would be unfair.
-        singular_triplets_found_SVDS = std::min((int64_t) (b_sz * num_matmuls / 2), n - 2);
+        // ---- SVDS (Spectra, budgeted) ----
+        // Uses BudgetedPartialSVDSolver with fixed nev=target_rank and a
+        // matvec budget derived from (b_sz, num_matmuls) for fair comparison.
+        {
+            int64_t nev_svds = target_rank;
+            int64_t ncv_svds = std::min(2 * nev_svds + 1, n - 1);
+            int64_t svds_budget = b_sz * num_matmuls;
+            int64_t max_restarts = BenchmarkUtil::budget_to_restarts(svds_budget, nev_svds, ncv_svds);
 
-        auto start_svds = steady_clock::now();
-        Spectra::PartialSVDSolver<EMatrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n - 1));
-        svds.compute();
-        auto stop_svds = steady_clock::now();
-        dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
-        printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
+            auto start_svds = steady_clock::now();
+            BenchmarkUtil::BudgetedPartialSVDSolver<EMatrix> svds(all_data.A_spectra, nev_svds, ncv_svds);
+            svds.compute(max_restarts);
+            auto stop_svds = steady_clock::now();
+            dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
+            printf("SVDS: budget=%ld matvecs, max_restarts=%ld, A'A_ops=%ld, time=%ld us\n",
+                   svds_budget, max_restarts, svds.num_operations(), dur_svds);
 
-        // Copy data from Spectra (Eigen) format to raw arrays.
-        EMatrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
-        EMatrix V_spectra = svds.matrix_V(singular_triplets_found_SVDS);
-        EVector S_spectra = svds.singular_values();
+            // Extract ALL Ritz approximations (even unconverged)
+            EMatrix U_spectra = svds.matrix_U(nev_svds);
+            EMatrix V_spectra = svds.matrix_V(nev_svds);
+            EVector S_spectra = svds.singular_values();
 
-        all_data.U     = new T[m * singular_triplets_found_SVDS]();
-        all_data.V     = new T[n * singular_triplets_found_SVDS]();
-        all_data.Sigma = new T[singular_triplets_found_SVDS]();
+            all_data.U     = new T[m * nev_svds]();
+            all_data.V     = new T[n * nev_svds]();
+            all_data.Sigma = new T[nev_svds]();
 
-        Eigen::Map<EMatrix>(all_data.U, m, singular_triplets_found_SVDS)  = U_spectra;
-        Eigen::Map<EMatrix>(all_data.V, n, singular_triplets_found_SVDS)  = V_spectra;
-        Eigen::Map<EVector>(all_data.Sigma, singular_triplets_found_SVDS) = S_spectra;
+            Eigen::Map<EMatrix>(all_data.U, m, nev_svds) = U_spectra;
+            Eigen::Map<EMatrix>(all_data.V, n, nev_svds) = V_spectra;
+            Eigen::Map<EVector>(all_data.Sigma, nev_svds) = S_spectra;
 
-        singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
-        residual_err_custom_SVDS = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_SVDS);
-        printf("SVDS residual error: %.16e\n", residual_err_custom_SVDS);
+            singular_triplets_target_SVDS = std::min(target_rank, nev_svds);
+            residual_err_custom_SVDS = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_SVDS);
+            printf("SVDS residual error: %.16e\n", residual_err_custom_SVDS);
 
-        // Cleanup SVDS outputs (new[])
-        delete[] all_data.U;     all_data.U     = nullptr;
-        delete[] all_data.V;     all_data.V     = nullptr;
-        delete[] all_data.Sigma; all_data.Sigma = nullptr;
+            // Cleanup SVDS outputs (new[])
+            delete[] all_data.U;     all_data.U     = nullptr;
+            delete[] all_data.V;     all_data.V     = nullptr;
+            delete[] all_data.Sigma; all_data.Sigma = nullptr;
 
-        state_alg = state;
-        regen_input(m_info, all_data, state);
+            state_alg = state;
+            regen_input(m_info, all_data, state);
+        }
 
         // ---- SVD (GESDD) ----
         // There is no reason to run SVD many times, as it always outputs the same result.
