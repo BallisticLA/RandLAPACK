@@ -207,12 +207,16 @@ static void call_all_algs(
         // Note: ABRIK does not modify A, so no regen_input needed.
 
         // ---- RSVD ----
+        // RSVD (via QB) now modifies A in-place (deflation). We must copy A
+        // beforehand and restore it after, since ABRIK/SVDS need the original.
         // RSVD allocates U, V, Sigma with calloc internally (via QB realloc chain).
-        // Do NOT pre-allocate — RSVD overwrites the pointers.
         singular_triplets_found_RSVD = (int64_t) (b_sz * num_matmuls / 2);
 
+        T* A_rsvd_copy = new T[m * n];
+        lapack::lacpy(MatrixType::General, m, n, all_data.A, m, A_rsvd_copy, m);
+
         auto start_rsvd = steady_clock::now();
-        all_algs.RSVD.call(m, n, all_data.A, singular_triplets_found_RSVD, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
+        all_algs.RSVD.call(m, n, A_rsvd_copy, singular_triplets_found_RSVD, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
         auto stop_rsvd = steady_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
@@ -221,13 +225,14 @@ static void call_all_algs(
         residual_err_custom_RSVD = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_RSVD, U_scratch, V_scratch);
         printf("RSVD residual error: %.16e\n", residual_err_custom_RSVD);
 
+        delete[] A_rsvd_copy;
+
         // Cleanup RSVD outputs (calloc)
         free(all_data.U);     all_data.U     = nullptr;
         free(all_data.V);     all_data.V     = nullptr;
         free(all_data.Sigma); all_data.Sigma = nullptr;
 
         state_alg = state;
-        // Note: RSVD does not modify A (QB makes internal copy), so no regen_input needed.
 
         // ---- SVDS (Spectra, budgeted) ----
         // Uses BudgetedPartialSVDSolver with fixed nev=target_rank and a
