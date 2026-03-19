@@ -185,16 +185,30 @@ public:
     }
 };
 
+// Compute effective ncv for a given matvec budget.
+// When budget is small, reduce ncv so Spectra builds a smaller Krylov subspace
+// (less work, lower accuracy). ncv must satisfy nev < ncv <= budget/2.
+inline int64_t effective_ncv(int64_t budget, int64_t nev, int64_t ncv_default)
+{
+    int64_t ata_ops = budget / 2;
+    // If budget allows full ncv, use it
+    if (ata_ops >= ncv_default)
+        return ncv_default;
+    // Otherwise shrink ncv to fit budget, but keep ncv > nev
+    return std::max(nev + 1, ata_ops);
+}
+
 // Convert a matvec budget to max_restarts for the Lanczos solver.
 // budget = total matvecs with A (comparable to ABRIK's b_sz * num_matmuls)
 // Each A'A application = 2 matvecs with A.
 // Initial Lanczos: ncv A'A ops. Each restart: ~(ncv - nev) A'A ops.
+// ncv should be the effective ncv (from effective_ncv()).
 inline int64_t budget_to_restarts(int64_t budget, int64_t nev, int64_t ncv)
 {
     int64_t ata_ops = budget / 2;  // A'A operations from matvec budget
     if (ata_ops <= ncv)
-        return 1;  // minimum 1 restart
-    return std::max((int64_t)1, (ata_ops - ncv) / (ncv - nev));
+        return 0;  // not enough budget for even one restart — just initial factorization
+    return (ata_ops - ncv) / (ncv - nev);
 }
 
 }  // namespace BenchmarkUtil

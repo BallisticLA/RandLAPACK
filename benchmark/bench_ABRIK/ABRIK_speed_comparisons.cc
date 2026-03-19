@@ -50,10 +50,7 @@ struct ABRIK_benchmark_data {
     T* VT;
     T* V;
     T* Sigma;
-    typename EigenTypes<T>::Matrix A_spectra;
-
-    ABRIK_benchmark_data(int64_t m, int64_t n, T tol) :
-    A_spectra(m, n)
+    ABRIK_benchmark_data(int64_t m, int64_t n, T tol)
     {
         A     = new T[m * n]();
         U     = nullptr;
@@ -102,16 +99,12 @@ struct ABRIK_algorithm_objects {
         {}
 };
 
-// Re-generate input matrix A and its Eigen copy A_spectra.
+// Re-generate input matrix A (re-reads from file). Only needed after GESDD destroys A.
 template <typename T, typename RNG>
 static void regen_input(RandLAPACK::gen::mat_gen_info<T> m_info,
                         ABRIK_benchmark_data<T> &all_data,
                         RandBLAS::RNGState<RNG> state) {
-    using EMatrix = typename EigenTypes<T>::Matrix;
-    auto m = all_data.row;
-    auto n = all_data.col;
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
-    Eigen::Map<EMatrix>(all_data.A_spectra.data(), m, n) = Eigen::Map<const EMatrix>(all_data.A, m, n);
 }
 
 // Computes the residual norm error: sqrt(||S^{-1}AV - U||^2_F + ||(A'U)S^{-1} - V||^2_F).
@@ -119,30 +112,25 @@ static void regen_input(RandLAPACK::gen::mat_gen_info<T> m_info,
 template <typename T>
 static T
 residual_error_comp(T* A, int64_t m, int64_t n,
-                    T* U, T* V, T* Sigma, int64_t target_rank) {
-
-    T* U_cpy = new T[m * target_rank]();
-    T* V_cpy = new T[n * target_rank]();
+                    T* U, T* V, T* Sigma, int64_t target_rank,
+                    T* U_scratch, T* V_scratch) {
 
     // S^{-1}AV - U
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, target_rank, n,
-               (T)1, A, m, V, n, (T)0, U_cpy, m);
+               (T)1, A, m, V, n, (T)0, U_scratch, m);
     for (int i = 0; i < target_rank; ++i)
-        blas::scal(m, (T)1 / Sigma[i], &U_cpy[m * i], 1);
-    blas::axpy(m * target_rank, (T)-1, U, 1, U_cpy, 1);
+        blas::scal(m, (T)1 / Sigma[i], &U_scratch[m * i], 1);
+    blas::axpy(m * target_rank, (T)-1, U, 1, U_scratch, 1);
 
     // (A'U)S^{-1} - V
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, target_rank, m,
-               (T)1, A, m, U, m, (T)0, V_cpy, n);
+               (T)1, A, m, U, m, (T)0, V_scratch, n);
     for (int i = 0; i < target_rank; ++i)
-        blas::scal(n, (T)1 / Sigma[i], &V_cpy[i * n], 1);
-    blas::axpy(n * target_rank, (T)-1, V, 1, V_cpy, 1);
+        blas::scal(n, (T)1 / Sigma[i], &V_scratch[i * n], 1);
+    blas::axpy(n * target_rank, (T)-1, V, 1, V_scratch, 1);
 
-    T nrm1 = lapack::lange(Norm::Fro, m, target_rank, U_cpy, m);
-    T nrm2 = lapack::lange(Norm::Fro, n, target_rank, V_cpy, n);
-
-    delete[] U_cpy;
-    delete[] V_cpy;
+    T nrm1 = lapack::lange(Norm::Fro, m, target_rank, U_scratch, m);
+    T nrm2 = lapack::lange(Norm::Fro, n, target_rank, V_scratch, n);
 
     return std::hypot(nrm1, nrm2);
 }
@@ -179,6 +167,10 @@ static void call_all_algs(
     long dur_svds = 0;
     long dur_svd  = 0;
 
+    // Pre-allocate scratch buffers for residual_error_comp (avoid alloc/free per call).
+    T* U_scratch = new T[m * target_rank];
+    T* V_scratch = new T[n * target_rank];
+
     auto state_alg = state;
 
     T residual_err_custom_SVD   = 0;
@@ -203,7 +195,7 @@ static void call_all_algs(
         printf("TOTAL TIME FOR ABRIK %ld\n", dur_ABRIK);
 
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
-        residual_err_custom_ABRIK = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_ABRIK);
+        residual_err_custom_ABRIK = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_ABRIK, U_scratch, V_scratch);
         printf("ABRIK residual error: %.16e\n", residual_err_custom_ABRIK);
 
         // Cleanup ABRIK outputs (new[])
@@ -212,7 +204,7 @@ static void call_all_algs(
         delete[] all_data.Sigma; all_data.Sigma = nullptr;
 
         state_alg = state;
-        regen_input(m_info, all_data, state);
+        // Note: ABRIK does not modify A, so no regen_input needed.
 
         // ---- RSVD ----
         // RSVD allocates U, V, Sigma with calloc internally (via QB realloc chain).
@@ -226,7 +218,7 @@ static void call_all_algs(
         printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
 
         singular_triplets_target_RSVD = std::min(target_rank, singular_triplets_found_RSVD);
-        residual_err_custom_RSVD = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_RSVD);
+        residual_err_custom_RSVD = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_RSVD, U_scratch, V_scratch);
         printf("RSVD residual error: %.16e\n", residual_err_custom_RSVD);
 
         // Cleanup RSVD outputs (calloc)
@@ -235,19 +227,21 @@ static void call_all_algs(
         free(all_data.Sigma); all_data.Sigma = nullptr;
 
         state_alg = state;
-        regen_input(m_info, all_data, state);
+        // Note: RSVD does not modify A (QB makes internal copy), so no regen_input needed.
 
         // ---- SVDS (Spectra, budgeted) ----
         // Uses BudgetedPartialSVDSolver with fixed nev=target_rank and a
         // matvec budget derived from (b_sz, num_matmuls) for fair comparison.
         {
             int64_t nev_svds = target_rank;
-            int64_t ncv_svds = std::min(2 * nev_svds + 1, n - 1);
+            int64_t ncv_default = std::min(2 * nev_svds + 1, n - 1);
             int64_t svds_budget = b_sz * num_matmuls;
+            int64_t ncv_svds = BenchmarkUtil::effective_ncv(svds_budget, nev_svds, ncv_default);
             int64_t max_restarts = BenchmarkUtil::budget_to_restarts(svds_budget, nev_svds, ncv_svds);
 
             auto start_svds = steady_clock::now();
-            BenchmarkUtil::BudgetedPartialSVDSolver<EMatrix> svds(all_data.A_spectra, nev_svds, ncv_svds);
+            Eigen::Map<const EMatrix> A_map(all_data.A, m, n);
+            BenchmarkUtil::BudgetedPartialSVDSolver<EMatrix> svds(A_map, nev_svds, ncv_svds);
             svds.compute(max_restarts);
             auto stop_svds = steady_clock::now();
             dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
@@ -268,7 +262,7 @@ static void call_all_algs(
             Eigen::Map<EVector>(all_data.Sigma, nev_svds) = S_spectra;
 
             singular_triplets_target_SVDS = std::min(target_rank, nev_svds);
-            residual_err_custom_SVDS = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_SVDS);
+            residual_err_custom_SVDS = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_SVDS, U_scratch, V_scratch);
             printf("SVDS residual error: %.16e\n", residual_err_custom_SVDS);
 
             // Cleanup SVDS outputs (new[])
@@ -277,7 +271,7 @@ static void call_all_algs(
             delete[] all_data.Sigma; all_data.Sigma = nullptr;
 
             state_alg = state;
-            regen_input(m_info, all_data, state);
+            // Note: SVDS operates on A_spectra (const ref), does not modify A.
         }
 
         // ---- SVD (GESDD) ----
@@ -297,7 +291,7 @@ static void call_all_algs(
             regen_input(m_info, all_data, state);
             RandLAPACK::util::transposition(n, n, all_data.VT, n, all_data.V, n, 0);
 
-            residual_err_custom_SVD = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, target_rank);
+            residual_err_custom_SVD = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, target_rank, U_scratch, V_scratch);
             printf("SVD residual error: %.16e\n", residual_err_custom_SVD);
 
             // Cleanup SVD outputs (new[])
@@ -318,6 +312,9 @@ static void call_all_algs(
                 << residual_err_custom_SVD   << ", " << dur_svd   << "\n";
         outfile.flush();
     }
+
+    delete[] U_scratch;
+    delete[] V_scratch;
 }
 
 template <typename T>
@@ -378,8 +375,6 @@ static void run_benchmark(int argc, char *argv[]) {
     ABRIK_algorithm_objects<T, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
 
     // Copying input data into a Spectra (Eigen) matrix object
-    Eigen::Map<EMatrix>(all_data.A_spectra.data(), m, n) = Eigen::Map<const EMatrix>(all_data.A, m, n);
-
     printf("Finished data preparation\n");
 
     // Generate date/time prefix
@@ -418,6 +413,8 @@ static void run_benchmark(int argc, char *argv[]) {
          << "err_SVD, dur_SVD\n";
     file.flush();
 
+    auto start_total = steady_clock::now();
+
     size_t i = 0, j = 0;
     for (; i < b_sz.size(); ++i) {
         for (; j < matmuls.size(); ++j) {
@@ -425,6 +422,10 @@ static void run_benchmark(int argc, char *argv[]) {
         }
         j = 0;
     }
+
+    auto stop_total = steady_clock::now();
+    long total_us = duration_cast<microseconds>(stop_total - start_total).count();
+    printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
 }
 
 int main(int argc, char *argv[]) {

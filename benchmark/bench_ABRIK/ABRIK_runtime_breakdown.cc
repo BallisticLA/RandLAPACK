@@ -173,6 +173,8 @@ static void run_benchmark(int argc, char *argv[]) {
          << "main_loop_t, sketching_t, r_cpy_t, s_cpy_t, norm_t, t_rest, total_t\n";
     file.flush();
 
+    auto start_total = steady_clock::now();
+
     size_t i = 0, j = 0;
     for (; i < b_sz.size(); ++i) {
         for (; j < matmuls.size(); ++j) {
@@ -180,6 +182,10 @@ static void run_benchmark(int argc, char *argv[]) {
         }
         j = 0;
     }
+
+    auto stop_total = steady_clock::now();
+    long total_us = duration_cast<microseconds>(stop_total - start_total).count();
+    printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
 }
 
 int main(int argc, char *argv[]) {
