@@ -258,6 +258,20 @@ class BK {
                 T* S_i;
                 T* S_ii;
 
+                // Pre-allocation: when max_krylov_iters is known, allocate all
+                // buffers upfront to avoid per-iteration realloc + memset.
+                bool prealloc = (max_iters != INT_MAX);
+                int64_t max_X_cols = 0, max_Y_cols = 0;
+                if (prealloc) {
+                    // After max_iters iterations:
+                    //   odd iters (1,3,...) grow X_ev; even iters (2,4,...) grow Y_od
+                    //   Initial: k cols each. Each relevant iter adds k cols.
+                    int64_t n_odd  = (max_iters + 1) / 2;  // ceil(max_iters/2)
+                    int64_t n_even = max_iters / 2;
+                    max_X_cols = k * (1 + n_odd);
+                    max_Y_cols = k * (1 + n_even);
+                }
+
                 if (!resuming) {
                     // --- Fresh start: allocate output buffers and initialize state ---
                     if(this -> timing)
@@ -267,16 +281,21 @@ class BK {
                     end_rows = 0; end_cols = 0;
                     norm_R = 0;
 
-                    // Space for Y_i and Y_odd.
-                    Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
+                    if (prealloc) {
+                        // Allocate to maximum size upfront — no realloc needed in loop.
+                        Y_od  = ( T * ) calloc( n * max_Y_cols, sizeof( T ) );
+                        X_ev  = ( T * ) calloc( m * max_X_cols, sizeof( T ) );
+                        R     = ( T * ) calloc( n * max_X_cols, sizeof( T ) );
+                        S     = ( T * ) calloc( (n + k) * max_Y_cols, sizeof( T ) );
+                    } else {
+                        // Tolerance-based: start small, realloc as needed.
+                        Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
+                        X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
+                        R     = ( T * ) calloc( n * k, sizeof( T ) );
+                        S     = ( T * ) calloc( (n + k) * k, sizeof( T ) );
+                    }
                     curr_Y_cols = k;
-                    // Space for X_i and X_ev.
-                    X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
                     curr_X_cols = k;
-
-                    // R and S are band matrices stored dense; R is stored transposed.
-                    R   = ( T * ) calloc( n * k, sizeof( T ) );
-                    S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
 
                     // Initialize pointers.
                     Y_i  = Y_od;
@@ -429,9 +448,11 @@ class BK {
                             allocation_t_start  = steady_clock::now();
                         }
 
-                        // Allocate more space for X_ev
+                        // Grow X_ev buffer
                         curr_X_cols += k;
-                        X_ev = ( T * ) realloc(X_ev, m * curr_X_cols * sizeof( T ));
+                        if (!prealloc) {
+                            X_ev = ( T * ) realloc(X_ev, m * curr_X_cols * sizeof( T ));
+                        }
                         // Move the X_i pointer
                         X_i = &X_ev[m * (curr_X_cols - k)];
 
@@ -509,13 +530,14 @@ class BK {
                             break;
                         }
 
-                        // Allocate more space for R
-                        T* R_new = ( T * ) realloc(R, n * curr_X_cols * sizeof( T ));
-                        if (!R_new) return cleanup_and_fail();
-                        // Need to make sure the newly-allocated space is empty
-                        R = R_new;
-                        T* temp_r = &R[n * (curr_X_cols - k)];
-                        std::fill(temp_r, temp_r + n*k, 0.0);
+                        // Grow R buffer
+                        if (!prealloc) {
+                            T* R_new = ( T * ) realloc(R, n * curr_X_cols * sizeof( T ));
+                            if (!R_new) return cleanup_and_fail();
+                            R = R_new;
+                            T* temp_r = &R[n * (curr_X_cols - k)];
+                            std::fill(temp_r, temp_r + n*k, 0.0);
+                        }
 
                         // Advance R pointers
                         R_i = &R[(iter_ev + 1) * k];
@@ -537,9 +559,11 @@ class BK {
                             allocation_t_start  = steady_clock::now();
                         }
 
-                        // Allocate more space for Y_od
+                        // Grow Y_od buffer
                         curr_Y_cols += k;
-                        Y_od = ( T * ) realloc(Y_od, n * curr_Y_cols * sizeof( T ));
+                        if (!prealloc) {
+                            Y_od = ( T * ) realloc(Y_od, n * curr_Y_cols * sizeof( T ));
+                        }
                         // Move the Y_i pointer
                         Y_i = &Y_od[n * (curr_Y_cols - k)];
 
@@ -618,13 +642,14 @@ class BK {
                             allocation_t_start  = steady_clock::now();
                         }
 
-                        // Allocate more space for S
-                        T* S_new = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
-                        if (!S_new) return cleanup_and_fail();
-                        // Need to make sure the newly-allocated space is empty
-                        S = S_new;
-                        T* temp_s = &S[(n + k)* (curr_Y_cols - k)];
-                        std::fill(temp_s, temp_s + (n + k) * k, 0.0);
+                        // Grow S buffer
+                        if (!prealloc) {
+                            T* S_new = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
+                            if (!S_new) return cleanup_and_fail();
+                            S = S_new;
+                            T* temp_s = &S[(n + k)* (curr_Y_cols - k)];
+                            std::fill(temp_s, temp_s + (n + k) * k, 0.0);
+                        }
 
                         // Advance S pointers
                         S_i  = &S[(n + k) * k * iter_od];

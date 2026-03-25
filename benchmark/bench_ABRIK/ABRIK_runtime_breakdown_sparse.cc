@@ -148,25 +148,25 @@ static void call_all_algs(
 template <typename T>
 static void run_benchmark(int argc, char *argv[]) {
 
-    if (argc < 8) {
-        std::cerr << "Usage: " << argv[0] << " <precision> <output_directory_path> <input_matrix_path> <num_runs> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+    if (argc < 9) {
+        std::cerr << "Usage: " << argv[0] << " <precision> <output_directory_path> <input_matrix_path> <num_runs> <custom_rank> <submatrix_dim_ratio> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
         return;
     }
 
-    T submatrix_dim_ratio = (T)0.5;
+    int num_runs              = std::stol(argv[4]);
+    int64_t custom_rank       = std::stol(argv[5]);
+    T submatrix_dim_ratio     = (T)std::stod(argv[6]);
 
-    int num_runs        = std::stol(argv[4]);
-    int64_t custom_rank = std::stol(argv[5]);
     std::vector<int64_t> b_sz;
-    for (int i = 0; i < std::stol(argv[6]); ++i)
-        b_sz.push_back(std::stoi(argv[i + 8]));
+    for (int i = 0; i < std::stol(argv[7]); ++i)
+        b_sz.push_back(std::stoi(argv[i + 9]));
     std::ostringstream oss1;
     for (const auto &val : b_sz)
         oss1 << val << ", ";
     std::string b_sz_string = oss1.str();
     std::vector<int64_t> matmuls;
-    for (int i = 0; i < std::stol(argv[7]); ++i)
-        matmuls.push_back(std::stoi(argv[i + 8 + std::stol(argv[6])]));
+    for (int i = 0; i < std::stol(argv[8]); ++i)
+        matmuls.push_back(std::stoi(argv[i + 9 + std::stol(argv[7])]));
     std::ostringstream oss2;
     for (const auto &val : matmuls)
         oss2 << val << ", ";
@@ -240,7 +240,7 @@ static void run_benchmark(int argc, char *argv[]) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <precision: double|float> <output_directory_path> <input_matrix_path> <num_runs> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <precision: double|float> <output_directory_path> <input_matrix_path> <num_runs> <custom_rank> <submatrix_dim_ratio> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
         return 1;
     }
 
