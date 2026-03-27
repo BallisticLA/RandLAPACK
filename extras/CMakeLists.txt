@@ -54,6 +54,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(eigen_lib)
 
+# Spectra - Sparse eigenvalue solver (for BudgetedPartialSVDSolver)
+message(STATUS "Fetching Spectra library...")
+FetchContent_Declare(
+    spectra_lib
+    GIT_REPOSITORY https://github.com/yixuan/spectra/
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(spectra_lib)
+target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
+
 # fast_matrix_market - Matrix file I/O
 message(STATUS "Fetching fast_matrix_market library...")
 FetchContent_Declare(

@@ -105,6 +105,9 @@ FetchContent_MakeAvailable(
     fast_matrix_market
 )
 
+# Extras headers (for ext_budgeted_svd_solver.hh etc.)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../extras/misc)
+
 set(
     Benchmark_libs
     RandLAPACK::RandLAPACK
