@@ -159,16 +159,15 @@ int QB<T, RNG>::call(
     BT = ( T * ) calloc(n * b_sz, sizeof( T ) );
     // Allocate buffers
     T* QtQi  = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
-    T* A_cpy = ( T * ) calloc( m * n,       sizeof( T ) );
     // Declate pointers to the iteration buffers.
     T* Q_i;
     T* BT_i;
 
-    // pre-compute nrom
+    // pre-compute norm
     T norm_A = lapack::lange(Norm::Fro, m, n, A, m);
 
-    // Copy the initial data to avoid unwanted modification
-    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    // NOTE: A is modified in-place by the deflation step (A = A - Q_i * B_i).
+    // Callers who need to preserve A must make their own copy before calling QB.
 
     while(curr_sz < k) {
         // Dynamically changing block size.
@@ -188,10 +187,9 @@ int QB<T, RNG>::call(
         BT_i = &BT[n * curr_sz];
 
         // Calling RangeFinder
-        if(this->rf.call(m, n, A_cpy, b_sz, Q_i, state)) {
+        if(this->rf.call(m, n, A, b_sz, Q_i, state)) {
             // RF failed
             k = curr_sz;
-            free(A_cpy);
             free(QtQi);
             return 6;
         }
@@ -200,7 +198,6 @@ int QB<T, RNG>::call(
             if (util::orthogonality_check(m, b_sz, Q_i, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
-                free(A_cpy);
                 free(QtQi);
                 return 4;
             }
@@ -215,7 +212,7 @@ int QB<T, RNG>::call(
         }
 
         //B_i' = A' * Q_i'
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, A_cpy, m, Q_i, m, 0.0, BT_i, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, A, m, Q_i, m, 0.0, BT_i, n);
 
         // Updating B norm estimation
         T norm_B_i = lapack::lange(Norm::Fro, n, b_sz, BT_i, n);
@@ -228,7 +225,6 @@ int QB<T, RNG>::call(
         if ((curr_sz > 0) && (approx_err > prev_err)) {
             // Early termination - error has grown.
             k = curr_sz;
-            free(A_cpy);
             free(QtQi);
             return 2;
         }
@@ -237,7 +233,6 @@ int QB<T, RNG>::call(
             if (util::orthogonality_check(m, next_sz, Q, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
-                free(A_cpy);
                 free(QtQi);
                 return 5;
             }
@@ -250,17 +245,15 @@ int QB<T, RNG>::call(
         if (approx_err < tol) {
             // Reached the required error tol
             k = curr_sz;
-            free(A_cpy);
             free(QtQi);
             return 0;
         }
 
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A_cpy, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A, m);
     }
 
-    free(A_cpy);
     free(QtQi);
 
     // Reached expected rank without achieving the tolerance

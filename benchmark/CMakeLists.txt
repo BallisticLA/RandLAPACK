@@ -75,7 +75,7 @@ include(FetchContent)
 FetchContent_Declare(
         eigen_lib
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-        GIT_TAG master
+        GIT_TAG 3.4.1
         GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(eigen_lib)
@@ -164,6 +164,7 @@ add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_
 add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_accuracy_analysis        CXX_SOURCES bench_ABRIK/ABRIK_accuracy_analysis.cc        LINK_LIBS ${Benchmark_libs})
 
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)
