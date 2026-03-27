@@ -10,6 +10,9 @@
 #include "RandLAPACK/misc/rl_util.hh"
 #include "RandLAPACK/misc/rl_pdkernels.hh"
 
+// utilities
+#include "RandLAPACK/util/rl_util_linop.hh"
+
 // linear operator infrastructure
 #include "RandLAPACK/linops/rl_linops.hh"
 
@@ -20,6 +23,7 @@
 // Computational routines
 #include "RandLAPACK/comps/rl_determiter.hh"
 #include "RandLAPACK/comps/rl_preconditioners.hh"
+#include "RandLAPACK/comps/rl_bk.hh"
 #include "RandLAPACK/comps/rl_qb.hh"
 #include "RandLAPACK/comps/rl_rf.hh"
 #include "RandLAPACK/comps/rl_rs.hh"
