@@ -10,11 +10,9 @@
 #include "RandLAPACK/misc/rl_util.hh"
 #include "RandLAPACK/misc/rl_pdkernels.hh"
 
-// utilities
-#include "RandLAPACK/util/rl_util_linop.hh"
-
 // linear operator infrastructure
 #include "RandLAPACK/linops/rl_linops.hh"
+#include "RandLAPACK/linops/rl_svd_residual.hh"
 
 // testing utilities (used by benchmarks, so included in umbrella header)
 #include "RandLAPACK/testing/rl_gen.hh"

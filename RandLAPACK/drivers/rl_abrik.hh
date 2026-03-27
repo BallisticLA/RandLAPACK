@@ -5,7 +5,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
-#include "rl_util_linop.hh"
+#include "rl_svd_residual.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>

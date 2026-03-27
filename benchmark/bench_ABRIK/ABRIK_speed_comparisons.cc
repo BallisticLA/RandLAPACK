@@ -27,7 +27,7 @@ Timings in microseconds.
 // External libs includes
 #include <Eigen/Dense>
 #include <Spectra/contrib/PartialSVDSolver.h>
-#include "BudgetedSVDSolver.hh"
+#include "ext_budgeted_svd_solver.hh"
 
 // Traits struct mapping scalar type T to Eigen matrix/vector types.
 template <typename T> struct EigenTypes;

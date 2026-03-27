@@ -31,7 +31,7 @@ Timings in microseconds.
 #include <Eigen/Sparse>
 #include <Eigen/SparseCore>
 #include <Spectra/contrib/PartialSVDSolver.h>
-#include "BudgetedSVDSolver.hh"
+#include "ext_budgeted_svd_solver.hh"
 
 // Traits struct mapping scalar type T to Eigen matrix/vector/sparse types.
 template <typename T> struct EigenTypes;
