@@ -319,7 +319,34 @@ class BK {
                     curr_X_cols = (1 + iter_ev) * k;
                     curr_Y_cols = iter_od * k;
 
-                    // Reconstruct pointers into existing buffers.
+                    // Grow buffers if the new max_krylov_iters requires more space
+                    // than was allocated in the previous call.
+                    if (prealloc) {
+                        if (max_X_cols > curr_X_cols) {
+                            X_ev = ( T * ) realloc(X_ev, m * max_X_cols * sizeof( T ));
+                            R    = ( T * ) realloc(R,    n * max_X_cols * sizeof( T ));
+                            if (!X_ev || !R) {
+                                free(X_ev); free(Y_od); free(R); free(S);
+                                X_ev = nullptr; Y_od = nullptr; R = nullptr; S = nullptr;
+                                return -1;
+                            }
+                            std::fill(&X_ev[m * curr_X_cols], &X_ev[m * max_X_cols], T(0));
+                            std::fill(&R[n * curr_X_cols],    &R[n * max_X_cols],    T(0));
+                        }
+                        if (max_Y_cols > curr_Y_cols) {
+                            Y_od = ( T * ) realloc(Y_od, n * max_Y_cols * sizeof( T ));
+                            S    = ( T * ) realloc(S,    (n + k) * max_Y_cols * sizeof( T ));
+                            if (!Y_od || !S) {
+                                free(X_ev); free(Y_od); free(R); free(S);
+                                X_ev = nullptr; Y_od = nullptr; R = nullptr; S = nullptr;
+                                return -1;
+                            }
+                            std::fill(&Y_od[n * curr_Y_cols],       &Y_od[n * max_Y_cols],       T(0));
+                            std::fill(&S[(n + k) * curr_Y_cols], &S[(n + k) * max_Y_cols], T(0));
+                        }
+                    }
+
+                    // Reconstruct pointers into (potentially reallocated) buffers.
                     X_i  = &X_ev[m * (curr_X_cols - k)];
                     Y_i  = &Y_od[n * (curr_Y_cols - k)];
                     R_i  = &R[iter_ev * k];
