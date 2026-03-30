@@ -83,18 +83,19 @@ FetchContent_MakeAvailable(eigen_lib)
 install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Eigen3)
 
 # SPECTRA dependency
+# Spectra is header-only. We download the source and create an interface target
+# manually, bypassing Spectra's own CMakeLists.txt which has install(EXPORT)
+# rules that conflict with FetchContent'd Eigen.
 FetchContent_Declare(
         spectra_lib
         GIT_REPOSITORY https://github.com/yixuan/spectra/
         GIT_TAG master
         GIT_SHALLOW TRUE
+        SOURCE_SUBDIR _disable_
 )
-FetchContent_GetProperties(spectra_lib)
-if(NOT spectra_lib_POPULATED)
-    FetchContent_Populate(spectra_lib)
-    add_subdirectory(${spectra_lib_SOURCE_DIR} ${spectra_lib_BINARY_DIR} EXCLUDE_FROM_ALL)
-endif()
-# Linking Spectra and Eigen.
+FetchContent_MakeAvailable(spectra_lib)
+add_library(Spectra INTERFACE)
+target_include_directories(Spectra INTERFACE ${spectra_lib_SOURCE_DIR}/include)
 target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
 
 # Adding fast matri matrket for benchmarking matrices examples
