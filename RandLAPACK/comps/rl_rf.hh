@@ -136,4 +136,41 @@ int RF<T, RNG>::call(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+// LinOp-templated RF: identical logic but uses A_op(...) instead of blas::gemm.
+template <typename T, typename RNG, linops::LinearOperator LinOp>
+int rf_linop(
+    RF<T, RNG>& rf_obj,
+    LinOp& A_op,
+    int64_t k,
+    T* Q,
+    RandBLAS::RNGState<RNG> &state
+){
+    int64_t m = A_op.n_rows;
+    int64_t n = A_op.n_cols;
+
+    T* Omega = new T[n * k]();
+
+    // Use the RS LinOp path — cast rs to concrete RS type
+    auto& rs_concrete = static_cast<RS<T, RNG>&>(rf_obj.rs);
+    if (rs_linop(rs_concrete, A_op, k, Omega, state)) {
+        delete[] Omega;
+        return 1;
+    }
+
+    // Q = orth(A * Omega)
+    A_op(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Omega, n, 0.0, Q, m);
+
+    if (rf_obj.cond_check)
+        rf_obj.cond_nums.push_back(util::cond_num_check(m, k, Q, rf_obj.verbose));
+
+    if (rf_obj.orth.call(m, k, Q)) {
+        delete[] Omega;
+        return 2;
+    }
+
+    delete[] Omega;
+    return 0;
+}
+
 } // end namespace RandLAPACK
