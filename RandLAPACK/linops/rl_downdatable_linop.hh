@@ -25,6 +25,10 @@ struct DowndatableLinOp {
     const int64_t n_rows;
     const int64_t n_cols;
 
+    // Non-copyable (owns raw buffers)
+    DowndatableLinOp(const DowndatableLinOp&) = delete;
+    DowndatableLinOp& operator=(const DowndatableLinOp&) = delete;
+
     BaseLinOp& base_op;     // The underlying A operator (read-only)
 
     // Deflation data: the operator represents base_op - Q * BT^T.
