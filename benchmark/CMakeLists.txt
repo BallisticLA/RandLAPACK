@@ -89,7 +89,11 @@ FetchContent_Declare(
         GIT_TAG master
         GIT_SHALLOW TRUE
 )
-FetchContent_MakeAvailable(spectra_lib)
+FetchContent_GetProperties(spectra_lib)
+if(NOT spectra_lib_POPULATED)
+    FetchContent_Populate(spectra_lib)
+    add_subdirectory(${spectra_lib_SOURCE_DIR} ${spectra_lib_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
 # Linking Spectra and Eigen.
 target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
 
