@@ -168,10 +168,8 @@ add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_li
 add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 
 # ABRIK benchmarks
-add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_accuracy_analysis        CXX_SOURCES bench_ABRIK/ABRIK_accuracy_analysis.cc        LINK_LIBS ${Benchmark_libs})
 
 # GPU benchmarks (if CUDA is available)
