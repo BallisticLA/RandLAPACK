@@ -23,7 +23,7 @@ Usage:
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
-#include "bench_matrix_io.hh"
+#include "ext_matrix_io.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>

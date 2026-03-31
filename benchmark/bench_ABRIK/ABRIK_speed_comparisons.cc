@@ -25,7 +25,7 @@ GESDD is skipped for sparse input regardless of the run_gesdd flag.
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
 #include "rl_svd_residual.hh"
-#include "bench_matrix_io.hh"
+#include "ext_matrix_io.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
