@@ -1,7 +1,9 @@
 /*
-ABRIK runtime breakdown benchmark - assesses the time taken by each subcomponent of ABRIK.
+Unified ABRIK runtime breakdown benchmark — assesses the time taken by each
+subcomponent of ABRIK on dense or sparse input matrices (Matrix Market format).
+
 Precision (float or double) is specified as the first CLI argument.
-Records all data, not just the best.
+Records all runs (not just the best).
 
 Output: CSV file with '#'-prefixed metadata header, column names, then data rows.
 ABRIK allocates U/V/Sigma with new[] internally -> cleanup with delete[].
@@ -10,197 +12,166 @@ Subroutine timings (microseconds):
   1. Allocation/free  2. SVD factors  3. UNGQR  4. Reorthogonalization
   5. QR  6. GEMM A  7. Main loop  8. Sketching
   9. R_ii copy  10. S_ii copy  11. Norm R  12. Rest  13. Total
+
+Usage:
+  ABRIK_runtime_breakdown <precision> <output_dir> <input.mtx>
+                          <num_runs> <num_block_sizes> <num_matmul_sizes>
+                          <block_sizes...> <matmul_sizes...>
 */
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
-#include "rl_gen.hh"
+#include "rl_linops.hh"
+#include "bench_matrix_io.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
 #include <ctime>
+#include <string>
+#include <vector>
 
 using Subroutines = RandLAPACK::ABRIKSubroutines;
 
-template <typename T>
-struct ABRIK_benchmark_data {
-    int64_t row;
-    int64_t col;
-    T tolerance;
-    T* A;
-    T* U;
-    T* V;
-    T* Sigma;
-
-    ABRIK_benchmark_data(int64_t m, int64_t n, T tol)
-    {
-        row       = m;
-        col       = n;
-        tolerance = tol;
-        A         = new T[m * n]();
-        U         = nullptr;
-        V         = nullptr;
-        Sigma     = nullptr;
-    }
-
-    ~ABRIK_benchmark_data() {
-        delete[] A;
-    }
-};
-
-template <typename T, typename RNG>
-static void call_all_algs(
+// Core benchmark loop — templated on LinOp type.
+template <typename T, typename RNG, RandLAPACK::linops::LinearOperator LinOp>
+static void run_all_configs(
+    LinOp& A_op,
     int64_t num_runs,
-    int64_t k,
-    int64_t num_matmuls,
-    ABRIK_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state,
-    std::ofstream &outfile) {
+    bool use_cqrrt,
+    std::vector<int64_t>& block_sizes,
+    std::vector<int64_t>& matmul_counts,
+    RandBLAS::RNGState<RNG>& state,
+    std::ofstream& outfile)
+{
+    T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
+    RandLAPACK::ABRIK<T, RNG> ABRIK(false, true, tol);  // timing enabled
+    if (use_cqrrt)
+        ABRIK.qr_exp = Subroutines::QR_explicit::cqrrt;
 
-    auto m   = all_data.row;
-    auto n   = all_data.col;
-    auto tol = all_data.tolerance;
-    bool time_subroutines = true;
+    T* U = nullptr;
+    T* V = nullptr;
+    T* Sigma = nullptr;
 
-    // Additional params setup.
-    RandLAPACK::ABRIK<T, r123::Philox4x32> ABRIK(false, time_subroutines, tol);
-    ABRIK.max_krylov_iters = num_matmuls;
+    for (auto b_sz : block_sizes) {
+        for (auto num_matmuls : matmul_counts) {
+            ABRIK.max_krylov_iters = (int) num_matmuls;
 
-    auto state_alg = state;
-    std::vector<long> inner_timing;
+            for (int run = 0; run < num_runs; ++run) {
+                printf("\nBlock size %ld, num matmuls %ld. Run %d.\n", b_sz, num_matmuls, run);
 
-    for (int i = 0; i < num_runs; ++i) {
-        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
-        ABRIK.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
+                auto state_alg = state;
+                ABRIK.call(A_op, b_sz, U, V, Sigma, state_alg);
 
-        // Write CSV data row: b_sz, num_matmuls, then timing columns
-        outfile << k << ", " << num_matmuls;
-        for (const auto &t : ABRIK.times)
-            outfile << ", " << t;
-        outfile << "\n";
-        outfile.flush();
+                // Write CSV row: b_sz, num_matmuls, then 13 timing columns
+                outfile << b_sz << ", " << num_matmuls;
+                for (const auto &t : ABRIK.times)
+                    outfile << ", " << t;
+                outfile << "\n";
+                outfile.flush();
 
-        // Cleanup ABRIK outputs (new[])
-        delete[] all_data.U;     all_data.U     = nullptr;
-        delete[] all_data.V;     all_data.V     = nullptr;
-        delete[] all_data.Sigma; all_data.Sigma = nullptr;
-
-        state_alg = state;
+                delete[] U;     U     = nullptr;
+                delete[] V;     V     = nullptr;
+                delete[] Sigma; Sigma = nullptr;
+            }
+        }
     }
 }
 
 template <typename T>
 static void run_benchmark(int argc, char *argv[]) {
-
-    if (argc < 12) {
-        std::cerr << "Usage: " << argv[0] << " <precision> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+    if (argc < 7) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision> <output_dir> <input.mtx>"
+                  << " <num_runs> <num_block_sizes> <num_matmul_sizes>"
+                  << " <block_sizes...> <matmul_sizes...>"
+                  << std::endl;
         return;
     }
 
-    int num_runs        = std::stol(argv[4]);
-    int64_t m_expected  = std::stol(argv[5]);
-    int64_t n_expected  = std::stol(argv[6]);
-    int64_t custom_rank = std::stol(argv[7]);
-    std::vector<int64_t> b_sz;
-    for (int i = 0; i < std::stol(argv[8]); ++i)
-        b_sz.push_back(std::stoi(argv[i + 10]));
-    std::ostringstream oss1;
-    for (const auto &val : b_sz)
-        oss1 << val << ", ";
-    std::string b_sz_string = oss1.str();
-    std::vector<int64_t> matmuls;
-    for (int i = 0; i < std::stol(argv[9]); ++i)
-        matmuls.push_back(std::stoi(argv[i + 10 + std::stol(argv[8])]));
-    std::ostringstream oss2;
-    for (const auto &val : matmuls)
-        oss2 << val << ", ";
-    std::string matmuls_string = oss2.str();
-    T tol               = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
-    auto state          = RandBLAS::RNGState();
-    auto state_constant = state;
-    int64_t m = 0, n = 0;
+    std::string output_dir = argv[2];
+    std::string input_path = argv[3];
+    int num_runs           = std::stoi(argv[4]);
+    int num_b_sz           = std::stoi(argv[5]);
+    int num_mm             = std::stoi(argv[6]);
 
-    // Generate the input matrix.
-    RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[3];
-    m_info.workspace_query_mod = 1;
-    RandLAPACK::gen::mat_gen<T>(m_info, NULL, state);
+    std::vector<int64_t> block_sizes, matmul_counts;
+    for (int i = 0; i < num_b_sz; ++i)
+        block_sizes.push_back(std::stol(argv[7 + i]));
+    for (int i = 0; i < num_mm; ++i)
+        matmul_counts.push_back(std::stol(argv[7 + num_b_sz + i]));
 
-    // Update basic params.
-    m = m_info.rows;
-    n = m_info.cols;
-    if (m_expected != m || n_expected != n) {
-        std::cerr << "Expected input size (" << m_expected << ", " << n_expected << ") did not match actual input size (" << m << ", " << n << "). Aborting." << std::endl;
-        return;
-    }
+    // Optional trailing args: [sub_ratio] [use_cqrrt]
+    int args_consumed = 7 + num_b_sz + num_mm;
+    double sub_ratio = (argc > args_consumed) ? std::stod(argv[args_consumed]) : 1.0;
+    bool cli_cqrrt = (argc > args_consumed + 1) ? (std::stoi(argv[args_consumed + 1]) != 0) : false;
 
-    // Allocate basic workspace.
-    ABRIK_benchmark_data<T> all_data(m, n, tol);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
+    auto state = RandBLAS::RNGState();
 
-    printf("Finished data preparation\n");
+    // --- Load matrix (auto-detects .mtx vs .txt) ---
+    auto mat = BenchIO::load_matrix<T>(input_path, sub_ratio);
+    int64_t m = mat.m;
+    int64_t n = mat.n;
 
-    // Generate date/time prefix
+    // --- Open output CSV ---
     std::time_t now = std::time(nullptr);
     char date_prefix[20];
     std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
 
-    // Build output file path
-    std::string output_filename = std::string(date_prefix) + "ABRIK_runtime_breakdown.csv";
-    std::string path;
-    if (std::string(argv[2]) != ".") {
-        path = std::string(argv[2]) + "/" + output_filename;
+    std::string out_filename = std::string(date_prefix) + "ABRIK_runtime_breakdown.csv";
+    std::string out_path = (output_dir != ".") ? output_dir + "/" + out_filename : out_filename;
+    std::ofstream outfile(out_path);
+
+    std::ostringstream oss_b, oss_m;
+    for (auto v : block_sizes) oss_b << v << ", ";
+    for (auto v : matmul_counts) oss_m << v << ", ";
+
+    outfile << "# ABRIK Runtime Breakdown Benchmark (unified dense/sparse)\n"
+            << "# Precision: " << argv[1] << "\n"
+            << "# Input matrix: " << input_path << "\n"
+            << "# Input size: " << m << " x " << n << "\n"
+            << "# Format: " << (mat.is_sparse ? "sparse" : "dense") << "\n"
+            << "# Block sizes: " << oss_b.str() << "\n"
+            << "# Matmul counts: " << oss_m.str() << "\n"
+            << "# Runs per configuration: " << num_runs << "\n"
+            << "# Tolerance: " << tol << "\n"
+            << "# Timings in microseconds\n";
+    outfile << "b_sz, num_matmuls, "
+            << "allocation_t, get_factors_t, ungqr_t, reorth_t, qr_t, gemm_A_t, "
+            << "main_loop_t, sketching_t, r_cpy_t, s_cpy_t, norm_t, t_rest, total_t\n";
+    outfile.flush();
+
+    auto t_total = steady_clock::now();
+
+    if (mat.is_sparse) {
+        RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<T>>
+            A_op(m, n, *mat.csc);
+        run_all_configs<T>(A_op, num_runs, cli_cqrrt, block_sizes, matmul_counts, state, outfile);
     } else {
-        path = output_filename;
-    }
-    std::ofstream file(path, std::ios::out | std::ios::app);
-
-    // Write metadata header (prefixed with # for easy parsing)
-    file << "# ABRIK Runtime Breakdown Benchmark\n"
-         << "# Precision: " << argv[1] << "\n"
-         << "# Input matrix: " << argv[3] << "\n"
-         << "# Input size: " << m << " x " << n << "\n"
-         << "# Target rank: " << custom_rank << "\n"
-         << "# Krylov block sizes: " << b_sz_string << "\n"
-         << "# Matmul counts: " << matmuls_string << "\n"
-         << "# Runs per configuration: " << num_runs << "\n"
-         << "# Tolerance: " << tol << "\n"
-         << "# Timings in microseconds\n";
-    // Write CSV column header
-    file << "b_sz, num_matmuls, "
-         << "allocation_t, get_factors_t, ungqr_t, reorth_t, qr_t, gemm_A_t, "
-         << "main_loop_t, sketching_t, r_cpy_t, s_cpy_t, norm_t, t_rest, total_t\n";
-    file.flush();
-
-    auto start_total = steady_clock::now();
-
-    size_t i = 0, j = 0;
-    for (; i < b_sz.size(); ++i) {
-        for (; j < matmuls.size(); ++j) {
-            call_all_algs(num_runs, b_sz[i], matmuls[j], all_data, state_constant, file);
-        }
-        j = 0;
+        RandLAPACK::linops::DenseLinOp<T> A_op(m, n, mat.data(), m, Layout::ColMajor);
+        run_all_configs<T>(A_op, num_runs, cli_cqrrt, block_sizes, matmul_counts, state, outfile);
     }
 
-    auto stop_total = steady_clock::now();
-    long total_us = duration_cast<microseconds>(stop_total - start_total).count();
+    long total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
     printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
+    printf("Results: %s\n", out_path.c_str());
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <precision: double|float> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <custom_rank> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision: double|float> <output_dir> <input.mtx>"
+                  << " <num_runs> <num_block_sizes> <num_matmul_sizes>"
+                  << " <block_sizes...> <matmul_sizes...>"
+                  << std::endl;
         return 1;
     }
-
     std::string precision = argv[1];
-    if (precision == "double") {
-        run_benchmark<double>(argc, argv);
-    } else if (precision == "float") {
-        run_benchmark<float>(argc, argv);
-    } else {
-        std::cerr << "Error: precision must be 'double' or 'float', got '" << precision << "'" << std::endl;
+    if (precision == "double")     run_benchmark<double>(argc, argv);
+    else if (precision == "float") run_benchmark<float>(argc, argv);
+    else {
+        std::cerr << "Error: precision must be 'double' or 'float'" << std::endl;
         return 1;
     }
     return 0;

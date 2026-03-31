@@ -2,6 +2,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_matrix_io.hh"
 
 #include <RandBLAS.hh>
 #include <iostream>
@@ -434,89 +435,8 @@ void gen_kahan_mat(
     delete[] C;
 }
 
-/// Reads a matrix from a file
-template <typename T>
-void process_input_mat(
-    int64_t &m,
-    int64_t &n,
-    T* A,
-    char* filename,
-    int& workspace_query_mod
-) {
-    // We only check the size of the input data.
-    if (workspace_query_mod) {
-        std::string line;
-        std::string line_entry;
-
-        // Read input file
-        std::ifstream inputMat(filename);
-
-        // Count numcols.
-        std::getline(inputMat, line);
-        std::istringstream lineStream(line);
-        while (lineStream >> line_entry)
-            ++n;
-
-        // Count numrows - already got through row 1.
-        ++m;
-        while (std::getline(inputMat, line))
-            ++m;
-
-        // Exit querying mod.
-        workspace_query_mod = 0;
-    } else {
-        // Fast matrix read: slurp file into memory, locate row boundaries,
-        // then parse rows in parallel with strtod + OpenMP.
-        //
-        // Why not use ifstream >> ?
-        //   C++ formatted stream extraction (operator>>) is extremely slow for
-        //   large matrices — parsing 100M doubles takes ~30s. This approach:
-        //     1. fread the entire file into a char buffer  (~2s for 800MB, I/O-bound)
-        //     2. Scan for newlines to find row boundaries   (~0.1s, memory-bandwidth)
-        //     3. Parse each row independently via strtod    (~1s with OpenMP)
-        //   Total: ~3s vs ~30s — roughly 10x faster.
-        //
-        // Note: input file is row-major text (whitespace-separated doubles,
-        // one row per line). We store in column-major: A[m * col + row].
-
-        // Step 1: Read entire file into memory.
-        FILE* fp = std::fopen(filename, "r");
-        if (!fp)
-            throw std::runtime_error(std::string("Cannot open file: ") + filename);
-        std::fseek(fp, 0, SEEK_END);
-        long file_size = std::ftell(fp);
-        std::fseek(fp, 0, SEEK_SET);
-
-        std::vector<char> buf(file_size + 1);
-        size_t bytes_read = std::fread(buf.data(), 1, file_size, fp);
-        (void) bytes_read;
-        buf[file_size] = '\0';
-        std::fclose(fp);
-
-        // Step 2: Find the starting byte offset of each row.
-        std::vector<char*> row_starts(m);
-        row_starts[0] = buf.data();
-        int64_t row_idx = 1;
-        for (long pos = 0; pos < file_size && row_idx < m; ++pos) {
-            if (buf[pos] == '\n') {
-                row_starts[row_idx++] = buf.data() + pos + 1;
-            }
-        }
-
-        // Step 3: Parse each row in parallel.
-        // strtod is thread-safe (no shared state). Each thread handles a
-        // contiguous block of rows and writes to non-overlapping columns of A.
-        #pragma omp parallel for schedule(static)
-        for (int64_t j = 0; j < m; ++j) {
-            char* ptr = row_starts[j];
-            char* end;
-            for (int64_t i = 0; i < n; ++i) {
-                A[m * i + j] = (T) std::strtod(ptr, &end);
-                ptr = end;
-            }
-        }
-    }
-}
+// process_input_mat has been removed. Use RandLAPACK::gen::read_txt_matrix
+// from rl_matrix_io.hh directly.
 
 /// Generate a random dense matrix with specified layout.
 /// For simple random matrices without spectral structure.
@@ -799,8 +719,9 @@ void mat_gen(
             }
             break;
         case custom_input: {
-                // Generates Kahan Matrix
-                RandLAPACK::gen::process_input_mat(info.rows, info.cols, A, info.filename, info.workspace_query_mod);
+                bool query = (info.workspace_query_mod != 0);
+                RandLAPACK::gen::read_txt_matrix(info.rows, info.cols, A, info.filename, query);
+                if (query) info.workspace_query_mod = 0;
             }
             break;
         default:

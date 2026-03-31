@@ -1,22 +1,31 @@
 /*
-ABRIK speed comparison benchmark - runs ABRIK, RSVD, SVDS (Spectra), and optionally full SVD (GESDD).
-Precision (float or double) is specified as the first CLI argument.
-The user provides a matrix file, numbers of Krylov iterations, block sizes, and a target rank.
+Unified ABRIK speed comparison benchmark.
+Reads input from .mtx (Matrix Market) or .txt (whitespace-delimited) files.
+Runs ABRIK, RSVD, SVDS (Spectra), and optionally GESDD (dense only).
 
-Output: CSV file with '#'-prefixed metadata header, column names, then data rows.
-Each algorithm section manages its own output allocation/deallocation:
-  - ABRIK allocates with new[] internally   -> cleanup with delete[]
-  - RSVD  allocates with calloc internally  -> cleanup with free()
-  - SVDS/SVD are allocated by the benchmark -> cleanup with delete[]
+All algorithms use the LinearOperator abstraction:
+  - ABRIK and RSVD operate through LinOp (no matrix copy needed)
+  - SVDS uses Eigen (dense Map or sparse matrix natively)
+  - GESDD requires dense buffer (dense input only)
+  - Residuals computed through LinOp (no materialization)
 
 Residual metric: sqrt(||S^{-1}AV - U||^2_F + ||(A'U)S^{-1} - V||^2_F).
 Timings in microseconds.
+
+Usage:
+  ABRIK_speed_comparisons <precision> <output_dir> <input_file> <target_rank> <run_gesdd>
+                          <num_block_sizes> <num_matmul_sizes> <block_sizes...> <matmul_sizes...>
+
+Input file: .mtx (Matrix Market, dense or sparse) or .txt (whitespace-delimited dense).
+GESDD is skipped for sparse input regardless of the run_gesdd flag.
 */
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
-#include "rl_gen.hh"
+#include "rl_linops.hh"
+#include "rl_svd_residual.hh"
+#include "bench_matrix_io.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -24,51 +33,28 @@ Timings in microseconds.
 #include <ctime>
 #include <string>
 
-// External libs includes
+// External libs
 #include <Eigen/Dense>
+#include <Eigen/SparseCore>
 #include <Spectra/contrib/PartialSVDSolver.h>
 #include "ext_budgeted_svd_solver.hh"
 
-// Traits struct mapping scalar type T to Eigen matrix/vector types.
+// Eigen type traits
 template <typename T> struct EigenTypes;
 template <> struct EigenTypes<double> {
-    using Matrix = Eigen::MatrixXd;
-    using Vector = Eigen::VectorXd;
+    using Matrix   = Eigen::MatrixXd;
+    using Vector   = Eigen::VectorXd;
+    using SpMatrix = Eigen::SparseMatrix<double>;
 };
 template <> struct EigenTypes<float> {
-    using Matrix = Eigen::MatrixXf;
-    using Vector = Eigen::VectorXf;
+    using Matrix   = Eigen::MatrixXf;
+    using Vector   = Eigen::VectorXf;
+    using SpMatrix = Eigen::SparseMatrix<float>;
 };
 
-template <typename T>
-struct ABRIK_benchmark_data {
-    int64_t row;
-    int64_t col;
-    T tolerance;
-    T* A;
-    T* U;
-    T* VT;
-    T* V;
-    T* Sigma;
-    ABRIK_benchmark_data(int64_t m, int64_t n, T tol)
-    {
-        A     = new T[m * n]();
-        U     = nullptr;
-        VT    = nullptr;
-        V     = nullptr;
-        Sigma = nullptr;
-        row   = m;
-        col   = n;
-        tolerance = tol;
-    }
-
-    ~ABRIK_benchmark_data() {
-        delete[] A;
-    }
-};
-
+// Algorithm objects bundle
 template <typename T, typename RNG>
-struct ABRIK_algorithm_objects {
+struct AlgorithmObjects {
     RandLAPACK::PLUL<T> Stab;
     RandLAPACK::RS<T, RNG> RS;
     RandLAPACK::CholQRQ<T> Orth_RF;
@@ -78,374 +64,285 @@ struct ABRIK_algorithm_objects {
     RandLAPACK::RSVD<T, RNG> RSVD;
     RandLAPACK::ABRIK<T, RNG> ABRIK;
 
-    ABRIK_algorithm_objects(
-        bool verbosity,
-        bool cond_check,
-        bool orth_check,
-        bool time_subroutines,
-        int64_t p,
-        int64_t passes_per_iteration,
-        int64_t block_sz,
-        T tol
-    ) :
-        Stab(cond_check, verbosity),
-        RS(Stab, p, passes_per_iteration, verbosity, cond_check),
-        Orth_RF(cond_check, verbosity),
-        RF(RS, Orth_RF, verbosity, cond_check),
-        Orth_QB(cond_check, verbosity),
-        QB(RF, Orth_QB, verbosity, orth_check),
-        RSVD(QB, block_sz),
-        ABRIK(verbosity, time_subroutines, tol)
-        {}
+    AlgorithmObjects(int64_t block_sz, T tol)
+        : Stab(false, false),
+          RS(Stab, 2, 1, false, false),
+          Orth_RF(false, false),
+          RF(RS, Orth_RF, false, false),
+          Orth_QB(false, false),
+          QB(RF, Orth_QB, false, false),
+          RSVD(QB, block_sz),
+          ABRIK(false, false, tol)
+    {}
 };
 
-// Re-generate input matrix A (re-reads from file). Only needed after GESDD destroys A.
-template <typename T, typename RNG>
-static void regen_input(RandLAPACK::gen::mat_gen_info<T> m_info,
-                        ABRIK_benchmark_data<T> &all_data,
-                        RandBLAS::RNGState<RNG> state) {
-    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+// LinOp-based residual: sqrt(||S^{-1}AV - U||^2 + ||(A'U)S^{-1} - V||^2)
+// Uses LinOp for matvecs — works for both dense and sparse.
+template <typename T, RandLAPACK::linops::LinearOperator LinOp>
+static T residual_via_linop(LinOp& A_op, T* U, T* V, T* Sigma, int64_t k) {
+    return RandLAPACK::linops::svd_residual<T>(A_op, U, V, Sigma, k);
 }
 
-// Computes the residual norm error: sqrt(||S^{-1}AV - U||^2_F + ||(A'U)S^{-1} - V||^2_F).
-// Scratch buffers are allocated and freed locally.
-template <typename T>
-static T
-residual_error_comp(T* A, int64_t m, int64_t n,
-                    T* U, T* V, T* Sigma, int64_t target_rank,
-                    T* U_scratch, T* V_scratch) {
-
-    // S^{-1}AV - U
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, target_rank, n,
-               (T)1, A, m, V, n, (T)0, U_scratch, m);
-    for (int i = 0; i < target_rank; ++i)
-        blas::scal(m, (T)1 / Sigma[i], &U_scratch[m * i], 1);
-    blas::axpy(m * target_rank, (T)-1, U, 1, U_scratch, 1);
-
-    // (A'U)S^{-1} - V
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, target_rank, m,
-               (T)1, A, m, U, m, (T)0, V_scratch, n);
-    for (int i = 0; i < target_rank; ++i)
-        blas::scal(n, (T)1 / Sigma[i], &V_scratch[i * n], 1);
-    blas::axpy(n * target_rank, (T)-1, V, 1, V_scratch, 1);
-
-    T nrm1 = lapack::lange(Norm::Fro, m, target_rank, U_scratch, m);
-    T nrm2 = lapack::lange(Norm::Fro, n, target_rank, V_scratch, n);
-
-    return std::hypot(nrm1, nrm2);
-}
-
-template <typename T, typename RNG>
-static void call_all_algs(
-    RandLAPACK::gen::mat_gen_info<T> m_info,
-    int64_t num_runs,
-    int64_t b_sz,
-    int64_t num_matmuls,
-    int64_t target_rank,
-    bool run_gesdd,
-    ABRIK_algorithm_objects<T, RNG> &all_algs,
-    ABRIK_benchmark_data<T> &all_data,
-    RandBLAS::RNGState<RNG> &state,
-    std::ofstream &outfile) {
-
+// Runs SVDS (Spectra) for one configuration. Templated on Eigen matrix type
+// so it works with both dense (Eigen::MatrixXd) and sparse (Eigen::SparseMatrix).
+template <typename T, typename EigenMatType, RandLAPACK::linops::LinearOperator LinOp>
+static T run_svds(const EigenMatType& A_eigen, LinOp& A_op,
+                  int64_t b_sz, int64_t num_matmuls, int64_t target_rank, long& dur_svds) {
     using EMatrix = typename EigenTypes<T>::Matrix;
     using EVector = typename EigenTypes<T>::Vector;
 
-    auto m   = all_data.row;
-    auto n   = all_data.col;
-    auto tol = all_data.tolerance;
+    int64_t m = A_op.n_rows;
+    int64_t n = A_op.n_cols;
+    int64_t nev = target_rank;
+    int64_t ncv_default = std::min(2 * nev + 1, n - 1);
+    int64_t budget = b_sz * num_matmuls;
+    int64_t ncv = BenchmarkUtil::effective_ncv(budget, nev, ncv_default);
+    int64_t max_restarts = BenchmarkUtil::budget_to_restarts(budget, nev, ncv);
 
-    // Additional params setup.
-    all_algs.RSVD.block_sz = b_sz;
-    // Instead of computing max_krylov_iters from target_rank, we pre-specify
-    // the maximum number of Krylov iters via num_matmuls.
-    all_algs.ABRIK.max_krylov_iters = (int) num_matmuls;
+    auto t0 = steady_clock::now();
+    BenchmarkUtil::BudgetedPartialSVDSolver<EigenMatType> svds(A_eigen, nev, ncv);
+    svds.compute(max_restarts);
+    dur_svds = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
-    // timing vars
-    long dur_ABRIK = 0;
-    long dur_rsvd = 0;
-    long dur_svds = 0;
-    long dur_svd  = 0;
+    EMatrix U_sp = svds.matrix_U(nev);
+    EMatrix V_sp = svds.matrix_V(nev);
+    EVector S_sp = svds.singular_values();
 
-    // Pre-allocate scratch buffers for residual_error_comp (avoid alloc/free per call).
-    T* U_scratch = new T[m * target_rank];
-    T* V_scratch = new T[n * target_rank];
+    T* U_s = new T[m * nev](); T* V_s = new T[n * nev](); T* S_s = new T[nev]();
+    Eigen::Map<EMatrix>(U_s, m, nev) = U_sp;
+    Eigen::Map<EMatrix>(V_s, n, nev) = V_sp;
+    Eigen::Map<EVector>(S_s, nev) = S_sp;
 
-    auto state_alg = state;
+    T err = residual_via_linop(A_op, U_s, V_s, S_s, nev);
+    delete[] U_s; delete[] V_s; delete[] S_s;
+    return err;
+}
 
-    T residual_err_custom_SVD   = 0;
-    T residual_err_custom_ABRIK = 0;
-    T residual_err_custom_RSVD  = 0;
-    T residual_err_custom_SVDS  = 0;
+// Core benchmark loop — templated on LinOp type.
+// svds_fn is a callable that runs SVDS for a given (b_sz, num_matmuls) and returns (error, duration).
+template <typename T, typename RNG, RandLAPACK::linops::LinearOperator LinOp, typename SvdsFn>
+static void run_all_configs(
+    LinOp& A_op,
+    SvdsFn svds_fn,
+    T norm_A,
+    int64_t target_rank,
+    bool run_gesdd,
+    bool use_cqrrt,
+    T* A_dense_buf,                // Dense buffer for GESDD (nullptr for sparse input)
+    std::vector<int64_t>& block_sizes,
+    std::vector<int64_t>& matmul_counts,
+    AlgorithmObjects<T, RNG>& algs,
+    RandBLAS::RNGState<RNG>& state,
+    std::ofstream& outfile)
+{
+    using EMatrix = typename EigenTypes<T>::Matrix;
+    using EVector = typename EigenTypes<T>::Vector;
 
-    int64_t singular_triplets_target_ABRIK = 0;
-    int64_t singular_triplets_found_RSVD  = 0;
-    int64_t singular_triplets_target_RSVD = 0;
-    int64_t singular_triplets_target_SVDS = 0;
+    int64_t m = A_op.n_rows;
+    int64_t n = A_op.n_cols;
+    T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
 
-    for (int i = 0; i < num_runs; ++i) {
-        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
+    for (auto b_sz : block_sizes) {
+        for (auto num_matmuls : matmul_counts) {
+            printf("\nBlock size %ld, num matmuls %ld.\n", b_sz, num_matmuls);
 
-        // ---- ABRIK ----
-        // ABRIK allocates U, V, Sigma with new[] internally.
-        auto start_ABRIK = steady_clock::now();
-        all_algs.ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
-        auto stop_ABRIK = steady_clock::now();
-        dur_ABRIK = duration_cast<microseconds>(stop_ABRIK - start_ABRIK).count();
-        printf("TOTAL TIME FOR ABRIK %ld\n", dur_ABRIK);
+            auto state_alg = state;
+            algs.RSVD.block_sz = b_sz;
+            algs.ABRIK.max_krylov_iters = (int) num_matmuls;
+            if (use_cqrrt)
+                algs.ABRIK.qr_exp = RandLAPACK::ABRIKSubroutines::QR_explicit::cqrrt;
 
-        singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
-        residual_err_custom_ABRIK = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_ABRIK, U_scratch, V_scratch);
-        printf("ABRIK residual error: %.16e\n", residual_err_custom_ABRIK);
+            long dur_ABRIK = 0, dur_rsvd = 0, dur_svds = 0, dur_svd = 0;
+            T err_ABRIK = 0, err_RSVD = 0, err_SVDS = 0, err_SVD = 0;
 
-        // Cleanup ABRIK outputs (new[])
-        delete[] all_data.U;     all_data.U     = nullptr;
-        delete[] all_data.V;     all_data.V     = nullptr;
-        delete[] all_data.Sigma; all_data.Sigma = nullptr;
+            // ---- ABRIK (LinOp) ----
+            T* U_a = nullptr; T* V_a = nullptr; T* S_a = nullptr;
+            auto t0 = steady_clock::now();
+            algs.ABRIK.call(A_op, b_sz, U_a, V_a, S_a, state_alg);
+            dur_ABRIK = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
-        state_alg = state;
-        // Note: ABRIK does not modify A, so no regen_input needed.
+            int64_t k_a = std::min(target_rank, algs.ABRIK.singular_triplets_found);
+            err_ABRIK = residual_via_linop(A_op, U_a, V_a, S_a, k_a);
+            printf("ABRIK: err=%e, time=%ld us\n", err_ABRIK, dur_ABRIK);
+            delete[] U_a; delete[] V_a; delete[] S_a;
 
-        // ---- RSVD ----
-        // RSVD (via QB) now modifies A in-place (deflation). We must copy A
-        // beforehand and restore it after, since ABRIK/SVDS need the original.
-        // RSVD allocates U, V, Sigma with calloc internally (via QB realloc chain).
-        singular_triplets_found_RSVD = (int64_t) (b_sz * num_matmuls / 2);
-
-        T* A_rsvd_copy = new T[m * n];
-        lapack::lacpy(MatrixType::General, m, n, all_data.A, m, A_rsvd_copy, m);
-
-        auto start_rsvd = steady_clock::now();
-        all_algs.RSVD.call(m, n, A_rsvd_copy, singular_triplets_found_RSVD, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
-        auto stop_rsvd = steady_clock::now();
-        dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
-        printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
-
-        singular_triplets_target_RSVD = std::min(target_rank, singular_triplets_found_RSVD);
-        residual_err_custom_RSVD = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_RSVD, U_scratch, V_scratch);
-        printf("RSVD residual error: %.16e\n", residual_err_custom_RSVD);
-
-        delete[] A_rsvd_copy;
-
-        // Cleanup RSVD outputs (calloc)
-        free(all_data.U);     all_data.U     = nullptr;
-        free(all_data.V);     all_data.V     = nullptr;
-        free(all_data.Sigma); all_data.Sigma = nullptr;
-
-        state_alg = state;
-
-        // ---- SVDS (Spectra, budgeted) ----
-        // Uses BudgetedPartialSVDSolver with fixed nev=target_rank and a
-        // matvec budget derived from (b_sz, num_matmuls) for fair comparison.
-        {
-            int64_t nev_svds = target_rank;
-            int64_t ncv_default = std::min(2 * nev_svds + 1, n - 1);
-            int64_t svds_budget = b_sz * num_matmuls;
-            int64_t ncv_svds = BenchmarkUtil::effective_ncv(svds_budget, nev_svds, ncv_default);
-            int64_t max_restarts = BenchmarkUtil::budget_to_restarts(svds_budget, nev_svds, ncv_svds);
-
-            auto start_svds = steady_clock::now();
-            Eigen::Map<const EMatrix> A_map(all_data.A, m, n);
-            BenchmarkUtil::BudgetedPartialSVDSolver<EMatrix> svds(A_map, nev_svds, ncv_svds);
-            svds.compute(max_restarts);
-            auto stop_svds = steady_clock::now();
-            dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
-            printf("SVDS: budget=%ld matvecs, max_restarts=%ld, A'A_ops=%ld, time=%ld us\n",
-                   svds_budget, max_restarts, svds.num_operations(), dur_svds);
-
-            // Extract ALL Ritz approximations (even unconverged)
-            EMatrix U_spectra = svds.matrix_U(nev_svds);
-            EMatrix V_spectra = svds.matrix_V(nev_svds);
-            EVector S_spectra = svds.singular_values();
-
-            all_data.U     = new T[m * nev_svds]();
-            all_data.V     = new T[n * nev_svds]();
-            all_data.Sigma = new T[nev_svds]();
-
-            Eigen::Map<EMatrix>(all_data.U, m, nev_svds) = U_spectra;
-            Eigen::Map<EMatrix>(all_data.V, n, nev_svds) = V_spectra;
-            Eigen::Map<EVector>(all_data.Sigma, nev_svds) = S_spectra;
-
-            singular_triplets_target_SVDS = std::min(target_rank, nev_svds);
-            residual_err_custom_SVDS = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, singular_triplets_target_SVDS, U_scratch, V_scratch);
-            printf("SVDS residual error: %.16e\n", residual_err_custom_SVDS);
-
-            // Cleanup SVDS outputs (new[])
-            delete[] all_data.U;     all_data.U     = nullptr;
-            delete[] all_data.V;     all_data.V     = nullptr;
-            delete[] all_data.Sigma; all_data.Sigma = nullptr;
-
+            // ---- RSVD (LinOp, no copy needed) ----
             state_alg = state;
-            // Note: SVDS operates on A_spectra (const ref), does not modify A.
+            T* U_r = nullptr; T* V_r = nullptr; T* S_r = nullptr;
+            int64_t k_r = (int64_t)(b_sz * num_matmuls / 2);
+
+            t0 = steady_clock::now();
+            algs.RSVD.call(A_op, norm_A, k_r, tol, U_r, S_r, V_r, state_alg);
+            dur_rsvd = duration_cast<microseconds>(steady_clock::now() - t0).count();
+
+            int64_t k_r_target = std::min(target_rank, k_r);
+            err_RSVD = residual_via_linop(A_op, U_r, V_r, S_r, k_r_target);
+            printf("RSVD:  err=%e, time=%ld us\n", err_RSVD, dur_rsvd);
+            free(U_r); free(V_r); free(S_r);
+
+            // ---- SVDS (Spectra, budgeted) — dispatched via callback ----
+            err_SVDS = svds_fn(b_sz, num_matmuls, dur_svds);
+            printf("SVDS:  err=%e, time=%ld us\n", err_SVDS, dur_svds);
+
+            // ---- GESDD (dense only, optional) ----
+            if (run_gesdd && A_dense_buf) {
+                T* A_svd = new T[m * n];
+                lapack::lacpy(MatrixType::General, m, n, A_dense_buf, m, A_svd, m);
+                T* U_g = new T[m * n]();
+                T* S_g = new T[n]();
+                T* VT_g = new T[n * n]();
+                T* V_g = new T[n * n]();
+
+                t0 = steady_clock::now();
+                lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, n);
+                dur_svd = duration_cast<microseconds>(steady_clock::now() - t0).count();
+
+                RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
+                err_SVD = residual_via_linop(A_op, U_g, V_g, S_g, target_rank);
+                printf("GESDD: err=%e, time=%ld us\n", err_SVD, dur_svd);
+
+                delete[] A_svd; delete[] U_g; delete[] S_g; delete[] VT_g; delete[] V_g;
+                run_gesdd = false;  // Only run once
+            }
+
+            // Write CSV row
+            outfile << b_sz << ", " << num_matmuls << ", " << target_rank << ", "
+                    << err_ABRIK << ", " << dur_ABRIK << ", "
+                    << err_RSVD  << ", " << dur_rsvd  << ", "
+                    << err_SVDS  << ", " << dur_svds  << ", "
+                    << err_SVD   << ", " << dur_svd   << "\n";
+            outfile.flush();
         }
-
-        // ---- SVD (GESDD) ----
-        // There is no reason to run SVD many times, as it always outputs the same result.
-        if (run_gesdd && (i == 0)) {
-            auto start_svd = steady_clock::now();
-            all_data.U     = new T[m * n]();
-            all_data.Sigma = new T[n]();
-            all_data.VT    = new T[n * n]();
-            all_data.V     = new T[n * n]();
-            lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
-            auto stop_svd = steady_clock::now();
-            dur_svd = duration_cast<microseconds>(stop_svd - start_svd).count();
-            printf("TOTAL TIME FOR SVD %ld\n", dur_svd);
-
-            // GESDD destroys A, re-read before residual computation.
-            regen_input(m_info, all_data, state);
-            RandLAPACK::util::transposition(n, n, all_data.VT, n, all_data.V, n, 0);
-
-            residual_err_custom_SVD = residual_error_comp<T>(all_data.A, m, n, all_data.U, all_data.V, all_data.Sigma, target_rank, U_scratch, V_scratch);
-            printf("SVD residual error: %.16e\n", residual_err_custom_SVD);
-
-            // Cleanup SVD outputs (new[])
-            delete[] all_data.U;     all_data.U     = nullptr;
-            delete[] all_data.VT;    all_data.VT    = nullptr;
-            delete[] all_data.V;     all_data.V     = nullptr;
-            delete[] all_data.Sigma; all_data.Sigma = nullptr;
-
-            state_alg = state;
-            regen_input(m_info, all_data, state);
-        }
-
-        // Write CSV data row
-        outfile << b_sz << ", " << all_algs.ABRIK.max_krylov_iters << ", " << target_rank << ", "
-                << residual_err_custom_ABRIK << ", " << dur_ABRIK << ", "
-                << residual_err_custom_RSVD  << ", " << dur_rsvd  << ", "
-                << residual_err_custom_SVDS  << ", " << dur_svds  << ", "
-                << residual_err_custom_SVD   << ", " << dur_svd   << "\n";
-        outfile.flush();
     }
-
-    delete[] U_scratch;
-    delete[] V_scratch;
 }
 
 template <typename T>
 static void run_benchmark(int argc, char *argv[]) {
-    using EMatrix = typename EigenTypes<T>::Matrix;
+    using EMatrix  = typename EigenTypes<T>::Matrix;
+    using SpMatrix = typename EigenTypes<T>::SpMatrix;
 
-    if (argc < 12) {
-        std::cerr << "Usage: " << argv[0] << " <precision> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <target_rank> <run_gesdd> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+    if (argc < 8) {
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision> <output_dir> <input_file> <target_rank> <run_gesdd>"
+                  << " <num_block_sizes> <num_matmul_sizes> <block_sizes...> <matmul_sizes...>"
+                  << std::endl;
         return;
     }
 
-    int num_runs              = std::stol(argv[4]);
-    int64_t m_expected        = std::stol(argv[5]);
-    int64_t n_expected        = std::stol(argv[6]);
-    int64_t target_rank       = std::stol(argv[7]);
-    bool run_gesdd            = (std::stoi(argv[8]) != 0);
-    std::vector<int64_t> b_sz;
-    for (int i = 0; i < std::stol(argv[9]); ++i)
-        b_sz.push_back(std::stoi(argv[i + 11]));
-    std::ostringstream oss1;
-    for (const auto &val : b_sz)
-        oss1 << val << ", ";
-    std::string b_sz_string = oss1.str();
-    std::vector<int64_t> matmuls;
-    for (int i = 0; i < std::stol(argv[10]); ++i)
-        matmuls.push_back(std::stoi(argv[i + 11 + std::stol(argv[9])]));
-    std::ostringstream oss2;
-    for (const auto &val : matmuls)
-        oss2 << val << ", ";
-    std::string matmuls_string = oss2.str();
-    T tol                     = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
-    auto state                = RandBLAS::RNGState();
-    auto state_constant       = state;
-    int64_t m = 0, n = 0;
+    std::string output_dir = argv[2];
+    std::string input_path = argv[3];
+    int64_t target_rank    = std::stol(argv[4]);
+    bool run_gesdd         = (std::stoi(argv[5]) != 0);
+    int num_b_sz           = std::stoi(argv[6]);
+    int num_mm             = std::stoi(argv[7]);
 
-    // Generate the input matrix.
-    RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[3];
-    m_info.workspace_query_mod = 1;
-    RandLAPACK::gen::mat_gen<T>(m_info, NULL, state);
+    std::vector<int64_t> block_sizes, matmul_counts;
+    for (int i = 0; i < num_b_sz; ++i)
+        block_sizes.push_back(std::stol(argv[8 + i]));
+    for (int i = 0; i < num_mm; ++i)
+        matmul_counts.push_back(std::stol(argv[8 + num_b_sz + i]));
 
-    // Update basic params.
-    m = m_info.rows;
-    n = m_info.cols;
-    if (m_expected != m || n_expected != n) {
-        std::cerr << "Expected input size (" << m_expected << ", " << n_expected << ") did not match actual input size (" << m << ", " << n << "). Aborting." << std::endl;
-        return;
-    }
+    // Optional trailing args: [sub_ratio] [use_cqrrt]
+    int args_consumed = 8 + num_b_sz + num_mm;
+    double sub_ratio = (argc > args_consumed) ? std::stod(argv[args_consumed]) : 1.0;
+    bool cli_cqrrt = (argc > args_consumed + 1) ? (std::stoi(argv[args_consumed + 1]) != 0) : false;
 
-    // Allocate basic workspace.
-    ABRIK_benchmark_data<T> all_data(m, n, tol);
-    RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
+    T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
+    auto state = RandBLAS::RNGState();
 
-    // Declare objects for RSVD and ABRIK
-    int64_t p = 2;
-    int64_t passes_per_iteration = 1;
-    int64_t block_sz = 0;
-    ABRIK_algorithm_objects<T, r123::Philox4x32> all_algs(false, false, false, false, p, passes_per_iteration, block_sz, tol);
+    // --- Load matrix (auto-detects .mtx vs .txt) ---
+    auto mat = BenchIO::load_matrix<T>(input_path, sub_ratio);
+    int64_t m = mat.m;
+    int64_t n = mat.n;
 
-    // Copying input data into a Spectra (Eigen) matrix object
-    printf("Finished data preparation\n");
+    // --- Set up algorithm objects ---
+    AlgorithmObjects<T, r123::Philox4x32> algs(0, tol);
 
-    // Generate date/time prefix
+    // --- Open output CSV ---
     std::time_t now = std::time(nullptr);
     char date_prefix[20];
     std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
 
-    // Build output file path
-    std::string output_filename = std::string(date_prefix) + "ABRIK_speed_comparisons.csv";
-    std::string path;
-    if (std::string(argv[2]) != ".") {
-        path = std::string(argv[2]) + "/" + output_filename;
+    std::string out_filename = std::string(date_prefix) + "ABRIK_speed_comparisons.csv";
+    std::string out_path = (output_dir != ".") ? output_dir + "/" + out_filename : out_filename;
+    std::ofstream outfile(out_path);
+
+    std::ostringstream oss_b, oss_m;
+    for (auto v : block_sizes) oss_b << v << ", ";
+    for (auto v : matmul_counts) oss_m << v << ", ";
+
+    outfile << "# ABRIK Speed Comparison Benchmark (unified dense/sparse)\n"
+            << "# Precision: " << argv[1] << "\n"
+            << "# Input matrix: " << input_path << "\n"
+            << "# Input size: " << m << " x " << n << "\n"
+            << "# Format: " << (mat.is_sparse ? "sparse" : "dense") << "\n"
+            << "# Target rank: " << target_rank << "\n"
+            << "# Block sizes: " << oss_b.str() << "\n"
+            << "# Matmul counts: " << oss_m.str() << "\n"
+            << "# Tolerance: " << tol << "\n"
+            << "# Run GESDD: " << (run_gesdd && !mat.is_sparse ? "yes" : "no") << "\n"
+            << "# Residual metric: sqrt(||S^{-1}AV - U||^2_F + ||(A'U)S^{-1} - V||^2_F)\n"
+            << "# Timings in microseconds\n";
+    outfile << "b_sz, num_matmuls, target_rank, "
+            << "err_ABRIK, dur_ABRIK, "
+            << "err_RSVD, dur_RSVD, "
+            << "err_SVDS, dur_SVDS, "
+            << "err_SVD, dur_SVD\n";
+    outfile.flush();
+
+    auto t_total = steady_clock::now();
+
+    if (mat.is_sparse) {
+        RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::CSCMatrix<T>>
+            A_op(m, n, *mat.csc);
+        T norm_A = A_op.fro_nrm();
+
+        // SVDS via Eigen sparse matrix (no materialization)
+        auto svds_fn = [&](int64_t b_sz, int64_t num_matmuls, long& dur) -> T {
+            return run_svds<T>(*mat.eigen_sparse, A_op, b_sz, num_matmuls, target_rank, dur);
+        };
+
+        run_all_configs<T>(A_op, svds_fn, norm_A, target_rank,
+                          false, cli_cqrrt,  // no GESDD for sparse
+                          nullptr,
+                          block_sizes, matmul_counts, algs, state, outfile);
     } else {
-        path = output_filename;
-    }
-    std::ofstream file(path, std::ios::out | std::ios::app);
+        T* A_dense = mat.data();
+        RandLAPACK::linops::DenseLinOp<T> A_op(m, n, A_dense, m, Layout::ColMajor);
+        T norm_A = A_op.fro_nrm();
 
-    // Write metadata header (prefixed with # for easy parsing)
-    file << "# ABRIK Speed Comparison Benchmark\n"
-         << "# Precision: " << argv[1] << "\n"
-         << "# Input matrix: " << argv[3] << "\n"
-         << "# Input size: " << m << " x " << n << "\n"
-         << "# Target rank: " << target_rank << "\n"
-         << "# Krylov block sizes: " << b_sz_string << "\n"
-         << "# Matmul counts: " << matmuls_string << "\n"
-         << "# Runs per configuration: " << num_runs << "\n"
-         << "# Tolerance: " << tol << "\n"
-         << "# Run GESDD: " << (run_gesdd ? "yes" : "no") << "\n"
-         << "# Residual metric: sqrt(||S^{-1}AV - U||^2_F + ||(A'U)S^{-1} - V||^2_F)\n"
-         << "# Timings in microseconds\n";
-    // Write CSV column header
-    file << "b_sz, num_matmuls, target_rank, "
-         << "err_ABRIK, dur_ABRIK, "
-         << "err_RSVD, dur_RSVD, "
-         << "err_SVDS, dur_SVDS, "
-         << "err_SVD, dur_SVD\n";
-    file.flush();
+        // SVDS via Eigen dense matrix (Map wrapping existing buffer, no copy).
+        // Template type is EMatrix (not Map) so BudgetedPartialSVDSolver's Ref works.
+        Eigen::Map<const EMatrix> A_eigen(A_dense, m, n);
+        auto svds_fn = [&](int64_t b_sz, int64_t num_matmuls, long& dur) -> T {
+            return run_svds<T, EMatrix>(A_eigen, A_op, b_sz, num_matmuls, target_rank, dur);
+        };
 
-    auto start_total = steady_clock::now();
-
-    size_t i = 0, j = 0;
-    for (; i < b_sz.size(); ++i) {
-        for (; j < matmuls.size(); ++j) {
-            call_all_algs(m_info, num_runs, b_sz[i], matmuls[j], target_rank, run_gesdd, all_algs, all_data, state_constant, file);
-        }
-        j = 0;
+        run_all_configs<T>(A_op, svds_fn, norm_A, target_rank,
+                          run_gesdd, false, // no cqrrt for dense
+                          A_dense,
+                          block_sizes, matmul_counts, algs, state, outfile);
     }
 
-    auto stop_total = steady_clock::now();
-    long total_us = duration_cast<microseconds>(stop_total - start_total).count();
+    long total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
     printf("\nTOTAL BENCHMARK TIME: %.2f seconds\n", total_us / 1e6);
+    printf("Results: %s\n", out_path.c_str());
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <precision: double|float> <output_directory_path> <input_matrix_path> <num_runs> <num_rows> <num_cols> <target_rank> <run_gesdd> <num_block_sizes> <num_matmul_sizes> <block_sizes> <mat_sizes>" << std::endl;
+        std::cerr << "Usage: " << argv[0]
+                  << " <precision: double|float> <output_dir> <input_file>"
+                  << " <target_rank> <run_gesdd>"
+                  << " <num_block_sizes> <num_matmul_sizes> <block_sizes...> <matmul_sizes...>"
+                  << std::endl;
         return 1;
     }
-
     std::string precision = argv[1];
-    if (precision == "double") {
-        run_benchmark<double>(argc, argv);
-    } else if (precision == "float") {
-        run_benchmark<float>(argc, argv);
-    } else {
-        std::cerr << "Error: precision must be 'double' or 'float', got '" << precision << "'" << std::endl;
+    if (precision == "double")     run_benchmark<double>(argc, argv);
+    else if (precision == "float") run_benchmark<float>(argc, argv);
+    else {
+        std::cerr << "Error: precision must be 'double' or 'float'" << std::endl;
         return 1;
     }
     return 0;
