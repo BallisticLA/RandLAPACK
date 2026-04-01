@@ -296,7 +296,7 @@ static void run_analysis(int argc, char *argv[]) {
         T res_gesdd = per_triplet_residual(A, m, n, u_g, v_g, s_g, scratch_m, scratch_n);
 
         // --- Metric 3: Relative singular value difference ---
-        T sval_diff = std::abs(s_a - s_g) / S_g[0];
+        T sval_diff = std::abs(s_a - s_g) / s_g;
 
         // --- Metric 4: Singular vector angle via QR ---
         // sin(angle) between GESDD and ABRIK singular vectors, computed via
