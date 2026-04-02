@@ -1,12 +1,13 @@
 // CQRRT orthogonality gap benchmark: CQRRT_linop vs CQRRT_expl
 //
 // Compares the two CQRRT implementations on the same matrix and reports
-// the orthogonality gap.  Four modes:
+// the orthogonality gap.  Five modes:
 //
-//   generate  — synthetic sparse matrix with controlled condition number
-//   file      — read a Matrix Market file from disk
-//   diag      — step-by-step diagnostic on a Matrix Market file
-//   diag_gen  — step-by-step diagnostic on a synthetic matrix
+//   generate   — synthetic sparse matrix with controlled condition number
+//   file       — read a Matrix Market file from disk
+//   composite  — composite operator from K.mtx + V.mtx → L^{-1}V
+//   diag       — step-by-step diagnostic on a Matrix Market file
+//   diag_gen   — step-by-step diagnostic on a synthetic matrix
 //
 // The diagnostic modes manually execute both algorithms step by step,
 // comparing intermediate results (sketch, QR, preconditioned product, Gram,
@@ -19,6 +20,7 @@
 // Usage:
 //   ./CQRRT_orth_gap <prec> generate <m> <n> <cond> <density> <d_factor> <runs> [nnz] [block_size]
 //   ./CQRRT_orth_gap <prec> file <mtx_path> <d_factor> <runs> [nnz] [block_size] [compute_cond]
+//   ./CQRRT_orth_gap <prec> composite <K.mtx> <V.mtx> <d_factor> <runs> [nnz] [block_size]
 //   ./CQRRT_orth_gap <prec> diag <mtx_path> <d_factor> [nnz]
 //   ./CQRRT_orth_gap <prec> diag_gen <m> <n> <cond> <density> <d_factor> [nnz]
 
@@ -28,6 +30,8 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
+#include <Eigen/Dense>
+#include <Eigen/SparseCholesky>
 #include <fstream>
 #include <iomanip>
 #include <cmath>
@@ -35,12 +39,14 @@
 #include <omp.h>
 #endif
 
-// Extras utilities for Matrix Market I/O
+// Extras utilities for Matrix Market I/O and CholSolver
 #include "../../extras/misc/ext_util.hh"
+#include "../../extras/linops/ext_cholsolver_linop.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Linops algorithms
 #include "rl_cqrrt_linops.hh"
+#include "rl_composite_linop.hh"
 
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
@@ -92,9 +98,9 @@ static T rel_diff(const T* A, const T* B, int64_t len) {
 }
 
 // Step-by-step diagnostic: manually runs both algorithms and compares intermediates.
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename GLO>
 static void run_diagnostic(
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>>& A_linop,
+    GLO& A_linop,
     int64_t m, int64_t n, T d_factor, int64_t sketch_nnz,
     RandBLAS::RNGState<RNG>& state) {
 
@@ -293,9 +299,9 @@ static void run_diagnostic(
     }
 }
 
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename GLO>
 static RunResult run_comparison(
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>>& A_linop,
+    GLO& A_linop,
     int64_t m, int64_t n, T d_factor, int64_t sketch_nnz, int64_t block_size,
     RandBLAS::RNGState<RNG>& state) {
 
@@ -528,7 +534,10 @@ int main(int argc, char* argv[]) {
     if (argc < 3) {
         std::cerr << "Usage:\n"
                   << "  " << argv[0] << " <prec> generate <m> <n> <cond_num> <density> <d_factor> <num_runs> [sketch_nnz] [block_size]\n"
-                  << "  " << argv[0] << " <prec> file <mtx_path> <d_factor> <num_runs> [sketch_nnz] [block_size] [compute_cond]\n";
+                  << "  " << argv[0] << " <prec> file <mtx_path> <d_factor> <num_runs> [sketch_nnz] [block_size] [compute_cond]\n"
+                  << "  " << argv[0] << " <prec> composite <K.mtx> <V.mtx> <d_factor> <num_runs> [sketch_nnz] [block_size]\n"
+                  << "  " << argv[0] << " <prec> diag <mtx_path> <d_factor> [sketch_nnz]\n"
+                  << "  " << argv[0] << " <prec> diag_gen <m> <n> <cond_num> <density> <d_factor> [sketch_nnz]\n";
         return 1;
     }
 
@@ -600,6 +609,98 @@ int main(int argc, char* argv[]) {
             RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
             RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<float>> A_linop(m, n, A_csr);
             run_diagnostic<float>(A_linop, m, n, (float)d_factor, sketch_nnz, state);
+        }
+        return 0;
+    }
+
+    // Composite mode: K.mtx + V.mtx → CholSolver(K, half_solve) ∘ Sparse(V) = L^{-1}V
+    if (mode == "composite") {
+        // ./CQRRT_orth_gap <prec> composite <K.mtx> <V.mtx> <d_factor> <runs> [nnz] [block_size]
+        if (argc < 7) {
+            std::cerr << "Usage: " << argv[0]
+                      << " <prec> composite <K.mtx> <V.mtx> <d_factor> <num_runs> [sketch_nnz] [block_size]\n";
+            return 1;
+        }
+        std::string K_file = argv[3];
+        std::string V_file = argv[4];
+        double d_factor    = std::stod(argv[5]);
+        int64_t num_runs   = std::stol(argv[6]);
+        int64_t sketch_nnz = (argc >= 8) ? std::stol(argv[7]) : 4;
+        int64_t block_size = (argc >= 9) ? std::stol(argv[8]) : 256;
+
+        if (precision == "double") {
+            using T = double;
+
+            printf("\n=== CQRRT Orthogonality Gap Benchmark (composite mode) ===\n");
+            printf("  K file: %s\n  V file: %s\n", K_file.c_str(), V_file.c_str());
+            printf("  d_factor=%.2f, sketch_nnz=%ld, block_size=%ld, runs=%ld\n",
+                   d_factor, sketch_nnz, block_size, num_runs);
+#ifdef _OPENMP
+            printf("  OpenMP threads: %d\n", omp_get_max_threads());
+#endif
+            printf("==========================================================\n\n");
+
+            // Load V
+            printf("Loading V from %s...", V_file.c_str()); fflush(stdout);
+            auto V_coo = RandLAPACK_extras::coo_from_matrix_market<T>(V_file);
+            int64_t m = V_coo.n_rows, n = V_coo.n_cols;
+            printf(" done (%ld x %ld, nnz=%ld)\n", m, n, V_coo.nnz);
+
+            RandBLAS::sparse_data::csr::CSRMatrix<T> V_csr(m, n);
+            RandBLAS::sparse_data::conversions::coo_to_csr(V_coo, V_csr);
+            RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> V_linop(m, n, V_csr);
+
+            // Build CholSolver for K (half_solve = true → L^{-1})
+            printf("Factorizing K = LL^T from %s...", K_file.c_str()); fflush(stdout);
+            RandLAPACK_extras::linops::CholSolverLinOp<T> L_inv_op(K_file, /*half_solve=*/true);
+            L_inv_op.factorize();
+            printf(" done\n");
+
+            // Composite operator: L^{-1} * V (CTAD deduces template args)
+            RandLAPACK::linops::CompositeOperator LiV_op(m, n, L_inv_op, V_linop);
+
+            printf("Composite operator L^{-1}V: %ld x %ld\n\n", m, n);
+
+            auto state = RandBLAS::RNGState<r123::Philox4x32>();
+
+            // CSV output
+            auto now = std::chrono::system_clock::now();
+            auto t = std::chrono::system_clock::to_time_t(now);
+            char ts[32];
+            std::strftime(ts, sizeof(ts), "%Y%m%d_%H%M%S", std::localtime(&t));
+            std::string csv_name = std::string("orth_gap_composite_") + ts + ".csv";
+            std::ofstream csv(csv_name);
+            if (csv.is_open()) {
+                csv << "# CQRRT orth gap benchmark (composite mode)\n";
+                csv << "# K_file=" << K_file << ", V_file=" << V_file
+                    << ", m=" << m << ", n=" << n
+                    << ", d_factor=" << d_factor << ", sketch_nnz=" << sketch_nnz
+                    << ", block_size=" << block_size << "\n";
+                csv << "run,linop_orth,expl_orth,gap_ratio,linop_time_us,expl_time_us\n";
+            }
+
+            printf("  %-6s  %-14s  %-14s  %-10s  %-12s  %-12s\n",
+                   "Run", "CQRRT_linop", "CQRRT_expl", "Gap (x)", "Linop (us)", "Expl (us)");
+            printf("  %-6s  %-14s  %-14s  %-10s  %-12s  %-12s\n",
+                   "---", "-----------", "----------", "-------", "----------", "---------");
+
+            for (int64_t r = 0; r < num_runs; ++r) {
+                auto run_state = state;
+                auto res = run_comparison<T>(LiV_op, m, n, (T)d_factor, sketch_nnz, block_size, run_state);
+                printf("  %-6ld  %-14.6e  %-14.6e  %-10.1f  %-12ld  %-12ld\n",
+                       r, res.linop_orth, res.expl_orth, res.gap_ratio, res.linop_time_us, res.expl_time_us);
+                if (csv.is_open()) {
+                    csv << r << "," << std::scientific << std::setprecision(6)
+                        << res.linop_orth << "," << res.expl_orth << ","
+                        << res.gap_ratio << "," << res.linop_time_us << "," << res.expl_time_us << "\n";
+                }
+                state = RandBLAS::RNGState<r123::Philox4x32>(state.key.incr());
+            }
+            if (csv.is_open()) { csv.close(); printf("  Results CSV: %s\n", csv_name.c_str()); }
+            printf("\n");
+        } else {
+            std::cerr << "Composite mode only supports double precision\n";
+            return 1;
         }
         return 0;
     }
