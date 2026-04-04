@@ -163,5 +163,8 @@ endif()
 # Testing Support
 # -----------------------------------------------------------------------------
 
-enable_testing()
-add_subdirectory(test)
+option(BUILD_TESTING "Build tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(test)
+endif()
