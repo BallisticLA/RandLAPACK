@@ -583,6 +583,22 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "done\n\n";
 
     // ================================================================
+    // Pre-materialize A for upcast orthogonality (once, shared across all algorithms)
+    // ================================================================
+    T* A_materialized = nullptr;
+    if (upcast_orth || run_expl) {
+        std::cout << "Materializing L^{-1}V for upcast/expl (" << m << " x " << n << ", "
+                  << (m * n * sizeof(T) / (1024.0 * 1024.0 * 1024.0)) << " GB)... " << std::flush;
+        A_materialized = new T[m * n]();
+        T* Eye = new T[n * n]();
+        RandLAPACK::util::eye(n, n, Eye);
+        LiV_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, n, n, (T)1.0, Eye, n, (T)0.0, A_materialized, m);
+        delete[] Eye;
+        std::cout << "done\n\n";
+    }
+
+    // ================================================================
     // Common per-algorithm loop: run QR, check orthogonality, run apps
     // ================================================================
     // call_algo(res, R, run_idx) fills res.qr_time_us, res.qr_breakdown,
@@ -599,20 +615,50 @@ int run_benchmark(int argc, char* argv[]) {
             std::vector<T> R(n * n, 0.0);
             call_algo(res, R, r);
 
-            compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
+            // Compute Q = A * R^{-1}: use pre-materialized A if available, else via linop
+            if (A_materialized) {
+                std::copy(A_materialized, A_materialized + m * n, Q_buf.data());
+                blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper, blas::Op::NoTrans,
+                           blas::Diag::NonUnit, m, n, (T)1.0, R.data(), n, Q_buf.data(), m);
+            } else {
+                compute_Q_from_R(LiV_op, R.data(), n, Q_buf.data(), m, n);
+            }
             res.orth_error     = RandLAPACK::testing::orthogonality_error<T>(Q_buf.data(), m, n);
             res.is_orthonormal = (res.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
             res.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_buf.data(), m, n);
 
             // R-factor backward error: ||A^T A - R^T R||_F / ||A||_F^2
-            res.r_backward_error = compute_r_backward_error(LiV_op, R.data(), m, n, block_size);
+            // Use pre-materialized A for direct SYRK if available, else blocked linop
+            if (A_materialized) {
+                std::vector<T> AtA(n * n, 0.0);
+                blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+                           n, m, (T)1.0, A_materialized, m, (T)0.0, AtA.data(), n);
+                for (int64_t j = 0; j < n; ++j)
+                    for (int64_t i = j + 1; i < n; ++i)
+                        AtA[i + j * n] = AtA[j + i * n];
 
-            // Upcast orthogonality: reconstruct Q in higher precision
+                std::vector<T> RtR(n * n, 0.0);
+                blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+                           n, n, (T)1.0, R.data(), n, (T)0.0, RtR.data(), n);
+                for (int64_t j = 0; j < n; ++j)
+                    for (int64_t i = j + 1; i < n; ++i)
+                        RtR[i + j * n] = RtR[j + i * n];
+
+                T norm_A_sq = 0;
+                for (int64_t i = 0; i < n; ++i) norm_A_sq += AtA[i + i * n];
+                T diff_sq = 0;
+                for (int64_t i = 0; i < n * n; ++i) { T d = AtA[i] - RtR[i]; diff_sq += d * d; }
+                res.r_backward_error = (double)(std::sqrt(diff_sq) / norm_A_sq);
+            } else {
+                res.r_backward_error = compute_r_backward_error(LiV_op, R.data(), m, n, block_size);
+            }
+
+            // Upcast orthogonality: reconstruct Q in higher precision (uses pre-materialized A)
             if (upcast_orth) {
                 if constexpr (std::is_same_v<T, float>) {
-                    res.orth_error_upcast = compute_orth_upcast<T, double>(LiV_op, R.data(), m, n);
+                    res.orth_error_upcast = compute_orth_upcast<T, double>(LiV_op, R.data(), m, n, A_materialized);
                 } else if constexpr (std::is_same_v<T, double>) {
-                    res.orth_error_upcast = compute_orth_upcast<T, long double>(LiV_op, R.data(), m, n);
+                    res.orth_error_upcast = compute_orth_upcast<T, long double>(LiV_op, R.data(), m, n, A_materialized);
                 }
             } else {
                 res.orth_error_upcast = 0.0;
@@ -702,26 +748,13 @@ int run_benchmark(int argc, char* argv[]) {
     });
 
     // ================================================================
-    // CQRRT_expl (materialize L^{-1}V, run dense CQRRT)
+    // CQRRT_expl (uses pre-materialized A, run dense CQRRT)
     // ================================================================
     if (run_expl) {
-        // Materialize the composite operator once
-        std::cout << "\nMaterializing L^{-1}V (" << m << " x " << n << ", "
-                  << (m * n * sizeof(T) / (1024.0 * 1024.0 * 1024.0)) << " GB)... " << std::flush;
-        T* A_dense = new T[m * n]();
-        {
-            T* Eye = new T[n * n]();
-            RandLAPACK::util::eye(n, n, Eye);
-            LiV_op(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                   m, n, n, (T)1.0, Eye, n, (T)0.0, A_dense, m);
-            delete[] Eye;
-        }
-        std::cout << "done\n";
-
         run_algo("CQRRT_expl", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
-            // Copy A_dense since CQRRT modifies it in-place
+            // Copy A_materialized since CQRRT modifies it in-place
             T* A_copy = new T[m * n];
-            std::copy(A_dense, A_dense + m * n, A_copy);
+            std::copy(A_materialized, A_materialized + m * n, A_copy);
 
             auto state = run_states[r];
             RandLAPACK::CQRRT<T, RNG> algo(true, tol);
@@ -741,9 +774,10 @@ int run_benchmark(int argc, char* argv[]) {
 
             delete[] A_copy;
         });
-
-        delete[] A_dense;
     }
+
+    // Free pre-materialized A
+    delete[] A_materialized;
 
     // ================================================================
     // Write CSV output
