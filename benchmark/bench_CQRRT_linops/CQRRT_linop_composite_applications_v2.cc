@@ -157,6 +157,7 @@ static double compute_r_backward_error(GLO& A_op, const T* R, int64_t m, int64_t
     std::vector<T> RtR(n * n, 0.0);
     blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
                n, n, (T)1.0, R, n, (T)0.0, RtR.data(), n);
+    #pragma omp parallel for schedule(static)
     for (int64_t j = 0; j < n; ++j)
         for (int64_t i = j + 1; i < n; ++i)
             RtR[i + j * n] = RtR[j + i * n];
@@ -168,6 +169,7 @@ static double compute_r_backward_error(GLO& A_op, const T* R, int64_t m, int64_t
 
     // ||A^T A - R^T R||_F
     T diff_norm_sq = 0;
+    #pragma omp parallel for reduction(+:diff_norm_sq) schedule(static)
     for (int64_t i = 0; i < n * n; ++i) {
         T d = AtA[i] - RtR[i];
         diff_norm_sq += d * d;
@@ -200,7 +202,9 @@ static double compute_orth_upcast(GLO& A_op, const T* R, int64_t m, int64_t n,
 
     // Upcast A and R to precision U
     std::vector<U> A_U(m * n), R_U(n * n);
+    #pragma omp parallel for schedule(static)
     for (int64_t i = 0; i < m * n; ++i) A_U[i] = (U)A_ptr[i];
+    #pragma omp parallel for schedule(static)
     for (int64_t i = 0; i < n * n; ++i) R_U[i] = (U)R[i];
 
     if constexpr (std::is_same_v<U, double>) {
@@ -600,7 +604,7 @@ int run_benchmark(int argc, char* argv[]) {
     if (upcast_orth || run_expl) {
         std::cout << "Materializing L^{-1}V for upcast/expl (" << m << " x " << n << ", "
                   << (m * n * sizeof(T) / (1024.0 * 1024.0 * 1024.0)) << " GB)... " << std::flush;
-        A_materialized = new T[m * n]();
+        A_materialized = new T[m * n];
         T* Eye = new T[n * n]();
         RandLAPACK::util::eye(n, n, Eye);
         LiV_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
@@ -644,7 +648,8 @@ int run_benchmark(int argc, char* argv[]) {
 
             // Compute Q = A * R^{-1}: use pre-materialized A if available, else via linop
             if (A_materialized) {
-                std::copy(A_materialized, A_materialized + m * n, Q_buf.data());
+                #pragma omp parallel for schedule(static)
+                for (int64_t i = 0; i < m * n; ++i) Q_buf[i] = A_materialized[i];
                 blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper, blas::Op::NoTrans,
                            blas::Diag::NonUnit, m, n, (T)1.0, R.data(), n, Q_buf.data(), m);
             } else {
@@ -659,11 +664,13 @@ int run_benchmark(int argc, char* argv[]) {
                 std::vector<T> RtR(n * n, 0.0);
                 blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
                            n, n, (T)1.0, R.data(), n, (T)0.0, RtR.data(), n);
+                #pragma omp parallel for schedule(static)
                 for (int64_t j = 0; j < n; ++j)
                     for (int64_t i = j + 1; i < n; ++i)
                         RtR[i + j * n] = RtR[j + i * n];
 
                 T diff_sq = 0;
+                #pragma omp parallel for reduction(+:diff_sq) schedule(static)
                 for (int64_t i = 0; i < n * n; ++i) { T d = AtA_precomputed[i] - RtR[i]; diff_sq += d * d; }
                 res.r_backward_error = (double)(std::sqrt(diff_sq) / norm_A_sq_precomputed);
             } else {
@@ -771,7 +778,8 @@ int run_benchmark(int argc, char* argv[]) {
         run_algo("CQRRT_expl", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
             // Copy A_materialized since CQRRT modifies it in-place
             T* A_copy = new T[m * n];
-            std::copy(A_materialized, A_materialized + m * n, A_copy);
+            #pragma omp parallel for schedule(static)
+            for (int64_t i = 0; i < m * n; ++i) A_copy[i] = A_materialized[i];
 
             auto state = run_states[r];
             RandLAPACK::CQRRT<T, RNG> algo(true, tol);
