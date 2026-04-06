@@ -66,7 +66,6 @@ struct gsvd_result {
     // Orthogonality of Q = (L^{-1}V) R^{-1}
     T orth_error;
     bool is_orthonormal;
-    int64_t max_orth_cols;
 
     // R-factor backward error: ||A^T A - R^T R||_F / ||A||_F^2
     double r_backward_error;
@@ -179,7 +178,8 @@ static double compute_r_backward_error(GLO& A_op, const T* R, int64_t m, int64_t
 
 // Compute orthogonality with upcast reconstruction.
 // Algorithm runs in precision T, Q = A R^{-1} computed in precision U (one level up).
-// float -> double, double -> long double. Uses Eigen for TRSM in precision U.
+// float -> double: uses BLAS++/LAPACK++ (MKL-backed DTRSM + DSYRK + DLANSY).
+// double -> long double: uses Eigen (BLAS++ does not support long double).
 // If A_dense is non-null, uses it directly; otherwise materializes via linop.
 template <typename T, typename U, typename GLO>
 static double compute_orth_upcast(GLO& A_op, const T* R, int64_t m, int64_t n,
@@ -203,20 +203,32 @@ static double compute_orth_upcast(GLO& A_op, const T* R, int64_t m, int64_t n,
     for (int64_t i = 0; i < m * n; ++i) A_U[i] = (U)A_ptr[i];
     for (int64_t i = 0; i < n * n; ++i) R_U[i] = (U)R[i];
 
-    // Q = A * R^{-1} via Eigen triangular solve in precision U
-    Eigen::Map<Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>>
-        A_map(A_U.data(), m, n);
-    Eigen::Map<Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>>
-        R_map(R_U.data(), n, n);
-
-    // Solve R^T * Q^T = A^T for Q^T
-    Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic> Qt =
-        R_map.transpose().template triangularView<Eigen::Lower>().solve(A_map.transpose());
-
-    // Compute orthogonality: ||Q^T Q - I||_F / sqrt(n)
-    Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic> QtQ = Qt * Qt.transpose(); // n x n
-    for (int64_t i = 0; i < n; ++i) QtQ(i, i) -= (U)1.0;
-    return (double)(QtQ.norm() / std::sqrt((U)n));
+    if constexpr (std::is_same_v<U, double>) {
+        // float->double: BLAS++ path — MKL DTRSM + DSYRK + DLANSY.
+        // Solve in-place: A_U = A_U * R_U^{-1} (becomes Q in double).
+        blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper,
+                   blas::Op::NoTrans, blas::Diag::NonUnit,
+                   m, n, 1.0, R_U.data(), n, A_U.data(), m);
+        // GmI = Q^T Q - I (upper triangle via SYRK, then lansy for Frobenius norm)
+        std::vector<U> GmI(n * n, 0.0);
+        RandLAPACK::util::eye(n, n, GmI.data());
+        blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+                   n, m, 1.0, A_U.data(), m, -1.0, GmI.data(), n);
+        return lapack::lansy(lapack::Norm::Fro, blas::Uplo::Upper, n, GmI.data(), n) / std::sqrt((double)n);
+    } else {
+        // double->long double: Eigen path (BLAS++ does not support long double).
+        Eigen::Map<Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>>
+            A_map(A_U.data(), m, n);
+        Eigen::Map<Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>>
+            R_map(R_U.data(), n, n);
+        // Solve R^T * Q^T = A^T for Q^T
+        Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic> Qt =
+            R_map.transpose().template triangularView<Eigen::Lower>().solve(A_map.transpose());
+        // ||Q^T Q - I||_F / sqrt(n)
+        Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic> QtQ = Qt * Qt.transpose();
+        for (int64_t i = 0; i < n; ++i) QtQ(i, i) -= (U)1.0;
+        return (double)(QtQ.norm() / std::sqrt((U)n));
+    }
 }
 
 // ============================================================================
@@ -355,7 +367,7 @@ static void write_csv_header(std::ofstream& out, int64_t m, int64_t n, int num_r
                              bool skip_apps, bool compute_cond) {
     out << "# GSVD Benchmark results\n";
     write_common_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
-    out << "m,n,run,algorithm,chol_time_us,qr_time_us,orth_error,r_backward_error,orth_error_upcast,max_orth_cols,"
+    out << "m,n,run,algorithm,chol_time_us,qr_time_us,orth_error,r_backward_error,orth_error_upcast,"
         << "app_a_time_us,ls_rel_error,"
         << "app_b_time_us,"
         << "app_c_time_us,right_svec_orth_error,"
@@ -371,7 +383,6 @@ static void write_csv_row(std::ofstream& out, const gsvd_result<T>& r) {
         << std::scientific << std::setprecision(6) << r.orth_error << ","
         << std::scientific << std::setprecision(6) << r.r_backward_error << ","
         << std::scientific << std::setprecision(6) << r.orth_error_upcast << ","
-        << r.max_orth_cols << ","
         << r.app_a_time_us << ","
         << std::scientific << std::setprecision(6) << r.ls_rel_error << ","
         << r.app_b_time_us << ","
@@ -431,8 +442,8 @@ template <typename T>
 static void print_summary(const std::string& alg_name, const std::vector<gsvd_result<T>>& results) {
     printf("\n  %s:\n", alg_name.c_str());
     for (const auto& r : results) {
-        printf("    Run %ld: orth_err=%.2e, r_bwd_err=%.2e, max_orth=%ld/%ld, QR=%ld us\n",
-               (long)r.run_idx, (double)r.orth_error, r.r_backward_error, (long)r.max_orth_cols, (long)r.n, r.qr_time_us);
+        printf("    Run %ld: orth_err=%.2e, r_bwd_err=%.2e, QR=%ld us\n",
+               (long)r.run_idx, (double)r.orth_error, r.r_backward_error, r.qr_time_us);
         if (r.orth_error_upcast > 0)
             printf("           orth_upcast=%.2e\n", r.orth_error_upcast);
         if (r.app_a_time_us > 0 || r.ls_rel_error > 0) {
@@ -599,6 +610,22 @@ int run_benchmark(int argc, char* argv[]) {
     }
 
     // ================================================================
+    // Pre-compute A^T A and ||A||_F^2 for r_backward_error (A is constant)
+    // ================================================================
+    std::vector<T> AtA_precomputed;
+    T norm_A_sq_precomputed = 0;
+    if (A_materialized) {
+        AtA_precomputed.resize(n * n, 0.0);
+        blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+                   n, m, (T)1.0, A_materialized, m, (T)0.0, AtA_precomputed.data(), n);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = j + 1; i < n; ++i)
+                AtA_precomputed[i + j * n] = AtA_precomputed[j + i * n];
+        for (int64_t i = 0; i < n; ++i)
+            norm_A_sq_precomputed += AtA_precomputed[i + i * n];
+    }
+
+    // ================================================================
     // Common per-algorithm loop: run QR, check orthogonality, run apps
     // ================================================================
     // call_algo(res, R, run_idx) fills res.qr_time_us, res.qr_breakdown,
@@ -625,18 +652,10 @@ int run_benchmark(int argc, char* argv[]) {
             }
             res.orth_error     = RandLAPACK::testing::orthogonality_error<T>(Q_buf.data(), m, n);
             res.is_orthonormal = (res.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            res.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_buf.data(), m, n);
 
             // R-factor backward error: ||A^T A - R^T R||_F / ||A||_F^2
-            // Use pre-materialized A for direct SYRK if available, else blocked linop
+            // Use precomputed A^T A (A is constant across algorithms), else blocked linop
             if (A_materialized) {
-                std::vector<T> AtA(n * n, 0.0);
-                blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
-                           n, m, (T)1.0, A_materialized, m, (T)0.0, AtA.data(), n);
-                for (int64_t j = 0; j < n; ++j)
-                    for (int64_t i = j + 1; i < n; ++i)
-                        AtA[i + j * n] = AtA[j + i * n];
-
                 std::vector<T> RtR(n * n, 0.0);
                 blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
                            n, n, (T)1.0, R.data(), n, (T)0.0, RtR.data(), n);
@@ -644,11 +663,9 @@ int run_benchmark(int argc, char* argv[]) {
                     for (int64_t i = j + 1; i < n; ++i)
                         RtR[i + j * n] = RtR[j + i * n];
 
-                T norm_A_sq = 0;
-                for (int64_t i = 0; i < n; ++i) norm_A_sq += AtA[i + i * n];
                 T diff_sq = 0;
-                for (int64_t i = 0; i < n * n; ++i) { T d = AtA[i] - RtR[i]; diff_sq += d * d; }
-                res.r_backward_error = (double)(std::sqrt(diff_sq) / norm_A_sq);
+                for (int64_t i = 0; i < n * n; ++i) { T d = AtA_precomputed[i] - RtR[i]; diff_sq += d * d; }
+                res.r_backward_error = (double)(std::sqrt(diff_sq) / norm_A_sq_precomputed);
             } else {
                 res.r_backward_error = compute_r_backward_error(LiV_op, R.data(), m, n, block_size);
             }
