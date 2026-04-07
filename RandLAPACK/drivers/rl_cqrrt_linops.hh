@@ -14,6 +14,18 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
+/// Method used to form R_sk^{-1} in CQRRT_linops.
+///
+/// TRSM_IDENTITY  — original method: TRSM(I, R_sk) → R_sk^{-1}.
+///                  Fast (O(n³/2)) but unstable when κ(R_sk) is large.
+/// GEQP3          — stabilized method: GEQP3(R_sk) = Q*R_buf*P^T,
+///                  then R_sk^{-1} = P * R_buf^{-1} * Q^T via ungqr + TRSM.
+///                  More expensive (O(11n³/6)) but accurate for ill-conditioned R_sk.
+enum class CQRRTLinopPrecond {
+    TRSM_IDENTITY,
+    GEQP3
+};
+
 /// Sketch-preconditioned Cholesky QR for abstract linear operators.
 ///
 /// Linop analogue of CQRRT (rl_cqrrt.hh). Computes A = QR where A is any
@@ -56,6 +68,11 @@ class CQRRT_linops {
         // require O(d*m) storage and O(d*m*n) work for application.
         bool use_dense_sketch;
 
+        // Method for computing R_sk^{-1}. See CQRRTLinopPrecond enum.
+        // Default: TRSM_IDENTITY (original behavior).
+        // Set to GEQP3 for the stabilized variant.
+        CQRRTLinopPrecond precond_method;
+
         // Column-block size for the precondition + Gram computation.
         //
         // When block_size > 0, the two expensive linear operator calls:
@@ -92,6 +109,7 @@ class CQRRT_linops {
             nnz = 2;
             use_dense_sketch = false;
             block_size = 0;
+            precond_method = CQRRTLinopPrecond::TRSM_IDENTITY;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -222,26 +240,79 @@ class CQRRT_linops {
             if(this -> timing)
                 qr_t_stop = steady_clock::now();
 
-            // Compute R_sk^{-1} via TRSM with identity (since A may not be dense,
-            // we cannot apply TRSM directly to the operator as in rl_cqrrt.hh).
+            // Compute R_sk^{-1}. Method selected by this->precond_method.
             if(this -> timing)
                 trtri_t_start = steady_clock::now();
 
-            // Instead of doing TRTRI to find R_sk_inv, we do TRSM with an identity, since trtri is not optimized in MKL
-            T* Eye = new T[n * n]();
-            RandLAPACK::util::eye(n, n, Eye);
-            if (!RandLAPACK::util::diag_is_nonzero(n, A_hat, d)) {
-                delete[] A_hat;
-                delete[] tau;
-                delete[] Eye;
-                return 1;
+            T* R_sk_inv = nullptr;
+
+            if (this->precond_method == CQRRTLinopPrecond::TRSM_IDENTITY) {
+                // Original: TRSM(I, R_sk) → R_sk^{-1}   (upper triangular result)
+                T* Eye = new T[n * n]();
+                RandLAPACK::util::eye(n, n, Eye);
+                if (!RandLAPACK::util::diag_is_nonzero(n, A_hat, d)) {
+                    delete[] A_hat;
+                    delete[] tau;
+                    delete[] Eye;
+                    return 1;
+                }
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T)1.0, A_hat, d, Eye, n);
+                if (n > 1) {
+                    lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &Eye[1], n);
+                }
+                R_sk_inv = Eye;
+            } else {
+                // Stabilized: GEQP3(R_sk) = Q_buf * R_buf * P^T
+                //             R_sk^{-1}  = P * R_buf^{-1} * Q_buf^T
+                // Via: ungqr (explicit Q_buf) + TRSM (W = R_buf^{-1} * Q_buf^T) + scatter by jpiv
+                // R_sk_inv is dense (not upper triangular).
+
+                // Extract R_sk from A_hat upper triangle into n×n buffer
+                T* R_sk_copy = new T[n * n]();
+                for (int64_t j = 0; j < n; ++j)
+                    for (int64_t i = 0; i <= j; ++i)
+                        R_sk_copy[i + j*n] = A_hat[i + j*d];
+
+                if (!RandLAPACK::util::diag_is_nonzero(n, R_sk_copy, n)) {
+                    delete[] A_hat;
+                    delete[] tau;
+                    delete[] R_sk_copy;
+                    return 1;
+                }
+
+                int64_t* jpiv  = new int64_t[n]();
+                T*       tau_qr = new T[n];
+                lapack::geqp3(n, n, R_sk_copy, n, jpiv, tau_qr);
+
+                // Extract upper triangular R_buf before overwriting R_sk_copy with Q_buf
+                T* R_buf = new T[n * n]();
+                for (int64_t j = 0; j < n; ++j)
+                    for (int64_t i = 0; i <= j; ++i)
+                        R_buf[i + j*n] = R_sk_copy[i + j*n];
+
+                // Expand Q_buf from Householder reflectors (overwrites R_sk_copy)
+                lapack::ungqr(n, n, n, R_sk_copy, n, tau_qr);
+
+                // W = Q_buf^T (explicit transpose), then solve R_buf * W = Q_buf^T in-place
+                T* W = new T[n * n];
+                for (int64_t i = 0; i < n; ++i)
+                    for (int64_t j = 0; j < n; ++j)
+                        W[i + j*n] = R_sk_copy[j + i*n];
+                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
+                           Diag::NonUnit, n, n, (T)1.0, R_buf, n, W, n);
+
+                // R_sk_inv = P * W: row (jpiv[k]-1) of R_sk_inv gets row k of W
+                R_sk_inv = new T[n * n]();
+                for (int64_t k = 0; k < n; ++k)
+                    for (int64_t j = 0; j < n; ++j)
+                        R_sk_inv[(jpiv[k]-1) + j*n] = W[k + j*n];
+
+                delete[] R_sk_copy;
+                delete[] R_buf;
+                delete[] W;
+                delete[] jpiv;
+                delete[] tau_qr;
             }
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, Eye, n);
-            if (n > 1) {
-                // Clear the below-diagonal
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &Eye[1], n);
-            }
-            T* R_sk_inv = Eye;
 
             if(this -> timing) {
                 trtri_t_stop = steady_clock::now();
@@ -328,8 +399,20 @@ class CQRRT_linops {
                 trmm_gram_t_start = steady_clock::now();
             }
 
-            // (R_sk_inv)^T * (A^T * A_pre)
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T) 1.0, R_sk_inv, n, R, ldr);
+            // Complete Gram: R := R_sk_inv^T * R  (= R_sk_inv^T * A^T * A * R_sk_inv = A_pre^T * A_pre)
+            // TRSM_IDENTITY: R_sk_inv is upper triangular — use TRMM (O(n³/2))
+            // GEQP3:         R_sk_inv is dense            — use GEMM (O(n³))
+            if (this->precond_method == CQRRTLinopPrecond::TRSM_IDENTITY) {
+                blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T)1.0, R_sk_inv, n, R, ldr);
+            } else {
+                T* tmp = new T[n * n];
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, n,
+                           (T)1.0, R_sk_inv, n, R, ldr, (T)0.0, tmp, n);
+                for (int64_t j = 0; j < n; ++j)
+                    for (int64_t i = 0; i < n; ++i)
+                        R[i + j*ldr] = tmp[i + j*n];
+                delete[] tmp;
+            }
 
             if(this -> timing) {
                 trmm_gram_t_stop = steady_clock::now();
