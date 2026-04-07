@@ -34,6 +34,7 @@
 #include <iomanip>
 #include <cmath>
 #include <ctime>
+#include <chrono>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -45,6 +46,7 @@
 #include "../../extras/misc/ext_util.hh"
 #include "../../extras/linops/ext_cholsolver_linop.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
+#include "cqrrt_bench_common.hh"
 
 // Linops algorithms (now in main RandLAPACK)
 #include "rl_cqrrt_linops.hh"
@@ -111,11 +113,9 @@ template <typename T, typename GLO>
 static void compute_Q_from_R(
     GLO& A_op, T* R, int64_t ldr,
     T* Q_out, int64_t m, int64_t n) {
-    T* Eye = new T[n * n]();
-    RandLAPACK::util::eye(n, n, Eye);
+    auto Eye = make_eye<T>(n);
     A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-         m, n, n, (T)1.0, Eye, n, (T)0.0, Q_out, m);
-    delete[] Eye;
+         m, n, n, (T)1.0, Eye.data(), n, (T)0.0, Q_out, m);
     blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper, blas::Op::NoTrans,
                blas::Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_out, m);
 }
@@ -146,9 +146,7 @@ static void compute_AtA_blocked(GLO& A_op, int64_t m, int64_t n, T* AtA, int64_t
              n, bk, m, (T)1.0, A_block.data(), m, (T)0.0, AtA_block.data(), n);
 
         // Copy into AtA columns j0..j0+bk
-        for (int64_t j = 0; j < bk; ++j)
-            for (int64_t i = 0; i < n; ++i)
-                AtA[i + (j0 + j) * n] = AtA_block[i + j * n];
+        lapack::lacpy(lapack::MatrixType::General, n, bk, AtA_block.data(), n, AtA + j0 * n, n);
     }
 }
 
@@ -166,10 +164,7 @@ static double compute_r_backward_error(GLO& A_op, const T* R, int64_t m, int64_t
     std::vector<T> RtR(n * n, 0.0);
     blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
                n, n, (T)1.0, R, n, (T)0.0, RtR.data(), n);
-    #pragma omp parallel for schedule(static)
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = j + 1; i < n; ++i)
-            RtR[i + j * n] = RtR[j + i * n];
+    fill_lower_from_upper(RtR.data(), n);
 
     // ||A||_F^2 = trace(A^T A)
     T norm_A_sq = 0;
@@ -201,11 +196,9 @@ static double compute_orth_upcast(GLO& A_op, const T* R, int64_t m, int64_t n,
         A_ptr = A_dense;
     } else {
         A_buf.resize(m * n);
-        T* Eye = new T[n * n]();
-        RandLAPACK::util::eye(n, n, Eye);
+        auto Eye = make_eye<T>(n);
         A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, n, n, (T)1.0, Eye, n, (T)0.0, A_buf.data(), m);
-        delete[] Eye;
+             m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_buf.data(), m);
         A_ptr = A_buf.data();
     }
 
@@ -525,15 +518,13 @@ static int run_benchmark_inner(
     // Pre-materialize A for upcast orthogonality (once, shared across all algorithms)
     // ================================================================
     T* A_materialized = nullptr;
-    if (upcast_orth || (method_mask & 16) || (method_mask & 32)) {
+    if (upcast_orth || (method_mask & 48)) {
         std::cout << "Materializing " << op_label << " for upcast/expl/stb (" << m << " x " << n << ", "
                   << (m * n * sizeof(T) / (1024.0 * 1024.0 * 1024.0)) << " GB)... " << std::flush;
         A_materialized = new T[m * n];
-        T* Eye = new T[n * n]();
-        RandLAPACK::util::eye(n, n, Eye);
+        auto Eye = make_eye<T>(n);
         A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, n, n, (T)1.0, Eye, n, (T)0.0, A_materialized, m);
-        delete[] Eye;
+             m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_materialized, m);
         std::cout << "done\n\n";
     }
 
@@ -546,9 +537,7 @@ static int run_benchmark_inner(
         AtA_precomputed.resize(n * n, 0.0);
         blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
                    n, m, (T)1.0, A_materialized, m, (T)0.0, AtA_precomputed.data(), n);
-        for (int64_t j = 0; j < n; ++j)
-            for (int64_t i = j + 1; i < n; ++i)
-                AtA_precomputed[i + j * n] = AtA_precomputed[j + i * n];
+        fill_lower_from_upper(AtA_precomputed.data(), n);
         for (int64_t i = 0; i < n; ++i)
             norm_A_sq_precomputed += AtA_precomputed[i + i * n];
     }
@@ -572,8 +561,7 @@ static int run_benchmark_inner(
 
             // Compute Q = A * R^{-1}: use pre-materialized A if available, else via linop
             if (A_materialized) {
-                #pragma omp parallel for schedule(static)
-                for (int64_t i = 0; i < m * n; ++i) Q_buf[i] = A_materialized[i];
+                lapack::lacpy(lapack::MatrixType::General, m, n, A_materialized, m, Q_buf.data(), m);
                 blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper, blas::Op::NoTrans,
                            blas::Diag::NonUnit, m, n, (T)1.0, R.data(), n, Q_buf.data(), m);
             } else {
@@ -588,10 +576,7 @@ static int run_benchmark_inner(
                 std::vector<T> RtR(n * n, 0.0);
                 blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
                            n, n, (T)1.0, R.data(), n, (T)0.0, RtR.data(), n);
-                #pragma omp parallel for schedule(static)
-                for (int64_t j = 0; j < n; ++j)
-                    for (int64_t i = j + 1; i < n; ++i)
-                        RtR[i + j * n] = RtR[j + i * n];
+                fill_lower_from_upper(RtR.data(), n);
 
                 T diff_sq = 0;
                 #pragma omp parallel for reduction(+:diff_sq) schedule(static)
@@ -635,13 +620,14 @@ static int run_benchmark_inner(
     };
 
     // ================================================================
-    // CQRRT_linop
+    // CQRRT_linop variants (standard TRSM_IDENTITY and GEQP3-stabilized)
     // ================================================================
-    if (method_mask & 1) {
-        run_algo("CQRRT_linop", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
+    auto run_cqrrt_linop = [&](const std::string& name, RandLAPACK::CQRRTLinopPrecond precond) {
+        run_algo(name, [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
             auto state = run_states[r];
             RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
             algo.nnz = sketch_nnz; algo.block_size = block_size;
+            algo.precond_method = precond;
             RandLAPACK::PeakRSSTracker mem; mem.start();
             algo.call(A_op, R.data(), n, d_factor, state);
             res.peak_rss_kb = mem.stop();
@@ -650,7 +636,9 @@ static int run_benchmark_inner(
             res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
             res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
         });
-    }
+    };
+    if (method_mask & 1)
+        run_cqrrt_linop("CQRRT_linop", RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY);
 
     // ================================================================
     // CholQR
@@ -707,10 +695,13 @@ static int run_benchmark_inner(
     // ================================================================
     if (method_mask & 16) {
         run_algo("CQRRT_expl", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
-            // Copy A_materialized since CQRRT modifies it in-place
+            // Time the copy: CQRRT modifies A in-place, so a fresh copy is needed each run.
+            // This per-run materialization cost is not captured by algo.times — store in slot [2].
             T* A_copy = new T[m * n];
-            #pragma omp parallel for schedule(static)
-            for (int64_t i = 0; i < m * n; ++i) A_copy[i] = A_materialized[i];
+            auto copy_start = std::chrono::steady_clock::now();
+            lapack::lacpy(lapack::MatrixType::General, m, n, A_materialized, m, A_copy, m);
+            auto copy_end = std::chrono::steady_clock::now();
+            long copy_dur = std::chrono::duration_cast<std::chrono::microseconds>(copy_end - copy_start).count();
 
             auto state = run_states[r];
             RandLAPACK::CQRRT<T, RNG> algo(true, tol);
@@ -721,11 +712,16 @@ static int run_benchmark_inner(
             RandLAPACK::PeakRSSTracker mem; mem.start();
             algo.call(m, n, A_copy, m, R.data(), n, d_factor, state);
             res.peak_rss_kb = mem.stop();
-            res.qr_time_us = algo.times.back(); // total time is last entry
-            // CQRRT_expl breakdown matches CQRRT_linop structure approximately
+
+            // CQRRT dense times layout (10 entries, 0-indexed):
+            //   [0]=saso, [1]=qr, [2]=trtri(0), [3]=precond, [4]=gram,
+            //   [5]=trmm_gram(0), [6]=potrf, [7]=finalize, [8]=rest, [9]=total
+            // Store copy_dur in slot [2] (repurposed trtri placeholder) and include in total.
             res.qr_breakdown.assign(algo.times.begin(), algo.times.end());
-            // Pad to standard length
             while (res.qr_breakdown.size() < 11) res.qr_breakdown.push_back(0);
+            res.qr_breakdown[2]  = copy_dur;
+            res.qr_breakdown[9] += copy_dur;  // update total to include copy
+            res.qr_time_us = res.qr_breakdown[9];
             res.analytical_kb = (m * n * sizeof(T)) / 1024; // just the dense matrix
 
             delete[] A_copy;
@@ -735,22 +731,8 @@ static int run_benchmark_inner(
     // ================================================================
     // CQRRT_linop_stb (GEQP3-stabilized preconditioner, uses pre-materialized A for orth check)
     // ================================================================
-    if (method_mask & 32) {
-        run_algo("CQRRT_linop_stb", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
-            auto state = run_states[r];
-            RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
-            algo.nnz = sketch_nnz;
-            algo.block_size = block_size;
-            algo.precond_method = RandLAPACK::CQRRTLinopPrecond::GEQP3;
-            RandLAPACK::PeakRSSTracker mem; mem.start();
-            algo.call(A_op, R.data(), n, d_factor, state);
-            res.peak_rss_kb = mem.stop();
-            res.qr_time_us = algo.times[10];
-            // breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
-            res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
-            res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
-        });
-    }
+    if (method_mask & 32)
+        run_cqrrt_linop("CQRRT_linop_stb", RandLAPACK::CQRRTLinopPrecond::GEQP3);
 
     // Free pre-materialized A
     delete[] A_materialized;
@@ -850,13 +832,10 @@ int run_benchmark(int argc, char* argv[]) {
     // Step 1: Load A (sparse mode) or V (composite mode) from Matrix Market
     // ================================================================
     std::cout << "Loading " << (sparse_mode ? "A" : "V") << " from " << V_file << "... " << std::flush;
-    auto V_coo = RandLAPACK_extras::coo_from_matrix_market<T>(V_file);
-    int64_t m = V_coo.n_rows;
-    int64_t n = V_coo.n_cols;
-    RandBLAS::sparse_data::csr::CSRMatrix<T> V_csr(m, n);
-    RandBLAS::sparse_data::conversions::coo_to_csr(V_coo, V_csr);
+    int64_t m, n, nnz_V;
+    auto V_csr = load_csr<T>(V_file, m, n, nnz_V);
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> V_linop(m, n, V_csr);
-    std::cout << "done (" << m << " x " << n << ", nnz=" << V_coo.nnz << ")\n";
+    std::cout << "done (" << m << " x " << n << ", nnz=" << nnz_V << ")\n";
 
     if (m < n) {
         std::cerr << "Error: matrix must be overdetermined (m >= n), got " << m << "x" << n << "\n";
@@ -948,7 +927,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file|sparse> <V_file|A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl] [upcast_orth]\n";
+                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl] [upcast_orth] [method_mask]\n";
         return 1;
     }
 
