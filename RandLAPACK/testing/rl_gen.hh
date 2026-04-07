@@ -2,6 +2,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_matrix_io.hh"
 
 #include <RandBLAS.hh>
 #include <iostream>
@@ -434,53 +435,8 @@ void gen_kahan_mat(
     delete[] C;
 }
 
-/// Reads a matrix from a file
-template <typename T>
-void process_input_mat(
-    int64_t &m,
-    int64_t &n,
-    T* A,
-    char* filename,
-    int& workspace_query_mod
-) {
-    // We only check the size of the input data.
-    if (workspace_query_mod) {
-        std::string line;
-        std::string line_entry;
-
-        // Read input file
-        std::ifstream inputMat(filename);
-
-        // Count numcols.
-        std::getline(inputMat, line);
-        std::istringstream lineStream(line);
-        while (lineStream >> line_entry)
-            ++n;
-
-        // Count numrows - already got through row 1.
-        ++m;
-        while (std::getline(inputMat, line))
-            ++m;
-
-        // Exit querying mod.
-        workspace_query_mod = 0;
-    } else {
-        double value;
-        int i, j;
-        // Read input file
-        std::ifstream inputMat(filename);
-
-        // Place the contents of a file into the matrix space.
-        // Matrix is input in a row-major order, we process data in column-major.
-        // Reads here are, unfortunately, sequential;
-        for(j = 0; j < m; ++j) {
-            for(i = 0; i < n; ++i) {
-                inputMat >> value;
-                A[m * i + j] = value;
-            }
-        }
-    }
-}
+// process_input_mat has been removed. Use RandLAPACK::gen::read_txt_matrix
+// from rl_matrix_io.hh directly.
 
 /// Generate a random dense matrix with specified layout.
 /// For simple random matrices without spectral structure.
@@ -763,8 +719,9 @@ void mat_gen(
             }
             break;
         case custom_input: {
-                // Generates Kahan Matrix
-                RandLAPACK::gen::process_input_mat(info.rows, info.cols, A, info.filename, info.workspace_query_mod);
+                bool query = (info.workspace_query_mod != 0);
+                RandLAPACK::gen::read_txt_matrix(info.rows, info.cols, A, info.filename, query);
+                if (query) info.workspace_query_mod = 0;
             }
             break;
         default:

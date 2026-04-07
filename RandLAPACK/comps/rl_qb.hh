@@ -5,6 +5,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
+#include "rl_downdatable_linop.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -39,8 +40,8 @@ class QB : public QBalg<T, RNG> {
 
         // Constructor
         QB(
-            // Requires a RangeFinder scheme object.
-            RandLAPACK::RangeFinder<T, RNG> &rf_obj,
+            // Requires a RangeFinder scheme object (concrete RF, not virtual base).
+            RandLAPACK::RF<T, RNG> &rf_obj,
             // Requires a stabilization algorithm object.
             RandLAPACK::Stabilization<T> &orth_obj,
             bool verb,
@@ -122,8 +123,23 @@ class QB : public QBalg<T, RNG> {
             RandBLAS::RNGState<RNG> &state
         ) override;
 
+        /// LinOp-based QB: builds a QB factorization of an abstract linear operator.
+        /// The operator is wrapped in a DowndatableLinOp that handles deflation implicitly.
+        /// norm_A must be provided by the caller (cannot be computed from a generic LinOp).
+        template <linops::LinearOperator LinOp>
+        int call(
+            LinOp& A_op,
+            int64_t &k,
+            int64_t b_sz,
+            T tol,
+            T norm_A,
+            T* &Q,
+            T* &BT,
+            RandBLAS::RNGState<RNG> &state
+        );
+
     public:
-        RandLAPACK::RangeFinder<T, RNG> &rf;
+        RandLAPACK::RF<T, RNG> &rf;
         RandLAPACK::Stabilization<T> &orth;
         bool verbose;
         bool orth_check;
@@ -159,16 +175,15 @@ int QB<T, RNG>::call(
     BT = ( T * ) calloc(n * b_sz, sizeof( T ) );
     // Allocate buffers
     T* QtQi  = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
-    T* A_cpy = ( T * ) calloc( m * n,       sizeof( T ) );
     // Declate pointers to the iteration buffers.
     T* Q_i;
     T* BT_i;
 
-    // pre-compute nrom
+    // pre-compute norm
     T norm_A = lapack::lange(Norm::Fro, m, n, A, m);
 
-    // Copy the initial data to avoid unwanted modification
-    lapack::lacpy(MatrixType::General, m, n, A, m, A_cpy, m);
+    // NOTE: A is modified in-place by the deflation step (A = A - Q_i * B_i).
+    // Callers who need to preserve A must make their own copy before calling QB.
 
     while(curr_sz < k) {
         // Dynamically changing block size.
@@ -188,10 +203,9 @@ int QB<T, RNG>::call(
         BT_i = &BT[n * curr_sz];
 
         // Calling RangeFinder
-        if(this->rf.call(m, n, A_cpy, b_sz, Q_i, state)) {
+        if(this->rf.call(m, n, A, b_sz, Q_i, state)) {
             // RF failed
             k = curr_sz;
-            free(A_cpy);
             free(QtQi);
             return 6;
         }
@@ -200,7 +214,6 @@ int QB<T, RNG>::call(
             if (util::orthogonality_check(m, b_sz, Q_i, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
-                free(A_cpy);
                 free(QtQi);
                 return 4;
             }
@@ -215,7 +228,7 @@ int QB<T, RNG>::call(
         }
 
         //B_i' = A' * Q_i'
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, A_cpy, m, Q_i, m, 0.0, BT_i, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, A, m, Q_i, m, 0.0, BT_i, n);
 
         // Updating B norm estimation
         T norm_B_i = lapack::lange(Norm::Fro, n, b_sz, BT_i, n);
@@ -228,7 +241,6 @@ int QB<T, RNG>::call(
         if ((curr_sz > 0) && (approx_err > prev_err)) {
             // Early termination - error has grown.
             k = curr_sz;
-            free(A_cpy);
             free(QtQi);
             return 2;
         }
@@ -237,7 +249,6 @@ int QB<T, RNG>::call(
             if (util::orthogonality_check(m, next_sz, Q, this->verbose)) {
                 // Lost orthonormality of Q
                 k = curr_sz;
-                free(A_cpy);
                 free(QtQi);
                 return 5;
             }
@@ -250,20 +261,129 @@ int QB<T, RNG>::call(
         if (approx_err < tol) {
             // Reached the required error tol
             k = curr_sz;
-            free(A_cpy);
             free(QtQi);
             return 0;
         }
 
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A_cpy, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A, m);
     }
 
-    free(A_cpy);
     free(QtQi);
 
     // Reached expected rank without achieving the tolerance
+    return 3;
+}
+
+// -----------------------------------------------------------------------------
+// LinOp-templated QB implementation.
+// Wraps the input operator in a DowndatableLinOp so that every matmul
+// (including inside RS power iteration) automatically applies accumulated
+// deflation. The base operator A is never modified.
+template <typename T, typename RNG>
+template <linops::LinearOperator LinOp>
+int QB<T, RNG>::call(
+    LinOp& A_op,
+    int64_t &k,
+    int64_t b_sz,
+    T tol,
+    T norm_A,
+    T* &Q,
+    T* &BT,
+    RandBLAS::RNGState<RNG> &state
+){
+    int64_t m = A_op.n_rows;
+    int64_t n = A_op.n_cols;
+
+    // Wrap in DowndatableLinOp — all matmuls go through this, so RS/RF
+    // automatically see the deflated operator at each iteration.
+    linops::DowndatableLinOp<T, LinOp> dd_op(A_op, k);
+
+    int64_t curr_sz = 0;
+    int64_t next_sz = 0;
+    tol = std::max(tol, 100 * std::numeric_limits<T>::epsilon());
+    T norm_B = 0.0;
+    T prev_err = 0.0;
+    T approx_err = 0.0;
+
+    if(Q) free(Q);
+    if(BT) free(BT);
+    Q  = ( T * ) calloc(m * b_sz, sizeof( T ) );
+    BT = ( T * ) calloc(n * b_sz, sizeof( T ) );
+    T* QtQi = ( T * ) calloc( b_sz * b_sz, sizeof( T ) );
+    T* Q_i;
+    T* BT_i;
+
+    while(curr_sz < k) {
+        b_sz = std::min(b_sz, k - curr_sz);
+        next_sz = curr_sz + b_sz;
+
+        if (curr_sz != 0) {
+            Q    = ( T * ) realloc(Q,    next_sz * m * sizeof( T ));
+            BT   = ( T * ) realloc(BT,   next_sz * n * sizeof( T ));
+            QtQi = ( T * ) realloc(QtQi, next_sz * b_sz * sizeof( T ));
+        }
+
+        Q_i = &Q[m * curr_sz];
+        BT_i = &BT[n * curr_sz];
+
+        // RangeFinder via LinOp path — uses the deflated operator
+        if(rf_linop(this->rf, dd_op, b_sz, Q_i, state)) {
+            k = curr_sz;
+            free(QtQi);
+            return 6;
+        }
+
+        if(this->orth_check) {
+            if (util::orthogonality_check(m, b_sz, Q_i, this->verbose)) {
+                k = curr_sz;
+                free(QtQi);
+                return 4;
+            }
+        }
+
+        if(curr_sz != 0) {
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, 1.0, Q, m, Q_i, m, 0.0, QtQi, next_sz);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, -1.0, Q, m, QtQi, next_sz, 1.0, Q_i, m);
+            this->orth.call(m, b_sz, Q_i);
+        }
+
+        // BT_i = A_deflated' * Q_i (through the DowndatableLinOp)
+        dd_op(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, Q_i, m, 0.0, BT_i, n);
+
+        T norm_B_i = lapack::lange(Norm::Fro, n, b_sz, BT_i, n);
+        norm_B = std::hypot(norm_B, norm_B_i);
+        prev_err = approx_err;
+        approx_err = std::sqrt(std::abs(norm_A - norm_B)) * (std::sqrt(norm_A + norm_B) / norm_A);
+
+        if ((curr_sz > 0) && (approx_err > prev_err)) {
+            k = curr_sz;
+            free(QtQi);
+            return 2;
+        }
+
+        if(this->orth_check) {
+            if (util::orthogonality_check(m, next_sz, Q, this->verbose)) {
+                k = curr_sz;
+                free(QtQi);
+                return 5;
+            }
+        }
+
+        curr_sz += b_sz;
+
+        if (approx_err < tol) {
+            k = curr_sz;
+            free(QtQi);
+            return 0;
+        }
+
+        // Update the DowndatableLinOp instead of explicit deflation
+        dd_op.update(b_sz, Q_i, BT_i);
+    }
+
+    free(QtQi);
     return 3;
 }
 

@@ -1,6 +1,7 @@
 
 set(RandLAPACK_cxx_sources
     rl_abrik.hh
+    rl_bk.hh
     rl_lapackpp.hh
     rl_cqrrt.hh
     rl_cqrrpt.hh

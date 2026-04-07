@@ -12,6 +12,7 @@
 
 // linear operator infrastructure
 #include "RandLAPACK/linops/rl_linops.hh"
+#include "RandLAPACK/linops/rl_svd_residual.hh"
 
 // testing utilities (used by benchmarks, so included in umbrella header)
 #include "RandLAPACK/testing/rl_gen.hh"
@@ -20,6 +21,7 @@
 // Computational routines
 #include "RandLAPACK/comps/rl_determiter.hh"
 #include "RandLAPACK/comps/rl_preconditioners.hh"
+#include "RandLAPACK/comps/rl_bk.hh"
 #include "RandLAPACK/comps/rl_qb.hh"
 #include "RandLAPACK/comps/rl_rf.hh"
 #include "RandLAPACK/comps/rl_rs.hh"

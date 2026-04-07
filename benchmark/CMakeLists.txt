@@ -75,7 +75,7 @@ include(FetchContent)
 FetchContent_Declare(
         eigen_lib
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen
-        GIT_TAG master
+        GIT_TAG 3.4.1
         GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(eigen_lib)
@@ -83,14 +83,19 @@ FetchContent_MakeAvailable(eigen_lib)
 install(EXPORT Eigen3Targets NAMESPACE Eigen3:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Eigen3)
 
 # SPECTRA dependency
+# Spectra is header-only. We download the source and create an interface target
+# manually, bypassing Spectra's own CMakeLists.txt which has install(EXPORT)
+# rules that conflict with FetchContent'd Eigen.
 FetchContent_Declare(
         spectra_lib
         GIT_REPOSITORY https://github.com/yixuan/spectra/
         GIT_TAG master
         GIT_SHALLOW TRUE
+        SOURCE_SUBDIR _disable_
 )
 FetchContent_MakeAvailable(spectra_lib)
-# Linking Spectra and Eigen.
+add_library(Spectra INTERFACE)
+target_include_directories(Spectra INTERFACE ${spectra_lib_SOURCE_DIR}/include)
 target_link_libraries(Spectra INTERFACE Eigen3::Eigen)
 
 # Adding fast matri matrket for benchmarking matrices examples
@@ -104,6 +109,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(
     fast_matrix_market
 )
+
+# Extras headers (for ext_budgeted_svd_solver.hh etc.)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../extras/misc)
 
 set(
     Benchmark_libs
@@ -160,10 +168,9 @@ add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_li
 add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 
 # ABRIK benchmarks
-add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
-add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
-add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})
+add_benchmark(NAME ABRIK_accuracy_analysis        CXX_SOURCES bench_ABRIK/ABRIK_accuracy_analysis.cc        LINK_LIBS ${Benchmark_libs})
 
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)
