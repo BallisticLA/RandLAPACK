@@ -10,7 +10,7 @@
 //   7. Application (c): Generalized singular vectors — full SVD of R
 //
 // Usage:
-//   ./CQRRT_linop_composite_applications <prec> <outdir> <runs> <K_file|sparse> <V_file|A_file> <d_factor>
+//   ./CQRRT_linop_applications <prec> <outdir> <runs> <K_file|sparse> <V_file|A_file> <d_factor>
 //                    [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl] [upcast_orth] [method_mask]
 //
 //   method_mask (integer bitmask, optional, default = 0b001111 or 0b011111 if run_expl=1):
