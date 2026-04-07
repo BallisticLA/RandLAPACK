@@ -7,6 +7,10 @@
 //   with query=false and a pre-allocated buffer to read data.
 //   Uses fast parallel parsing (fread + strtod + OpenMP).
 //
+// read_bin_matrix: reads binary files written by gen_mat_alg971_paper.m
+//   (WriteBinary=true). Format: int64_t m, int64_t n (16-byte header), then
+//   m*n doubles in row-major order. Two-phase API matches read_txt_matrix.
+//
 // For Matrix Market (.mtx) support, see fast_matrix_market (external dependency,
 // available in benchmark/ and extras/ projects).
 
@@ -90,6 +94,56 @@ void read_txt_matrix(
             }
         }
     }
+}
+
+/// Read a dense matrix from a binary file written by gen_mat_alg971_paper.m
+/// (WriteBinary=true option).
+///
+/// File format:
+///   int64_t m, int64_t n   (16-byte header)
+///   m*n doubles             (row-major: row 0 col 0..n-1, row 1 col 0..n-1, ...)
+///
+/// Output is stored column-major: A[row + m * col], matching LAPACK convention.
+/// Data is fread in one call then scattered with OpenMP — faster than strtod.
+///
+/// Two-phase API matches read_txt_matrix:
+///   Phase 1 (query=true):  fills m, n; A may be nullptr.
+///   Phase 2 (query=false): fills A[0..m*n-1]; m and n must already be set.
+template <typename T>
+void read_bin_matrix(
+    int64_t &m,
+    int64_t &n,
+    T* A,
+    const char* filename,
+    bool query
+) {
+    FILE* fp = std::fopen(filename, "rb");
+    if (!fp)
+        throw std::runtime_error(std::string("Cannot open file: ") + filename);
+
+    int64_t dims[2] = {0, 0};
+    if (std::fread(dims, sizeof(int64_t), 2, fp) != 2) {
+        std::fclose(fp);
+        throw std::runtime_error(std::string("Failed to read header: ") + filename);
+    }
+    m = dims[0];
+    n = dims[1];
+
+    if (!query) {
+        size_t total = (size_t)m * (size_t)n;
+        std::vector<double> buf(total);
+        if (std::fread(buf.data(), sizeof(double), total, fp) != total) {
+            std::fclose(fp);
+            throw std::runtime_error(std::string("Truncated binary file: ") + filename);
+        }
+        // Scatter row-major doubles to column-major T array.
+        #pragma omp parallel for schedule(static)
+        for (int64_t j = 0; j < m; ++j)
+            for (int64_t i = 0; i < n; ++i)
+                A[m * i + j] = (T) buf[(size_t)j * n + i];
+    }
+
+    std::fclose(fp);
 }
 
 } // end namespace RandLAPACK::gen

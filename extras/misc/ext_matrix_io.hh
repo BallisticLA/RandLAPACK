@@ -127,6 +127,15 @@ LoadedMatrix<T> load_matrix(const std::string& path, double sub_ratio = 1.0) {
             printf("Loaded %s: %ld x %ld, dense (mtx)\n",
                    path.c_str(), result.m, result.n);
         }
+    } else if (ext == ".bin") {
+        int64_t m = 0, n = 0;
+        RandLAPACK::gen::read_bin_matrix<T>(m, n, nullptr, path.c_str(), true);
+        result.m = m;
+        result.n = n;
+        result.dense_data.resize(m * n);
+        RandLAPACK::gen::read_bin_matrix<T>(m, n, result.data(), path.c_str(), false);
+        printf("Loaded %s: %ld x %ld, dense (bin)\n",
+               path.c_str(), result.m, result.n);
     } else {
         int64_t m = 0, n = 0;
         RandLAPACK::gen::read_txt_matrix<T>(m, n, nullptr, path.c_str(), true);
