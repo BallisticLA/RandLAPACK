@@ -156,7 +156,7 @@ set(
     Eigen3::Eigen
     fast_matrix_market
 )
-add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_composite_applications.cc LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRT_linop_applications           CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_applications.cc           LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 add_benchmark(NAME CQRRT_diagnostic                   CXX_SOURCES bench_CQRRT_linops/CQRRT_diagnostic.cc                   LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 
