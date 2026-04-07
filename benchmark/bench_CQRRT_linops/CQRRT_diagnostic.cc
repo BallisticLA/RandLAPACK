@@ -7,7 +7,7 @@
 //   [2] expl_inv_trsm:  TRSM(I, R_sk) → R_inv; DGEMM(A, R_inv)       (TRSM on identity)
 //   [3] expl_inv_trtri: TRTRI(R_sk) → R_inv;   DGEMM(A, R_inv)       (LAPACK trtri)
 //   [4] expl_inv_geqp3: GEQP3(R_sk) = Q*R_buf*P^T;
-//                       R_inv = P * TRTRI(R_buf) * Q^T; DGEMM(A, R_inv)
+//                       R_inv = P * TRSM(R_buf, Q^T); DGEMM(A, R_inv)
 //
 //   Path [1] never forms R_sk^{-1} explicitly (backward stable).
 //   Paths [2]-[4] all form R_sk^{-1} explicitly via different methods.
@@ -59,6 +59,7 @@
 
 #include "../../extras/misc/ext_util.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
+#include "cqrrt_bench_common.hh"
 
 using std::chrono::steady_clock;
 using std::chrono::duration_cast;
@@ -68,6 +69,26 @@ using blas::Op;
 using blas::Side;
 using blas::Uplo;
 using blas::Diag;
+
+// ============================================================================
+// Path constants
+// ============================================================================
+
+static constexpr int N_PATHS = 4;
+
+static constexpr const char* PATH_NAMES[N_PATHS] = {
+    "expl_trsm",
+    "expl_inv_trsm",
+    "expl_inv_trtri",
+    "expl_inv_geqp3",
+};
+
+static constexpr const char* PATH_DESCS[N_PATHS] = {
+    "DTRSM_R(A, R_sk) in-place                              <- CQRRT_expl",
+    "TRSM(I, R_sk)->R_inv; DGEMM(A, R_inv)",
+    "TRTRI(R_sk)->R_inv;   DGEMM(A, R_inv)",
+    "GEQP3(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)",
+};
 
 // ============================================================================
 // Helpers
@@ -136,9 +157,9 @@ static T cholqr_orth_error(const std::vector<T>& A_pre, const T* A_orig,
 template <typename T>
 struct TrialResult {
     // Per-path metrics
-    double cond_Apre[4];
-    double cond_G[4];
-    double orth_Q[4];
+    double cond_Apre[N_PATHS];
+    double cond_G[N_PATHS];
+    double orth_Q[N_PATHS];
     // Cross-path relative differences of A_pre (reference = path [1])
     double rd_Apre_12;  // TRSM in-place vs TRSM-on-identity
     double rd_Apre_13;  // TRSM in-place vs trtri
@@ -186,8 +207,7 @@ static TrialResult<T> run_trial(
     // ----------------------------------------------------------------
 
     // Method A: TRSM on identity  (path [2])
-    std::vector<T> R_inv_trsm(n * n, 0.0);
-    RandLAPACK::util::eye(n, n, R_inv_trsm.data());
+    auto R_inv_trsm = make_eye<T>(n);
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, n, n, (T)1.0,
                R_sk.data(), n, R_inv_trsm.data(), n);
@@ -237,53 +257,41 @@ static TrialResult<T> run_trial(
     }
 
     // ----------------------------------------------------------------
-    // Compute all four A_pre matrices
+    // Compute all N_PATHS preconditioned matrices:
+    //   Apre[0]: TRSM in-place   (path [1], CQRRT_expl)
+    //   Apre[1]: GEMM + R_inv_trsm  (path [2])
+    //   Apre[2]: GEMM + R_inv_trtri (path [3])
+    //   Apre[3]: GEMM + R_inv_geqp3 (path [4])
     // ----------------------------------------------------------------
+    std::array<std::vector<T>, N_PATHS> Apre;
+    for (auto& a : Apre) a.resize(m * n, T(0));
 
-    // Path [1]: TRSM in-place on A   ← CQRRT_expl
-    std::vector<T> Apre1(A_dense, A_dense + m*n);
+    Apre[0].assign(A_dense, A_dense + m*n);
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-               Diag::NonUnit, m, n, (T)1.0,
-               R_sk.data(), n, Apre1.data(), m);
+               Diag::NonUnit, m, n, (T)1.0, R_sk.data(), n, Apre[0].data(), m);
 
-    // Path [2]: explicit inverse via TRSM-on-I + DGEMM
-    std::vector<T> Apre2(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-               m, n, n, (T)1.0,
-               A_dense, m, R_inv_trsm.data(), n,
-               (T)0.0, Apre2.data(), m);
-
-    // Path [3]: explicit inverse via trtri + DGEMM
-    std::vector<T> Apre3(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-               m, n, n, (T)1.0,
-               A_dense, m, R_inv_trtri.data(), n,
-               (T)0.0, Apre3.data(), m);
-
-    // Path [4]: explicit inverse via geqp3 + trtri + Q^T + permutation + DGEMM
-    std::vector<T> Apre4(m * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-               m, n, n, (T)1.0,
-               A_dense, m, R_inv_geqp3.data(), n,
-               (T)0.0, Apre4.data(), m);
+    const T* R_invs[N_PATHS - 1] = {R_inv_trsm.data(), R_inv_trtri.data(), R_inv_geqp3.data()};
+    for (int p = 1; p < N_PATHS; ++p)
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                   m, n, n, (T)1.0, A_dense, m, R_invs[p-1], n, (T)0.0, Apre[p].data(), m);
 
     // ----------------------------------------------------------------
-    // Cross-path relative differences (reference = path [1])
+    // Cross-path relative differences (reference = path [1] = Apre[0])
     // ----------------------------------------------------------------
-    res.rd_Apre_12 = (double)rel_diff(Apre1.data(), Apre2.data(), m*n);
-    res.rd_Apre_13 = (double)rel_diff(Apre1.data(), Apre3.data(), m*n);
-    res.rd_Apre_14 = (double)rel_diff(Apre1.data(), Apre4.data(), m*n);
+    res.rd_Apre_12 = (double)rel_diff(Apre[0].data(), Apre[1].data(), m*n);
+    res.rd_Apre_13 = (double)rel_diff(Apre[0].data(), Apre[2].data(), m*n);
+    res.rd_Apre_14 = (double)rel_diff(Apre[0].data(), Apre[3].data(), m*n);
 
     // ----------------------------------------------------------------
-    // Step-by-step pipeline intermediates: paths [1] vs [2]
+    // Step-by-step pipeline intermediates: paths [1] vs [2] (Apre[0] vs Apre[1])
     // G = A_pre^T A_pre (upper triangle via SYRK)
     // R_chol = chol(G)  (POTRF in-place on upper triangle)
     // R_final = R_chol * R_sk  (TRMM)
     // ----------------------------------------------------------------
-    auto make_G = [&](const std::vector<T>& Apre) {
+    auto make_G = [&](const std::vector<T>& A) {
         std::vector<T> G(n*n, 0.0);
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
-                   n, m, (T)1.0, Apre.data(), m, (T)0.0, G.data(), n);
+                   n, m, (T)1.0, A.data(), m, (T)0.0, G.data(), n);
         return G;
     };
     auto make_Rchol = [&](std::vector<T> G) {
@@ -296,8 +304,8 @@ static TrialResult<T> run_trial(
         return Rchol;
     };
 
-    auto G1      = make_G(Apre1);
-    auto G2      = make_G(Apre2);
+    auto G1      = make_G(Apre[0]);
+    auto G2      = make_G(Apre[1]);
     auto Rchol1  = make_Rchol(G1);
     auto Rchol2  = make_Rchol(G2);
     auto Rfinal1 = make_Rfinal(Rchol1);
@@ -310,20 +318,11 @@ static TrialResult<T> run_trial(
     // ----------------------------------------------------------------
     // Per-path metrics
     // ----------------------------------------------------------------
-    res.cond_Apre[0] = (double)condition_number(Apre1.data(), m, n);
-    res.cond_Apre[1] = (double)condition_number(Apre2.data(), m, n);
-    res.cond_Apre[2] = (double)condition_number(Apre3.data(), m, n);
-    res.cond_Apre[3] = (double)condition_number(Apre4.data(), m, n);
-
-    res.cond_G[0] = (double)gram_condition_number(Apre1.data(), m, n);
-    res.cond_G[1] = (double)gram_condition_number(Apre2.data(), m, n);
-    res.cond_G[2] = (double)gram_condition_number(Apre3.data(), m, n);
-    res.cond_G[3] = (double)gram_condition_number(Apre4.data(), m, n);
-
-    res.orth_Q[0] = (double)cholqr_orth_error(Apre1, A_dense, m, n, R_sk.data());
-    res.orth_Q[1] = (double)cholqr_orth_error(Apre2, A_dense, m, n, R_sk.data());
-    res.orth_Q[2] = (double)cholqr_orth_error(Apre3, A_dense, m, n, R_sk.data());
-    res.orth_Q[3] = (double)cholqr_orth_error(Apre4, A_dense, m, n, R_sk.data());
+    for (int p = 0; p < N_PATHS; ++p) {
+        res.cond_Apre[p] = (double)condition_number(Apre[p].data(), m, n);
+        res.cond_G[p]    = (double)gram_condition_number(Apre[p].data(), m, n);
+        res.orth_Q[p]    = (double)cholqr_orth_error(Apre[p], A_dense, m, n, R_sk.data());
+    }
 
     return res;
 }
@@ -349,21 +348,15 @@ int run_benchmark(int argc, char* argv[]) {
     // ----------------------------------------------------------------
     // Load matrix and materialize as dense
     // ----------------------------------------------------------------
-    auto coo = RandLAPACK_extras::coo_from_matrix_market<T>(mtx_path);
-    int64_t m = coo.n_rows, n = coo.n_cols;
-
-    RandBLAS::sparse_data::csr::CSRMatrix<T> csr(m, n);
-    RandBLAS::sparse_data::conversions::coo_to_csr(coo, csr);
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>>
-        A_linop(m, n, csr);
+    int64_t m, n, nnz;
+    auto csr = load_csr<T>(mtx_path, m, n, nnz);
+    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, csr);
 
     std::vector<T> A_dense(m * n, 0.0);
     {
-        T* Eye = new T[n * n]();
-        RandLAPACK::util::eye(n, n, Eye);
+        auto Eye = make_eye<T>(n);
         A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                m, n, n, (T)1.0, Eye, n, (T)0.0, A_dense.data(), m);
-        delete[] Eye;
+                m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
     }
 
     T cond_A = condition_number(A_dense.data(), m, n);
@@ -371,7 +364,7 @@ int run_benchmark(int argc, char* argv[]) {
 
     std::cout << "\n=== CQRRT Preconditioner Comparison ===\n";
     std::cout << "  Matrix:     " << mtx_path << "\n";
-    std::cout << "  Size:       " << m << " x " << n << "  (nnz=" << coo.nnz << ")\n";
+    std::cout << "  Size:       " << m << " x " << n << "  (nnz=" << nnz << ")\n";
     std::cout << "  d_factor:   " << d_factor << "  (d=" << d << ")\n";
     std::cout << "  sketch_nnz: " << sketch_nnz << "\n";
     std::cout << "  runs:       " << num_runs << "\n";
@@ -414,24 +407,18 @@ int run_benchmark(int argc, char* argv[]) {
         auto res = run_trial<T, RNG>(A_dense.data(), m, n, d_factor, sketch_nnz, state);
 
         printf("  run %ld  orth_error(Q = A * R_final^{-1}):\n", r);
-        printf("    [1] expl_trsm:       %12.3e\n", res.orth_Q[0]);
-        printf("    [2] expl_inv_trsm:   %12.3e\n", res.orth_Q[1]);
-        printf("    [3] expl_inv_trtri:  %12.3e\n", res.orth_Q[2]);
-        printf("    [4] expl_inv_geqp3:  %12.3e\n", res.orth_Q[3]);
+        for (int p = 0; p < N_PATHS; ++p)
+            printf("    [%d] %-18s %12.3e\n", p+1, PATH_NAMES[p], res.orth_Q[p]);
 
-        printf("  run %ld  cond(A_pre):\n", r);
-        printf("    [1] expl_trsm:       %12.3e\n", res.cond_Apre[0]);
-        printf("    [2] expl_inv_trsm:   %12.3e\n", res.cond_Apre[1]);
-        printf("    [3] expl_inv_trtri:  %12.3e\n", res.cond_Apre[2]);
-        printf("    [4] expl_inv_geqp3:  %12.3e\n", res.cond_Apre[3]);
+        printf("  run %ld  cond(MR^pre):\n", r);
+        for (int p = 0; p < N_PATHS; ++p)
+            printf("    [%d] %-18s %12.3e\n", p+1, PATH_NAMES[p], res.cond_Apre[p]);
 
-        printf("  run %ld  cond(G = A_pre^T A_pre):\n", r);
-        printf("    [1] expl_trsm:       %12.3e\n", res.cond_G[0]);
-        printf("    [2] expl_inv_trsm:   %12.3e\n", res.cond_G[1]);
-        printf("    [3] expl_inv_trtri:  %12.3e\n", res.cond_G[2]);
-        printf("    [4] expl_inv_geqp3:  %12.3e\n", res.cond_G[3]);
+        printf("  run %ld  cond(G = MR^pre^T MR^pre):\n", r);
+        for (int p = 0; p < N_PATHS; ++p)
+            printf("    [%d] %-18s %12.3e\n", p+1, PATH_NAMES[p], res.cond_G[p]);
 
-        printf("  run %ld  rel_diff(A_pre) vs [1]:\n", r);
+        printf("  run %ld  rel_diff(MR^pre) vs [1]:\n", r);
         printf("    rd_12 (trsm-on-I):   %12.3e\n", res.rd_Apre_12);
         printf("    rd_13 (trtri):       %12.3e\n", res.rd_Apre_13);
         printf("    rd_14 (geqp3):       %12.3e\n", res.rd_Apre_14);
@@ -446,27 +433,19 @@ int run_benchmark(int argc, char* argv[]) {
 
         printf("  run %ld  cond(R_sk): %9.3e\n\n", r, res.cond_Rsk);
 
-        csv << r << ","
-            << std::scientific << std::setprecision(6)
-            << res.orth_Q[0]    << "," << res.orth_Q[1]    << ","
-            << res.orth_Q[2]    << "," << res.orth_Q[3]    << ","
-            << res.cond_Apre[0] << "," << res.cond_Apre[1] << ","
-            << res.cond_Apre[2] << "," << res.cond_Apre[3] << ","
-            << res.cond_G[0]    << "," << res.cond_G[1]    << ","
-            << res.cond_G[2]    << "," << res.cond_G[3]    << ","
-            << res.rd_Apre_12    << "," << res.rd_Apre_13    << ","
-            << res.rd_Apre_14   << ","
-            << res.rd_G_12      << "," << res.rd_Rchol_12  << ","
-            << res.rd_Rfinal_12 << ","
-            << res.cond_Rsk     << "\n";
+        csv << r << "," << std::scientific << std::setprecision(6);
+        for (int p = 0; p < N_PATHS; ++p) csv << res.orth_Q[p]    << ",";
+        for (int p = 0; p < N_PATHS; ++p) csv << res.cond_Apre[p] << ",";
+        for (int p = 0; p < N_PATHS; ++p) csv << res.cond_G[p]    << ",";
+        csv << res.rd_Apre_12 << "," << res.rd_Apre_13 << "," << res.rd_Apre_14 << ","
+            << res.rd_G_12 << "," << res.rd_Rchol_12 << "," << res.rd_Rfinal_12 << ","
+            << res.cond_Rsk << "\n";
     }
     csv.close();
 
     std::cout << "  Legend:\n";
-    std::cout << "    [1] expl_trsm:      DTRSM_R(A, R_sk) in-place                    <- CQRRT_expl\n";
-    std::cout << "    [2] expl_inv_trsm:  TRSM(I, R_sk)->R_inv; DGEMM(A, R_inv)\n";
-    std::cout << "    [3] expl_inv_trtri: TRTRI(R_sk)->R_inv;   DGEMM(A, R_inv)\n";
-    std::cout << "    [4] expl_inv_geqp3: GEQP3(R_sk)=Q*R_buf*P^T; R_inv=P*TRTRI(R_buf)*Q^T; DGEMM(A, R_inv)\n";
+    for (int p = 0; p < N_PATHS; ++p)
+        printf("    [%d] %-18s %s\n", p+1, PATH_NAMES[p], PATH_DESCS[p]);
     std::cout << "\n  CSV written to: " << csv_path << "\n";
 
     return 0;
