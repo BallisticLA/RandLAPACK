@@ -518,8 +518,8 @@ static int run_benchmark_inner(
     // Pre-materialize A for upcast orthogonality (once, shared across all algorithms)
     // ================================================================
     T* A_materialized = nullptr;
-    if (upcast_orth || (method_mask & 48)) {
-        std::cout << "Materializing " << op_label << " for upcast/expl/stb (" << m << " x " << n << ", "
+    if (upcast_orth || (method_mask & 16)) {
+        std::cout << "Materializing " << op_label << " for upcast/expl (" << m << " x " << n << ", "
                   << (m * n * sizeof(T) / (1024.0 * 1024.0 * 1024.0)) << " GB)... " << std::flush;
         A_materialized = new T[m * n];
         auto Eye = make_eye<T>(n);
