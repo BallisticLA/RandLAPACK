@@ -14,12 +14,13 @@
 //                    [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl] [upcast_orth] [method_mask]
 //
 //   method_mask (integer bitmask, optional, default = 0b001111 or 0b011111 if run_expl=1):
-//     bit 0 ( 1): CQRRT_linop
-//     bit 1 ( 2): CholQR
-//     bit 2 ( 4): sCholQR3
-//     bit 3 ( 8): sCholQR3_basic
-//     bit 4 (16): CQRRT_expl      (requires A materialization)
-//     bit 5 (32): CQRRT_linop_stb (GEQP3-stabilized preconditioner)
+//     bit 0 (  1): CQRRT_linop
+//     bit 1 (  2): CholQR
+//     bit 2 (  4): sCholQR3
+//     bit 3 (  8): sCholQR3_basic
+//     bit 4 ( 16): CQRRT_expl          (requires A materialization)
+//     bit 5 ( 32): CQRRT_linop_stb     (GEQP3-stabilized preconditioner)
+//     bit 6 ( 64): CQRRT_linop_stb_bqrrp (BQRRP-stabilized preconditioner)
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -734,6 +735,12 @@ static int run_benchmark_inner(
     if (method_mask & 32)
         run_cqrrt_linop("CQRRT_linop_stb", RandLAPACK::CQRRTLinopPrecond::GEQP3);
 
+    // ================================================================
+    // CQRRT_linop_stb_bqrrp (BQRRP-stabilized preconditioner)
+    // ================================================================
+    if (method_mask & 64)
+        run_cqrrt_linop("CQRRT_linop_stb_bqrrp", RandLAPACK::CQRRTLinopPrecond::BQRRP);
+
     // Free pre-materialized A
     delete[] A_materialized;
 
@@ -778,8 +785,9 @@ int run_benchmark(int argc, char* argv[]) {
                   << "    bit 1 ( 2): CholQR\n"
                   << "    bit 2 ( 4): sCholQR3\n"
                   << "    bit 3 ( 8): sCholQR3_basic\n"
-                  << "    bit 4 (16): CQRRT_expl      (requires A materialization)\n"
-                  << "    bit 5 (32): CQRRT_linop_stb (GEQP3-stabilized preconditioner)\n";
+                  << "    bit 4 ( 16): CQRRT_expl              (requires A materialization)\n"
+                  << "    bit 5 ( 32): CQRRT_linop_stb         (GEQP3-stabilized preconditioner)\n"
+                  << "    bit 6 ( 64): CQRRT_linop_stb_bqrrp   (BQRRP-stabilized preconditioner)\n";
         return 1;
     }
 
@@ -820,7 +828,7 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "  method_mask: " << method_mask << " (bits: linop=" << (method_mask&1)
               << " CholQR=" << ((method_mask>>1)&1) << " sCholQR3=" << ((method_mask>>2)&1)
               << " sCholQR3_basic=" << ((method_mask>>3)&1) << " expl=" << ((method_mask>>4)&1)
-              << " linop_stb=" << ((method_mask>>5)&1) << ")\n";
+              << " linop_stb=" << ((method_mask>>5)&1) << " linop_stb_bqrrp=" << ((method_mask>>6)&1) << ")\n";
     std::cout << "  num_runs: " << num_runs << "\n";
 #ifdef _OPENMP
     std::cout << "  OpenMP threads: " << omp_get_max_threads() << "\n\n";

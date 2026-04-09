@@ -38,13 +38,17 @@
 //   Sketch diagnostic:
 //     cond(R_sk)
 //
-// Usage:
+// Usage (file mode):
 //   ./CQRRT_diagnostic <prec> <output_dir> <mtx_path> <d_factor> <runs> [sketch_nnz]
+//
+// Usage (generate mode):
+//   ./CQRRT_diagnostic <prec> <output_dir> gen <m> <n> <kappa> <density> <d_factor> <runs> [sketch_nnz]
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "rl_cqrrt_linops.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -328,66 +332,33 @@ static TrialResult<T> run_trial(
 }
 
 // ============================================================================
-// Main benchmark
+// Shared: write CSV header and run trials given a dense matrix
 // ============================================================================
 
 template <typename T, typename RNG = r123::Philox4x32>
-int run_benchmark(int argc, char* argv[]) {
-    if (argc < 6) {
-        std::cerr << "Usage: " << argv[0]
-                  << " <prec> <output_dir> <mtx_path> <d_factor> <runs> [sketch_nnz]\n";
-        return 1;
-    }
-
-    std::string output_dir = argv[2];
-    std::string mtx_path  = argv[3];
-    T d_factor            = (T)std::stod(argv[4]);
-    int64_t num_runs      = std::stol(argv[5]);
-    int64_t sketch_nnz    = (argc >= 7) ? std::stol(argv[6]) : 4;
-
-    // ----------------------------------------------------------------
-    // Load matrix and materialize as dense
-    // ----------------------------------------------------------------
-    int64_t m, n, nnz;
-    auto csr = load_csr<T>(mtx_path, m, n, nnz);
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, csr);
-
-    std::vector<T> A_dense(m * n, 0.0);
-    {
-        auto Eye = make_eye<T>(n);
-        A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
-    }
-
-    T cond_A = condition_number(A_dense.data(), m, n);
-    int64_t d = (int64_t)std::ceil(d_factor * n);
-
-    std::cout << "\n=== CQRRT Preconditioner Comparison ===\n";
-    std::cout << "  Matrix:     " << mtx_path << "\n";
-    std::cout << "  Size:       " << m << " x " << n << "  (nnz=" << nnz << ")\n";
-    std::cout << "  d_factor:   " << d_factor << "  (d=" << d << ")\n";
-    std::cout << "  sketch_nnz: " << sketch_nnz << "\n";
-    std::cout << "  runs:       " << num_runs << "\n";
-    std::cout << "  cond(A):    " << std::scientific << std::setprecision(3) << cond_A << "\n";
-#ifdef _OPENMP
-    std::cout << "  OMP threads: " << omp_get_max_threads() << "\n";
-#endif
-    std::cout << "\n";
-
-    // ----------------------------------------------------------------
-    // CSV setup
-    // ----------------------------------------------------------------
+static void write_csv_and_run(
+    const std::vector<T>& A_dense,
+    int64_t m, int64_t n,
+    T d_factor, int64_t sketch_nnz, int64_t num_runs,
+    T cond_A, double kappa_target,   // kappa_target < 0 means "from file"
+    const std::string& matrix_label,
+    const std::string& output_dir)
+{
     char time_buf[64];
     time_t now = time(nullptr);
     strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", localtime(&now));
     std::string csv_path = output_dir + "/diagnostic_" + time_buf + ".csv";
     std::ofstream csv(csv_path);
+
     csv << "# CQRRT Preconditioner Comparison\n";
     csv << "# Date: " << ctime(&now);
-    csv << "# Matrix: " << mtx_path << "\n";
+    csv << "# Matrix: " << matrix_label << "\n";
     csv << "# m=" << m << " n=" << n << " d_factor=" << d_factor
         << " sketch_nnz=" << sketch_nnz << "\n";
-    csv << "# cond_A=" << cond_A << "\n";
+    csv << "# cond_A=" << std::scientific << std::setprecision(6) << cond_A;
+    if (kappa_target > 0)
+        csv << " kappa_target=" << std::scientific << std::setprecision(6) << kappa_target;
+    csv << "\n";
     csv << "run,"
         << "orth_Q1,orth_Q2,orth_Q3,orth_Q4,"
         << "cond_Apre1,cond_Apre2,cond_Apre3,cond_Apre4,"
@@ -396,9 +367,6 @@ int run_benchmark(int argc, char* argv[]) {
         << "rd_G_12,rd_Rchol_12,rd_Rfinal_12,"
         << "cond_Rsk\n";
 
-    // ----------------------------------------------------------------
-    // Runs
-    // ----------------------------------------------------------------
     RandBLAS::RNGState<RNG> base_state(42);
     for (int64_t r = 0; r < num_runs; ++r) {
         auto state = base_state;
@@ -447,14 +415,120 @@ int run_benchmark(int argc, char* argv[]) {
     for (int p = 0; p < N_PATHS; ++p)
         printf("    [%d] %-18s %s\n", p+1, PATH_NAMES[p], PATH_DESCS[p]);
     std::cout << "\n  CSV written to: " << csv_path << "\n";
+}
+
+// ============================================================================
+// Main benchmark
+// ============================================================================
+
+template <typename T, typename RNG = r123::Philox4x32>
+int run_benchmark(int argc, char* argv[]) {
+    if (argc < 2) {
+        std::cerr << "Usage (file mode):     " << argv[0]
+                  << " <prec> <output_dir> <mtx_path> <d_factor> <runs> [sketch_nnz]\n"
+                  << "Usage (generate mode): " << argv[0]
+                  << " <prec> <output_dir> gen <m> <n> <kappa> <density> <d_factor> <runs> [sketch_nnz]\n";
+        return 1;
+    }
+
+    std::string output_dir = argv[2];
+    bool is_generate = (argc >= 4 && std::string(argv[3]) == "gen");
+
+    if (is_generate) {
+        // generate mode: prec output_dir gen m n kappa density d_factor runs [sketch_nnz]
+        if (argc < 11) {
+            std::cerr << "Usage (generate mode): " << argv[0]
+                      << " <prec> <output_dir> gen <m> <n> <kappa> <density> <d_factor> <runs> [sketch_nnz]\n";
+            return 1;
+        }
+        int64_t m         = std::stol(argv[4]);
+        int64_t n         = std::stol(argv[5]);
+        T kappa           = (T)std::stod(argv[6]);
+        T density         = (T)std::stod(argv[7]);
+        T d_factor        = (T)std::stod(argv[8]);
+        int64_t num_runs  = std::stol(argv[9]);
+        int64_t sketch_nnz = (argc >= 11) ? std::stol(argv[10]) : 4;
+
+        std::cout << "\n=== CQRRT Preconditioner Comparison (generate mode) ===\n";
+        std::cout << "  Size:       " << m << " x " << n << "\n";
+        std::cout << "  kappa:      " << std::scientific << std::setprecision(3) << (double)kappa << "\n";
+        std::cout << "  density:    " << density << "\n";
+        std::cout << "  d_factor:   " << d_factor << "\n";
+        std::cout << "  sketch_nnz: " << sketch_nnz << "\n";
+        std::cout << "  runs:       " << num_runs << "\n";
+#ifdef _OPENMP
+        std::cout << "  OMP threads: " << omp_get_max_threads() << "\n";
+#endif
+
+        RandBLAS::RNGState<RNG> gen_state(0);
+        auto A_coo = RandLAPACK::gen::gen_sparse_cond_coo<T>(m, n, kappa, gen_state, density);
+        RandBLAS::sparse_data::csr::CSRMatrix<T> A_csr(m, n);
+        RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
+        RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
+
+        std::vector<T> A_dense(m * n, 0.0);
+        {
+            auto Eye = make_eye<T>(n);
+            A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                    m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
+        }
+        T cond_A = condition_number(A_dense.data(), m, n);
+        std::cout << "  cond(A):    " << std::scientific << std::setprecision(3) << (double)cond_A << "\n\n";
+
+        std::string label = "gen_" + std::to_string(m) + "x" + std::to_string(n)
+                          + "_kappa" + std::to_string((int)std::round(std::log10((double)kappa)));
+        write_csv_and_run<T, RNG>(A_dense, m, n, d_factor, sketch_nnz, num_runs,
+                                  cond_A, (double)kappa, label, output_dir);
+    } else {
+        // file mode: prec output_dir mtx_path d_factor runs [sketch_nnz]
+        if (argc < 6) {
+            std::cerr << "Usage (file mode): " << argv[0]
+                      << " <prec> <output_dir> <mtx_path> <d_factor> <runs> [sketch_nnz]\n";
+            return 1;
+        }
+        std::string mtx_path  = argv[3];
+        T d_factor            = (T)std::stod(argv[4]);
+        int64_t num_runs      = std::stol(argv[5]);
+        int64_t sketch_nnz    = (argc >= 7) ? std::stol(argv[6]) : 4;
+
+        int64_t m, n, nnz;
+        auto csr = load_csr<T>(mtx_path, m, n, nnz);
+        RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, csr);
+
+        std::vector<T> A_dense(m * n, 0.0);
+        {
+            auto Eye = make_eye<T>(n);
+            A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                    m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
+        }
+        T cond_A = condition_number(A_dense.data(), m, n);
+        int64_t d = (int64_t)std::ceil(d_factor * n);
+
+        std::cout << "\n=== CQRRT Preconditioner Comparison ===\n";
+        std::cout << "  Matrix:     " << mtx_path << "\n";
+        std::cout << "  Size:       " << m << " x " << n << "  (nnz=" << nnz << ")\n";
+        std::cout << "  d_factor:   " << d_factor << "  (d=" << d << ")\n";
+        std::cout << "  sketch_nnz: " << sketch_nnz << "\n";
+        std::cout << "  runs:       " << num_runs << "\n";
+        std::cout << "  cond(A):    " << std::scientific << std::setprecision(3) << (double)cond_A << "\n";
+#ifdef _OPENMP
+        std::cout << "  OMP threads: " << omp_get_max_threads() << "\n";
+#endif
+        std::cout << "\n";
+
+        write_csv_and_run<T, RNG>(A_dense, m, n, d_factor, sketch_nnz, num_runs,
+                                  cond_A, -1.0, mtx_path, output_dir);
+    }
 
     return 0;
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0]
-                  << " <prec> <output_dir> <mtx_path> <d_factor> <runs> [sketch_nnz]\n";
+        std::cerr << "Usage (file mode):     " << argv[0]
+                  << " <prec> <output_dir> <mtx_path> <d_factor> <runs> [sketch_nnz]\n"
+                  << "Usage (generate mode): " << argv[0]
+                  << " <prec> <output_dir> gen <m> <n> <kappa> <density> <d_factor> <runs> [sketch_nnz]\n";
         return 1;
     }
     std::string prec = argv[1];

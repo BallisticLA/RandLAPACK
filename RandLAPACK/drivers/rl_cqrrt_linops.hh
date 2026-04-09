@@ -4,6 +4,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
+#include "rl_bqrrp.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -21,9 +22,14 @@ namespace RandLAPACK {
 /// GEQP3          — stabilized method: GEQP3(R_sk) = Q*R_buf*P^T,
 ///                  then R_sk^{-1} = P * R_buf^{-1} * Q^T via ungqr + TRSM.
 ///                  More expensive (O(11n³/6)) but accurate for ill-conditioned R_sk.
+/// BQRRP          — stabilized method using blocked randomized QRCP instead of GEQP3.
+///                  Same output format as GEQP3; may be faster for large n due to
+///                  cache-friendly blocked structure and sketched pivot selection.
+///                  Block size is chosen adaptively via bqrrp_block_ratio.
 enum class CQRRTLinopPrecond {
     TRSM_IDENTITY,
-    GEQP3
+    GEQP3,
+    BQRRP
 };
 
 /// Sketch-preconditioned Cholesky QR for abstract linear operators.
@@ -70,8 +76,15 @@ class CQRRT_linops {
 
         // Method for computing R_sk^{-1}. See CQRRTLinopPrecond enum.
         // Default: TRSM_IDENTITY (original behavior).
-        // Set to GEQP3 for the stabilized variant.
+        // Set to GEQP3 or BQRRP for the stabilized variants.
         CQRRTLinopPrecond precond_method;
+
+        // Block size ratio for BQRRP preconditioner (precond_method == BQRRP only).
+        // The BQRRP block size is set to max(1, n * bqrrp_block_ratio).
+        // When precond_method == BQRRP and bqrrp_block_ratio == 1.0 (default),
+        // the ratio is overridden adaptively inside call() using the same
+        // heuristic as CQRRPT: 1.0 for n ≤ 2000, 0.5 for n ≤ 8000, 1/32 otherwise.
+        T bqrrp_block_ratio;
 
         // Column-block size for the precondition + Gram computation.
         //
@@ -110,6 +123,7 @@ class CQRRT_linops {
             use_dense_sketch = false;
             block_size = 0;
             precond_method = CQRRTLinopPrecond::TRSM_IDENTITY;
+            bqrrp_block_ratio = (T)1.0;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -262,10 +276,13 @@ class CQRRT_linops {
                 }
                 R_sk_inv = Eye;
             } else {
-                // Stabilized: GEQP3(R_sk) = Q_buf * R_buf * P^T
-                //             R_sk^{-1}  = P * R_buf^{-1} * Q_buf^T
-                // Via: ungqr (explicit Q_buf) + TRSM (W = R_buf^{-1} * Q_buf^T) + scatter by jpiv
-                // R_sk_inv is dense (not upper triangular).
+                // Stabilized QRCP-based inversion (GEQP3 or BQRRP).
+                // Both methods produce the same output format:
+                //   R_sk_copy: Householder reflectors for Q_buf in lower triangle,
+                //              R_buf in upper triangle (1-based jpiv, same as LAPACK GEQP3)
+                // The ungqr + TRSM + scatter code below is identical for both.
+                //
+                // Result: R_sk^{-1} = P * R_buf^{-1} * Q_buf^T  (dense, n×n)
 
                 // Extract R_sk from A_hat upper triangle into n×n buffer
                 T* R_sk_copy = new T[n * n]();
@@ -280,9 +297,20 @@ class CQRRT_linops {
                     return 1;
                 }
 
-                int64_t* jpiv  = new int64_t[n]();
+                int64_t* jpiv   = new int64_t[n]();
                 T*       tau_qr = new T[n];
-                lapack::geqp3(n, n, R_sk_copy, n, jpiv, tau_qr);
+
+                if (this->precond_method == CQRRTLinopPrecond::GEQP3) {
+                    lapack::geqp3(n, n, R_sk_copy, n, jpiv, tau_qr);
+                } else {
+                    // BQRRP: blocked randomized QRCP on R_sk (n×n).
+                    // Adaptive block size matches CQRRPT's heuristic.
+                    if (n <= 2000)      this->bqrrp_block_ratio = (T)1.0;
+                    else if (n <= 8000) this->bqrrp_block_ratio = (T)0.5;
+                    else                this->bqrrp_block_ratio = (T)1.0 / (T)32;
+                    RandLAPACK::BQRRP<T, RNG> bqrrp(false, (int64_t)(n * this->bqrrp_block_ratio));
+                    bqrrp.call(n, n, R_sk_copy, n, (T)1.0, tau_qr, jpiv, state);
+                }
 
                 // Extract upper triangular R_buf before overwriting R_sk_copy with Q_buf
                 T* R_buf = new T[n * n]();
