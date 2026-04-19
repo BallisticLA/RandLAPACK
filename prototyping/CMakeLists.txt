@@ -65,3 +65,5 @@ add_benchmark(
     CXX_SOURCES set_block_pivot_vector.cc
     LINK_LIBS ${Benchmark_libs}
 )
+
+add_subdirectory(python)
