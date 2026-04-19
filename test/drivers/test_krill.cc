@@ -6,7 +6,7 @@
 #include <lapack.hh>
 
 #include <RandLAPACK/testing/rl_test_utils.hh>
-#include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandBLAS/test/comparison.hh"
 
 
 using std::vector;

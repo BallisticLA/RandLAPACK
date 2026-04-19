@@ -4,7 +4,7 @@
 
 #include <RandBLAS.hh>
 #include <RandLAPACK/testing/rl_test_utils.hh>
-#include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandBLAS/test/comparison.hh"
 
 #include <math.h>
 #include <gtest/gtest.h>
