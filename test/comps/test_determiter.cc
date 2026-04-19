@@ -1,6 +1,6 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
-#include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandBLAS/test/comparison.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
