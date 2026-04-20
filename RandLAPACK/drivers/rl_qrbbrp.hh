@@ -33,14 +33,16 @@ struct QRBBRP {
     int64_t block_size;
     T d_factor;
     std::vector<long> times;
+    int64_t max_blocks;
 
 
     QRBBRP(
         qrcp_wide_t &qrcp_wide,
         bool time_subroutines,
         int64_t b_sz,
-        T d_factor
-    ) : qrcp_wide(qrcp_wide), timing(time_subroutines), block_size(b_sz), d_factor(d_factor) { }
+        T d_factor,
+        int64_t max_blocks = -1
+    ) : qrcp_wide(qrcp_wide), timing(time_subroutines), block_size(b_sz), d_factor(d_factor), max_blocks(max_blocks) { }
 
     /// Computes a pivoted QR decomposition in a format compatible with GEQP3.
     /// The pivot decisions are made by applying this object's qrcp_wide function
@@ -128,6 +130,9 @@ RandBLAS::RNGState<RNG> QRBBRP<T, qrcp_wide_t, RNG>::call(
     int64_t curr_sz           = 0;
     int64_t b_sz              = this->block_size;
     int64_t maxiter           = (int64_t) std::ceil(std::min(m, n) / (T) b_sz);
+    if (max_blocks > 0) {
+        maxiter = std::min(max_blocks, maxiter);
+    }
     // Using this variable to work with matrices with leading dimension = b_sz.
     int64_t b_sz_const        = b_sz;
     // This will serve as lda of a sketch

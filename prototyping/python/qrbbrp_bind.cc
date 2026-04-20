@@ -86,7 +86,9 @@ std::pair<py::array_t<int64_t>, py::array_t<double>>
 qrbbrp_binding(
     py::array_t<double> A,
     int64_t block_size,
+    int64_t num_blocks,
     double  d_factor,
+    bool    timing,
     int     seed)
 {
     py::buffer_info buf = A.request();
@@ -106,7 +108,7 @@ qrbbrp_binding(
     qrcp_wide.num_blocks = n / block_size;
 
     RandLAPACK::QRBBRP<double, setup_work<double>> alg(
-        qrcp_wide, /*timing=*/false, block_size, d_factor);
+        qrcp_wide, timing, block_size, d_factor, num_blocks);
 
     std::vector<int64_t> J(n, 0);
     std::vector<double>  tau(n, 0.0);
@@ -181,7 +183,9 @@ std::pair<py::array_t<int64_t>, py::array_t<double>>
 qrbbrp_plain_binding(
     py::array_t<double> A,
     int64_t block_size,
+    int64_t num_blocks,
     double  d_factor,
+    bool    timing,
     int     seed)
 {
     py::buffer_info buf = A.request();
@@ -201,7 +205,7 @@ qrbbrp_plain_binding(
     qrcp_wide.num_blocks = n / block_size;
 
     RandLAPACK::QRBBRP<double, setup_work_plain<double>> alg(
-        qrcp_wide, /*timing=*/false, block_size, d_factor);
+        qrcp_wide, timing, block_size, d_factor, num_blocks);
 
     std::vector<int64_t> J(n, 0);
     std::vector<double>  tau(n, 0.0);
@@ -222,7 +226,9 @@ PYBIND11_MODULE(qrbbrp, m) {
     m.def("qrbbrp", &qrbbrp_binding,
           py::arg("A"),
           py::arg("block_size"),
+          py::arg("num_blocks") = -1,
           py::arg("d_factor") = 2.0,
+          py::arg("timing") = false,
           py::arg("seed") = 99,
           "In-place QRBBRP on a column-major float64 array.\n"
           "Overwrites A with implicit Q and R. Returns (J, tau).\n"
@@ -230,7 +236,9 @@ PYBIND11_MODULE(qrbbrp, m) {
     m.def("qrbbrp_plain", &qrbbrp_plain_binding,
           py::arg("A"),
           py::arg("block_size"),
+          py::arg("num_blocks") = -1,
           py::arg("d_factor") = 2.0,
+          py::arg("timing") = false,
           py::arg("seed") = 99,
           "Like qrbbrp, but scores blocks by sum(log|diag(R)|) on the sketch\n"
           "directly, without identity-block augmentation.\n"
