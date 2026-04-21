@@ -87,46 +87,78 @@ struct basic_greedy_logdet {
 } // end namespace qrcp_wide
 
 
-std::pair<py::array_t<int64_t>, py::array_t<double>>
-run_basic(
-    py::array_t<double> A,
-    int64_t block_size,
-    int64_t num_blocks,
-    double  d_factor,
-    bool    timing,
-    int     seed)
+template <typename T>
+py::tuple run_basic_impl(
+    py::array A_in,
+    int64_t   block_size,
+    int64_t   num_blocks,
+    T         d_factor,
+    bool      timing,
+    int       seed,
+    bool      overwrite_a)
 {
-    py::buffer_info buf = A.request();
-    if (buf.ndim != 2)
-        throw std::invalid_argument("A must be a 2-D array.");
-    if (buf.strides[0] != sizeof(double))
-        throw std::invalid_argument(
-            "A must be column-major (Fortran-contiguous). "
-            "Pass np.asfortranarray(A) if needed.");
-    int64_t m = buf.shape[0];
-    int64_t n = buf.shape[1];
+    py::buffer_info buf_in = A_in.request();
+    int64_t m = buf_in.shape[0];
+    int64_t n = buf_in.shape[1];
     if (n % block_size != 0)
         throw std::invalid_argument("n must be divisible by block_size.");
 
-    using subroutine_t = qrcp_wide_algs::basic_greedy_logdet<double>;
+    py::array_t<T> A_work;
+    if (overwrite_a) {
+        if (buf_in.strides[0] != sizeof(T))
+            throw std::invalid_argument(
+                "A must be column-major (Fortran-contiguous). "
+                "Pass np.asfortranarray(A) if needed.");
+        A_work = py::reinterpret_borrow<py::array_t<T>>(A_in);
+    } else {
+        // forcecast handles both dtype conversion and layout reordering.
+        // If pybind11 returned the same buffer (input was already T + F-contiguous),
+        // call .copy() to ensure independence.
+        auto A_f = py::array_t<T, py::array::f_style | py::array::forcecast>(A_in);
+        if (A_f.request().ptr == buf_in.ptr)
+            A_work = py::array_t<T>(A_f.attr("copy")());
+        else
+            A_work = std::move(A_f);
+    }
+
+    py::buffer_info buf = A_work.request();
+
+    using subroutine_t = qrcp_wide_algs::basic_greedy_logdet<T>;
     subroutine_t subroutine{};
     subroutine.block_size = block_size;
     subroutine.num_blocks = n / block_size;
 
-    RandLAPACK::QRBBRP<double, subroutine_t> alg(subroutine, timing, block_size, d_factor, num_blocks);
+    RandLAPACK::QRBBRP<T, subroutine_t> alg(subroutine, timing, block_size, d_factor, num_blocks);
 
     std::vector<int64_t> J(n, 0);
-    std::vector<double>  tau(n, 0.0);
+    std::vector<T>       tau(n, T(0));
 
     RandBLAS::RNGState state(seed);
-    alg.call(m, n, static_cast<double*>(buf.ptr), m, J.data(), tau.data(), state);
+    alg.call(m, n, static_cast<T*>(buf.ptr), m, J.data(), tau.data(), state);
 
-    for (auto& j : J)
-        j -= 1;
+    for (auto& j : J) j -= 1;
 
     py::array_t<int64_t> J_out(n, J.data());
-    py::array_t<double>  tau_out(n, tau.data());
-    return {J_out, tau_out};
+    py::array_t<T>       tau_out(n, tau.data());
+    return py::make_tuple(J_out, tau_out, A_work);
+}
+
+py::tuple run_basic(
+    py::array A,
+    int64_t   block_size,
+    int64_t   num_blocks,
+    double    d_factor,
+    bool      overwrite_a,
+    bool      timing,
+    int       seed)
+{
+    if (A.ndim() != 2)
+        throw std::invalid_argument("A must be a 2-D array.");
+    if (py::dtype::of<float>().is(A.dtype()))
+        return run_basic_impl<float>(A, block_size, num_blocks, (float)d_factor, timing, seed, overwrite_a);
+    if (py::dtype::of<double>().is(A.dtype()))
+        return run_basic_impl<double>(A, block_size, num_blocks, (double)d_factor, timing, seed, overwrite_a);
+    throw std::invalid_argument("A must have dtype float32 or float64.");
 }
 
 
@@ -136,10 +168,12 @@ PYBIND11_MODULE(qrbbrp, m) {
           py::arg("block_size"),
           py::arg("num_blocks") = -1,
           py::arg("d_factor") = 2.0,
+          py::arg("overwrite_a") = false,
           py::arg("timing") = false,
           py::arg("seed") = 99,
-          "In-place QRBBRP on a column-major float64 array.\n"
-          "Overwrites A with implicit Q and R. Returns (J, tau).\n"
-          "J is 0-based. tau has the same meaning as in GEQP3.");
+          "QRBBRP on a float32 or float64 array.\n"
+          "Returns (J, tau, A_decomposed). J is 0-based.\n"
+          "If overwrite_a=True, A must be column-major and A_decomposed shares its memory.\n"
+          "If overwrite_a=False (default), a column-major copy is made and returned.");
     
 }

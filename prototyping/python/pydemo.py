@@ -2,18 +2,15 @@ import sys
 sys.path.insert(0, '../build/python')
 import numpy as np
 import scipy.linalg as la
-from qrbbrp import qrbbrp, qrbbrp_plain
+from qrbbrp import run_basic
 
 
 
-def validated_qrbbrp(A, b_sz, augment=False):
+def validated_qrbbrp(A, b_sz):
     """Run QRBBRP and check the results."""
     A_copy = A.copy(order='F')
     n = A.shape[1]
-    if augment:
-        J, _ = qrbbrp(A_copy, b_sz)
-    else:
-        J, _ = qrbbrp_plain(A_copy, b_sz)
+    J, _, _ = run_basic(A_copy, b_sz, overwrite_a=True)
     # The call to QRBBRP should have overwritten the first n columns of A_copy with R
     # from the R-factor of unpivoted QR on A_copy[:, J]. We can check this against the R-factor from unpivoted QR on A[:, J].
     R_boring = la.qr(A[:, J], mode='r')[0]
@@ -37,7 +34,5 @@ U, _, Vt = np.linalg.svd(rng.standard_normal((m, n)), full_matrices=False)
 s = (1 + np.arange(n, dtype=float)) ** -0.5   # sigma_k ~ k^{-0.5}
 A = np.asfortranarray((U * s) @ Vt)            # column-major float64
 
-temp = validated_qrbbrp(A, 6, True)
-# QRBBRP vs. QR difference: 7.05e-01
-temp = validated_qrbbrp(A, 6, False)
-# QRBBRP vs. QR difference: 8.58e-01
+temp = validated_qrbbrp(A, 6)
+# QRBBRP vs. QR difference: 3.61e-16
