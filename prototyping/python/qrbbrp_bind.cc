@@ -116,7 +116,7 @@ py::tuple run_basic_impl(
         // call .copy() to ensure independence.
         auto A_f = py::array_t<T, py::array::f_style | py::array::forcecast>(A_in);
         if (A_f.request().ptr == buf_in.ptr)
-            A_work = py::array_t<T>(A_f.attr("copy")());
+            A_work = py::array_t<T, py::array::f_style>(A_f.attr("copy")());
         else
             A_work = std::move(A_f);
     }
