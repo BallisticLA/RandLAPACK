@@ -32,105 +32,10 @@ void swap_cols(int64_t m, T* A, int64_t lda, int64_t b, int64_t chosen_block) {
     }
 }
 
+namespace qrcp_wide_algs {
+
 template <typename T>
-struct setup_work {
-    std::vector<T> work_vec;
-    int64_t num_blocks;
-    int64_t block_size;
-
-    void reserve(int64_t rows, int64_t cols) {
-        work_vec.resize((rows + block_size)*cols + num_blocks + 2*block_size + cols, 0.0);
-    }
-    void free() { return; }
-    void operator()(int64_t rows, int64_t cols, T* A, int64_t lda, int64_t* J) {
-        num_blocks = cols / block_size;
-        T* diagsR    = work_vec.data();
-        T* v         = diagsR + block_size;
-        T* tau       = v + num_blocks;
-        T* extra_arr = tau + block_size;
-        T* work_mat  = extra_arr + cols;
-
-        int64_t rows_w = rows + block_size;
-        for (int i = 0; i < cols*rows_w; i++)
-            work_mat[i] = 0.0;
-
-        int indx_work, indx_A;
-        for (int i = 0; i < cols; i++) {
-            for (int j = 0; j < rows; j++) {
-                indx_A    = j + i*lda;
-                indx_work = indx_A + block_size*i;
-                work_mat[indx_work] = A[indx_A];
-            }
-            indx_work += (i % block_size) + 1;
-            work_mat[indx_work] = 1.0;
-        }
-
-        for (int i = 0; i < num_blocks; ++i) {
-            T* W_block = &work_mat[i * block_size * rows_w];
-            lapack::geqrf(rows_w, block_size, W_block, rows_w, tau);
-            for (int j = 0; j < block_size; ++j)
-                diagsR[j] = W_block[j * (rows_w + 1)];
-            for (int j = 0; j < block_size; ++j)
-                v[i] += std::log(std::abs(diagsR[j]));
-        }
-
-        int64_t idx_of_max = blas::iamax(num_blocks, v, 1);
-        swap_cols(rows, A, rows, block_size, idx_of_max);
-        set_J(J, cols, block_size, idx_of_max);
-        lapack::geqrf(rows, cols, A, lda, extra_arr);
-    }
-};
-
-
-std::pair<py::array_t<int64_t>, py::array_t<double>>
-qrbbrp_binding(
-    py::array_t<double> A,
-    int64_t block_size,
-    int64_t num_blocks,
-    double  d_factor,
-    bool    timing,
-    int     seed)
-{
-    py::buffer_info buf = A.request();
-    if (buf.ndim != 2)
-        throw std::invalid_argument("A must be a 2-D array.");
-    if (buf.strides[0] != sizeof(double))
-        throw std::invalid_argument(
-            "A must be column-major (Fortran-contiguous). "
-            "Pass np.asfortranarray(A) if needed.");
-    int64_t m = buf.shape[0];
-    int64_t n = buf.shape[1];
-    if (n % block_size != 0)
-        throw std::invalid_argument("n must be divisible by block_size.");
-
-    setup_work<double> qrcp_wide{};
-    qrcp_wide.block_size = block_size;
-    qrcp_wide.num_blocks = n / block_size;
-
-    RandLAPACK::QRBBRP<double, setup_work<double>> alg(
-        qrcp_wide, timing, block_size, d_factor, num_blocks);
-
-    std::vector<int64_t> J(n, 0);
-    std::vector<double>  tau(n, 0.0);
-
-    RandBLAS::RNGState state(seed);
-    alg.call(m, n, static_cast<double*>(buf.ptr), m, J.data(), tau.data(), state);
-
-    // Convert from LAPACK 1-based to Python 0-based
-    for (auto& j : J)
-        j -= 1;
-
-    py::array_t<int64_t> J_out(n, J.data());
-    py::array_t<double>  tau_out(n, tau.data());
-    return {J_out, tau_out};
-}
-
-
-// Variant of setup_work that scores each block with plain sum(log|diag(R)|),
-// no identity-block augmentation. Uses std::max_element for argmax (correct
-// for negative scores) and clamps near-zero diagonals to avoid log(0).
-template <typename T>
-struct setup_work_plain {
+struct basic_greedy_logdet {
     std::vector<T> work_vec;
     int64_t block_size;
     int64_t num_blocks;          // initial value; set before reserve()
@@ -143,6 +48,7 @@ struct setup_work_plain {
         // Layout: [block_copy] [diagsR] [v] [tau_block] [extra_arr]
         work_vec.assign(rows*block_size + block_size + num_blocks + block_size + cols, T(0));
     }
+
     void free() {}
 
     void operator()(int64_t rows, int64_t cols, T* A, int64_t lda, int64_t* J) {
@@ -178,9 +84,11 @@ struct setup_work_plain {
     }
 };
 
+} // end namespace qrcp_wide
+
 
 std::pair<py::array_t<int64_t>, py::array_t<double>>
-qrbbrp_plain_binding(
+run_basic(
     py::array_t<double> A,
     int64_t block_size,
     int64_t num_blocks,
@@ -200,12 +108,12 @@ qrbbrp_plain_binding(
     if (n % block_size != 0)
         throw std::invalid_argument("n must be divisible by block_size.");
 
-    setup_work_plain<double> qrcp_wide{};
-    qrcp_wide.block_size = block_size;
-    qrcp_wide.num_blocks = n / block_size;
+    using subroutine_t = qrcp_wide_algs::basic_greedy_logdet<double>;
+    subroutine_t subroutine{};
+    subroutine.block_size = block_size;
+    subroutine.num_blocks = n / block_size;
 
-    RandLAPACK::QRBBRP<double, setup_work_plain<double>> alg(
-        qrcp_wide, timing, block_size, d_factor, num_blocks);
+    RandLAPACK::QRBBRP<double, subroutine_t> alg(subroutine, timing, block_size, d_factor, num_blocks);
 
     std::vector<int64_t> J(n, 0);
     std::vector<double>  tau(n, 0.0);
@@ -223,7 +131,7 @@ qrbbrp_plain_binding(
 
 
 PYBIND11_MODULE(qrbbrp, m) {
-    m.def("qrbbrp", &qrbbrp_binding,
+    m.def("run_basic", run_basic,
           py::arg("A"),
           py::arg("block_size"),
           py::arg("num_blocks") = -1,
@@ -233,15 +141,5 @@ PYBIND11_MODULE(qrbbrp, m) {
           "In-place QRBBRP on a column-major float64 array.\n"
           "Overwrites A with implicit Q and R. Returns (J, tau).\n"
           "J is 0-based. tau has the same meaning as in GEQP3.");
-    m.def("qrbbrp_plain", &qrbbrp_plain_binding,
-          py::arg("A"),
-          py::arg("block_size"),
-          py::arg("num_blocks") = -1,
-          py::arg("d_factor") = 2.0,
-          py::arg("timing") = false,
-          py::arg("seed") = 99,
-          "Like qrbbrp, but scores blocks by sum(log|diag(R)|) on the sketch\n"
-          "directly, without identity-block augmentation.\n"
-          "Near-zero diagonals are clamped to avoid log(0).\n"
-          "J is 0-based. tau has the same meaning as in GEQP3.");
+    
 }
