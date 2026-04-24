@@ -60,10 +60,10 @@ class CQRRT_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 11 entries: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
-        //   fwd      = LinOp NoTrans: A * R_sk_inv (accumulated over blocks)
-        //   adj      = LinOp Trans:   A^T * buf    (accumulated over blocks)
-        //   trmm     = R_sk_inv^T * G (dense trmm, completes Gram)
+        // 11 entries: alloc, sketch, qr, tri_inv, fwd, adj, trsm_gram, chol, finalize, rest, total
+        //   fwd       = LinOp NoTrans: A * R_sk_inv (accumulated over blocks)
+        //   adj       = LinOp Trans:   A^T * buf    (accumulated over blocks)
+        //   trsm_gram = (R^sk)^{-T} * G via TRSM on original R_sk (backward-stable left factor)
         std::vector<long> times;
 
         // tuning SASOS
@@ -187,7 +187,7 @@ class CQRRT_linops {
             steady_clock::time_point saso_t_start, saso_t_stop;
             steady_clock::time_point qr_t_start, qr_t_stop;
             steady_clock::time_point trtri_t_start, trtri_t_stop;
-            steady_clock::time_point trmm_gram_t_start, trmm_gram_t_stop;
+            steady_clock::time_point trsm_gram_t_start, trsm_gram_t_stop;
             steady_clock::time_point potrf_t_start, potrf_t_stop;
             steady_clock::time_point finalize_t_start, finalize_t_stop;
             steady_clock::time_point total_t_start, total_t_stop;
@@ -198,7 +198,7 @@ class CQRRT_linops {
             long trtri_t_dur        = 0;
             long fwd_t_dur          = 0;
             long adj_t_dur          = 0;
-            long trmm_gram_t_dur    = 0;
+            long trsm_gram_t_dur    = 0;
             long potrf_t_dur        = 0;
             long finalize_t_dur     = 0;
             long total_t_dur        = 0;
@@ -424,26 +424,18 @@ class CQRRT_linops {
             }
 
             if(this -> timing) {
-                trmm_gram_t_start = steady_clock::now();
+                trsm_gram_t_start = steady_clock::now();
             }
 
-            // Complete Gram: R := R_sk_inv^T * R  (= R_sk_inv^T * A^T * A * R_sk_inv = A_pre^T * A_pre)
-            // TRSM_IDENTITY: R_sk_inv is upper triangular — use TRMM (O(n³/2))
-            // GEQP3:         R_sk_inv is dense            — use GEMM (O(n³))
-            if (this->precond_method == CQRRTLinopPrecond::TRSM_IDENTITY) {
-                blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T)1.0, R_sk_inv, n, R, ldr);
-            } else {
-                T* tmp = new T[n * n];
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, n, n,
-                           (T)1.0, R_sk_inv, n, R, ldr, (T)0.0, tmp, n);
-                for (int64_t j = 0; j < n; ++j)
-                    for (int64_t i = 0; i < n; ++i)
-                        R[i + j*ldr] = tmp[i + j*n];
-                delete[] tmp;
-            }
+            // Complete Gram: R := (R^sk)^{-T} * R  (backward-stable TRSM on original sketch R)
+            // Applying the left factor via TRSM on A_hat (which holds R^sk in its upper n×n triangle)
+            // is more stable than TRMM/GEMM with the explicit R_sk_inv^T, regardless of which
+            // precond_method was used to form R_sk_inv.  A_hat is still alive here (deleted below).
+            blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit,
+                       n, n, (T)1.0, A_hat, d, R, ldr);
 
             if(this -> timing) {
-                trmm_gram_t_stop = steady_clock::now();
+                trsm_gram_t_stop = steady_clock::now();
                 potrf_t_start = steady_clock::now();
             }
 
@@ -520,7 +512,7 @@ class CQRRT_linops {
                 qr_t_dur           = duration_cast<microseconds>(qr_t_stop           - qr_t_start).count();
                 trtri_t_dur        = duration_cast<microseconds>(trtri_t_stop        - trtri_t_start).count();
                 // fwd_t_dur and adj_t_dur already set (in both full and blocked paths)
-                trmm_gram_t_dur    = duration_cast<microseconds>(trmm_gram_t_stop    - trmm_gram_t_start).count();
+                trsm_gram_t_dur    = duration_cast<microseconds>(trsm_gram_t_stop    - trsm_gram_t_start).count();
                 potrf_t_dur        = duration_cast<microseconds>(potrf_t_stop        - potrf_t_start).count();
                 finalize_t_dur     = duration_cast<microseconds>(finalize_t_stop     - finalize_t_start).count();
 
@@ -533,12 +525,12 @@ class CQRRT_linops {
                 }
 
                 long t_rest  = total_t_dur - (alloc_t_dur + saso_t_dur + qr_t_dur + trtri_t_dur + fwd_t_dur +
-                                              adj_t_dur + trmm_gram_t_dur + potrf_t_dur + finalize_t_dur);
+                                              adj_t_dur + trsm_gram_t_dur + potrf_t_dur + finalize_t_dur);
 
                 // Fill the data vector (11 entries)
                 // Index: 0=alloc, 1=sketch, 2=qr, 3=tri_inv, 4=fwd, 5=adj, 6=trmm, 7=chol, 8=finalize, 9=rest, 10=total
                 this -> times = {alloc_t_dur, saso_t_dur, qr_t_dur, trtri_t_dur, fwd_t_dur,
-                                 adj_t_dur, trmm_gram_t_dur, potrf_t_dur, finalize_t_dur,
+                                 adj_t_dur, trsm_gram_t_dur, potrf_t_dur, finalize_t_dur,
                                  t_rest, total_t_dur};
             }
 
