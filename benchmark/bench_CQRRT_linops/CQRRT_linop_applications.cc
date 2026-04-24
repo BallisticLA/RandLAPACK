@@ -623,8 +623,8 @@ static int run_benchmark_inner(
     // ================================================================
     // CQRRT_linop variants (standard TRSM_IDENTITY and GEQP3-stabilized)
     // ================================================================
-    auto run_cqrrt_linop = [&](const std::string& name, RandLAPACK::CQRRTLinopPrecond precond) {
-        run_algo(name, [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
+    auto run_cqrrt_linop = [&](const std::string& name, RandLAPACK::CQRRTLinopPrecond precond, long analytical_kb_override = -1L) {
+        run_algo(name, [&, precond, analytical_kb_override](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
             auto state = run_states[r];
             RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
             algo.nnz = sketch_nnz; algo.block_size = block_size;
@@ -635,7 +635,9 @@ static int run_benchmark_inner(
             res.qr_time_us = algo.times[10];
             // breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
             res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
-            res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+            res.analytical_kb = (analytical_kb_override >= 0)
+                ? analytical_kb_override
+                : RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
         });
     };
     if (method_mask & 1)
@@ -739,7 +741,8 @@ static int run_benchmark_inner(
     // CQRRT_linop_stb_bqrrp (BQRRP-stabilized preconditioner)
     // ================================================================
     if (method_mask & 64)
-        run_cqrrt_linop("CQRRT_linop_stb_bqrrp", RandLAPACK::CQRRTLinopPrecond::BQRRP);
+        run_cqrrt_linop("CQRRT_linop_stb_bqrrp", RandLAPACK::CQRRTLinopPrecond::BQRRP,
+                        RandLAPACK::cqrrt_linops_bqrrp_analytical_kb<T>(n, d_factor));
 
     // Free pre-materialized A
     delete[] A_materialized;

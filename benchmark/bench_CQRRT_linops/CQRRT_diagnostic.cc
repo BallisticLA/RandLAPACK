@@ -8,11 +8,17 @@
 //   [3] expl_inv_trtri: TRTRI(R_sk) → R_inv;   DGEMM(A, R_inv)       (LAPACK trtri)
 //   [4] expl_inv_geqp3: GEQP3(R_sk) = Q*R_buf*P^T;
 //                       R_inv = P * TRSM(R_buf, Q^T); DGEMM(A, R_inv)
+//   [5] expl_inv_svd:   GESDD(R_sk) = U*S*Vt;
+//                       R_inv = V * diag(1/S) * U^T; DGEMM(A, R_inv)
+//   [6] expl_inv_getri: GETRF(R_sk) then GETRI; DGEMM(A, R_inv)
 //
 //   Path [1] never forms R_sk^{-1} explicitly (backward stable).
-//   Paths [2]-[4] all form R_sk^{-1} explicitly via different methods.
+//   Paths [2]-[6] all form R_sk^{-1} explicitly via different methods.
 //   Path [4] uses a rank-revealing QR to invert R_sk; the Q factor makes
 //   the inversion well-conditioned even when R_sk itself is ill-conditioned.
+//   Path [5] uses the SVD (gold standard for stability).
+//   Path [6] uses general LU with partial pivoting; for upper-triangular R_sk
+//   this is expected to behave similarly to paths [2]-[3].
 //
 //   All four paths use the same sketch (same RNG state).
 //
@@ -26,13 +32,18 @@
 //     rd_12 = ||A_pre[1] - A_pre[2]|| / ||A_pre[1]||
 //     rd_13 = ||A_pre[1] - A_pre[3]|| / ||A_pre[1]||
 //     rd_14 = ||A_pre[1] - A_pre[4]|| / ||A_pre[1]||
+//     rd_15 = ||A_pre[1] - A_pre[5]|| / ||A_pre[1]||
+//     rd_16 = ||A_pre[1] - A_pre[6]|| / ||A_pre[1]||
 //
 //   Step-by-step pipeline divergence between paths [1] and [2] (CQRRT_expl vs CQRRT_linop):
-//   Reproduces the "step-by-step divergence" plot from CQRRT_orth_gap diag mode.
-//   Since all paths share the same sketch, M^sk and R^sk diffs are 0 by construction
-//   (the shared-sketch design cleanly eliminates sketch method as a variable).
-//     rd_G_12     = ||G1 - G2|| / ||G1||          (Gram matrix:  G = A_pre^T A_pre)
-//     rd_Rchol_12 = ||Rchol1 - Rchol2|| / ||Rchol1||  (Cholesky factor)
+//   Each path uses the same RNG seed but a different sketch code path — mirrors actual impls.
+//   Path [1] (CQRRT_expl):   sketch via sketch_general(S, A_dense); TRSM in-place; SYRK
+//   Path [2] (CQRRT_linop):  sketch via A_linop(Side::Right, S) [SpGEMM];
+//                             TRSM_IDENTITY → R_inv; A_linop fwd/adj + TRMM
+//     rd_Msk_12   = ||Ahat1 - Ahat2|| / ||Ahat1||      (raw sketch S*A, different code paths)
+//     rd_Rsk_12   = ||R_sk1 - R_sk2|| / ||R_sk1||      (QR of above)
+//     rd_G_12     = ||G1 - G2|| / ||G1||                (Gram matrix)
+//     rd_Rchol_12 = ||Rchol1 - Rchol2|| / ||Rchol1||   (Cholesky factor)
 //     rd_Rfinal_12= ||Rfinal1 - Rfinal2|| / ||Rfinal1|| (final R = R_chol * R_sk)
 //
 //   Sketch diagnostic:
@@ -78,13 +89,15 @@ using blas::Diag;
 // Path constants
 // ============================================================================
 
-static constexpr int N_PATHS = 4;
+static constexpr int N_PATHS = 6;
 
 static constexpr const char* PATH_NAMES[N_PATHS] = {
     "expl_trsm",
     "expl_inv_trsm",
     "expl_inv_trtri",
     "expl_inv_geqp3",
+    "expl_inv_svd",
+    "expl_inv_getri",
 };
 
 static constexpr const char* PATH_DESCS[N_PATHS] = {
@@ -92,6 +105,8 @@ static constexpr const char* PATH_DESCS[N_PATHS] = {
     "TRSM(I, R_sk)->R_inv; DGEMM(A, R_inv)",
     "TRTRI(R_sk)->R_inv;   DGEMM(A, R_inv)",
     "GEQP3(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)",
+    "GESDD(R_sk)=U*S*Vt; R_inv=V*diag(1/S)*U^T; DGEMM(A, R_inv)",
+    "GETRF+GETRI(R_sk)->R_inv; DGEMM(A, R_inv)",
 };
 
 // ============================================================================
@@ -131,9 +146,11 @@ static T gram_condition_number(const T* A_pre, int64_t m, int64_t n) {
     return condition_number(G.data(), n, n);
 }
 
-// Full CQRRT pipeline (matching V2 benchmark orth_error computation):
-//   G = A_pre^T A_pre  (SYRK)
-//   R_chol = chol(G)   (POTRF, overwrites G with upper triangular factor)
+// Full CQRRT pipeline (matching CQRRT_linops Gram computation):
+//   G = A_orig^T * A_pre         (GEMM — full n×n, not exploiting symmetry)
+//   G = (R_sketch)^{-T} * G     (TRSM Left — backward-stable left factor on original R^sk)
+//   Zero lower triangle of G    (POTRF/TRMM only use upper triangle; lower has TRSM output)
+//   R_chol = chol(G)             (POTRF, upper triangle only)
 //   R_final = R_chol * R_sketch  (TRMM)
 //   Q = A_orig * R_final^{-1}   (TRSM on copy of A_orig)
 //   return orth_error(Q)
@@ -142,8 +159,15 @@ template <typename T>
 static T cholqr_orth_error(const std::vector<T>& A_pre, const T* A_orig,
                             int64_t m, int64_t n, const T* R_sketch) {
     std::vector<T> G(n * n, 0.0);
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
-               n, m, (T)1.0, A_pre.data(), m, (T)0.0, G.data(), n);
+    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
+               n, n, m, (T)1.0, A_orig, m, A_pre.data(), m, (T)0.0, G.data(), n);
+    blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit,
+               n, n, (T)1.0, R_sketch, n, G.data(), n);
+    // Zero strictly lower triangle: TRSM fills the full n×n matrix; the subsequent
+    // TRMM(Right,Upper) reads lower-triangle entries of G when computing upper-triangle
+    // output entries and would produce corrupted R_chol if left non-zero.
+    if (n > 1)
+        lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G.data()[1], n);
     if (lapack::potrf(Uplo::Upper, n, G.data(), n))
         return std::numeric_limits<T>::infinity();
     blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
@@ -155,29 +179,39 @@ static T cholqr_orth_error(const std::vector<T>& A_pre, const T* A_orig,
 }
 
 // ============================================================================
-// One trial: three paths, same sketch
+// One trial: 4-path orth comparison (shared sketch) +
+//            independent path [1] vs [2] step-by-step divergence
 // ============================================================================
 
 template <typename T>
 struct TrialResult {
-    // Per-path metrics
+    // Per-path metrics (shared sketch, 4 paths)
     double cond_Apre[N_PATHS];
     double cond_G[N_PATHS];
     double orth_Q[N_PATHS];
-    // Cross-path relative differences of A_pre (reference = path [1])
+    // Cross-path relative differences of A_pre (reference = path [1], shared sketch)
     double rd_Apre_12;  // TRSM in-place vs TRSM-on-identity
     double rd_Apre_13;  // TRSM in-place vs trtri
     double rd_Apre_14;  // TRSM in-place vs geqp3
-    // Step-by-step pipeline divergence: paths [1] vs [2] (CQRRT_expl vs CQRRT_linop)
-    double rd_G_12;      // Gram matrix:      G = A_pre^T A_pre
-    double rd_Rchol_12;  // Cholesky factor:  R_chol = chol(G)
-    double rd_Rfinal_12; // Final R:          R_final = R_chol * R_sk
+    double rd_Apre_15;  // TRSM in-place vs svd
+    double rd_Apre_16;  // TRSM in-place vs getri
+    // Step-by-step pipeline divergence: paths [1] vs [2], faithful to actual implementations
+    //   Path [1] (CQRRT_expl):  sketch via sketch_general(S, A_dense); TRSM in-place; SYRK
+    //   Path [2] (CQRRT_linop): sketch via A_linop(Side::Right, S) [SpGEMM];
+    //                            TRSM_IDENTITY → R_inv; A_linop fwd/adj + TRMM
+    double rd_Msk_12;       // M^sk:  raw sketch Ahat = S*A (different code paths)
+    double rd_Rsk_12;       // R^sk:  QR factor of the above
+    double rd_Apre_12_step; // MR^pre: TRSM in-place vs A_linop(fwd, R_inv)
+    double rd_G_12;         // Gram:  SYRK(A_pre) vs A_linop(adj, A_pre)+TRMM
+    double rd_Rchol_12;     // R^chol: Cholesky factor
+    double rd_Rfinal_12;    // R:     R_final = R_chol * R_sk
     // Sketch diagnostic
     double cond_Rsk;
 };
 
-template <typename T, typename RNG>
+template <typename T, typename RNG, typename LinOpT>
 static TrialResult<T> run_trial(
+    LinOpT& A_linop,
     const T* A_dense,
     int64_t m, int64_t n,
     T d_factor, int64_t sketch_nnz,
@@ -186,8 +220,12 @@ static TrialResult<T> run_trial(
     TrialResult<T> res{};
     int64_t d = (int64_t)std::ceil(d_factor * n);
 
+    // Save RNG state before any sketching; Part B (step-by-step) uses this
+    // to compute independent sketches for paths [1] and [2].
+    auto initial_state = state;
+
     // ----------------------------------------------------------------
-    // Sketch A → Ahat  (d × n), then QR → R_sk
+    // Part A: Shared sketch → R_sk, 4-path orth comparison
     // ----------------------------------------------------------------
     RandBLAS::SparseDist Ds(d, m, sketch_nnz, RandBLAS::Axis::Short);
     RandBLAS::SparseSkOp<T> S(Ds, state);
@@ -260,6 +298,33 @@ static TrialResult<T> run_trial(
                 R_inv_geqp3[(jpiv[k]-1) + j*n] = W[k + j*n];
     }
 
+    // Method D: SVD of R_sk  (path [5])
+    //   R_sk = U * diag(s) * Vt
+    //   R_sk^{-1} = V * diag(1/s) * U^T = Vt^T * diag(1/s) * U^T
+    std::vector<T> R_inv_svd(n * n, 0.0);
+    {
+        std::vector<T> R_copy(R_sk.begin(), R_sk.end());
+        std::vector<T> U(n * n, 0.0), Vt(n * n, 0.0), s(n);
+        lapack::gesdd(lapack::Job::AllVec, n, n, R_copy.data(), n,
+                      s.data(), U.data(), n, Vt.data(), n);
+        // Scale row k of Vt by 1/s[k]: Vt[k + j*n] is row k, col j (col-major)
+        for (int64_t k = 0; k < n; ++k)
+            for (int64_t j = 0; j < n; ++j)
+                Vt[k + j*n] /= s[k];
+        // R_inv = scaled_Vt^T * U^T
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::Trans,
+                   n, n, n, (T)1.0, Vt.data(), n, U.data(), n,
+                   (T)0.0, R_inv_svd.data(), n);
+    }
+
+    // Method E: GETRF + GETRI (general LU with partial pivoting)  (path [6])
+    std::vector<T> R_inv_getri(R_sk.begin(), R_sk.end());
+    {
+        std::vector<int64_t> ipiv(n);
+        lapack::getrf(n, n, R_inv_getri.data(), n, ipiv.data());
+        lapack::getri(n, R_inv_getri.data(), n, ipiv.data());
+    }
+
     // ----------------------------------------------------------------
     // Compute all N_PATHS preconditioned matrices:
     //   Apre[0]: TRSM in-place   (path [1], CQRRT_expl)
@@ -274,7 +339,10 @@ static TrialResult<T> run_trial(
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, m, n, (T)1.0, R_sk.data(), n, Apre[0].data(), m);
 
-    const T* R_invs[N_PATHS - 1] = {R_inv_trsm.data(), R_inv_trtri.data(), R_inv_geqp3.data()};
+    const T* R_invs[N_PATHS - 1] = {
+        R_inv_trsm.data(), R_inv_trtri.data(), R_inv_geqp3.data(),
+        R_inv_svd.data(), R_inv_getri.data()
+    };
     for (int p = 1; p < N_PATHS; ++p)
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                    m, n, n, (T)1.0, A_dense, m, R_invs[p-1], n, (T)0.0, Apre[p].data(), m);
@@ -285,39 +353,121 @@ static TrialResult<T> run_trial(
     res.rd_Apre_12 = (double)rel_diff(Apre[0].data(), Apre[1].data(), m*n);
     res.rd_Apre_13 = (double)rel_diff(Apre[0].data(), Apre[2].data(), m*n);
     res.rd_Apre_14 = (double)rel_diff(Apre[0].data(), Apre[3].data(), m*n);
+    res.rd_Apre_15 = (double)rel_diff(Apre[0].data(), Apre[4].data(), m*n);
+    res.rd_Apre_16 = (double)rel_diff(Apre[0].data(), Apre[5].data(), m*n);
 
     // ----------------------------------------------------------------
-    // Step-by-step pipeline intermediates: paths [1] vs [2] (Apre[0] vs Apre[1])
-    // G = A_pre^T A_pre (upper triangle via SYRK)
-    // R_chol = chol(G)  (POTRF in-place on upper triangle)
-    // R_final = R_chol * R_sk  (TRMM)
+    // Part B: Independent step-by-step divergence, paths [1] vs [2]
+    //
+    // Both paths compute their own sketch and R_sk from initial_state
+    // (same seed → same result, but as separate objects).
+    //
+    // Path [1] (CQRRT_expl): TRSM in-place on A; Gram via SYRK.
+    // Path [2] (CQRRT_linop, block_size=0):
+    //   R_inv = TRSM_IDENTITY(R_sk);
+    //   A_pre = GEMM(A, R_inv)         [fwd linop call]
+    //   G     = GEMM(A^T, A_pre)        [adj linop call]
+    //   G     = TRMM(R_inv^T, G)        [complete Gram: R_inv^T * A^T * A * R_inv]
     // ----------------------------------------------------------------
-    auto make_G = [&](const std::vector<T>& A) {
-        std::vector<T> G(n*n, 0.0);
+
+    // Run Part B as a lambda so early returns on Cholesky failure are clean.
+    [&]() {
+        // ---- Step 1: Sketch ----
+        // Path [1] (CQRRT_expl):  sketch_general(S, A_dense) — left SPMM on dense copy
+        RandBLAS::SparseDist Ds_1(d, m, sketch_nnz, RandBLAS::Axis::Short);
+        RandBLAS::SparseSkOp<T> S_1(Ds_1, initial_state);
+        std::vector<T> Ahat_1(d * n, 0.0);
+        RandBLAS::sketch_general(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                                  d, n, m, (T)1.0, S_1, A_dense, m,
+                                  (T)0.0, Ahat_1.data(), d);
+
+        // Path [2] (CQRRT_linop): A_linop(Side::Right, S) — SpGEMM on sparse CSR matrix
+        RandBLAS::SparseDist Ds_2(d, m, sketch_nnz, RandBLAS::Axis::Short);
+        RandBLAS::SparseSkOp<T> S_2(Ds_2, initial_state);  // same seed → same S
+        std::vector<T> Ahat_2(d * n, 0.0);
+        A_linop(Side::Right, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                d, n, m, (T)1.0, S_2, (T)0.0, Ahat_2.data(), d);
+
+        // M^sk diff: before geqrf overwrites the sketch buffers
+        res.rd_Msk_12 = (double)rel_diff(Ahat_1.data(), Ahat_2.data(), d*n);
+
+        // ---- Step 2: QR → R_sk ----
+        std::vector<T> R_sk_1(n * n, 0.0);
+        {
+            std::vector<T> tau_1(n);
+            lapack::geqrf(d, n, Ahat_1.data(), d, tau_1.data());
+            for (int64_t j = 0; j < n; ++j)
+                for (int64_t i = 0; i <= j; ++i)
+                    R_sk_1[i + j*n] = Ahat_1[i + j*d];
+        }
+        std::vector<T> R_sk_2(n * n, 0.0);
+        {
+            std::vector<T> tau_2(n);
+            lapack::geqrf(d, n, Ahat_2.data(), d, tau_2.data());
+            for (int64_t j = 0; j < n; ++j)
+                for (int64_t i = 0; i <= j; ++i)
+                    R_sk_2[i + j*n] = Ahat_2[i + j*d];
+        }
+        res.rd_Rsk_12 = (double)rel_diff(R_sk_1.data(), R_sk_2.data(), n*n);
+
+        // ---- Path [1]: CQRRT_expl — TRSM in-place, SYRK ----
+        std::vector<T> Apre_1(A_dense, A_dense + m*n);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
+                   Diag::NonUnit, m, n, (T)1.0, R_sk_1.data(), n, Apre_1.data(), m);
+
+        std::vector<T> G_1(n*n, 0.0);
         blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
-                   n, m, (T)1.0, A.data(), m, (T)0.0, G.data(), n);
-        return G;
-    };
-    auto make_Rchol = [&](std::vector<T> G) {
-        lapack::potrf(Uplo::Upper, n, G.data(), n);
-        return G;
-    };
-    auto make_Rfinal = [&](std::vector<T> Rchol) {
+                   n, m, (T)1.0, Apre_1.data(), m, (T)0.0, G_1.data(), n);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = j+1; i < n; ++i)
+                G_1[i + j*n] = G_1[j + i*n];
+
+        std::vector<T> Rchol_1(G_1);
+        if (lapack::potrf(Uplo::Upper, n, Rchol_1.data(), n)) return;
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = j+1; i < n; ++i)
+                Rchol_1[i + j*n] = (T)0.0;
+
+        std::vector<T> Rfinal_1(Rchol_1);
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                   Diag::NonUnit, n, n, (T)1.0, R_sk.data(), n, Rchol.data(), n);
-        return Rchol;
-    };
+                   Diag::NonUnit, n, n, (T)1.0, R_sk_1.data(), n, Rfinal_1.data(), n);
 
-    auto G1      = make_G(Apre[0]);
-    auto G2      = make_G(Apre[1]);
-    auto Rchol1  = make_Rchol(G1);
-    auto Rchol2  = make_Rchol(G2);
-    auto Rfinal1 = make_Rfinal(Rchol1);
-    auto Rfinal2 = make_Rfinal(Rchol2);
+        // ---- Path [2]: CQRRT_linop — TRSM_IDENTITY, linop fwd/adj, TRMM ----
+        // R_inv via TRSM_IDENTITY: solve X * R_sk_2 = I  (upper triangular result)
+        auto R_inv_2 = make_eye<T>(n);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
+                   Diag::NonUnit, n, n, (T)1.0, R_sk_2.data(), n, R_inv_2.data(), n);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = j+1; i < n; ++i)
+                R_inv_2[i + j*n] = (T)0.0;
 
-    res.rd_G_12      = (double)rel_diff(G1.data(),      G2.data(),      n*n);
-    res.rd_Rchol_12  = (double)rel_diff(Rchol1.data(),  Rchol2.data(),  n*n);
-    res.rd_Rfinal_12 = (double)rel_diff(Rfinal1.data(), Rfinal2.data(), n*n);
+        // fwd: Apre_2 = A * R_inv_2  via A_linop(Side::Left, NoTrans)
+        std::vector<T> Apre_2(m * n, 0.0);
+        A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                m, n, n, (T)1.0, R_inv_2.data(), n, (T)0.0, Apre_2.data(), m);
+        res.rd_Apre_12_step = (double)rel_diff(Apre_1.data(), Apre_2.data(), m*n);
+
+        // adj: G_2 = A^T * Apre_2  via A_linop(Side::Left, Trans)
+        std::vector<T> G_2(n * n, 0.0);
+        A_linop(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
+                n, n, m, (T)1.0, Apre_2.data(), m, (T)0.0, G_2.data(), n);
+        // Complete Gram: G_2 = (R_sk_2)^{-T} * G_2  (backward-stable TRSM on original R_sk)
+        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit,
+                   n, n, (T)1.0, R_sk_2.data(), n, G_2.data(), n);
+        res.rd_G_12 = (double)rel_diff(G_1.data(), G_2.data(), n*n);
+
+        std::vector<T> Rchol_2(G_2);
+        if (lapack::potrf(Uplo::Upper, n, Rchol_2.data(), n)) return;
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = j+1; i < n; ++i)
+                Rchol_2[i + j*n] = (T)0.0;
+        res.rd_Rchol_12 = (double)rel_diff(Rchol_1.data(), Rchol_2.data(), n*n);
+
+        std::vector<T> Rfinal_2(Rchol_2);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
+                   Diag::NonUnit, n, n, (T)1.0, R_sk_2.data(), n, Rfinal_2.data(), n);
+        res.rd_Rfinal_12 = (double)rel_diff(Rfinal_1.data(), Rfinal_2.data(), n*n);
+    }();
 
     // ----------------------------------------------------------------
     // Per-path metrics
@@ -335,8 +485,9 @@ static TrialResult<T> run_trial(
 // Shared: write CSV header and run trials given a dense matrix
 // ============================================================================
 
-template <typename T, typename RNG = r123::Philox4x32>
+template <typename T, typename LinOpT, typename RNG = r123::Philox4x32>
 static void write_csv_and_run(
+    LinOpT& A_linop,
     const std::vector<T>& A_dense,
     int64_t m, int64_t n,
     T d_factor, int64_t sketch_nnz, int64_t num_runs,
@@ -360,11 +511,11 @@ static void write_csv_and_run(
         csv << " kappa_target=" << std::scientific << std::setprecision(6) << kappa_target;
     csv << "\n";
     csv << "run,"
-        << "orth_Q1,orth_Q2,orth_Q3,orth_Q4,"
-        << "cond_Apre1,cond_Apre2,cond_Apre3,cond_Apre4,"
-        << "cond_G1,cond_G2,cond_G3,cond_G4,"
-        << "rd_Apre_12,rd_Apre_13,rd_Apre_14,"
-        << "rd_G_12,rd_Rchol_12,rd_Rfinal_12,"
+        << "orth_Q1,orth_Q2,orth_Q3,orth_Q4,orth_Q5,orth_Q6,"
+        << "cond_Apre1,cond_Apre2,cond_Apre3,cond_Apre4,cond_Apre5,cond_Apre6,"
+        << "cond_G1,cond_G2,cond_G3,cond_G4,cond_G5,cond_G6,"
+        << "rd_Apre_12,rd_Apre_13,rd_Apre_14,rd_Apre_15,rd_Apre_16,"
+        << "rd_Msk_12,rd_Rsk_12,rd_Apre_12_step,rd_G_12,rd_Rchol_12,rd_Rfinal_12,"
         << "cond_Rsk\n";
 
     RandBLAS::RNGState<RNG> base_state(42);
@@ -372,7 +523,7 @@ static void write_csv_and_run(
         auto state = base_state;
         if (r > 0) state.key.incr(r);
 
-        auto res = run_trial<T, RNG>(A_dense.data(), m, n, d_factor, sketch_nnz, state);
+        auto res = run_trial<T, RNG>(A_linop, A_dense.data(), m, n, d_factor, sketch_nnz, state);
 
         printf("  run %ld  orth_error(Q = A * R_final^{-1}):\n", r);
         for (int p = 0; p < N_PATHS; ++p)
@@ -390,11 +541,13 @@ static void write_csv_and_run(
         printf("    rd_12 (trsm-on-I):   %12.3e\n", res.rd_Apre_12);
         printf("    rd_13 (trtri):       %12.3e\n", res.rd_Apre_13);
         printf("    rd_14 (geqp3):       %12.3e\n", res.rd_Apre_14);
+        printf("    rd_15 (svd):         %12.3e\n", res.rd_Apre_15);
+        printf("    rd_16 (getri):       %12.3e\n", res.rd_Apre_16);
 
-        printf("  run %ld  step-by-step divergence [1] vs [2] (expl vs linop):\n", r);
-        printf("    M^sk:    %12.3e  (0 by construction — shared sketch)\n", 0.0);
-        printf("    R^sk:    %12.3e  (0 by construction — shared sketch)\n", 0.0);
-        printf("    MR^pre:  %12.3e\n", res.rd_Apre_12);
+        printf("  run %ld  step-by-step divergence [1] vs [2] (expl: sketch_general; linop: SpGEMM):\n", r);
+        printf("    M^sk:    %12.3e\n", res.rd_Msk_12);
+        printf("    R^sk:    %12.3e\n", res.rd_Rsk_12);
+        printf("    MR^pre:  %12.3e\n", res.rd_Apre_12_step);
         printf("    G:       %12.3e\n", res.rd_G_12);
         printf("    R^chol:  %12.3e\n", res.rd_Rchol_12);
         printf("    R:       %12.3e\n", res.rd_Rfinal_12);
@@ -406,6 +559,8 @@ static void write_csv_and_run(
         for (int p = 0; p < N_PATHS; ++p) csv << res.cond_Apre[p] << ",";
         for (int p = 0; p < N_PATHS; ++p) csv << res.cond_G[p]    << ",";
         csv << res.rd_Apre_12 << "," << res.rd_Apre_13 << "," << res.rd_Apre_14 << ","
+            << res.rd_Apre_15 << "," << res.rd_Apre_16 << ","
+            << res.rd_Msk_12 << "," << res.rd_Rsk_12 << "," << res.rd_Apre_12_step << ","
             << res.rd_G_12 << "," << res.rd_Rchol_12 << "," << res.rd_Rfinal_12 << ","
             << res.cond_Rsk << "\n";
     }
@@ -477,7 +632,7 @@ int run_benchmark(int argc, char* argv[]) {
 
         std::string label = "gen_" + std::to_string(m) + "x" + std::to_string(n)
                           + "_kappa" + std::to_string((int)std::round(std::log10((double)kappa)));
-        write_csv_and_run<T, RNG>(A_dense, m, n, d_factor, sketch_nnz, num_runs,
+        write_csv_and_run<T, decltype(A_linop), RNG>(A_linop, A_dense, m, n, d_factor, sketch_nnz, num_runs,
                                   cond_A, (double)kappa, label, output_dir);
     } else {
         // file mode: prec output_dir mtx_path d_factor runs [sketch_nnz]
@@ -516,7 +671,7 @@ int run_benchmark(int argc, char* argv[]) {
 #endif
         std::cout << "\n";
 
-        write_csv_and_run<T, RNG>(A_dense, m, n, d_factor, sketch_nnz, num_runs,
+        write_csv_and_run<T, decltype(A_linop), RNG>(A_linop, A_dense, m, n, d_factor, sketch_nnz, num_runs,
                                   cond_A, -1.0, mtx_path, output_dir);
     }
 
