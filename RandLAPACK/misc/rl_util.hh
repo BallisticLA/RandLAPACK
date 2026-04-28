@@ -199,6 +199,17 @@ T* upsize(
     return A.data();
 }
 
+/// Grow a raw buffer to at least `needed` elements.
+/// Replaces the allocation; existing contents are not preserved.
+template <typename T>
+void regrow(T*& buf, int64_t& buf_sz, int64_t needed) {
+    if (needed > buf_sz) {
+        delete[] buf;
+        buf = new T[needed];
+        buf_sz = needed;
+    }
+}
+
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
 /// Does so by attempting to find the smallest k such that 
