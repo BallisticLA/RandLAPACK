@@ -20,6 +20,8 @@ if (GTest_FOUND)
         drivers/test_bqrrp.cc
         drivers/test_revd2.cc
         drivers/test_hqrrp.cc
+        comps/test_lanczos_fa.cc
+        drivers/test_fun_nystrom_pp.cc
         drivers/test_abrik.cc
         drivers/test_orth_linop.cc
         misc/test_util.cc

@@ -186,7 +186,7 @@ void col_swap(
     }
 }
 
-/// Checks if the given size is larger than available. 
+/// Checks if the given size is larger than available.
 /// If so, resizes the vector.
 template <typename T>
 T* upsize(
@@ -198,6 +198,7 @@ T* upsize(
 
     return A.data();
 }
+
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
 /// Does so by attempting to find the smallest k such that 

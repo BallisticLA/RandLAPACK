@@ -99,7 +99,7 @@ class TestSYRF : public ::testing::Test
         auto m = all_data.row;
         auto k = all_data.rank;
 
-        all_algs.syrf.call(Uplo::Upper, m, all_data.A.data(), k, all_data.Q, state, NULL);
+        all_algs.syrf.call(Uplo::Upper, m, all_data.A.data(), k, all_data.Q.data(), state, NULL);
 
         // Reassing pointers because Q, B have been resized
         T* Q_dat = all_data.Q.data();
