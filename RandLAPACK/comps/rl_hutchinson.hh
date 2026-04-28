@@ -4,7 +4,6 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
-#include <cstdlib>
 #include <concepts>
 
 namespace RandLAPACK {
@@ -25,10 +24,10 @@ namespace RandLAPACK {
 template <typename T, typename RNG>
 class Hutchinson {
 public:
-    // Internal sketch buffer — grown with calloc/free, never shrunk.
+    // Internal sketch buffer — grown with new/delete[], never shrunk.
     T* Omega   = nullptr; int64_t Omega_sz = 0;
 
-    ~Hutchinson() { free(Omega); }
+    ~Hutchinson() { delete[] Omega; }
 
     // ------------------------------------------------------------------
     /// Low-level estimator: given precomputed Ω (n×s) and Z = M*Ω (n×s),
@@ -60,8 +59,8 @@ public:
            RandBLAS::RNGState<RNG>& state) {
         // Grow Omega buffer if needed (reuse across repeated calls)
         if (n * s > Omega_sz) {
-            free(Omega);
-            Omega = (T*) calloc(n * s, sizeof(T));
+            delete[] Omega;
+            Omega = new T[n * s];
             Omega_sz = n * s;
         }
 
@@ -74,11 +73,11 @@ public:
             Omega[i] = (Omega[i] >= 0) ? (T)1 : (T)-1;
 
         // Allocate Z and apply the operator
-        T* Z = (T*) calloc(n * s, sizeof(T));
+        T* Z = new T[n * s];
         apply_M(Omega, Z, n, s);
 
         T result = estimate(Omega, Z, n, s);
-        free(Z);
+        delete[] Z;
         return result;
     }
 };

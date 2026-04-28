@@ -6,8 +6,6 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <concepts>
 #include <algorithm>
 
@@ -55,7 +53,7 @@ public:
     /// Full reorthogonalization is the safe default for a numerical library.
     int64_t reorth = -1;
 
-    // Internal buffers — grown with calloc/free, never shrunk between calls.
+    // Internal buffers — grown with new/delete[], never shrunk between calls.
     // K:     (d+1) × n × s — Krylov basis blocks; see layout note above.
     // alpha: s × d         — tridiagonal diagonals, alpha[j*d + i] = α_{i,j}.
     // beta:  s × (d-1)     — tridiagonal subdiagonals, beta[j*(d-1) + i] = β_{i+1,j}.
@@ -65,7 +63,7 @@ public:
     T*      beta   = nullptr; int64_t beta_sz   = 0;
     T*      normb  = nullptr; int64_t normb_sz  = 0;
 
-    ~LanczosFA() { free(K); free(alpha); free(beta); free(normb); }
+    ~LanczosFA() { delete[] K; delete[] alpha; delete[] beta; delete[] normb; }
 
     // ------------------------------------------------------------------
     /// Run d-step block Lanczos recurrence.
@@ -81,24 +79,23 @@ public:
     void run(SLO& A, const T* B, int64_t n, int64_t s, int64_t d) {
         // Grow buffers if needed
         if ((d + 1) * n * s > K_sz) {
-            free(K);
-            K = (T*) calloc((d + 1) * n * s, sizeof(T));
+            delete[] K;
+            K = new T[(d + 1) * n * s];
             K_sz = (d + 1) * n * s;
         }
-        // omega_needed = max(d*s, 4) to match error-est buffer sizing in REVD2
         if (d * s > alpha_sz) {
-            free(alpha);
-            alpha = (T*) calloc(d * s, sizeof(T));
+            delete[] alpha;
+            alpha = new T[d * s];
             alpha_sz = d * s;
         }
         if ((d - 1) * s > beta_sz && d > 1) {
-            free(beta);
-            beta = (T*) calloc((d - 1) * s, sizeof(T));
+            delete[] beta;
+            beta = new T[(d - 1) * s];
             beta_sz = (d - 1) * s;
         }
         if (s > normb_sz) {
-            free(normb);
-            normb = (T*) calloc(s, sizeof(T));
+            delete[] normb;
+            normb = new T[s];
             normb_sz = s;
         }
 
@@ -190,7 +187,7 @@ public:
 #ifdef _OPENMP
         nthreads = omp_get_max_threads();
 #endif
-        T* scratch = (T*) calloc(nthreads * scratch_per_thread, sizeof(T));
+        T* scratch = new T[nthreads * scratch_per_thread];
 
 #pragma omp parallel for schedule(static)
         for (int64_t j = 0; j < s; ++j) {
@@ -229,7 +226,7 @@ public:
                        normb[j], K + j * n, n * s, v_j, 1, (T)0.0, out + j * n, 1);
         }
 
-        free(scratch);
+        delete[] scratch;
     }
 
     // ------------------------------------------------------------------
