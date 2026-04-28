@@ -2,6 +2,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_linops.hh"
+#include "rl_util.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -53,12 +54,7 @@ public:
     T call(SLO& M, int64_t s, RandBLAS::RNGState<RNG>& state) {
         int64_t n = M.dim;
 
-        // Grow Omega buffer if needed (reuse across repeated calls)
-        if (n * s > Omega_sz) {
-            delete[] Omega;
-            Omega = new T[n * s];
-            Omega_sz = n * s;
-        }
+        util::regrow(Omega, Omega_sz, n * s);
 
         // Draw Ω with iid Rademacher entries (Unif{±1}).
         // RandBLAS has no ScalarDist::Rademacher, but ScalarDist::Uniform fills

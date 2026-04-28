@@ -2,6 +2,7 @@
 
 #include "rl_blaspp.hh"
 #include "rl_linops.hh"
+#include "rl_util.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -176,11 +177,7 @@ public:
         T* eigvals  = eigvals_buf.data();
 
         // f(λ): apply scalar f to k eigenvalues
-        if (k > F_vec_sz) {
-            delete[] F_vec;
-            F_vec = new T[k];
-            F_vec_sz = k;
-        }
+        util::regrow(F_vec, F_vec_sz, k);
         for (int64_t i = 0; i < k; ++i)
             F_vec[i] = f(eigvals[i]);
 
@@ -195,21 +192,9 @@ public:
         // ResidualOp wraps the correction computation as a SymmetricLinearOperator
         // so Hutchinson::call can draw Ω and compute <Ω, (f(A)-f(Â))Ω>_F / s.
         // ------------------------------------------------------------------
-        if (k * s > tmp_sz) {
-            delete[] tmp;
-            tmp = new T[k * s];
-            tmp_sz = k * s;
-        }
-        if (n * s > Z1_sz) {
-            delete[] Z1;
-            Z1 = new T[n * s];
-            Z1_sz = n * s;
-        }
-        if (n * s > Z2_sz) {
-            delete[] Z2;
-            Z2 = new T[n * s];
-            Z2_sz = n * s;
-        }
+        util::regrow(tmp, tmp_sz, k * s);
+        util::regrow(Z1,  Z1_sz,  n * s);
+        util::regrow(Z2,  Z2_sz,  n * s);
 
         ResidualOp<T, SLO, LanczosFA_t, F> res_op(
             n, A, lanczos_fa, f, d, k, V, F_vec, tmp, Z1, Z2
