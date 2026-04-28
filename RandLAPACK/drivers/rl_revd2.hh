@@ -9,6 +9,7 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
+#include <cstdlib>
 #include <vector>
 
 namespace RandLAPACK {
@@ -16,10 +17,9 @@ namespace RandLAPACK {
 
 // -----------------------------------------------------------------------------
 /// Power scheme for error estimation, based on Algorithm E.1 from https://arxiv.org/pdf/2110.02820.pdf.
-/// This routine is too specialized to be included into RandLAPACK::utils
 /// p - number of algorithm iterations
-/// vector_buf - buffer for vector operations
-/// Mat_buf - buffer for matrix operations
+/// vector_buf - buffer for vector operations (must hold at least 4*m elements)
+/// Mat_buf    - buffer for matrix operations (must hold at least m*k elements)
 /// All other parameters come from REVD2
 template <typename T, linops::SymmetricLinearOperator SLO>
 T power_error_est(
@@ -35,35 +35,27 @@ T power_error_est(
     T err = 0;
     for(int i = 0; i < p; ++i) {
         T g_norm = blas::nrm2(m, vector_buf, 1);
-        // Compute g = g / ||g|| - we need this because dot product does not take in an alpha
         blas::scal(m, 1 / g_norm, vector_buf, 1);
 
-        // Compute V' * g / ||g||
-        // Using the second column of vector_buff as a buffer for matrix-vector product
+        // V' * g/||g|| — result in column 1 of vector_buf
         gemv(Layout::ColMajor, Op::Trans, m, k, 1.0, V, m, vector_buf, 1, 0.0, &vector_buf[m], 1);
 
-        // Compute V*E, eigvals diag
-        // Using Mat_buf as a buffer for V * diag(eigvals).
+        // V * diag(eigvals) into Mat_buf
         for (int i = 0, j = 0; i < m * k; ++i) {
             Mat_buf[i] = V[i] * eigvals[j];
             if((i + 1) % m == 0 && i != 0)
                 ++j;
         }
 
-        // Compute V * diag(eigvals) * V' * g / ||g||
-        // Using the third column of vector_buf as a buffer for matrix-vector product
+        // V * diag(eigvals) * V' * g/||g|| — result in column 2 of vector_buf
         gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Mat_buf, m, &vector_buf[m], 1, 0.0, &vector_buf[2 * m], 1);
-        // Compute A * g / ||g||
-        // Using the forth column of vector_buff as a buffer for matrix-vector product
+        // A * g/||g|| — result in column 3 of vector_buf
         A(Layout::ColMajor, 1, 1.0, vector_buf, m, 0.0, &vector_buf[3*m], m);
-        // symv(Layout::ColMajor, uplo, m, 1.0, A, m, vector_buf, 1, 0.0, &vector_buf[3 * m], 1);
 
-        // Compute w = (A * g / ||g|| - V * diag(eigvals) * V' * g / ||g||)
-        // Result is stored in the 4th column of vector_buf
+        // w = A*g/||g|| - V*diag(eigvals)*V'*g/||g||
         blas::axpy(m, -1.0, &vector_buf[2 * m], 1, &vector_buf[3 * m], 1);
-        // Compute (g / ||g||)' * w - this is our measure for the error
-        err = blas::dot(m, vector_buf, 1, &vector_buf[3 * m], 1);	
-        // v_0 <- v
+        // error estimate: (g/||g||)' * w
+        err = blas::dot(m, vector_buf, 1, &vector_buf[3 * m], 1);
         std::copy(&vector_buf[3 * m], &vector_buf[4 * m], vector_buf);
     }
     return err;
@@ -79,13 +71,13 @@ class REVD2 {
         int error_est_p;
         bool verbose;
 
-        std::vector<T> Y;
-        std::vector<T> Omega;
-        std::vector<T> R;
-        std::vector<T> S;
-        std::vector<T> symrf_work;
+        // Internal working buffers — owned by this object, grown with calloc/free
+        T* Y          = nullptr; int64_t Y_sz          = 0;
+        T* Omega      = nullptr; int64_t Omega_sz      = 0;
+        T* R          = nullptr; int64_t R_sz          = 0;
+        T* S          = nullptr; int64_t S_sz          = 0;
+        T* symrf_work = nullptr; int64_t symrf_work_sz = 0;
 
-        // Constructor
         REVD2(
             SYRF_t &syrf_obj,
             int error_est_power_iters,
@@ -95,37 +87,30 @@ class REVD2 {
             verbose = verb;
         }
 
+        ~REVD2() {
+            free(Y);
+            free(Omega);
+            free(R);
+            free(S);
+            free(symrf_work);
+        }
+
         /// Computes a rank-k approximation to an EVD of a symmetric positive semidefinite matrix:
         ///     A_hat = V diag(eigvals) V^*,
         /// where V is a matrix of eigenvectors and eigvals is a vector of eigenvalues.
-        /// 
-        /// This function is adaptive. If the tolerance is not met, increases the rank
-        /// estimation parameter by 2. Tolerance is the maximum of user-specified tol times
-        /// 5 and computed 'nu' times 5. This is motivated by the fact that the approximation
-        /// error will never be smaller than nu.
-        /// 
+        ///
+        /// Adaptive: if tolerance is not met, doubles k until convergence or k == m.
+        /// Set error_est_power_iters=0 and tol=0 for fixed-rank single-pass behavior
+        /// (k never changes, exits after one iteration).
+        ///
         /// This code is identical to Algorithm E2 from https://arxiv.org/pdf/2110.02820.pdf.
-        /// It uses a SymmetricRangeFinder for constructing a sketching operator.
-        /// It has a lot of potential in terms of storage space optimization, 
-        /// which, however, will affect readability.
         ///
-        /// @param[in] m
-        ///     The number of rows in the matrix A.
-        ///
-        /// @param[in] A
-        ///     The m-by-m matrix A, stored in a column-major format.
-        ///     Must be SPD.
-        ///
-        /// @param[in] k
-        ///     Column dimension of a sketch, k <= n.
-        ///
-        /// @param[in, out] V
-        ///     On entry, is empty and may not have any space allocated for it.
-        ///     On exit, stores m-by-k matrix matrix of (approximate) eigenvectors.
-        ///
-        /// @param[in, out] eigvals
-        ///     On entry, is empty and may not have any space allocated for it.
-        ///     On exit, stores k eigenvalues.
+        /// @param[in] m       Number of rows/cols of A.
+        /// @param[in] A       m-by-m matrix, column-major, must be SPD.
+        /// @param[in,out] k   Sketch rank on entry; final rank on exit (may grow in adaptive mode).
+        /// @param[in] tol     Convergence tolerance. Use 0.0 for fixed-rank.
+        /// @param[in,out] V   On exit, m-by-k matrix of approximate eigenvectors.
+        /// @param[in,out] eigvals  On exit, k approximate eigenvalues.
         ///
         int call(
             Uplo uplo,
@@ -155,74 +140,85 @@ class REVD2 {
             RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
             error_est_state.key.incr(1);
             while(true) {
+                // Resize caller-owned output buffers (std::vector handles dynamic k)
                 util::upsize(k, eigvals);
                 T* V_dat = util::upsize(m * k, V);
-                T* Y_dat = util::upsize(m * k, this->Y);
-                T* Omega_dat = util::upsize(m * k, this->Omega);
-                T* R_dat = util::upsize(k * k, this->R);
-                T* S_dat = util::upsize(k * k, this->S);
-                T* symrf_work_dat = util::upsize(m * k, this->symrf_work);
 
-                // Construnct a sketching operator
-                // If CholeskyQR is used for stab/orth here, RF can fail
-                this->syrf.call(A, k, this->Omega, state, symrf_work_dat);
+                // Grow internal working buffers if needed
+                if (m * k > Y_sz) {
+                    free(Y);
+                    Y = (T*) calloc(m * k, sizeof(T));
+                    Y_sz = m * k;
+                }
+                // Omega must hold at least max(m*k, m*4) — the error estimator needs 4 columns
+                int64_t omega_needed = std::max(m * k, m * (int64_t)4);
+                if (omega_needed > Omega_sz) {
+                    free(Omega);
+                    Omega = (T*) calloc(omega_needed, sizeof(T));
+                    Omega_sz = omega_needed;
+                }
+                if (k * k > R_sz) {
+                    free(R);
+                    R = (T*) calloc(k * k, sizeof(T));
+                    R_sz = k * k;
+                }
+                if (k * k > S_sz) {
+                    free(S);
+                    S = (T*) calloc(k * k, sizeof(T));
+                    S_sz = k * k;
+                }
+                if (m * k > symrf_work_sz) {
+                    free(symrf_work);
+                    symrf_work = (T*) calloc(m * k, sizeof(T));
+                    symrf_work_sz = m * k;
+                }
+
+                // Construct sketching operator: Omega = orth(A * sketch)
+                this->syrf.call(A, k, this->Omega, state, symrf_work);
 
                 // Y = A * Omega
-                A(Layout::ColMajor, k, 1.0, Omega_dat, m, 0.0, Y_dat, m);
+                A(Layout::ColMajor, k, 1.0, Omega, m, 0.0, Y, m);
 
-                T nu = std::numeric_limits<T>::epsilon() * lapack::lange(Norm::Fro, m, k, Y_dat, m);
+                // Stabilization parameter nu = eps * ||Y||_F
+                T nu = std::numeric_limits<T>::epsilon() * lapack::lange(Norm::Fro, m, k, Y, m);
 
-                // We need Y = Y + v Omega
-                // We further need R = chol(Omega' Y)
-                // Solve this as R = chol(Omega' Y + v Omega'Omega)
-                // Compute v Omega' Omega; syrk only computes the lower triangular part. Need full.
-                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega_dat, m, 0.0, R_dat, k);
+                // R = chol(Omega'*Y + nu * Omega'*Omega) — regularized to ensure PD
+                // syrk fills lower triangle; copy to upper for full symmetric matrix
+                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega, m, 0.0, R, k);
                 for(int i = 1; i < k; ++i)
-                    blas::copy(k - i, &R_dat[i + ((i-1) * k)], 1, &R_dat[(i - 1) + (i * k)], k);
-                // Compute Omega' Y + v Omega' Omega
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega_dat, m, Y_dat, m, 1.0, R_dat, k);
+                    blas::copy(k - i, &R[i + ((i-1) * k)], 1, &R[(i - 1) + (i * k)], k);
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega, m, Y, m, 1.0, R, k);
 
-                // Compute R = chol(Omega' Y + v Omega' Omega)
-                // Looks like if POTRF gets passed a non-triangular matrix, it will also output a non-triangular one
-                if(lapack::potrf(Uplo::Upper, k, R_dat, k))
+                if(lapack::potrf(Uplo::Upper, k, R, k))
                     throw std::runtime_error("Cholesky decomposition failed.");
-                RandLAPACK::util::get_U(k, k, R_dat, k);
+                RandLAPACK::util::get_U(k, k, R, k);
 
-                // B = Y(R')^-1 - need to transpose R
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_dat, k, Y_dat, m);
+                // B = Y * (R')^{-1} — overwrites Y
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R, k, Y, m);
 
-                //[V, S, ~] = SVD(B)
-                // Although we don't need the right singular vectors, we need to give space for those.
-                // Use R as a buffer for that.
-                lapack::gesdd(Job::SomeVec, m, k, Y_dat, m, S_dat, V_dat, m, R_dat, k);
+                // [V, S, ~] = SVD(B); use R as buffer for discarded right singular vectors
+                lapack::gesdd(Job::SomeVec, m, k, Y, m, S, V_dat, m, R, k);
 
-                // eigvals = diag(S^2)
+                // eigvals = S^2 - nu (undo regularization; clamp to zero)
                 T buf;
                 int64_t r = 0;
                 int i;
                 for(i = 0; i < k; ++i) {
                     buf = std::pow(S[i], 2);
                     eigvals[i] = buf;
-                    // r = number of entries in eigvals that are greater than v
                     if(buf > nu)
                         ++r;
                 }
-
-                // Undo regularlization
-                // Need to make sure no eigenvalue is negative
                 for(i = 0; i < r; ++i)
-                    (eigvals[i] - nu < 0) ? 0 : eigvals[i] -=nu;
+                    (eigvals[i] - nu < 0) ? 0 : eigvals[i] -= nu;
 
                 std::fill(&V_dat[m * r], &V_dat[m * k], 0.0);
 
-                // Error estimation
-                // Using the first column of Omega as a buffer for a random vector
-                // To perform the following safely, need to make sure Omega has at least 4 columns
-                Omega_dat = util::upsize(m * 4, this->Omega);
-                RandBLAS::DenseDist  g(m, 1);
-                error_est_state = RandBLAS::fill_dense(g, Omega_dat, error_est_state);
+                // Error estimation using Omega as a scratch buffer (needs 4 columns = 4*m)
+                RandBLAS::DenseDist g(m, 1);
+                error_est_state = RandBLAS::fill_dense(g, Omega, error_est_state);
 
-                err = power_error_est(A, k, this->error_est_p, Omega_dat, V_dat, Y_dat, eigvals.data()); 
+                err = power_error_est(A, k, this->error_est_p, Omega, V_dat, Y, eigvals.data());
 
                 if(err <= 5 * std::max(tol, nu) || k == m) {
                     break;
