@@ -46,14 +46,16 @@ template <typename T, typename RNG>
 class LanczosFA {
 public:
     /// Reorthogonalization control.
-    /// -1 = full (project out all previous Krylov vectors after each step).
+    ///  1 = full (project out all previous Krylov vectors after each step).
     ///  0 = none (vanilla Lanczos, per Persson's reference implementation).
     /// Lanczos-FA tolerates loss of orthogonality better than eigenvalue
     /// Lanczos (Paige-Greenbaum theory), so vanilla often works in practice.
     /// Full reorthogonalization is the safe default for a numerical library.
-    int64_t reorth = -1;
+    int64_t reorth = 1;
 
     // Internal buffers — grown with new/delete[], never shrunk between calls.
+    // Dimension key: n = operator dimension, s = number of RHS vectors (columns of B),
+    //                d = number of Lanczos steps.
     // K:     (d+1) × n × s — Krylov basis blocks; see layout note above.
     // alpha: s × d         — tridiagonal diagonals, alpha[j*d + i] = α_{i,j}.
     // beta:  s × (d-1)     — tridiagonal subdiagonals, beta[j*(d-1) + i] = β_{i+1,j}.
@@ -139,7 +141,7 @@ public:
             // (2) Optional full reorthogonalization against all q_0,...,q_i
             // Subtract projections onto previous Krylov vectors to recover lost
             // orthogonality accumulated in floating-point arithmetic.
-            int64_t reorth_steps = (reorth < 0) ? (i + 1) : reorth;
+            int64_t reorth_steps = reorth ? (i + 1) : 0;
             for (int64_t prev = 0; prev < reorth_steps; ++prev) {
                 T* K_p = K + prev * n * s;
                 for (int64_t j = 0; j < s; ++j) {

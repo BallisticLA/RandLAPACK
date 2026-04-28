@@ -65,7 +65,7 @@ TEST_F(TestLanczosFA, DiagonalSqrt) {
 
     using LFA = RandLAPACK::LanczosFA<double, RNG>;
     LFA lfa;
-    lfa.reorth = -1;  // full reorthogonalization
+    lfa.reorth = 1;  // full reorthogonalization
     auto f_sqrt = [](double x){ return std::sqrt(x); };
     lfa.call(A_op, B.data(), n, s, f_sqrt, d, out.data());
 
@@ -182,7 +182,7 @@ TEST_F(TestLanczosFA, ReorthVsVanilla) {
 
     std::vector<double> out_full(n * s, 0.0), out_van(n * s, 0.0);
     LFA lfa_full, lfa_van;
-    lfa_full.reorth = -1;  // full
+    lfa_full.reorth = 1;   // full
     lfa_van.reorth  =  0;  // vanilla
 
     lfa_full.call(A_op, B.data(), n, s, f_sqrt, d, out_full.data());

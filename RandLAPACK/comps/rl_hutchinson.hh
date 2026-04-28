@@ -44,14 +44,14 @@ public:
 
     // ------------------------------------------------------------------
     /// High-level estimator: draws Ω internally, applies M, returns trace estimate.
-    /// n is taken from apply_M.dim.
+    /// n is taken from M.dim.
     ///
-    /// @param[in] apply_M  Operator satisfying SymmetricLinearOperator<T>.
-    /// @param[in] s        Number of Hutchinson samples.
-    /// @param[in] state    RandBLAS RNG state; advanced on return.
+    /// @param[in] M      Operator satisfying SymmetricLinearOperator<T>.
+    /// @param[in] s      Number of Hutchinson samples.
+    /// @param[in] state  RandBLAS RNG state; advanced on return.
     template <linops::SymmetricLinearOperator SLO>
-    T call(SLO& apply_M, int64_t s, RandBLAS::RNGState<RNG>& state) {
-        int64_t n = apply_M.dim;
+    T call(SLO& M, int64_t s, RandBLAS::RNGState<RNG>& state) {
+        int64_t n = M.dim;
 
         // Grow Omega buffer if needed (reuse across repeated calls)
         if (n * s > Omega_sz) {
@@ -69,7 +69,7 @@ public:
             Omega[i] = (Omega[i] >= 0) ? (T)1 : (T)-1;
 
         T* Z = new T[n * s];
-        apply_M(Layout::ColMajor, s, (T)1.0, Omega, n, (T)0.0, Z, n);
+        M(Layout::ColMajor, s, (T)1.0, Omega, n, (T)0.0, Z, n);
 
         T result = estimate(Omega, Z, n, s);
         delete[] Z;
