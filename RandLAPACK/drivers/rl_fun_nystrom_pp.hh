@@ -5,7 +5,6 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
-#include <cstdlib>
 #include <cassert>
 #include <concepts>
 #include <stdexcept>
@@ -60,7 +59,7 @@ public:
     LanczosFA_t&  lanczos_fa;
     Hutchinson_t& hutchinson;
 
-    // Persistent output/working buffers — grown with calloc/free, never shrunk.
+    // Persistent output/working buffers — grown with new/delete[], never shrunk.
     // V, eigvals: REVD2 outputs reused across calls with same (n, k).
     // F_vec:      f applied elementwise to eigvals.
     // tmp:        k×s scratch for V^T Ω and F_vec ⊙ (V^T Ω).
@@ -72,7 +71,7 @@ public:
     T* Z1    = nullptr; int64_t Z1_sz    = 0;
     T* Z2    = nullptr; int64_t Z2_sz    = 0;
 
-    ~FunNystromPP() { free(F_vec); free(tmp); free(Z1); free(Z2); }
+    ~FunNystromPP() { delete[] F_vec; delete[] tmp; delete[] Z1; delete[] Z2; }
 
     FunNystromPP(REVD2_t& r, LanczosFA_t& l, Hutchinson_t& h)
         : revd2(r), lanczos_fa(l), hutchinson(h) {}
@@ -120,8 +119,8 @@ public:
 
         // f(λ): apply scalar f to k eigenvalues
         if (k > F_vec_sz) {
-            free(F_vec);
-            F_vec = (T*) calloc(k, sizeof(T));
+            delete[] F_vec;
+            F_vec = new T[k];
             F_vec_sz = k;
         }
         for (int64_t i = 0; i < k; ++i)
@@ -139,18 +138,18 @@ public:
         // by the lambda below, then the inner product <Ω,Z>/s is returned.
         // ------------------------------------------------------------------
         if (k * s > tmp_sz) {
-            free(tmp);
-            tmp = (T*) calloc(k * s, sizeof(T));
+            delete[] tmp;
+            tmp = new T[k * s];
             tmp_sz = k * s;
         }
         if (n * s > Z1_sz) {
-            free(Z1);
-            Z1 = (T*) calloc(n * s, sizeof(T));
+            delete[] Z1;
+            Z1 = new T[n * s];
             Z1_sz = n * s;
         }
         if (n * s > Z2_sz) {
-            free(Z2);
-            Z2 = (T*) calloc(n * s, sizeof(T));
+            delete[] Z2;
+            Z2 = new T[n * s];
             Z2_sz = n * s;
         }
 
