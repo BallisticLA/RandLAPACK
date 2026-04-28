@@ -17,28 +17,8 @@ namespace RandLAPACK {
 
 
 /// d-step block Lanczos for matrix function application f(A)B.
-///
-/// Given a SymmetricLinearOperator A and a matrix B (n×s), approximates
-/// f(A)B column-wise using a Krylov subspace of dimension d per column.
-///
-/// Each column b_j of B generates an independent Krylov sequence. The
-/// recurrence produces a d×d symmetric tridiagonal T_j per column; f(A)b_j
-/// is approximated by the first column of Q_j * f(T_j) * Q_j' * b_j, where
-/// Q_j = [q_1,...,q_d] is the Lanczos basis and f(T_j) is evaluated via a
-/// dense d×d tridiagonal eigendecomposition (lapack::stev).
-///
-/// Key formula (Tyler Chen): since q_1 = b_j/||b_j||, we have
-///   f(A)b_j ≈ ||b_j|| * Q_j * S_j * diag(f(θ_j)) * S_j[0,:]^T
-/// where (S_j, θ_j) = eig(T_j) from stev and S_j[0,:] is the first row
-/// of the eigenvector matrix.
-///
-/// f is any scalar callable T → T (e.g., sqrt, log, pow).
-/// The stev calls per column are independent and run in parallel (OpenMP).
-///
-/// Memory layout: K is stored as (d+1) contiguous n×s blocks.
-///   K[step * n * s + col * n + row] = entry (row, col) of the step-th block.
-/// This keeps each step's n×s matrix contiguous for batch matvec via SLO,
-/// while allowing strided gemv (lda = n*s) for per-column reconstruction.
+/// Approximates f(A)B column-wise via independent Krylov subspaces of dimension d.
+/// See: T. Chen, "A Lanczos-FA algorithm for matrix function approximation" (2022).
 ///
 /// @tparam T    Floating-point scalar type.
 /// @tparam RNG  Random number generator type (unused here; kept for API uniformity).
@@ -56,7 +36,11 @@ public:
     // Internal buffers — grown with new/delete[], never shrunk between calls.
     // Dimension key: n = operator dimension, s = number of RHS vectors (columns of B),
     //                d = number of Lanczos steps.
-    // K:     (d+1) × n × s — Krylov basis blocks; see layout note above.
+    //
+    // K:     (d+1) × n × s — Krylov basis blocks.
+    //   Layout: K[step * n*s + col * n + row] = row-th entry of step-th basis vector for column col.
+    //   Storing steps as contiguous n×s slices keeps each batch matvec contiguous,
+    //   while the per-column stride (n*s) lets apply() use strided gemv for reconstruction.
     // alpha: s × d         — tridiagonal diagonals, alpha[j*d + i] = α_{i,j}.
     // beta:  s × (d-1)     — tridiagonal subdiagonals, beta[j*(d-1) + i] = β_{i+1,j}.
     // normb: s             — column norms of B before normalization.
@@ -170,9 +154,10 @@ public:
 
     // ------------------------------------------------------------------
     /// Evaluate f(A)B from precomputed Krylov data (K, alpha, beta, normb).
-    /// Per column j: eigendecompose T_j via lapack::stev, then compute
+    /// Per column j: eigendecompose T_j = S_j diag(θ_j) S_j^T via lapack::stev, then:
     ///   out[:,j] = normb[j] * Q_j * S_j * diag(f(θ_j)) * S_j[0,:]^T
-    /// where S_j[0,:] is the first row of the eigenvector matrix.
+    /// where Q_j is the n×d Lanczos basis stored in K and S_j[0,:] is the first row
+    /// of the eigenvector matrix (Chen 2022, eq. 2.3).
     /// Per-column stev calls are independent — parallelized with OpenMP.
     ///
     /// @param[in]  f    Scalar callable T→T applied to tridiagonal eigenvalues.
