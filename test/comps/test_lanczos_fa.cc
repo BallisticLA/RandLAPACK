@@ -133,16 +133,25 @@ TEST_F(TestLanczosFA, HutchinsonStandalone) {
     std::iota(d.begin(), d.end(), 1.0);
     double true_trace = n * (n + 1.0) / 2.0;
 
-    // apply_M: multiply by diagonal matrix (element-wise per column)
-    auto apply_M = [&](const double* Omega, double* Z, int64_t n_, int64_t s_) {
-        for (int64_t j = 0; j < s_; ++j)
-            for (int64_t i = 0; i < n_; ++i)
-                Z[j * n_ + i] = d[i] * Omega[j * n_ + i];
+    // Diagonal operator satisfying SymmetricLinearOperator: C = α*diag(d)*B + β*C
+    struct DiagonalOp {
+        using scalar_t = double;
+        const int64_t dim;
+        const std::vector<double>& diag;
+        void operator()(Layout layout, int64_t n_vecs, double alpha,
+                        double* const B, int64_t ldb, double beta, double* C, int64_t ldc) {
+            for (int64_t j = 0; j < n_vecs; ++j)
+                for (int64_t i = 0; i < dim; ++i) {
+                    double val = alpha * diag[i] * B[j * ldb + i];
+                    C[j * ldc + i] = (beta == 0.0) ? val : val + beta * C[j * ldc + i];
+                }
+        }
     };
 
+    DiagonalOp M{n, d};
     using Hutch = RandLAPACK::Hutchinson<double, RNG>;
     Hutch hutch;
-    double est = hutch.call(apply_M, n, s, state);
+    double est = hutch.call(M, s, state);
 
     double rel_err = std::abs(est - true_trace) / true_trace;
     printf("Hutchinson trace estimate: est=%e, true=%e, rel_err=%e\n", est, true_trace, rel_err);

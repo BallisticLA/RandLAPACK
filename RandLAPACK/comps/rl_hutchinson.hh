@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rl_blaspp.hh"
+#include "rl_linops.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -11,16 +12,14 @@ namespace RandLAPACK {
 
 /// Hutchinson stochastic trace estimator.
 ///
-/// Estimates tr(M) using the identity E[ω^T M ω] = tr(M) for any zero-mean
-/// unit-variance ω. Draws s independent Gaussian vectors, applies M to all at once, then
-/// returns the averaged quadratic form (1/s) * <Ω, Z>_F where Z = M*Ω.
+/// Estimates tr(M) using the identity E[ω^T M ω] = tr(M) for zero-mean
+/// unit-variance ω. Draws s independent Rademacher vectors (iid Unif{±1}),
+/// applies M to all at once, and returns (1/s) * <Ω, Z>_F where Z = M*Ω.
 ///
-/// Standalone and reusable: the operator M is provided as a callable rather
-/// than a fixed type, so this component can be used for any trace estimation
-/// problem in RandLAPACK without modification.
+/// M must satisfy linops::SymmetricLinearOperator<T>.
 ///
 /// @tparam T    Floating-point scalar type.
-/// @tparam RNG  Random number generator type for RandBLAS.
+/// @tparam RNG  Random number generator type.
 template <typename T, typename RNG>
 class Hutchinson {
 public:
@@ -44,19 +43,16 @@ public:
     }
 
     // ------------------------------------------------------------------
-    /// High-level estimator: draws Ω internally, calls apply_M to fill Z,
-    /// then returns the trace estimate.
+    /// High-level estimator: draws Ω internally, applies M, returns trace estimate.
+    /// n is taken from apply_M.dim.
     ///
-    /// apply_M must have signature: (const T* Omega, T* Z, int64_t n, int64_t s)
-    /// It receives the n×s Rademacher matrix and must overwrite Z with M*Ω.
-    ///
-    /// @param[in] apply_M  Callable that applies M to an n×s matrix.
-    /// @param[in] n        Ambient dimension.
+    /// @param[in] apply_M  Operator satisfying SymmetricLinearOperator<T>.
     /// @param[in] s        Number of Hutchinson samples.
     /// @param[in] state    RandBLAS RNG state; advanced on return.
-    template <typename ApplyM>
-    T call(ApplyM apply_M, int64_t n, int64_t s,
-           RandBLAS::RNGState<RNG>& state) {
+    template <linops::SymmetricLinearOperator SLO>
+    T call(SLO& apply_M, int64_t s, RandBLAS::RNGState<RNG>& state) {
+        int64_t n = apply_M.dim;
+
         // Grow Omega buffer if needed (reuse across repeated calls)
         if (n * s > Omega_sz) {
             delete[] Omega;
@@ -72,9 +68,8 @@ public:
         for (int64_t i = 0; i < n * s; ++i)
             Omega[i] = (Omega[i] >= 0) ? (T)1 : (T)-1;
 
-        // Allocate Z and apply the operator
         T* Z = new T[n * s];
-        apply_M(Omega, Z, n, s);
+        apply_M(Layout::ColMajor, s, (T)1.0, Omega, n, (T)0.0, Z, n);
 
         T result = estimate(Omega, Z, n, s);
         delete[] Z;
