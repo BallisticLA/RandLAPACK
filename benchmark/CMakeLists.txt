@@ -165,6 +165,9 @@ add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_
 add_benchmark(NAME ABRIK_speed_comparisons        CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons.cc        LINK_LIBS ${Benchmark_libs_external})
 add_benchmark(NAME ABRIK_speed_comparisons_sparse CXX_SOURCES bench_ABRIK/ABRIK_speed_comparisons_sparse.cc LINK_LIBS ${Benchmark_libs_external})
 
+# FunNystromPP benchmarks
+add_benchmark(NAME FunNystromPP_benchmark CXX_SOURCES bench_FunNystromPP/FunNystromPP_benchmark.cc LINK_LIBS ${Benchmark_libs})
+
 # GPU benchmarks (if CUDA is available)
 if (HAVE_CUDA)
     message(STATUS "Building GPU benchmarks...")
