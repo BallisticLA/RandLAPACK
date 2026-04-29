@@ -88,11 +88,11 @@ class REVD2 {
         }
 
         ~REVD2() {
-            free(Y);
-            free(Omega);
-            free(R);
-            free(S);
-            free(symrf_work);
+            delete[] Y;
+            delete[] Omega;
+            delete[] R;
+            delete[] S;
+            delete[] symrf_work;
         }
 
         /// Computes a rank-k approximation to an EVD of a symmetric positive semidefinite matrix:
@@ -141,37 +141,16 @@ class REVD2 {
             error_est_state.key.incr(1);
             while(true) {
                 // Resize caller-owned output buffers (std::vector handles dynamic k)
-                util::upsize(k, eigvals);
-                T* V_dat = util::upsize(m * k, V);
+                util::resize(k, eigvals);
+                T* V_dat = util::resize(m * k, V);
 
                 // Grow internal working buffers if needed
-                if (m * k > Y_sz) {
-                    free(Y);
-                    Y = (T*) calloc(m * k, sizeof(T));
-                    Y_sz = m * k;
-                }
+                util::resize(Y,          Y_sz,          m * k);
                 // Omega must hold at least max(m*k, m*4) — the error estimator needs 4 columns
-                int64_t omega_needed = std::max(m * k, m * (int64_t)4);
-                if (omega_needed > Omega_sz) {
-                    free(Omega);
-                    Omega = (T*) calloc(omega_needed, sizeof(T));
-                    Omega_sz = omega_needed;
-                }
-                if (k * k > R_sz) {
-                    free(R);
-                    R = (T*) calloc(k * k, sizeof(T));
-                    R_sz = k * k;
-                }
-                if (k * k > S_sz) {
-                    free(S);
-                    S = (T*) calloc(k * k, sizeof(T));
-                    S_sz = k * k;
-                }
-                if (m * k > symrf_work_sz) {
-                    free(symrf_work);
-                    symrf_work = (T*) calloc(m * k, sizeof(T));
-                    symrf_work_sz = m * k;
-                }
+                util::resize(Omega,      Omega_sz,      std::max(m * k, m * (int64_t)4));
+                util::resize(R,          R_sz,          k * k);
+                util::resize(S,          S_sz,          k * k);
+                util::resize(symrf_work, symrf_work_sz, m * k);
 
                 // Construct sketching operator: Omega = orth(A * sketch)
                 this->syrf.call(A, k, this->Omega, state, symrf_work);
@@ -219,6 +198,79 @@ class REVD2 {
                 error_est_state = RandBLAS::fill_dense(g, Omega, error_est_state);
 
                 err = power_error_est(A, k, this->error_est_p, Omega, V_dat, Y, eigvals.data());
+
+                if(err <= 5 * std::max(tol, nu) || k == m) {
+                    break;
+                } else if (2 * k > m) {
+                    k = m;
+                } else {
+                    k = 2 * k;
+                }
+            }
+            return 0;
+        }
+
+        /// Raw-pointer overload: same algorithm but caller-owned buffers are
+        /// T*/int64_t pairs managed with util::resize (new/delete[]).
+        template <linops::SymmetricLinearOperator SLO>
+        int call(
+            SLO &A,
+            int64_t &k,
+            T tol,
+            T*& V, int64_t& V_sz,
+            T*& eigvals, int64_t& eigvals_sz,
+            RandBLAS::RNGState<RNG> &state
+        ) {
+            int64_t m = A.dim;
+            T err = 0;
+            RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
+            error_est_state.key.incr(1);
+            while(true) {
+                util::resize(eigvals, eigvals_sz, k);
+                util::resize(V, V_sz, m * k);
+                T* V_dat = V;
+
+                util::resize(Y,          Y_sz,          m * k);
+                util::resize(Omega,      Omega_sz,      std::max(m * k, m * (int64_t)4));
+                util::resize(R,          R_sz,          k * k);
+                util::resize(S,          S_sz,          k * k);
+                util::resize(symrf_work, symrf_work_sz, m * k);
+
+                this->syrf.call(A, k, this->Omega, state, symrf_work);
+                A(Layout::ColMajor, k, 1.0, Omega, m, 0.0, Y, m);
+
+                T nu = std::numeric_limits<T>::epsilon() * lapack::lange(Norm::Fro, m, k, Y, m);
+
+                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega, m, 0.0, R, k);
+                for(int i = 1; i < k; ++i)
+                    blas::copy(k - i, &R[i + ((i-1) * k)], 1, &R[(i - 1) + (i * k)], k);
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega, m, Y, m, 1.0, R, k);
+
+                if(lapack::potrf(Uplo::Upper, k, R, k))
+                    throw std::runtime_error("Cholesky decomposition failed.");
+                RandLAPACK::util::get_U(k, k, R, k);
+
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R, k, Y, m);
+                lapack::gesdd(Job::SomeVec, m, k, Y, m, S, V_dat, m, R, k);
+
+                T buf;
+                int64_t r = 0;
+                int i;
+                for(i = 0; i < k; ++i) {
+                    buf = std::pow(S[i], 2);
+                    eigvals[i] = buf;
+                    if(buf > nu)
+                        ++r;
+                }
+                for(i = 0; i < r; ++i)
+                    (eigvals[i] - nu < 0) ? 0 : eigvals[i] -= nu;
+
+                std::fill(&V_dat[m * r], &V_dat[m * k], 0.0);
+
+                RandBLAS::DenseDist g(m, 1);
+                error_est_state = RandBLAS::fill_dense(g, Omega, error_est_state);
+
+                err = power_error_est(A, k, this->error_est_p, Omega, V_dat, Y, eigvals);
 
                 if(err <= 5 * std::max(tol, nu) || k == m) {
                     break;

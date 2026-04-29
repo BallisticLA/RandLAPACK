@@ -10,68 +10,9 @@
 #include <concepts>
 #include <stdexcept>
 #include <limits>
+#include <algorithm>
 
 namespace RandLAPACK {
-
-
-/// Residual operator (f(A) - f(Â)) for the funNyström++ Hutchinson correction.
-///
-/// Satisfies SymmetricLinearOperator so it can be passed directly to Hutchinson.
-/// Computes C = α*(f(A)*B - f(Â)*B) + β*C via:
-///   Z1 = f(A)*B  using LanczosFA (d batch matvecs)
-///   Z2 = f(Â)*B = V*(diag(F_vec)*(V^T B))  using two GEMMs
-/// tmp, Z1, Z2 are workspace owned by FunNystromPP and borrowed here by pointer.
-///
-/// @tparam T      Scalar type.
-/// @tparam SLO_t  Type of the operator A.
-/// @tparam LFA_t  Type of the LanczosFA component.
-/// @tparam F_t    Scalar function type T→T.
-template <typename T, typename SLO_t, typename LFA_t, typename F_t>
-struct ResidualOp {
-    using scalar_t = T;
-    const int64_t dim;
-
-    SLO_t&  A;
-    LFA_t&  lanczos_fa;
-    F_t     f;
-    int64_t d;
-    int64_t k;
-    T*      V;
-    T*      F_vec;
-    T*      tmp;   // k×s workspace
-    T*      Z1;    // n×s workspace: f(A)*Ω
-    T*      Z2;    // n×s workspace: f(Â)*Ω
-
-    ResidualOp(int64_t n_, SLO_t& A_, LFA_t& lfa_, F_t f_,
-               int64_t d_, int64_t k_, T* V_, T* Fv_, T* tmp_, T* Z1_, T* Z2_)
-        : dim(n_), A(A_), lanczos_fa(lfa_), f(f_),
-          d(d_), k(k_), V(V_), F_vec(Fv_), tmp(tmp_), Z1(Z1_), Z2(Z2_) {}
-
-    void operator()(Layout layout, int64_t n_vecs, T alpha,
-                    T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
-        // Z1 = f(A)*B via Lanczos-FA (d batch matvecs)
-        lanczos_fa.call(A, B, dim, n_vecs, f, d, Z1);
-
-        // Z2 = f(Â)*B = V * (diag(F_vec) * (V^T B))
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                   k, n_vecs, dim, (T)1.0, V, dim, B, ldb, (T)0.0, tmp, k);
-        for (int64_t j = 0; j < n_vecs; ++j)
-            for (int64_t i = 0; i < k; ++i)
-                tmp[j * k + i] *= F_vec[i];
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                   dim, n_vecs, k, (T)1.0, V, dim, tmp, k, (T)0.0, Z2, dim);
-
-        // C = alpha*(Z1 - Z2) + beta*C
-        if (beta == (T)0) {
-            for (int64_t i = 0; i < dim * n_vecs; ++i)
-                C[i] = alpha * (Z1[i] - Z2[i]);
-        } else {
-            blas::scal(dim * n_vecs, beta, C, 1);
-            blas::axpy(dim * n_vecs,  alpha, Z1, 1, C, 1);
-            blas::axpy(dim * n_vecs, -alpha, Z2, 1, C, 1);
-        }
-    }
-};
 
 
 /// funNyström++ trace estimator: estimates tr(f(A)) for symmetric PSD A.
@@ -123,14 +64,18 @@ public:
     // Persistent output/working buffers — grown with new/delete[], never shrunk.
     // V, eigvals: REVD2 outputs reused across calls with same (n, k).
     // F_vec:      f applied elementwise to eigvals.
-    // tmp, Z1, Z2: workspace owned here and lent to ResidualOp each call.
-    std::vector<T> V_buf, eigvals_buf;   // std::vector for REVD2's adaptive resize
-    T* F_vec = nullptr; int64_t F_vec_sz = 0;
-    T* tmp   = nullptr; int64_t tmp_sz   = 0;
-    T* Z1    = nullptr; int64_t Z1_sz    = 0;
-    T* Z2    = nullptr; int64_t Z2_sz    = 0;
+    // tmp, Z1, Z2: workspace owned here and lent to linops::ResidualOp each call.
+    T* V_buf      = nullptr; int64_t V_buf_sz      = 0;
+    T* eigvals_buf = nullptr; int64_t eigvals_buf_sz = 0;
+    T* F_vec      = nullptr; int64_t F_vec_sz      = 0;
+    T* tmp        = nullptr; int64_t tmp_sz        = 0;
+    T* Z1         = nullptr; int64_t Z1_sz         = 0;
+    T* Z2         = nullptr; int64_t Z2_sz         = 0;
 
-    ~FunNystromPP() { delete[] F_vec; delete[] tmp; delete[] Z1; delete[] Z2; }
+    ~FunNystromPP() {
+        delete[] V_buf; delete[] eigvals_buf;
+        delete[] F_vec; delete[] tmp; delete[] Z1; delete[] Z2;
+    }
 
     FunNystromPP(REVD2_t& r, LanczosFA_t& l, Hutchinson_t& h)
         : revd2(r), lanczos_fa(l), hutchinson(h) {}
@@ -172,14 +117,11 @@ public:
         // We pass k_in (a copy) so the caller's k stays unchanged; we still
         // need the original k below for the (n-k)*f(0) tail correction.
         int64_t k_in = k;
-        revd2.call(A, k_in, (T)0.0, V_buf, eigvals_buf, state);
-        T* V        = V_buf.data();
-        T* eigvals  = eigvals_buf.data();
+        revd2.call(A, k_in, (T)0.0, V_buf, V_buf_sz, eigvals_buf, eigvals_buf_sz, state);
 
         // f(λ): apply scalar f to k eigenvalues
-        util::regrow(F_vec, F_vec_sz, k);
-        for (int64_t i = 0; i < k; ++i)
-            F_vec[i] = f(eigvals[i]);
+        util::resize(F_vec, F_vec_sz, k);
+        std::transform(eigvals_buf, eigvals_buf + k, F_vec, f);
 
         // tr(f(Â)) = Σ f(λ_i) + (n-k)*f(0)
         T tr_Ahat = (T)0.0;
@@ -189,15 +131,15 @@ public:
 
         // ------------------------------------------------------------------
         // Phase 2: Hutchinson correction on residual f(A) - f(Â)
-        // ResidualOp wraps the correction computation as a SymmetricLinearOperator
+        // linops::ResidualOp wraps the correction as a SymmetricLinearOperator
         // so Hutchinson::call can draw Ω and compute <Ω, (f(A)-f(Â))Ω>_F / s.
         // ------------------------------------------------------------------
-        util::regrow(tmp, tmp_sz, k * s);
-        util::regrow(Z1,  Z1_sz,  n * s);
-        util::regrow(Z2,  Z2_sz,  n * s);
+        util::resize(tmp, tmp_sz, k * s);
+        util::resize(Z1,  Z1_sz,  n * s);
+        util::resize(Z2,  Z2_sz,  n * s);
 
-        ResidualOp<T, SLO, LanczosFA_t, F> res_op(
-            n, A, lanczos_fa, f, d, k, V, F_vec, tmp, Z1, Z2
+        linops::ResidualOp<T, SLO, LanczosFA_t, F> res_op(
+            n, A, lanczos_fa, f, d, k, V_buf, F_vec, tmp, Z1, Z2
         );
         T correction = hutchinson.call(res_op, s, state);
 

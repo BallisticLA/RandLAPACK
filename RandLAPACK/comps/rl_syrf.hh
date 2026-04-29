@@ -102,8 +102,8 @@ class SYRF {
             // Q = orth(A * Omega)
             A(Layout::ColMajor, k, (T) 1.0, work_buff, m, (T) 0.0, Q, m);
             if(this->cond_check) {
-                util::upsize(m * k, this->cond_work_mat);
-                util::upsize(k, this->cond_work_vec);
+                util::resize(m * k, this->cond_work_mat);
+                util::resize(k, this->cond_work_vec);
                 this->cond_nums.push_back(
                     util::cond_num_check(m, k, Q, this->verbose)
                 );

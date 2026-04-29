@@ -186,10 +186,10 @@ void col_swap(
     }
 }
 
-/// Checks if the given size is larger than available.
-/// If so, resizes the vector.
+/// Grow a std::vector to at least target_sz elements (zero-fills new entries).
+/// Returns a raw pointer to the underlying data.
 template <typename T>
-T* upsize(
+T* resize(
     int64_t target_sz,
     std::vector<T> &A
 ) {
@@ -202,7 +202,7 @@ T* upsize(
 /// Grow a raw buffer to at least `needed` elements.
 /// Replaces the allocation; existing contents are not preserved.
 template <typename T>
-void regrow(T*& buf, int64_t& buf_sz, int64_t needed) {
+void resize(T*& buf, int64_t& buf_sz, int64_t needed) {
     if (needed > buf_sz) {
         delete[] buf;
         buf = new T[needed];
@@ -258,7 +258,7 @@ void normc(
     const std::vector<T> &A,
     std::vector<T> &A_norm
 ) {
-    util::upsize(m * n, A_norm);
+    util::resize(m * n, A_norm);
 
     T col_nrm = 0.0;
     for(int i = 0; i < n; ++i) {
