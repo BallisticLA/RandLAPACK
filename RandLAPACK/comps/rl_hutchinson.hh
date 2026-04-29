@@ -54,7 +54,7 @@ public:
     T call(SLO& M, int64_t s, RandBLAS::RNGState<RNG>& state) {
         int64_t n = M.dim;
 
-        util::regrow(Omega, Omega_sz, n * s);
+        util::resize(Omega, Omega_sz, n * s);
 
         // Draw Ω with iid Rademacher entries (Unif{±1}).
         // RandBLAS has no ScalarDist::Rademacher, but ScalarDist::Uniform fills

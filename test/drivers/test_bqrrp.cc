@@ -67,7 +67,7 @@ class TestBQRRP : public ::testing::Test
         auto n = all_data.col;
         auto k = all_data.rank;
 
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
+        RandLAPACK::util::resize(k * k, all_data.I_ref);
         RandLAPACK::util::eye(k, k, all_data.I_ref);
 
         T* A_dat           = all_data.A_cpy1.data();
@@ -131,7 +131,7 @@ class TestBQRRP : public ::testing::Test
             all_data.rank = BQRRP.rank;
             printf("RANK AS RETURNED BY BQRRP %4ld\n", all_data.rank);
 
-            RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+            RandLAPACK::util::resize(all_data.rank * n, all_data.R);
 
             lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.A.data(), m, all_data.R.data(), all_data.rank);
 

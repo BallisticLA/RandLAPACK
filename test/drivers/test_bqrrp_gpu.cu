@@ -118,7 +118,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
         auto n = all_data.col;
         auto k = all_data.rank;
 
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
+        RandLAPACK::util::resize(k * k, all_data.I_ref);
         RandLAPACK::util::eye(k, k, all_data.I_ref);
 
         T* A_dat         = all_data.A_cpy1.data();
@@ -188,7 +188,7 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             cudaMemcpy(all_data.J.data(),      all_data.J_device,   n * sizeof(int64_t), cudaMemcpyDeviceToHost);
 
             lapack::ungqr(m, n, n, all_data.Q.data(), m, all_data.tau.data());
-            RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
+            RandLAPACK::util::resize(all_data.rank * n, all_data.R);
             lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
 
             RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);

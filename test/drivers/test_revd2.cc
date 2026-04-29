@@ -154,8 +154,8 @@ class TestREVD2 : public ::testing::Test
         int64_t k = k_start;
         all_algs.revd2.call(blas::Uplo::Upper, m, all_data.A.data(), k, tol, all_data.V, all_data.eigvals, state);
 
-        T* E_dat = RandLAPACK::util::upsize(k * k, all_data.E);
-        T* Buf_dat = RandLAPACK::util::upsize(m * k, all_data.Buf);
+        T* E_dat = RandLAPACK::util::resize(k * k, all_data.E);
+        T* Buf_dat = RandLAPACK::util::resize(m * k, all_data.Buf);
 
         T* A_cpy_dat = all_data.A_cpy.data();
         T* V_dat = all_data.V.data();
@@ -193,8 +193,8 @@ class TestREVD2 : public ::testing::Test
         all_algs.revd2.call(blas::Uplo::Upper, m, all_data.A_u.data(), k, tol, all_data.V_u, all_data.eigvals_u, state);
         all_algs.revd2.call(blas::Uplo::Lower, m, all_data.A_l.data(), k, tol, all_data.V_l, all_data.eigvals_l, state);
 
-        T* E_u_dat = RandLAPACK::util::upsize(k * k, all_data.E_u);
-        T* E_l_dat = RandLAPACK::util::upsize(k * k, all_data.E_l);
+        T* E_u_dat = RandLAPACK::util::resize(k * k, all_data.E_u);
+        T* E_l_dat = RandLAPACK::util::resize(k * k, all_data.E_l);
         T* V_u_dat = all_data.V_u.data();
         T* V_l_dat = all_data.V_l.data();
         T* work_u_dat = all_data.A_u.data();
@@ -411,7 +411,27 @@ TEST_F(TestREVD2, Exactness) {
     );
 }
 
-TEST_F(TestREVD2, Uplo) { 
+// Verify that error_est_power_iters=0 and tol=0 produce fixed-rank behavior:
+// k must not increase, since FunNystromPP's (n-k)*f(0) tail correction depends on k staying fixed.
+TEST_F(TestREVD2, FixedRank) {
+    using RNG = r123::Philox4x32;
+    int64_t m = 40, k = 10;
+    auto state = RandBLAS::RNGState(5);
+
+    std::vector<double> A(m * m, 0.0);
+    for (int64_t i = 0; i < m; ++i)
+        A[i + i * m] = (double)(i + 1);
+
+    algorithm_objects<double, RNG> all_algs(false, false, 3, 1, /*error_est_p=*/0);
+    std::vector<double> V_out, eigvals_out;
+    int64_t k_before = k;
+    all_algs.revd2.call(blas::Uplo::Upper, m, A.data(), k, 0.0, V_out, eigvals_out, state);
+
+    printf("REVD2 fixed-k: k_before=%lld, k_after=%lld\n", (long long)k_before, (long long)k);
+    ASSERT_EQ(k, k_before);
+}
+
+TEST_F(TestREVD2, Uplo) {
     using RNG = r123::Philox4x32;
 
     int64_t m = 100;

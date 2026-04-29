@@ -67,10 +67,10 @@ public:
     template <linops::SymmetricLinearOperator SLO>
     void run_lanczos(SLO& A, const T* B, int64_t n, int64_t s, int64_t d) {
         // Grow buffers if needed
-        util::regrow(K,     K_sz,     (d + 1) * n * s);
-        util::regrow(alpha, alpha_sz, d * s);
-        if (d > 1) util::regrow(beta, beta_sz, (d - 1) * s);
-        util::regrow(normb, normb_sz, s);
+        util::resize(K,     K_sz,     (d + 1) * n * s);
+        util::resize(alpha, alpha_sz, d * s);
+        if (d > 1) util::resize(beta, beta_sz, (d - 1) * s);
+        util::resize(normb, normb_sz, s);
 
         // Step 0: q_1 = column-normalize B; store in K[:,:,0]
         T* K0 = K;

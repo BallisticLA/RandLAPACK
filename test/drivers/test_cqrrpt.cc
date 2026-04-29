@@ -63,7 +63,7 @@ class TestCQRRPT : public ::testing::Test
         auto n = all_data.col;
         auto k = all_data.rank;
 
-        RandLAPACK::util::upsize(k * k, all_data.I_ref);
+        RandLAPACK::util::resize(k * k, all_data.I_ref);
         RandLAPACK::util::eye(k, k, all_data.I_ref);
 
         T* A_dat         = all_data.A_cpy1.data();

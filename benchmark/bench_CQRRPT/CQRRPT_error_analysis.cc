@@ -72,7 +72,7 @@ error_check(QR_benchmark_data<T> &all_data,
     auto n = col_sz;
     auto k = all_data.rank;
 
-    RandLAPACK::util::upsize(k * k, all_data.I_ref);
+    RandLAPACK::util::resize(k * k, all_data.I_ref);
     RandLAPACK::util::eye(k, k, all_data.I_ref);
 
     T* A_dat           = all_data.A_cpy1.data();
