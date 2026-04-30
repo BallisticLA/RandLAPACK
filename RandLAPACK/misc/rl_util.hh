@@ -201,6 +201,7 @@ T* resize(
 
 /// Grow a raw buffer to at least `needed` elements.
 /// Replaces the allocation; existing contents are not preserved.
+/// New storage is uninitialized — callers must write before reading.
 template <typename T>
 void resize(T*& buf, int64_t& buf_sz, int64_t needed) {
     if (needed > buf_sz) {

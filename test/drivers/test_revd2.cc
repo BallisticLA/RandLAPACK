@@ -172,7 +172,7 @@ class TestREVD2 : public ::testing::Test
         T norm_0 = lapack::lange(Norm::Fro, m, m, A_cpy_dat, m);
         printf("||A - VEV'||_F / ||A||_F:  %e\n", norm_0 / norm_A);
         ASSERT_NEAR(norm_0 / norm_A, err_expectation, 10 * err_expectation);
-        ASSERT_NEAR(k, rank_expectation, std::numeric_limits<T>::epsilon());
+        ASSERT_EQ(k, rank_expectation);
     }
 
         /// General test for REVD:
@@ -335,7 +335,7 @@ TEST_F(TestREVD2, Overestimation1) {
     );
 }
 
-TEST_F(TestREVD2, Oversetimation2) { 
+TEST_F(TestREVD2, Overestimation2) {
     using RNG = r123::Philox4x32;
 
     int64_t m = 1000;

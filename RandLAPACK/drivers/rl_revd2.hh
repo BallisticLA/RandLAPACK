@@ -9,7 +9,6 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
-#include <cstdlib>
 #include <vector>
 
 namespace RandLAPACK {
@@ -71,7 +70,7 @@ class REVD2 {
         int error_est_p;
         bool verbose;
 
-        // Internal working buffers — owned by this object, grown with calloc/free
+        // Internal working buffers — owned by this object, grown with new[]/delete[] via util::resize
         T* Y          = nullptr; int64_t Y_sz          = 0;
         T* Omega      = nullptr; int64_t Omega_sz      = 0;
         T* R          = nullptr; int64_t R_sz          = 0;

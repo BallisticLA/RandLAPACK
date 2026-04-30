@@ -79,7 +79,9 @@ public:
         for (int64_t j = 0; j < s; ++j) {
             T nrm = blas::nrm2(n, K0 + j * n, 1);
             normb[j] = nrm;
-            blas::scal(n, (T)1.0 / nrm, K0 + j * n, 1);
+            // Zero input column: skip normalization; normb[j]=0 so apply_f outputs zero.
+            if (nrm > (T)0)
+                blas::scal(n, (T)1.0 / nrm, K0 + j * n, 1);
         }
 
         // Step 0 matvec: K[:,:,1] = A * K[:,:,0]
@@ -128,11 +130,15 @@ public:
             }
 
             // (3) β_{i+1} = column norms, (4) normalize → q_{i+1}
+            // Zero norm means the Krylov basis has collapsed for that column.
+            // Store β=0 (the tridiagonal subdiagonal entry) and skip normalization;
+            // stevd handles a zero subdiagonal correctly (independent 1×1 blocks).
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < s; ++j) {
                 T nrm = blas::nrm2(n, K_curr + j * n, 1);
                 beta[j * (d - 1) + i] = nrm;
-                blas::scal(n, (T)1.0 / nrm, K_curr + j * n, 1);
+                if (nrm > (T)0)
+                    blas::scal(n, (T)1.0 / nrm, K_curr + j * n, 1);
             }
 
             // (5) K_new = A*q_{i+1} - β_{i+1}*q_i

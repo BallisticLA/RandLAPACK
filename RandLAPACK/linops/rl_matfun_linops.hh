@@ -2,6 +2,10 @@
 
 #include "rl_blaspp.hh"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <cstdint>
 
 namespace RandLAPACK::linops {
@@ -43,32 +47,38 @@ struct ResidualOp {
           d(d_), k(k_), V(V_), F_vec(Fv_), tmp(tmp_), Z1(Z1_), Z2(Z2_) {}
 
     void operator()([[maybe_unused]] Layout layout, int64_t n_vecs, T alpha,
-                    T* const B, int64_t ldb, T beta, T* C, [[maybe_unused]] int64_t ldc) {
+                    T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
         // Z1 = f(A)*B via matrix-function oracle
         matfun_oracle.call(A, B, dim, n_vecs, f, d, Z1);
 
         // Z2 = f(Â)*B = V * (diag(F_vec) * (V^T B))
         blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
                    k, n_vecs, dim, (T)1.0, V, dim, B, ldb, (T)0.0, tmp, k);
-#pragma omp parallel for schedule(static)
+#ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+#endif
         for (int64_t j = 0; j < n_vecs; ++j)
             for (int64_t i = 0; i < k; ++i)
                 tmp[j * k + i] *= F_vec[i];
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                    dim, n_vecs, k, (T)1.0, V, dim, tmp, k, (T)0.0, Z2, dim);
 
-        // C = alpha*(Z1 - Z2) + beta*C
-        // beta==0 branch uses a fused loop: one pass reads Z1,Z2 and writes C,
-        // which is cheaper than copy+axpy+scal (three separate passes). scal(0,C)
-        // is avoided because it propagates NaN via 0*NaN in some BLAS implementations.
+        // C = alpha*(Z1 - Z2) + beta*C  column-by-column to respect ldc.
+        // Z1 and Z2 are always stored flat (stride dim); C may have ldc >= dim.
+        // beta==0 uses a fused read of Z1,Z2 to avoid scal(0,C) propagating NaN.
         if (beta == (T)0) {
-#pragma omp parallel for schedule(static)
-            for (int64_t i = 0; i < dim * n_vecs; ++i)
-                C[i] = alpha * (Z1[i] - Z2[i]);
+#ifdef _OPENMP
+            #pragma omp parallel for schedule(static)
+#endif
+            for (int64_t j = 0; j < n_vecs; ++j)
+                for (int64_t i = 0; i < dim; ++i)
+                    C[j * ldc + i] = alpha * (Z1[j * dim + i] - Z2[j * dim + i]);
         } else {
-            blas::scal(dim * n_vecs, beta, C, 1);
-            blas::axpy(dim * n_vecs,  alpha, Z1, 1, C, 1);
-            blas::axpy(dim * n_vecs, -alpha, Z2, 1, C, 1);
+            for (int64_t j = 0; j < n_vecs; ++j) {
+                blas::scal(dim, beta, C + j * ldc, 1);
+                blas::axpy(dim,  alpha, Z1 + j * dim, 1, C + j * ldc, 1);
+                blas::axpy(dim, -alpha, Z2 + j * dim, 1, C + j * ldc, 1);
+            }
         }
     }
 };

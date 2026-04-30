@@ -99,7 +99,7 @@ struct LFAOp {
     std::vector<double> Z_buf;
 
     LFAOp(int64_t n, SLO_t& A_, LFA_t& lfa_, F_t f_, int64_t d_)
-        : dim(n), A(A_), lfa(lfa_), f(f_), d(d_), Z_buf(n) {}
+        : dim(n), A(A_), lfa(lfa_), f(f_), d(d_), Z_buf() {}
 
     void operator()([[maybe_unused]] Layout layout, int64_t n_vecs, double alpha,
                     double* const B, [[maybe_unused]] int64_t ldb,
@@ -151,7 +151,7 @@ static void call_all_algs(
     auto state_alg = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, N=%ld, K=%ld, S=%ld, D=%ld\n", i, n, k, s, d);
+        printf("ITERATION %d, N=%lld, K=%lld, S=%lld, D=%lld\n", i, (long long)n, (long long)k, (long long)s, (long long)d);
 
         // ---- FunNystromPP --------------------------------------------------
         state_gen = state;
@@ -163,7 +163,7 @@ static void call_all_algs(
         double est_pp = driver.call(A_op, f_sqrt, 0.0, k, s, d, state_alg);
         auto stop_pp  = steady_clock::now();
         long dur_pp   = duration_cast<microseconds>(stop_pp - start_pp).count();
-        printf("  FunNystromPP:      est=%.6e  time=%ld us\n", est_pp, dur_pp);
+        printf("  FunNystromPP:      est=%.6e  time=%lld us\n", est_pp, (long long)dur_pp);
 
         // ---- Hutchinson + LanczosFA (no Nyström) ---------------------------
         state_gen = state;
@@ -177,7 +177,7 @@ static void call_all_algs(
         double est_h = hutch_base.call(lfa_op, s, state_alg);
         auto stop_h  = steady_clock::now();
         long dur_h   = duration_cast<microseconds>(stop_h - start_h).count();
-        printf("  Hutchinson+LFA:    est=%.6e  time=%ld us\n", est_h, dur_h);
+        printf("  Hutchinson+LFA:    est=%.6e  time=%lld us\n", est_h, (long long)dur_h);
 
         // ---- Syevd reference (only for small n) ----------------------------
         state_gen = state;
@@ -248,7 +248,7 @@ int main(int argc, char* argv[]) {
     FunNystromPP_benchmark_data<double> all_data(n_max, k_max, s_max, d_steps);
 
     // Output file
-    std::string output_filename = "_FunNystromPP_benchmark_num_info_lines_7.txt";
+    std::string output_filename = "_FunNystromPP_benchmark_num_info_lines_" + std::to_string(7) + ".txt";
     std::string path;
     if (std::string(argv[1]) != ".")
         path = std::string(argv[1]) + output_filename;
