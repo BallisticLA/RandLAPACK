@@ -24,10 +24,11 @@ namespace RandLAPACK {
 template <typename T, typename RNG>
 class Hutchinson {
 public:
-    // Internal sketch buffer — grown with new/delete[], never shrunk.
-    T* Omega   = nullptr; int64_t Omega_sz = 0;
+    // Internal buffers — grown with new/delete[], never shrunk.
+    T* Omega = nullptr; int64_t Omega_sz = 0;
+    T* Z     = nullptr; int64_t Z_sz     = 0;
 
-    ~Hutchinson() { delete[] Omega; }
+    ~Hutchinson() { delete[] Omega; delete[] Z; }
 
     // ------------------------------------------------------------------
     /// Low-level estimator: given precomputed Ω (n×s) and Z = M*Ω (n×s),
@@ -64,12 +65,10 @@ public:
         for (int64_t i = 0; i < n * s; ++i)
             Omega[i] = (Omega[i] >= 0) ? (T)1 : (T)-1;
 
-        T* Z = new T[n * s];
+        util::resize(Z, Z_sz, n * s);
         M(Layout::ColMajor, s, (T)1.0, Omega, n, (T)0.0, Z, n);
 
-        T result = estimate(Omega, Z, n, s);
-        delete[] Z;
-        return result;
+        return estimate(Omega, Z, n, s);
     }
 };
 

@@ -131,6 +131,39 @@ TEST_F(TestLanczosFA, DiagonalSqrt) {
     run_diagonal_fa_test([](double x){ return std::sqrt(x); }, 50, 5, 20, 1e-4, 42);
 }
 
+// d=1 on A = 4*I: all eigenvalues equal, so the 1-step Krylov result is exact.
+// Exercises the paths where beta is never allocated and the main recurrence loop
+// (0..d-2) does not execute. stevd is called on a 1×1 tridiagonal.
+TEST_F(TestLanczosFA, ScalarMatrixSqrt_d1) {
+    using RNG = r123::Philox4x32;
+    int64_t n = 8, s = 3, d = 1;
+    auto state = RandBLAS::RNGState(55);
+
+    std::vector<double> A_mat(n * n, 0.0);
+    for (int64_t i = 0; i < n; ++i) A_mat[i + i * n] = 4.0;
+
+    std::vector<double> B(n * s);
+    RandBLAS::DenseDist DB(n, s);
+    state = RandBLAS::fill_dense(DB, B.data(), state);
+
+    std::vector<double> out(n * s, 0.0);
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
+    RandLAPACK::LanczosFA<double, RNG> lfa;
+    lfa.reorth = 1;
+    lfa.call(A_op, B.data(), n, s, [](double x){ return std::sqrt(x); }, d, out.data());
+
+    // f(A)B = sqrt(4)*B = 2*B exactly for A = 4*I
+    double err = 0.0, ref_norm = 0.0;
+    for (int64_t i = 0; i < n * s; ++i) {
+        double r = out[i] - 2.0 * B[i];
+        err      += r * r;
+        ref_norm += 4.0 * B[i] * B[i];
+    }
+    double rel_err = std::sqrt(err / ref_norm);
+    printf("d=1 on 4*I: ||f(A)B - ref||/||ref|| = %e\n", rel_err);
+    ASSERT_LT(rel_err, 1e-10);
+}
+
 // f=log on diag(1,...,50). Entries ≥ 1 so log is well-defined. Tolerance relaxed to 1e-3
 // (log has slower polynomial convergence on [1,50] than sqrt).
 TEST_F(TestLanczosFA, DiagonalLog) {
