@@ -464,4 +464,47 @@ public:
     }
 };
 
+
+/*********************************************************/
+/*                                                       */
+/*                   SparseSymLinOp                      */
+/*                                                       */
+/*********************************************************/
+
+/// @brief Symmetric sparse linear operator satisfying the SymmetricLinearOperator concept.
+///
+/// Wraps a sparse matrix assumed to be symmetric with both triangles explicitly stored.
+/// Delegates to `left_spmm` with NoTrans for SYMM-like semantics: C = alpha * A * B + beta * C.
+///
+/// Satisfies SymmetricLinearOperator (provides `dim` and SYMM-like operator()).
+/// Also provides `n_rows` and `n_cols` (both equal to `dim`) for LinearOperator compatibility.
+///
+/// @tparam SpMat Sparse matrix type (CSR, CSC, or COO format).
+///
+/// @note The sparse matrix must be square (n×n) and symmetric with both triangles stored.
+///       The caller's SpMat must outlive this operator.
+template <RandBLAS::sparse_data::SparseMatrix SpMat>
+struct SparseSymLinOp {
+    using T = typename SpMat::scalar_t;
+    using scalar_t = T;
+    const int64_t dim;
+    const int64_t n_rows;
+    const int64_t n_cols;
+    SpMat& A_sp;
+
+    /// @brief Construct from an existing symmetric sparse matrix.
+    /// @param n    Matrix dimension (n × n); A_sp must be n × n.
+    /// @param src  Sparse matrix; must be square, symmetric, both triangles stored.
+    SparseSymLinOp(int64_t n, SpMat& src)
+        : dim(n), n_rows(n), n_cols(n), A_sp(src) {}
+
+    /// @brief Apply: C = alpha * A_sp * B + beta * C.
+    void operator()(Layout layout, int64_t n_vecs, T alpha,
+                    T* const B, int64_t ldb,
+                    T beta, T* C, int64_t ldc) {
+        RandBLAS::sparse_data::left_spmm(layout, Op::NoTrans, Op::NoTrans,
+            dim, n_vecs, dim, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
+    }
+};
+
 } // end namespace RandLAPACK::linops

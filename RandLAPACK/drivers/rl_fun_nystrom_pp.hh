@@ -5,6 +5,7 @@
 #include "rl_util.hh"
 
 #include <RandBLAS.hh>
+#include <chrono>
 #include <cstdint>
 #include <concepts>
 #include <stdexcept>
@@ -13,12 +14,18 @@
 
 namespace RandLAPACK {
 
+/// Per-call timing breakdown for FunNystromPP::call.
+/// Pass a pointer to call() to collect Phase 1 and Phase 2 wall-clock times.
+struct FunNystromPP_timing {
+    long phase1_us = 0;  // NystromEVD Nyström approximation (Phase 1)
+    long phase2_us = 0;  // Hutchinson trace correction (Phase 2)
+};
 
 /// funNyström++ trace estimator: estimates tr(f(A)) for symmetric PSD A.
 ///
 /// Algorithm (2 phases):
-///   Phase 1 — Nyström approximation via REVD2 (O(k) matvecs):
-///     (V, λ) = REVD2(A, k)  →  Â = V diag(λ) V^T
+///   Phase 1 — Nyström approximation via NystromEVD (O(k) matvecs):
+///     (V, λ) = NystromEVD(A, k)  →  Â = V diag(λ) V^T
 ///     tr(f(Â)) = Σ f(λ_i) + (n-k) * f(0)   [free from the eigenvalues]
 ///
 ///   Phase 2 — Hutchinson correction on the residual (d*s matvecs):
@@ -45,24 +52,24 @@ namespace RandLAPACK {
 ///   d = O(√κ log(n/ε))   Lanczos steps — caller's responsibility
 ///   s = O(1/(√κ ε))      Hutchinson samples — caller's responsibility
 ///   k = O(√κ/ε)          Nyström rank — caller's responsibility
-/// Use error_est_power_iters=0 in REVD2 and tol=0 to get fixed-rank behavior
+/// Use error_est_power_iters=0 in NystromEVD and tol=0 to get fixed-rank behavior
 /// (k never changes; the adaptive loop exits after one iteration).
 ///
-/// @tparam REVD2_t       Type of the REVD2 Nyström component.
+/// @tparam NystromEVD_t       Type of the NystromEVD Nyström component.
 /// @tparam LanczosFA_t   Type of the LanczosFA component.
 /// @tparam Hutchinson_t  Type of the Hutchinson trace estimator component.
-template <typename REVD2_t, typename LanczosFA_t, typename Hutchinson_t>
+template <typename NystromEVD_t, typename LanczosFA_t, typename Hutchinson_t>
 class FunNystromPP {
 public:
-    using T   = typename REVD2_t::T;
-    using RNG = typename REVD2_t::RNG;
+    using T   = typename NystromEVD_t::T;
+    using RNG = typename NystromEVD_t::RNG;
 
-    REVD2_t&      revd2;
-    LanczosFA_t&  lanczos_fa;
-    Hutchinson_t& hutchinson;
+    NystromEVD_t&      nystrom_evd;       // Phase 1: Nyström approximation
+    LanczosFA_t&  lanczos_fa;  // Phase 2: f(A)*Ω oracle
+    Hutchinson_t& hutchinson;  // Phase 2: trace correction estimator
 
     // Persistent output/working buffers — grown with new/delete[], never shrunk.
-    // V, eigvals: REVD2 outputs reused across calls with same (n, k).
+    // V, eigvals: NystromEVD outputs reused across calls with same (n, k).
     // F_vec:      f applied elementwise to eigvals.
     // tmp, Z1, Z2: workspace owned here and lent to linops::ResidualOp each call.
     T* V_buf      = nullptr; int64_t V_buf_sz      = 0;
@@ -77,8 +84,16 @@ public:
         delete[] F_vec; delete[] tmp; delete[] Z1; delete[] Z2;
     }
 
-    FunNystromPP(REVD2_t& r, LanczosFA_t& l, Hutchinson_t& h)
-        : revd2(r), lanczos_fa(l), hutchinson(h) {}
+    // ------------------------------------------------------------------
+    /// Construct a FunNystromPP estimator from pre-built components.
+    ///
+    /// @param r  NystromEVD instance for Phase 1 (Nyström approximation).
+    /// @param l  LanczosFA instance for computing f(A)*Ω in Phase 2.
+    /// @param h  Hutchinson instance for Phase 2 trace correction.
+    ///
+    /// All three components are stored by reference and must outlive this object.
+    FunNystromPP(NystromEVD_t& r, LanczosFA_t& l, Hutchinson_t& h)
+        : nystrom_evd(r), lanczos_fa(l), hutchinson(h) {}
 
     // ------------------------------------------------------------------
     /// Estimate tr(f(A)).
@@ -93,6 +108,8 @@ public:
     /// @param[in]  s       Hutchinson samples. Caller chooses based on κ, ε.
     /// @param[in]  d       Lanczos steps per sample. Caller chooses based on κ.
     /// @param[in]  state   RandBLAS RNG state; advanced on return.
+    /// @param[out] timing  Optional. If non-null, receives Phase 1 and Phase 2
+    ///                     wall-clock times in microseconds.
     /// @returns   Estimate of tr(f(A)).
     template <linops::SymmetricLinearOperator SLO, std::invocable<T> F>
     T call(
@@ -102,7 +119,8 @@ public:
         int64_t k,
         int64_t s,
         int64_t d,
-        RandBLAS::RNGState<RNG>& state
+        RandBLAS::RNGState<RNG>& state,
+        FunNystromPP_timing* timing = nullptr
     ) {
         if (!std::isfinite(f_zero))
             throw std::invalid_argument("f_zero must be finite; for log, ensure A is strictly PD");
@@ -111,15 +129,17 @@ public:
 
         // ------------------------------------------------------------------
         // Phase 1: Nyström approximation
-        // REVD2 with error_est_power_iters=0 and tol=0 runs a single pass
+        // NystromEVD with error_est_power_iters=0 and tol=0 runs a single pass
         // with fixed rank k. V_buf (n×k_in) and eigvals_buf (k_in) are the outputs.
         // ------------------------------------------------------------------
-        // REVD2::call takes rank by reference and may increase it adaptively.
+        // NystromEVD::call takes rank by reference and may increase it adaptively.
         // We pass k_in (a copy) so the caller's k stays unchanged.
         // All post-call uses reference k_in (not k) so they stay consistent
         // with the actual rank used, even in adaptive mode.
         int64_t k_in = k;
-        revd2.call(A, k_in, (T)0.0, V_buf, V_buf_sz, eigvals_buf, eigvals_buf_sz, state);
+        auto t_phase1_start = std::chrono::steady_clock::now();
+        nystrom_evd.call(A, k_in, (T)0.0, V_buf, V_buf_sz, eigvals_buf, eigvals_buf_sz, state);
+        auto t_phase1_end = std::chrono::steady_clock::now();
 
         // f(λ): apply scalar f to k_in eigenvalues
         util::resize(F_vec, F_vec_sz, k_in);
@@ -143,7 +163,15 @@ public:
         linops::ResidualOp<T, SLO, LanczosFA_t, F> res_op(
             n, A, lanczos_fa, f, d, k_in, V_buf, F_vec, tmp, Z1, Z2
         );
+        auto t_phase2_start = std::chrono::steady_clock::now();
         T correction = hutchinson.call(res_op, s, state);
+        auto t_phase2_end = std::chrono::steady_clock::now();
+
+        if (timing) {
+            using us = std::chrono::microseconds;
+            timing->phase1_us = std::chrono::duration_cast<us>(t_phase1_end - t_phase1_start).count();
+            timing->phase2_us = std::chrono::duration_cast<us>(t_phase2_end - t_phase2_start).count();
+        }
 
         return tr_Ahat + correction;
     }

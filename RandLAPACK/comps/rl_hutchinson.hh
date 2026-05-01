@@ -39,6 +39,7 @@ public:
     /// @param[in] Z          n×s result of M applied to Omega_buf (column-major).
     /// @param[in] n          Ambient dimension.
     /// @param[in] s          Number of samples.
+    /// @returns   Frobenius inner product <Ω, Z>_F / s.
     T estimate(const T* Omega_buf, const T* Z, int64_t n, int64_t s) const {
         // Frobenius inner product of two n×s matrices, treated as flat n*s vectors
         return blas::dot(n * s, Omega_buf, 1, Z, 1) / static_cast<T>(s);

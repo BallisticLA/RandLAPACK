@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rl_blaspp.hh"
+#include <stdexcept>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -46,8 +47,22 @@ struct ResidualOp {
         : dim(n_), A(A_), matfun_oracle(oracle_), f(f_),
           d(d_), k(k_), V(V_), F_vec(Fv_), tmp(tmp_), Z1(Z1_), Z2(Z2_) {}
 
+    // ------------------------------------------------------------------
+    /// Apply: C = α*(f(A)*B - f(Â)*B) + β*C.
+    ///
+    /// @param[in]     layout  Ignored; the operator always uses ColMajor internally.
+    /// @param[in]     n_vecs  Number of right-hand sides.
+    /// @param[in]     alpha   Scalar multiplier for the residual.
+    /// @param[in]     B       n×n_vecs input matrix (col-major, ldb).
+    /// @param[in]     ldb     Leading dimension of B.
+    /// @param[in]     beta    Scalar multiplier for existing C; β=0 is handled without
+    ///                        reading C, so NaN in C does not propagate.
+    /// @param[in,out] C       n×n_vecs output matrix (col-major, ldc); overwritten.
+    /// @param[in]     ldc     Leading dimension of C; may exceed dim.
     void operator()([[maybe_unused]] Layout layout, int64_t n_vecs, T alpha,
                     T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
+        if (ldb != dim)
+            throw std::invalid_argument("ResidualOp: B must be contiguous (ldb == dim)");
         // Z1 = f(A)*B via matrix-function oracle
         matfun_oracle.call(A, B, dim, n_vecs, f, d, Z1);
 

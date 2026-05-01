@@ -18,6 +18,7 @@
 #include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Computational routines
+#include "RandLAPACK/comps/rl_matfun.hh"
 #include "RandLAPACK/comps/rl_determiter.hh"
 #include "RandLAPACK/comps/rl_preconditioners.hh"
 #include "RandLAPACK/comps/rl_qb.hh"
@@ -38,7 +39,7 @@
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"
-#include "RandLAPACK/drivers/rl_revd2.hh"
+#include "RandLAPACK/drivers/rl_nystrom_evd.hh"
 #include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
 #include "RandLAPACK/drivers/rl_fun_nystrom_pp.hh"

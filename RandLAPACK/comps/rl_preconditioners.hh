@@ -9,7 +9,7 @@
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
 #include "rl_rpchol.hh"
-#include "rl_revd2.hh"
+#include "rl_nystrom_evd.hh"
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -305,7 +305,7 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     // ^ Define the symmetric rangefinder algorithm.
     //      (*) Use power sketching followed by Householder orthogonalization.
     //      (*) Do not check condition numbers or log to std::out.
-    RandLAPACK::REVD2<SYRF_t> NystromAlg(syrf, num_steps_power_iter_error_est, false);
+    RandLAPACK::NystromEVD<SYRF_t> NystromAlg(syrf, num_steps_power_iter_error_est, false);
     // ^ Define the algorithm for low-rank approximation via Nystrom.
     //      (*) Handle accuracy requests by estimating ||A - V diag(eigvals) V'||
     //          with "num_steps_power_iter_error_est" steps of power iteration.
@@ -313,7 +313,15 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     T tol = mu_min / 5;
     // ^ Set tolerance to something materially smaller than the smallest
     //   regularization parameter the user claims to need.
-    return NystromAlg.call(A, k, tol, V, eigvals, state);
+    T* V_buf = nullptr; int64_t V_sz = 0;
+    T* ev_buf = nullptr; int64_t ev_sz = 0;
+    auto out_state = NystromAlg.call(A, k, tol, V_buf, V_sz, ev_buf, ev_sz, state);
+    int64_t m = A.dim;
+    V.assign(V_buf, V_buf + m * k);
+    eigvals.assign(ev_buf, ev_buf + k);
+    delete[] V_buf;
+    delete[] ev_buf;
+    return out_state;
 }
 
 /**

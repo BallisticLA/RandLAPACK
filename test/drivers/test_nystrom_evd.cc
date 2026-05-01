@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 
-class TestREVD2 : public ::testing::Test
+class TestNystromEVD : public ::testing::Test
 {
     protected:
 
@@ -17,60 +17,61 @@ class TestREVD2 : public ::testing::Test
     virtual void TearDown() {};
 
     template <typename T>
-    struct REVD2TestData {
+    struct NystromEVDTestData {
         int64_t dim;
         int64_t rank;
         std::vector<T> A;
         std::vector<T> A_cpy;
-        std::vector<T> V;
-        std::vector<T> eigvals;
+        T* V = nullptr; int64_t V_sz = 0;
+        T* eigvals = nullptr; int64_t eigvals_sz = 0;
         std::vector<T> E;
         std::vector<T> Buf;
 
-        REVD2TestData(
+        NystromEVDTestData(
             int64_t m, int64_t k
-        ) : 
-            A(m * m, 0.0), 
-            A_cpy(m * m, 0.0),  
-            V(m * k, 0.0), 
-            eigvals(k, 0.0), 
-            E(k * k, 0.0), 
+        ) :
+            A(m * m, 0.0),
+            A_cpy(m * m, 0.0),
+            E(k * k, 0.0),
             Buf(m * k, 0.0)
         {
             dim = m;
             rank = k;
         }
+
+        ~NystromEVDTestData() { delete[] V; delete[] eigvals; }
     };
 
-        template <typename T>
-    struct REVD2UploTestData {
+    template <typename T>
+    struct NystromEVDUploTestData {
         int64_t dim;
         int64_t rank;
         std::vector<T> work;
         std::vector<T> A_u;
-        std::vector<T> V_u;
-        std::vector<T> eigvals_u;
+        T* V_u = nullptr; int64_t V_u_sz = 0;
+        T* eigvals_u = nullptr; int64_t eigvals_u_sz = 0;
         std::vector<T> A_l;
-        std::vector<T> V_l;
-        std::vector<T> eigvals_l;
+        T* V_l = nullptr; int64_t V_l_sz = 0;
+        T* eigvals_l = nullptr; int64_t eigvals_l_sz = 0;
         std::vector<T> E_u;
         std::vector<T> E_l;
 
-        REVD2UploTestData(
+        NystromEVDUploTestData(
             int64_t m, int64_t k
-        ) : 
+        ) :
             work(m * m, 0.0),
             A_u(m * m, 0.0),
-            V_u(m * k, 0.0), 
-            eigvals_u(k, 0.0), 
             A_l(m * m, 0.0),
-            V_l(m * k, 0.0), 
-            eigvals_l(k, 0.0),
-            E_u(k * k, 0.0), 
+            E_u(k * k, 0.0),
             E_l(k * k, 0.0)
         {
             dim = m;
             rank = k;
+        }
+
+        ~NystromEVDUploTestData() {
+            delete[] V_u; delete[] eigvals_u;
+            delete[] V_l; delete[] eigvals_l;
         }
     };
 
@@ -82,7 +83,7 @@ class TestREVD2 : public ::testing::Test
         SYPS_t syps;
         Orth_t orth; 
         SYRF_t syrf;
-        RandLAPACK::REVD2<SYRF_t> revd2;
+        RandLAPACK::NystromEVD<SYRF_t> nystrom_evd;
 
 
         algorithm_objects(
@@ -95,12 +96,12 @@ class TestREVD2 : public ::testing::Test
             syps(num_syps_passes, passes_per_syps_stabilization, verbose, cond_check),
             orth(cond_check, verbose),
             syrf(syps, orth, verbose, cond_check),
-            revd2(syrf, num_steps_power_iter_error_est, verbose)
+            nystrom_evd(syrf, num_steps_power_iter_error_est, verbose)
             {}
     };
 
     template <typename T>
-    static void symm_mat_and_copy_computational_helper(T &norm_A, REVD2TestData<T> &all_data) {
+    static void symm_mat_and_copy_computational_helper(T &norm_A, NystromEVDTestData<T> &all_data) {
         auto m = all_data.dim;
         // We're using Nystrom, the original must be positive semidefinite
         blas::syrk(
@@ -116,7 +117,7 @@ class TestREVD2 : public ::testing::Test
     }
 
     template <typename T>
-    static void uplo_computational_helper(REVD2UploTestData<T> &all_data) {
+    static void uplo_computational_helper(NystromEVDUploTestData<T> &all_data) {
         auto m = all_data.dim;
         T* A_u_dat = all_data.A_u.data();
         T* A_l_dat = all_data.A_l.data();
@@ -138,13 +139,13 @@ class TestREVD2 : public ::testing::Test
     /// General test for REVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T, typename RNG>
-    static void test_REVD2_general(
+    static void test_NystromEVD_general(
         int64_t k_start, 
         T tol,
         int rank_expectation, 
         T err_expectation, 
         T &norm_A, 
-        REVD2TestData<T> &all_data,
+        NystromEVDTestData<T> &all_data,
         algorithm_objects<T, RNG> &all_algs,
         RandBLAS::RNGState<RNG> state
     ) {
@@ -152,18 +153,19 @@ class TestREVD2 : public ::testing::Test
         auto m = all_data.dim;
 
         int64_t k = k_start;
-        all_algs.revd2.call(blas::Uplo::Upper, m, all_data.A.data(), k, tol, all_data.V, all_data.eigvals, state);
+        all_algs.nystrom_evd.call(blas::Uplo::Upper, m, all_data.A.data(), k, tol,
+                            all_data.V, all_data.V_sz, all_data.eigvals, all_data.eigvals_sz, state);
 
         T* E_dat = RandLAPACK::util::resize(k * k, all_data.E);
         T* Buf_dat = RandLAPACK::util::resize(m * k, all_data.Buf);
 
         T* A_cpy_dat = all_data.A_cpy.data();
-        T* V_dat = all_data.V.data();
+        T* V_dat = all_data.V;
 
-        // Construnct A_hat = U1 * S1 * VT1
+        // Construct A_hat = V * diag(eigvals) * V'
 
-        // Turn vector into diagonal matrix
-        RandLAPACK::util::diag(k, k, all_data.eigvals.data(), k, all_data.E.data());
+        // Turn array into diagonal matrix
+        RandLAPACK::util::diag(k, k, all_data.eigvals, k, all_data.E.data());
         // V * E = Buf
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k, 1.0, V_dat, m, E_dat, k, 0.0, Buf_dat, m);
         // A - Buf * V' - should be close to 0
@@ -178,11 +180,11 @@ class TestREVD2 : public ::testing::Test
         /// General test for REVD:
     /// Computes the decomposition factors, then checks A-U\Sigma\transpose{V}.
     template <typename T, typename RNG>
-    static void test_REVD2_uplo(
+    static void test_NystromEVD_uplo(
         int64_t k_start, 
         T tol,
         T err_expectation, 
-        REVD2UploTestData<T> &all_data,
+        NystromEVDUploTestData<T> &all_data,
         algorithm_objects<T, RNG> &all_algs,
         RandBLAS::RNGState<RNG> state
     ) {
@@ -190,19 +192,21 @@ class TestREVD2 : public ::testing::Test
         auto m = all_data.dim;
 
         int64_t k = k_start;
-        all_algs.revd2.call(blas::Uplo::Upper, m, all_data.A_u.data(), k, tol, all_data.V_u, all_data.eigvals_u, state);
-        all_algs.revd2.call(blas::Uplo::Lower, m, all_data.A_l.data(), k, tol, all_data.V_l, all_data.eigvals_l, state);
+        all_algs.nystrom_evd.call(blas::Uplo::Upper, m, all_data.A_u.data(), k, tol,
+                            all_data.V_u, all_data.V_u_sz, all_data.eigvals_u, all_data.eigvals_u_sz, state);
+        all_algs.nystrom_evd.call(blas::Uplo::Lower, m, all_data.A_l.data(), k, tol,
+                            all_data.V_l, all_data.V_l_sz, all_data.eigvals_l, all_data.eigvals_l_sz, state);
 
         T* E_u_dat = RandLAPACK::util::resize(k * k, all_data.E_u);
         T* E_l_dat = RandLAPACK::util::resize(k * k, all_data.E_l);
-        T* V_u_dat = all_data.V_u.data();
-        T* V_l_dat = all_data.V_l.data();
+        T* V_u_dat = all_data.V_u;
+        T* V_l_dat = all_data.V_l;
         T* work_u_dat = all_data.A_u.data();
         T* work_l_dat = all_data.A_l.data();
         T* A_approx_dat = all_data.work.data();
 
-        RandLAPACK::util::diag(k, k, all_data.eigvals_u.data(), k, all_data.E_u.data());
-        RandLAPACK::util::diag(k, k, all_data.eigvals_l.data(), k, all_data.E_l.data());
+        RandLAPACK::util::diag(k, k, all_data.eigvals_u, k, all_data.E_u.data());
+        RandLAPACK::util::diag(k, k, all_data.eigvals_l, k, all_data.E_l.data());
 
         // Reconstruct factorizations, compare the result
         // V_u * E_u = work_u
@@ -220,7 +224,7 @@ class TestREVD2 : public ::testing::Test
     }
 };
 
-TEST_F(TestREVD2, Underestimation1) { 
+TEST_F(TestNystromEVD, Underestimation1) { 
     using RNG = r123::Philox4x32;
 
     int64_t m = 1000;
@@ -239,7 +243,7 @@ TEST_F(TestREVD2, Underestimation1) {
     bool verbose = false;
     bool cond_check = false;
 
-    REVD2TestData<double> all_data(m, k);
+    NystromEVDTestData<double> all_data(m, k);
     algorithm_objects<double, RNG> all_algs(
         verbose, cond_check,
         num_syps_passes, 
@@ -254,12 +258,12 @@ TEST_F(TestREVD2, Underestimation1) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper(norm_A, all_data);
-    test_REVD2_general(
+    test_NystromEVD_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
 
-TEST_F(TestREVD2, Underestimation2) { 
+TEST_F(TestNystromEVD, Underestimation2) { 
     using RNG = r123::Philox4x32;
 
     int64_t m = 1000;
@@ -277,7 +281,7 @@ TEST_F(TestREVD2, Underestimation2) {
     bool verbose = false;
     bool cond_check = false;
 
-    REVD2TestData<double> all_data(m, k);
+    NystromEVDTestData<double> all_data(m, k);
     algorithm_objects<double, RNG> all_algs(
         verbose, cond_check,
         num_syps_passes, 
@@ -292,12 +296,12 @@ TEST_F(TestREVD2, Underestimation2) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper(norm_A, all_data);
-    test_REVD2_general(
+    test_NystromEVD_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
 
-TEST_F(TestREVD2, Overestimation1) { 
+TEST_F(TestNystromEVD, Overestimation1) { 
     using RNG = r123::Philox4x32;
 
     int64_t m = 1000;
@@ -315,7 +319,7 @@ TEST_F(TestREVD2, Overestimation1) {
     bool verbose = false;
     bool cond_check = false;
 
-    REVD2TestData<double> all_data(m, k);
+    NystromEVDTestData<double> all_data(m, k);
     algorithm_objects<double, RNG> all_algs(
         verbose, cond_check,
         num_syps_passes, 
@@ -330,12 +334,12 @@ TEST_F(TestREVD2, Overestimation1) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper(norm_A, all_data);
-    test_REVD2_general(
+    test_NystromEVD_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
 
-TEST_F(TestREVD2, Overestimation2) {
+TEST_F(TestNystromEVD, Overestimation2) {
     using RNG = r123::Philox4x32;
 
     int64_t m = 1000;
@@ -353,7 +357,7 @@ TEST_F(TestREVD2, Overestimation2) {
     bool verbose = false;
     bool cond_check = false;
 
-    REVD2TestData<double> all_data(m, k);
+    NystromEVDTestData<double> all_data(m, k);
     algorithm_objects<double, RNG> all_algs(
         verbose, cond_check,
         num_syps_passes, 
@@ -368,12 +372,12 @@ TEST_F(TestREVD2, Overestimation2) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper(norm_A, all_data);
-    test_REVD2_general(
+    test_NystromEVD_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
 
-TEST_F(TestREVD2, Exactness) { 
+TEST_F(TestNystromEVD, Exactness) { 
     using RNG = r123::Philox4x32;
 
     int64_t m = 100;
@@ -391,7 +395,7 @@ TEST_F(TestREVD2, Exactness) {
     bool verbose = false;
     bool cond_check = false;
 
-    REVD2TestData<double> all_data(m, k);
+    NystromEVDTestData<double> all_data(m, k);
     algorithm_objects<double, RNG> all_algs(
         verbose, cond_check,
         num_syps_passes, 
@@ -406,14 +410,14 @@ TEST_F(TestREVD2, Exactness) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A_cpy.data(), state);
 
     symm_mat_and_copy_computational_helper(norm_A, all_data);
-    test_REVD2_general(
+    test_NystromEVD_general(
         k_start, tol, rank_expectation, err_expectation, norm_A, all_data, all_algs, state
     );
 }
 
 // Verify that error_est_power_iters=0 and tol=0 produce fixed-rank behavior:
 // k must not increase, since FunNystromPP's (n-k)*f(0) tail correction depends on k staying fixed.
-TEST_F(TestREVD2, FixedRank) {
+TEST_F(TestNystromEVD, FixedRank) {
     using RNG = r123::Philox4x32;
     int64_t m = 40, k = 10;
     auto state = RandBLAS::RNGState(5);
@@ -423,15 +427,18 @@ TEST_F(TestREVD2, FixedRank) {
         A[i + i * m] = (double)(i + 1);
 
     algorithm_objects<double, RNG> all_algs(false, false, 3, 1, /*error_est_p=*/0);
-    std::vector<double> V_out, eigvals_out;
+    double* V_out = nullptr; int64_t V_out_sz = 0;
+    double* eigvals_out = nullptr; int64_t eigvals_out_sz = 0;
     int64_t k_before = k;
-    all_algs.revd2.call(blas::Uplo::Upper, m, A.data(), k, 0.0, V_out, eigvals_out, state);
+    all_algs.nystrom_evd.call(blas::Uplo::Upper, m, A.data(), k, 0.0, V_out, V_out_sz, eigvals_out, eigvals_out_sz, state);
+    delete[] V_out;
+    delete[] eigvals_out;
 
-    printf("REVD2 fixed-k: k_before=%lld, k_after=%lld\n", (long long)k_before, (long long)k);
+    printf("NystromEVD fixed-k: k_before=%lld, k_after=%lld\n", (long long)k_before, (long long)k);
     ASSERT_EQ(k, k_before);
 }
 
-TEST_F(TestREVD2, Uplo) {
+TEST_F(TestNystromEVD, Uplo) {
     using RNG = r123::Philox4x32;
 
     int64_t m = 100;
@@ -447,7 +454,7 @@ TEST_F(TestREVD2, Uplo) {
     bool verbose = false;
     bool cond_check = false;
 
-    REVD2UploTestData<double> all_data(m, k);
+    NystromEVDUploTestData<double> all_data(m, k);
     algorithm_objects<double, RNG> all_algs(
         verbose, cond_check,
         num_syps_passes, 
@@ -463,5 +470,5 @@ TEST_F(TestREVD2, Uplo) {
 
     uplo_computational_helper(all_data);
     
-    test_REVD2_uplo(k_start, tol, err_expectation, all_data, all_algs, state);
+    test_NystromEVD_uplo(k_start, tol, err_expectation, all_data, all_algs, state);
 }
