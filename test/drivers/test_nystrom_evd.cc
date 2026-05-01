@@ -173,7 +173,7 @@ class TestNystromEVD : public ::testing::Test
 
         T norm_0 = lapack::lange(Norm::Fro, m, m, A_cpy_dat, m);
         printf("||A - VEV'||_F / ||A||_F:  %e\n", norm_0 / norm_A);
-        ASSERT_NEAR(norm_0 / norm_A, err_expectation, 10 * err_expectation);
+        ASSERT_LT(norm_0 / norm_A, 10 * err_expectation);
         ASSERT_EQ(k, rank_expectation);
     }
 

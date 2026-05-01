@@ -79,6 +79,9 @@ public:
     T* Z1         = nullptr; int64_t Z1_sz         = 0;
     T* Z2         = nullptr; int64_t Z2_sz         = 0;
 
+    FunNystromPP(const FunNystromPP&)            = delete;
+    FunNystromPP& operator=(const FunNystromPP&) = delete;
+
     ~FunNystromPP() {
         delete[] V_buf; delete[] eigvals_buf;
         delete[] F_vec; delete[] tmp; delete[] Z1; delete[] Z2;
