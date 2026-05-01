@@ -47,12 +47,13 @@ public:
     //   lapack::stevd expects the diagonal and subdiagonal as separate arrays,
     //   so alpha and beta are stored separately rather than interleaved.
     // normb: s             — column norms of B before normalization.
-    T*      K      = nullptr; int64_t K_sz      = 0;
-    T*      alpha  = nullptr; int64_t alpha_sz  = 0;
-    T*      beta   = nullptr; int64_t beta_sz   = 0;
-    T*      normb  = nullptr; int64_t normb_sz  = 0;
+    T*      K         = nullptr; int64_t K_sz         = 0;
+    T*      alpha     = nullptr; int64_t alpha_sz     = 0;
+    T*      beta      = nullptr; int64_t beta_sz      = 0;
+    T*      normb     = nullptr; int64_t normb_sz     = 0;
+    T*      workspace = nullptr; int64_t workspace_sz = 0;
 
-    ~LanczosFA() { delete[] K; delete[] alpha; delete[] beta; delete[] normb; }
+    ~LanczosFA() { delete[] K; delete[] alpha; delete[] beta; delete[] normb; delete[] workspace; }
 
     // ------------------------------------------------------------------
     /// Run the d-step block Lanczos recurrence on B.
@@ -163,14 +164,13 @@ public:
     /// of the eigenvector matrix (Chen 2022, eq. 2.3).
     /// Per-column stev calls are independent — parallelized with OpenMP.
     ///
-    /// @param[in]  f    Scalar callable T→T applied to tridiagonal eigenvalues.
+    /// @tparam F    Callable as T(T) — lambda, function pointer, or functor.
+    ///              std::invocable<T> (C++20) enforces this at the call site.
+    /// @param[in]  f    Instance of F applied elementwise to tridiagonal eigenvalues θ.
     /// @param[in]  n    Dimension of A.
     /// @param[in]  s    Number of right-hand sides.
     /// @param[in]  d    Number of Lanczos steps (tridiagonal size).
     /// @param[out] out  n×s output matrix (column-major); overwritten.
-    // F must be callable as T f(T x) — lambda, function pointer, or functor all work.
-    // std::invocable<T> is a C++20 concept that enforces this at the call site,
-    // giving a readable error instead of a cryptic substitution failure deep inside.
     template <std::invocable<T> F>
     void apply_f(F f, int64_t n, int64_t s, int64_t d, T* out) {
         // Per-thread workspace: alpha_j(d), beta_j(d-1), Z_j(d*d), c_j(d), v_j(d)
@@ -180,7 +180,7 @@ public:
 #ifdef _OPENMP
         nthreads = omp_get_max_threads();
 #endif
-        T* workspace = new T[nthreads * workspace_per_thread];
+        util::resize(workspace, workspace_sz, (int64_t)nthreads * workspace_per_thread);
 
 #pragma omp parallel for schedule(static)
         for (int64_t j = 0; j < s; ++j) {
@@ -225,8 +225,6 @@ public:
             blas::gemv(Layout::ColMajor, Op::NoTrans, n, d,
                        normb[j], K + j * n, n * s, v_j, 1, (T)0.0, out + j * n, 1);
         }
-
-        delete[] workspace;
     }
 
     // ------------------------------------------------------------------

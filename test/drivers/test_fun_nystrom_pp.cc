@@ -31,21 +31,21 @@ protected:
         return tr;
     }
 
-    // Full algorithm stack. error_est_power_iters=0 → fixed-rank single pass in REVD2.
+    // Full algorithm stack. error_est_power_iters=0 → fixed-rank single pass in NystromEVD.
     template <typename RNG>
     struct Algs {
         using SYPS_t   = RandLAPACK::SYPS<double, RNG>;
         using Orth_t   = RandLAPACK::HQRQ<double>;
         using SYRF_t   = RandLAPACK::SYRF<SYPS_t, Orth_t>;
-        using REVD2_t  = RandLAPACK::REVD2<SYRF_t>;
+        using NystromEVD_t  = RandLAPACK::NystromEVD<SYRF_t>;
         using LFA_t    = RandLAPACK::LanczosFA<double, RNG>;
         using Hutch_t  = RandLAPACK::Hutchinson<double, RNG>;
-        using Driver_t = RandLAPACK::FunNystromPP<REVD2_t, LFA_t, Hutch_t>;
+        using Driver_t = RandLAPACK::FunNystromPP<NystromEVD_t, LFA_t, Hutch_t>;
 
         SYPS_t   syps;
         Orth_t   orth;
         SYRF_t   syrf;
-        REVD2_t  revd2;
+        NystromEVD_t  nystrom_evd;
         LFA_t    lfa;
         Hutch_t  hutch;
         Driver_t driver;
@@ -54,8 +54,8 @@ protected:
             syps(3, 1, false, false),
             orth(false, false),
             syrf(syps, orth),
-            revd2(syrf, 0),
-            driver(revd2, lfa, hutch) {}
+            nystrom_evd(syrf, 0),
+            driver(nystrom_evd, lfa, hutch) {}
     };
 
     // Common test body: run the full pipeline, print and assert relative error.
@@ -122,4 +122,79 @@ TEST_F(TestFunNystromPP, DiagonalSqrt) {
     linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
     Algs<RNG> algs;
     test_FunNystromPP_general(algs, A_op, f_sqrt, 0.0, true_tr, k, s, d, 0.05, state);
+}
+
+
+// A = gen_shifted_lowrank_psd(noise=1): eigenvalues {lambda_j+1} ∪ {1 repeated n-k_mat times}.
+// f=log; all eigenvalues ≥ 1 so log is well-defined. f(noise) = log(1) = 0 → f_zero=0.
+// true_tr = Σ log(lambda_j + 1); (n-k_mat) tail terms vanish. Tol = 20%.
+TEST_F(TestFunNystromPP, ShiftedLowRankLog) {
+    using RNG = r123::Philox4x32;
+    int64_t n = 40, k_mat = 20, k = 15, s = 500, d = 20;
+    double noise = 1.0;
+    auto state = RandBLAS::RNGState(2);
+
+    std::vector<double> eigvals(k_mat);
+    RandLAPACK::gen::gen_alg_decay_singvals(k_mat, 100.0, 2.0, eigvals.data());
+
+    std::vector<double> A(n * n, 0.0);
+    RandLAPACK::gen::gen_shifted_lowrank_psd(n, k_mat, A.data(), n, eigvals.data(), noise, state);
+
+    auto f_log = [](double x){ return std::log(x); };
+    double true_tr = 0.0;
+    for (int64_t j = 0; j < k_mat; ++j)
+        true_tr += f_log(eigvals[j] + noise);
+    // tail: (n - k_mat) * log(1) = 0
+
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    Algs<RNG> algs;
+    test_FunNystromPP_general(algs, A_op, f_log, 0.0, true_tr, k, s, d, 0.20, state);
+}
+
+
+// A = gen_sym_psd_lowrank; f=x*(x+1), degree-2 polynomial. d=2 Lanczos steps is exact for
+// degree-2 trace estimation via Gauss quadrature (exact for degree ≤ 2d-1 = 3 quadratic forms).
+// true_tr = Σ lambda_j*(lambda_j+1); (n-k_mat) tail terms: 0*(0+1)=0. Tol = 10%.
+TEST_F(TestFunNystromPP, LowRankPoly) {
+    using RNG = r123::Philox4x32;
+    int64_t n = 40, k_mat = 20, k = 15, s = 200, d = 2;
+    double lam = 1.0;
+    auto state = RandBLAS::RNGState(3);
+
+    std::vector<double> eigvals(k_mat);
+    RandLAPACK::gen::gen_alg_decay_singvals(k_mat, 100.0, 2.0, eigvals.data());
+
+    std::vector<double> A(n * n, 0.0);
+    RandLAPACK::gen::gen_sym_psd_lowrank(n, k_mat, A.data(), n, eigvals.data(), state);
+
+    auto f_poly = [lam](double x){ return x * (x + lam); };
+    double true_tr = 0.0;
+    for (int64_t j = 0; j < k_mat; ++j)
+        true_tr += f_poly(eigvals[j]);
+    // tail: (n - k_mat) * f(0) = 0
+
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    Algs<RNG> algs;
+    test_FunNystromPP_general(algs, A_op, f_poly, 0.0, true_tr, k, s, d, 0.10, state);
+}
+
+
+// A = RBF kernel matrix via gen_kernel_matrix (n=30, d_dim=5). Eigenvalues in (0,1].
+// f=sqrt; reference via syevd. k=10, s=300, d=15. Tol = 15%.
+TEST_F(TestFunNystromPP, KernelRBFSqrt) {
+    using RNG = r123::Philox4x32;
+    int64_t n = 30, d_dim = 5, k = 10, s = 300, d = 15;
+    auto state = RandBLAS::RNGState(4);
+
+    std::vector<double> K(n * n, 0.0);
+    double bandwidth = std::sqrt((double)d_dim);
+    RandLAPACK::gen::gen_kernel_matrix<double, RNG>(
+        n, d_dim, K.data(), n, 0, bandwidth, 0.0, 0, state);
+
+    auto f_sqrt = [](double x){ return std::sqrt(std::max(x, 0.0)); };
+    double true_tr = true_trace_fa(n, K, f_sqrt);
+
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, K.data(), n, Layout::ColMajor);
+    Algs<RNG> algs;
+    test_FunNystromPP_general(algs, A_op, f_sqrt, 0.0, true_tr, k, s, d, 0.15, state);
 }
