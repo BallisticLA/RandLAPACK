@@ -28,6 +28,10 @@ public:
     T* Omega = nullptr; int64_t Omega_sz = 0;
     T* Z     = nullptr; int64_t Z_sz     = 0;
 
+    Hutchinson()                             = default;
+    Hutchinson(const Hutchinson&)            = delete;
+    Hutchinson& operator=(const Hutchinson&) = delete;
+
     ~Hutchinson() { delete[] Omega; delete[] Z; }
 
     // ------------------------------------------------------------------

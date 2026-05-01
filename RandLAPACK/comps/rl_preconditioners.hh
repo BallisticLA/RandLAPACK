@@ -315,13 +315,13 @@ RandBLAS::RNGState<RNG> nystrom_pc_data(
     //   regularization parameter the user claims to need.
     T* V_buf = nullptr; int64_t V_sz = 0;
     T* ev_buf = nullptr; int64_t ev_sz = 0;
-    auto out_state = NystromAlg.call(A, k, tol, V_buf, V_sz, ev_buf, ev_sz, state);
+    NystromAlg.call(A, k, tol, V_buf, V_sz, ev_buf, ev_sz, state);
     int64_t m = A.dim;
     V.assign(V_buf, V_buf + m * k);
     eigvals.assign(ev_buf, ev_buf + k);
     delete[] V_buf;
     delete[] ev_buf;
-    return out_state;
+    return state;
 }
 
 /**

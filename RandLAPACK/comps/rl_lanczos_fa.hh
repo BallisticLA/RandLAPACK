@@ -6,9 +6,11 @@
 #include "rl_util.hh"
 
 #include <RandBLAS.hh>
+#include <chrono>
 #include <cstdint>
 #include <concepts>
 #include <algorithm>
+#include <vector>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -53,6 +55,15 @@ public:
     T*      normb     = nullptr; int64_t normb_sz     = 0;
     T*      workspace = nullptr; int64_t workspace_sz = 0;
 
+    bool timing = false;
+    std::vector<long> times;   // populated after call() when timing==true
+    // Slots: matvec, run_lanczos, apply_f, rest, total
+    long _t_matvec_us = 0;     // accumulated in run_lanczos() when timing==true
+
+    LanczosFA()                            = default;
+    LanczosFA(const LanczosFA&)            = delete;
+    LanczosFA& operator=(const LanczosFA&) = delete;
+
     ~LanczosFA() { delete[] K; delete[] alpha; delete[] beta; delete[] normb; delete[] workspace; }
 
     // ------------------------------------------------------------------
@@ -67,6 +78,10 @@ public:
     /// @param[in]  d    Number of Lanczos steps.
     template <linops::SymmetricLinearOperator SLO>
     void run_lanczos(SLO& A, const T* B, int64_t n, int64_t s, int64_t d) {
+        using namespace std::chrono;
+        steady_clock::time_point _mv_t0, _mv_t1;
+        _t_matvec_us = 0;
+
         // Grow buffers if needed
         util::resize(K,     K_sz,     (d + 1) * n * s);
         util::resize(alpha, alpha_sz, d * s);
@@ -87,7 +102,9 @@ public:
 
         // Step 0 matvec: K[:,:,1] = A * K[:,:,0]
         T* K1 = K + n * s;
+        if (this->timing) _mv_t0 = steady_clock::now();
         A(Layout::ColMajor, s, (T)1.0, K0, n, (T)0.0, K1, n);
+        if (this->timing) { _mv_t1 = steady_clock::now(); _t_matvec_us += duration_cast<microseconds>(_mv_t1 - _mv_t0).count(); }
 
         // α[0, j] = q_1[:,j] · (A q_1)[:,j] — s independent inner products,
         // one tridiagonal diagonal entry per column.
@@ -144,7 +161,9 @@ public:
 
             // (5) K_new = A*q_{i+1} - β_{i+1}*q_i
             // Different β per column — same reasoning as (1), axpy is optimal.
+            if (this->timing) _mv_t0 = steady_clock::now();
             A(Layout::ColMajor, s, (T)1.0, K_curr, n, (T)0.0, K_new, n);
+            if (this->timing) { _mv_t1 = steady_clock::now(); _t_matvec_us += duration_cast<microseconds>(_mv_t1 - _mv_t0).count(); }
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < s; ++j)
                 blas::axpy(n, -beta[j * (d - 1) + i], K_prev + j * n, 1, K_new + j * n, 1);
@@ -173,9 +192,8 @@ public:
     /// @param[out] out  n×s output matrix (column-major); overwritten.
     template <std::invocable<T> F>
     void apply_f(F f, int64_t n, int64_t s, int64_t d, T* out) {
-        // Per-thread workspace: alpha_j(d), beta_j(d-1), Z_j(d*d), c_j(d), v_j(d)
-        // Total per thread = d + (d-1) + d*d + d + d = d^2 + 4d - 1
-        int64_t workspace_per_thread = d * d + 3 * d + std::max(d - 1, (int64_t)0);
+        // Per-thread workspace: alpha_j(d) + beta_j(d-1) + Z_j(d*d) + c_j(d) + v_j(d) = d^2 + 4d - 1
+        int64_t workspace_per_thread = d * d + 4 * d - 1;
         int nthreads = 1;
 #ifdef _OPENMP
         nthreads = omp_get_max_threads();
@@ -239,8 +257,21 @@ public:
     /// @param[out] out  n×s output, overwritten with f(A)B approximation.
     template <linops::SymmetricLinearOperator SLO, std::invocable<T> F>
     void call(SLO& A, const T* B, int64_t n, int64_t s, F f, int64_t d, T* out) {
+        using namespace std::chrono;
+        _t_matvec_us = 0;
+        steady_clock::time_point t_total_start, t_lanczos_end, t_end;
+        if (this->timing) t_total_start = steady_clock::now();
         run_lanczos(A, B, n, s, d);
+        if (this->timing) t_lanczos_end = steady_clock::now();
         apply_f(f, n, s, d, out);
+        if (this->timing) {
+            t_end = steady_clock::now();
+            long total_us   = duration_cast<microseconds>(t_end    - t_total_start).count();
+            long lanczos_us = duration_cast<microseconds>(t_lanczos_end - t_total_start).count();
+            long apply_f_us = duration_cast<microseconds>(t_end    - t_lanczos_end).count();
+            long rest_us    = total_us - lanczos_us - apply_f_us;
+            this->times = {_t_matvec_us, lanczos_us, apply_f_us, rest_us, total_us};
+        }
     }
 };
 

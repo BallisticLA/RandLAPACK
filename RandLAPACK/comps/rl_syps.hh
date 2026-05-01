@@ -27,8 +27,9 @@ class SYPS {
         bool verbose;
         bool cond_check;
         std::vector<T> cond_nums;
-        // 0 = Gaussian (DenseDist, default); 1 = SJLT (SparseDist, vec_nnz=4 per column)
+        // 0 = Gaussian (DenseDist, default); 1 = SASO (SparseDist, vec_nnz per column)
         int sketch_type = 0;
+        int vec_nnz     = 4;
     
         SYPS(
             int64_t p, // number of passes
@@ -115,7 +116,7 @@ class SYPS {
                 // SJLT: generate a sparse sketch and densify into skop_buff.
                 // T and sint_t (int64_t) must be explicit since SparseDist::sample
                 // can't deduce T from the RNGState argument alone.
-                auto S = RandBLAS::SparseDist(m, k, 4).sample<T, RNG, int64_t>(state);
+                auto S = RandBLAS::SparseDist(m, k, this->vec_nnz).sample<T, RNG, int64_t>(state);
                 state = S.next_state;
                 RandBLAS::fill_sparse(S);
                 auto Scoo = RandBLAS::coo_view_of_skop(S);

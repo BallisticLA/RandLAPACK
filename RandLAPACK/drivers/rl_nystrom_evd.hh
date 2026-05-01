@@ -8,7 +8,9 @@
 #include "rl_linops.hh"
 
 #include <RandBLAS.hh>
+#include <chrono>
 #include <cstdint>
+#include <vector>
 
 namespace RandLAPACK {
 
@@ -31,27 +33,25 @@ T power_error_est(
 ) {
     int64_t m = A.dim;
     T err = 0;
-    for(int i = 0; i < p; ++i) {
+    for(int iter = 0; iter < p; ++iter) {
         T g_norm = blas::nrm2(m, vector_buf, 1);
-        blas::scal(m, 1 / g_norm, vector_buf, 1);
+        blas::scal(m, (T)1 / g_norm, vector_buf, 1);
 
         // V' * g/||g|| — result in column 1 of vector_buf
-        gemv(Layout::ColMajor, Op::Trans, m, k, 1.0, V, m, vector_buf, 1, 0.0, &vector_buf[m], 1);
+        gemv(Layout::ColMajor, Op::Trans, m, k, (T)1, V, m, vector_buf, 1, (T)0, &vector_buf[m], 1);
 
-        // V * diag(eigvals) into Mat_buf
-        for (int i = 0, j = 0; i < m * k; ++i) {
-            Mat_buf[i] = V[i] * eigvals[j];
-            if((i + 1) % m == 0 && i != 0)
-                ++j;
-        }
+        // V * diag(eigvals) into Mat_buf — column-major: column col occupies rows [0, m)
+        for (int64_t col = 0; col < k; ++col)
+            for (int64_t row = 0; row < m; ++row)
+                Mat_buf[col * m + row] = V[col * m + row] * eigvals[col];
 
         // V * diag(eigvals) * V' * g/||g|| — result in column 2 of vector_buf
-        gemv(Layout::ColMajor, Op::NoTrans, m, k, 1.0, Mat_buf, m, &vector_buf[m], 1, 0.0, &vector_buf[2 * m], 1);
+        gemv(Layout::ColMajor, Op::NoTrans, m, k, (T)1, Mat_buf, m, &vector_buf[m], 1, (T)0, &vector_buf[2 * m], 1);
         // A * g/||g|| — result in column 3 of vector_buf
-        A(Layout::ColMajor, 1, 1.0, vector_buf, m, 0.0, &vector_buf[3*m], m);
+        A(Layout::ColMajor, 1, (T)1, vector_buf, m, (T)0, &vector_buf[3*m], m);
 
         // w = A*g/||g|| - V*diag(eigvals)*V'*g/||g||
-        blas::axpy(m, -1.0, &vector_buf[2 * m], 1, &vector_buf[3 * m], 1);
+        blas::axpy(m, (T)-1, &vector_buf[2 * m], 1, &vector_buf[3 * m], 1);
         // error estimate: (g/||g||)' * w
         err = blas::dot(m, vector_buf, 1, &vector_buf[3 * m], 1);
         std::copy(&vector_buf[3 * m], &vector_buf[4 * m], vector_buf);
@@ -76,6 +76,10 @@ class NystromEVD {
         T* S          = nullptr; int64_t S_sz          = 0;
         T* symrf_work = nullptr; int64_t symrf_work_sz = 0;
 
+        bool timing = false;
+        std::vector<long> times;  // populated after call() when timing==true
+        // Slots: alloc, syrf, matvec, gram, potrf, trsm, svd, post_svd, error_est, rest, total
+
         NystromEVD(
             SYRF_t &syrf_obj,
             int error_est_power_iters,
@@ -84,6 +88,9 @@ class NystromEVD {
             error_est_p = error_est_power_iters;
             verbose = verb;
         }
+
+        NystromEVD(const NystromEVD&)            = delete;
+        NystromEVD& operator=(const NystromEVD&) = delete;
 
         ~NystromEVD() {
             delete[] Y;
@@ -135,41 +142,73 @@ class NystromEVD {
             T*& eigvals, int64_t& eigvals_sz,
             RandBLAS::RNGState<RNG> &state
         ) {
+            using namespace std::chrono;
             int64_t m = A.dim;
             T err = 0;
             RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
             error_est_state.key.incr(1);
+
+            steady_clock::time_point t0, t1, total_t_start, total_t_stop;
+            long alloc_t_dur     = 0;
+            long syrf_t_dur      = 0;
+            long matvec_t_dur    = 0;
+            long gram_t_dur      = 0;
+            long potrf_t_dur     = 0;
+            long trsm_t_dur      = 0;
+            long svd_t_dur       = 0;
+            long post_svd_t_dur  = 0;
+            long error_est_t_dur = 0;
+            long total_t_dur     = 0;
+
+            if (this->timing) total_t_start = steady_clock::now();
+
             while(true) {
+                if (this->timing) t0 = steady_clock::now();
                 util::resize(eigvals, eigvals_sz, k);
                 util::resize(V, V_sz, m * k);
                 T* V_dat = V;
-
                 util::resize(Y,          Y_sz,          m * k);
                 util::resize(Omega,      Omega_sz,      std::max(m * k, m * (int64_t)4));
                 util::resize(R,          R_sz,          k * k);
                 util::resize(S,          S_sz,          k * k);
                 util::resize(symrf_work, symrf_work_sz, m * k);
+                if (this->timing) { t1 = steady_clock::now(); alloc_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
+                if (this->timing) t0 = steady_clock::now();
                 this->syrf.call(A, k, this->Omega, state, symrf_work);
-                A(Layout::ColMajor, k, 1.0, Omega, m, 0.0, Y, m);
+                if (this->timing) { t1 = steady_clock::now(); syrf_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+
+                if (this->timing) t0 = steady_clock::now();
+                A(Layout::ColMajor, k, (T)1, Omega, m, (T)0, Y, m);
+                if (this->timing) { t1 = steady_clock::now(); matvec_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
                 T nu = std::numeric_limits<T>::epsilon() * lapack::lange(Norm::Fro, m, k, Y, m);
 
-                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega, m, 0.0, R, k);
-                for(int i = 1; i < k; ++i)
+                if (this->timing) t0 = steady_clock::now();
+                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega, m, (T)0, R, k);
+                for(int64_t i = 1; i < k; ++i)
                     blas::copy(k - i, &R[i + ((i-1) * k)], 1, &R[(i - 1) + (i * k)], k);
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, 1.0, Omega, m, Y, m, 1.0, R, k);
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, (T)1, Omega, m, Y, m, (T)1, R, k);
+                if (this->timing) { t1 = steady_clock::now(); gram_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
+                if (this->timing) t0 = steady_clock::now();
                 if(lapack::potrf(Uplo::Upper, k, R, k))
                     throw std::runtime_error("Cholesky decomposition failed.");
                 RandLAPACK::util::get_U(k, k, R, k);
+                if (this->timing) { t1 = steady_clock::now(); potrf_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R, k, Y, m);
+                if (this->timing) t0 = steady_clock::now();
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T)1, R, k, Y, m);
+                if (this->timing) { t1 = steady_clock::now(); trsm_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+
+                if (this->timing) t0 = steady_clock::now();
                 lapack::gesdd(Job::SomeVec, m, k, Y, m, S, V_dat, m, R, k);
+                if (this->timing) { t1 = steady_clock::now(); svd_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
+                if (this->timing) t0 = steady_clock::now();
                 T buf;
                 int64_t r = 0;
-                int i;
+                int64_t i;
                 for(i = 0; i < k; ++i) {
                     buf = std::pow(S[i], 2);
                     eigvals[i] = buf;
@@ -178,13 +217,17 @@ class NystromEVD {
                 }
                 for(i = 0; i < r; ++i)
                     if (eigvals[i] > nu) eigvals[i] -= nu;
+                std::fill(&V_dat[m * r], &V_dat[m * k], (T)0);
+                if (this->timing) { t1 = steady_clock::now(); post_svd_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
-                std::fill(&V_dat[m * r], &V_dat[m * k], 0.0);
+                // Fixed-rank mode: skip error estimation entirely.
+                if (this->error_est_p == 0 && tol == (T)0) break;
 
+                if (this->timing) t0 = steady_clock::now();
                 RandBLAS::DenseDist g(m, 1);
                 error_est_state = RandBLAS::fill_dense(g, Omega, error_est_state);
-
                 err = power_error_est(A, k, this->error_est_p, Omega, V_dat, Y, eigvals);
+                if (this->timing) { t1 = steady_clock::now(); error_est_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
                 if(err <= 5 * std::max(tol, nu) || k == m) {
                     break;
@@ -193,6 +236,16 @@ class NystromEVD {
                 } else {
                     k = 2 * k;
                 }
+            }
+
+            if (this->timing) {
+                total_t_stop = steady_clock::now();
+                total_t_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+                long t_rest = total_t_dur - (alloc_t_dur + syrf_t_dur + matvec_t_dur + gram_t_dur +
+                                             potrf_t_dur + trsm_t_dur + svd_t_dur + post_svd_t_dur + error_est_t_dur);
+                this->times = {alloc_t_dur, syrf_t_dur, matvec_t_dur, gram_t_dur,
+                               potrf_t_dur, trsm_t_dur, svd_t_dur, post_svd_t_dur,
+                               error_est_t_dur, t_rest, total_t_dur};
             }
             return 0;
         }
