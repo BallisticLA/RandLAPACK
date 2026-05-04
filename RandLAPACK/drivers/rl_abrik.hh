@@ -391,6 +391,110 @@ class ABRIK {
                 return 0;
             }
 
+        /// Runs BK iteratively with checkpoints. At each checkpoint, extracts SVD
+        /// factors and invokes on_checkpoint(total_matvecs, elapsed_us, residual).
+        ///
+        /// Elapsed time covers BK iterations + SVD extraction but NOT residual eval.
+        /// BK internally uses call()/resume() so no work is repeated between checkpoints.
+        ///
+        /// @param k                 Block size (matvecs per BK iteration = k).
+        /// @param target_rank       How many singular triplets to include in the residual.
+        /// @param checkpoint_iters  Sorted list of Krylov iteration counts at which to stop.
+        ///                          Must be strictly increasing; last entry is the full budget.
+        /// @param on_checkpoint     Called after each checkpoint.
+        ///                          Signature: void(int64_t total_matvecs, long elapsed_us, T residual).
+        ///                          total_matvecs = k * actual_iters_done (may differ from
+        ///                          k * checkpoint_iters[i] if BK terminated early).
+        template <RandLAPACK::linops::LinearOperator GLO, typename CheckpointFn>
+        int call_with_checkpoints(
+            GLO& A,
+            int64_t k,
+            int64_t target_rank,
+            std::vector<int64_t> checkpoint_iters,
+            CheckpointFn on_checkpoint,
+            RandBLAS::RNGState<RNG>& state
+        ) {
+            int64_t m = A.n_rows;
+            int64_t n = A.n_cols;
+
+            bk_obj.qr_exp          = this->qr_exp;
+            bk_obj.tol             = this->tol;
+            bk_obj.verbose         = this->verbose;
+            bk_obj.timing          = false;
+
+            T* X_ev = nullptr, *Y_od = nullptr, *R = nullptr, *S = nullptr;
+            int64_t end_rows = 0, end_cols = 0;
+            bool final_iter_is_odd = false;
+            long elapsed_us = 0;
+
+            for (int ci = 0; ci < (int)checkpoint_iters.size(); ++ci) {
+                bk_obj.max_krylov_iters = (int)checkpoint_iters[ci];
+
+                // BK step: call on first, resume on subsequent.
+                auto t0 = steady_clock::now();
+                int status;
+                if (ci == 0)
+                    status = bk_obj.call(A, k, X_ev, Y_od, R, S,
+                                         end_rows, end_cols, final_iter_is_odd, state);
+                else
+                    status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
+                                           end_rows, end_cols, final_iter_is_odd, state);
+                elapsed_us += duration_cast<microseconds>(steady_clock::now() - t0).count();
+
+                if (status != 0) {
+                    free(X_ev); free(Y_od); free(R); free(S);
+                    return status;
+                }
+
+                if (end_cols == 0) {
+                    on_checkpoint(0, elapsed_us, (T)1);
+                    break;
+                }
+
+                // SVD extraction: copy band matrix (preserves BK buffers for resume),
+                // then gesdd + two GEMMs. Timed as part of the "total ABRIK cost."
+                auto t1 = steady_clock::now();
+
+                T* band = (T*) malloc(end_rows * end_cols * sizeof(T));
+                if (final_iter_is_odd)
+                    lapack::lacpy(MatrixType::General, end_rows, end_cols, R, n, band, end_rows);
+                else
+                    lapack::lacpy(MatrixType::General, end_rows, end_cols, S, n + k, band, end_rows);
+
+                T* U_hat  = (T*) malloc(end_rows * end_cols * sizeof(T));
+                T* VT_hat = (T*) malloc(end_cols * end_cols * sizeof(T));
+                T* Sigma  = new T[std::min(end_rows, end_cols)]();
+                T* U      = new T[m * end_cols]();
+                T* V      = new T[n * end_cols]();
+
+                lapack::gesdd(Job::SomeVec, end_rows, end_cols, band, end_rows,
+                              Sigma, U_hat, end_rows, VT_hat, end_cols);
+                free(band);
+
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                           m, end_cols, end_rows, (T)1, X_ev, m, U_hat, end_rows, (T)0, U, m);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
+                           n, end_cols, end_cols, (T)1, Y_od, n, VT_hat, end_cols, (T)0, V, n);
+                free(U_hat); free(VT_hat);
+
+                elapsed_us += duration_cast<microseconds>(steady_clock::now() - t1).count();
+
+                // Residual check — NOT included in elapsed_us.
+                int64_t k_out = std::min(target_rank, end_cols);
+                T residual = linops::svd_residual<T>(A, U, V, Sigma, k_out);
+
+                delete[] U; delete[] V; delete[] Sigma;
+
+                on_checkpoint(k * (int64_t)bk_obj.num_krylov_iters, elapsed_us, residual);
+
+                if (bk_obj.termination_reason != BKTermination::max_iters_reached)
+                    break;
+            }
+
+            free(X_ev); free(Y_od); free(R); free(S);
+            return 0;
+        }
+
     private:
         BK<T, RNG> bk_obj;
     };
