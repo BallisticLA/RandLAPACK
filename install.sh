@@ -201,8 +201,8 @@ fi
 git -C $SCRIPT_DIR submodule init; git -C $SCRIPT_DIR submodule update
 
 if [[ ! -d "$RANDNLA_PROJECT_DIR/lib/RandLAPACK" ]]; then
-    # Move RandLAPACK in its intended location
-    mv $PARENT_DIR/RandLAPACK $PARENT_DIR/RandNLA-project/lib/
+    # Move RandLAPACK in its intended location (use $SCRIPT_DIR to support any clone folder name)
+    mv "$SCRIPT_DIR" "$PARENT_DIR/RandNLA-project/lib/RandLAPACK"
 fi
 
 # Obtain BLAS++ and LAPACK++
