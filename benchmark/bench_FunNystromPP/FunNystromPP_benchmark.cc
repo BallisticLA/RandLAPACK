@@ -2,15 +2,17 @@
 int main() {return 0;}
 #else
 /*
-FunNystromPP benchmark — compares funNyström++ against plain Hutchinson+LanczosFA
+FunNystromPP benchmark -- compares funNystrom++ against plain Hutchinson+LanczosFA
 for estimating tr(f(A)).
 
 Two algorithms are timed and their matvec counts recorded for each matrix size:
-  1. FunNystromPP(k, s, d): Nyström rank-k approximation plus Hutchinson correction
+  1. FunNystromPP(k, s, d): Nystrom rank-k approximation plus Hutchinson correction
      with s samples, each using d Lanczos steps.
   2. Hutchinson+LanczosFA(s, d): plain Hutchinson with s Rademacher samples,
-     each using LanczosFA with d steps to apply f(A). No Nyström component.
+     each using LanczosFA with d steps to apply f(A). No Nystrom component.
      Uses the same s and d as FunNystromPP (equal correction-phase budget).
+
+Both algorithms use the Lanczos variant selected by lfa_type (see below).
 
 Matrix input (mat_or_file):
   1         = psd_alg:     A = Q diag(λ) Q', λᵢ = 100 * i^{-2}   (algebraic decay, κ ≈ n²/100)
@@ -29,8 +31,12 @@ Matrix input (mat_or_file):
 Function types (func_type):
   0 = sqrt(x)             [f_zero = 0; safe for SPSD matrices]
   1 = log(x)              [requires all eigenvalues > 0; for generated types, noise=1 is applied
-                           automatically (A = lowrank + I), so all eigenvalues ≥ 1]
+                           automatically (A = lowrank + I), so all eigenvalues >= 1]
   2 = x*(x + poly_lambda) [degree-2 polynomial; exact in d=2 Lanczos steps; use for tr(K(K+λI))]
+
+Lanczos variant (lfa_type):
+  0 = scalar LanczosFA (s independent Krylov sequences; BLAS-1/2 dominant)
+  1 = BlockLanczosFA  (single joint block Krylov subspace; BLAS-3 dominant)
 
 Sketch types (sketch_type):
   0 = Gaussian (DenseDist, default)
@@ -41,6 +47,10 @@ compute_ref:
   1 = run syevd to compute exact tr(f(A))
   For types 1/2 this flag is ignored; the reference is always available from eigenvalues.
   For types 3/4 and file input, syevd is run only when compute_ref=1.
+
+precision:
+  double = run in double precision (default)
+  float  = run in single precision (sparse path is always double regardless)
 
 Both algorithms use a fixed seed so comparisons are reproducible.
 Matvec counts reflect actual A applications inside each algorithm (not estimates).
@@ -58,13 +68,15 @@ Output format: 32 comma-separated columns per row (trailing comma):
   est_fun_pp, est_hutch,
   true_tr (-1 if unavailable), err_fun_pp, err_hutch
 
+  lfa_type is encoded in the output filename: _scalar_ or _block_.
+
 Usage:
   FunNystromPP_benchmark <dir_path> <num_runs> <k> <k_mat> <s>
                          <d_steps> <mat_or_file> <func_type> <compute_ref>
-                         <sketch_type> <vec_nnz> <poly_lambda> [n_1 n_2 ...]
+                         <sketch_type> <vec_nnz> <poly_lambda> <precision> <lfa_type> [n_1 n_2 ...]
     dir_path    : output directory (use "." for current directory)
     num_runs    : number of timed repetitions per matrix size
-    k           : Nyström rank (constant; must satisfy k <= n)
+    k           : Nystrom rank (constant; must satisfy k <= n)
     k_mat       : matrix rank for generated types (constant; for kernel types equals data dim d;
                   ignored for file input)
     s           : Hutchinson sample count (constant)
@@ -75,6 +87,8 @@ Usage:
     sketch_type : 0=Gaussian, 1=SASO
     vec_nnz     : nonzeros per column for SASO sketch (sketch_type=1; ignored for Gaussian)
     poly_lambda : lambda parameter for func_type=2 (ignored for func_type=0,1)
+    precision   : double or float  (sparse .mtx path is always double)
+    lfa_type    : 0=scalar LanczosFA, 1=BlockLanczosFA
     n_1 ...     : matrix dimensions (generated types only; ignored for file input)
 */
 
@@ -106,16 +120,16 @@ using std::chrono::microseconds;
 
 template <typename T>
 struct FunNystromPP_benchmark_data {
-    int64_t n;      // current matrix dimension
-    int64_t k;      // Nyström rank for algorithms
-    int64_t k_mat;  // rank used to construct A (0 for file input)
-    int64_t s;      // Hutchinson samples
-    int64_t d;      // Lanczos steps per sample
-    bool from_file; // true when A was loaded from a file
-    T noise;        // diagonal shift (noise=1 for func_type=1 on lowrank types; else 0)
-    int64_t d_dim;  // data dimension for kernel types (mat_type=3/4); 0 otherwise
-    std::vector<T> A;       // n_max × n_max storage (upper triangle; rest zero)
-    std::vector<T> eigvals; // k_mat eigenvalues of the low-rank component (pre-shift; empty for kernel/file types)
+    int64_t n;
+    int64_t k;
+    int64_t k_mat;
+    int64_t s;
+    int64_t d;
+    bool from_file;
+    T noise;
+    int64_t d_dim;
+    std::vector<T> A;
+    std::vector<T> eigvals;
 
     FunNystromPP_benchmark_data(int64_t n_max, int64_t k_, int64_t k_mat_,
                                 int64_t s_, int64_t d_, bool from_file_) :
@@ -126,7 +140,6 @@ struct FunNystromPP_benchmark_data {
 
 // ============================================================================
 // CountingLinOp: wraps any SLO and counts individual matrix-vector products.
-// Satisfies the SymmetricLinearOperator concept.
 // ============================================================================
 
 template <typename SLO_t>
@@ -149,8 +162,6 @@ struct CountingLinOp {
 
 // ============================================================================
 // data_regen: build or load A for the current n.
-//   Generated (mat_type 1/2): fills data.eigvals and the upper triangle of data.A.
-//   File input: reads the full matrix into data.A via process_input_mat.
 // ============================================================================
 
 template <typename T>
@@ -165,7 +176,6 @@ static void data_regen(
     std::fill(data.A.begin(), data.A.begin() + n * n, (T)0.0);
 
     if (data.from_file) {
-        // Two-pass: dimensions already determined in main; just load data.
         int64_t m = n, ncols = n;
         int wq = 0;
         RandLAPACK::gen::process_input_mat<T>(
@@ -175,7 +185,6 @@ static void data_regen(
         data.noise = (T)0.0;
         data.d_dim = 0;
     } else if (mat_type >= 3) {
-        // Kernel matrix: k_mat reinterpreted as data dimension d_dim = n / k_mat_ratio.
         data.d_dim = data.k_mat;
         data.noise = (T)0.0;
         data.eigvals.clear();
@@ -183,7 +192,7 @@ static void data_regen(
         if (mat_type == 3)
             RandLAPACK::gen::gen_kernel_matrix<T, RNG>(
                 n, data.d_dim, data.A.data(), n, 0, bandwidth, (T)0.0, 0, state);
-        else  // mat_type == 4
+        else
             RandLAPACK::gen::gen_kernel_matrix<T, RNG>(
                 n, data.d_dim, data.A.data(), n, 1, (T)0.0, (T)1.0, 2, state);
     } else {
@@ -196,9 +205,6 @@ static void data_regen(
             RandLAPACK::gen::gen_exp_decay_singvals(data.k_mat, (T)1.0, (T)100.0,
                                                      data.eigvals.data());
         if (func_type == 1) {
-            // log requires strict PD; shift by 1 so all eigenvalues >= 1.
-            // Models A = I + K (log det(I+K) use case). f(noise) = log(1) = 0,
-            // so f_zero=0 remains correct for the Nyström tail approximation.
             data.noise = (T)1.0;
             RandLAPACK::gen::gen_shifted_lowrank_psd(n, data.k_mat, data.A.data(), n,
                                                       data.eigvals.data(), data.noise, state);
@@ -212,7 +218,6 @@ static void data_regen(
 
 // ============================================================================
 // LFAOp: wraps LanczosFA as a SymmetricLinearOperator for plain Hutchinson.
-// Computes C = alpha * f(A)*B + beta*C using lfa.call internally.
 // ============================================================================
 
 template <typename SLO_t, typename LFA_t, typename F_t>
@@ -246,10 +251,9 @@ struct LFAOp {
 
 // ============================================================================
 // call_all_algs: timed + matvec-counted comparison for one matrix size.
-// data.A and (for generated types) data.eigvals must already be filled.
 // ============================================================================
 
-template <typename T>
+template <typename T, typename LFA_t>
 static void call_all_algs(
     int64_t numruns,
     FunNystromPP_benchmark_data<T>& data,
@@ -264,37 +268,29 @@ static void call_all_algs(
 ) {
     int64_t n = data.n, k = data.k, s = data.s, d = data.d;
 
-    std::function<double(double)> f;
+    std::function<T(T)> f;
     const char* fname;
-    double f_zero = 0.0;
+    T f_zero = (T)0;
     if (func_type == 0) {
-        f     = [](double x){ return std::sqrt(std::max(x, 0.0)); };
+        f     = [](T x){ return (T)std::sqrt((double)std::max(x, (T)0)); };
         fname = "sqrt";
-        f_zero = 0.0;
     } else if (func_type == 1) {
-        f     = [](double x){ return std::log(x); };
+        f     = [](T x){ return (T)std::log((double)x); };
         fname = "log";
-        f_zero = 0.0;  // placeholder; caller must ensure λ_min > 0
     } else {
-        double lam = poly_lambda;
-        f     = [lam](double x){ return x * (x + lam); };
+        T lam = (T)poly_lambda;
+        f     = [lam](T x){ return x * (x + lam); };
         fname = "poly";
-        f_zero = 0.0;
     }
 
-    // Reference: exact formula for low-rank types; syevd for kernel/file types.
     bool ref_available = false;
-    double true_tr = 0.0;
+    T true_tr = (T)0;
     if (!data.from_file && mat_type < 3) {
-        // Low-rank types: exact reference from eigenvalues.
-        // Actual eigenvalues: eigvals[j] + noise (dominant k_mat) and noise (tail).
-        // f(noise) = 0 for all func_types: sqrt(0)=0, log(1)=0, 0*(0+lam)=0.
         for (int64_t j = 0; j < data.k_mat; ++j)
             true_tr += f(data.eigvals[j] + data.noise);
         true_tr += (T)(n - data.k_mat) * f(data.noise);
         ref_available = true;
     } else if (compute_ref) {
-        // Kernel types and file input: compute reference via full eigendecomposition.
         std::vector<T> A_copy(data.A.begin(), data.A.begin() + n * n);
         std::vector<T> ev(n);
         lapack::syevd(lapack::Job::NoVec, lapack::Uplo::Upper, n,
@@ -304,27 +300,25 @@ static void call_all_algs(
         ref_available = true;
     }
 
-    // Build full algorithm stack for FunNystromPP.
     RandLAPACK::SYPS<T, RNG>                                             syps(3, 1, false, false);
     syps.sketch_type = sketch_type;
     syps.vec_nnz     = vec_nnz;
     RandLAPACK::HQRQ<T>                                                  orth(false, false);
     RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, RandLAPACK::HQRQ<T>>    syrf(syps, orth);
-    RandLAPACK::NystromEVD<decltype(syrf)>                                    nystrom_evd(syrf, 0);
+    RandLAPACK::NystromEVD<decltype(syrf)>                               nystrom_evd(syrf, 0);
     nystrom_evd.timing = true;
-    RandLAPACK::LanczosFA<T, RNG>                                        lfa_pp;
+    LFA_t                                                                lfa_pp;
     lfa_pp.timing = true;
     RandLAPACK::Hutchinson<T, RNG>                                       hutch_pp;
-    RandLAPACK::FunNystromPP<decltype(nystrom_evd), decltype(lfa_pp), decltype(hutch_pp)>
+    RandLAPACK::FunNystromPP<decltype(nystrom_evd), LFA_t, decltype(hutch_pp)>
                                                                          driver(nystrom_evd, lfa_pp, hutch_pp);
 
-    // Separate LanczosFA + Hutchinson for plain baseline.
-    RandLAPACK::LanczosFA<T, RNG>   lfa_base;
+    LFA_t                           lfa_base;
     RandLAPACK::Hutchinson<T, RNG>  hutch_base;
 
     using ESLO = linops::ExplicitSymLinOp<T>;
     using CSLO = CountingLinOp<ESLO>;
-    using FuncT = std::function<double(double)>;
+    using FuncT = std::function<T(T)>;
 
     const char* mat_str = data.from_file ? "file" :
                           mat_type == 1  ? "psd_alg"     :
@@ -338,24 +332,22 @@ static void call_all_algs(
 
         auto state_alg = state;
 
-        // ---- FunNystromPP --------------------------------------------------
+        // FunNystromPP
         ESLO A_op(n, blas::Uplo::Upper, data.A.data(), n, Layout::ColMajor);
         CSLO A_pp(n, A_op);
 
         RandLAPACK::FunNystromPP_timing pp_timing;
         auto start_pp = steady_clock::now();
-        double est_pp = driver.call(A_pp, f, (T)f_zero, k, s, d, state_alg, &pp_timing);
+        T est_pp = driver.call(A_pp, f, f_zero, k, s, d, state_alg, &pp_timing);
         auto stop_pp  = steady_clock::now();
         long dur_pp   = duration_cast<microseconds>(stop_pp - start_pp).count();
         int64_t mv_pp = A_pp.count;
 
-        // NystromEVD sub-phase times (slots: alloc, syrf, matvec, gram, potrf, trsm, svd, post_svd, error_est, rest, total)
         auto& nt = nystrom_evd.times;
-        // LanczosFA sub-phase times (slots: matvec, run_lanczos, apply_f, rest, total)
         auto& lt = lfa_pp.times;
 
         printf("  FunNystromPP:   est=%.6e  time=%lld us  (ph1=%lld ph2=%lld)  matvecs=%lld\n",
-               est_pp, (long long)dur_pp,
+               (double)est_pp, (long long)dur_pp,
                (long long)pp_timing.phase1_us, (long long)pp_timing.phase2_us,
                (long long)mv_pp);
         printf("    NystromEVD:   alloc=%lld syrf=%lld matvec=%lld gram=%lld potrf=%lld trsm=%lld svd=%lld post_svd=%lld err_est=%lld rest=%lld total=%lld\n",
@@ -365,29 +357,28 @@ static void call_all_algs(
         printf("    LanczosFA:    matvec=%lld lanczos=%lld apply_f=%lld total=%lld\n",
                (long long)lt[0], (long long)lt[1], (long long)lt[2], (long long)lt[4]);
 
-        // ---- Hutchinson + LanczosFA (no Nyström) ---------------------------
-        state_alg = state;
+        // Hutchinson + LanczosFA (state_alg continues from where FunNystromPP left it)
         ESLO A_op2(n, blas::Uplo::Upper, data.A.data(), n, Layout::ColMajor);
         CSLO A_hutch(n, A_op2);
-        LFAOp<CSLO, RandLAPACK::LanczosFA<T, RNG>, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
+        LFAOp<CSLO, LFA_t, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
 
         auto start_h = steady_clock::now();
-        double est_h = hutch_base.call(lfa_op, s, state_alg);
+        T est_h = hutch_base.call(lfa_op, s, state_alg);
         auto stop_h  = steady_clock::now();
         long dur_h    = duration_cast<microseconds>(stop_h - start_h).count();
         int64_t mv_h  = A_hutch.count;
         printf("  Hutchinson+LFA: est=%.6e  time=%lld us  matvecs=%lld\n",
-               est_h, (long long)dur_h, (long long)mv_h);
+               (double)est_h, (long long)dur_h, (long long)mv_h);
 
-        double err_pp = ref_available ? std::abs(est_pp - true_tr) / std::abs(true_tr) : -1.0;
-        double err_h  = ref_available ? std::abs(est_h  - true_tr) / std::abs(true_tr) : -1.0;
+        double err_pp = ref_available ? std::abs((double)est_pp - (double)true_tr) / std::abs((double)true_tr) : -1.0;
+        double err_h  = ref_available ? std::abs((double)est_h  - (double)true_tr) / std::abs((double)true_tr) : -1.0;
         if (ref_available)
             printf("  Reference:      true=%.6e  err_pp=%e  err_h=%e\n",
-                   true_tr, err_pp, err_h);
+                   (double)true_tr, err_pp, err_h);
         else
             printf("  Reference:      N/A\n");
 
-        double out_tr = ref_available ? true_tr : -1.0;
+        double out_tr = ref_available ? (double)true_tr : -1.0;
         std::ofstream file(output_filename, std::ios::out | std::ios::app);
         file << n                     << ",  " << k             << ",  " << data.k_mat  << ",  "
              << s                     << ",  " << d             << ",  "
@@ -398,17 +389,16 @@ static void call_all_algs(
              << nt[4]  << ",  " << nt[5]  << ",  " << nt[6]  << ",  " << nt[7]  << ",  "
              << nt[8]  << ",  " << nt[9]  << ",  " << nt[10] << ",  "
              << lt[0]  << ",  " << lt[1]  << ",  " << lt[2]  << ",  " << lt[3]  << ",  " << lt[4] << ",  "
-             << est_pp                << ",  " << est_h         << ",  "
+             << (double)est_pp        << ",  " << (double)est_h << ",  "
              << out_tr                << ",  " << err_pp        << ",  " << err_h  << ",\n";
     }
 }
 
 // ============================================================================
-// call_all_algs_sparse: same as call_all_algs but backed by a sparse CSR matrix.
-// No reference computation (syevd on large sparse matrices is impractical).
+// call_all_algs_sparse: sparse path (always double).
 // ============================================================================
 
-template <typename T>
+template <typename T, typename LFA_t>
 static void call_all_algs_sparse(
     int64_t numruns,
     int64_t n,
@@ -445,13 +435,13 @@ static void call_all_algs_sparse(
     RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, RandLAPACK::HQRQ<T>>     syrf(syps, orth);
     RandLAPACK::NystromEVD<decltype(syrf)>                                nystrom_evd(syrf, 0);
     nystrom_evd.timing = true;
-    RandLAPACK::LanczosFA<T, RNG>                                         lfa_pp;
+    LFA_t                                                                 lfa_pp;
     lfa_pp.timing = true;
     RandLAPACK::Hutchinson<T, RNG>                                        hutch_pp;
-    RandLAPACK::FunNystromPP<decltype(nystrom_evd), decltype(lfa_pp), decltype(hutch_pp)>
+    RandLAPACK::FunNystromPP<decltype(nystrom_evd), LFA_t, decltype(hutch_pp)>
                                                                           driver(nystrom_evd, lfa_pp, hutch_pp);
 
-    RandLAPACK::LanczosFA<T, RNG>  lfa_base;
+    LFA_t                          lfa_base;
     RandLAPACK::Hutchinson<T, RNG> hutch_base;
 
     using SSLO = linops::SparseSymLinOp<RandBLAS::sparse_data::CSRMatrix<T, int64_t>>;
@@ -464,7 +454,6 @@ static void call_all_algs_sparse(
 
         auto state_alg = state;
 
-        // ---- FunNystromPP --------------------------------------------------
         SSLO A_op_pp(n, csr);
         CSLO A_pp(n, A_op_pp);
 
@@ -489,11 +478,10 @@ static void call_all_algs_sparse(
         printf("    LanczosFA:    matvec=%lld lanczos=%lld apply_f=%lld total=%lld\n",
                (long long)lt[0], (long long)lt[1], (long long)lt[2], (long long)lt[4]);
 
-        // ---- Hutchinson + LanczosFA ----------------------------------------
         state_alg = state;
         SSLO A_op_h(n, csr);
         CSLO A_hutch(n, A_op_h);
-        LFAOp<CSLO, RandLAPACK::LanczosFA<T, RNG>, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
+        LFAOp<CSLO, LFA_t, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
 
         auto start_h = steady_clock::now();
         T est_h = hutch_base.call(lfa_op, s, state_alg);
@@ -524,11 +512,11 @@ static void call_all_algs_sparse(
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    if (argc < 13) {
+    if (argc < 15) {
         std::cerr << "Usage: " << argv[0]
                   << " <dir_path> <num_runs> <k> <k_mat> <s>"
                      " <d_steps> <mat_or_file> <func_type> <compute_ref>"
-                     " <sketch_type> <vec_nnz> <poly_lambda> [n_1 n_2 ...]\n"
+                     " <sketch_type> <vec_nnz> <poly_lambda> <precision> <lfa_type> [n_1 n_2 ...]\n"
                   << "  dir_path    : output directory (use '.' for current dir)\n"
                   << "  num_runs    : timed repetitions per matrix size\n"
                   << "  k           : Nystrom rank (constant; must satisfy k <= n)\n"
@@ -541,6 +529,8 @@ int main(int argc, char* argv[]) {
                   << "  sketch_type : 0=Gaussian, 1=SASO\n"
                   << "  vec_nnz     : nonzeros per column for SASO (sketch_type=1; ignored otherwise)\n"
                   << "  poly_lambda : lambda for func_type=2 (ignored otherwise)\n"
+                  << "  precision   : double or float  (sparse .mtx path is always double)\n"
+                  << "  lfa_type    : 0=scalar LanczosFA, 1=BlockLanczosFA\n"
                   << "  n_1 ...     : matrix sizes (generated types only)\n";
         return 1;
     }
@@ -555,8 +545,11 @@ int main(int argc, char* argv[]) {
     int     sketch_type = std::stoi(argv[10]);
     int     vec_nnz     = std::stoi(argv[11]);
     double  poly_lambda = std::stod(argv[12]);
+    std::string precision_str = argv[13];
+    bool    use_float   = (precision_str == "float");
+    int     lfa_type    = std::stoi(argv[14]);
+    const char* lfa_str = lfa_type == 0 ? "scalar" : "block";
 
-    // argv[7]: integer mat_type or file path (.txt or .mtx)
     bool from_file = false;
     bool is_mtx    = false;
     std::string mat_file_path;
@@ -577,13 +570,10 @@ int main(int argc, char* argv[]) {
                            mat_type == 3 ? "rbf_kernel" : "poly_kernel";
     const char* sketch_str = sketch_type == 1 ? "SASO" : "Gaussian";
 
-    // Collect n_sizes; for file input determine n from the file.
     std::vector<int64_t> n_sizes;
     if (is_mtx) {
-        // Size comes from the .mtx file itself; no CLI sizes needed.
         int64_t mtx_n = 0;
         {
-            // Peek at n without loading the full matrix.
             std::ifstream peek(mat_file_path);
             std::string ln;
             while (std::getline(peek, ln))
@@ -604,11 +594,11 @@ int main(int argc, char* argv[]) {
                 + std::to_string(fm) + "x" + std::to_string(fn) + ")");
         n_sizes = {fm};
     } else {
-        if (argc < 14) {
+        if (argc < 16) {
             std::cerr << "Error: at least one matrix size (n_1) required for generated types.\n";
             return 1;
         }
-        for (int i = 13; i < argc; ++i)
+        for (int i = 15; i < argc; ++i)
             n_sizes.push_back(std::stol(argv[i]));
     }
 
@@ -620,7 +610,7 @@ int main(int argc, char* argv[]) {
     auto state_constant = state;
 
     std::string output_filename =
-        "_FunNystromPP_benchmark_num_info_lines_" + std::to_string(8) + ".txt";
+        "_FunNystromPP_benchmark_" + precision_str + "_" + std::string(lfa_str) + "_num_info_lines_8.txt";
     std::string path;
     if (std::string(argv[1]) != ".")
         path = std::string(argv[1]) + output_filename;
@@ -654,6 +644,8 @@ int main(int argc, char* argv[]) {
             (func_type == 2 ? (" poly_lambda=" + std::to_string(poly_lambda)) : std::string("")) +
             " sketch=" + sketch_str +
             (sketch_type == 1 ? (" vec_nnz=" + std::to_string(vec_nnz)) : std::string("")) +
+            " precision=" + precision_str +
+            " lfa_type=" + std::string(lfa_str) +
             "\nNum runs per size: " + std::to_string(numruns) +
             "\nMatrix construction: " + mat_construction_str +
             "\n";
@@ -661,35 +653,58 @@ int main(int argc, char* argv[]) {
 
     auto start_all = steady_clock::now();
 
+    using ScalarLFA_d = RandLAPACK::LanczosFA<double, RNG>;
+    using BlockLFA_d  = RandLAPACK::BlockLanczosFA<double, RNG>;
+    using ScalarLFA_f = RandLAPACK::LanczosFA<float, RNG>;
+    using BlockLFA_f  = RandLAPACK::BlockLanczosFA<float, RNG>;
+
     if (is_mtx) {
-        // Sparse path: load once, run call_all_algs_sparse.
+        // Sparse path: always double.
+        if (use_float)
+            printf("Note: sparse .mtx path runs in double regardless of precision flag.\n");
         printf("Loading sparse matrix from %s ...\n", mat_file_path.c_str());
         int64_t n = n_sizes[0];
         auto csr = FunNystromPP_bench::load_mtx(mat_file_path, n);
         printf("  Loaded: n=%lld  nnz=%lld\n", (long long)n, (long long)csr.nnz);
-        call_all_algs_sparse<double>(numruns, n, k_const, s_const, d_steps,
-                                     csr, state_constant,
-                                     func_type, poly_lambda, sketch_type, vec_nnz, path);
+        if (lfa_type == 0)
+            call_all_algs_sparse<double, ScalarLFA_d>(numruns, n, k_const, s_const, d_steps,
+                                                      csr, state_constant,
+                                                      func_type, poly_lambda, sketch_type, vec_nnz, path);
+        else
+            call_all_algs_sparse<double, BlockLFA_d>(numruns, n, k_const, s_const, d_steps,
+                                                     csr, state_constant,
+                                                     func_type, poly_lambda, sketch_type, vec_nnz, path);
     } else {
-        // Dense path: allocate data struct and iterate over n_sizes.
-        int64_t n_max     = *std::max_element(n_sizes.begin(), n_sizes.end());
-        int64_t k_mat_max = from_file ? 0 : k_mat_const;
-        FunNystromPP_benchmark_data<double> all_data(
-            n_max, k_const, k_mat_max, s_const, d_steps, from_file);
+        // Dense path: dispatch on precision and lfa_type.
+        auto run_dense = [&]<typename T, typename LFA_t>() {
+            int64_t n_max     = *std::max_element(n_sizes.begin(), n_sizes.end());
+            int64_t k_mat_max = from_file ? 0 : k_mat_const;
+            FunNystromPP_benchmark_data<T> all_data(
+                n_max, k_const, k_mat_max, s_const, d_steps, from_file);
 
-        for (int64_t n : n_sizes) {
-            all_data.n     = n;
-            all_data.k     = k_const;
-            all_data.k_mat = from_file ? 0 : std::min(k_mat_const, n);
-            all_data.s     = s_const;
-            all_data.d     = d_steps;
+            for (int64_t n : n_sizes) {
+                all_data.n     = n;
+                all_data.k     = k_const;
+                all_data.k_mat = from_file ? 0 : std::min(k_mat_const, n);
+                all_data.s     = s_const;
+                all_data.d     = d_steps;
 
-            auto state_gen = state_constant;
-            data_regen(all_data, state_gen, mat_type, func_type, mat_file_path);
+                auto state_gen = state_constant;
+                data_regen(all_data, state_gen, mat_type, func_type, mat_file_path);
 
-            call_all_algs(numruns, all_data, state_constant, mat_type,
-                          func_type, poly_lambda, compute_ref, sketch_type, vec_nnz, path);
-        }
+                call_all_algs<T, LFA_t>(numruns, all_data, state_constant, mat_type,
+                                        func_type, poly_lambda, compute_ref, sketch_type, vec_nnz, path);
+            }
+        };
+
+        if (!use_float && lfa_type == 0)
+            run_dense.template operator()<double, ScalarLFA_d>();
+        else if (!use_float && lfa_type == 1)
+            run_dense.template operator()<double, BlockLFA_d>();
+        else if (use_float && lfa_type == 0)
+            run_dense.template operator()<float, ScalarLFA_f>();
+        else
+            run_dense.template operator()<float, BlockLFA_f>();
     }
 
     auto stop_all = steady_clock::now();

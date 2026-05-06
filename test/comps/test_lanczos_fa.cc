@@ -265,6 +265,124 @@ TEST_F(TestLanczosFA, ReorthVsVanilla) {
 
 
 // ---------------------------------------------------------------------------
+// BlockLanczosFA tests: verify that the block algorithm matches the dense
+// reference at sufficient depth and agrees with scalar LanczosFA.
+
+class TestBlockLanczosFA : public TestLanczosFA {
+protected:
+    template <typename F>
+    static void run_block_diagonal_fa_test(F f, int64_t n, int64_t s, int64_t d,
+                                           double tol, uint64_t seed) {
+        using RNG = r123::Philox4x32;
+        auto state = RandBLAS::RNGState(seed);
+        std::vector<double> diag_vec(n);
+        std::iota(diag_vec.begin(), diag_vec.end(), 1.0);
+        std::vector<double> A_mat = make_diag_matrix(diag_vec);
+        std::vector<double> B(n * s);
+        RandBLAS::DenseDist DB(n, s);
+        state = RandBLAS::fill_dense(DB, B.data(), state);
+        std::vector<double> out(n * s, 0.0);
+        linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
+        RandLAPACK::BlockLanczosFA<double, RNG> blfa;
+        blfa.reorth = 1;
+        blfa.call(A_op, B.data(), n, s, f, d, out.data());
+        auto ref = diag_fa_ref(diag_vec, B, n, s, f);
+        double err = 0.0, ref_norm = 0.0;
+        for (int64_t i = 0; i < n * s; ++i) {
+            double r = out[i] - ref[i];
+            err      += r * r;
+            ref_norm += ref[i] * ref[i];
+        }
+        double rel_err = std::sqrt(err / ref_norm);
+        printf("Block ||f(A)B - ref||/||ref|| = %e\n", rel_err);
+        ASSERT_LT(rel_err, tol);
+    }
+
+    template <typename F>
+    static void run_block_dense_fa_test(F f, int64_t n, int64_t s, int64_t d,
+                                        double tol, uint64_t seed) {
+        using RNG = r123::Philox4x32;
+        auto state = RandBLAS::RNGState(seed);
+        std::vector<double> B_raw(n * n);
+        RandBLAS::DenseDist D1(n, n);
+        state = RandBLAS::fill_dense(D1, B_raw.data(), state);
+        std::vector<double> A(n * n, 0.0);
+        blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, n, 1.0, B_raw.data(), n, 0.0, A.data(), n);
+        for (int64_t i = 0; i < n; ++i)
+            A[i + i * n] += (double)n;
+        std::vector<double> B(n * s);
+        RandBLAS::DenseDist D2(n, s);
+        state = RandBLAS::fill_dense(D2, B.data(), state);
+        std::vector<double> out(n * s, 0.0);
+        linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+        RandLAPACK::BlockLanczosFA<double, RNG> blfa;
+        blfa.reorth = 1;
+        blfa.call(A_op, B.data(), n, s, f, d, out.data());
+        auto ref = dense_fa_ref(A, B, n, s, f);
+        double err = 0.0, ref_norm = 0.0;
+        for (int64_t i = 0; i < n * s; ++i) {
+            double r = out[i] - ref[i];
+            err      += r * r;
+            ref_norm += ref[i] * ref[i];
+        }
+        double rel_err = std::sqrt(err / ref_norm);
+        printf("Block dense ||f(A)B - ref||/||ref|| = %e\n", rel_err);
+        ASSERT_LT(rel_err, tol);
+    }
+};
+
+// f=sqrt on diag(1,...,50), d=20 < n.
+TEST_F(TestBlockLanczosFA, DiagonalSqrt) {
+    run_block_diagonal_fa_test([](double x){ return std::sqrt(x); }, 50, 5, 20, 1e-4, 42);
+}
+
+// f=sqrt on a random dense PSD matrix, d=n/2 steps.
+TEST_F(TestBlockLanczosFA, DensePSDSqrt) {
+    run_block_dense_fa_test([](double x){ return std::sqrt(std::max(x, 0.0)); }, 50, 4, 25, 1e-6, 31);
+}
+
+// BlockLanczosFA vs LanczosFA on the same problem — outputs should agree at sufficient depth.
+TEST_F(TestBlockLanczosFA, AgreeWithScalar) {
+    using RNG = r123::Philox4x32;
+    int64_t n = 50, s = 4, d = 25;
+    auto state = RandBLAS::RNGState(31);
+
+    std::vector<double> B_raw(n * n);
+    RandBLAS::DenseDist D1(n, n);
+    state = RandBLAS::fill_dense(D1, B_raw.data(), state);
+    std::vector<double> A(n * n, 0.0);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, n, 1.0, B_raw.data(), n, 0.0, A.data(), n);
+    for (int64_t i = 0; i < n; ++i)
+        A[i + i * n] += (double)n;
+
+    std::vector<double> B(n * s);
+    RandBLAS::DenseDist D2(n, s);
+    state = RandBLAS::fill_dense(D2, B.data(), state);
+
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    auto f_sqrt = [](double x){ return std::sqrt(std::max(x, 0.0)); };
+
+    std::vector<double> out_scalar(n * s, 0.0), out_block(n * s, 0.0);
+    RandLAPACK::LanczosFA<double, RNG> lfa;
+    lfa.reorth = 1;
+    lfa.call(A_op, B.data(), n, s, f_sqrt, d, out_scalar.data());
+
+    RandLAPACK::BlockLanczosFA<double, RNG> blfa;
+    blfa.reorth = 1;
+    blfa.call(A_op, B.data(), n, s, f_sqrt, d, out_block.data());
+
+    double diff = 0.0, norm = 0.0;
+    for (int64_t i = 0; i < n * s; ++i) {
+        double r = out_block[i] - out_scalar[i];
+        diff += r * r;
+        norm += out_scalar[i] * out_scalar[i];
+    }
+    double rel_diff = std::sqrt(diff / norm);
+    printf("Block vs scalar relative diff: %e\n", rel_diff);
+    ASSERT_LT(rel_diff, 1e-4);
+}
+
+// ---------------------------------------------------------------------------
 // Hutchinson tests live here because Hutchinson is a building block of
 // FunNystromPP alongside LanczosFA, not a standalone algorithm with its own file.
 
