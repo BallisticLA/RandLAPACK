@@ -38,6 +38,12 @@ Lanczos variant (lfa_type):
   0 = scalar LanczosFA (s independent Krylov sequences; BLAS-1/2 dominant)
   1 = BlockLanczosFA  (single joint block Krylov subspace; BLAS-3 dominant)
 
+SYRF orthogonalization (orth_type):
+  0 = HouseholderQR (HQRQ) — backward-stable (geqrf+ungqr); ~2·n·k² flops
+  1 = CholeskyQR   (CholQRQ) — ~2× faster (syrk+potrf+trsm); fails on
+                                ill-conditioned input (the SYRF output after
+                                power iteration is generally well-conditioned).
+
 Sketch types (sketch_type):
   0 = Gaussian (DenseDist, default)
   1 = SASO (SparseDist; nonzeros per column set by vec_nnz argument)
@@ -253,7 +259,7 @@ struct LFAOp {
 // call_all_algs: timed + matvec-counted comparison for one matrix size.
 // ============================================================================
 
-template <typename T, typename LFA_t>
+template <typename T, typename LFA_t, typename ORTH_t>
 static void call_all_algs(
     int64_t numruns,
     FunNystromPP_benchmark_data<T>& data,
@@ -303,8 +309,8 @@ static void call_all_algs(
     RandLAPACK::SYPS<T, RNG>                                             syps(3, 1, false, false);
     syps.sketch_type = sketch_type;
     syps.vec_nnz     = vec_nnz;
-    RandLAPACK::HQRQ<T>                                                  orth(false, false);
-    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, RandLAPACK::HQRQ<T>>    syrf(syps, orth);
+    ORTH_t                                                               orth(false, false);
+    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, ORTH_t>                   syrf(syps, orth);
     RandLAPACK::NystromEVD<decltype(syrf)>                               nystrom_evd(syrf, 0);
     nystrom_evd.timing = true;
     LFA_t                                                                lfa_pp;
@@ -398,7 +404,7 @@ static void call_all_algs(
 // call_all_algs_sparse: sparse path (always double).
 // ============================================================================
 
-template <typename T, typename LFA_t>
+template <typename T, typename LFA_t, typename ORTH_t>
 static void call_all_algs_sparse(
     int64_t numruns,
     int64_t n,
@@ -431,8 +437,8 @@ static void call_all_algs_sparse(
     RandLAPACK::SYPS<T, RNG>                                              syps(3, 1, false, false);
     syps.sketch_type = sketch_type;
     syps.vec_nnz     = vec_nnz;
-    RandLAPACK::HQRQ<T>                                                   orth(false, false);
-    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, RandLAPACK::HQRQ<T>>     syrf(syps, orth);
+    ORTH_t                                                                orth(false, false);
+    RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, ORTH_t>                    syrf(syps, orth);
     RandLAPACK::NystromEVD<decltype(syrf)>                                nystrom_evd(syrf, 0);
     nystrom_evd.timing = true;
     LFA_t                                                                 lfa_pp;
@@ -512,11 +518,12 @@ static void call_all_algs_sparse(
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    if (argc < 15) {
+    if (argc < 16) {
         std::cerr << "Usage: " << argv[0]
                   << " <dir_path> <num_runs> <k> <k_mat> <s>"
                      " <d_steps> <mat_or_file> <func_type> <compute_ref>"
-                     " <sketch_type> <vec_nnz> <poly_lambda> <precision> <lfa_type> [n_1 n_2 ...]\n"
+                     " <sketch_type> <vec_nnz> <poly_lambda> <precision> <lfa_type>"
+                     " <orth_type> [n_1 n_2 ...]\n"
                   << "  dir_path    : output directory (use '.' for current dir)\n"
                   << "  num_runs    : timed repetitions per matrix size\n"
                   << "  k           : Nystrom rank (constant; must satisfy k <= n)\n"
@@ -531,6 +538,7 @@ int main(int argc, char* argv[]) {
                   << "  poly_lambda : lambda for func_type=2 (ignored otherwise)\n"
                   << "  precision   : double or float  (sparse .mtx path is always double)\n"
                   << "  lfa_type    : 0=scalar LanczosFA, 1=BlockLanczosFA\n"
+                  << "  orth_type   : 0=HouseholderQR (HQRQ), 1=Cholesky QR (CholQRQ)\n"
                   << "  n_1 ...     : matrix sizes (generated types only)\n";
         return 1;
     }
@@ -549,6 +557,8 @@ int main(int argc, char* argv[]) {
     bool    use_float   = (precision_str == "float");
     int     lfa_type    = std::stoi(argv[14]);
     const char* lfa_str = lfa_type == 0 ? "scalar" : "block";
+    int     orth_type   = std::stoi(argv[15]);
+    const char* orth_str = orth_type == 0 ? "hqrq" : "cholqr";
 
     bool from_file = false;
     bool is_mtx    = false;
@@ -594,11 +604,11 @@ int main(int argc, char* argv[]) {
                 + std::to_string(fm) + "x" + std::to_string(fn) + ")");
         n_sizes = {fm};
     } else {
-        if (argc < 16) {
+        if (argc < 17) {
             std::cerr << "Error: at least one matrix size (n_1) required for generated types.\n";
             return 1;
         }
-        for (int i = 15; i < argc; ++i)
+        for (int i = 16; i < argc; ++i)
             n_sizes.push_back(std::stol(argv[i]));
     }
 
@@ -610,7 +620,8 @@ int main(int argc, char* argv[]) {
     auto state_constant = state;
 
     std::string output_filename =
-        "_FunNystromPP_benchmark_" + precision_str + "_" + std::string(lfa_str) + "_num_info_lines_8.txt";
+        "_FunNystromPP_benchmark_" + precision_str + "_" + std::string(lfa_str)
+        + "_" + std::string(orth_str) + "_num_info_lines_8.txt";
     std::string path;
     if (std::string(argv[1]) != ".")
         path = std::string(argv[1]) + output_filename;
@@ -646,6 +657,7 @@ int main(int argc, char* argv[]) {
             (sketch_type == 1 ? (" vec_nnz=" + std::to_string(vec_nnz)) : std::string("")) +
             " precision=" + precision_str +
             " lfa_type=" + std::string(lfa_str) +
+            " orth_type=" + std::string(orth_str) +
             "\nNum runs per size: " + std::to_string(numruns) +
             "\nMatrix construction: " + mat_construction_str +
             "\n";
@@ -653,10 +665,14 @@ int main(int argc, char* argv[]) {
 
     auto start_all = steady_clock::now();
 
-    using ScalarLFA_d = RandLAPACK::LanczosFA<double, RNG>;
-    using BlockLFA_d  = RandLAPACK::BlockLanczosFA<double, RNG>;
-    using ScalarLFA_f = RandLAPACK::LanczosFA<float, RNG>;
-    using BlockLFA_f  = RandLAPACK::BlockLanczosFA<float, RNG>;
+    using ScalarLFA_d = RandLAPACK::LanczosFA<double>;
+    using BlockLFA_d  = RandLAPACK::BlockLanczosFA<double>;
+    using ScalarLFA_f = RandLAPACK::LanczosFA<float>;
+    using BlockLFA_f  = RandLAPACK::BlockLanczosFA<float>;
+    using HQRQ_d      = RandLAPACK::HQRQ<double>;
+    using CholQR_d    = RandLAPACK::CholQRQ<double>;
+    using HQRQ_f      = RandLAPACK::HQRQ<float>;
+    using CholQR_f    = RandLAPACK::CholQRQ<float>;
 
     if (is_mtx) {
         // Sparse path: always double.
@@ -666,17 +682,19 @@ int main(int argc, char* argv[]) {
         int64_t n = n_sizes[0];
         auto csr = FunNystromPP_bench::load_mtx(mat_file_path, n);
         printf("  Loaded: n=%lld  nnz=%lld\n", (long long)n, (long long)csr.nnz);
-        if (lfa_type == 0)
-            call_all_algs_sparse<double, ScalarLFA_d>(numruns, n, k_const, s_const, d_steps,
-                                                      csr, state_constant,
-                                                      func_type, poly_lambda, sketch_type, vec_nnz, path);
-        else
-            call_all_algs_sparse<double, BlockLFA_d>(numruns, n, k_const, s_const, d_steps,
-                                                     csr, state_constant,
-                                                     func_type, poly_lambda, sketch_type, vec_nnz, path);
+        auto run_sparse = [&]<typename LFA_t, typename ORTH_t>() {
+            call_all_algs_sparse<double, LFA_t, ORTH_t>(
+                numruns, n, k_const, s_const, d_steps,
+                csr, state_constant,
+                func_type, poly_lambda, sketch_type, vec_nnz, path);
+        };
+        if      (lfa_type == 0 && orth_type == 0) run_sparse.template operator()<ScalarLFA_d, HQRQ_d>();
+        else if (lfa_type == 0 && orth_type == 1) run_sparse.template operator()<ScalarLFA_d, CholQR_d>();
+        else if (lfa_type == 1 && orth_type == 0) run_sparse.template operator()<BlockLFA_d,  HQRQ_d>();
+        else                                       run_sparse.template operator()<BlockLFA_d,  CholQR_d>();
     } else {
-        // Dense path: dispatch on precision and lfa_type.
-        auto run_dense = [&]<typename T, typename LFA_t>() {
+        // Dense path: dispatch on precision, lfa_type, orth_type (8-way).
+        auto run_dense = [&]<typename T, typename LFA_t, typename ORTH_t>() {
             int64_t n_max     = *std::max_element(n_sizes.begin(), n_sizes.end());
             int64_t k_mat_max = from_file ? 0 : k_mat_const;
             FunNystromPP_benchmark_data<T> all_data(
@@ -692,19 +710,20 @@ int main(int argc, char* argv[]) {
                 auto state_gen = state_constant;
                 data_regen(all_data, state_gen, mat_type, func_type, mat_file_path);
 
-                call_all_algs<T, LFA_t>(numruns, all_data, state_constant, mat_type,
-                                        func_type, poly_lambda, compute_ref, sketch_type, vec_nnz, path);
+                call_all_algs<T, LFA_t, ORTH_t>(
+                    numruns, all_data, state_constant, mat_type,
+                    func_type, poly_lambda, compute_ref, sketch_type, vec_nnz, path);
             }
         };
 
-        if (!use_float && lfa_type == 0)
-            run_dense.template operator()<double, ScalarLFA_d>();
-        else if (!use_float && lfa_type == 1)
-            run_dense.template operator()<double, BlockLFA_d>();
-        else if (use_float && lfa_type == 0)
-            run_dense.template operator()<float, ScalarLFA_f>();
-        else
-            run_dense.template operator()<float, BlockLFA_f>();
+        if      (!use_float && lfa_type == 0 && orth_type == 0) run_dense.template operator()<double, ScalarLFA_d, HQRQ_d>();
+        else if (!use_float && lfa_type == 0 && orth_type == 1) run_dense.template operator()<double, ScalarLFA_d, CholQR_d>();
+        else if (!use_float && lfa_type == 1 && orth_type == 0) run_dense.template operator()<double, BlockLFA_d,  HQRQ_d>();
+        else if (!use_float && lfa_type == 1 && orth_type == 1) run_dense.template operator()<double, BlockLFA_d,  CholQR_d>();
+        else if ( use_float && lfa_type == 0 && orth_type == 0) run_dense.template operator()<float,  ScalarLFA_f, HQRQ_f>();
+        else if ( use_float && lfa_type == 0 && orth_type == 1) run_dense.template operator()<float,  ScalarLFA_f, CholQR_f>();
+        else if ( use_float && lfa_type == 1 && orth_type == 0) run_dense.template operator()<float,  BlockLFA_f,  HQRQ_f>();
+        else                                                    run_dense.template operator()<float,  BlockLFA_f,  CholQR_f>();
     }
 
     auto stop_all = steady_clock::now();

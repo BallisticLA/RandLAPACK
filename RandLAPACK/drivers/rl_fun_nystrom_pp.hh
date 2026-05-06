@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <limits>
 #include <algorithm>
+#include <optional>
 
 namespace RandLAPACK {
 
@@ -103,10 +104,13 @@ public:
     ///
     /// @param[in]  A       SymmetricLinearOperator — matvec oracle for A.
     /// @param[in]  f       Scalar function T→T (e.g., sqrt, log, pow(x,α)).
-    /// @param[in]  f_zero  f(0): value at zero. Use 0.0 for sqrt/power.
-    ///                     Must be finite; throws std::invalid_argument if not.
-    ///                     For log, A must be strictly PD — pass any finite
-    ///                     placeholder and ensure λ_min > 0.
+    /// @param[in]  f_zero  Optional f(0). When std::nullopt (the default), and
+    ///                     k < n, the value is auto-derived as f((T)0); for
+    ///                     functions like log where f(0) is non-finite, the
+    ///                     caller must pass an explicit value or guarantee
+    ///                     k == n. Must be finite if provided. When k == n
+    ///                     (Phase 1 captures the full spectrum), f_zero is
+    ///                     unused and may be omitted.
     /// @param[in]  k       Nyström rank. Caller chooses based on κ, ε.
     /// @param[in]  s       Hutchinson samples. Caller chooses based on κ, ε.
     /// @param[in]  d       Lanczos steps per sample. Caller chooses based on κ.
@@ -118,15 +122,15 @@ public:
     T call(
         SLO& A,
         F f,
-        T f_zero,
+        std::optional<T> f_zero,
         int64_t k,
         int64_t s,
         int64_t d,
         RandBLAS::RNGState<RNG>& state,
         FunNystromPP_timing* timing = nullptr
     ) {
-        if (!std::isfinite(f_zero))
-            throw std::invalid_argument("f_zero must be finite; for log, ensure A is strictly PD");
+        if (f_zero.has_value() && !std::isfinite(*f_zero))
+            throw std::invalid_argument("f_zero must be finite when provided");
 
         int64_t n = A.dim;
 
@@ -148,27 +152,56 @@ public:
         util::resize(F_vec, F_vec_sz, k_in);
         std::transform(eigvals_buf, eigvals_buf + k_in, F_vec, f);
 
+        // Resolve f_zero. The (n-k_in)*f(0) term is only used when k_in < n;
+        // when k_in == n the full spectrum is captured by Phase 1 and f_zero is
+        // unused (so we don't require the caller to provide one).
+        T fz;
+        if (f_zero.has_value()) {
+            fz = *f_zero;
+        } else if (k_in < n) {
+            fz = f((T)0);
+            if (!std::isfinite(fz))
+                throw std::invalid_argument(
+                    "f(0) is non-finite; pass explicit f_zero or ensure k captures full rank");
+        } else {
+            fz = (T)0;   // unused: (n - k_in) == 0
+        }
+
         // tr(f(Â)) = Σ f(λ_i) + (n-k_in)*f(0)
         T tr_Ahat = (T)0.0;
         for (int64_t i = 0; i < k_in; ++i)
             tr_Ahat += F_vec[i];
-        tr_Ahat += static_cast<T>(n - k_in) * f_zero;
+        tr_Ahat += static_cast<T>(n - k_in) * fz;
 
         // ------------------------------------------------------------------
         // Phase 2: Hutchinson correction on residual f(A) - f(Â)
         // linops::ResidualOp wraps the correction as a SymmetricLinearOperator
         // so Hutchinson::call can draw Ω and compute <Ω, (f(A)-f(Â))Ω>_F / s.
+        //
+        // Skip Phase 2 when k_in == n: NystromEVD has captured the full spectrum
+        // exactly (Â = A), so f(A) - f(Â) is analytically zero. Running Phase 2
+        // anyway would compute <Ω, (Z1 - Z2)>/s where Z1 (LFA approximation) and
+        // Z2 (V·diag(f(λ))·Vᵀ·Ω) follow different floating-point paths, leaving
+        // a misleading O(ε_mach × s × LFA_residual) "noise floor" on the trace.
+        // The structural bound k + s ≤ n implies that when k = n, s must be 0
+        // for a sensible matvec budget — this skip is its natural consequence.
         // ------------------------------------------------------------------
-        util::resize(tmp, tmp_sz, k_in * s);
-        util::resize(Z1,  Z1_sz,  n * s);
-        util::resize(Z2,  Z2_sz,  n * s);
-
-        linops::ResidualOp<T, SLO, LanczosFA_t, F> res_op(
-            n, A, lanczos_fa, f, d, k_in, V_buf, F_vec, tmp, Z1, Z2
-        );
+        T correction = (T)0;
         auto t_phase2_start = std::chrono::steady_clock::now();
-        T correction = hutchinson.call(res_op, s, state);
-        auto t_phase2_end = std::chrono::steady_clock::now();
+        auto t_phase2_end   = t_phase2_start;
+
+        if (k_in < n) {
+            util::resize(tmp, tmp_sz, k_in * s);
+            util::resize(Z1,  Z1_sz,  n * s);
+            util::resize(Z2,  Z2_sz,  n * s);
+
+            linops::ResidualOp<T, SLO, LanczosFA_t, F> res_op(
+                n, A, lanczos_fa, f, d, k_in, V_buf, F_vec, tmp, Z1, Z2
+            );
+            t_phase2_start = std::chrono::steady_clock::now();
+            correction     = hutchinson.call(res_op, s, state);
+            t_phase2_end   = std::chrono::steady_clock::now();
+        }
 
         if (timing) {
             using us = std::chrono::microseconds;
