@@ -83,12 +83,23 @@ private:
 // All return memory in KB.
 // ---------------------------------------------------------------------------
 
-// CQRRT_linops: A_hat(d*n) + tau(n) + R_sk_inv(n*n) + A_pre(m*b_eff)
+// CQRRT_linops (TRSM_IDENTITY / GEQP3): A_hat(d*n) + tau(n) + R_sk_inv(n*n) + A_pre(m*b_eff)
+// Peak is during the blocked Gram loop where A_hat, R_sk_inv, and A_pre are all live.
 template <typename T>
 static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
     int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
     long bytes = static_cast<long>(sizeof(T)) * (d * n + n + (long)n * n + (long)m * b_eff);
+    return bytes / 1024;
+}
+
+// CQRRT_linops (BQRRP): A_hat(d*n) + R_sk_copy(n*n) + R_buf(n*n) + W(n*n) + R_sk_inv(n*n)
+// Peak is in the BQRRP preconditioner block (lines 288-342 of rl_cqrrt_linops.hh) where all
+// five buffers are simultaneously live.  A_pre (m*b) is not yet allocated at this point.
+template <typename T>
+static inline long cqrrt_linops_bqrrp_analytical_kb(int64_t n, double d_factor) {
+    int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
+    long bytes = static_cast<long>(sizeof(T)) * ((long)d * n + 4L * n * n);
     return bytes / 1024;
 }
 
@@ -100,12 +111,14 @@ static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t blo
     return bytes / 1024;
 }
 
-// sCholQR3_linops (fully-blocked): G(n*n) + R_temp(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
-// No m x n buffer during QR iterations; all Gram matrices computed through blocked linop calls.
+// sCholQR3_linops (fully-blocked):
+//   local:  G(n*n) + R_temp(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
+//   member: G1_factor(n*n) + G2_factor(n*n)  (both live during iteration 3)
+// Peak is during the iteration-3 Gram loop where all 5 n*n buffers and the block buffers are live.
 template <typename T>
 static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (3L * n * n + (long)(m + n) * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (5L * n * n + (long)(m + n) * b_eff);
     return bytes / 1024;
 }
 

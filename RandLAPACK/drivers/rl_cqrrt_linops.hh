@@ -4,6 +4,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
+#include "rl_bqrrp.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -13,6 +14,23 @@
 using namespace std::chrono;
 
 namespace RandLAPACK {
+
+/// Method used to form R_sk^{-1} in CQRRT_linops.
+///
+/// TRSM_IDENTITY  — original method: TRSM(I, R_sk) → R_sk^{-1}.
+///                  Fast (O(n³/2)) but unstable when κ(R_sk) is large.
+/// GEQP3          — stabilized method: GEQP3(R_sk) = Q*R_buf*P^T,
+///                  then R_sk^{-1} = P * R_buf^{-1} * Q^T via ungqr + TRSM.
+///                  More expensive (O(11n³/6)) but accurate for ill-conditioned R_sk.
+/// BQRRP          — stabilized method using blocked randomized QRCP instead of GEQP3.
+///                  Same output format as GEQP3; may be faster for large n due to
+///                  cache-friendly blocked structure and sketched pivot selection.
+///                  Block size is chosen adaptively via bqrrp_block_ratio.
+enum class CQRRTLinopPrecond {
+    TRSM_IDENTITY,
+    GEQP3,
+    BQRRP
+};
 
 /// Sketch-preconditioned Cholesky QR for abstract linear operators.
 ///
@@ -42,10 +60,10 @@ class CQRRT_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // 11 entries: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
-        //   fwd      = LinOp NoTrans: A * R_sk_inv (accumulated over blocks)
-        //   adj      = LinOp Trans:   A^T * buf    (accumulated over blocks)
-        //   trmm     = R_sk_inv^T * G (dense trmm, completes Gram)
+        // 11 entries: alloc, sketch, qr, tri_inv, fwd, adj, trsm_gram, chol, finalize, rest, total
+        //   fwd       = LinOp NoTrans: A * R_sk_inv (accumulated over blocks)
+        //   adj       = LinOp Trans:   A^T * buf    (accumulated over blocks)
+        //   trsm_gram = (R^sk)^{-T} * G via TRSM on original R_sk (backward-stable left factor)
         std::vector<long> times;
 
         // tuning SASOS
@@ -55,6 +73,18 @@ class CQRRT_linops {
         // Dense sketches avoid potential issues with rank-deficient sketches but
         // require O(d*m) storage and O(d*m*n) work for application.
         bool use_dense_sketch;
+
+        // Method for computing R_sk^{-1}. See CQRRTLinopPrecond enum.
+        // Default: TRSM_IDENTITY (original behavior).
+        // Set to GEQP3 or BQRRP for the stabilized variants.
+        CQRRTLinopPrecond precond_method;
+
+        // Block size ratio for BQRRP preconditioner (precond_method == BQRRP only).
+        // The BQRRP block size is set to max(1, n * bqrrp_block_ratio).
+        // When precond_method == BQRRP and bqrrp_block_ratio == 1.0 (default),
+        // the ratio is overridden adaptively inside call() using the same
+        // heuristic as CQRRPT: 1.0 for n ≤ 2000, 0.5 for n ≤ 8000, 1/32 otherwise.
+        T bqrrp_block_ratio;
 
         // Column-block size for the precondition + Gram computation.
         //
@@ -92,6 +122,8 @@ class CQRRT_linops {
             nnz = 2;
             use_dense_sketch = false;
             block_size = 0;
+            precond_method = CQRRTLinopPrecond::TRSM_IDENTITY;
+            bqrrp_block_ratio = (T)1.0;
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -155,7 +187,7 @@ class CQRRT_linops {
             steady_clock::time_point saso_t_start, saso_t_stop;
             steady_clock::time_point qr_t_start, qr_t_stop;
             steady_clock::time_point trtri_t_start, trtri_t_stop;
-            steady_clock::time_point trmm_gram_t_start, trmm_gram_t_stop;
+            steady_clock::time_point trsm_gram_t_start, trsm_gram_t_stop;
             steady_clock::time_point potrf_t_start, potrf_t_stop;
             steady_clock::time_point finalize_t_start, finalize_t_stop;
             steady_clock::time_point total_t_start, total_t_stop;
@@ -166,7 +198,7 @@ class CQRRT_linops {
             long trtri_t_dur        = 0;
             long fwd_t_dur          = 0;
             long adj_t_dur          = 0;
-            long trmm_gram_t_dur    = 0;
+            long trsm_gram_t_dur    = 0;
             long potrf_t_dur        = 0;
             long finalize_t_dur     = 0;
             long total_t_dur        = 0;
@@ -222,26 +254,93 @@ class CQRRT_linops {
             if(this -> timing)
                 qr_t_stop = steady_clock::now();
 
-            // Compute R_sk^{-1} via TRSM with identity (since A may not be dense,
-            // we cannot apply TRSM directly to the operator as in rl_cqrrt.hh).
+            // Compute R_sk^{-1}. Method selected by this->precond_method.
             if(this -> timing)
                 trtri_t_start = steady_clock::now();
 
-            // Instead of doing TRTRI to find R_sk_inv, we do TRSM with an identity, since trtri is not optimized in MKL
-            T* Eye = new T[n * n]();
-            RandLAPACK::util::eye(n, n, Eye);
-            if (!RandLAPACK::util::diag_is_nonzero(n, A_hat, d)) {
-                delete[] A_hat;
-                delete[] tau;
-                delete[] Eye;
-                return 1;
+            T* R_sk_inv = nullptr;
+
+            if (this->precond_method == CQRRTLinopPrecond::TRSM_IDENTITY) {
+                // Original: TRSM(I, R_sk) → R_sk^{-1}   (upper triangular result)
+                T* Eye = new T[n * n]();
+                RandLAPACK::util::eye(n, n, Eye);
+                if (!RandLAPACK::util::diag_is_nonzero(n, A_hat, d)) {
+                    delete[] A_hat;
+                    delete[] tau;
+                    delete[] Eye;
+                    return 1;
+                }
+                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T)1.0, A_hat, d, Eye, n);
+                if (n > 1) {
+                    lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &Eye[1], n);
+                }
+                R_sk_inv = Eye;
+            } else {
+                // Stabilized QRCP-based inversion (GEQP3 or BQRRP).
+                // Both methods produce the same output format:
+                //   R_sk_copy: Householder reflectors for Q_buf in lower triangle,
+                //              R_buf in upper triangle (1-based jpiv, same as LAPACK GEQP3)
+                // The ungqr + TRSM + scatter code below is identical for both.
+                //
+                // Result: R_sk^{-1} = P * R_buf^{-1} * Q_buf^T  (dense, n×n)
+
+                // Extract R_sk from A_hat upper triangle into n×n buffer
+                T* R_sk_copy = new T[n * n]();
+                for (int64_t j = 0; j < n; ++j)
+                    for (int64_t i = 0; i <= j; ++i)
+                        R_sk_copy[i + j*n] = A_hat[i + j*d];
+
+                if (!RandLAPACK::util::diag_is_nonzero(n, R_sk_copy, n)) {
+                    delete[] A_hat;
+                    delete[] tau;
+                    delete[] R_sk_copy;
+                    return 1;
+                }
+
+                int64_t* jpiv   = new int64_t[n]();
+                T*       tau_qr = new T[n];
+
+                if (this->precond_method == CQRRTLinopPrecond::GEQP3) {
+                    lapack::geqp3(n, n, R_sk_copy, n, jpiv, tau_qr);
+                } else {
+                    // BQRRP: blocked randomized QRCP on R_sk (n×n).
+                    // Adaptive block size matches CQRRPT's heuristic.
+                    if (n <= 2000)      this->bqrrp_block_ratio = (T)1.0;
+                    else if (n <= 8000) this->bqrrp_block_ratio = (T)0.5;
+                    else                this->bqrrp_block_ratio = (T)1.0 / (T)32;
+                    RandLAPACK::BQRRP<T, RNG> bqrrp(false, (int64_t)(n * this->bqrrp_block_ratio));
+                    bqrrp.call(n, n, R_sk_copy, n, (T)1.0, tau_qr, jpiv, state);
+                }
+
+                // Extract upper triangular R_buf before overwriting R_sk_copy with Q_buf
+                T* R_buf = new T[n * n]();
+                for (int64_t j = 0; j < n; ++j)
+                    for (int64_t i = 0; i <= j; ++i)
+                        R_buf[i + j*n] = R_sk_copy[i + j*n];
+
+                // Expand Q_buf from Householder reflectors (overwrites R_sk_copy)
+                lapack::ungqr(n, n, n, R_sk_copy, n, tau_qr);
+
+                // W = Q_buf^T (explicit transpose), then solve R_buf * W = Q_buf^T in-place
+                T* W = new T[n * n];
+                for (int64_t i = 0; i < n; ++i)
+                    for (int64_t j = 0; j < n; ++j)
+                        W[i + j*n] = R_sk_copy[j + i*n];
+                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
+                           Diag::NonUnit, n, n, (T)1.0, R_buf, n, W, n);
+
+                // R_sk_inv = P * W: row (jpiv[k]-1) of R_sk_inv gets row k of W
+                R_sk_inv = new T[n * n]();
+                for (int64_t k = 0; k < n; ++k)
+                    for (int64_t j = 0; j < n; ++j)
+                        R_sk_inv[(jpiv[k]-1) + j*n] = W[k + j*n];
+
+                delete[] R_sk_copy;
+                delete[] R_buf;
+                delete[] W;
+                delete[] jpiv;
+                delete[] tau_qr;
             }
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, Eye, n);
-            if (n > 1) {
-                // Clear the below-diagonal
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &Eye[1], n);
-            }
-            T* R_sk_inv = Eye;
 
             if(this -> timing) {
                 trtri_t_stop = steady_clock::now();
@@ -325,14 +424,18 @@ class CQRRT_linops {
             }
 
             if(this -> timing) {
-                trmm_gram_t_start = steady_clock::now();
+                trsm_gram_t_start = steady_clock::now();
             }
 
-            // (R_sk_inv)^T * (A^T * A_pre)
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, (T) 1.0, R_sk_inv, n, R, ldr);
+            // Complete Gram: R := (R^sk)^{-T} * R  (backward-stable TRSM on original sketch R)
+            // Applying the left factor via TRSM on A_hat (which holds R^sk in its upper n×n triangle)
+            // is more stable than TRMM/GEMM with the explicit R_sk_inv^T, regardless of which
+            // precond_method was used to form R_sk_inv.  A_hat is still alive here (deleted below).
+            blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit,
+                       n, n, (T)1.0, A_hat, d, R, ldr);
 
             if(this -> timing) {
-                trmm_gram_t_stop = steady_clock::now();
+                trsm_gram_t_stop = steady_clock::now();
                 potrf_t_start = steady_clock::now();
             }
 
@@ -409,7 +512,7 @@ class CQRRT_linops {
                 qr_t_dur           = duration_cast<microseconds>(qr_t_stop           - qr_t_start).count();
                 trtri_t_dur        = duration_cast<microseconds>(trtri_t_stop        - trtri_t_start).count();
                 // fwd_t_dur and adj_t_dur already set (in both full and blocked paths)
-                trmm_gram_t_dur    = duration_cast<microseconds>(trmm_gram_t_stop    - trmm_gram_t_start).count();
+                trsm_gram_t_dur    = duration_cast<microseconds>(trsm_gram_t_stop    - trsm_gram_t_start).count();
                 potrf_t_dur        = duration_cast<microseconds>(potrf_t_stop        - potrf_t_start).count();
                 finalize_t_dur     = duration_cast<microseconds>(finalize_t_stop     - finalize_t_start).count();
 
@@ -422,12 +525,12 @@ class CQRRT_linops {
                 }
 
                 long t_rest  = total_t_dur - (alloc_t_dur + saso_t_dur + qr_t_dur + trtri_t_dur + fwd_t_dur +
-                                              adj_t_dur + trmm_gram_t_dur + potrf_t_dur + finalize_t_dur);
+                                              adj_t_dur + trsm_gram_t_dur + potrf_t_dur + finalize_t_dur);
 
                 // Fill the data vector (11 entries)
                 // Index: 0=alloc, 1=sketch, 2=qr, 3=tri_inv, 4=fwd, 5=adj, 6=trmm, 7=chol, 8=finalize, 9=rest, 10=total
                 this -> times = {alloc_t_dur, saso_t_dur, qr_t_dur, trtri_t_dur, fwd_t_dur,
-                                 adj_t_dur, trmm_gram_t_dur, potrf_t_dur, finalize_t_dur,
+                                 adj_t_dur, trsm_gram_t_dur, potrf_t_dur, finalize_t_dur,
                                  t_rest, total_t_dur};
             }
 
