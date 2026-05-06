@@ -50,6 +50,34 @@ Usage:
 #include <Spectra/contrib/PartialSVDSolver.h>
 #include "ext_budgeted_svd_solver.hh"
 
+#include <execinfo.h>
+#include <exception>
+#include <unistd.h>
+
+static void abrik_terminate_handler() {
+    void* trace[64];
+    int n = backtrace(trace, 64);
+
+    fprintf(stderr, "\n=== UNCAUGHT EXCEPTION -- TERMINATE ===\n");
+    auto eptr = std::current_exception();
+    if (eptr) {
+        try { std::rethrow_exception(eptr); }
+        catch (const std::exception& e) {
+            fprintf(stderr, "what(): %s\n", e.what());
+        }
+        catch (...) {
+            fprintf(stderr, "(non-std::exception)\n");
+        }
+    }
+
+    fprintf(stderr, "Backtrace (%d frames):\n", n);
+    backtrace_symbols_fd(trace, n, STDERR_FILENO);
+    fprintf(stderr, "Tip: c++filt for names, addr2line -e <binary> <addr> for source:line\n");
+    fflush(stderr);
+
+    std::abort();
+}
+
 // Eigen type traits
 template <typename T> struct EigenTypes;
 template <> struct EigenTypes<double> {
@@ -334,6 +362,8 @@ static void run_benchmark(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
+    std::set_terminate(abrik_terminate_handler);
+
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision: double|float> <output_dir> <input_file>"
