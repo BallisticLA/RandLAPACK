@@ -247,6 +247,7 @@ fi
 cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ \
     -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
     -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF \
     -Dblas_int=$BLAS_INT \
     -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ \
     $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS
@@ -262,7 +263,7 @@ fi
 
 # Configure, build, and install LAPACK++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
+cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
 make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
 # Configure, build, and install RandLAPACK
 echo "=========================================="

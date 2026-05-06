@@ -6,7 +6,7 @@ set(RandLAPACK_cxx_sources
     rl_cqrrpt.hh
     rl_bqrrp.hh
     rl_rsvd.hh
-    rl_revd2.hh
+    rl_nystrom_evd.hh
     rl_qb.hh
     rl_orth.hh
     rl_util.hh

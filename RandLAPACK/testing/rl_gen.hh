@@ -3,6 +3,10 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <RandBLAS.hh>
 #include <iostream>
 #include <cmath>
@@ -883,6 +887,178 @@ std::vector<T> gen_poly_mat_psd(int64_t m, T cond_num, T exponent, uint32_t seed
         A.data(), m, (T)0.0, G.data(), m);
     RandBLAS::symmetrize(blas::Layout::ColMajor, blas::Uplo::Upper, m, G.data(), m);
     return G;
+}
+
+/// Write k algebraically-decaying spectral values into s[0..k-1]:
+///   s[i] = scale * (i+1)^{-exponent},  i = 0, 1, …, k-1.
+/// Matches Persson & Kressner (SIMAX 2023) Figure 5(a): scale=100, exponent=2.
+///
+/// @param[in]  k          Number of values to generate.
+/// @param[in]  scale      Overall scale factor.
+/// @param[in]  exponent   Decay exponent (positive).
+/// @param[out] s          Output buffer of length k; overwritten.
+template <typename T>
+void gen_alg_decay_singvals(int64_t k, T scale, T exponent, T* s) {
+    #ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+    #endif
+    for (int64_t i = 0; i < k; ++i)
+        s[i] = scale * std::pow((T)(i + 1), -exponent);
+}
+
+/// Write k exponentially-decaying spectral values into s[0..k-1]:
+///   s[i] = scale * exp(-(i+1)/decay_rate),  i = 0, 1, …, k-1.
+/// Matches Persson & Kressner (SIMAX 2023) Figure 5(b): scale=1, decay_rate=100.
+///
+/// @param[in]  k           Number of values to generate.
+/// @param[in]  scale       Overall scale factor.
+/// @param[in]  decay_rate  Rate parameter (larger = slower decay).
+/// @param[out] s           Output buffer of length k; overwritten.
+template <typename T>
+void gen_exp_decay_singvals(int64_t k, T scale, T decay_rate, T* s) {
+    #ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+    #endif
+    for (int64_t i = 0; i < k; ++i)
+        s[i] = scale * std::exp(-(T)(i + 1) / decay_rate);
+}
+
+/// Form the upper triangle of A = Q diag(eigvals) Q' with a Haar-random n×k matrix Q.
+///
+/// Q is obtained via QR factorization of an n×k Gaussian matrix. Column j of Q is
+/// scaled by sqrt(eigvals[j]) in-place — no k×k spectrum matrix is formed. The upper
+/// triangle of A is then filled via syrk. The n - k trailing eigenvalues are implicitly zero.
+///
+/// @param[in]     n       Matrix dimension (n × n output)
+/// @param[in]     k       Rank; k ≤ n
+/// @param[out]    A       Output buffer, upper triangle on exit (col-major, leading dim lda)
+/// @param[in]     lda     Leading dimension of A
+/// @param[in]     eigvals Pointer to k non-negative eigenvalues
+/// @param[in,out] state   RNG state
+template <typename T, typename RNG>
+void gen_sym_psd_lowrank(
+    int64_t n, int64_t k,
+    T* A, int64_t lda,
+    const T* eigvals,
+    RandBLAS::RNGState<RNG>& state
+) {
+    T* Q   = new T[n * k]();
+    T* tau = new T[k]();
+
+    auto dist = RandBLAS::DenseDist(n, k);
+    state = RandBLAS::fill_dense(dist, Q, state);
+
+    lapack::geqrf(n, k, Q, n, tau);
+    lapack::orgqr(n, k, k, Q, n, tau);
+
+    #ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+    #endif
+    for (int64_t j = 0; j < k; ++j)
+        blas::scal(n, std::sqrt(eigvals[j]), Q + j * n, 1);
+
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans,
+               n, k, (T)1.0, Q, n, (T)0.0, A, lda);
+
+    delete[] Q;
+    delete[] tau;
+}
+
+/// Form an n×n symmetric kernel matrix K from n random data points in R^d.
+///
+/// Data points x_1,...,x_n are drawn i.i.d. from N(0, I_d). The upper
+/// triangle of K is filled with K[i,j] = k(x_i, x_j); the lower triangle
+/// is left unset (use Uplo::Upper with LAPACK symmetric routines).
+///
+/// Pairwise dot products are computed via a single SYRK call (BLAS-3,
+/// multi-threaded via MKL/OpenBLAS), so assembly is O(n²d) dominated.
+///
+/// Two kernels are supported via kernel_type:
+///   0 = RBF:        k(x,y) = exp(-||x-y||² / (2*bandwidth²))
+///   1 = Polynomial: k(x,y) = (x·y + poly_c)^poly_p
+///
+/// For RBF with Gaussian data, the expected squared distance is 2d, so
+/// bandwidth = sqrt(d) (median heuristic) gives average kernel value ~exp(-1).
+///
+/// @param[in]     n          Matrix dimension; also the number of data points
+/// @param[in]     d          Data point dimension (ambient space)
+/// @param[out]    K          Output buffer; upper triangle on exit (col-major, ldk)
+/// @param[in]     ldk        Leading dimension of K
+/// @param[in]     kernel_type 0=RBF, 1=polynomial
+/// @param[in]     bandwidth  RBF length scale σ; ignored for polynomial
+/// @param[in]     poly_c     Polynomial additive constant c; ignored for RBF
+/// @param[in]     poly_p     Polynomial degree p; ignored for RBF
+/// @param[in,out] state      RNG state; advanced on return
+template <typename T, typename RNG>
+void gen_kernel_matrix(
+    int64_t n, int64_t d,
+    T* K, int64_t ldk,
+    int kernel_type,
+    T bandwidth,
+    T poly_c,
+    int poly_p,
+    RandBLAS::RNGState<RNG>& state
+) {
+    // X: n×d col-major; row i is data point x_i ~ N(0, I_d)
+    T* X = new T[n * d];
+    state = RandBLAS::fill_dense(RandBLAS::DenseDist(n, d), X, state);
+
+    // G = X*X^T (upper triangle, col-major): G[i + j*n] = x_i · x_j  (i <= j)
+    T* G = new T[n * n]();
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::NoTrans,
+               n, d, (T)1.0, X, n, (T)0.0, G, n);
+    delete[] X;
+
+    if (kernel_type == 0) {
+        T inv_denom = (T)1.0 / ((T)2.0 * bandwidth * bandwidth);
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i <= j; ++i) {
+                T sq_dist = G[i + i*n] - (T)2.0 * G[i + j*n] + G[j + j*n];
+                K[i + j*ldk] = std::exp(-sq_dist * inv_denom);
+            }
+        }
+    } else {
+        #ifdef _OPENMP
+        #pragma omp parallel for schedule(static)
+        #endif
+        for (int64_t j = 0; j < n; ++j) {
+            for (int64_t i = 0; i <= j; ++i)
+                K[i + j*ldk] = std::pow(G[i + j*n] + poly_c, (T)poly_p);
+        }
+    }
+    delete[] G;
+}
+
+/// Form A = Q diag(eigvals) Q' + noise * I, upper triangle.
+///
+/// Calls gen_sym_psd_lowrank for the low-rank component, then adds `noise`
+/// to each diagonal entry. When noise > 0, every eigenvalue is shifted by
+/// noise, making A strictly PD — required for f = log (λ_min > 0).
+///
+/// Useful for log det(I + K) benchmarks where A = I + K: set noise = 1 and
+/// use the kernel eigenvalues as `eigvals`.
+///
+/// @param[in]     n       Matrix dimension (n × n output)
+/// @param[in]     k       Rank of the low-rank component; k ≤ n
+/// @param[out]    A       Output buffer, upper triangle on exit (col-major, leading dim lda)
+/// @param[in]     lda     Leading dimension of A
+/// @param[in]     eigvals Pointer to k non-negative eigenvalues for the low-rank part
+/// @param[in]     noise   Diagonal shift (≥ 0). Use 0 for no shift.
+/// @param[in,out] state   RNG state
+template <typename T, typename RNG>
+void gen_shifted_lowrank_psd(
+    int64_t n, int64_t k,
+    T* A, int64_t lda,
+    const T* eigvals,
+    T noise,
+    RandBLAS::RNGState<RNG>& state
+) {
+    gen_sym_psd_lowrank(n, k, A, lda, eigvals, state);
+    for (int64_t i = 0; i < n; ++i)
+        A[i * lda + i] += noise;
 }
 
 }

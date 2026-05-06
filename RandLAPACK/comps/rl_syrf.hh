@@ -74,7 +74,7 @@ class SYRF {
             int64_t m,
             const T* A,
             int64_t k,
-            std::vector<T> &Q,
+            T* Q,
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) {
@@ -86,7 +86,7 @@ class SYRF {
         int call(
             SLO &A,
             int64_t k,
-            std::vector<T> &Q,
+            T* Q,
             RandBLAS::RNGState<RNG> &state,
             T* work_buff
         ) {
@@ -97,19 +97,18 @@ class SYRF {
 
             RandBLAS::util::safe_scal(m * k, (T) 0.0, work_buff);
 
-            T* Q_dat = util::upsize(m * k, Q);
-            syps.call(A, k, state, work_buff, Q_dat);
+            syps.call(A, k, state, work_buff, Q);
 
             // Q = orth(A * Omega)
-            A(Layout::ColMajor, k, (T) 1.0, work_buff, m, (T) 0.0, Q_dat, m);
+            A(Layout::ColMajor, k, (T) 1.0, work_buff, m, (T) 0.0, Q, m);
             if(this->cond_check) {
-                util::upsize(m * k, this->cond_work_mat);
-                util::upsize(k, this->cond_work_vec);
+                util::resize(m * k, this->cond_work_mat);
+                util::resize(k, this->cond_work_vec);
                 this->cond_nums.push_back(
-                    util::cond_num_check(m, k, Q.data(), this->verbose)
+                    util::cond_num_check(m, k, Q, this->verbose)
                 );
             }
-            if(this->orth.call(m, k, Q.data()))
+            if(this->orth.call(m, k, Q))
                 throw std::runtime_error("Orthogonalization failed.");
             
             if (!callers_work_buff)

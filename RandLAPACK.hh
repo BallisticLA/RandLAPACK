@@ -18,6 +18,7 @@
 #include "RandLAPACK/testing/rl_test_utils.hh"
 
 // Computational routines
+#include "RandLAPACK/comps/rl_matfun.hh"
 #include "RandLAPACK/comps/rl_determiter.hh"
 #include "RandLAPACK/comps/rl_preconditioners.hh"
 #include "RandLAPACK/comps/rl_qb.hh"
@@ -27,6 +28,9 @@
 #include "RandLAPACK/comps/rl_syrf.hh"
 #include "RandLAPACK/comps/rl_orth.hh"
 #include "RandLAPACK/comps/rl_rpchol.hh"
+#include "RandLAPACK/comps/rl_lanczos_fa.hh"
+#include "RandLAPACK/comps/rl_lanczos_fa_block.hh"
+#include "RandLAPACK/comps/rl_hutchinson.hh"
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
@@ -36,9 +40,10 @@
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"
-#include "RandLAPACK/drivers/rl_revd2.hh"
+#include "RandLAPACK/drivers/rl_nystrom_evd.hh"
 #include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
+#include "RandLAPACK/drivers/rl_fun_nystrom_pp.hh"
 
 // Cuda functions - issues with linking/visibility when present if the below is uncommented.
 // A temporary fix is to add the below directly in the test/benchmark files.

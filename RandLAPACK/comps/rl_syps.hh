@@ -27,6 +27,9 @@ class SYPS {
         bool verbose;
         bool cond_check;
         std::vector<T> cond_nums;
+        // 0 = Gaussian (DenseDist, default); 1 = SASO (SparseDist, vec_nnz per column)
+        int sketch_type = 0;
+        int vec_nnz     = 4;
     
         SYPS(
             int64_t p, // number of passes
@@ -109,8 +112,20 @@ class SYPS {
             bool callers_skop_buff = skop_buff != nullptr;
             if (!callers_skop_buff)
                 skop_buff = new T[m * k];
-            RandBLAS::DenseDist D(m, k);
-            state = RandBLAS::fill_dense(D, skop_buff, state);
+            if (sketch_type == 1) {
+                // SJLT: generate a sparse sketch and densify into skop_buff.
+                // T and sint_t (int64_t) must be explicit since SparseDist::sample
+                // can't deduce T from the RNGState argument alone.
+                auto S = RandBLAS::SparseDist(m, k, this->vec_nnz).sample<T, RNG, int64_t>(state);
+                state = S.next_state;
+                RandBLAS::fill_sparse(S);
+                auto Scoo = RandBLAS::coo_view_of_skop(S);
+                std::fill(skop_buff, skop_buff + m * k, (T)0.0);
+                RandLAPACK::util::sparse_to_dense(Scoo, Layout::ColMajor, skop_buff);
+            } else {
+                RandBLAS::DenseDist D(m, k);
+                state = RandBLAS::fill_dense(D, skop_buff, state);
+            }
 
             bool callers_work_buff = work_buff != nullptr;
             if (!callers_work_buff)

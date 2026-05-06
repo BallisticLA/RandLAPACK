@@ -186,10 +186,10 @@ void col_swap(
     }
 }
 
-/// Checks if the given size is larger than available. 
-/// If so, resizes the vector.
+/// Grow a std::vector to at least target_sz elements (zero-fills new entries).
+/// Returns a raw pointer to the underlying data.
 template <typename T>
-T* upsize(
+T* resize(
     int64_t target_sz,
     std::vector<T> &A
 ) {
@@ -198,6 +198,19 @@ T* upsize(
 
     return A.data();
 }
+
+/// Grow a raw buffer to at least `needed` elements.
+/// Replaces the allocation; existing contents are not preserved.
+/// New storage is uninitialized — callers must write before reading.
+template <typename T>
+void resize(T*& buf, int64_t& buf_sz, int64_t needed) {
+    if (needed > buf_sz) {
+        delete[] buf;
+        buf = new T[needed];
+        buf_sz = needed;
+    }
+}
+
 
 /// Uses recursion to find the rank of the matrix pointed to by A_dat.
 /// Does so by attempting to find the smallest k such that 
@@ -246,7 +259,7 @@ void normc(
     const std::vector<T> &A,
     std::vector<T> &A_norm
 ) {
-    util::upsize(m * n, A_norm);
+    util::resize(m * n, A_norm);
 
     T col_nrm = 0.0;
     for(int i = 0; i < n; ++i) {
