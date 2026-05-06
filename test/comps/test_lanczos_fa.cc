@@ -65,7 +65,6 @@ protected:
     template <typename F>
     static void run_diagonal_fa_test(F f, int64_t n, int64_t s, int64_t d,
                                      double tol, uint64_t seed) {
-        using RNG = r123::Philox4x32;
         auto state = RandBLAS::RNGState(seed);
         std::vector<double> diag_vec(n);
         std::iota(diag_vec.begin(), diag_vec.end(), 1.0);
@@ -75,7 +74,7 @@ protected:
         state = RandBLAS::fill_dense(DB, B.data(), state);
         std::vector<double> out(n * s, 0.0);
         linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
-        RandLAPACK::LanczosFA<double, RNG> lfa;
+        RandLAPACK::LanczosFA<double> lfa;
         lfa.reorth = 1;
         lfa.call(A_op, B.data(), n, s, f, d, out.data());
         auto ref = diag_fa_ref(diag_vec, B, n, s, f);
@@ -95,7 +94,6 @@ protected:
     template <typename F>
     static void run_dense_fa_test(F f, int64_t n, int64_t s, int64_t d,
                                   double tol, uint64_t seed) {
-        using RNG = r123::Philox4x32;
         auto state = RandBLAS::RNGState(seed);
         std::vector<double> B_raw(n * n);
         RandBLAS::DenseDist D1(n, n);
@@ -109,7 +107,7 @@ protected:
         state = RandBLAS::fill_dense(D2, B.data(), state);
         std::vector<double> out(n * s, 0.0);
         linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
-        RandLAPACK::LanczosFA<double, RNG> lfa;
+        RandLAPACK::LanczosFA<double> lfa;
         lfa.reorth = 1;
         lfa.call(A_op, B.data(), n, s, f, d, out.data());
         auto ref = dense_fa_ref(A, B, n, s, f);
@@ -135,7 +133,6 @@ TEST_F(TestLanczosFA, DiagonalSqrt) {
 // Exercises the paths where beta is never allocated and the main recurrence loop
 // (0..d-2) does not execute. stevd is called on a 1×1 tridiagonal.
 TEST_F(TestLanczosFA, ScalarMatrixSqrt_d1) {
-    using RNG = r123::Philox4x32;
     int64_t n = 8, s = 3, d = 1;
     auto state = RandBLAS::RNGState(55);
 
@@ -148,7 +145,7 @@ TEST_F(TestLanczosFA, ScalarMatrixSqrt_d1) {
 
     std::vector<double> out(n * s, 0.0);
     linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
-    RandLAPACK::LanczosFA<double, RNG> lfa;
+    RandLAPACK::LanczosFA<double> lfa;
     lfa.reorth = 1;
     lfa.call(A_op, B.data(), n, s, [](double x){ return std::sqrt(x); }, d, out.data());
 
@@ -208,7 +205,7 @@ TEST_F(TestLanczosFA, KernelRBFSqrt) {
     std::vector<double> out(n * s, 0.0);
     auto f = [](double x){ return std::sqrt(std::max(x, 0.0)); };
     linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, K.data(), n, Layout::ColMajor);
-    RandLAPACK::LanczosFA<double, RNG> lfa;
+    RandLAPACK::LanczosFA<double> lfa;
     lfa.reorth = 1;
     lfa.call(A_op, B.data(), n, s, f, d, out.data());
 
@@ -228,7 +225,6 @@ TEST_F(TestLanczosFA, KernelRBFSqrt) {
 // Tests that reorthogonalization doesn't introduce a bug, not that it helps
 // (for that one would need κ >> 1 where vanilla loses orthogonality).
 TEST_F(TestLanczosFA, ReorthVsVanilla) {
-    using RNG = r123::Philox4x32;
     int64_t n = 40, s = 3, d = 15;
     auto state = RandBLAS::RNGState(99);
 
@@ -243,7 +239,7 @@ TEST_F(TestLanczosFA, ReorthVsVanilla) {
     linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
     auto f_sqrt = [](double x){ return std::sqrt(x); };
 
-    using LFA = RandLAPACK::LanczosFA<double, RNG>;
+    using LFA = RandLAPACK::LanczosFA<double>;
     std::vector<double> out_full(n * s, 0.0), out_van(n * s, 0.0);
     LFA lfa_full, lfa_van;
     lfa_full.reorth = 1;
@@ -273,7 +269,6 @@ protected:
     template <typename F>
     static void run_block_diagonal_fa_test(F f, int64_t n, int64_t s, int64_t d,
                                            double tol, uint64_t seed) {
-        using RNG = r123::Philox4x32;
         auto state = RandBLAS::RNGState(seed);
         std::vector<double> diag_vec(n);
         std::iota(diag_vec.begin(), diag_vec.end(), 1.0);
@@ -283,7 +278,7 @@ protected:
         state = RandBLAS::fill_dense(DB, B.data(), state);
         std::vector<double> out(n * s, 0.0);
         linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
-        RandLAPACK::BlockLanczosFA<double, RNG> blfa;
+        RandLAPACK::BlockLanczosFA<double> blfa;
         blfa.reorth = 1;
         blfa.call(A_op, B.data(), n, s, f, d, out.data());
         auto ref = diag_fa_ref(diag_vec, B, n, s, f);
@@ -301,7 +296,6 @@ protected:
     template <typename F>
     static void run_block_dense_fa_test(F f, int64_t n, int64_t s, int64_t d,
                                         double tol, uint64_t seed) {
-        using RNG = r123::Philox4x32;
         auto state = RandBLAS::RNGState(seed);
         std::vector<double> B_raw(n * n);
         RandBLAS::DenseDist D1(n, n);
@@ -315,7 +309,7 @@ protected:
         state = RandBLAS::fill_dense(D2, B.data(), state);
         std::vector<double> out(n * s, 0.0);
         linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
-        RandLAPACK::BlockLanczosFA<double, RNG> blfa;
+        RandLAPACK::BlockLanczosFA<double> blfa;
         blfa.reorth = 1;
         blfa.call(A_op, B.data(), n, s, f, d, out.data());
         auto ref = dense_fa_ref(A, B, n, s, f);
@@ -341,6 +335,125 @@ TEST_F(TestBlockLanczosFA, DensePSDSqrt) {
     run_block_dense_fa_test([](double x){ return std::sqrt(std::max(x, 0.0)); }, 50, 4, 25, 1e-6, 31);
 }
 
+// d=1 edge case: only the initial QR of B is performed; the recurrence loop runs one
+// step (computes A_step) but no further blocks are appended. The block Krylov subspace
+// is span(Q_0) = span(B), so out = Q_0 * f(Q_0^T A Q_0) * R_0 — a Galerkin approximation
+// of f(A)B in the original input subspace. Quality is poor for general A but the path
+// must run without crashing and produce a finite, meaningful result.
+TEST_F(TestBlockLanczosFA, DStepEqualsOne) {
+    int64_t n = 30, s = 4, d = 1;
+    auto state = RandBLAS::RNGState(7);
+
+    // A = diag(1..n); B random.
+    std::vector<double> diag_vec(n);
+    std::iota(diag_vec.begin(), diag_vec.end(), 1.0);
+    std::vector<double> A_mat = make_diag_matrix(diag_vec);
+    std::vector<double> B(n * s);
+    RandBLAS::DenseDist DB(n, s);
+    state = RandBLAS::fill_dense(DB, B.data(), state);
+
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
+    auto f_sqrt = [](double x){ return std::sqrt(std::max(x, 0.0)); };
+
+    std::vector<double> out(n * s, 0.0);
+    RandLAPACK::BlockLanczosFA<double> blfa;
+    blfa.reorth = 1;
+    blfa.call(A_op, B.data(), n, s, f_sqrt, d, out.data());
+
+    // Sanity: output is finite, nonzero, and not catastrophically wrong.
+    double out_norm = 0.0;
+    bool   all_finite = true;
+    for (int64_t i = 0; i < n * s; ++i) {
+        out_norm  += out[i] * out[i];
+        all_finite = all_finite && std::isfinite(out[i]);
+    }
+    ASSERT_TRUE(all_finite);
+    ASSERT_GT(std::sqrt(out_norm), 1e-3);
+    printf("d=1 block ||out|| = %e (sanity check, accuracy not asserted)\n", std::sqrt(out_norm));
+}
+
+// reorth=0 (vanilla block recurrence) vs reorth=1 (full reorthogonalization) on the
+// same problem. With moderate d on a well-conditioned matrix, both should converge
+// to a similar answer; this exercises the no-reorth code path and guards against
+// regressions in it.
+TEST_F(TestBlockLanczosFA, NoReorthAgreesWithFull) {
+    int64_t n = 50, s = 4, d = 25;
+    auto state = RandBLAS::RNGState(31);
+
+    // PSD A = G^T G + n*I (well-conditioned).
+    std::vector<double> B_raw(n * n);
+    RandBLAS::DenseDist D1(n, n);
+    state = RandBLAS::fill_dense(D1, B_raw.data(), state);
+    std::vector<double> A(n * n, 0.0);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, n, 1.0, B_raw.data(), n, 0.0, A.data(), n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (double)n;
+
+    std::vector<double> B(n * s);
+    RandBLAS::DenseDist D2(n, s);
+    state = RandBLAS::fill_dense(D2, B.data(), state);
+
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    auto f_sqrt = [](double x){ return std::sqrt(std::max(x, 0.0)); };
+
+    std::vector<double> out_full(n * s, 0.0), out_van(n * s, 0.0);
+    RandLAPACK::BlockLanczosFA<double> blfa_full, blfa_van;
+    blfa_full.reorth = 1;
+    blfa_van.reorth  = 0;
+
+    blfa_full.call(A_op, B.data(), n, s, f_sqrt, d, out_full.data());
+    blfa_van.call (A_op, B.data(), n, s, f_sqrt, d, out_van.data());
+
+    double diff = 0.0, norm = 0.0;
+    for (int64_t i = 0; i < n * s; ++i) {
+        double r = out_full[i] - out_van[i];
+        diff += r * r;
+        norm += out_full[i] * out_full[i];
+    }
+    double rel_diff = std::sqrt(diff / norm);
+    printf("Block reorth=1 vs reorth=0 relative diff: %e\n", rel_diff);
+    ASSERT_LT(rel_diff, 1e-6);
+}
+
+// Zero-column input: if B has a column of zeros, the corresponding output column
+// must be zero. The initial QR produces R_0 with a zero column at that index, which
+// propagates to a zero output column via the formula out = Q_basis * f(T_k) * E_1 * R_0.
+TEST_F(TestBlockLanczosFA, ZeroColumn) {
+    int64_t n = 40, s = 3, d = 10;
+    auto state = RandBLAS::RNGState(11);
+
+    std::vector<double> diag_vec(n);
+    std::iota(diag_vec.begin(), diag_vec.end(), 1.0);
+    std::vector<double> A_mat = make_diag_matrix(diag_vec);
+    std::vector<double> B(n * s);
+    RandBLAS::DenseDist DB(n, s);
+    state = RandBLAS::fill_dense(DB, B.data(), state);
+    // Zero out the middle column.
+    for (int64_t i = 0; i < n; ++i) B[i + 1 * n] = 0.0;
+
+    linops::ExplicitSymLinOp<double> A_op(n, blas::Uplo::Upper, A_mat.data(), n, Layout::ColMajor);
+    auto f_sqrt = [](double x){ return std::sqrt(std::max(x, 0.0)); };
+
+    std::vector<double> out(n * s, 0.0);
+    RandLAPACK::BlockLanczosFA<double> blfa;
+    blfa.reorth = 1;
+    blfa.call(A_op, B.data(), n, s, f_sqrt, d, out.data());
+
+    double zero_col_norm = 0.0, other_cols_norm = 0.0;
+    for (int64_t i = 0; i < n; ++i) zero_col_norm += out[i + 1 * n] * out[i + 1 * n];
+    for (int64_t j = 0; j < s; ++j) {
+        if (j == 1) continue;
+        for (int64_t i = 0; i < n; ++i)
+            other_cols_norm += out[i + j * n] * out[i + j * n];
+    }
+    zero_col_norm   = std::sqrt(zero_col_norm);
+    other_cols_norm = std::sqrt(other_cols_norm);
+    printf("Zero-column out norm: %e (others: %e)\n", zero_col_norm, other_cols_norm);
+    // Output column for zero input column should be at roundoff level.
+    ASSERT_LT(zero_col_norm, 1e-10);
+    // Other columns should be substantially nonzero (sanity).
+    ASSERT_GT(other_cols_norm, 1e-3);
+}
+
 // BlockLanczosFA vs LanczosFA on the same problem — outputs should agree at sufficient depth.
 TEST_F(TestBlockLanczosFA, AgreeWithScalar) {
     using RNG = r123::Philox4x32;
@@ -363,11 +476,11 @@ TEST_F(TestBlockLanczosFA, AgreeWithScalar) {
     auto f_sqrt = [](double x){ return std::sqrt(std::max(x, 0.0)); };
 
     std::vector<double> out_scalar(n * s, 0.0), out_block(n * s, 0.0);
-    RandLAPACK::LanczosFA<double, RNG> lfa;
+    RandLAPACK::LanczosFA<double> lfa;
     lfa.reorth = 1;
     lfa.call(A_op, B.data(), n, s, f_sqrt, d, out_scalar.data());
 
-    RandLAPACK::BlockLanczosFA<double, RNG> blfa;
+    RandLAPACK::BlockLanczosFA<double> blfa;
     blfa.reorth = 1;
     blfa.call(A_op, B.data(), n, s, f_sqrt, d, out_block.data());
 

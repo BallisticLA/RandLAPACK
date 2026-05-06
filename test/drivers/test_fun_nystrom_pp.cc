@@ -38,7 +38,7 @@ protected:
         using Orth_t   = RandLAPACK::HQRQ<double>;
         using SYRF_t   = RandLAPACK::SYRF<SYPS_t, Orth_t>;
         using NystromEVD_t  = RandLAPACK::NystromEVD<SYRF_t>;
-        using LFA_t    = RandLAPACK::LanczosFA<double, RNG>;
+        using LFA_t    = RandLAPACK::LanczosFA<double>;
         using Hutch_t  = RandLAPACK::Hutchinson<double, RNG>;
         using Driver_t = RandLAPACK::FunNystromPP<NystromEVD_t, LFA_t, Hutch_t>;
 

@@ -32,7 +32,7 @@ namespace RandLAPACK::linops {
 ///
 /// @tparam T      Scalar type.
 /// @tparam SLO_t  Type of the operator A.
-/// @tparam LFA_t  Type of the matrix-function oracle (e.g. LanczosFA<T,RNG>).
+/// @tparam LFA_t  Type of the matrix-function oracle (e.g. LanczosFA<T>).
 /// @tparam F_t    Callable type T→T.
 template <typename T, typename SLO_t, typename LFA_t, typename F_t>
 struct ResidualOp {

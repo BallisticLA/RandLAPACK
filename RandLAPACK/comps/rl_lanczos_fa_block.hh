@@ -38,8 +38,7 @@ namespace RandLAPACK {
 /// effective rank of A, use a smaller d or the scalar LanczosFA.
 ///
 /// @tparam T    Floating-point scalar type.
-/// @tparam RNG  Random number generator type (unused; kept for API uniformity with LanczosFA).
-template <typename T, typename RNG>
+template <typename T>
 class BlockLanczosFA {
 public:
     /// Reorthogonalization control.
@@ -61,12 +60,14 @@ public:
     //   Only d-1 entries are populated (no beta after the last step);
     //   size d is allocated to keep indexing uniform.
     // workspace: apply_f scratch — T_dense (d*s×d*s) + eig_vals (d*s) + G (d*s×s) + C1 (d*s×s).
+    // proj_buf:  s*s — reorthogonalization scratch (Q_p^T * Y projection); reused across steps.
     T* K_big     = nullptr; int64_t K_big_sz     = 0;
     T* R0_buf    = nullptr; int64_t R0_sz        = 0;
     T* tau_buf   = nullptr; int64_t tau_buf_sz   = 0;
     T* A_blk     = nullptr; int64_t A_blk_sz     = 0;
     T* B_blk     = nullptr; int64_t B_blk_sz     = 0;
     T* workspace = nullptr; int64_t workspace_sz = 0;
+    T* proj_buf  = nullptr; int64_t proj_buf_sz  = 0;
 
     bool timing = false;
     std::vector<long> times;
@@ -78,7 +79,7 @@ public:
 
     ~BlockLanczosFA() {
         delete[] K_big; delete[] R0_buf; delete[] tau_buf;
-        delete[] A_blk; delete[] B_blk; delete[] workspace;
+        delete[] A_blk; delete[] B_blk; delete[] workspace; delete[] proj_buf;
     }
 
     // ------------------------------------------------------------------
@@ -96,6 +97,7 @@ public:
         util::resize(tau_buf, tau_buf_sz, n);
         util::resize(A_blk,   A_blk_sz,   d * s * s);
         util::resize(B_blk,   B_blk_sz,   d * s * s);
+        if (reorth) util::resize(proj_buf, proj_buf_sz, s * s);
 
         // Initial QR: B = Q0 * R0.  Q0 overwrites K_big[0..n*s-1].
         T* Q0 = K_big;
@@ -125,10 +127,13 @@ public:
             // A_step = Q_step^T * Y  (block alpha, s×s)
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
                        s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, s);
-            for (int64_t j = 0; j < s; ++j)
-                for (int64_t i = j + 1; i < s; ++i)
-                    A_step[j * s + i] = A_step[i * s + j] =
-                        (T)0.5 * (A_step[j * s + i] + A_step[i * s + j]);
+            for (int64_t j = 0; j < s; ++j) {
+                for (int64_t i = j + 1; i < s; ++i) {
+                    T avg = (T)0.5 * (A_step[j * s + i] + A_step[i * s + j]);
+                    A_step[j * s + i] = avg;
+                    A_step[i * s + j] = avg;
+                }
+            }
 
             // Y -= Q_step * A_step  (Z = Y - Q_step*A_step, in-place)
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
@@ -136,13 +141,12 @@ public:
 
             // Optional full reorthogonalization: Z -= Q_p * (Q_p^T * Z) for each prev block
             if (reorth) {
-                std::vector<T> proj(s * s);
                 for (int64_t prev = 0; prev <= step; ++prev) {
                     T* Q_p = K_big + prev * n * s;
                     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                               s, s, n, (T)1.0, Q_p, n, Y, n, (T)0.0, proj.data(), s);
+                               s, s, n, (T)1.0, Q_p, n, Y, n, (T)0.0, proj_buf, s);
                     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                               n, s, s, (T)-1.0, Q_p, n, proj.data(), s, (T)1.0, Y, n);
+                               n, s, s, (T)-1.0, Q_p, n, proj_buf, s, (T)1.0, Y, n);
                 }
             }
 

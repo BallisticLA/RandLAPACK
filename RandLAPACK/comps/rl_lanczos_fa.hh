@@ -24,8 +24,7 @@ namespace RandLAPACK {
 /// See: T. Chen, "A Lanczos-FA algorithm for matrix function approximation" (2022).
 ///
 /// @tparam T    Floating-point scalar type.
-/// @tparam RNG  Random number generator type (unused here; kept for API uniformity).
-template <typename T, typename RNG>
+template <typename T>
 class LanczosFA {
 public:
     /// Reorthogonalization control.
