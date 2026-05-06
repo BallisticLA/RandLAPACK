@@ -22,6 +22,14 @@ namespace RandLAPACK::linops {
 /// Â = V diag(λ) V^T is the Nyström approximation; V (n×k) and F_vec (k,
 /// holding f(λ)) are provided by the caller.
 ///
+/// Precision note: Z1 and Z2 follow different arithmetic paths even when f(A)=f(Â)
+/// exactly (i.e. k equals the effective rank of A). Z1 uses an iterative Krylov
+/// method; Z2 uses two dense GEMMs with the eigenvectors. The per-column disagreement
+/// is ~1e-14, producing a systematic Hutchinson bias of roughly 1e-5 relative when
+/// Phase 2's true value is zero. This is an inherent floating-point limitation of
+/// combining an iterative oracle with a direct GEMM in the same residual; it is not a
+/// bug. To reach machine precision at k = effective_rank, skip Phase 2 entirely.
+///
 /// @tparam T      Scalar type.
 /// @tparam SLO_t  Type of the operator A.
 /// @tparam LFA_t  Type of the matrix-function oracle (e.g. LanczosFA<T,RNG>).

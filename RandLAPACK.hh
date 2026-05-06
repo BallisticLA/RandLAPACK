@@ -29,6 +29,7 @@
 #include "RandLAPACK/comps/rl_orth.hh"
 #include "RandLAPACK/comps/rl_rpchol.hh"
 #include "RandLAPACK/comps/rl_lanczos_fa.hh"
+#include "RandLAPACK/comps/rl_lanczos_fa_block.hh"
 #include "RandLAPACK/comps/rl_hutchinson.hh"
 
 // Drivers
