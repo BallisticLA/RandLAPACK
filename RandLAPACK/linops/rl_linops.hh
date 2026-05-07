@@ -16,3 +16,5 @@
 #include "rl_composite_linop.hh"
 #include "rl_sym_linops.hh"
 #include "rl_materialize.hh"
+#include "rl_kronecker_linop.hh"
+#include "rl_regularized_linop.hh"
