@@ -104,6 +104,51 @@ struct ExplicitSymLinOp {
             return A_buff[i + j*lda];
         }
     }
+
+    /// SkOp overload: apply A to a SketchingOperator S (sparse or dense).
+    /// Computes C = alpha * A * S + beta * C.
+    ///
+    /// Mirrors the pattern in `SparseLinOp::operator()(SkOp&)`:
+    ///   - Dense SkOp  → extract S.buff and dispatch to the existing SYMM path.
+    ///   - Sparse SkOp → use RandBLAS::sparse_data::right_spmm directly,
+    ///                   bypassing the densification of S into a dense buffer.
+    ///
+    /// PRECONDITION (sparse path only): A_buff must have BOTH triangles populated.
+    /// `right_spmm` reads A as a generic dense matrix and does not exploit
+    /// symmetry — so it will read whatever is in the lower triangle. For
+    /// matrices generated via `gen_sym_psd_lowrank` (which only fills upper),
+    /// the caller must symmetrize before constructing this operator.
+    /// `SparseSymLinOp` imposes the same constraint by convention.
+    template <RandBLAS::SketchingOperator SkOp>
+    void operator()(
+        Layout layout,
+        int64_t n_vecs,
+        T alpha,
+        SkOp& S,
+        T beta,
+        T* C,
+        int64_t ldc
+    ) {
+        if constexpr (requires { S.buff; S.layout; S.dist; }) {
+            // Dense sketch — extract buffer, dispatch to existing dense matvec.
+            // The existing path uses blas::symm and works fine with one-triangle storage.
+            if (S.buff == nullptr) RandBLAS::fill_dense(S);
+            int64_t ldS = S.dist.dim_major;
+            randblas_require(S.layout == layout);   // simplification — caller ensures match
+            (*this)(layout, n_vecs, alpha, S.buff, ldS, beta, C, ldc);
+        } else {
+            // Sparse sketch — dense·sparse via right_spmm. Requires both triangles of A.
+            if (S.nnz < 0) RandBLAS::fill_sparse(S);
+            auto S_coo = RandBLAS::coo_view_of_skop(S);
+            RandBLAS::sparse_data::right_spmm(
+                layout, Op::NoTrans, Op::NoTrans,
+                dim, n_vecs, dim,
+                alpha, this->A_buff, this->lda,
+                S_coo, 0, 0,
+                beta, C, ldc
+            );
+        }
+    }
 };
 
 /*********************************************************/

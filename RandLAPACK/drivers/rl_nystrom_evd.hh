@@ -182,42 +182,144 @@ class NystromEVD {
                 A(Layout::ColMajor, k, (T)1, Omega, m, (T)0, Y, m);
                 if (this->timing) { t1 = steady_clock::now(); matvec_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
-                T nu = std::numeric_limits<T>::epsilon() * lapack::lange(Norm::Fro, m, k, Y, m);
+                // ----- Phase 1 spectral recovery -----
+                //
+                // Two paths sharing the same Gram-matrix construction:
+                //
+                // FAST PATH (well-conditioned Gram — the common case):
+                //   G    = Ωᵀ · Y                              (k×k sym PSD)
+                //   G    = Lᵀ · L                              (Cholesky)
+                //   Y    := Y · L⁻¹                            (TRSM)
+                //   G_y  = Yᵀ · Y                              (small Gram)
+                //   G_y  = V · Σ² · Vᵀ                         (syevd)
+                //   U    = Y · V · diag(1/σ)                   (gemm + scal)
+                //   eigvals = Σ²
+                //
+                //   The eig-of-Yᵀ·Y trick (Halko-Martinsson-Tropp §5.1) avoids
+                //   the more expensive gesdd of n×k while keeping eigenvector
+                //   accuracy fine because Y is well-conditioned post-TRSM.
+                //
+                // FALL-BACK (Cholesky failure on near-singular Gram):
+                //   syevd(G) → V_G, D                          (pseudoinverse)
+                //   B    = Y · V_G · diag(1/√D) · V_Gᵀ          (3 GEMMs)
+                //   gesdd(B) → U, Σ
+                //   eigvals = Σ²
+                //
+                //   This is the safe path. It handles rank-deficient Gram via
+                //   thresholded pseudoinverse. Mirrors the Persson-Kressner
+                //   reference nystrom.m. Slightly more expensive than the
+                //   fast path but always succeeds.
+                //
+                // No regularization shift in either path — both paths preserve
+                // the ε_mach accuracy of the SVD-pseudoinverse rewrite.
 
+                T eps_mach = std::numeric_limits<T>::epsilon();
+
+                // Form Gram G := Ωᵀ · Y into R (k×k). G = Ωᵀ·A·Ω in exact
+                // arithmetic and is symmetric, but the two non-trivial GEMMs
+                // (sketch + power-iter Y, then Ωᵀ Y) introduce small
+                // asymmetry; symmetrize so potrf and the later syevd see a
+                // numerically symmetric matrix.
                 if (this->timing) t0 = steady_clock::now();
-                blas::syrk(Layout::ColMajor, Uplo::Lower, Op::Trans, k, m, nu, Omega, m, (T)0, R, k);
-                for(int64_t i = 1; i < k; ++i)
-                    blas::copy(k - i, &R[i + ((i-1) * k)], 1, &R[(i - 1) + (i * k)], k);
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m, (T)1, Omega, m, Y, m, (T)1, R, k);
+                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
+                           (T)1, Omega, m, Y, m, (T)0, R, k);
+                RandLAPACK::util::symmetrize(k, R, k);
+                // Backup G into symrf_work so we can restore it if Cholesky
+                // fails (potrf is destructive). symrf_work is m×k = enough for
+                // the k×k Gram.
+                lapack::lacpy(lapack::MatrixType::General, k, k, R, k, symrf_work, k);
                 if (this->timing) { t1 = steady_clock::now(); gram_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
+                int64_t r = 0;
+
+                // Try Cholesky.
                 if (this->timing) t0 = steady_clock::now();
-                if(lapack::potrf(Uplo::Upper, k, R, k))
-                    throw std::runtime_error("Cholesky decomposition failed.");
-                RandLAPACK::util::get_U(k, k, R, k);
+                int chol_status = lapack::potrf(Uplo::Upper, k, R, k);
                 if (this->timing) { t1 = steady_clock::now(); potrf_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
-                if (this->timing) t0 = steady_clock::now();
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T)1, R, k, Y, m);
-                if (this->timing) { t1 = steady_clock::now(); trsm_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+                if (chol_status == 0) {
+                    // -------- FAST PATH --------
+                    RandLAPACK::util::get_U(k, k, R, k);   // zero strict lower
 
-                if (this->timing) t0 = steady_clock::now();
-                lapack::gesdd(Job::SomeVec, m, k, Y, m, S, V_dat, m, R, k);
-                if (this->timing) { t1 = steady_clock::now(); svd_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+                    // Y := Y · R⁻¹  (R is upper-tri Cholesky factor)
+                    if (this->timing) t0 = steady_clock::now();
+                    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper,
+                               Op::NoTrans, Diag::NonUnit, m, k,
+                               (T)1, R, k, Y, m);
+                    if (this->timing) { t1 = steady_clock::now(); trsm_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
-                if (this->timing) t0 = steady_clock::now();
-                T buf;
-                int64_t r = 0;
-                int64_t i;
-                for(i = 0; i < k; ++i) {
-                    buf = std::pow(S[i], 2);
-                    eigvals[i] = buf;
-                    if(buf > nu)
-                        ++r;
+                    // G_y = Yᵀ · Y (k×k symmetric); reuse R buffer. syrk
+                    // writes only the upper triangle; the strict lower stays
+                    // unspecified, which is fine — the following syevd call
+                    // is invoked with Uplo::Upper and reads only the upper
+                    // triangle (then overwrites all of R with eigenvectors).
+                    if (this->timing) t0 = steady_clock::now();
+                    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
+                               k, m, (T)1, Y, m, (T)0, R, k);
+                    // syevd(G_y) → R (eigvecs V), S (Σ², ASCENDING order).
+                    lapack::syevd(lapack::Job::Vec, Uplo::Upper, k, R, k, S);
+                    // Reverse to descending order to match the rest of the
+                    // pipeline (post-SVD threshold logic expects S[0]=largest).
+                    for (int64_t ii = 0; ii < k / 2; ++ii) std::swap(S[ii], S[k - 1 - ii]);
+                    for (int64_t jj = 0; jj < k / 2; ++jj) {
+                        blas::swap(k, R + jj * k, 1, R + (k - 1 - jj) * k, 1);
+                    }
+                    // U = Y · V  (left singular vectors, unscaled).
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k,
+                               (T)1, Y, m, R, k, (T)0, V_dat, m);
+                    // Scale columns by 1/σ (= 1/sqrt(σ²)). Threshold tiny σ² as 0.
+                    T sig_sq_max    = (k > 0) ? std::max(S[0], (T)0) : (T)0;
+                    T sig_sq_thresh = (T)4 * eps_mach * sig_sq_max;
+                    for (int64_t jj = 0; jj < k; ++jj) {
+                        if (S[jj] > sig_sq_thresh) {
+                            T inv_sig = (T)1 / std::sqrt(S[jj]);
+                            blas::scal(m, inv_sig, V_dat + jj * m, 1);
+                            ++r;
+                        } else {
+                            std::fill(V_dat + jj * m, V_dat + (jj + 1) * m, (T)0);
+                        }
+                    }
+                    // eigvals = σ² (already descending).
+                    for (int64_t i = 0; i < k; ++i)
+                        eigvals[i] = std::max(S[i], (T)0);
+                    if (this->timing) { t1 = steady_clock::now(); svd_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+                } else {
+                    // -------- FALL-BACK: syevd-pseudoinverse --------
+                    // Restore Gram into R from backup.
+                    lapack::lacpy(lapack::MatrixType::General, k, k, symrf_work, k, R, k);
+
+                    if (this->timing) t0 = steady_clock::now();
+                    lapack::syevd(lapack::Job::Vec, Uplo::Lower, k, R, k, S);
+                    if (this->timing) { t1 = steady_clock::now(); potrf_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+
+                    if (this->timing) t0 = steady_clock::now();
+                    T D_max    = (k > 0) ? std::max(S[k - 1], (T)0) : (T)0;
+                    T D_thresh = (T)2 * eps_mach * D_max;
+                    // symrf_work was the Gram backup; safe to overwrite now.
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k,
+                               (T)1, Y, m, R, k, (T)0, symrf_work, m);
+                    for (int64_t jj = 0; jj < k; ++jj) {
+                        T scale = (S[jj] > D_thresh) ? (T)1 / std::sqrt(S[jj]) : (T)0;
+                        blas::scal(m, scale, symrf_work + jj * m, 1);
+                    }
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, k, k,
+                               (T)1, symrf_work, m, R, k, (T)0, Y, m);
+                    if (this->timing) { t1 = steady_clock::now(); trsm_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+
+                    if (this->timing) t0 = steady_clock::now();
+                    lapack::gesdd(Job::SomeVec, m, k, Y, m, S, V_dat, m, R, k);
+                    if (this->timing) { t1 = steady_clock::now(); svd_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
+
+                    T S_max    = (k > 0) ? S[0] : (T)0;
+                    T S_thresh = (T)2 * eps_mach * S_max;
+                    for (int64_t i = 0; i < k; ++i) {
+                        eigvals[i] = std::pow(S[i], 2);
+                        if (S[i] > S_thresh) ++r;
+                    }
+                    std::fill(&V_dat[m * r], &V_dat[m * k], (T)0);
                 }
-                for(i = 0; i < r; ++i)
-                    if (eigvals[i] > nu) eigvals[i] -= nu;
-                std::fill(&V_dat[m * r], &V_dat[m * k], (T)0);
+
+                if (this->timing) t0 = steady_clock::now();
                 if (this->timing) { t1 = steady_clock::now(); post_svd_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
                 // Fixed-rank mode: skip error estimation entirely.
@@ -229,7 +331,12 @@ class NystromEVD {
                 err = power_error_est(A, k, this->error_est_p, Omega, V_dat, Y, eigvals);
                 if (this->timing) { t1 = steady_clock::now(); error_est_t_dur += duration_cast<microseconds>(t1 - t0).count(); }
 
-                if(err <= 5 * std::max(tol, nu) || k == m) {
+                // Convergence: stop when the residual estimate hits the
+                // numerical noise floor (~ ε_mach · λ_max ≈ ε_mach · eigvals[0]
+                // since gesdd returned descending Σ → eigvals[0] is largest)
+                // or when the rank has saturated.
+                T noise_floor = eps_mach * (k > 0 ? eigvals[0] : (T)0);
+                if (err <= 5 * std::max(tol, noise_floor) || k == m) {
                     break;
                 } else if (2 * k > m) {
                     k = m;

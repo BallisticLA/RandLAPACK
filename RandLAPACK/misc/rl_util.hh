@@ -124,6 +124,22 @@ void get_U(
     }
 }
 
+/// In-place symmetrize: replace A[i,j] and A[j,i] (i ≠ j) with their
+/// average. Used to clean up small finite-arithmetic asymmetry in matrices
+/// that should be symmetric in exact arithmetic (e.g. Ωᵀ·A·Ω built via two
+/// non-trivial GEMMs, or block-Lanczos diagonal blocks Qᵢᵀ·A·Qᵢ).
+/// Column-major; touches the strict upper and strict lower triangles.
+template <typename T>
+void symmetrize(int64_t n, T* A, int64_t lda) {
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = j + 1; i < n; ++i) {
+            T avg = (T)0.5 * (A[i + j * lda] + A[j + i * lda]);
+            A[i + j * lda] = avg;
+            A[j + i * lda] = avg;
+        }
+    }
+}
+
 /// Returns true if all diagonal entries of an upper-triangular matrix are
 /// nonzero (safe to use in TRSM). Returns false if any diagonal is exactly
 /// zero, which would cause division by zero during triangular solve.

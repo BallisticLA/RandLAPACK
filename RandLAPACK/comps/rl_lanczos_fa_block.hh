@@ -124,16 +124,12 @@ public:
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
                            n, s, s, (T)-1.0, Q_prev, n, B_prev, s, (T)1.0, Y, n);
 
-            // A_step = Q_step^T * Y  (block alpha, s×s)
+            // A_step = Q_step^T * Y  (block alpha, s×s). Symmetric in
+            // exact arithmetic since Q_stepᵀ·A·Q_step is — symmetrize
+            // away the small finite-arithmetic asymmetry.
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
                        s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, s);
-            for (int64_t j = 0; j < s; ++j) {
-                for (int64_t i = j + 1; i < s; ++i) {
-                    T avg = (T)0.5 * (A_step[j * s + i] + A_step[i * s + j]);
-                    A_step[j * s + i] = avg;
-                    A_step[i * s + j] = avg;
-                }
-            }
+            util::symmetrize(s, A_step, s);
 
             // Y -= Q_step * A_step  (Z = Y - Q_step*A_step, in-place)
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
@@ -182,7 +178,16 @@ public:
         T* G        = eig_vals + m;
         T* C1       = G + m * s;
 
-        // 1. Assemble T_dense.
+        // 1. Assemble T_dense (m×m, m = d·s) as block tridiagonal:
+        //
+        //         ┌  A₀   B₀ᵀ                  ┐
+        //         │  B₀   A₁   B₁ᵀ             │
+        //   T_d = │       B₁   A₂   …          │
+        //         │              ⋱   ⋱   B_{d-2}ᵀ│
+        //         └                  B_{d-2}  A_{d-1}┘
+        //
+        // where Aᵢ is the s×s diagonal block in A_blk[i] and Bᵢ is the s×s
+        // upper-triangular factor produced by the QR of Z at step i+1.
         std::memset(T_dense, 0, m * m * sizeof(T));
         for (int64_t step = 0; step < d; ++step) {
             int64_t b0 = step * s;
@@ -202,12 +207,9 @@ public:
                         T_dense[(b1 + j) * m + (b0 + i)] = B_step[i * s + j];
             }
         }
-        // Symmetrize to eliminate any floating-point asymmetry
-        for (int64_t j = 0; j < m; ++j)
-            for (int64_t i = j + 1; i < m; ++i) {
-                T avg = (T)0.5 * (T_dense[j * m + i] + T_dense[i * m + j]);
-                T_dense[j * m + i] = T_dense[i * m + j] = avg;
-            }
+        // Symmetrize to eliminate any floating-point asymmetry between the
+        // explicit B_step lower block and its hand-transposed upper twin.
+        util::symmetrize(m, T_dense, m);
 
         // 2. Eigendecomposition: T_dense → V (eigenvectors overwrite T_dense), eig_vals → λ.
         lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, T_dense, m, eig_vals);

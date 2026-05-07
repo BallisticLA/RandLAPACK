@@ -168,6 +168,16 @@ struct CountingLinOp {
 
 // ============================================================================
 // data_regen: build or load A for the current n.
+//
+// Optional disk cache: generated matrices (the synthetic-decay and kernel
+// paths) are saved to /tmp/funny_A_mat<M>_n<N>_kmat<K>_func<F>_<dtype>.bin
+// after first generation. Subsequent invocations with the same parameters
+// load from the cache instead of regenerating, saving the Haar-random QR +
+// scale + syrk cost on every benchmark invocation.
+//
+// The cache file is just a flat binary dump of A (n*n entries, col-major).
+// Eigenvalues, noise, and d_dim are recomputed deterministically each time —
+// they're cheap to redo and avoid format/version concerns in the cache file.
 // ============================================================================
 
 template <typename T>
@@ -190,17 +200,15 @@ static void data_regen(
         data.eigvals.clear();
         data.noise = (T)0.0;
         data.d_dim = 0;
-    } else if (mat_type >= 3) {
+        return;
+    }
+
+    // ------ Set up small bookkeeping (eigvals / noise / d_dim) — deterministic
+    // and cheap, recomputed every call regardless of cache hit. ------
+    if (mat_type >= 3) {
         data.d_dim = data.k_mat;
-        data.noise = (T)0.0;
+        data.noise = (func_type == 1) ? (T)1.0 : (T)0.0;
         data.eigvals.clear();
-        T bandwidth = std::sqrt((T)data.d_dim);
-        if (mat_type == 3)
-            RandLAPACK::gen::gen_kernel_matrix<T, RNG>(
-                n, data.d_dim, data.A.data(), n, 0, bandwidth, (T)0.0, 0, state);
-        else
-            RandLAPACK::gen::gen_kernel_matrix<T, RNG>(
-                n, data.d_dim, data.A.data(), n, 1, (T)0.0, (T)1.0, 2, state);
     } else {
         data.d_dim = 0;
         data.eigvals.resize(data.k_mat);
@@ -210,15 +218,63 @@ static void data_regen(
         else
             RandLAPACK::gen::gen_exp_decay_singvals(data.k_mat, (T)1.0, (T)100.0,
                                                      data.eigvals.data());
+        data.noise = (func_type == 1) ? (T)1.0 : (T)0.0;
+    }
+
+    // ------ Try the matrix file cache. ------
+    char cache_path[256];
+    std::snprintf(cache_path, sizeof(cache_path),
+                  "/tmp/funny_A_mat%d_n%lld_kmat%lld_func%d_%c.bin",
+                  mat_type, (long long)n, (long long)data.k_mat, func_type,
+                  (sizeof(T) == 8) ? 'd' : 'f');
+    {
+        std::ifstream cache_in(cache_path, std::ios::binary);
+        if (cache_in.good()) {
+            cache_in.read(reinterpret_cast<char*>(data.A.data()),
+                          static_cast<std::streamsize>(n) * n * sizeof(T));
+            if (cache_in.gcount() ==
+                static_cast<std::streamsize>(n) * n * sizeof(T)) {
+                return;   // cache hit
+            }
+        }
+    }
+
+    // ------ Cache miss: generate. ------
+    if (mat_type >= 3) {
+        T bandwidth = std::sqrt((T)data.d_dim);
+        if (mat_type == 3)
+            RandLAPACK::gen::gen_kernel_matrix<T, RNG>(
+                n, data.d_dim, data.A.data(), n, 0, bandwidth, (T)0.0, 0, state);
+        else
+            RandLAPACK::gen::gen_kernel_matrix<T, RNG>(
+                n, data.d_dim, data.A.data(), n, 1, (T)0.0, (T)1.0, 2, state);
+        if (data.noise > (T)0) {
+            for (int64_t i = 0; i < n; ++i)
+                data.A[i + i * n] += data.noise;
+        }
+    } else {
         if (func_type == 1) {
-            data.noise = (T)1.0;
             RandLAPACK::gen::gen_shifted_lowrank_psd(n, data.k_mat, data.A.data(), n,
                                                       data.eigvals.data(), data.noise, state);
         } else {
-            data.noise = (T)0.0;
             RandLAPACK::gen::gen_sym_psd_lowrank(n, data.k_mat, data.A.data(), n,
                                                   data.eigvals.data(), state);
         }
+    }
+
+    // Mirror upper into lower for the SkOp sparse-spmm path
+    // (right_spmm reads A as a generic dense matrix; symmetry isn't exploited).
+    if (mat_type < 3) {
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = j + 1; i < n; ++i)
+                data.A[i + j * n] = data.A[j + i * n];
+    }
+
+    // ------ Save the freshly generated matrix to cache for next time. ------
+    std::ofstream cache_out(cache_path, std::ios::binary | std::ios::trunc);
+    if (cache_out.good()) {
+        cache_out.write(reinterpret_cast<const char*>(data.A.data()),
+                        static_cast<std::streamsize>(n) * n * sizeof(T));
     }
 }
 
@@ -270,6 +326,7 @@ static void call_all_algs(
     bool compute_ref,
     int sketch_type,
     int vec_nnz,
+    bool skip_hutchinson,
     const std::string& output_filename
 ) {
     int64_t n = data.n, k = data.k, s = data.s, d = data.d;
@@ -306,10 +363,14 @@ static void call_all_algs(
         ref_available = true;
     }
 
-    RandLAPACK::SYPS<T, RNG>                                             syps(3, 1, false, false);
+    RandLAPACK::SYPS<T, RNG>                                             syps(2, 1, false, false);
     syps.sketch_type = sketch_type;
     syps.vec_nnz     = vec_nnz;
     ORTH_t                                                               orth(false, false);
+    // Wire ORTH_t into SYPS's internal power-iter stabilization too — same
+    // user choice applies. SYPS auto-falls-back to HQRQ on CholQR failure.
+    ORTH_t                                                               orth_inner(false, false);
+    syps.internal_stab = &orth_inner;
     RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, ORTH_t>                   syrf(syps, orth);
     RandLAPACK::NystromEVD<decltype(syrf)>                               nystrom_evd(syrf, 0);
     nystrom_evd.timing = true;
@@ -363,21 +424,32 @@ static void call_all_algs(
         printf("    LanczosFA:    matvec=%lld lanczos=%lld apply_f=%lld total=%lld\n",
                (long long)lt[0], (long long)lt[1], (long long)lt[2], (long long)lt[4]);
 
-        // Hutchinson + LanczosFA (state_alg continues from where FunNystromPP left it)
-        ESLO A_op2(n, blas::Uplo::Upper, data.A.data(), n, Layout::ColMajor);
-        CSLO A_hutch(n, A_op2);
-        LFAOp<CSLO, LFA_t, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
+        // Hutchinson + LanczosFA (skipped when --skip-hutchinson is set;
+        // useful for s-sweeps that only need the Hutchinson reference at one
+        // (lfa, d) variant — e.g. scalar d=200 — and not at every sweep
+        // point. CSV output preserves the column shape with zeros.
+        T est_h = (T)0;
+        long dur_h = 0;
+        int64_t mv_h = 0;
+        if (!skip_hutchinson) {
+            ESLO A_op2(n, blas::Uplo::Upper, data.A.data(), n, Layout::ColMajor);
+            CSLO A_hutch(n, A_op2);
+            LFAOp<CSLO, LFA_t, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
 
-        auto start_h = steady_clock::now();
-        T est_h = hutch_base.call(lfa_op, s, state_alg);
-        auto stop_h  = steady_clock::now();
-        long dur_h    = duration_cast<microseconds>(stop_h - start_h).count();
-        int64_t mv_h  = A_hutch.count;
-        printf("  Hutchinson+LFA: est=%.6e  time=%lld us  matvecs=%lld\n",
-               (double)est_h, (long long)dur_h, (long long)mv_h);
+            auto start_h = steady_clock::now();
+            est_h = hutch_base.call(lfa_op, s, state_alg);
+            auto stop_h  = steady_clock::now();
+            dur_h = duration_cast<microseconds>(stop_h - start_h).count();
+            mv_h  = A_hutch.count;
+            printf("  Hutchinson+LFA: est=%.6e  time=%lld us  matvecs=%lld\n",
+                   (double)est_h, (long long)dur_h, (long long)mv_h);
+        } else {
+            printf("  Hutchinson+LFA: SKIPPED\n");
+        }
 
         double err_pp = ref_available ? std::abs((double)est_pp - (double)true_tr) / std::abs((double)true_tr) : -1.0;
-        double err_h  = ref_available ? std::abs((double)est_h  - (double)true_tr) / std::abs((double)true_tr) : -1.0;
+        double err_h  = (!skip_hutchinson && ref_available)
+            ? std::abs((double)est_h  - (double)true_tr) / std::abs((double)true_tr) : -1.0;
         if (ref_available)
             printf("  Reference:      true=%.6e  err_pp=%e  err_h=%e\n",
                    (double)true_tr, err_pp, err_h);
@@ -417,6 +489,7 @@ static void call_all_algs_sparse(
     double poly_lambda,
     int sketch_type,
     int vec_nnz,
+    bool skip_hutchinson,
     const std::string& output_filename
 ) {
     std::function<T(T)> f;
@@ -434,10 +507,12 @@ static void call_all_algs_sparse(
         fname = "poly";
     }
 
-    RandLAPACK::SYPS<T, RNG>                                              syps(3, 1, false, false);
+    RandLAPACK::SYPS<T, RNG>                                              syps(2, 1, false, false);
     syps.sketch_type = sketch_type;
     syps.vec_nnz     = vec_nnz;
     ORTH_t                                                                orth(false, false);
+    ORTH_t                                                                orth_inner(false, false);
+    syps.internal_stab = &orth_inner;
     RandLAPACK::SYRF<RandLAPACK::SYPS<T, RNG>, ORTH_t>                    syrf(syps, orth);
     RandLAPACK::NystromEVD<decltype(syrf)>                                nystrom_evd(syrf, 0);
     nystrom_evd.timing = true;
@@ -484,18 +559,25 @@ static void call_all_algs_sparse(
         printf("    LanczosFA:    matvec=%lld lanczos=%lld apply_f=%lld total=%lld\n",
                (long long)lt[0], (long long)lt[1], (long long)lt[2], (long long)lt[4]);
 
-        state_alg = state;
-        SSLO A_op_h(n, csr);
-        CSLO A_hutch(n, A_op_h);
-        LFAOp<CSLO, LFA_t, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
+        T est_h = (T)0;
+        long dur_h = 0;
+        int64_t mv_h = 0;
+        if (!skip_hutchinson) {
+            state_alg = state;
+            SSLO A_op_h(n, csr);
+            CSLO A_hutch(n, A_op_h);
+            LFAOp<CSLO, LFA_t, FuncT> lfa_op(n, A_hutch, lfa_base, f, d);
 
-        auto start_h = steady_clock::now();
-        T est_h = hutch_base.call(lfa_op, s, state_alg);
-        auto stop_h  = steady_clock::now();
-        long dur_h   = duration_cast<microseconds>(stop_h - start_h).count();
-        int64_t mv_h = A_hutch.count;
-        printf("  Hutchinson+LFA: est=%.6e  time=%lld us  matvecs=%lld\n",
-               (double)est_h, (long long)dur_h, (long long)mv_h);
+            auto start_h = steady_clock::now();
+            est_h = hutch_base.call(lfa_op, s, state_alg);
+            auto stop_h  = steady_clock::now();
+            dur_h = duration_cast<microseconds>(stop_h - start_h).count();
+            mv_h  = A_hutch.count;
+            printf("  Hutchinson+LFA: est=%.6e  time=%lld us  matvecs=%lld\n",
+                   (double)est_h, (long long)dur_h, (long long)mv_h);
+        } else {
+            printf("  Hutchinson+LFA: SKIPPED\n");
+        }
         printf("  Reference:      N/A (sparse matrix)\n");
 
         std::ofstream file(output_filename, std::ios::out | std::ios::app);
@@ -518,12 +600,12 @@ static void call_all_algs_sparse(
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    if (argc < 16) {
+    if (argc < 17) {
         std::cerr << "Usage: " << argv[0]
                   << " <dir_path> <num_runs> <k> <k_mat> <s>"
                      " <d_steps> <mat_or_file> <func_type> <compute_ref>"
                      " <sketch_type> <vec_nnz> <poly_lambda> <precision> <lfa_type>"
-                     " <orth_type> [n_1 n_2 ...]\n"
+                     " <orth_type> <skip_hutchinson> [n_1 n_2 ...]\n"
                   << "  dir_path    : output directory (use '.' for current dir)\n"
                   << "  num_runs    : timed repetitions per matrix size\n"
                   << "  k           : Nystrom rank (constant; must satisfy k <= n)\n"
@@ -539,6 +621,10 @@ int main(int argc, char* argv[]) {
                   << "  precision   : double or float  (sparse .mtx path is always double)\n"
                   << "  lfa_type    : 0=scalar LanczosFA, 1=BlockLanczosFA\n"
                   << "  orth_type   : 0=HouseholderQR (HQRQ), 1=Cholesky QR (CholQRQ)\n"
+                  << "  skip_hutchinson : 0=run plain Hutchinson+LFA baseline,\n"
+                  << "                    1=skip it (CSV columns padded with zeros).\n"
+                  << "                    Useful for s/k sweeps that only need the\n"
+                  << "                    Hutchinson reference at one (lfa, d) variant.\n"
                   << "  n_1 ...     : matrix sizes (generated types only)\n";
         return 1;
     }
@@ -559,6 +645,7 @@ int main(int argc, char* argv[]) {
     const char* lfa_str = lfa_type == 0 ? "scalar" : "block";
     int     orth_type   = std::stoi(argv[15]);
     const char* orth_str = orth_type == 0 ? "hqrq" : "cholqr";
+    bool    skip_hutchinson = std::stoi(argv[16]) != 0;
 
     bool from_file = false;
     bool is_mtx    = false;
@@ -604,11 +691,11 @@ int main(int argc, char* argv[]) {
                 + std::to_string(fm) + "x" + std::to_string(fn) + ")");
         n_sizes = {fm};
     } else {
-        if (argc < 17) {
+        if (argc < 18) {
             std::cerr << "Error: at least one matrix size (n_1) required for generated types.\n";
             return 1;
         }
-        for (int i = 16; i < argc; ++i)
+        for (int i = 17; i < argc; ++i)
             n_sizes.push_back(std::stol(argv[i]));
     }
 
@@ -658,6 +745,7 @@ int main(int argc, char* argv[]) {
             " precision=" + precision_str +
             " lfa_type=" + std::string(lfa_str) +
             " orth_type=" + std::string(orth_str) +
+            " skip_hutch=" + std::to_string((int)skip_hutchinson) +
             "\nNum runs per size: " + std::to_string(numruns) +
             "\nMatrix construction: " + mat_construction_str +
             "\n";
@@ -686,7 +774,8 @@ int main(int argc, char* argv[]) {
             call_all_algs_sparse<double, LFA_t, ORTH_t>(
                 numruns, n, k_const, s_const, d_steps,
                 csr, state_constant,
-                func_type, poly_lambda, sketch_type, vec_nnz, path);
+                func_type, poly_lambda, sketch_type, vec_nnz,
+                skip_hutchinson, path);
         };
         if      (lfa_type == 0 && orth_type == 0) run_sparse.template operator()<ScalarLFA_d, HQRQ_d>();
         else if (lfa_type == 0 && orth_type == 1) run_sparse.template operator()<ScalarLFA_d, CholQR_d>();
@@ -712,7 +801,8 @@ int main(int argc, char* argv[]) {
 
                 call_all_algs<T, LFA_t, ORTH_t>(
                     numruns, all_data, state_constant, mat_type,
-                    func_type, poly_lambda, compute_ref, sketch_type, vec_nnz, path);
+                    func_type, poly_lambda, compute_ref, sketch_type, vec_nnz,
+                    skip_hutchinson, path);
             }
         };
 

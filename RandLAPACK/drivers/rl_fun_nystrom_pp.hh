@@ -201,6 +201,12 @@ public:
             t_phase2_start = std::chrono::steady_clock::now();
             correction     = hutchinson.call(res_op, s, state);
             t_phase2_end   = std::chrono::steady_clock::now();
+        } else {
+            // Phase 2 skipped: lanczos_fa.call() never executed, so its
+            // .times vector stays empty. Populate with zeros (5 slots: matvec,
+            // lanczos, apply_f, rest, total) so callers indexing into it for
+            // timing breakdowns get well-defined zeros instead of UB.
+            lanczos_fa.times.assign(5, 0L);
         }
 
         if (timing) {

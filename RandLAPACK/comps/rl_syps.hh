@@ -30,6 +30,13 @@ class SYPS {
         // 0 = Gaussian (DenseDist, default); 1 = SASO (SparseDist, vec_nnz per column)
         int sketch_type = 0;
         int vec_nnz     = 4;
+        // Internal stabilization (applied between power iterations).
+        // nullptr → use the historical hardcoded geqrf+ungqr path (HQRQ-equivalent).
+        // Non-null → invoke the supplied Stabilization (e.g. CholQRQ) and fall back to
+        //   the hardcoded geqrf+ungqr if it returns nonzero (e.g. CholQR Cholesky failure).
+        // Power iteration produces increasingly column-correlated matrices; CholQR can
+        // hit potrf failure on ill-conditioned inputs, so the fallback is intentional.
+        Stabilization<T>* internal_stab = nullptr;
     
         SYPS(
             int64_t p, // number of passes
@@ -112,20 +119,6 @@ class SYPS {
             bool callers_skop_buff = skop_buff != nullptr;
             if (!callers_skop_buff)
                 skop_buff = new T[m * k];
-            if (sketch_type == 1) {
-                // SJLT: generate a sparse sketch and densify into skop_buff.
-                // T and sint_t (int64_t) must be explicit since SparseDist::sample
-                // can't deduce T from the RNGState argument alone.
-                auto S = RandBLAS::SparseDist(m, k, this->vec_nnz).sample<T, RNG, int64_t>(state);
-                state = S.next_state;
-                RandBLAS::fill_sparse(S);
-                auto Scoo = RandBLAS::coo_view_of_skop(S);
-                std::fill(skop_buff, skop_buff + m * k, (T)0.0);
-                RandLAPACK::util::sparse_to_dense(Scoo, Layout::ColMajor, skop_buff);
-            } else {
-                RandBLAS::DenseDist D(m, k);
-                state = RandBLAS::fill_dense(D, skop_buff, state);
-            }
 
             bool callers_work_buff = work_buff != nullptr;
             if (!callers_work_buff)
@@ -135,18 +128,64 @@ class SYPS {
             T *symm_out = work_buff;
             T *symm_in  = skop_buff;
             T *tau = new T[k]{};
+
+            // Inline lambda for the per-iter stabilization (deduplicates the path used
+            // for both the sparse-first-iter shortcut and the regular dense loop).
+            auto stabilize = [&](T* buf) {
+                bool fallback = (this->internal_stab == nullptr);
+                if (!fallback) {
+                    fallback = (this->internal_stab->call(m, k, buf) != 0);
+                }
+                if (fallback) {
+                    if (lapack::geqrf(m, k, buf, m, tau)) {
+                        delete[] tau;
+                        throw std::runtime_error("GEQRF failed.");
+                    }
+                    lapack::ungqr(m, k, k, buf, m, tau);
+                }
+            };
+
+            if (sketch_type == 1) {
+                // Sparse sketch path — apply A to the sparse Ω directly via the
+                // SkOp overload of A (dense·sparse spmm), skipping the n×k
+                // densification of Ω. T and sint_t (int64_t) must be explicit
+                // since SparseDist::sample can't deduce T from the RNGState.
+                auto S = RandBLAS::SparseDist(m, k, this->vec_nnz).sample<T, RNG, int64_t>(state);
+                state = S.next_state;
+                RandBLAS::fill_sparse(S);
+
+                // SLOs that implement the SkOp-taking operator() get the fast
+                // sparse-aware first matvec. Other SLOs (RegExplicitSymLinOp,
+                // SparseSymLinOp without the SkOp overload, etc.) fall back
+                // to the legacy densification.
+                if constexpr (requires (SLO& a, decltype(S)& s) {
+                                  a(Layout::ColMajor, k, (T)1.0, s, (T)0.0, symm_out, m);
+                              }) {
+                    A(Layout::ColMajor, k, (T)1.0, S, (T)0.0, symm_out, m);
+                } else {
+                    auto Scoo = RandBLAS::coo_view_of_skop(S);
+                    std::fill(skop_buff, skop_buff + m * k, (T)0.0);
+                    RandLAPACK::util::sparse_to_dense(Scoo, Layout::ColMajor, skop_buff);
+                    A(Layout::ColMajor, k, (T)1.0, skop_buff, m, (T)0.0, symm_out, m);
+                }
+                ++p_done;
+                if (p_done % q == 0) stabilize(symm_out);
+                symm_out = (p_done % 2 == 1) ? skop_buff : work_buff;
+                symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff;
+            } else {
+                // Dense Gaussian sketch — fill skop_buff in place; first matvec
+                // happens uniformly in the loop below.
+                RandBLAS::DenseDist D(m, k);
+                state = RandBLAS::fill_dense(D, skop_buff, state);
+            }
+
+            // Remaining iterations are pure dense matvecs through the SLO interface.
             while (p - p_done > 0) {
                 A(Layout::ColMajor, k, 1.0, symm_in, m, 0.0, symm_out, m);
                 ++p_done;
-                if (p_done % q == 0) {
-                    if(lapack::geqrf(m, k, symm_out, m, tau)) {
-                        delete [] tau;
-                        throw std::runtime_error("GEQRF failed.");
-                    }
-                    lapack::ungqr(m, k, k, symm_out, m, tau);
-                }
+                if (p_done % q == 0) stabilize(symm_out);
                 symm_out = (p_done % 2 == 1) ? skop_buff : work_buff;
-                symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff; 
+                symm_in  = (p_done % 2 == 1) ? work_buff : skop_buff;
             }
             delete[] tau;
             if (p % 2 == 1)
