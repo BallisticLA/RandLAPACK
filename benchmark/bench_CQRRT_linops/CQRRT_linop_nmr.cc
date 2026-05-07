@@ -6,17 +6,21 @@
 //     (A1)_{l,k} = 1 - 2 * exp(-tau1[l] / T1[k])     (m1 × n1)
 //     (A2)_{l,k} =     exp(-tau2[l] / T2[k])         (m2 × n2)
 //
-// Time grids are logspace(taulogleft, taulogright). Default ranges follow
-// the paper (T, tau ∈ [10^{-4}, 10^1]). Operator dimensions:
+// Time grids are logspace(log_lo, log_hi). Default range here is (-2, 1) =
+// 3 decades; the IR Tools paper uses (-4, 1) = 5 decades, but unregularized
+// Q-less QR cannot handle that conditioning even with stabilized
+// preconditioners. Operator dimensions:
 //     M = m1*m2 (rows), N = n1*n2 (cols), default m_i = 2*n_i.
 //
 // Pipeline:
 //     1. Generate A1, A2, phantom x_true ∈ ℝ^{n1*n2}, b = A x_true + noise.
-//     2. Wrap A as KroneckerOperator (no materialization).
-//     3. Run CQRRT_linops on A → R (n × n upper triangular).
-//     4. Run IterRefineLSQ(A, R, b) → x.
-//     5. Report ||x - x_true||/||x_true||, ||b - Ax||/||b||, IR iter counts,
-//        timing, and analytical-memory predictions.
+//     2. Wrap A as KroneckerOperator (no materialization). When λ > 0, also
+//        wrap that in RegularizedLinOp so the QR step runs on A_aug = [J; λI].
+//     3. For each Q-less QR variant selected by `method_mask`, run it on the
+//        operator → R (n × n upper triangular).
+//     4. For each (algorithm, run): run IterRefineLSQ(A_eff, R, b_eff) → x.
+//     5. Record per-(algorithm, run) ||x - x_true||/||x_true||, ||b - Ax||/||b||,
+//        IR iter counts, timing, and analytical-memory predictions.
 //
 // Usage:
 //     ./CQRRT_linop_nmr <prec> <output_dir> <num_runs> <n>
@@ -376,17 +380,28 @@ int run_benchmark(int argc, char* argv[])
         auto state = run_states[r];
 
         RandLAPACK::PeakRSSTracker mem; mem.start();
-        if (alg_name == "sCholQR3" || alg_name == "sCholQR3_basic") {
-            // Both sCholQR3 variants share the same call signature; we use the
-            // fully-blocked one. (sCholQR3_basic has identical numerics here.)
+        if (alg_name == "sCholQR3") {
+            // Fully-blocked shifted Cholesky-QR-3. Times has 18 entries; total at [17].
             RandLAPACK::sCholQR3_linops<T> qr_algo(/*time_subroutines=*/true, tol);
             qr_algo.block_size = block_size;
             res.qr_status = qr_algo.call(J_eff, R.data(), N);
             res.peak_rss_kb = mem.stop();
             if (res.qr_status == 0) {
                 res.qr_time_us  = qr_algo.times[17];
+                // First 11 of 18 entries are kept; full breakdown table is elsewhere.
                 res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                 res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m_eff, N, block_size);
+            }
+        } else if (alg_name == "sCholQR3_basic") {
+            // Non-blocked variant (matches the textbook sCholQR3 pseudocode).
+            // Times has 15 entries; total at [14].
+            RandLAPACK::sCholQR3_linops_basic<T> qr_algo(/*time_subroutines=*/true, tol);
+            res.qr_status = qr_algo.call(J_eff, R.data(), N);
+            res.peak_rss_kb = mem.stop();
+            if (res.qr_status == 0) {
+                res.qr_time_us  = qr_algo.times[14];
+                res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m_eff, N);
             }
         } else if (alg_name == "CholQR") {
             RandLAPACK::CholQR_linops<T> qr_algo(/*time_subroutines=*/true, tol);
