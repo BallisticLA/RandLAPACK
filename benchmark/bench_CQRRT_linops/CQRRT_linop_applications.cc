@@ -1,17 +1,19 @@
-// Generalized SVD / Generalized LS benchmark
+// Generalized SVD benchmark
 //
 // Pipeline:
-//   1. Load K.mtx (m x m SPD) and V.mtx (m x n sparse)
-//   2. Cholesky factorize K = LL^T, create L^{-1} operator (half_solve=true)
-//   3. Create composite operator: CompositeOperator(L_inv_op, V_op) = L^{-1}V
-//   4. Run Q-less QR on L^{-1}V via CQRRT_linops, CholQR_linops, sCholQR3_linops
-//   5. Application (a): Generalized LS — solve min_x ||Vx - b||_{K^{-1}}
-//   6. Application (b): Generalized singular values — SVD of R
-//   7. Application (c): Generalized singular vectors — full SVD of R
+//   1. Load K.mtx (m x m SPD) and V.mtx (m x n sparse)  (composite mode)
+//      OR a single A.mtx as a SparseLinOp                (sparse mode)
+//   2. (Composite only) Cholesky-factorize K = LL^T, create L^{-1} operator
+//   3. (Composite only) Form CompositeOperator(L_inv_op, V_op) = L^{-1}V
+//   4. Run Q-less QR on the operator via CQRRT_linops, CholQR_linops, sCholQR3_linops
+//   5. SVD post-processing: gesdd of R for generalized singular values + vectors
+//
+// (For LS post-processing on Kronecker-structured operators see CQRRT_linop_nmr.)
 //
 // Usage:
 //   ./CQRRT_linop_applications <prec> <outdir> <runs> <K_file|sparse> <V_file|A_file> <d_factor>
-//                    [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl] [upcast_orth] [method_mask]
+//                    [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl]
+//                    [upcast_orth] [method_mask]
 //
 //   method_mask (integer bitmask, optional, default = 0b001111 or 0b011111 if run_expl=1):
 //     bit 0 (  1): CQRRT_linop
@@ -85,19 +87,14 @@ struct gsvd_result {
     // Orthogonality computed with upcast reconstruction (float->double or double->long double)
     double orth_error_upcast;
 
-    // Application (a): Generalized LS
-    long app_a_time_us;       // Post-processing time only
-    T ls_rel_error;           // ||x - x_true|| / ||x_true||
-
-    // Application (b): Generalized singular values
+    // SVD post-processing (b): generalized singular values
     long app_b_time_us;       // SVD of R time
 
-    // Application (c): Generalized singular vectors
+    // SVD post-processing (c): generalized singular vectors
     long app_c_time_us;       // Full SVD of R + V_R orthogonality check
     T right_svec_orth_error;  // ||V_R^T V_R - I||_F / sqrt(n)
 
     // Totals (QR + application post-processing)
-    long total_a_time_us;
     long total_b_time_us;
     long total_c_time_us;
 
@@ -239,49 +236,7 @@ static double compute_orth_upcast(GLO& A_op, const T* R, int64_t m, int64_t n,
 }
 
 // ============================================================================
-// Application (a): Generalized Least Squares
-// min_x ||Vx - b||_{K^{-1}} via R from QR of L^{-1}V
-//
-// Solution: x = R^{-1} R^{-T} V^T K^{-1} b
-// Steps: c = K^{-1}b, d = V^T c, solve R^T y = d, solve Rx = y
-// ============================================================================
-
-template <typename T, typename VLinOp>
-static void app_generalized_ls(
-    RandLAPACK_extras::linops::CholSolverLinOp<T>& K_inv_op,
-    VLinOp& V_op,
-    const T* R, int64_t ldr, int64_t n,
-    const T* b, int64_t m,
-    T* x,
-    long& app_time_us)
-{
-    auto start = steady_clock::now();
-
-    // Step 1: c = K^{-1} b  (m x 1)
-    std::vector<T> c(m, 0.0);
-    K_inv_op(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, 1, m, (T)1.0, b, m, (T)0.0, c.data(), m);
-
-    // Step 2: d = V^T c  (n x 1)
-    std::vector<T> d(n, 0.0);
-    V_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-         n, 1, m, (T)1.0, c.data(), m, (T)0.0, d.data(), n);
-
-    // Step 3: solve R^T y = d  (n x 1)
-    std::copy(d.begin(), d.end(), x);
-    blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper, blas::Op::Trans,
-               blas::Diag::NonUnit, n, 1, (T)1.0, R, ldr, x, n);
-
-    // Step 4: solve R x = y  (n x 1)
-    blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper, blas::Op::NoTrans,
-               blas::Diag::NonUnit, n, 1, (T)1.0, R, ldr, x, n);
-
-    auto stop = steady_clock::now();
-    app_time_us = duration_cast<microseconds>(stop - start).count();
-}
-
-// ============================================================================
-// Application (b): Generalized Singular Values
+// SVD post-processing (b): Generalized Singular Values
 // SVD of R gives the generalized singular values of (V, K)
 // ============================================================================
 
@@ -307,7 +262,7 @@ static void app_generalized_svals(
 }
 
 // ============================================================================
-// Application (c): Generalized Singular Vectors
+// SVD post-processing (c): Generalized Singular Vectors
 // Full SVD of R: R = U_R * Sigma * V_R^T
 // Right generalized singular vectors = columns of V_R
 // ============================================================================
@@ -375,10 +330,9 @@ static void write_csv_header(std::ofstream& out, int64_t m, int64_t n, int num_r
     out << "# GSVD Benchmark results\n";
     write_common_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
     out << "m,n,run,algorithm,chol_time_us,qr_time_us,orth_error,r_backward_error,orth_error_upcast,"
-        << "app_a_time_us,ls_rel_error,"
         << "app_b_time_us,"
         << "app_c_time_us,right_svec_orth_error,"
-        << "total_a_time_us,total_b_time_us,total_c_time_us,"
+        << "total_b_time_us,total_c_time_us,"
         << "peak_rss_kb,analytical_kb\n";
 }
 
@@ -390,12 +344,10 @@ static void write_csv_row(std::ofstream& out, const gsvd_result<T>& r) {
         << std::scientific << std::setprecision(6) << r.orth_error << ","
         << std::scientific << std::setprecision(6) << r.r_backward_error << ","
         << std::scientific << std::setprecision(6) << r.orth_error_upcast << ","
-        << r.app_a_time_us << ","
-        << std::scientific << std::setprecision(6) << r.ls_rel_error << ","
         << r.app_b_time_us << ","
         << r.app_c_time_us << ","
         << std::scientific << std::setprecision(6) << r.right_svec_orth_error << ","
-        << r.total_a_time_us << "," << r.total_b_time_us << "," << r.total_c_time_us << ","
+        << r.total_b_time_us << "," << r.total_c_time_us << ","
         << r.peak_rss_kb << "," << r.analytical_kb
         << "\n";
 }
@@ -453,9 +405,9 @@ static void print_summary(const std::string& alg_name, const std::vector<gsvd_re
                (long)r.run_idx, (double)r.orth_error, r.r_backward_error, r.qr_time_us);
         if (r.orth_error_upcast > 0)
             printf("           orth_upcast=%.2e\n", r.orth_error_upcast);
-        if (r.app_a_time_us > 0 || r.ls_rel_error > 0) {
-            printf("           LS_err=%.2e, App(a)=%ld us, App(b)=%ld us, App(c)=%ld us\n",
-                   (double)r.ls_rel_error, r.app_a_time_us, r.app_b_time_us, r.app_c_time_us);
+        if (r.app_b_time_us > 0 || r.app_c_time_us > 0) {
+            printf("           SVD: App(b)=%ld us, App(c)=%ld us\n",
+                   r.app_b_time_us, r.app_c_time_us);
         }
         printf("           Memory: peak_RSS=%ld KB, predicted=%ld KB\n",
                r.peak_rss_kb, r.analytical_kb);
@@ -476,8 +428,7 @@ static int run_benchmark_inner(
     bool skip_apps, bool compute_cond, bool upcast_orth, int64_t method_mask,
     long chol_time_us,
     const std::string& K_file, const std::string& V_file,
-    const std::string& op_label,
-    std::function<void(const std::vector<T>&, gsvd_result<T>&)> app_a_fn)
+    const std::string& op_label)
 {
     // Condition number diagnostic (materializes A_op, runs two SVDs)
     if (compute_cond) {
@@ -598,12 +549,11 @@ static int run_benchmark_inner(
                 res.orth_error_upcast = 0.0;
             }
 
-            if (!skip_apps) {
-                // App (a): generalized LS — only in composite mode (app_a_fn is null in sparse mode)
-                if (app_a_fn) {
-                    app_a_fn(R, res);
-                }
+            res.app_b_time_us         = 0;
+            res.app_c_time_us         = 0;
+            res.right_svec_orth_error = (T)-1.0;
 
+            if (!skip_apps) {
                 std::vector<T> sigma_b(n, 0.0);
                 app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
 
@@ -612,7 +562,6 @@ static int run_benchmark_inner(
                                       res.right_svec_orth_error, res.app_c_time_us);
             }
 
-            res.total_a_time_us = res.qr_time_us + res.app_a_time_us;
             res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
             res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
             all_results.push_back(res);
@@ -781,7 +730,8 @@ int run_benchmark(int argc, char* argv[]) {
     if (argc < 7) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file|sparse> <V_file|A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl] [upcast_orth] [method_mask]\n"
+                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl]"
+                  << " [upcast_orth] [method_mask]\n"
                   << "  sparse mode: pass 'sparse' as K_file and a single A.mtx as V_file\n"
                   << "  method_mask: bitmask selecting algorithms (default = 0b001111 or 0b011111 if run_expl=1)\n"
                   << "    bit 0 ( 1): CQRRT_linop\n"
@@ -857,24 +807,17 @@ int run_benchmark(int argc, char* argv[]) {
     // Sparse mode: wrap A directly as SparseLinOp, skip Cholesky
     // ================================================================
     if (sparse_mode) {
-        if (!skip_apps) {
-            std::cout << "  Note: in sparse mode, app (a) (Gen. LS) is unavailable (requires K).\n"
-                      << "        Apps (b) and (c) will still run.\n";
-        }
-        std::function<void(const std::vector<T>&, gsvd_result<T>&)> app_a_fn = nullptr;
         return run_benchmark_inner<T, RNG>(
             V_linop, m, n, output_dir, num_runs,
             d_factor, sketch_nnz, block_size,
             skip_apps, compute_cond, upcast_orth, method_mask,
             0L /*chol_time_us*/, "sparse", V_file,
-            "A (" + V_file + ")", app_a_fn);
+            "A (" + V_file + ")");
     }
 
     // ================================================================
-    // Composite mode: Steps 2-4
+    // Composite mode: Cholesky-factorize K, build L^{-1}V composite operator
     // ================================================================
-
-    // Step 2: Create L^{-1} operator (half_solve=true) and K^{-1} operator
     std::cout << "Factorizing K = LL^T from " << K_file << "... " << std::flush;
 
     RandLAPACK_extras::linops::CholSolverLinOp<T> L_inv_op(K_file, /*half_solve=*/true);
@@ -882,63 +825,26 @@ int run_benchmark(int argc, char* argv[]) {
     L_inv_op.factorize();
     auto chol_stop = steady_clock::now();
     long chol_time_us = duration_cast<microseconds>(chol_stop - chol_start).count();
-
-    // Also create full K^{-1} for App (a) — only needed when running apps
-    std::unique_ptr<RandLAPACK_extras::linops::CholSolverLinOp<T>> K_inv_op_ptr;
-    if (!skip_apps) {
-        K_inv_op_ptr = std::make_unique<RandLAPACK_extras::linops::CholSolverLinOp<T>>(K_file, /*half_solve=*/false);
-        K_inv_op_ptr->factorize();
-    }
     std::cout << "done (" << chol_time_us << " us)\n";
 
-    // Step 3: Form composite operator L^{-1} * V
     RandLAPACK::linops::CompositeOperator LiV_op(m, n, L_inv_op, V_linop);
     LiV_op.block_size = block_size;
-    std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n";
-
-    // Step 4: Generate synthetic RHS: b = V * x_true (only when running apps)
-    RandBLAS::RNGState<RNG> rng_state(42);
-    std::vector<T> x_true(n);
-    std::vector<T> b(m, 0.0);
-    T x_true_norm = 0.0;
-    if (!skip_apps) {
-        RandBLAS::DenseDist D(n, 1);
-        auto next_state = RandBLAS::fill_dense(D, x_true.data(), rng_state);
-        rng_state = next_state;
-
-        V_linop(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                m, 1, n, (T)1.0, x_true.data(), n, (T)0.0, b.data(), m);
-
-        x_true_norm = blas::nrm2(n, x_true.data(), 1);
-        std::cout << "Generated b = V * x_true (||x_true|| = " << x_true_norm << ")\n";
-    }
-    std::cout << "\n";
-
-    // App (a) callback — captures K_inv_op_ptr, V_linop, b, x_true, x_true_norm
-    std::function<void(const std::vector<T>&, gsvd_result<T>&)> app_a_fn = nullptr;
-    if (!skip_apps) {
-        app_a_fn = [&](const std::vector<T>& R, gsvd_result<T>& res) {
-            std::vector<T> x_computed(n, 0.0);
-            app_generalized_ls(*K_inv_op_ptr, V_linop, R.data(), n, n,
-                               b.data(), m, x_computed.data(), res.app_a_time_us);
-            blas::axpy(n, (T)-1.0, x_true.data(), 1, x_computed.data(), 1);
-            res.ls_rel_error = blas::nrm2(n, x_computed.data(), 1) / x_true_norm;
-        };
-    }
+    std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n\n";
 
     return run_benchmark_inner<T, RNG>(
         LiV_op, m, n, output_dir, num_runs,
         d_factor, sketch_nnz, block_size,
         skip_apps, compute_cond, upcast_orth, method_mask,
         chol_time_us, K_file, V_file,
-        "L^{-1}V", app_a_fn);
+        "L^{-1}V");
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file|sparse> <V_file|A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl] [upcast_orth] [method_mask]\n";
+                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl]"
+                  << " [upcast_orth] [method_mask]\n";
         return 1;
     }
 

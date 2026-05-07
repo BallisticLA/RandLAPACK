@@ -33,6 +33,7 @@
 #include "RandLAPACK/drivers/rl_cqrrt.hh"
 #include "RandLAPACK/drivers/rl_cholqr_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrt_linops.hh"
+#include "RandLAPACK/drivers/rl_iter_refine_lsq.hh"
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"

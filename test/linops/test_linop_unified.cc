@@ -16,7 +16,7 @@
 #include <gtest/gtest.h>
 #include <type_traits>
 #include <optional>
-#include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandBLAS/test/comparison.hh"
 #include "../../RandLAPACK/testing/rl_test_utils.hh"
 
 using blas::Layout;

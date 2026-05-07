@@ -4,7 +4,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include "../RandLAPACK/RandBLAS/test/test_datastructures/test_spmats/common.hh"
+#include "../../RandBLAS/test/test_datastructures/test_spmats/common.hh"
 #include <fstream>
 #include <gtest/gtest.h>
 

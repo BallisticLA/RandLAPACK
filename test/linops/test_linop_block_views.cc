@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 #include <math.h>
 #include <lapack.hh>
-#include "../RandLAPACK/RandBLAS/test/comparison.hh"
+#include "../../RandBLAS/test/comparison.hh"
 #include "../../RandLAPACK/testing/rl_test_utils.hh"
 
 using std::vector;
