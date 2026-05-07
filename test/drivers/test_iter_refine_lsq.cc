@@ -3,8 +3,10 @@
 //
 // Strategy: wrap a small dense tall A as a DenseLinOp, build R from
 // lapack::geqrf on a copy of A, then verify the IR-LSQ solution matches
-// the gels reference within O(eps) on a synthetic well-conditioned LS
-// problem.
+// a closed-form reference:
+//   * unregularized cases  → lapack::gels on (A, b)
+//   * Tikhonov case        → lapack::posv on (A^T A + lambda^2 I, A^T b)
+// across well-conditioned, residualful, regularized, and imperfect-R cases.
 
 #include <RandBLAS.hh>
 #include <RandLAPACK.hh>

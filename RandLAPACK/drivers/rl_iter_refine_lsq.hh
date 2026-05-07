@@ -1,16 +1,19 @@
 #pragma once
 
 // Public API: IterRefineLSQ — Q-less, sketch-and-precondition iterative-refinement
-//                             least-squares solver.
+//                             least-squares solver, with optional Tikhonov.
 //
-// Solves min_x ||b - J x||_2 for a tall LinearOperator J using a precomputed
-// triangular preconditioner R (e.g., the R-factor from CQRRT_linops on J or
-// on a sketch SJ). R is treated as a right preconditioner on the normal
-// equations, and two iterative-refinement steps are performed; under standard
-// hypotheses two steps suffice for backward stability. The inner solver is
-// CG on the symmetric-positive-definite preconditioned normal-equation matrix
+// Solves min_x ||b - J x||_2  (or, with `lambda > 0`,
+//        min_x ||b - J x||_2^2 + lambda^2 ||x||_2^2)
+// for a tall LinearOperator J using a precomputed triangular preconditioner R
+// (e.g., the R-factor from CQRRT_linops on J or on a sketch SJ). R is treated
+// as a right preconditioner on the normal equations, and two iterative-
+// refinement steps are performed; under standard hypotheses two steps suffice
+// for backward stability. The inner solver is CG on the symmetric-positive-
+// definite preconditioned normal-equation matrix
 //
-//     M = R^{-T} J^T J R^{-1}.
+//     M     = R^{-T} J^T J R^{-1}                 (lambda = 0)
+//     M_reg = R^{-T} (J^T J + lambda^2 I) R^{-1}  (lambda > 0)
 //
 // Reference: E. N. Epperly, M. Meier, and Y. Nakatsukasa,
 //   "Fast randomized least-squares solvers can be just as accurate and stable
