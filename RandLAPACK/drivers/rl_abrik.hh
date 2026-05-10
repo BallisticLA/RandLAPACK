@@ -13,6 +13,7 @@
 #include <numeric>
 #include <climits>
 #include <iomanip>
+#include <optional>
 
 using namespace std::chrono;
 
