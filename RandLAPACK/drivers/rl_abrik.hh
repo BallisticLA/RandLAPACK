@@ -139,7 +139,7 @@ class ABRIK {
             int64_t m,
             int64_t n,
             SpMat &A,
-            int64_t lda,
+            [[maybe_unused]] int64_t lda,
             int64_t k,
             T* &U,
             T* &V,

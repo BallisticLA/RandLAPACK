@@ -120,7 +120,7 @@ RandLAPACK::linops::DenseLinOp<T> make_operator(
     int64_t rows,
     int64_t cols,
     Layout layout,
-    T density,  // unused for dense
+    [[maybe_unused]] T density,  // unused for dense
     RNGState<r123::Philox4x32_R<10>>& state
 ) {
     data.rows = rows;
@@ -140,7 +140,7 @@ RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> make_o
     OperatorData<SparseCSCOpTag<T>>& data,
     int64_t rows,
     int64_t cols,
-    Layout layout,  // layout doesn't affect CSC storage
+    [[maybe_unused]] Layout layout,  // layout doesn't affect CSC storage
     T density,
     RNGState<r123::Philox4x32_R<10>>& state
 ) {

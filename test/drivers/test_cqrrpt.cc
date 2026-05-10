@@ -135,7 +135,7 @@ class TestCQRRPT : public ::testing::Test
     template <typename T, typename RNG, typename alg_type>
     static void test_CQRRPT_orthogonalization(
         T d_factor,
-        T norm_A,
+        [[maybe_unused]] T norm_A,
         CQRRPTTestData<T> &all_data,
         alg_type &CQRRPT,
         RandBLAS::RNGState<RNG> &state) {

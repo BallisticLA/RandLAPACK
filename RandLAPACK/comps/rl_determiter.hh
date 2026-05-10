@@ -401,7 +401,7 @@ void pcg(
     T* scratch = beta    + ss;
     T* ableft  = scratch + ss; 
 
-    T normNR = INFINITY, prevnormNR = INFINITY;
+    T normNR = INFINITY;
 
     auto layout = blas::Layout::ColMajor;
     using blas::Op;
@@ -460,7 +460,6 @@ void pcg(
 
         N(layout, s, 1.0, R, n, 0.0, NR, n
         ); // NR <- N R
-        prevnormNR = normNR;
         normNR = seminorm(n, s, NR);
         if (verbose)
             std::cout << "normNR : " << normNR << "\tnormR : " << normR << "\tk: " << k << "\tdim : " << subspace_dim << '\n';
