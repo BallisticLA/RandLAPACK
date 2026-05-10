@@ -56,8 +56,9 @@ class TestRPCholesky : public ::testing::Test {
                 selection_unique.insert(pivot);
         }
         ASSERT_EQ(selection_unique.size(), k) << "using seed " << seed;
-        if (n > 4)
+        if (n > 4) {
             ASSERT_FALSE(std::is_sorted(selection.begin(), selection.end())) <<  "using seed " << seed;
+        }
         // ^ is_sorted() checks if we're in increasing order
         return;
     }

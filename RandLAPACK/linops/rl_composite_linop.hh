@@ -298,7 +298,6 @@ public:
             // Left multiplication: C := alpha * (LinOp1 * LinOp2) * op(B_sp) + beta * C
 
             // Validate input dimensions
-            auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
             auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
             randblas_require(rows_comp <= n_rows);
             randblas_require(cols_comp <= n_cols);
@@ -332,7 +331,6 @@ public:
         } else {  // side == Side::Right
             // Right multiplication: C := alpha * op(B_sp) * (LinOp1 * LinOp2) + beta * C
 
-            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(k, n, trans_comp);
             randblas_require(rows_comp <= n_rows);
             randblas_require(cols_comp <= n_cols);

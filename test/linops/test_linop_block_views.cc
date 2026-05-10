@@ -786,7 +786,7 @@ protected:
 
     /// Test csr_split_col_blocks: split and verify all blocks are correct.
     template <typename T>
-    void test_csr_col_split(int64_t m, int64_t n, int64_t k, T density, int64_t num_blocks) {
+    void test_csr_col_split(int64_t m, int64_t n, T density, int64_t num_blocks) {
         RNGState state(42);
         auto A = generate_csr_matrix<T>(m, n, density, state);
 
@@ -860,11 +860,11 @@ TEST_F(TestCSRColBlocks, spmm_last_cols) {
 
 // CSR col-block split tests
 TEST_F(TestCSRColBlocks, split_3_blocks) {
-    test_csr_col_split<double>(20, 15, 10, 0.3, 3);
+    test_csr_col_split<double>(20, 15, 0.3, 3);
 }
 
 TEST_F(TestCSRColBlocks, split_5_blocks) {
-    test_csr_col_split<double>(20, 15, 10, 0.3, 5);
+    test_csr_col_split<double>(20, 15, 0.3, 5);
 }
 
 

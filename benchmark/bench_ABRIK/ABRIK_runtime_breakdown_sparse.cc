@@ -153,7 +153,7 @@ static void call_all_algs(
 
     for (int i = 0; i < num_runs; ++i) {
         printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
-        ABRIK.call(m, n, *all_data.A_input, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
+        ABRIK.call(m, n, *all_data.A_input, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
         inner_timing = ABRIK.times;
