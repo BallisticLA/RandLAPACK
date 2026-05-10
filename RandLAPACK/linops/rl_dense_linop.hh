@@ -185,7 +185,6 @@ struct DenseLinOp {
 
         if (side == Side::Left) {
             // C = alpha * op(A) * op(B_sp) + beta * C
-            auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
             randblas_require(rows_A == n_rows);
             randblas_require(cols_A == n_cols);
@@ -199,7 +198,6 @@ struct DenseLinOp {
             RandBLAS::sparse_data::right_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B_sp, 0, 0, beta, C, ldc);
         } else {  // Side::Right
             // C = alpha * op(B_sp) * op(A) + beta * C
-            auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
             randblas_require(rows_A == n_rows);
             randblas_require(cols_A == n_cols);

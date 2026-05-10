@@ -55,7 +55,7 @@ TEST_F(TestMemoryTracker, NoAllocationReportsSmall) {
     // Do trivial work — no large allocations.
     volatile int x = 0;
     for (int i = 0; i < 1000; ++i)
-        x += i;
+        x = x + i;
     long increase = tracker.stop();
     EXPECT_LT(increase, 4096)
         << "Expected small RSS increase with no allocation, got " << increase << " KB";

@@ -120,9 +120,14 @@ RandLAPACK::linops::DenseLinOp<T> make_operator(
     int64_t rows,
     int64_t cols,
     Layout layout,
-    T density,  // unused for dense
+    T density,
     RNGState<r123::Philox4x32_R<10>>& state
 ) {
+    // density is required by the templated callers (which dispatch by
+    // OperatorData<TAG> across dense and sparse overloads), but a dense
+    // matrix has no notion of density.
+    UNUSED(density);
+
     data.rows = rows;
     data.cols = cols;
     data.layout = layout;
@@ -140,10 +145,15 @@ RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csc::CSCMatrix<T>> make_o
     OperatorData<SparseCSCOpTag<T>>& data,
     int64_t rows,
     int64_t cols,
-    Layout layout,  // layout doesn't affect CSC storage
+    Layout layout,
     T density,
     RNGState<r123::Philox4x32_R<10>>& state
 ) {
+    // layout is required by the templated callers (which dispatch by
+    // OperatorData<TAG> across dense and sparse overloads), but CSC
+    // storage is layout-agnostic.
+    UNUSED(layout);
+
     data.rows = rows;
     data.cols = cols;
     // Generate COO then convert to CSC (owned) for SparseLinOp
