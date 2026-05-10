@@ -138,7 +138,11 @@ class TestABRIK : public ::testing::Test
         auto n = all_data.col;
         ABRIK.max_krylov_iters = (int) ((target_rank * 2) / b_sz);
 
-        ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state);
+        if constexpr (std::is_pointer_v<decltype(all_data.A)>) {
+            ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state);
+        } else {
+            ABRIK.call(m, n, all_data.A, b_sz, all_data.U, all_data.V, all_data.Sigma, state);
+        }
         
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
         printf("residual_err_custom %e\n", residual_err_custom);

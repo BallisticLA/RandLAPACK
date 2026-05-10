@@ -135,7 +135,6 @@ class TestCQRRPT : public ::testing::Test
     template <typename T, typename RNG, typename alg_type>
     static void test_CQRRPT_orthogonalization(
         T d_factor,
-        [[maybe_unused]] T norm_A,
         CQRRPTTestData<T> &all_data,
         alg_type &CQRRPT,
         RandBLAS::RNGState<RNG> &state) {
@@ -301,5 +300,5 @@ TEST_F(TestCQRRPT, CQRRPT_orthogonalization_mode_low_rank) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     norm_and_copy_computational_helper(norm_A, all_data);
-    test_CQRRPT_orthogonalization(d_factor, norm_A, all_data, CQRRPT, state);
+    test_CQRRPT_orthogonalization(d_factor, all_data, CQRRPT, state);
 }
