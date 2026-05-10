@@ -289,7 +289,7 @@ static void call_all_algs(
 
         // Running ABRIK
         auto start_ABRIK = steady_clock::now();
-        all_algs.ABRIK.call(m, n, *all_data.A_input, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
+        all_algs.ABRIK.call(m, n, *all_data.A_input, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
         auto stop_ABRIK = steady_clock::now();
         dur_ABRIK = duration_cast<microseconds>(stop_ABRIK - start_ABRIK).count();
         printf("TOTAL TIME FOR ABRIK %ld\n", dur_ABRIK);
