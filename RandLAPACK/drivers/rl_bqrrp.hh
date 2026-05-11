@@ -125,6 +125,9 @@ class BQRRP : public BQRRPalg<T, RNG> {
     public:
         bool timing;
         RandBLAS::RNGState<RNG> state;
+
+        // CRITICAL: `rank` is only an **upper bound** on the numerical rank of the matrix.
+        // It's perfectly valid to set rank=n for an n-by-n zero-matrix.
         int64_t rank;
         int64_t block_size;
 
