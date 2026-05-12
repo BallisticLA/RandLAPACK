@@ -159,6 +159,9 @@ set(
 add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_composite_applications.cc LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 
+# FunNyström++ v2 benchmark (reference-aligned baseline; Phase 0 stub)
+add_benchmark(NAME FunNystromPP_v2_benchmark CXX_SOURCES bench_FunNystromPP_v2/FunNystromPP_v2_benchmark.cc LINK_LIBS ${Benchmark_libs})
+
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})
 add_benchmark(NAME ABRIK_runtime_breakdown_sparse CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown_sparse.cc LINK_LIBS ${Benchmark_libs_external})

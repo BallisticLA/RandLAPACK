@@ -37,6 +37,7 @@
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"
 #include "RandLAPACK/drivers/rl_revd2.hh"
+#include "RandLAPACK/drivers/rl_fun_nystrom_pp_v2.hh"
 #include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
 

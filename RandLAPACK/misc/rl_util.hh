@@ -5,6 +5,9 @@
 
 #include <RandBLAS.hh>
 #include <iostream>
+#include <fstream>
+#include <stdexcept>
+#include <string>
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -576,6 +579,42 @@ void sparse_to_dense_summing_duplicates(
     T *dense_mat
 ) {
     sparse_to_dense(sp_mat, layout, dense_mat);
+}
+
+/// Minimal binary I/O for dense column-major matrices, used by the
+/// funNyström++ v2 cross-validation harness to share fixtures between
+/// MATLAB and C++. Format:
+///   bytes  0..7   : int64_t n_rows (little-endian, native on x86_64)
+///   bytes  8..15  : int64_t n_cols
+///   bytes 16..    : n_rows * n_cols T values in column-major order
+/// MATLAB side: `bench_matlab/save_dense_bin.m`, `load_dense_bin.m`.
+template <typename T>
+void save_dense_bin(const std::string &path, int64_t n_rows, int64_t n_cols, const T *A) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("save_dense_bin: cannot open " + path);
+    f.write(reinterpret_cast<const char*>(&n_rows), sizeof(int64_t));
+    f.write(reinterpret_cast<const char*>(&n_cols), sizeof(int64_t));
+    f.write(reinterpret_cast<const char*>(A), n_rows * n_cols * sizeof(T));
+    if (!f) throw std::runtime_error("save_dense_bin: write failed on " + path);
+}
+
+/// Loads a column-major dense matrix written by save_dense_bin (or its
+/// MATLAB twin). On entry n_rows/n_cols are set from the file header; the
+/// caller passes a buffer pre-allocated to at least n_rows*n_cols Ts.
+/// Throws if the file is missing, malformed, or the buffer is too small.
+template <typename T>
+void load_dense_bin(const std::string &path, int64_t &n_rows, int64_t &n_cols, T *A, int64_t A_capacity) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("load_dense_bin: cannot open " + path);
+    f.read(reinterpret_cast<char*>(&n_rows), sizeof(int64_t));
+    f.read(reinterpret_cast<char*>(&n_cols), sizeof(int64_t));
+    if (!f) throw std::runtime_error("load_dense_bin: header read failed on " + path);
+    int64_t need = n_rows * n_cols;
+    if (need > A_capacity) {
+        throw std::runtime_error("load_dense_bin: buffer too small for " + path);
+    }
+    f.read(reinterpret_cast<char*>(A), need * sizeof(T));
+    if (!f) throw std::runtime_error("load_dense_bin: data read failed on " + path);
 }
 
 } // end namespace util
