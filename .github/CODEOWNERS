@@ -1,0 +1,4 @@
+# Every PR auto-requests @mmelnich as reviewer. Combined with the
+# "Require review from Code Owners" branch protection rule on main,
+# this means no PR can merge without his approval.
+* @mmelnich
