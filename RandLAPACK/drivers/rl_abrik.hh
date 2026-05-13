@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -129,6 +130,14 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
+            // Input parameter validation. Bad inputs would otherwise propagate to a
+            // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
+            // ABRIK is called through a binding layer (e.g. MEX/MATLAB).
+            randlapack_error_if_msg(m < 0, "m=%lld must be >= 0", (long long)m);
+            randlapack_error_if_msg(n < 0, "n=%lld must be >= 0", (long long)n);
+            randlapack_error_if_msg(lda < m, "lda=%lld < m=%lld (lda must be >= m for ColMajor)", (long long)lda, (long long)m);
+            randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
+            randlapack_error_if_msg(A == nullptr && m > 0 && n > 0, "A buffer is null but m=%lld and n=%lld imply a nonempty matrix", (long long)m, (long long)n);
             linops::DenseLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
             return this->call(A_linop, k, U, V, Sigma, state);
         }
@@ -145,6 +154,10 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
+            // Input parameter validation; same MEX-safety motivation as above.
+            randlapack_error_if_msg(m < 0, "m=%lld must be >= 0", (long long)m);
+            randlapack_error_if_msg(n < 0, "n=%lld must be >= 0", (long long)n);
+            randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
             linops::SparseLinOp<SpMat> A_linop(m, n, A);
             return this->call(A_linop, k, U, V, Sigma, state);
         }
@@ -158,6 +171,8 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ){
+            // Input parameter validation; same MEX-safety motivation as above.
+            randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
             steady_clock::time_point allocation_t_start;
             steady_clock::time_point allocation_t_stop;
             steady_clock::time_point get_factors_t_start;

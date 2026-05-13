@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_syps.hh"
 #include "rl_syrf.hh"
 #include "rl_blaspp.hh"
@@ -137,6 +138,13 @@ class REVD2 {
             std::vector<T> &eigvals,
             RandBLAS::RNGState<RNG> &state
         ) {
+            // Input parameter validation. Bad inputs would otherwise propagate to a
+            // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
+            // REVD2 is called through a binding layer (e.g. MEX/MATLAB).
+            randlapack_error_if_msg(m < 0, "m=%lld must be >= 0", (long long)m);
+            randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
+            randlapack_error_if_msg(tol < (T)0, "tol=%g must be >= 0", (double)tol);
+            randlapack_error_if_msg(A == nullptr && m > 0, "A buffer is null but m=%lld > 0", (long long)m);
             linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
             return this->call(A_linop, k, tol, V, eigvals, state);
         }
@@ -150,6 +158,9 @@ class REVD2 {
             std::vector<T> &eigvals,
             RandBLAS::RNGState<RNG> &state
         ) {
+            // Input parameter validation; same MEX-safety motivation as above.
+            randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
+            randlapack_error_if_msg(tol < (T)0, "tol=%g must be >= 0", (double)tol);
             int64_t m = A.dim;
             T err = 0;
             RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);
