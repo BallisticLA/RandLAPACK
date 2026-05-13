@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
@@ -37,7 +38,7 @@ void rpc_data_svd(
     T *sigma_sk //buffer of size at least n.
 ) {
     int64_t d = S.dist.n_rows;
-    randblas_require(d >= n);
+    randlapack_error_if_msg(d < n, "sketching dimension d=%lld must be >= n=%lld", (long long)d, (long long)n);
     T* A_sk = V_sk;
     if (m < n)
         throw std::invalid_argument("Input matrix A must have at least as many rows as columns.");
@@ -45,10 +46,10 @@ void rpc_data_svd(
     // step 1
     int64_t lda_sk;
     if (layout == Layout::RowMajor) {
-        randblas_require(lda >= n);
+        randlapack_error_if_msg(lda < n, "lda=%lld < n=%lld (lda must be >= n)", (long long)lda, (long long)n);
         lda_sk = n;
     } else {
-        randblas_require(lda >= m);
+        randlapack_error_if_msg(lda < m, "lda=%lld < m=%lld (lda must be >= m)", (long long)lda, (long long)m);
         lda_sk = d;
     }
     RandBLAS::util::safe_scal(d*n, (T) 0.0, A_sk);

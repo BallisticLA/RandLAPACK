@@ -2,6 +2,7 @@
 
 // Public API: SparseLinOp — linear operator backed by a sparse matrix (CSR, CSC, or COO).
 
+#include "rl_exceptions.hh"
 #include "rl_concepts.hh"
 #include "rl_sparse_views.hh"
 #include "rl_blaspp.hh"
@@ -161,15 +162,15 @@ public:
             // C := alpha * op(A_sp) * op(B) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
             auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
-            randblas_require(rows_submat_A <= n_rows);
-            randblas_require(cols_submat_A <= n_cols);
+            randlapack_error_if_msg(rows_submat_A > n_rows, "op(A) submatrix row dim inferred from (m, k, trans_A) is %lld but exceeds operator n_rows=%lld", (long long)rows_submat_A, (long long)n_rows);
+            randlapack_error_if_msg(cols_submat_A > n_cols, "op(A) submatrix col dim inferred from (m, k, trans_A) is %lld but exceeds operator n_cols=%lld", (long long)cols_submat_A, (long long)n_cols);
 
             if (layout == Layout::ColMajor) {
-                randblas_require(ldb >= rows_B);
-                randblas_require(ldc >= m);
+                randlapack_error_if_msg(ldb < rows_B, "ldb=%lld < rows_B=%lld (ldb must be >= rows of op(B) under ColMajor)", (long long)ldb, (long long)rows_B);
+                randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
             } else {
-                randblas_require(ldb >= cols_B);
-                randblas_require(ldc >= n);
+                randlapack_error_if_msg(ldb < cols_B, "ldb=%lld < cols_B=%lld (ldb must be >= cols of op(B) under RowMajor)", (long long)ldb, (long long)cols_B);
+                randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
             }
 
             RandBLAS::sparse_data::left_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_sp, 0, 0, B, ldb, beta, C, ldc);
@@ -177,15 +178,15 @@ public:
             // C := alpha * op(B) * op(A_sp) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(k, n, trans_A);
-            randblas_require(rows_submat_A <= n_rows);
-            randblas_require(cols_submat_A <= n_cols);
+            randlapack_error_if_msg(rows_submat_A > n_rows, "op(A) submatrix row dim inferred from (m, k, trans_A) is %lld but exceeds operator n_rows=%lld", (long long)rows_submat_A, (long long)n_rows);
+            randlapack_error_if_msg(cols_submat_A > n_cols, "op(A) submatrix col dim inferred from (m, k, trans_A) is %lld but exceeds operator n_cols=%lld", (long long)cols_submat_A, (long long)n_cols);
 
             if (layout == Layout::ColMajor) {
-                randblas_require(ldb >= rows_B);
-                randblas_require(ldc >= m);
+                randlapack_error_if_msg(ldb < rows_B, "ldb=%lld < rows_B=%lld (ldb must be >= rows of op(B) under ColMajor)", (long long)ldb, (long long)rows_B);
+                randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
             } else {
-                randblas_require(ldb >= cols_B);
-                randblas_require(ldc >= n);
+                randlapack_error_if_msg(ldb < cols_B, "ldb=%lld < cols_B=%lld (ldb must be >= cols of op(B) under RowMajor)", (long long)ldb, (long long)cols_B);
+                randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
             }
 
             RandBLAS::sparse_data::right_spmm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A_sp, 0, 0, beta, C, ldc);
@@ -233,13 +234,13 @@ public:
             // C := alpha * op(A_sp) * op(B_sp) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
             auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(m, k, trans_A);
-            randblas_require(rows_submat_A <= n_rows);
-            randblas_require(cols_submat_A <= n_cols);
+            randlapack_error_if_msg(rows_submat_A > n_rows, "op(A) submatrix row dim inferred from (m, k, trans_A) is %lld but exceeds operator n_rows=%lld", (long long)rows_submat_A, (long long)n_rows);
+            randlapack_error_if_msg(cols_submat_A > n_cols, "op(A) submatrix col dim inferred from (m, k, trans_A) is %lld but exceeds operator n_cols=%lld", (long long)cols_submat_A, (long long)n_cols);
 
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
             } else {
-                randblas_require(ldc >= n);
+                randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
             }
 
             #if defined(RandBLAS_HAS_MKL)
@@ -260,13 +261,13 @@ public:
             // C := alpha * op(B_sp) * op(A_sp) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_submat_A, cols_submat_A] = RandBLAS::dims_before_op(k, n, trans_A);
-            randblas_require(rows_submat_A <= n_rows);
-            randblas_require(cols_submat_A <= n_cols);
+            randlapack_error_if_msg(rows_submat_A > n_rows, "op(A) submatrix row dim inferred from (m, k, trans_A) is %lld but exceeds operator n_rows=%lld", (long long)rows_submat_A, (long long)n_rows);
+            randlapack_error_if_msg(cols_submat_A > n_cols, "op(A) submatrix col dim inferred from (m, k, trans_A) is %lld but exceeds operator n_cols=%lld", (long long)cols_submat_A, (long long)n_cols);
 
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
             } else {
-                randblas_require(ldc >= n);
+                randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
             }
 
             #if defined(RandBLAS_HAS_MKL)
@@ -344,19 +345,19 @@ public:
 
                 if (side == Side::Left && trans_S == Op::NoTrans) {
                     auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-                    randblas_require(rows_A == n_rows);
-                    randblas_require(cols_A == n_cols);
-                    if (layout == Layout::ColMajor) randblas_require(ldc >= m);
-                    else randblas_require(ldc >= n);
+                    randlapack_error_if_msg(rows_A != n_rows, "op(A) row dim inferred from (m, k, trans_A) is %lld but operator n_rows=%lld", (long long)rows_A, (long long)n_rows);
+                    randlapack_error_if_msg(cols_A != n_cols, "op(A) col dim inferred from (m, k, trans_A) is %lld but operator n_cols=%lld", (long long)cols_A, (long long)n_cols);
+                    if (layout == Layout::ColMajor) randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
+                    else randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
                     RandBLAS::spgemm(layout, trans_A, alpha, A_sp, S_coo, beta, C, ldc);
                     return;
                 }
                 if (side == Side::Right && trans_A == Op::NoTrans) {
                     auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-                    randblas_require(rows_A == n_rows);
-                    randblas_require(cols_A == n_cols);
-                    if (layout == Layout::ColMajor) randblas_require(ldc >= m);
-                    else randblas_require(ldc >= n);
+                    randlapack_error_if_msg(rows_A != n_rows, "op(A) row dim inferred from (m, k, trans_A) is %lld but operator n_rows=%lld", (long long)rows_A, (long long)n_rows);
+                    randlapack_error_if_msg(cols_A != n_cols, "op(A) col dim inferred from (m, k, trans_A) is %lld but operator n_cols=%lld", (long long)cols_A, (long long)n_cols);
+                    if (layout == Layout::ColMajor) randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
+                    else randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
                     RandBLAS::spgemm(layout, trans_S, alpha, S_coo, A_sp, beta, C, ldc);
                     return;
                 }
@@ -370,17 +371,17 @@ public:
 
             if (side == Side::Left) {
                 auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-                randblas_require(rows_A == n_rows);
-                randblas_require(cols_A == n_cols);
-                if (layout == Layout::ColMajor) randblas_require(ldc >= m);
-                else randblas_require(ldc >= n);
+                randlapack_error_if_msg(rows_A != n_rows, "op(A) row dim inferred from (m, k, trans_A) is %lld but operator n_rows=%lld", (long long)rows_A, (long long)n_rows);
+                randlapack_error_if_msg(cols_A != n_cols, "op(A) col dim inferred from (m, k, trans_A) is %lld but operator n_cols=%lld", (long long)cols_A, (long long)n_cols);
+                if (layout == Layout::ColMajor) randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
+                else randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
                 RandBLAS::sketch_general(layout, trans_A, trans_S, m, n, k, alpha, A_dense, lda, S, beta, C, ldc);
             } else {
                 auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-                randblas_require(rows_A == n_rows);
-                randblas_require(cols_A == n_cols);
-                if (layout == Layout::ColMajor) randblas_require(ldc >= m);
-                else randblas_require(ldc >= n);
+                randlapack_error_if_msg(rows_A != n_rows, "op(A) row dim inferred from (m, k, trans_A) is %lld but operator n_rows=%lld", (long long)rows_A, (long long)n_rows);
+                randlapack_error_if_msg(cols_A != n_cols, "op(A) col dim inferred from (m, k, trans_A) is %lld but operator n_cols=%lld", (long long)cols_A, (long long)n_cols);
+                if (layout == Layout::ColMajor) randlapack_error_if_msg(ldc < m, "ldc=%lld < m=%lld (ldc must be >= m under ColMajor)", (long long)ldc, (long long)m);
+                else randlapack_error_if_msg(ldc < n, "ldc=%lld < n=%lld (ldc must be >= n under RowMajor)", (long long)ldc, (long long)n);
                 RandBLAS::sketch_general(layout, trans_S, trans_A, m, n, k, alpha, S, A_dense, lda, beta, C, ldc);
             }
 

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "rl_exceptions.hh"
 #include <blas.hh>
 #include <lapack.hh>
 #include <RandBLAS.hh>
@@ -202,7 +203,7 @@ template <typename T>
     int64_t info = ::lapack::gesdd(::lapack::Job::NoVec,
                     m, n, A_dense, m, sigma.data(),
                     nullptr, 1, nullptr, 1);
-    randblas_require(info == 0);
+    randlapack_error_if_msg(info != 0, "LAPACK call returned info=%lld (expected 0)", (long long)info);
     return sigma;
 }
 

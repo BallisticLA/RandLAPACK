@@ -18,6 +18,7 @@ set(RandLAPACK_cxx_sources
     rl_rpchol.hh
     rl_blaspp.hh
     rl_pdkernels.hh
+    rl_exceptions.hh
 
     rl_cusolver.hh
     rl_cuda_kernels.cuh

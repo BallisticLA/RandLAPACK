@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
@@ -24,7 +25,7 @@ STATE krill_full_rpchol(
     int64_t mu_size = G.num_ops;
     std::vector<T> mus(mu_size);
     std::copy(G.regs, G.regs + mu_size, mus.data());
-    randblas_require(mu_size == 1 || mu_size == ell);
+    randlapack_error_if_msg(!(mu_size == 1 || mu_size == ell), "mu_size=%lld must equal 1 or ell=%lld", (long long)mu_size, (long long)ell);
 
     if (rpchol_block_size < 0)
         rpchol_block_size = std::min((int64_t) 64, n/4);

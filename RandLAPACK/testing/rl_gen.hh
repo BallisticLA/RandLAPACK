@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 
@@ -619,8 +620,8 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_from_singvals(
 ) {
     using namespace RandBLAS::sparse_data;
 
-    randblas_require(m >= n);
-    randblas_require(n >= 1);
+    randlapack_error_if_msg(m < n, "tall sparse matrix requires m >= n; got m=%lld, n=%lld", (long long)m, (long long)n);
+    randlapack_error_if_msg(n < 1, "n=%lld must be >= 1", (long long)n);
 
     // Build top n×n block as B = diag(σ) · V^T.
     // V is a Haar-random orthogonal matrix from QR of a Gaussian.
@@ -689,7 +690,7 @@ RandBLAS::sparse_data::coo::COOMatrix<T> gen_sparse_cond_coo(
     RandBLAS::RNGState<RNG> &state,
     T target_density = (T)0.0
 ) {
-    randblas_require(cond_num >= (T)1.0);
+    randlapack_error_if_msg(cond_num < (T)1.0, "cond_num=%g must be >= 1.0", (double)cond_num);
 
     std::vector<T> sigma(n);
     if (n == 1) {

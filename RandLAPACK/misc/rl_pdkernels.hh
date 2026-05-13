@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_blaspp.hh"
 #include <RandBLAS.hh>
 
@@ -33,7 +34,7 @@ template <typename T>
 void standardize_dataset(
     int64_t rows_x, int64_t cols_x, T* X, T* mu, T* sigma, bool use_input_mu_sigma = false
 ) {
-    randblas_require(cols_x >= 2);
+    randlapack_error_if_msg(cols_x < 2, "cols_x=%lld must be >= 2 (need at least 2 samples to compute std deviation)", (long long)cols_x);
     if (! use_input_mu_sigma) {
         std::fill(mu, mu + rows_x, (T) 0.0);
         std::fill(sigma, sigma + rows_x, (T) 0.0);
@@ -74,8 +75,8 @@ void euclidean_distance_submatrix(
     int64_t rows_x, int64_t cols_x, const T* X, const T* sq_colnorms_x,
     int64_t rows_eds, int64_t cols_eds, T* Eds, int64_t ro_eds, int64_t co_eds
 ) {
-    randblas_require((0 <= co_eds) && ((co_eds + cols_eds) <= cols_x));
-    randblas_require((0 <= ro_eds) && ((ro_eds + rows_eds) <= cols_x));
+    randlapack_error_if_msg(!((0 <= co_eds) && ((co_eds + cols_eds) <= cols_x)), "column window must satisfy 0 <= co_eds and co_eds+cols_eds <= cols_x; got co_eds=%lld cols_eds=%lld cols_x=%lld", (long long)co_eds, (long long)cols_eds, (long long)cols_x);
+    randlapack_error_if_msg(!((0 <= ro_eds) && ((ro_eds + rows_eds) <= cols_x)), "row window must satisfy 0 <= ro_eds and ro_eds+rows_eds <= cols_x; got ro_eds=%lld rows_eds=%lld cols_x=%lld", (long long)ro_eds, (long long)rows_eds, (long long)cols_x);
     const T* sq_colnorms_for_rows = sq_colnorms_x + ro_eds;
     const T* sq_colnorms_for_cols = sq_colnorms_x + co_eds;
 
@@ -135,7 +136,7 @@ void squared_exp_kernel_submatrix(
     T bandwidth
 ) {
     int64_t size_Ksub = rows_ksub * cols_ksub;
-    randblas_require(bandwidth > 0);
+    randlapack_error_if_msg(!(bandwidth > 0), "kernel bandwidth must be > 0; got bandwidth=%g", (double)bandwidth);
     euclidean_distance_submatrix(rows_x, cols_x, X, sq_colnorms_x, rows_ksub, cols_ksub, Ksub, ro_ksub, co_ksub);
     T scale = -1.0 / (2.0 * bandwidth * bandwidth);
     auto inplace_exp = [scale](T &val) { val = std::exp(scale*val); };
@@ -236,7 +237,7 @@ struct RBFKernelMatrix {
     }
 
     void _prep_eval_work1(int64_t rows_ksub, int64_t cols_ksub, int64_t ro_ksub, int64_t co_ksub) {
-        randblas_require(rows_ksub * cols_ksub <= (int64_t) _eval_work1.size());
+        randlapack_error_if_msg(rows_ksub * cols_ksub > (int64_t) _eval_work1.size(), "kernel submatrix rows_ksub*cols_ksub=%lld exceeds _eval_work1 size=%lld", (long long)(rows_ksub*cols_ksub), (long long)_eval_work1.size());
         squared_exp_kernel_submatrix(
             rows_x, dim, X, _sq_colnorms_x.data(),
             rows_ksub, cols_ksub, _eval_work1.data(), ro_ksub, co_ksub, bandwidth
@@ -248,9 +249,9 @@ struct RBFKernelMatrix {
     }
 
     void operator()(blas::Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
-        randblas_require(layout == blas::Layout::ColMajor);
-        randblas_require(ldb >= dim);
-        randblas_require(ldc >= dim);
+        randlapack_error_if_msg(layout != blas::Layout::ColMajor, "this kernel matrix only supports ColMajor layout");
+        randlapack_error_if_msg(ldb < dim, "ldb=%lld < dim=%lld (ldb must be >= operator dimension)", (long long)ldb, (long long)dim);
+        randlapack_error_if_msg(ldc < dim, "ldc=%lld < dim=%lld (ldc must be >= operator dimension)", (long long)ldc, (long long)dim);
 
         _eval_work2.resize(dim * n);
         for (int64_t i = 0; i < n; ++i) {
@@ -274,7 +275,7 @@ struct RBFKernelMatrix {
             todo -= k;
         }
         if (_eval_includes_reg) {
-            randblas_require(num_ops == 1 || n == num_ops);
+            randlapack_error_if_msg(!(num_ops == 1 || n == num_ops), "with num_ops>1, n=%lld must equal num_ops=%lld so each column gets its own regularization", (long long)n, (long long)num_ops);
             for (int64_t i = 0; i < n; ++i) {
                 T coeff =  alpha * regs[std::min(i, num_ops - 1)];
                 blas::axpy(dim, coeff, B + i*ldb, 1, C +  i*ldc, 1);
@@ -286,7 +287,7 @@ struct RBFKernelMatrix {
     inline T operator()(int64_t i, int64_t j) {
         T val = squared_exp_kernel(rows_x, X + i*rows_x, X + j*rows_x, bandwidth);
         if (_eval_includes_reg && i == j) {
-            randblas_require(num_ops == 1);
+            randlapack_error_if_msg(num_ops != 1, "this operation requires num_ops=1; got num_ops=%lld", (long long)num_ops);
             val += regs[0];
         }
         return val;
