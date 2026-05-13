@@ -171,10 +171,8 @@ std::vector<T> gen_exp_singvals(int64_t k, T cond) {
     T t = -log(1 / cond) / (k - offset);
     T cnt = 0.0;
     std::fill(s.begin(), s.begin() + offset, 1.0);
-    int idx = offset;
     for (int i = offset; i < k; ++i) {
         s[i] = std::exp(++cnt * -t);
-        ++idx;
     }
     return s;
 }
