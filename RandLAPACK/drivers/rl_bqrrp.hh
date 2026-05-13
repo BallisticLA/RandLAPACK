@@ -546,12 +546,20 @@ int BQRRP<T, RNG>::call(
         curr_sz += b_sz;
 
         // Termination criteria is reached when:
-        // 1. All iterations are exhausted.
+        // 1. All min(m, n) columns are factored (the QR rank ceiling), or
         // 2. block_rank has been altered, which happens
-        // when the estimated rank of the R-factor 
+        // when the estimated rank of the R-factor
         // from QRCP at this iteration is not full,
         // meaning that the rest of the matrix is zero.
-        if((curr_sz >= n) || (block_rank != b_sz_const)) {
+        //
+        // Bug fix (wide matrices): the bound is min(m, n) rather than n.
+        // For wide A (m < n), curr_sz reaches m before n, so `curr_sz >= n`
+        // never fires on full-rank wide input; the main loop falls through
+        // and `this->rank` is never set, leaving it at its default (0).
+        // Note: caller's A still has the factorization data because column
+        // permutation is in-place; only the `rank` field was bogus. Tests
+        // for wide A were absent in the upstream test suite, masking this.
+        if((curr_sz >= std::min(m, n)) || (block_rank != b_sz_const)) {
             this -> rank = curr_sz;
 
             if(this -> timing) {
