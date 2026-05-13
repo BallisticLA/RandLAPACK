@@ -409,4 +409,31 @@ TEST_F(TestBQRRP, BQRRP_cholqr_nb) {
     norm_and_copy_computational_helper(norm_A, all_data);
     test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
 }
+
+// Wide aspect ratio (m < n).  Regression test for the wide-A correctness
+// fix: prior to the fix, the termination condition `curr_sz >= n` never
+// fired for wide A (curr_sz tops out at min(m, n) = m < n), so the loop
+// fell through without setting `this->rank`. On the CPU the factorization
+// itself still ended up in caller's A (because column permutation is
+// in-place), but `rank` was left at its default (0). This test guards
+// against re-introducing the bug.
+TEST_F(TestBQRRP, BQRRP_wide_aspect) {
+    int64_t m = 2000;
+    int64_t n = 5000;   // n > m -- wide
+    int64_t k = m;      // expected rank
+    double d_factor = 1;
+    int64_t b_sz = 500;
+    double norm_A = 0;
+    auto state = RandBLAS::RNGState();
+
+    BQRRPTestData<double> all_data(m, n, k);
+    RandLAPACK::BQRRP<double, r123::Philox4x32> BQRRP(true, b_sz);
+    BQRRP.qr_tall = Subroutines::QRTall::geqrf;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
+
+    norm_and_copy_computational_helper(norm_A, all_data);
+    test_BQRRP_general(d_factor, norm_A, all_data, BQRRP, state);
+}
 #endif

@@ -362,6 +362,36 @@ TEST_F(TestBQRRP, BQRRP_GPU_zero_input) {
     test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
 }
 
+// Wide aspect ratio (m < n).  Regression test for the wide-A correctness
+// fix: prior to the fix, the termination condition `curr_sz >= n` never
+// fired for wide A (curr_sz tops out at min(m, n) = m < n), causing the
+// main loop to fall through without setting `rank` or reconciling the
+// swap-dance buffers. Additionally, the trailing-region copy in
+// `reconcile_and_cleanup` was gated on `iter != maxiter - 1`, which is
+// wrong for wide A at full completion -- the wide tail [m, n) of valid
+// R12 entries was not copied back, and the J wide-tail was not
+// reconciled (producing duplicate pivots).
+TEST_F(TestBQRRP, BQRRP_GPU_wide_aspect) {
+    int64_t m = 1000;
+    int64_t n = 2000;   // n > m -- wide
+    int64_t k = m;      // expected rank
+    double d_factor = 1;
+    int64_t b_sz = 100;
+    int64_t d = d_factor * b_sz;
+    double norm_A = 0;
+    auto state = RandBLAS::RNGState();
+
+    BQRRPTestData<double> all_data(m, n, k, d);
+    RandLAPACK::BQRRP_GPU<double, r123::Philox4x32> BQRRP_GPU(false, b_sz);
+    BQRRP_GPU.qr_tall = GPUSubroutines::QRTall::geqrf;
+
+    RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
+    RandLAPACK::gen::mat_gen<double, r123::Philox4x32>(m_info, all_data.A.data(), state);
+
+    norm__sektch_and_copy_computational_helper<double, r123::Philox4x32>(norm_A, d, all_data, state);
+    test_BQRRP_general<double, RandLAPACK::BQRRP_GPU<double, r123::Philox4x32>>(d, norm_A, all_data, BQRRP_GPU);
+}
+
 TEST_F(TestBQRRP, GEQRF_GPU_ATTEMPT_TO_CATCH_INEFFICIENCY_ON_H100) {
     int64_t m   = 16384;
     int64_t k   = 1024;

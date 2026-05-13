@@ -455,16 +455,31 @@ int BQRRP_GPU<T, RNG>::call(
             }
 
             this -> rank = curr_sz;
-            // Measures taken to ensure J holds correct data, explained above.
+            // Bug fix (wide A): see commentary on the normal-termination
+            // path below for full details. `processed < n` correctly
+            // gates the trailing-region copy for both early-termination
+            // and wide A at full completion; the J wide-tail copy on the
+            // odd-iter path is also added to prevent J from carrying
+            // stale iter-0 entries in [m, n) (which manifests as
+            // duplicate pivot values for wide A).
+            const int64_t processed_bz = (block_rank != b_sz_const)
+                ? (iter * b_sz_const + b_sz)
+                : ((iter + 1) * b_sz_const);
             if(iter % 2) {
                 // Total number of iterations is odd (iter starts at 0)
                 std::swap(J_copy_col_swap, J);
+                if (processed_bz < n) {
+                    RandLAPACK::cuda_kernels::copy_gpu(
+                        strm, n - processed_bz,
+                        &J_copy_col_swap[processed_bz], 1,
+                        &J[processed_bz], 1);
+                }
             } else {
                 // Total number of iterations is even
                 std::swap(A_copy_col_swap, A);
-                if(iter != (maxiter - 1)){
+                if(processed_bz < n){
                     // Copy trailing portion of A_cpy into A
-                    blas::device_copy_matrix(m, n - (iter + 1) * b_sz_const, &A_copy_col_swap[lda * (iter + 1) * b_sz_const], lda, &A[lda * (iter + 1) * b_sz_const], lda, lapack_queue);
+                    blas::device_copy_matrix(m, n - processed_bz, &A_copy_col_swap[lda * processed_bz], lda, &A[lda * processed_bz], lda, lapack_queue);
                 }
             }
             for (int idx = 0; idx <= iter; ++idx) {
@@ -741,21 +756,54 @@ int BQRRP_GPU<T, RNG>::call(
         // when the estimated rank of the R-factor 
         // from QRCP at this iteration is not full,
         // meaning that the rest of the matrix is zero.
-        if((curr_sz >= n) || (block_rank != b_sz_const)) {
+        // Termination check.  Bug fix (wide A, m < n): the bound here is
+        // min(m, n) rather than n. For wide A the algorithm can factor at
+        // most m columns (the QR rank ceiling), so curr_sz reaches m before
+        // n. Without this fix, `curr_sz >= n` never fires on full-rank wide
+        // input; the main loop falls through, leaving `this->rank == 0`
+        // and the swap-dance unreconciled. The upstream test suite never
+        // exercised wide A (all GPU tests are tall 5000 x 2800 or square
+        // 1000 x 1000), so this bug was undetected.
+        if((curr_sz >= std::min(m, n)) || (block_rank != b_sz_const)) {
             this -> rank = curr_sz;
-            // Measures taken to insure J holds correct data, explained above.
+            // Bug fix (wide A): the existing trailing-copy gating
+            // `iter != maxiter - 1` is wrong for wide A at full completion.
+            // It was meant to skip the copy when terminating at the very
+            // last iter, which for tall/square A means curr_sz == n
+            // (no trailing region). But for wide A, curr_sz reaches m < n
+            // even at the last iter, so a trailing region [m, n) of valid
+            // R12 entries still needs to be copied. Replacing the gate
+            // with `processed < n` handles both cases:
+            //   * tall/square at full completion: processed == n -> no copy
+            //   * wide at full completion: processed == m < n -> copy
+            //   * any early termination: processed < n -> copy
+            // Additionally, the original code did NOT copy J's trailing
+            // region for odd-iter termination, which produced duplicates
+            // in J's wide tail for wide A. Symmetric J copy added below.
+            const int64_t processed = (block_rank != b_sz_const)
+                ? (iter * b_sz_const + b_sz)
+                : ((iter + 1) * b_sz_const);
             if(iter % 2) {
                 // Total number of iterations is odd (iter starts at 0)
                 std::swap(J_copy_col_swap, J);
+                // J wide-tail copy. The last iter's col_swap wrote scratch
+                // (now aliased J_copy_col_swap after the swap-back); the
+                // for-loop below only handles block-aligned ranges, so
+                // bring the wide tail home explicitly.
+                if (processed < n) {
+                    RandLAPACK::cuda_kernels::copy_gpu(
+                        strm, n - processed,
+                        &J_copy_col_swap[processed], 1,
+                        &J[processed], 1);
+                }
             } else {
                 // Total number of iterations is even
                 std::swap(A_copy_col_swap, A);
-                // In addition to the copy from A_cpy to A space below, we also need to account for the cases when early termination has occured (iter != maxiters - 1), and pointers A and A_cpy need to switch places,
-                // Aka when A_cpy has the "correct" trailing entries.
-                // This means that the all entries from (iter + 1) * b_sz to end need to be copied over from A_cpy to A.
-                // It is most likely the case that these trailing entries are all 0, but in order to be extra safe, we shall perform a full copy.
-                if(iter != (maxiter - 1)){
-                    blas::device_copy_matrix(m, n - (iter + 1) * b_sz_const, &A_copy_col_swap[lda * (iter + 1) * b_sz_const], lda, &A[lda * (iter + 1) * b_sz_const], lda, lapack_queue);
+                // A trailing-region copy. Now gated on (processed < n) so
+                // wide A at full completion is handled correctly along
+                // with early-termination cases.
+                if(processed < n){
+                    blas::device_copy_matrix(m, n - processed, &A_copy_col_swap[lda * processed], lda, &A[lda * processed], lda, lapack_queue);
                 }
             }
             for (int idx = 0; idx <= iter; ++idx) {
