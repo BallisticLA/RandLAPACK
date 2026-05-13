@@ -278,12 +278,12 @@ class ABRIK {
             // also needs to be used together with the input's abstract linear operator form.
             // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
             #ifdef RandBLAS_HAS_OpenMP
-                omp_set_num_threads(this->num_threads_min);
+            omp_set_num_threads(this->num_threads_min);
             #endif
             RandBLAS::DenseDist D(n, k);
             state = RandBLAS::fill_dense(D, Y_i, state);
             #ifdef RandBLAS_HAS_OpenMP
-                omp_set_num_threads(this->num_threads_max);
+            omp_set_num_threads(this->num_threads_max);
             #endif
 
             if(this -> timing) {
@@ -412,11 +412,11 @@ class ABRIK {
 
                         // Copy R_ii over to R's (in transposed format).
                         #ifdef RandBLAS_HAS_OpenMP
-                                    omp_set_num_threads(this->num_threads_min);
+                        omp_set_num_threads(this->num_threads_min);
                         #endif
                         util::transposition(0, k, Y_i, n, R_ii, n, 1);
                         #ifdef RandBLAS_HAS_OpenMP
-                                    omp_set_num_threads(this->num_threads_max);
+                        omp_set_num_threads(this->num_threads_max);
                         #endif
 
                         if(this -> timing) {
