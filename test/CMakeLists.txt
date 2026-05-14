@@ -19,6 +19,7 @@ if (GTest_FOUND)
         drivers/test_cqrrt.cc
         drivers/test_bqrrp.cc
         drivers/test_revd2.cc
+        drivers/test_fun_nystrom_pp_v2.cc
         drivers/test_hqrrp.cc
         drivers/test_abrik.cc
         drivers/test_orth_linop.cc

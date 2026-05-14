@@ -5,6 +5,9 @@
 
 #include <RandBLAS.hh>
 #include <iostream>
+#include <fstream>
+#include <stdexcept>
+#include <string>
 #include <cmath>
 #include <algorithm>
 #include <vector>
@@ -188,6 +191,21 @@ void col_swap(
 
 /// Checks if the given size is larger than available. 
 /// If so, resizes the vector.
+/// Raw-pointer overload of upsize: grow a heap buffer to at least
+/// `needed` elements, reallocating via new/delete[]. Existing contents
+/// are not preserved (this is for working buffers that the caller
+/// re-fills on every call). Pulled from the funnystrompp branch where
+/// it was named util::resize; renamed here to match the std::vector
+/// overload above.
+template <typename T>
+void upsize(T*& buf, int64_t& buf_sz, int64_t needed) {
+    if (needed > buf_sz) {
+        delete[] buf;
+        buf = new T[needed];
+        buf_sz = needed;
+    }
+}
+
 template <typename T>
 T* upsize(
     int64_t target_sz,
@@ -576,6 +594,58 @@ void sparse_to_dense_summing_duplicates(
     T *dense_mat
 ) {
     sparse_to_dense(sp_mat, layout, dense_mat);
+}
+
+/// Minimal binary I/O for dense column-major matrices, used by the
+/// funNyström++ v2 cross-validation harness to share fixtures between
+/// MATLAB and C++. Format:
+///   bytes  0..7   : int64_t n_rows (little-endian, native on x86_64)
+///   bytes  8..15  : int64_t n_cols
+///   bytes 16..    : n_rows * n_cols T values in column-major order
+/// MATLAB side: `bench_matlab/save_dense_bin.m`, `load_dense_bin.m`.
+template <typename T>
+void save_dense_bin(const std::string &path, int64_t n_rows, int64_t n_cols, const T *A) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("save_dense_bin: cannot open " + path);
+    f.write(reinterpret_cast<const char*>(&n_rows), sizeof(int64_t));
+    f.write(reinterpret_cast<const char*>(&n_cols), sizeof(int64_t));
+    f.write(reinterpret_cast<const char*>(A), n_rows * n_cols * sizeof(T));
+    if (!f) throw std::runtime_error("save_dense_bin: write failed on " + path);
+}
+
+/// Loads a column-major dense matrix written by save_dense_bin (or its
+/// MATLAB twin). On entry n_rows/n_cols are set from the file header; the
+/// caller passes a buffer pre-allocated to at least n_rows*n_cols Ts.
+/// Throws if the file is missing, malformed, or the buffer is too small.
+template <typename T>
+void load_dense_bin(const std::string &path, int64_t &n_rows, int64_t &n_cols, T *A, int64_t A_capacity) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("load_dense_bin: cannot open " + path);
+    f.read(reinterpret_cast<char*>(&n_rows), sizeof(int64_t));
+    f.read(reinterpret_cast<char*>(&n_cols), sizeof(int64_t));
+    if (!f) throw std::runtime_error("load_dense_bin: header read failed on " + path);
+    int64_t need = n_rows * n_cols;
+    if (need > A_capacity) {
+        throw std::runtime_error("load_dense_bin: buffer too small for " + path);
+    }
+    f.read(reinterpret_cast<char*>(A), need * sizeof(T));
+    if (!f) throw std::runtime_error("load_dense_bin: data read failed on " + path);
+}
+
+/// Average A and its transpose in place. n × n column-major matrix with
+/// leading dim lda. Used by the block Lanczos-FA recurrence to enforce
+/// numerical symmetry on the small tridiagonal-block matrix before passing
+/// it to syevd. Pulled from the funnystrompp branch where it was already
+/// in rl_util.hh.
+template <typename T>
+void symmetrize(int64_t n, T* A, int64_t lda) {
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = j + 1; i < n; ++i) {
+            T avg = (T)0.5 * (A[i + j * lda] + A[j + i * lda]);
+            A[i + j * lda] = avg;
+            A[j + i * lda] = avg;
+        }
+    }
 }
 
 } // end namespace util
