@@ -4,11 +4,14 @@
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
+#include "rl_nystrom_evd_v2.hh"
 
 #include <RandBLAS.hh>
-#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <optional>
+#include <stdexcept>
 #include <vector>
 
 namespace RandLAPACK {
@@ -44,6 +47,7 @@ template <typename T>
 class FunNystromPP_v2 {
 public:
     bool verbose = false;
+    bool force_fallback = false;   // Phase 7a perf knob: skip Cholesky-fast in NystromEVD_v2 and use the SVD-pinv path.
 
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
     // public so tests can inspect them; in production code you'd treat
@@ -51,6 +55,16 @@ public:
     std::vector<T> U;        // m × k_out, column-major
     std::vector<T> lambda;   // k_out descending eigenvalues
     int64_t k_out = 0;
+
+    // Phase-split wall-clock timings populated by call() (ms).
+    double t_phase1_ms = 0.0;
+    double t_phase2_ms = 0.0;
+    // Inner wall-clock of just the dual-path spectral-recovery block
+    // inside NystromEVD_v2 (Cholesky-fast vs SVD-pinv fall-back). This
+    // is the tight measurement for the Phase 7a A/B comparison; the
+    // QR + subspace-iter + final matvec costs that precede it are
+    // identical on both paths and contribute to t_phase1_ms.
+    double t_specrec_ms = 0.0;
 
     FunNystromPP_v2() = default;
     FunNystromPP_v2(const FunNystromPP_v2&) = delete;
@@ -72,9 +86,25 @@ public:
     ///                      pass; q = 2 = 1 subspace-iter pass; etc.).
     /// @param[in]  Omega1   Caller-supplied m × k sketch for Phase 1.
     /// @param[in]  Omega2   Caller-supplied m × s sketch for Phase 2
-    ///                      (Gaussian in the v2 baseline).
-    /// @param[out] t1_out   Phase 1 contribution Σ f(λ̂ᵢ).
-    /// @param[out] t2_out   Phase 2 stochastic correction.
+    ///                      (Gaussian in the v2 baseline). When k == m
+    ///                      Phase 2 is skipped and Omega2 is unread; the
+    ///                      caller may pass nullptr.
+    /// @param[in]  f_zero   Optional f(0). Default std::nullopt produces
+    ///                      Persson-MATLAB-aligned output (no zero-fill
+    ///                      correction; bit-exact cross-validation anchor).
+    ///                      Pass a finite f(0) to opt in to PR-#132-style
+    ///                      "zero-fill" semantics: tr(f(Â)) is computed
+    ///                      assuming the rank-k Â is treated as an n×n
+    ///                      operator with f(0) on the orthogonal
+    ///                      complement; t1 gains (n − k) f(0) and t2 is
+    ///                      adjusted by the projector-complement term.
+    ///                      Must be finite; throws std::invalid_argument
+    ///                      otherwise. No auto-resolve from fscalar(0):
+    ///                      for f = log that would produce -∞.
+    /// @param[out] t1_out   Phase 1 contribution Σ f(λ̂ᵢ), with the
+    ///                      optional (n − k) f(0) term added when
+    ///                      f_zero is supplied.
+    /// @param[out] t2_out   Phase 2 stochastic correction; 0 when k == m.
     /// @return     t = t1 + t2.
     template <linops::SymmetricLinearOperator SLO, typename FAFun, typename FScalar>
     T call(
@@ -87,135 +117,47 @@ public:
         const T *Omega1,
         const T *Omega2,
         T &t1_out,
-        T &t2_out
+        T &t2_out,
+        std::optional<T> f_zero = std::nullopt
+    );
+
+    /// Sparse-sketch overload: Phase 1 sketch is a `RandBLAS::SparseSkOp`
+    /// rather than a dense buffer. Routes the first matvec Y0 = A · S
+    /// through the SkOp-taking operator() on the SLO (which dispatches
+    /// to `RandBLAS::sparse_data::right_spmm` for `ExplicitSymLinOp`),
+    /// then delegates to the dense path with `q_effective = q − 1`.
+    /// Algorithmically equivalent to the reference; same answer at
+    /// fixed RNG as densifying `S` and calling the dense overload.
+    ///
+    /// PRECONDITIONS:
+    ///   - q >= 2. For q == 1 there's no first-matvec to amortize
+    ///     (the dense path does QR + one matvec; with sparse Ω₁ that
+    ///     means densifying anyway). Throws std::invalid_argument.
+    ///   - The SLO supports the SkOp-taking operator() overload.
+    ///     For `linops::ExplicitSymLinOp` this requires BOTH triangles
+    ///     of A populated (right_spmm doesn't exploit symmetry; the
+    ///     `RandBLAS::sparse_symm_spmm` upstream work, when it lands,
+    ///     will close the ~2× cost gap).
+    ///
+    /// Other parameters and semantics match the dense overload above.
+    template <linops::SymmetricLinearOperator SLO,
+              RandBLAS::SketchingOperator SkOp,
+              typename FAFun, typename FScalar>
+    T call(
+        SLO &A_op,
+        FAFun &&fAfun,
+        FScalar &&fscalar,
+        int64_t k,
+        int64_t s,
+        int64_t q,
+        SkOp &Omega1_sparse,
+        const T *Omega2,
+        T &t1_out,
+        T &t2_out,
+        std::optional<T> f_zero = std::nullopt
     );
 };
 
-
-// --- Phase 1: free-standing NystromEVD_v2 ----------------------------------
-
-/// Reference-aligned sketched Nyström spectral recovery.
-/// Direct port of davpersson/funNystrom/Other/nystrom.m.
-///
-/// Computes Â = Y (ΩᵀY)† Yᵀ implicitly via:
-///   Ω ← qr(Ω, 0)
-///   for iter = 1..q-1:  Ω ← qr(A·Ω, 0)
-///   Y ← A · Ω
-///   [V_G, D, _] ← svd(Ωᵀ · Y, 'econ')
-///   D[D < 5e-16 · D[0]] ← 0                       (explicit pinv threshold)
-///   B ← Y · V_G · pinv(diag(√D)) · V_Gᵀ
-///   [U, Σ, _] ← svd(B, 'econ')
-///   λ ← Σ²
-/// and stores U (n × k) and λ (length k, descending) in the
-/// caller-supplied vectors. Workspace is owned by the caller through
-/// the `workspace` struct so it can be reused across calls.
-template <typename T>
-struct NystromEVD_v2_workspace {
-    std::vector<T> Omega;     // m × k
-    std::vector<T> Y;         // m × k
-    std::vector<T> G;         // k × k
-    std::vector<T> V_G;       // k × k (left singular vectors of G)
-    std::vector<T> VT_G;      // k × k (right singular vectors of G, transposed)
-    std::vector<T> D;         // k (singular values of G)
-    std::vector<T> tmp_kk;    // k × k (for V_G · pinv(√D) · V_Gᵀ)
-    std::vector<T> Sigma;     // k (singular values of B)
-    std::vector<T> VT_B;      // k × k (right singular vectors of B, unused but gesdd writes it)
-    std::vector<T> tau;       // k (geqrf reflectors)
-};
-
-template <typename T, linops::SymmetricLinearOperator SLO>
-void NystromEVD_v2(
-    SLO &A_op,
-    int64_t k,
-    int64_t q,
-    const T *Omega1_in,
-    std::vector<T> &U_out,            // populated to size m·k, column-major
-    std::vector<T> &lambda_out,        // populated to size k, descending
-    NystromEVD_v2_workspace<T> &ws
-) {
-    using namespace blas;
-    int64_t m = A_op.dim;
-
-    // Allocate / resize workspace.
-    ws.Omega.assign(m * k, (T)0);
-    ws.Y.assign(m * k, (T)0);
-    ws.G.assign(k * k, (T)0);
-    ws.V_G.assign(k * k, (T)0);
-    ws.VT_G.assign(k * k, (T)0);
-    ws.D.assign(k, (T)0);
-    ws.tmp_kk.assign(k * k, (T)0);
-    ws.Sigma.assign(k, (T)0);
-    ws.VT_B.assign(k * k, (T)0);
-    ws.tau.assign(k, (T)0);
-    U_out.assign(m * k, (T)0);
-    lambda_out.assign(k, (T)0);
-
-    // Step 1: Ω ← qr(Ω₁_in, 0).
-    std::copy(Omega1_in, Omega1_in + m * k, ws.Omega.data());
-    lapack::geqrf(m, k, ws.Omega.data(), m, ws.tau.data());
-    lapack::ungqr(m, k, k, ws.Omega.data(), m, ws.tau.data());
-
-    // Steps 2–3: q − 1 subspace-iteration passes, each: Ω ← qr(A · Ω, 0).
-    for (int64_t iter = 1; iter < q; ++iter) {
-        A_op(Layout::ColMajor, k, (T)1, ws.Omega.data(), m, (T)0, ws.Y.data(), m);
-        std::copy(ws.Y.begin(), ws.Y.end(), ws.Omega.begin());
-        lapack::geqrf(m, k, ws.Omega.data(), m, ws.tau.data());
-        lapack::ungqr(m, k, k, ws.Omega.data(), m, ws.tau.data());
-    }
-
-    // Step 4: Y ← A · Ω.
-    A_op(Layout::ColMajor, k, (T)1, ws.Omega.data(), m, (T)0, ws.Y.data(), m);
-
-    // Step 5: [V_G, D, V_Gᵀ] ← svd(Ωᵀ · Y, 'econ').
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
-               (T)1, ws.Omega.data(), m, ws.Y.data(), m, (T)0, ws.G.data(), k);
-    lapack::gesdd(lapack::Job::SomeVec, k, k, ws.G.data(), k,
-                  ws.D.data(), ws.V_G.data(), k, ws.VT_G.data(), k);
-
-    // Step 6: thresholded pinv. D[j] < 5·ε·D[0] → 0.
-    const T D_max  = ws.D[0];
-    const T thresh = (T)5e-16 * D_max;
-    for (int64_t j = 0; j < k; ++j) {
-        if (ws.D[j] < thresh) ws.D[j] = (T)0;
-    }
-
-    // Step 7: B ← Y · V_G · pinv(diag(√D)) · V_Gᵀ.
-    // Compute pinv(diag(√D)): scale columns of V_G by 1/√D[j] where D[j] > 0.
-    for (int64_t j = 0; j < k; ++j) {
-        T scale = (ws.D[j] > (T)0) ? (T)1 / std::sqrt(ws.D[j]) : (T)0;
-        for (int64_t i = 0; i < k; ++i) {
-            ws.tmp_kk[i + j * k] = ws.V_G[i + j * k] * scale;
-        }
-    }
-    // tmp_kk now holds V_G · pinv(diag(√D)). Multiply by V_Gᵀ on the right.
-    // Reuse ws.V_G as the output buffer: G ← tmp_kk · V_Gᵀ. Read VT_G (which
-    // is the V^T factor returned by gesdd, i.e. V_Gᵀ already).
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, k, k, k,
-               (T)1, ws.tmp_kk.data(), k, ws.VT_G.data(), k, (T)0, ws.G.data(), k);
-    // ws.G now holds V_G · pinv(diag(√D)) · V_Gᵀ (k × k, symmetric).
-    // B ← Y · ws.G. Reuse ws.Y as output (overwrite).
-    // But ws.Y is m × k input AND m × k output — same shape — and we cannot
-    // alias in gemm. Compute into a scratch buffer (tmp_kk is wrong size).
-    // Reuse U_out: it'll be overwritten in step 8 anyway.
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, k,
-               (T)1, ws.Y.data(), m, ws.G.data(), k, (T)0, U_out.data(), m);
-    // Now U_out holds B (m × k); ws.Y is free.
-
-    // Step 8: [U, Σ, _] ← svd(B, 'econ'). B is in U_out; gesdd overwrites it
-    // with the left singular vectors when called with SomeVec.
-    // gesdd(SomeVec, m, n, A, lda, S, U, ldu, VT, ldvt) for m >= n writes U
-    // into A in place (with min(m,n) columns). We need a separate U buffer
-    // because gesdd writes the leading singular vectors into the provided U.
-    // Copy B from U_out into ws.Y first so gesdd's input/output don't alias.
-    std::copy(U_out.begin(), U_out.end(), ws.Y.begin());
-    lapack::gesdd(lapack::Job::SomeVec, m, k, ws.Y.data(), m,
-                  ws.Sigma.data(), U_out.data(), m, ws.VT_B.data(), k);
-
-    // Step 9: λ ← Σ².
-    for (int64_t i = 0; i < k; ++i) {
-        lambda_out[i] = ws.Sigma[i] * ws.Sigma[i];
-    }
-}
 
 
 // --- Phase 2: FunNystromPP_v2::call ---------------------------------------
@@ -232,49 +174,147 @@ T FunNystromPP_v2<T>::call(
     const T *Omega1,
     const T *Omega2,
     T &t1_out,
-    T &t2_out
+    T &t2_out,
+    std::optional<T> f_zero
 ) {
     int64_t m = A_op.dim;
 
+    if (f_zero.has_value() && !std::isfinite(*f_zero))
+        throw std::invalid_argument(
+            "FunNystromPP_v2::call: f_zero must be finite when provided");
+
     // Phase 1.
+    auto t_p1_start = std::chrono::steady_clock::now();
     NystromEVD_v2_workspace<T> ws;
-    NystromEVD_v2<T>(A_op, k, q, Omega1, this->U, this->lambda, ws);
+    NystromEVD_v2<T>(A_op, k, q, Omega1, this->U, this->lambda, ws, this->force_fallback, &this->t_specrec_ms);
     this->k_out = k;
 
-    // t1 = Σ fscalar(λᵢ).
+    // Resolve f(0) for the optional (n − k) · f(0) correction term in
+    // tr(f(Â)). Default (f_zero = nullopt) matches Persson MATLAB which
+    // omits this term — that's the cross-validation anchor. Caller can
+    // opt in to production-style behavior (PR #132) by passing a finite
+    // f_zero, in which case both t1 (via the (m−k)·f(0) term below) and
+    // t2 (via the projector-complement correction below) are adjusted.
+    // Both estimators converge to tr(f(A)) in expectation; for a fixed Ω
+    // they differ by `f(0)·[(m−k) − (‖Ω‖²_F − ‖VᵀΩ‖²_F)/s]`, a quantity
+    // that vanishes on average when Ω is iid Gaussian / Rademacher.
+    // No auto-resolve from fscalar(0): for f = log the auto-call would
+    // produce -∞, breaking the bit-exact MATLAB anchor on log-style
+    // fixtures.
+    const bool   apply_fzero = f_zero.has_value() && (k < m);
+    const T      fz          = apply_fzero ? *f_zero : (T)0;
+
+    // t1 = Σ fscalar(λᵢ) (+ (m − k) · fz when f_zero supplied).
     t1_out = (T)0;
     for (int64_t i = 0; i < k; ++i) t1_out += fscalar(this->lambda[i]);
+    if (apply_fzero) t1_out += static_cast<T>(m - k) * fz;
+    auto t_p1_end = std::chrono::steady_clock::now();
+    this->t_phase1_ms = std::chrono::duration<double, std::milli>(t_p1_end - t_p1_start).count();
 
     // Phase 2: t2 = ( tr(Ω₂ᵀ · fAfun(Ω₂)) − tr(Yᵀ · diag(f(λ)) · Y) ) / s
     //   where Y = Uᵀ · Ω₂ (shape k × s).
+    //
+    // Skip Phase 2 when k == m: Phase 1 has captured the full spectrum
+    // exactly (Â = A), so f(A) − f(Â) is analytically zero. Running the
+    // Hutchinson correction anyway would leave an O(ε · s · LFA_residual)
+    // misleading noise floor because Z1 (LFA approximation) and Z2
+    // (V · diag(f(λ)) · Vᵀ · Ω) follow different floating-point paths.
+    // The matvec-budget constraint k + s ≤ m implies s == 0 at k = m, so
+    // this is also the only sensible call when the caller respects it.
+    t2_out = (T)0;
+    if (k < m) {
+        auto t_p2_start = std::chrono::steady_clock::now();
 
-    // Step a: Y_2 ← Uᵀ · Ω₂  (k × s)
-    std::vector<T> Y_2(k * s, (T)0);
-    blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-               k, s, m, (T)1, this->U.data(), m, Omega2, m, (T)0, Y_2.data(), k);
+        // Step a: Y_2 ← Uᵀ · Ω₂  (k × s)
+        std::vector<T> Y_2(k * s, (T)0);
+        blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+                   k, s, m, (T)1, this->U.data(), m, Omega2, m, (T)0, Y_2.data(), k);
 
-    // Step b: fAOmega ← f(A) · Ω₂  (m × s, caller-supplied oracle)
-    std::vector<T> fAOmega(m * s, (T)0);
-    fAfun(m, s, Omega2, fAOmega.data());
+        // Step b: fAOmega ← f(A) · Ω₂  (m × s, caller-supplied oracle)
+        std::vector<T> fAOmega(m * s, (T)0);
+        fAfun(m, s, Omega2, fAOmega.data());
 
-    // Step c: tr_AΩ ← tr(Ω₂ᵀ · fAOmega) = Σⱼ ⟨Ω₂[:,j], fAOmega[:,j]⟩.
-    T tr_AOmega = (T)0;
-    for (int64_t j = 0; j < s; ++j) {
-        tr_AOmega += blas::dot(m, Omega2 + j * m, 1, fAOmega.data() + j * m, 1);
-    }
-
-    // Step d: tr_AhatΩ ← tr(Y_2ᵀ · diag(f(λ)) · Y_2)
-    //                 = Σⱼ Σᵢ f(λᵢ) · Y_2[i,j]².
-    T tr_AhatOmega = (T)0;
-    for (int64_t j = 0; j < s; ++j) {
-        for (int64_t i = 0; i < k; ++i) {
-            T v = Y_2[i + j * k];
-            tr_AhatOmega += fscalar(this->lambda[i]) * v * v;
+        // Step c: tr_AΩ ← tr(Ω₂ᵀ · fAOmega) = Σⱼ ⟨Ω₂[:,j], fAOmega[:,j]⟩.
+        T tr_AOmega = (T)0;
+        for (int64_t j = 0; j < s; ++j) {
+            tr_AOmega += blas::dot(m, Omega2 + j * m, 1, fAOmega.data() + j * m, 1);
         }
-    }
 
-    t2_out = (tr_AOmega - tr_AhatOmega) / (T)s;
+        // Step d: tr_AhatΩ ← tr(Ω₂ᵀ · f(Â) · Ω₂).
+        // When apply_fzero, the rank-k Â is "zero-filled" to an n×n
+        // operator: f(Â) = V·diag(f(λ))·Vᵀ + f(0)·(I − V·Vᵀ). The
+        // projector-complement term contributes
+        //   f(0) · [‖Ω₂‖²_F − ‖Y_2‖²_F]
+        // to tr_AhatΩ, computed alongside the rank-k diagonal sum.
+        T tr_AhatOmega = (T)0;
+        for (int64_t j = 0; j < s; ++j) {
+            for (int64_t i = 0; i < k; ++i) {
+                T v = Y_2[i + j * k];
+                tr_AhatOmega += fscalar(this->lambda[i]) * v * v;
+            }
+        }
+        if (apply_fzero) {
+            const T omega_fro_sq = blas::dot(m * s, Omega2, 1, Omega2, 1);
+            const T y2_fro_sq    = blas::dot(k * s, Y_2.data(), 1, Y_2.data(), 1);
+            tr_AhatOmega += fz * (omega_fro_sq - y2_fro_sq);
+        }
+
+        t2_out = (tr_AOmega - tr_AhatOmega) / (T)s;
+        auto t_p2_end = std::chrono::steady_clock::now();
+        this->t_phase2_ms = std::chrono::duration<double, std::milli>(t_p2_end - t_p2_start).count();
+    } else {
+        this->t_phase2_ms = 0.0;
+    }
     return t1_out + t2_out;
+}
+
+
+// Sparse-sketch overload (Phase 6 + Gap 5: SASO + SkOp-aware first matvec
+// pulled into the driver). Computes Y0 = A · S through the SkOp path on
+// the SLO, then delegates to the dense overload with q − 1.
+template <typename T>
+template <linops::SymmetricLinearOperator SLO,
+          RandBLAS::SketchingOperator SkOp,
+          typename FAFun, typename FScalar>
+T FunNystromPP_v2<T>::call(
+    SLO &A_op,
+    FAFun &&fAfun,
+    FScalar &&fscalar,
+    int64_t k,
+    int64_t s,
+    int64_t q,
+    SkOp &Omega1_sparse,
+    const T *Omega2,
+    T &t1_out,
+    T &t2_out,
+    std::optional<T> f_zero
+) {
+    int64_t m = A_op.dim;
+    if (q < 2) {
+        throw std::invalid_argument(
+            "FunNystromPP_v2::call (SkOp overload): q must be >= 2. "
+            "For q == 1, densify the sketch caller-side and call the "
+            "dense Omega1 overload.");
+    }
+    // Y0 = A · S via the SkOp-aware operator() overload on the SLO
+    // (dispatches to RandBLAS::sparse_data::right_spmm for
+    // ExplicitSymLinOp). Caller is responsible for ensuring A has both
+    // triangles populated when using ExplicitSymLinOp — right_spmm
+    // treats A as generic dense.
+    std::vector<T> Y0(m * k, (T)0);
+    A_op(Layout::ColMajor, k, (T)1, Omega1_sparse, (T)0, Y0.data(), m);
+
+    // Delegate to the dense path. q_effective = q - 1 because the
+    // sparse first matvec replaces the dense path's initial
+    // qr(Ω) → A·Ω' step; the dense path will then do q - 2 subspace-iter
+    // passes + a final A·Ω matvec, matching the reference's total of
+    // q matvecs of A.
+    return this->call(A_op,
+                      std::forward<FAFun>(fAfun),
+                      std::forward<FScalar>(fscalar),
+                      k, s, q - 1,
+                      Y0.data(), Omega2,
+                      t1_out, t2_out, f_zero);
 }
 
 

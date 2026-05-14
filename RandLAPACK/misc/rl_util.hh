@@ -191,6 +191,21 @@ void col_swap(
 
 /// Checks if the given size is larger than available. 
 /// If so, resizes the vector.
+/// Raw-pointer overload of upsize: grow a heap buffer to at least
+/// `needed` elements, reallocating via new/delete[]. Existing contents
+/// are not preserved (this is for working buffers that the caller
+/// re-fills on every call). Pulled from the funnystrompp branch where
+/// it was named util::resize; renamed here to match the std::vector
+/// overload above.
+template <typename T>
+void upsize(T*& buf, int64_t& buf_sz, int64_t needed) {
+    if (needed > buf_sz) {
+        delete[] buf;
+        buf = new T[needed];
+        buf_sz = needed;
+    }
+}
+
 template <typename T>
 T* upsize(
     int64_t target_sz,
@@ -615,6 +630,22 @@ void load_dense_bin(const std::string &path, int64_t &n_rows, int64_t &n_cols, T
     }
     f.read(reinterpret_cast<char*>(A), need * sizeof(T));
     if (!f) throw std::runtime_error("load_dense_bin: data read failed on " + path);
+}
+
+/// Average A and its transpose in place. n × n column-major matrix with
+/// leading dim lda. Used by the block Lanczos-FA recurrence to enforce
+/// numerical symmetry on the small tridiagonal-block matrix before passing
+/// it to syevd. Pulled from the funnystrompp branch where it was already
+/// in rl_util.hh.
+template <typename T>
+void symmetrize(int64_t n, T* A, int64_t lda) {
+    for (int64_t j = 0; j < n; ++j) {
+        for (int64_t i = j + 1; i < n; ++i) {
+            T avg = (T)0.5 * (A[i + j * lda] + A[j + i * lda]);
+            A[i + j * lda] = avg;
+            A[j + i * lda] = avg;
+        }
+    }
 }
 
 } // end namespace util
