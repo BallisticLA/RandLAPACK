@@ -125,11 +125,11 @@ int RSVD<T, RNG>::call(
     // Input parameter validation. Bad inputs would otherwise propagate to a
     // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
     // RSVD is called through a binding layer (e.g. MEX/MATLAB).
-    randlapack_error_if_msg(m < 0, "m=%lld must be >= 0", (long long)m);
-    randlapack_error_if_msg(n < 0, "n=%lld must be >= 0", (long long)n);
-    randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
-    randlapack_error_if_msg(tol < (T)0, "tol=%g must be >= 0", (double)tol);
-    randlapack_error_if_msg(A == nullptr && m > 0 && n > 0, "A buffer is null but m=%lld and n=%lld imply a nonempty matrix", (long long)m, (long long)n);
+    randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+    randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+    randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
+    randlapack_require(tol >= (T)0) << "tol=" << tol << " must be >= 0";
+    randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
 
     T* Q = nullptr;
     T* BT = nullptr; 

@@ -1,14 +1,24 @@
 #pragma once
 
 #include <exception>
-#include <cstdarg>
-#include <cstdio>
+#include <sstream>
 #include <string>
 
-// Most code in this file is structurally adapted from RandBLAS/exceptions.hh
-// (which itself was adapted from BLAS++). The macros and helpers here throw a
-// distinct RandLAPACK::Error so that callers can catch RandLAPACK failures
-// independently of RandBLAS failures.
+// RandLAPACK error infrastructure. Throws a distinct RandLAPACK::Error so
+// callers can catch RandLAPACK failures independently of RandBLAS failures.
+//
+// Usage at call sites uses iostream-style chaining:
+//
+//   randlapack_require(b_sz >= 1)
+//       << "BQRRP::call: b_sz=" << b_sz << " must be positive";
+//
+// On the happy path (cond is true) the macro short-circuits with zero cost;
+// no temporary is constructed and no stream is touched. On failure, a
+// StreamThrower temporary is built, the operator<< chain populates its
+// stringstream, and the temporary's destructor throws RandLAPACK::Error at
+// the end of the full expression. The message can be omitted entirely
+// (`randlapack_require(cond);`) — the destructor falls back to the
+// stringified condition.
 
 namespace RandLAPACK {
 
@@ -16,10 +26,9 @@ namespace RandLAPACK {
 /// Minimalist exception class for RandLAPACK errors.
 ///
 /// @verbatim embed:rst:leading-slashes
-///  These are typically triggered by statements of the form
-///  ``randlapack_require(cond)`` where ``cond`` was false, or
-///  ``randlapack_error_if_msg(cond, fmt, ...)`` where ``cond`` was true.
-///  See ``RandLAPACK/rl_exceptions.hh`` for the macro definitions.
+///  Typically triggered by a statement of the form
+///  ``randlapack_require(cond) << "message"`` where ``cond`` was false.
+///  See ``RandLAPACK/rl_exceptions.hh`` for the macro definition.
 ///
 ///  RandLAPACK errors are distinct from ``RandBLAS::Error``; catch each type
 ///  separately if a caller cares which library raised the problem.
@@ -33,79 +42,57 @@ public:
     Error(std::string const &msg) : Error() { msg_ = msg; }
 
     // Constructs RandLAPACK error with message: "msg, in function func"
-    Error(const char* msg, const char* func)
-        : Error(std::string(msg) + ", in function " + func) {}
+    Error(std::string const &msg, const char* func)
+        : Error(msg + ", in function " + func) {}
 
     // ---------------------------------------------------------------
     /// Returns a C-string representation of this error's message.
-    /// It's common to wrap this function's return value with std::string.
     virtual const char* what() const noexcept override
         { return msg_.c_str(); }
 };
 
 } // namespace RandLAPACK
 
-namespace RandLAPACK::exceptions {
+namespace RandLAPACK::exceptions::internal {
 
-namespace internal {
+// RAII helper used by randlapack_require. Constructed only when the required
+// condition fails; destructor throws RandLAPACK::Error at end of full
+// expression after operator<< populates the stream.
+class StreamThrower {
+    const char* condstr_;
+    const char* func_;
+    std::ostringstream ss_;
+public:
+    StreamThrower(const char* condstr, const char* func)
+        : condstr_(condstr), func_(func) {}
 
-// -----------------------------------------------------------------------------
-// internal helper: throws RandLAPACK::Error if cond is true.
-// Called by the randlapack_error_if macro.
-inline void throw_if(bool cond, const char* condstr, const char* func) {
-    if (cond) {
-        throw Error(condstr, func);
+    StreamThrower(const StreamThrower&) = delete;
+    StreamThrower& operator=(const StreamThrower&) = delete;
+
+    template <typename T>
+    StreamThrower& operator<<(const T& v) { ss_ << v; return *this; }
+
+    [[noreturn]] ~StreamThrower() noexcept(false) {
+        std::string msg = ss_.str();
+        if (msg.empty()) msg = condstr_;
+        throw Error(msg, func_);
     }
-}
+};
 
-#if defined(_MSC_VER)
-    #define RandLAPACK_ATTR_FORMAT(I, F)
-#else
-    #define RandLAPACK_ATTR_FORMAT(I, F) __attribute__((format(printf, I, F)))
-#endif
-
-#define RandLAPACK_ERROR_MESSAGE_SIZE 256
-
-// -----------------------------------------------------------------------------
-// internal helper: printf-style; throws RandLAPACK::Error if cond is true.
-// Called by the randlapack_error_if_msg macro.
-// condstr is captured for symmetry with the non-message overload but ignored
-// here; the formatted buffer carries the user-supplied message instead.
-inline void throw_if(bool cond, const char* condstr, const char* func, const char* format, ...)
-    RandLAPACK_ATTR_FORMAT(4, 5);
-
-inline void throw_if(bool cond, const char* condstr, const char* func, const char* format, ...) {
-    (void) condstr;
-    if (cond) {
-        char buf[RandLAPACK_ERROR_MESSAGE_SIZE];
-        va_list va;
-        va_start(va, format);
-        vsnprintf(buf, sizeof(buf), format, va);
-        va_end(va);
-        throw Error(buf, func);
-    }
-}
-
-#undef RandLAPACK_ATTR_FORMAT
-
-} // namespace internal
+} // namespace RandLAPACK::exceptions::internal
 
 
-// Macro: throws RandLAPACK::Error if cond is true.
-// Example: randlapack_error_if(m < 0);
-#define randlapack_error_if(cond) \
-    RandLAPACK::exceptions::internal::throw_if((cond), #cond, __func__)
-
-// Macro: printf-style; throws RandLAPACK::Error if cond is true.
-// Example: randlapack_error_if_msg(m < 0, "m must be >= 0; got m=%ld", m);
-#define randlapack_error_if_msg(cond, ...) \
-    RandLAPACK::exceptions::internal::throw_if((cond), #cond, __func__, __VA_ARGS__)
-
-// Macro: throws RandLAPACK::Error if cond is false (i.e. the required
-// invariant did not hold).
-// Example: randlapack_require(m >= 0);
+// Macro: throws RandLAPACK::Error if cond is false. Supports an optional
+// stream-style message appended via operator<<.
+// Examples:
+//   randlapack_require(m >= 0);
+//   randlapack_require(m >= n) << "BQRRP requires m >= n; got m=" << m
+//                              << ", n=" << n;
+//
+// The `for` form (instead of `if (cond) ; else ...`) is deliberate: it
+// shields the macro from -Wdangling-else when used inside an unbraced outer
+// `if`, while preserving the zero-cost happy path (the loop body is not
+// entered when cond holds) and the throw-on-destruct semantics of the
+// StreamThrower temporary.
 #define randlapack_require(cond) \
-    RandLAPACK::exceptions::internal::throw_if(!(cond), "(" #cond ") was required, but did not hold", __func__)
-
-
-} // namespace RandLAPACK::exceptions
+    for (; !(cond); ) ::RandLAPACK::exceptions::internal::StreamThrower(#cond, __func__)

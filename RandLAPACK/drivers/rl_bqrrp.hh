@@ -66,7 +66,7 @@ class BQRRP : public BQRRPalg<T, RNG> {
             bool time_subroutines,
             int64_t b_sz
         ) {
-            randlapack_error_if_msg(b_sz <= 0, "BQRRP block size b_sz=%lld must be > 0", (long long)b_sz);
+            randlapack_require(b_sz > 0) << "BQRRP block size b_sz=" << b_sz << " must be > 0";
             timing          = time_subroutines;
             tol             = std::numeric_limits<T>::epsilon();
             block_size      = b_sz;
@@ -169,13 +169,13 @@ int BQRRP<T, RNG>::call(
     // Input parameter validation. Bad inputs would otherwise lead to a
     // downstream BLAS/LAPACK failure or, worse, a segfault -- both fatal
     // when BQRRP is called through a binding layer (e.g. MEX/MATLAB).
-    randlapack_error_if_msg(m < 0, "m=%lld must be >= 0", (long long)m);
-    randlapack_error_if_msg(n < 0, "n=%lld must be >= 0", (long long)n);
-    randlapack_error_if_msg(lda < m, "lda=%lld < m=%lld (lda must be >= m for ColMajor)", (long long)lda, (long long)m);
-    randlapack_error_if_msg(d_factor < (T)1.0, "d_factor=%g must be >= 1.0 (so that sketch dim >= block size)", (double)d_factor);
-    randlapack_error_if_msg(A == nullptr && m > 0 && n > 0, "A buffer is null but m=%lld and n=%lld imply a nonempty matrix", (long long)m, (long long)n);
-    randlapack_error_if_msg(tau == nullptr && n > 0, "tau buffer is null but n=%lld > 0", (long long)n);
-    randlapack_error_if_msg(J == nullptr && n > 0, "J buffer is null but n=%lld > 0", (long long)n);
+    randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+    randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+    randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
+    randlapack_require(d_factor >= (T)1.0) << "d_factor=" << d_factor << " must be >= 1.0 (so that sketch dim >= block size)";
+    randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
+    randlapack_require(!(tau == nullptr && n > 0)) << "tau buffer is null but n=" << n << " > 0";
+    randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
 
     //-------TIMING VARS--------/
     steady_clock::time_point preallocation_t_start;

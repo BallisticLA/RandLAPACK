@@ -384,7 +384,7 @@ void pcg(
     int64_t ns = n*s;
     int64_t ss = s*s;
     bool treat_as_separable = G.num_ops > 1;
-    if (treat_as_separable) randlapack_error_if_msg(s != G.num_ops, "with separable treatment, s=%lld must equal G.num_ops=%lld", (long long)s, (long long)G.num_ops);
+    if (treat_as_separable) randlapack_require(s == G.num_ops) << "with separable treatment, s=" << s << " must equal G.num_ops=" << G.num_ops;
 
     // All workspace gets zero-initialized; this is only
     // overridden for "R".

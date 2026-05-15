@@ -25,17 +25,17 @@ STATE krill_full_rpchol(
     // Input parameter validation. Bad inputs would otherwise propagate to a
     // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
     // krill_full_rpchol is called through a binding layer (e.g. MEX/MATLAB).
-    randlapack_error_if_msg(n <= 0, "n=%lld must be > 0", (long long)n);
-    randlapack_error_if_msg(ell <= 0, "ell=%lld must be > 0", (long long)ell);
-    randlapack_error_if_msg(tol < (T)0, "tol=%g must be >= 0", (double)tol);
-    randlapack_error_if_msg(max_iters <= 0, "max_iters=%lld must be > 0", (long long)max_iters);
-    randlapack_error_if_msg(H == nullptr, "H buffer must not be null");
-    randlapack_error_if_msg(X == nullptr, "X buffer must not be null");
+    randlapack_require(n > 0) << "n=" << n << " must be > 0";
+    randlapack_require(ell > 0) << "ell=" << ell << " must be > 0";
+    randlapack_require(tol >= (T)0) << "tol=" << tol << " must be >= 0";
+    randlapack_require(max_iters > 0) << "max_iters=" << max_iters << " must be > 0";
+    randlapack_require(H != nullptr) << "H buffer must not be null";
+    randlapack_require(X != nullptr) << "X buffer must not be null";
 
     int64_t mu_size = G.num_ops;
     std::vector<T> mus(mu_size);
     std::copy(G.regs, G.regs + mu_size, mus.data());
-    randlapack_error_if_msg(!(mu_size == 1 || mu_size == ell), "mu_size=%lld must equal 1 or ell=%lld", (long long)mu_size, (long long)ell);
+    randlapack_require(!(mu_size != 1 || mu_size == ell)) << "mu_size=" << mu_size << " must equal 1 or ell=" << ell;
 
     if (rpchol_block_size < 0)
         rpchol_block_size = std::min((int64_t) 64, n/4);

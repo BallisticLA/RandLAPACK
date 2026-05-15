@@ -141,10 +141,10 @@ class REVD2 {
             // Input parameter validation. Bad inputs would otherwise propagate to a
             // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
             // REVD2 is called through a binding layer (e.g. MEX/MATLAB).
-            randlapack_error_if_msg(m < 0, "m=%lld must be >= 0", (long long)m);
-            randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
-            randlapack_error_if_msg(tol < (T)0, "tol=%g must be >= 0", (double)tol);
-            randlapack_error_if_msg(A == nullptr && m > 0, "A buffer is null but m=%lld > 0", (long long)m);
+            randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+            randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
+            randlapack_require(tol >= (T)0) << "tol=" << tol << " must be >= 0";
+            randlapack_require(!(A == nullptr && m > 0)) << "A buffer is null but m=" << m << " > 0";
             linops::ExplicitSymLinOp<T> A_linop(m, uplo, A, m, Layout::ColMajor);
             return this->call(A_linop, k, tol, V, eigvals, state);
         }
@@ -159,8 +159,8 @@ class REVD2 {
             RandBLAS::RNGState<RNG> &state
         ) {
             // Input parameter validation; same MEX-safety motivation as above.
-            randlapack_error_if_msg(k <= 0, "target rank k=%lld must be > 0", (long long)k);
-            randlapack_error_if_msg(tol < (T)0, "tol=%g must be >= 0", (double)tol);
+            randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
+            randlapack_require(tol >= (T)0) << "tol=" << tol << " must be >= 0";
             int64_t m = A.dim;
             T err = 0;
             RandBLAS::RNGState<RNG> error_est_state(state.counter, state.key);

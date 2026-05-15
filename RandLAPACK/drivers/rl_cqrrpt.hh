@@ -158,14 +158,14 @@ int CQRRPT<T, RNG>::call(
     // Input parameter validation. Bad inputs would otherwise propagate to a
     // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
     // CQRRPT is called through a binding layer (e.g. MEX/MATLAB).
-    randlapack_error_if_msg(m < 0, "m=%lld must be >= 0", (long long)m);
-    randlapack_error_if_msg(n < 0, "n=%lld must be >= 0", (long long)n);
-    randlapack_error_if_msg(lda < m, "lda=%lld < m=%lld (lda must be >= m for ColMajor)", (long long)lda, (long long)m);
-    randlapack_error_if_msg(ldr < n, "ldr=%lld < n=%lld (ldr must be >= n)", (long long)ldr, (long long)n);
-    randlapack_error_if_msg(d_factor < (T)1.0, "d_factor=%g must be >= 1.0", (double)d_factor);
-    randlapack_error_if_msg(A == nullptr && m > 0 && n > 0, "A buffer is null but m=%lld and n=%lld imply a nonempty matrix", (long long)m, (long long)n);
-    randlapack_error_if_msg(R == nullptr && n > 0, "R buffer is null but n=%lld > 0", (long long)n);
-    randlapack_error_if_msg(J == nullptr && n > 0, "J buffer is null but n=%lld > 0", (long long)n);
+    randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+    randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+    randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
+    randlapack_require(ldr >= n) << "ldr=" << ldr << " < n=" << n << " (ldr must be >= n)";
+    randlapack_require(d_factor >= (T)1.0) << "d_factor=" << d_factor << " must be >= 1.0";
+    randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
+    randlapack_require(!(R == nullptr && n > 0)) << "R buffer is null but n=" << n << " > 0";
+    randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
 
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;

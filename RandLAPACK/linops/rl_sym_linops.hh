@@ -84,8 +84,8 @@ struct ExplicitSymLinOp {
         T* C,
         int64_t ldc
     ) {
-        randlapack_error_if_msg(ldb < dim, "ldb=%lld < dim=%lld (ldb must be >= operator dimension)", (long long)ldb, (long long)dim);
-        randlapack_error_if_msg(ldc < dim, "ldc=%lld < dim=%lld (ldc must be >= operator dimension)", (long long)ldc, (long long)dim);
+        randlapack_require(ldb >= dim) << "ldb=" << ldb << " < dim=" << dim << " (ldb must be >= operator dimension)";
+        randlapack_require(ldc >= dim) << "ldc=" << ldc << " < dim=" << dim << " (ldc must be >= operator dimension)";
         auto blas_call_uplo = this->uplo;
         if (layout != this->buff_layout)
             blas_call_uplo = (this->uplo == Uplo::Upper) ? Uplo::Lower : Uplo::Upper;
@@ -98,7 +98,7 @@ struct ExplicitSymLinOp {
     }
 
     inline T operator()(int64_t i, int64_t j) {
-        randlapack_error_if_msg(!(this->uplo == Uplo::Upper && this->buff_layout == Layout::ColMajor), "element access operator()(i,j) requires upper-triangle + ColMajor storage");
+        randlapack_require(this->uplo == Uplo::Upper && this->buff_layout == Layout::ColMajor) << "element access operator()(i,j) requires upper-triangle + ColMajor storage";
         if (i > j) {
             return A_buff[j + i*lda];
         } else {
@@ -149,7 +149,7 @@ struct RegExplicitSymLinOp {
     RegExplicitSymLinOp(
         int64_t dim, const T* A_buff, int64_t lda, T* arg_regs, int64_t arg_num_ops
     ) : m(dim), dim(dim), A_buff(A_buff), lda(lda) {
-        randlapack_error_if_msg(lda < dim, "lda=%lld < dim=%lld (lda must be >= operator dimension)", (long long)lda, (long long)dim);
+        randlapack_require(lda >= dim) << "lda=" << lda << " < dim=" << dim << " (lda must be >= operator dimension)";
         _eval_includes_reg = false;
         num_ops = arg_num_ops;
         num_ops = std::max(num_ops, (int64_t) 1);
@@ -170,13 +170,13 @@ struct RegExplicitSymLinOp {
     }
 
     void operator()(Layout layout, int64_t n, T alpha, T* const B, int64_t ldb, T beta, T* C, int64_t ldc) {
-        randlapack_error_if_msg(layout != this->buff_layout, "operation layout must match the operator storage layout (buff_layout)");
-        randlapack_error_if_msg(ldb < dim, "ldb=%lld < dim=%lld (ldb must be >= operator dimension)", (long long)ldb, (long long)dim);
-        randlapack_error_if_msg(ldc < dim, "ldc=%lld < dim=%lld (ldc must be >= operator dimension)", (long long)ldc, (long long)dim);
+        randlapack_require(layout == this->buff_layout) << "operation layout must match the operator storage layout (buff_layout)";
+        randlapack_require(ldb >= dim) << "ldb=" << ldb << " < dim=" << dim << " (ldb must be >= operator dimension)";
+        randlapack_require(ldc >= dim) << "ldc=" << ldc << " < dim=" << dim << " (ldc must be >= operator dimension)";
         blas::symm(layout, blas::Side::Left, this->uplo, dim, n, alpha, this->A_buff, this->lda, B, ldb, beta, C, ldc);
 
         if (_eval_includes_reg) {
-            if (num_ops != 1) randlapack_error_if_msg(n != num_ops, "with num_ops>1, n=%lld must equal num_ops=%lld so each column gets its own regularization", (long long)n, (long long)num_ops);
+            if (num_ops != 1) randlapack_require(n == num_ops) << "with num_ops>1, n=" << n << " must equal num_ops=" << num_ops << " so each column gets its own regularization";
             for (int64_t i = 0; i < n; ++i) {
                 T coeff =  alpha * regs[std::min(i, num_ops - 1)];
                 blas::axpy(dim, coeff, B + i*ldb, 1, C +  i*ldc, 1);
@@ -193,7 +193,7 @@ struct RegExplicitSymLinOp {
             val = A_buff[i + j*lda];
         }
         if (_eval_includes_reg && i == j) {
-            randlapack_error_if_msg(num_ops != 1, "this operation requires num_ops=1; got num_ops=%lld", (long long)num_ops);
+            randlapack_require(num_ops == 1) << "this operation requires num_ops=1; got num_ops=" << num_ops;
             val += regs[0];
         }
         return val;
@@ -283,7 +283,7 @@ struct SpectralPrecond {
     }
 
     void reset_owned_buffers(int64_t arg_dim_pre, int64_t arg_num_rhs, int64_t arg_num_ops) {
-        randlapack_error_if_msg(!(arg_num_rhs == arg_num_ops || arg_num_ops == 1), "arg_num_rhs=%lld must equal arg_num_ops=%lld, or arg_num_ops must be 1", (long long)arg_num_rhs, (long long)arg_num_ops);
+        randlapack_require(!(arg_num_rhs != arg_num_ops || arg_num_ops == 1)) << "arg_num_rhs=" << arg_num_rhs << " must equal arg_num_ops=" << arg_num_ops << ", or arg_num_ops must be 1";
 
         if (arg_dim_pre * arg_num_ops > dim_pre * num_ops) {
             if (D != nullptr) delete [] D;
@@ -328,13 +328,13 @@ struct SpectralPrecond {
     void operator()(
         Layout layout, int64_t n, T alpha, const T* B, int64_t ldb, T beta, T* C, int64_t ldc
     ) {
-        randlapack_error_if_msg(layout != Layout::ColMajor, "this operator only supports ColMajor layout");
-        randlapack_error_if_msg(ldb < dim, "ldb=%lld < dim=%lld (ldb must be >= operator dimension)", (long long)ldb, (long long)dim);
-        randlapack_error_if_msg(ldc < dim, "ldc=%lld < dim=%lld (ldc must be >= operator dimension)", (long long)ldc, (long long)dim);
+        randlapack_require(layout == Layout::ColMajor) << "this operator only supports ColMajor layout";
+        randlapack_require(ldb >= dim) << "ldb=" << ldb << " < dim=" << dim << " (ldb must be >= operator dimension)";
+        randlapack_require(ldc >= dim) << "ldc=" << ldc << " < dim=" << dim << " (ldc must be >= operator dimension)";
         if (this->num_ops != 1) {
-            randlapack_error_if_msg(n != num_ops, "with num_ops>1, n=%lld must equal num_ops=%lld so each column gets its own regularization", (long long)n, (long long)num_ops);
+            randlapack_require(n == num_ops) << "with num_ops>1, n=" << n << " must equal num_ops=" << num_ops << " so each column gets its own regularization";
         } else {
-            randlapack_error_if_msg(this->num_rhs < n, "this->num_rhs=%lld must be >= n=%lld", (long long)this->num_rhs, (long long)n);
+            randlapack_require(this->num_rhs >= n) << "this->num_rhs=" << this->num_rhs << " must be >= n=" << n;
         }
         // update C = alpha*(V diag(D) V' + I)B + beta*C
         //      Step 1: w = V'B                    with blas::gemm
