@@ -186,7 +186,7 @@ approx_error_comp(ABRIK_benchmark_data<T> &all_data, int64_t target_rank, T norm
     blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, target_rank, 1.0, all_data.U_cpy, m, all_data.V, n, -1.0, all_data.A_lowrank_svd, m);
 
     T nrm = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
-    printf("||A_hat_cursom_rank - A_svd_target_rank||_F / ||A_svd_target_rank||_F: %e\n", nrm / norm_A_lowrank);
+    std::cout << "||A_hat_cursom_rank - A_svd_target_rank||_F / ||A_svd_target_rank||_F: " << std::scientific << nrm / norm_A_lowrank << "\n";
 
     return nrm / norm_A_lowrank;
 }
@@ -248,20 +248,20 @@ static void call_all_algs(
     int64_t singular_triplets_target_SVDS = 0;
 
     for (i = 0; i < num_runs; ++i) {
-        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", b_sz, num_matmuls, i);
+        std::cout << "\nBlock size " << b_sz << ", num matmuls " << num_matmuls << ". Iteration " << i << " start.\n";
         
         // Running ABRIK
         auto start_ABRIK = steady_clock::now();
         all_algs.ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state_alg);
         auto stop_ABRIK = steady_clock::now();
         dur_ABRIK = duration_cast<microseconds>(stop_ABRIK - start_ABRIK).count();
-        printf("TOTAL TIME FOR ABRIK %ld\n", dur_ABRIK);
+        std::cout << "TOTAL TIME FOR ABRIK " << dur_ABRIK << "\n";
 
         // This is in case the number of singular triplets is smaller than the target rank
         singular_triplets_target_ABRIK = std::min(target_rank, all_algs.ABRIK.singular_triplets_found);
 
         residual_err_custom_ABRIK = residual_error_comp<T>(all_data, singular_triplets_target_ABRIK);
-        printf("ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_ABRIK);
+        std::cout << "ABRIK sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): " << std::scientific << std::setprecision(16) << residual_err_custom_ABRIK << "\n";
 
         if (all_data.A_lowrank_svd != nullptr)
             lowrank_err_ABRIK = approx_error_comp(all_data, singular_triplets_target_ABRIK, norm_A_lowrank);
@@ -283,13 +283,13 @@ static void call_all_algs(
         all_algs.RSVD.call(m, n, all_data.A, singular_triplets_found_RSVD, tol, all_data.U, all_data.Sigma, all_data.V, state_alg);
         auto stop_rsvd = steady_clock::now();
         dur_rsvd = duration_cast<microseconds>(stop_rsvd - start_rsvd).count();
-        printf("TOTAL TIME FOR RSVD %ld\n", dur_rsvd);
+        std::cout << "TOTAL TIME FOR RSVD " << dur_rsvd << "\n";
 
         // This is in case the number of singular triplets is smaller than the target rank
         singular_triplets_target_RSVD = std::min(target_rank, singular_triplets_found_RSVD);
 
         residual_err_custom_RSVD = residual_error_comp<T>(all_data, singular_triplets_target_RSVD);
-        printf("RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_RSVD);
+        std::cout << "RSVD sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): " << std::scientific << std::setprecision(16) << residual_err_custom_RSVD << "\n";
 
         if (all_data.A_lowrank_svd != nullptr)
             lowrank_err_RSVD = approx_error_comp(all_data, singular_triplets_target_RSVD, norm_A_lowrank);
@@ -308,12 +308,12 @@ static void call_all_algs(
         // Below line also accounts for the case when number of singular triplets is smaller than the target rank.
         singular_triplets_found_SVDS = std::min((int64_t ) (b_sz * num_matmuls / 2), n-2);
         
-        printf("nev: %ld, nvc: %ld\n", singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n-1));
+        std::cout << "nev: " << singular_triplets_found_SVDS << ", nvc: " << std::min(2 * singular_triplets_found_SVDS, n-1) << "\n";
         Spectra::PartialSVDSolver<Matrix> svds(all_data.A_spectra, singular_triplets_found_SVDS, std::min(2 * singular_triplets_found_SVDS, n-1));
         svds.compute();
         auto stop_svds = steady_clock::now();
         dur_svds = duration_cast<microseconds>(stop_svds - start_svds).count();
-        printf("TOTAL TIME FOR SVDS %ld\n", dur_svds);
+        std::cout << "TOTAL TIME FOR SVDS " << dur_svds << "\n";
 
         // Copy data from Spectra (Eigen) format to the nomal C++.
         Matrix U_spectra = svds.matrix_U(singular_triplets_found_SVDS);
@@ -331,7 +331,7 @@ static void call_all_algs(
         singular_triplets_target_SVDS = std::min(target_rank, singular_triplets_found_SVDS);
 
         residual_err_custom_SVDS = residual_error_comp<T>(all_data, singular_triplets_target_SVDS);
-        printf("SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVDS);
+        std::cout << "SVDS sqrt(||AV - SU||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): " << std::scientific << std::setprecision(16) << residual_err_custom_SVDS << "\n";
 
         if (all_data.A_lowrank_svd != nullptr)
             lowrank_err_SVDS = approx_error_comp(all_data, singular_triplets_target_SVDS, norm_A_lowrank);
@@ -351,7 +351,7 @@ static void call_all_algs(
             lapack::gesdd(Job::SomeVec, m, n, all_data.A, m, all_data.Sigma, all_data.U, m, all_data.VT, n);
             auto stop_svd = steady_clock::now();
             dur_svd = duration_cast<microseconds>(stop_svd - start_svd).count();
-            printf("TOTAL TIME FOR SVD %ld\n", dur_svd);
+            std::cout << "TOTAL TIME FOR SVD " << dur_svd << "\n";
 
             // Standard SVD destorys matrix A, need to re-read it before running accuracy tests.
             state_gen = state;
@@ -359,7 +359,7 @@ static void call_all_algs(
             RandLAPACK::util::transposition(n, n, all_data.VT, n, all_data.V, n, 0);
 
             residual_err_custom_SVD = residual_error_comp<T>(all_data, target_rank);
-            printf("SVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): %.16e\n", residual_err_custom_SVD);
+            std::cout << "SVD sqrt(||AV - US||^2_F + ||A'U - VS||^2_F) / sqrt(target_rank): " << std::scientific << std::setprecision(16) << residual_err_custom_SVD << "\n";
 
             if (all_data.A_lowrank_svd != nullptr)
                 lowrank_err_SVD = approx_error_comp(all_data, target_rank, norm_A_lowrank);
@@ -445,7 +445,7 @@ int main(int argc, char *argv[]) {
 
     // Optional pass of lowrank SVD matrix into the benchmark
     if (std::string(argv[3]) != ".") {
-        printf("Lowrank A input.\n");
+        std::cout << "Lowrank A input.\n";
         RandLAPACK::gen::mat_gen_info<double> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
         m_info_A_svd.filename            = argv[3];
         m_info_A_svd.workspace_query_mod = 0;
@@ -458,7 +458,7 @@ int main(int argc, char *argv[]) {
         norm_A_lowrank = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
     }
 
-    printf("Finished data preparation\n");
+    std::cout << "Finished data preparation\n";
     // Declare a data file
     std::string output_filename = "_ABRIK_speed_comparisons_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;
@@ -558,7 +558,7 @@ int main(int argc, char *argv[]) {
 
     // Optional pass of lowrank SVD matrix into the benchmark
     if (std::string(argv[3]) != ".") {
-        printf("Lowrank A input.\n");
+        std::cout << "Lowrank A input.\n";
         RandLAPACK::gen::mat_gen_info<float> m_info_A_svd(m, n, RandLAPACK::gen::custom_input);
         m_info_A_svd.filename            = argv[3];
         m_info_A_svd.workspace_query_mod = 0;
@@ -571,7 +571,7 @@ int main(int argc, char *argv[]) {
         norm_A_lowrank = lapack::lange(Norm::Fro, m, n, all_data.A_lowrank_svd, m);
     }
 
-    printf("Finished data preparation\n");
+    std::cout << "Finished data preparation\n";
     // Declare a data file
     std::string output_filename = "_ABRIK_speed_comparisons_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;

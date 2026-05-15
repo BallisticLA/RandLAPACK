@@ -93,7 +93,7 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, b_sz %ld\n", i, b_sz);
+        std::cout << "ITERATION " << i << ", b_sz " << b_sz << "\n";
         BQRRP.call(m, n, all_data.A.data(), m, d_factor, all_data.tau.data(), all_data.J.data(), state_alg);
 
         // Update timing vector

@@ -76,7 +76,7 @@ static void call_all_algs(
     T** times_ptr = &times;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, B_SZ %ld\n", i, b_sz);
+        std::cout << "ITERATION " << i << ", B_SZ " << b_sz << "\n";
 
         // Testing HQRRP
         // No CholQR

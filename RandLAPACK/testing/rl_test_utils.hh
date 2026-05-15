@@ -328,7 +328,7 @@ void print_condition_diagnostics(LinOp& A_linop,
                                  const ::std::string& label = "operator") {
     int64_t m = A_linop.n_rows;
     int64_t n = A_linop.n_cols;
-    printf("\nCondition number diagnostics for %s:\n", label.c_str());
+    std::cout << "\nCondition number diagnostics for " << label.c_str() << ":\n";
 
     T* A_dense = new T[m * n]();
     materialize_linop<T>(A_linop, A_dense);
@@ -340,8 +340,7 @@ void print_condition_diagnostics(LinOp& A_linop,
 
     T cn_min = *::std::min_element(col_norms, col_norms + n);
     T cn_max = *::std::max_element(col_norms, col_norms + n);
-    printf("  Column norm range: [%.6e, %.6e], ratio: %.6e\n",
-           (double)cn_min, (double)cn_max, (double)(cn_max / cn_min));
+    std::cout << "  Column norm range: [" << std::scientific << std::setprecision(6) << (double)cn_min << ", " << std::setprecision(6) << (double)cn_max << "], ratio: " << std::setprecision(6) << (double)(cn_max / cn_min) << "\n";
 
     // Copy for column-normalized version (gesdd is destructive)
     T* A_normed = new T[m * n]();
@@ -351,16 +350,13 @@ void print_condition_diagnostics(LinOp& A_linop,
 
     // SVD on raw matrix
     auto sigma = compute_singular_values<T>(A_dense, m, n);
-    printf("  Raw:     kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
-           (double)(sigma[0] / sigma[n - 1]), (double)sigma[0], (double)sigma[n - 1]);
+    std::cout << "  Raw:     kappa = " << std::scientific << std::setprecision(6) << (double)(sigma[0] / sigma[n - 1]) << " (sigma_max=" << std::setprecision(6) << (double)sigma[0] << ", sigma_min=" << std::setprecision(6) << (double)sigma[n - 1] << ")\n";
 
     // SVD on column-normalized matrix
     auto sigma_normed = compute_singular_values<T>(A_normed, m, n);
-    printf("  ColNorm: kappa = %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
-           (double)(sigma_normed[0] / sigma_normed[n - 1]),
-           (double)sigma_normed[0], (double)sigma_normed[n - 1]);
+    std::cout << "  ColNorm: kappa = " << std::scientific << std::setprecision(6) << (double)(sigma_normed[0] / sigma_normed[n - 1]) << " (sigma_max=" << std::setprecision(6) << (double)sigma_normed[0] << ", sigma_min=" << std::setprecision(6) << (double)sigma_normed[n - 1] << ")\n";
 
-    printf("\n");
+    std::cout << "\n";
     delete[] A_dense;
     delete[] col_norms;
     delete[] A_normed;

@@ -170,7 +170,7 @@ class TestREVD2 : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, k, 1.0, Buf_dat, m, V_dat, m, -1.0, A_cpy_dat, m);
 
         T norm_0 = lapack::lange(Norm::Fro, m, m, A_cpy_dat, m);
-        printf("||A - VEV'||_F / ||A||_F:  %e\n", norm_0 / norm_A);
+        std::cout << "||A - VEV'||_F / ||A||_F:  " << std::scientific << norm_0 / norm_A << "\n";
         ASSERT_NEAR(norm_0 / norm_A, err_expectation, 10 * err_expectation);
         ASSERT_NEAR(k, rank_expectation, std::numeric_limits<T>::epsilon());
     }
@@ -215,7 +215,7 @@ class TestREVD2 : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, m, k, 1.0, work_l_dat, m, V_l_dat, m, -1.0, A_approx_dat, m);
 
         T norm = lapack::lange(Norm::Fro, m, m, A_approx_dat, m);
-        printf("||V_u*E_u*V_u' - V_l*E_l*V_l'||_F  %e\n", norm);
+        std::cout << "||V_u*E_u*V_u' - V_l*E_l*V_l'||_F  " << std::scientific << norm << "\n";
         ASSERT_NEAR(norm, 0.0, 10 * err_expectation);
     }
 };

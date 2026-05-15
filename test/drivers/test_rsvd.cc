@@ -5,6 +5,7 @@
 
 #include <RandBLAS.hh>
 #include <fstream>
+#include <iomanip>
 #include <gtest/gtest.h>
 
 
@@ -143,7 +144,7 @@ class TestRSVD : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, k, 1.0, A_approx_determ_duf_dat, m, V1_dat, n, 0.0, A_approx_determ_dat, m);
 
         //T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_cpy_dat, m);
-        //printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
+        //std::cout << "FRO NORM OF A_k - QB:  " << std::scientific << norm_test_4 << "\n";
 
         // zero out the trailing singular values
         std::fill(s_dat + k, s_dat + n, 0.0);
@@ -155,7 +156,7 @@ class TestRSVD : public ::testing::Test
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, n, n, 1.0, A_k_dat, m, VT_dat, n, -1.0, A_approx_determ_dat, m);
 
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_approx_determ_dat, m);
-        printf("FRO NORM OF A_k - QB:  %e\n", norm_test_4);
+        std::cout << "FRO NORM OF A_k - QB:  " << std::scientific << norm_test_4 << "\n";
         //ASSERT_NEAR(norm_test_4, 0, std::pow(std::numeric_limits<T>::epsilon(), 0.625));
 
         free(U1_dat);

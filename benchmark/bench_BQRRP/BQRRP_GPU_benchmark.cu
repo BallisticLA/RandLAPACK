@@ -158,10 +158,10 @@ static void bench_BQRRP(
         lapack_queue.sync();
         auto stop_qrf  = std::chrono::steady_clock::now();
         diff_qrf  = std::chrono::duration_cast<std::chrono::microseconds>(stop_qrf  - start_qrf).count();
-        printf(" QRF TIME (MS) = %ld\n", diff_qrf);
+        std::cout << " QRF TIME (MS) = " << diff_qrf << "\n";
     }
 
-    printf("  BLOCK SIZE = %ld BQRRP+QRF TIME (MS) = %ld BQRRP+CholQR TIME (MS) = %ld\n", block_size, diff_bqrrp_qrf, diff_bqrrp_cholqr);
+    std::cout << "  BLOCK SIZE = " << block_size << " BQRRP+QRF TIME (MS) = " << diff_bqrrp_qrf << " BQRRP+CholQR TIME (MS) = " << diff_bqrrp_cholqr << "\n";
     std::ofstream file(*output_filename_speed, std::ios::app);
     file << diff_bqrrp_qrf << "  " << diff_bqrrp_cholqr << "  " << diff_qrf << "\n";
     cudaError_t ierr = cudaGetLastError();

@@ -27,7 +27,7 @@ geqrf_flops(
     } else {
         flop_count = 2. * cols * std::pow(rows, 2) - (2./3.) * std::pow(rows, 3) + 3. * rows * cols - std::pow(rows, 2) + (14./3.) * cols;
     }
-    printf("%f\n", flop_count);
+    std::cout << flop_count << "\n";
 
     long dur_microsec_best = LONG_MAX;
 
@@ -52,7 +52,7 @@ geqrf_flops(
     T dur_s_best = dur_microsec_best / 1e+6;
     T GFLOP_rate_best = (flop_count / dur_s_best) / 1e+9;
 
-    printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec RUNNING GEQRF.\n", GFLOP_rate_best);
+    std::cout << "THE SYSTEM IS CAPABLE OF " << GFLOP_rate_best << " GFLOPs/sec RUNNING GEQRF.\n";
 
     delete[] A;
     delete[] tau;
@@ -92,7 +92,7 @@ getrf_flops(
     T dur_s_best = dur_microsec_best / 1e+6;
     T GFLOP_rate_best = (flop_count / dur_s_best) / 1e+9;
 
-    printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec RUNNING GETRF.\n", GFLOP_rate_best);
+    std::cout << "THE SYSTEM IS CAPABLE OF " << GFLOP_rate_best << " GFLOPs/sec RUNNING GETRF.\n";
 
     delete[] A;
     delete[] ipiv;
@@ -130,7 +130,7 @@ potrf_flops(
     T dur_s_best = dur_microsec_best / 1e+6;
     T GFLOP_rate_best = (flop_count / dur_s_best) / 1e+9;
 
-    printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec RUNNING POTRF.\n", GFLOP_rate_best);
+    std::cout << "THE SYSTEM IS CAPABLE OF " << GFLOP_rate_best << " GFLOPs/sec RUNNING POTRF.\n";
 
     delete[] A;
 }
@@ -156,7 +156,7 @@ int main(int argc, char *argv[]) {
         getrf_flops<double>(rows, cols, numruns, state);
     } else if(fname == "potrf" || fname == "POTRF") {
         if (rows != cols) {
-            printf("Cholesky factorization required a square input. \n Using the smaller dimension provided.");
+            std::cout << "Cholesky factorization required a square input. \n Using the smaller dimension provided.";
         }
         potrf_flops<double>(std::min(rows, cols), numruns, state);
     } else {

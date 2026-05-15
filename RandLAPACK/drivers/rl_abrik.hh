@@ -437,7 +437,7 @@ class ABRIK {
                     // Early termination
                     // if (abs(R(end)) <= sqrt(eps('T')))
                     if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
-                        //printf("TERMINATION 1 at iteration %ld\n", iter);
+                        //std::cout << "TERMINATION 1 at iteration " << iter << "\n";
                         break;
                     }
 
@@ -564,21 +564,21 @@ class ABRIK {
                         T min_val = 1000000000000;
                         for (int buf = 0; buf < k; ++buf) {
                             min_val = std::min(min_val, std::abs(S_ii[(n + k) * buf + buf]));
-                            //printf("r_ii %e\n", S_ii[(n + k) * buf + buf]);
+                            //std::cout << "r_ii " << std::scientific << S_ii[(n + k) * buf + buf] << "\n";
                         }
-                        printf("Minimum value on the diagonal of the R-factor: %e\n", min_val);
+                        std::cout << "Minimum value on the diagonal of the R-factor: " << std::scientific << min_val << "\n";
 
 
                     // REMOVE ME
                     std::vector<double> buffer2 (iter_ev * k * iter_ev * k, 0.0);
                     RandLAPACK::util::eye(iter_ev * k, iter_ev * k, buffer2.data());
                     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_ev * k, iter_ev * k, m, 1.0, X_ev, m, X_ev, m, -1.0, buffer2.data(), iter_ev * k);
-                    printf("Orthonormality error in the basis for the left Krylov subspace at iteration %ld: %e\n\n", iter, lapack::lange(Norm::Fro, iter_ev * k, iter_ev * k, buffer2.data(), iter_ev * k) / sqrt(iter_ev * k));
+                    std::cout << "Orthonormality error in the basis for the left Krylov subspace at iteration " << iter << ": " << std::scientific << lapack::lange(Norm::Fro, iter_ev * k, iter_ev * k, buffer2.data(), iter_ev * k) / sqrt(iter_ev * k) << "\n\n";
 
                     // Early termination
                     // if (abs(S(end)) <= sqrt(eps('T')))
                     if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
-                        //printf("TERMINATION 2 at iteration %ld\n", iter);
+                        //std::cout << "TERMINATION 2 at iteration " << iter << "\n";
                         break;
                     }
 
@@ -719,34 +719,34 @@ class ABRIK {
                 this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
 
                 if (this -> verbose) {
-                    printf("\n\n/------------ABRIK TIMING RESULTS BEGIN------------/\n");
-                    printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
+                    std::cout << "\n\n/------------ABRIK TIMING RESULTS BEGIN------------/\n";
+                    std::cout << "Basic info: b_sz=" << k << " krylov_iters=" << num_krylov_iters << "\n";
 
-                    printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
-                    printf("Time to acquire the SVD factors: %25ld μs,\n", get_factors_t_dur);
-                    printf("UNGQR time:                      %25ld μs,\n", ungqr_t_dur);
-                    printf("Reorthogonalization time:        %25ld μs,\n", reorth_t_dur);
-                    printf("QR time:                         %25ld μs,\n", qr_t_dur);
-                    printf("GEMM A time:                     %25ld μs,\n", gemm_A_t_dur);
-                    printf("Sketching time:                  %25ld μs,\n", sketching_t_dur);
-                    printf("R_ii cpy time:                   %25ld μs,\n", r_cpy_t_dur);
-                    printf("S_ii cpy time:                   %25ld μs,\n", s_cpy_t_dur);
-                    printf("Norm R time:                     %25ld μs,\n", norm_t_dur);
+                    std::cout << "Allocate and free time:          " << std::setw(25) << allocation_t_dur << " μs,\n";
+                    std::cout << "Time to acquire the SVD factors: " << std::setw(25) << get_factors_t_dur << " μs,\n";
+                    std::cout << "UNGQR time:                      " << std::setw(25) << ungqr_t_dur << " μs,\n";
+                    std::cout << "Reorthogonalization time:        " << std::setw(25) << reorth_t_dur << " μs,\n";
+                    std::cout << "QR time:                         " << std::setw(25) << qr_t_dur << " μs,\n";
+                    std::cout << "GEMM A time:                     " << std::setw(25) << gemm_A_t_dur << " μs,\n";
+                    std::cout << "Sketching time:                  " << std::setw(25) << sketching_t_dur << " μs,\n";
+                    std::cout << "R_ii cpy time:                   " << std::setw(25) << r_cpy_t_dur << " μs,\n";
+                    std::cout << "S_ii cpy time:                   " << std::setw(25) << s_cpy_t_dur << " μs,\n";
+                    std::cout << "Norm R time:                     " << std::setw(25) << norm_t_dur << " μs,\n";
 
-                    printf("\nAllocation takes %22.2f%% of runtime.\n",                100 * ((T) allocation_t_dur  / (T) total_t_dur));
-                    printf("Factors takes    %22.2f%% of runtime.\n",                  100 * ((T) get_factors_t_dur / (T) total_t_dur));
-                    printf("Ungqr takes      %22.2f%% of runtime.\n",                  100 * ((T) ungqr_t_dur       / (T) total_t_dur));
-                    printf("Reorth takes     %22.2f%% of runtime.\n",                  100 * ((T) reorth_t_dur      / (T) total_t_dur));
-                    printf("QR takes         %22.2f%% of runtime.\n",                  100 * ((T) qr_t_dur          / (T) total_t_dur));
-                    printf("GEMM A takes     %22.2f%% of runtime.\n",                  100 * ((T) gemm_A_t_dur      / (T) total_t_dur));
-                    printf("Sketching takes  %22.2f%% of runtime.\n",                  100 * ((T) sketching_t_dur   / (T) total_t_dur));
-                    printf("R_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) r_cpy_t_dur       / (T) total_t_dur));
-                    printf("S_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) s_cpy_t_dur       / (T) total_t_dur));
-                    printf("Norm R takes     %22.2f%% of runtime.\n",                  100 * ((T) norm_t_dur        / (T) total_t_dur));
-                    printf("Rest takes       %22.2f%% of runtime.\n",                  100 * ((T) t_rest            / (T) total_t_dur));
+                    std::cout << "\nAllocation takes " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) allocation_t_dur  / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "Factors takes    " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) get_factors_t_dur / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "Ungqr takes      " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) ungqr_t_dur       / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "Reorth takes     " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) reorth_t_dur      / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "QR takes         " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) qr_t_dur          / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "GEMM A takes     " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) gemm_A_t_dur      / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "Sketching takes  " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) sketching_t_dur   / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "R_ii cpy takes   " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) r_cpy_t_dur       / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "S_ii cpy takes   " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) s_cpy_t_dur       / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "Norm R takes     " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) norm_t_dur        / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "Rest takes       " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) t_rest            / (T) total_t_dur) << "% of runtime.\n";
                     
-                    printf("\nMain loop takes  %22.2f%% of runtime.\n",                  100 * ((T) main_loop_t_dur   / (T) total_t_dur));
-                    printf("/-------------ABRIK TIMING RESULTS END-------------/\n\n");
+                    std::cout << "\nMain loop takes  " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) main_loop_t_dur   / (T) total_t_dur) << "% of runtime.\n";
+                    std::cout << "/-------------ABRIK TIMING RESULTS END-------------/\n\n";
                 }
             }
             return 0;

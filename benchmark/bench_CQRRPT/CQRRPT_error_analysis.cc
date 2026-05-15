@@ -96,9 +96,9 @@ error_check(QR_benchmark_data<T> &all_data,
 
     T reconstruction_error = norm_AQR / norm_A;
     T orth_loss            = norm_0 / std::sqrt((T) n);
-    
-    printf("REL NORM OF AP - QR:    %14e\n",   reconstruction_error);
-    printf("FRO NORM OF (Q'Q - I):  %14e\n\n", orth_loss);
+
+    std::cout << "REL NORM OF AP - QR:    " << std::scientific << std::setw(14) << reconstruction_error << "\n";
+    std::cout << "FRO NORM OF (Q'Q - I):  " << std::scientific << std::setw(14) << orth_loss << "\n\n";
 
     // For computing average reconstruction error across all runs
     error_output[0] += reconstruction_error;
@@ -147,12 +147,12 @@ static void CQRRPT_benchmark_run(
         data_regen(mat_info, all_data, state_gen);
 
         if(alg_to_run == "cqrrpt") {
-            printf("CQRRPT run %d with columns_size %ld\n", i, n);
-            // State_alg changes at every iteration, consequently, we have different sketches 
+            std::cout << "CQRRPT run " << i << " with columns_size " << n << "\n";
+            // State_alg changes at every iteration, consequently, we have different sketches
             CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
             all_data.rank = CQRRPT.rank;
         } else {
-            printf("GEQP3 run with columns_size %ld\n", n);
+            std::cout << "GEQP3 run with columns_size " << n << "\n";
             lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
             // Copying the matrix R into the buffer
             lapack::lacpy(MatrixType::Upper, n, n, all_data.A.data(), m, all_data.R.data(), n);
@@ -245,7 +245,7 @@ int main(int argc, char *argv[]) {
     for (; i < col_sz.size(); ++i) {
         // Go through all matrix types
         for (; j < tests_info.size(); ++j) {
-            printf("/--------------------------------------RUNS ON MAT TYPE %ld--------------------------------------/\n", j);
+            std::cout << "/--------------------------------------RUNS ON MAT TYPE " << j << "--------------------------------------/\n";
             CQRRPT_benchmark_run(tests_info[j], atol, col_sz[i], alg_to_run, num_runs, all_data, state_constant, path);
         }
         j = 0;

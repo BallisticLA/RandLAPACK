@@ -45,7 +45,7 @@ test_flops(int64_t k,
             GFLOPS_rate_best = GFLOPS_rate;
     }
 
-    printf("THE SYSTEM IS CAPABLE OF %f GFLOPs/sec.\n\n", GFLOPS_rate_best);
+    std::cout << "THE SYSTEM IS CAPABLE OF " << GFLOPS_rate_best << " GFLOPs/sec.\n\n";
 
     delete[] A;
     delete[] B;
