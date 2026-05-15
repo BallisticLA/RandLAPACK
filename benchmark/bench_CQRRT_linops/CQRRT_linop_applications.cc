@@ -5,24 +5,14 @@
 //      OR a single A.mtx as a SparseLinOp                (sparse mode)
 //   2. (Composite only) Cholesky-factorize K = LL^T, create L^{-1} operator
 //   3. (Composite only) Form CompositeOperator(L_inv_op, V_op) = L^{-1}V
-//   4. Run Q-less QR on the operator via CQRRT_linops, CholQR_linops, sCholQR3_linops
+//   4. Run Q-less QR on the operator via CQRRT_linops (TRSM_IDENTITY preconditioner)
 //   5. SVD post-processing: gesdd of R for generalized singular values + vectors
 //
 // (For LS post-processing on Kronecker-structured operators see CQRRT_linop_nmr.)
 //
 // Usage:
 //   ./CQRRT_linop_applications <prec> <outdir> <runs> <K_file|sparse> <V_file|A_file> <d_factor>
-//                    [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl]
-//                    [upcast_orth] [method_mask]
-//
-//   method_mask (integer bitmask, optional, default = 0b001111 or 0b011111 if run_expl=1):
-//     bit 0 (  1): CQRRT_linop
-//     bit 1 (  2): CholQR
-//     bit 2 (  4): sCholQR3
-//     bit 3 (  8): sCholQR3_basic
-//     bit 4 ( 16): CQRRT_expl          (requires A materialization)
-//     bit 5 ( 32): CQRRT_linop_stb     (GEQP3-stabilized preconditioner)
-//     bit 6 ( 64): CQRRT_linop_stb_bqrrp (BQRRP-stabilized preconditioner)
+//                    [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -370,14 +360,10 @@ static void write_breakdown_csv(
     write_common_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
     out << "# Times are in microseconds\n";
     out << "# CQRRT_linop breakdown (11): alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total\n";
-    out << "# CholQR breakdown (6): alloc, fwd, adj, chol, rest, total\n";
-    out << "# sCholQR3 breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total\n";
-    out << "# sCholQR3_basic breakdown (15): alloc, fwd1, adj1, chol1, trsm1, fwd_q, syrk2, chol2, upd2, syrk3, chol3, upd3, q_mat, rest, total\n";
 
     // Column header: m, n, run, algorithm, then all breakdown times
-    // Max breakdown length is 18 (sCholQR3)
     out << "m,n,run,algorithm";
-    for (int i = 0; i < 18; ++i) out << ",t" << i;
+    for (int i = 0; i < 11; ++i) out << ",t" << i;
     out << "\n";
 
     for (const auto& r : results) {
@@ -385,8 +371,8 @@ static void write_breakdown_csv(
         for (size_t i = 0; i < r.qr_breakdown.size(); ++i) {
             out << "," << r.qr_breakdown[i];
         }
-        // Pad with zeros if fewer than 18 columns
-        for (size_t i = r.qr_breakdown.size(); i < 18; ++i) {
+        // Pad with zeros if fewer than 11 columns
+        for (size_t i = r.qr_breakdown.size(); i < 11; ++i) {
             out << ",0";
         }
         out << "\n";
@@ -425,7 +411,7 @@ static int run_benchmark_inner(
     const std::string& output_dir,
     int64_t num_runs,
     T d_factor, int64_t sketch_nnz, int64_t block_size,
-    bool skip_apps, bool compute_cond, bool upcast_orth, int64_t method_mask,
+    bool skip_apps, bool compute_cond, bool upcast_orth,
     long chol_time_us,
     const std::string& K_file, const std::string& V_file,
     const std::string& op_label)
@@ -470,8 +456,8 @@ static int run_benchmark_inner(
     // Pre-materialize A for upcast orthogonality (once, shared across all algorithms)
     // ================================================================
     T* A_materialized = nullptr;
-    if (upcast_orth || (method_mask & 16)) {
-        std::cout << "Materializing " << op_label << " for upcast/expl (" << m << " x " << n << ", "
+    if (upcast_orth) {
+        std::cout << "Materializing " << op_label << " for upcast (" << m << " x " << n << ", "
                   << (m * n * sizeof(T) / (1024.0 * 1024.0 * 1024.0)) << " GB)... " << std::flush;
         A_materialized = new T[m * n];
         auto Eye = make_eye<T>(n);
@@ -570,128 +556,21 @@ static int run_benchmark_inner(
     };
 
     // ================================================================
-    // CQRRT_linop variants (standard TRSM_IDENTITY and GEQP3-stabilized)
+    // CQRRT_linop (TRSM_IDENTITY preconditioner)
     // ================================================================
-    auto run_cqrrt_linop = [&](const std::string& name, RandLAPACK::CQRRTLinopPrecond precond, long analytical_kb_override = -1L) {
-        run_algo(name, [&, precond, analytical_kb_override](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
-            auto state = run_states[r];
-            RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
-            algo.nnz = sketch_nnz; algo.block_size = block_size;
-            algo.precond_method = precond;
-            RandLAPACK::PeakRSSTracker mem; mem.start();
-            algo.call(A_op, R.data(), n, d_factor, state);
-            res.peak_rss_kb = mem.stop();
-            res.qr_time_us = algo.times[10];
-            // breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
-            res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
-            res.analytical_kb = (analytical_kb_override >= 0)
-                ? analytical_kb_override
-                : RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
-        });
-    };
-    if (method_mask & 1)
-        run_cqrrt_linop("CQRRT_linop", RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY);
-
-    // ================================================================
-    // CholQR
-    // ================================================================
-    if (method_mask & 2) {
-        run_algo("CholQR", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t) {
-            RandLAPACK::CholQR_linops<T> algo(true, tol, false);
-            algo.block_size = block_size;
-            RandLAPACK::PeakRSSTracker mem; mem.start();
-            algo.call(A_op, R.data(), n);
-            res.peak_rss_kb = mem.stop();
-            res.qr_time_us = algo.times[5];
-            // breakdown: alloc, fwd, adj, chol, rest, total
-            res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 6);
-            res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
-        });
-    }
-
-    // ================================================================
-    // sCholQR3
-    // ================================================================
-    if (method_mask & 4) {
-        run_algo("sCholQR3", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t) {
-            RandLAPACK::sCholQR3_linops<T> algo(true, tol, false);
-            algo.block_size = block_size;
-            RandLAPACK::PeakRSSTracker mem; mem.start();
-            algo.call(A_op, R.data(), n);
-            res.peak_rss_kb = mem.stop();
-            res.qr_time_us = algo.times[17];
-            // breakdown (18): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total
-            res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 18);
-            res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
-        });
-    }
-
-    // ================================================================
-    // sCholQR3_basic (non-blocked, matches standard pseudocode)
-    // ================================================================
-    if (method_mask & 8) {
-        run_algo("sCholQR3_basic", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t) {
-            RandLAPACK::sCholQR3_linops_basic<T> algo(true, tol, false);
-            RandLAPACK::PeakRSSTracker mem; mem.start();
-            algo.call(A_op, R.data(), n);
-            res.peak_rss_kb = mem.stop();
-            res.qr_time_us = algo.times[14];
-            // breakdown (15): alloc, fwd1, adj1, chol1, trsm1, fwd_q, syrk2, chol2, upd2, syrk3, chol3, upd3, q_mat, rest, total
-            res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 15);
-            res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
-        });
-    }
-
-    // ================================================================
-    // CQRRT_expl (uses pre-materialized A, run dense CQRRT)
-    // ================================================================
-    if (method_mask & 16) {
-        run_algo("CQRRT_expl", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
-            // Time the copy: CQRRT modifies A in-place, so a fresh copy is needed each run.
-            // This per-run materialization cost is not captured by algo.times — store in slot [2].
-            T* A_copy = new T[m * n];
-            auto copy_start = std::chrono::steady_clock::now();
-            lapack::lacpy(lapack::MatrixType::General, m, n, A_materialized, m, A_copy, m);
-            auto copy_end = std::chrono::steady_clock::now();
-            long copy_dur = std::chrono::duration_cast<std::chrono::microseconds>(copy_end - copy_start).count();
-
-            auto state = run_states[r];
-            RandLAPACK::CQRRT<T, RNG> algo(true, tol);
-            algo.compute_Q = false;
-            algo.orthogonalization = false;
-            algo.nnz = sketch_nnz;
-
-            RandLAPACK::PeakRSSTracker mem; mem.start();
-            algo.call(m, n, A_copy, m, R.data(), n, d_factor, state);
-            res.peak_rss_kb = mem.stop();
-
-            // CQRRT dense times layout (10 entries, 0-indexed):
-            //   [0]=saso, [1]=qr, [2]=trtri(0), [3]=precond, [4]=gram,
-            //   [5]=trmm_gram(0), [6]=potrf, [7]=finalize, [8]=rest, [9]=total
-            // Store copy_dur in slot [2] (repurposed trtri placeholder) and include in total.
-            res.qr_breakdown.assign(algo.times.begin(), algo.times.end());
-            while (res.qr_breakdown.size() < 11) res.qr_breakdown.push_back(0);
-            res.qr_breakdown[2]  = copy_dur;
-            res.qr_breakdown[9] += copy_dur;  // update total to include copy
-            res.qr_time_us = res.qr_breakdown[9];
-            res.analytical_kb = (m * n * sizeof(T)) / 1024; // just the dense matrix
-
-            delete[] A_copy;
-        });
-    }
-
-    // ================================================================
-    // CQRRT_linop_stb (GEQP3-stabilized preconditioner, uses pre-materialized A for orth check)
-    // ================================================================
-    if (method_mask & 32)
-        run_cqrrt_linop("CQRRT_linop_stb", RandLAPACK::CQRRTLinopPrecond::GEQP3);
-
-    // ================================================================
-    // CQRRT_linop_stb_bqrrp (BQRRP-stabilized preconditioner)
-    // ================================================================
-    if (method_mask & 64)
-        run_cqrrt_linop("CQRRT_linop_stb_bqrrp", RandLAPACK::CQRRTLinopPrecond::BQRRP,
-                        RandLAPACK::cqrrt_linops_bqrrp_analytical_kb<T>(n, d_factor));
+    run_algo("CQRRT_linop", [&](gsvd_result<T>& res, std::vector<T>& R, int64_t r) {
+        auto state = run_states[r];
+        RandLAPACK::CQRRT_linops<T, RNG> algo(true, tol, false);
+        algo.nnz = sketch_nnz; algo.block_size = block_size;
+        algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
+        RandLAPACK::PeakRSSTracker mem; mem.start();
+        algo.call(A_op, R.data(), n, d_factor, state);
+        res.peak_rss_kb = mem.stop();
+        res.qr_time_us = algo.times[10];
+        // breakdown: alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total
+        res.qr_breakdown.assign(algo.times.begin(), algo.times.begin() + 11);
+        res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+    });
 
     // Free pre-materialized A
     delete[] A_materialized;
@@ -730,17 +609,8 @@ int run_benchmark(int argc, char* argv[]) {
     if (argc < 7) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file|sparse> <V_file|A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl]"
-                  << " [upcast_orth] [method_mask]\n"
-                  << "  sparse mode: pass 'sparse' as K_file and a single A.mtx as V_file\n"
-                  << "  method_mask: bitmask selecting algorithms (default = 0b001111 or 0b011111 if run_expl=1)\n"
-                  << "    bit 0 ( 1): CQRRT_linop\n"
-                  << "    bit 1 ( 2): CholQR\n"
-                  << "    bit 2 ( 4): sCholQR3\n"
-                  << "    bit 3 ( 8): sCholQR3_basic\n"
-                  << "    bit 4 ( 16): CQRRT_expl              (requires A materialization)\n"
-                  << "    bit 5 ( 32): CQRRT_linop_stb         (GEQP3-stabilized preconditioner)\n"
-                  << "    bit 6 ( 64): CQRRT_linop_stb_bqrrp   (BQRRP-stabilized preconditioner)\n";
+                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n"
+                  << "  sparse mode: pass 'sparse' as K_file and a single A.mtx as V_file\n";
         return 1;
     }
 
@@ -753,12 +623,7 @@ int run_benchmark(int argc, char* argv[]) {
     int64_t block_size     = (argc >= 9)  ? std::stol(argv[8])  : 0;
     bool skip_apps         = (argc >= 10) ? (std::stol(argv[9])  != 0) : false;
     bool compute_cond      = (argc >= 11) ? (std::stol(argv[10]) != 0) : false;
-    bool run_expl          = (argc >= 12) ? (std::stol(argv[11]) != 0) : false;
-    bool upcast_orth       = (argc >= 13) ? (std::stol(argv[12]) != 0) : false;
-    // method_mask: bitmask selecting which algorithms to run.
-    // Default: bits 0-3 (all linop methods), plus bit 4 if run_expl=1 (backward compat).
-    // Explicit method_mask overrides run_expl for algorithm selection.
-    int64_t method_mask    = (argc >= 14) ? std::stol(argv[13]) : (0b001111 | (run_expl ? 0b010000 : 0));
+    bool upcast_orth       = (argc >= 12) ? (std::stol(argv[11]) != 0) : false;
 
     bool sparse_mode = (K_file == "sparse");
 
@@ -776,12 +641,7 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "  block_size: " << block_size << "\n";
     std::cout << "  skip_apps: " << (skip_apps ? "yes" : "no") << "\n";
     std::cout << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n";
-    std::cout << "  run_expl: " << (run_expl ? "yes" : "no") << " (backward compat; overridden by method_mask)\n";
     std::cout << "  upcast_orth: " << (upcast_orth ? "yes" : "no") << "\n";
-    std::cout << "  method_mask: " << method_mask << " (bits: linop=" << (method_mask&1)
-              << " CholQR=" << ((method_mask>>1)&1) << " sCholQR3=" << ((method_mask>>2)&1)
-              << " sCholQR3_basic=" << ((method_mask>>3)&1) << " expl=" << ((method_mask>>4)&1)
-              << " linop_stb=" << ((method_mask>>5)&1) << " linop_stb_bqrrp=" << ((method_mask>>6)&1) << ")\n";
     std::cout << "  num_runs: " << num_runs << "\n";
 #ifdef _OPENMP
     std::cout << "  OpenMP threads: " << omp_get_max_threads() << "\n\n";
@@ -810,7 +670,7 @@ int run_benchmark(int argc, char* argv[]) {
         return run_benchmark_inner<T, RNG>(
             V_linop, m, n, output_dir, num_runs,
             d_factor, sketch_nnz, block_size,
-            skip_apps, compute_cond, upcast_orth, method_mask,
+            skip_apps, compute_cond, upcast_orth,
             0L /*chol_time_us*/, "sparse", V_file,
             "A (" + V_file + ")");
     }
@@ -834,7 +694,7 @@ int run_benchmark(int argc, char* argv[]) {
     return run_benchmark_inner<T, RNG>(
         LiV_op, m, n, output_dir, num_runs,
         d_factor, sketch_nnz, block_size,
-        skip_apps, compute_cond, upcast_orth, method_mask,
+        skip_apps, compute_cond, upcast_orth,
         chol_time_us, K_file, V_file,
         "L^{-1}V");
 }
@@ -843,8 +703,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <K_file|sparse> <V_file|A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [run_expl]"
-                  << " [upcast_orth] [method_mask]\n";
+                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n";
         return 1;
     }
 

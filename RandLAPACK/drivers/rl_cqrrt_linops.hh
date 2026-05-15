@@ -261,7 +261,11 @@ class CQRRT_linops {
             T* R_sk_inv = nullptr;
 
             if (this->precond_method == CQRRTLinopPrecond::TRSM_IDENTITY) {
-                // Original: TRSM(I, R_sk) → R_sk^{-1}   (upper triangular result)
+                // Solve R_sk * R_inv = I  via Side::Left TRSM (column-by-column
+                // backward stable).  Forming R_sk^{-1} by Side::Right TRSM
+                // (X * R_sk = I) is mathematically equivalent but exhibits
+                // significantly worse backward error in the subsequent
+                // product A * R_sk^{-1} when R_sk is ill-conditioned.
                 T* Eye = new T[n * n]();
                 RandLAPACK::util::eye(n, n, Eye);
                 if (!RandLAPACK::util::diag_is_nonzero(n, A_hat, d)) {
@@ -270,7 +274,7 @@ class CQRRT_linops {
                     delete[] Eye;
                     return 1;
                 }
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T)1.0, A_hat, d, Eye, n);
+                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T)1.0, A_hat, d, Eye, n);
                 if (n > 1) {
                     lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &Eye[1], n);
                 }

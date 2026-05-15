@@ -10,7 +10,7 @@
 //                       R_inv = P * TRSM(R_buf, Q^T); DGEMM(A, R_inv)
 //   [5] expl_inv_svd:   GESDD(R_sk) = U*S*Vt;
 //                       R_inv = V * diag(1/S) * U^T; DGEMM(A, R_inv)
-//   [6] expl_inv_getri: GETRF(R_sk) then GETRI; DGEMM(A, R_inv)
+//   [6] expl_inv_bqrrp: BQRRP(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)
 //
 //   Path [1] never forms R_sk^{-1} explicitly (backward stable).
 //   Paths [2]-[6] all form R_sk^{-1} explicitly via different methods.
@@ -97,7 +97,7 @@ static constexpr const char* PATH_NAMES[N_PATHS] = {
     "expl_inv_trtri",
     "expl_inv_geqp3",
     "expl_inv_svd",
-    "expl_inv_getri",
+    "expl_inv_bqrrp",
 };
 
 static constexpr const char* PATH_DESCS[N_PATHS] = {
@@ -106,7 +106,7 @@ static constexpr const char* PATH_DESCS[N_PATHS] = {
     "TRTRI(R_sk)->R_inv;   DGEMM(A, R_inv)",
     "GEQP3(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)",
     "GESDD(R_sk)=U*S*Vt; R_inv=V*diag(1/S)*U^T; DGEMM(A, R_inv)",
-    "GETRF+GETRI(R_sk)->R_inv; DGEMM(A, R_inv)",
+    "BQRRP(R_sk)=Q*R_buf*P^T; R_inv=P*TRSM(R_buf,Q^T); DGEMM(A, R_inv)",
 };
 
 // ============================================================================
@@ -194,7 +194,7 @@ struct TrialResult {
     double rd_Apre_13;  // TRSM in-place vs trtri
     double rd_Apre_14;  // TRSM in-place vs geqp3
     double rd_Apre_15;  // TRSM in-place vs svd
-    double rd_Apre_16;  // TRSM in-place vs getri
+    double rd_Apre_16;  // TRSM in-place vs bqrrp
     // Step-by-step pipeline divergence: paths [1] vs [2], faithful to actual implementations
     //   Path [1] (CQRRT_expl):  sketch via sketch_general(S, A_dense); TRSM in-place; SYRK
     //   Path [2] (CQRRT_linop): sketch via A_linop(Side::Right, S) [SpGEMM];
@@ -317,12 +317,43 @@ static TrialResult<T> run_trial(
                    (T)0.0, R_inv_svd.data(), n);
     }
 
-    // Method E: GETRF + GETRI (general LU with partial pivoting)  (path [6])
-    std::vector<T> R_inv_getri(R_sk.begin(), R_sk.end());
+    // Method E: BQRRP factorization of R_sk  (path [6])
+    //   Same output format as GEQP3: R_sk * P = Q_buf * R_buf, then
+    //   R_sk^{-1} = P * R_buf^{-1} * Q_buf^T.
+    //   BQRRP uses blocked randomized QRCP; block size matches CQRRT_linops
+    //   adaptive heuristic (1.0 for n <= 2000, 0.5 for n <= 8000, 1/32 else).
+    std::vector<T> R_inv_bqrrp(n * n, 0.0);
     {
-        std::vector<int64_t> ipiv(n);
-        lapack::getrf(n, n, R_inv_getri.data(), n, ipiv.data());
-        lapack::getri(n, R_inv_getri.data(), n, ipiv.data());
+        std::vector<T> R_copy(R_sk.begin(), R_sk.end());
+        std::vector<int64_t> jpiv(n, 0);
+        std::vector<T> tau_qr(n);
+
+        T block_ratio;
+        if (n <= 2000)      block_ratio = (T)1.0;
+        else if (n <= 8000) block_ratio = (T)0.5;
+        else                block_ratio = (T)1.0 / (T)32;
+        int64_t bqrrp_block = std::max<int64_t>(1, (int64_t)(n * block_ratio));
+        RandLAPACK::BQRRP<T, RNG> bqrrp(false, bqrrp_block);
+        bqrrp.call(n, n, R_copy.data(), n, (T)1.0, tau_qr.data(), jpiv.data(), state);
+
+        std::vector<T> R_buf(n * n, 0.0);
+        for (int64_t j = 0; j < n; ++j)
+            for (int64_t i = 0; i <= j; ++i)
+                R_buf[i + j*n] = R_copy[i + j*n];
+
+        lapack::ungqr(n, n, n, R_copy.data(), n, tau_qr.data());
+
+        std::vector<T> W(n * n, 0.0);
+        for (int64_t i = 0; i < n; ++i)
+            for (int64_t j = 0; j < n; ++j)
+                W[i + j*n] = R_copy[j + i*n];  // W := Q_buf^T (col-major)
+        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
+                   Diag::NonUnit, n, n, (T)1.0,
+                   R_buf.data(), n, W.data(), n);
+
+        for (int64_t k = 0; k < n; ++k)
+            for (int64_t j = 0; j < n; ++j)
+                R_inv_bqrrp[(jpiv[k]-1) + j*n] = W[k + j*n];
     }
 
     // ----------------------------------------------------------------
@@ -341,7 +372,7 @@ static TrialResult<T> run_trial(
 
     const T* R_invs[N_PATHS - 1] = {
         R_inv_trsm.data(), R_inv_trtri.data(), R_inv_geqp3.data(),
-        R_inv_svd.data(), R_inv_getri.data()
+        R_inv_svd.data(), R_inv_bqrrp.data()
     };
     for (int p = 1; p < N_PATHS; ++p)
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
@@ -542,7 +573,7 @@ static void write_csv_and_run(
         printf("    rd_13 (trtri):       %12.3e\n", res.rd_Apre_13);
         printf("    rd_14 (geqp3):       %12.3e\n", res.rd_Apre_14);
         printf("    rd_15 (svd):         %12.3e\n", res.rd_Apre_15);
-        printf("    rd_16 (getri):       %12.3e\n", res.rd_Apre_16);
+        printf("    rd_16 (bqrrp):       %12.3e\n", res.rd_Apre_16);
 
         printf("  run %ld  step-by-step divergence [1] vs [2] (expl: sketch_general; linop: SpGEMM):\n", r);
         printf("    M^sk:    %12.3e\n", res.rd_Msk_12);
