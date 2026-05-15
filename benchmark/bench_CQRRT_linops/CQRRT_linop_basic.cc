@@ -692,8 +692,8 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     std::cout << "d_factor (CQRRT_linop): " << std::fixed << std::setprecision(2) << d_factor << "\n";
     std::cout << "Sketch nnz (CQRRT_linop): " << sketch_nnz << "\n";
     std::cout << "Block size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
-    std::cout << "Compute condition number: " << compute_cond ? "yes" : "no" << "\n";
-    std::cout << "Skip dense CQRRT: " << skip_dense ? "yes" : "no" << "\n";
+    std::cout << "Compute condition number: " << (compute_cond ? "yes" : "no") << "\n";
+    std::cout << "Skip dense CQRRT: " << (skip_dense ? "yes" : "no") << "\n";
     std::cout << "Runs: " << num_runs << "\n";
     std::cout << "OpenMP threads: " << num_threads << "\n";
     std::cout << "=====================================\n\n";
