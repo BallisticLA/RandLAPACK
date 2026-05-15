@@ -82,7 +82,7 @@ static void call_all_algs(
     auto state_gen = state;
 
     for (int i = 0; i < numruns; ++i) {
-        printf("ITERATION %d, DIM %ld\n", i, n);
+        std::cout << "ITERATION " << i << ", DIM " << n << "\n";
         // Testing BLAS3
         auto start_blas3 = steady_clock::now();
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, n, n, n, 1.0, all_data.A.data(), n, all_data.B.data(), n, 0.0, all_data.C.data(), n);

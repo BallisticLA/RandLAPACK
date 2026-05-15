@@ -101,7 +101,7 @@ static void call_all_algs(
     std::vector<long> inner_timing;
 
     for (int i = 0; i < num_runs; ++i) {
-        printf("\nBlock size %ld, num matmuls %ld. Iteration %d start.\n", k, num_matmuls, i);
+        std::cout << "\nBlock size " << k << ", num matmuls " << num_matmuls << ". Iteration " << i << " start.\n";
         ABRIK.call(m, n, all_data.A, m, k, all_data.U, all_data.V, all_data.Sigma, state_alg);
         
         // Update timing vector
@@ -165,8 +165,8 @@ int main(int argc, char *argv[]) {
     m = m_info.rows;
     n = m_info.cols;
     if (m_expected != m || n_expected != n) {
-        printf("Expected m: %ld, actual m: %ld\n", m_expected, m);
-        printf("Expected n: %ld, actual n: %ld\n", n_expected, n);
+        std::cout << "Expected m: " << m_expected << ", actual m: " << m << "\n";
+        std::cout << "Expected n: " << n_expected << ", actual n: " << n << "\n";
         std::cerr << "Expected input size did not matrch actual input size. Aborting." << std::endl;
         return 1;
     }
@@ -177,7 +177,7 @@ int main(int argc, char *argv[]) {
     // Fill the data matrix;
     RandLAPACK::gen::mat_gen(m_info, all_data.A, state);
 
-    printf("Finished data preparation\n");
+    std::cout << "Finished data preparation\n";
     // Declare a data file
     std::string output_filename = "_ABRIK_runtime_breakdown_num_info_lines_" + std::to_string(6) + ".txt";
     std::string path;

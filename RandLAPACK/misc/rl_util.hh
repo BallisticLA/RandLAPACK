@@ -25,21 +25,21 @@ void print_colmaj(int64_t n_rows, int64_t n_cols, T *a, int64_t lda, char label[
         for (j = 0; j < n_cols - 1; ++j) {
             val = a[i + lda * j];
             if (val < 0) {
-                printf("  %2.20f,", val);
+                std::cout << "  " << std::fixed << std::setw(2) << std::setprecision(20) << val << ",";
             } else {
-				printf("   %2.20f,", val);
+				std::cout << "   " << std::fixed << std::setw(2) << std::setprecision(20) << val << ",";
             }
         }
         // j = n_cols - 1
         val = a[i + lda * j];
         if (val < 0) {
-			printf("  %2.20f,", val);
+			std::cout << "  " << std::fixed << std::setw(2) << std::setprecision(20) << val << ",";
 		} else {
-			printf("   %2.20f,", val);
+			std::cout << "   " << std::fixed << std::setw(2) << std::setprecision(20) << val << ",";
 		}
-        printf("\n");
+        std::cout << "\n";
     }
-    printf("\n");
+    std::cout << "\n";
     return;
 }
 
@@ -404,7 +404,7 @@ T cond_num_check(
     T cond_num = (s[n - 1] == 0) ? std::numeric_limits<T>::infinity() : s[0] / s[n - 1];
 
     if (verbose)
-        printf("CONDITION NUMBER: %f\n", cond_num);
+        std::cout << "CONDITION NUMBER: " << std::fixed << cond_num << "\n";
 
     delete[] A_cpy;
     delete[] s;
@@ -474,7 +474,7 @@ bool orthogonality_check(
     T orth_err = lapack::lange(Norm::Fro, k, k, A_gram, k);
 
     if (verbose) {
-        printf("Q ERROR:   %e\n\n", orth_err);
+        std::cout << "Q ERROR:   " << std::scientific << orth_err << "\n\n";
     }
 
     // Precision-dependent tolerance

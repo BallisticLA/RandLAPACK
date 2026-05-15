@@ -170,12 +170,12 @@ int main(int argc, char *argv[]) {
         path4 = output_filename4;
     }
 
-    get_spectrum(m, n, m_info_poly,   path1); 
-    printf("Done with the polynomial matrix\n");
-    get_spectrum(m, n, m_info_stair,  path2); 
-    printf("Done with the staircase matrix\n");
-    get_spectrum(m, n, m_info_spiked, path3); 
-    printf("Done with the spiked matrix\n");
-    get_spectrum(m, n, m_info_kahan,  path4); 
-    printf("Done with the kahan matrix\n");
+    get_spectrum(m, n, m_info_poly,   path1);
+    std::cout << "Done with the polynomial matrix\n";
+    get_spectrum(m, n, m_info_stair,  path2);
+    std::cout << "Done with the staircase matrix\n";
+    get_spectrum(m, n, m_info_spiked, path3);
+    std::cout << "Done with the spiked matrix\n";
+    get_spectrum(m, n, m_info_kahan,  path4);
+    std::cout << "Done with the kahan matrix\n";
 }

@@ -147,7 +147,7 @@ static void call_wide_qrcp(
 
     int i, j = 0;
     for (i = 0; i < numruns; ++i) {
-        printf("Wide QRCP iteration %d; m==%ld start.\n", i, n);
+        std::cout << "Wide QRCP iteration " << i << "; m==" << n << " start.\n";
         // Testing GEQP3
         auto start_geqp3 = steady_clock::now();
         lapack::geqp3(n, m, all_data.A.data(), n, all_data.J.data(), all_data.tau.data());
@@ -223,7 +223,7 @@ static void call_tsqr(
     int i = 0;
     for (i = 0; i < numruns; ++i) {
         for(nb = geqrt_nb_start; nb <= n; nb *=2) {
-            printf("TSQR iteration %d; n==%ld start.\n", i, n);
+            std::cout << "TSQR iteration " << i << "; n==" << n << " start.\n";
 
             auto start_geqrt = steady_clock::now();
             lapack::geqrt( m, n, nb, all_data.A.data(), m, all_data.T_mat.data(), n );
@@ -314,7 +314,7 @@ static void call_apply_q(
     int64_t nb = 0;
     for (i = 0; i < numruns; ++i) {
         for(nb = gemqrt_nb_start; nb <= n; nb *=2) {
-            printf("Apply Q iteration %d; n==%ld start.\n", i, n);
+            std::cout << "Apply Q iteration " << i << "; n==" << n << " start.\n";
             // Performing CholQR
             blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, all_data.A.data(), m, (T) 0.0, all_data.R.data(), n);
             lapack::potrf(Uplo::Upper, n, all_data.R.data(), n);

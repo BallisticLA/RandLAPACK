@@ -56,7 +56,7 @@ static std::vector<T> get_norms(int64_t n, std::vector<T> Mat, int64_t lda) {
     for (int i = 0; i < n; ++i) {
         R_norms[i] = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, n - i, n - i, &Mat[(lda + 1) * i], lda);
         if (i < 10)
-            printf("%e\n", R_norms[i]);
+            std::cout << std::scientific << R_norms[i] << "\n";
     }
     return R_norms;
 }
@@ -82,13 +82,13 @@ static void R_norm_ratio(
     // Running GEQP3
     lapack::geqp3(m, n, all_data.A.data(), m, all_data.J.data(), all_data.tau.data());
     std::vector<T> R_norms_GEQP3 = get_norms(n, all_data.A, m);
-    printf("\nDone with QP3\n");
+    std::cout << "\nDone with QP3\n";
 
     // Clear and re-generate data
     state_gen = state;
     data_regen(m_info, all_data, state_gen);
 
-    printf("\nStarting CQRRPT\n");
+    std::cout << "\nStarting CQRRPT\n";
     // Running CQRRP
     state_alg = state;
     CQRRPT.call(m, n, all_data.A.data(), m, all_data.R.data(), n, all_data.J.data(), d_factor, state_alg);
@@ -218,7 +218,7 @@ int main(int argc, char *argv[]) {
     RandLAPACK::gen::mat_gen(m_info, all_data.A.data(), state);
 
     R_norm_ratio<double>(m_info, all_data, state_constant1);
-    printf("R done\n");
+    std::cout << "R done\n";
     sv_ratio<double>(m_info, all_data, state_constant2);
-    printf("SV done\n\n");
+    std::cout << "SV done\n\n";
 }

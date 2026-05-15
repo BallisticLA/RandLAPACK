@@ -145,7 +145,7 @@ class TestABRIK : public ::testing::Test
         }
         
         T residual_err_custom = residual_error_comp<T>(all_data, custom_rank);
-        printf("residual_err_custom %e\n", residual_err_custom);
+        std::cout << "residual_err_custom " << std::scientific << residual_err_custom << "\n";
         ASSERT_LE(residual_err_custom, 10 * std::pow(std::numeric_limits<T>::epsilon(), 0.825));
     }
 };
