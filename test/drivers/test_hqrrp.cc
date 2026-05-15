@@ -5,6 +5,7 @@
 
 #include <RandBLAS.hh>
 #include <fstream>
+#include <iomanip>
 #include <gtest/gtest.h>
 
 
@@ -131,7 +132,7 @@ class TestHQRRP : public ::testing::Test
         lapack::lacpy(MatrixType::General, m, all_data.rank, all_data.A.data(), m, all_data.Q.data(), m);
 
         // I don't think hqrrp actually returns anything.
-        //printf("RANK AS RETURNED BY HQRRP %4ld\n", all_data.rank);
+        //std::cout << "RANK AS RETURNED BY HQRRP " << std::setw(4) << all_data.rank << "\n";
 
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
         RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);

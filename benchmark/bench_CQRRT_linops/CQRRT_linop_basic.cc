@@ -330,8 +330,7 @@ static T compute_condition_number(SpLinOp& A_linop, int64_t m, int64_t n) {
     auto sigma = RandLAPACK::testing::compute_singular_values<T>(A_dense, m, n);
     delete[] A_dense;
     T cond = sigma[0] / sigma[n - 1];
-    printf("  Condition number: %.6e (sigma_max=%.6e, sigma_min=%.6e)\n",
-           (double)cond, (double)sigma[0], (double)sigma[n - 1]);
+    std::cout << "  Condition number: " << std::scientific << std::setprecision(6) << (double)cond << " (sigma_max=" << std::setprecision(6) << (double)sigma[0] << ", sigma_min=" << std::setprecision(6) << (double)sigma[n - 1] << ")\n";
     return cond;
 }
 
@@ -365,7 +364,7 @@ static std::vector<scaling_result<T>> run_single_test_from_file(
 
     T cond_num = std::numeric_limits<T>::quiet_NaN();
     if (compute_cond) {
-        printf("Computing condition number via SVD (%ld x %ld)...\n", m, n);
+        std::cout << "Computing condition number via SVD (" << m << " x " << n << ")...\n";
         cond_num = compute_condition_number<T>(A_linop, m, n);
     }
 
@@ -455,21 +454,19 @@ static int run_benchmark(int argc, char *argv[]) {
     int num_threads = 1;
 #endif
 
-    printf("\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Scaling Study ===\n");
-    printf("Precision: %s\n", precision.c_str());
-    printf("Fixed aspect ratio: %.1f:1 (m/n)\n", aspect_ratio);
-    printf("Matrix sizes: %ld x %ld to %ld x %ld\n",
-           sizes.front().first, sizes.front().second,
-           sizes.back().first, sizes.back().second);
-    printf("Number of test sizes: %zu\n", sizes.size());
-    printf("Condition number: %.2e\n", cond_num);
-    printf("Target density: %.3f\n", density);
-    printf("d_factor (CQRRT_linop): %.2f\n", d_factor);
-    printf("Sketch nnz (CQRRT_linop): %ld\n", sketch_nnz);
-    printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
-    printf("Runs per size: %ld\n", num_runs);
-    printf("OpenMP threads: %d\n", num_threads);
-    printf("=====================================\n\n");
+    std::cout << "\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl Scaling Study ===\n";
+    std::cout << "Precision: " << precision.c_str() << "\n";
+    std::cout << "Fixed aspect ratio: " << std::fixed << std::setprecision(1) << aspect_ratio << ":1 (m/n)\n";
+    std::cout << "Matrix sizes: " << sizes.front().first << " x " << sizes.front().second << " to " << sizes.back().first << " x " << sizes.back().second << "\n";
+    std::cout << "Number of test sizes: " << sizes.size() << "\n";
+    std::cout << "Condition number: " << std::scientific << std::setprecision(2) << cond_num << "\n";
+    std::cout << "Target density: " << std::fixed << std::setprecision(3) << density << "\n";
+    std::cout << "d_factor (CQRRT_linop): " << std::fixed << std::setprecision(2) << d_factor << "\n";
+    std::cout << "Sketch nnz (CQRRT_linop): " << sketch_nnz << "\n";
+    std::cout << "Block size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
+    std::cout << "Runs per size: " << num_runs << "\n";
+    std::cout << "OpenMP threads: " << num_threads << "\n";
+    std::cout << "=====================================\n\n";
 
     // Initialize RNG
     auto state = RandBLAS::RNGState<r123::Philox4x32>();
@@ -490,20 +487,19 @@ static int run_benchmark(int argc, char *argv[]) {
     // Warmup run to trigger library initialization (MKL thread pools, memory allocators, etc.)
     // This ensures first reported iteration has accurate memory measurements.
     {
-        printf("Performing warmup run (not reported)...\n");
+        std::cout << "Performing warmup run (not reported)...\n";
         int64_t warmup_m = sizes[0].first;
         int64_t warmup_n = sizes[0].second;
         auto warmup_state = state;  // Use copy to not affect main RNG sequence
         run_single_test<T>(warmup_m, warmup_n, (T)cond_num, (T)density, (T)d_factor, block_size, sketch_nnz, 1, warmup_state);
-        printf("Warmup complete, starting measurements.\n\n");
+        std::cout << "Warmup complete, starting measurements.\n\n";
     }
 
     // Run scaling study
     for (size_t i = 0; i < sizes.size(); ++i) {
         int64_t m = sizes[i].first;
         int64_t n = sizes[i].second;
-        printf("Testing %ld x %ld (aspect ratio %.1f) [%zu/%zu]...\n",
-               m, n, static_cast<double>(m) / n, i + 1, sizes.size());
+        std::cout << "Testing " << m << " x " << n << " (aspect ratio " << std::fixed << std::setprecision(1) << static_cast<double>(m) / n << ") [" << i + 1 << "/" << sizes.size() << "]...\n";
 
         auto all_runs = run_single_test<T>(m, n, (T)cond_num, (T)density, (T)d_factor, block_size, sketch_nnz, num_runs, state);
 
@@ -520,11 +516,11 @@ static int run_benchmark(int argc, char *argv[]) {
     prepend_runtime(output_file, total_runtime_s);
     prepend_runtime(breakdown_file, total_runtime_s);
 
-    printf("========================================\n");
-    printf("Scaling study complete! (%.1f seconds)\n", total_runtime_s);
-    printf("Results saved to: %s\n", output_file.c_str());
-    printf("Runtime breakdown saved to: %s\n", breakdown_file.c_str());
-    printf("========================================\n");
+    std::cout << "========================================\n";
+    std::cout << "Scaling study complete! (" << std::fixed << std::setprecision(1) << total_runtime_s << " seconds)\n";
+    std::cout << "Results saved to: " << output_file.c_str() << "\n";
+    std::cout << "Runtime breakdown saved to: " << breakdown_file.c_str() << "\n";
+    std::cout << "========================================\n";
 
     return 0;
 }
@@ -589,20 +585,12 @@ static void print_console_summary(
     const auto& bs = all_runs[best_scholqr3];
     const auto& bd = all_runs[best_dense];
 
-    printf("  CQRRT_linop: orth_err=%.2e, max_orth=%ld/%ld, time=%ld us (run %ld)\n",
-           bc.cqrrt.orth_error, bc.cqrrt.max_orth_cols, n, bc.cqrrt.time, best_cqrrt);
-    printf("  CholQR:      orth_err=%.2e, max_orth=%ld/%ld, time=%ld us (run %ld)\n",
-           bq.cholqr.orth_error, bq.cholqr.max_orth_cols, n, bq.cholqr.time, best_cholqr);
-    printf("  sCholQR3:    orth_err=%.2e, max_orth=%ld/%ld, time=%ld us (run %ld)\n",
-           bs.scholqr3.orth_error, bs.scholqr3.max_orth_cols, n, bs.scholqr3.time, best_scholqr3);
-    printf("  CQRRT_expl:  orth_err=%.2e, max_orth=%ld/%ld, time=%ld us (run %ld)\n",
-           bd.dense_cqrrt.orth_error, bd.dense_cqrrt.max_orth_cols, n, bd.dense_cqrrt.time, best_dense);
-    printf("  Memory (peak RSS / analytical KB):\n");
-    printf("    CQRRT_linop: %ld / %ld,  CholQR: %ld / %ld,  sCholQR3: %ld / %ld,  CQRRT_expl: %ld / %ld\n\n",
-           bc.cqrrt.peak_rss_kb, bc.cqrrt.analytical_kb,
-           bq.cholqr.peak_rss_kb, bq.cholqr.analytical_kb,
-           bs.scholqr3.peak_rss_kb, bs.scholqr3.analytical_kb,
-           bd.dense_cqrrt.peak_rss_kb, bd.dense_cqrrt.analytical_kb);
+    std::cout << "  CQRRT_linop: orth_err=" << std::scientific << std::setprecision(2) << bc.cqrrt.orth_error << ", max_orth=" << bc.cqrrt.max_orth_cols << "/" << n << ", time=" << bc.cqrrt.time << " us (run " << best_cqrrt << ")\n";
+    std::cout << "  CholQR:      orth_err=" << std::scientific << std::setprecision(2) << bq.cholqr.orth_error << ", max_orth=" << bq.cholqr.max_orth_cols << "/" << n << ", time=" << bq.cholqr.time << " us (run " << best_cholqr << ")\n";
+    std::cout << "  sCholQR3:    orth_err=" << std::scientific << std::setprecision(2) << bs.scholqr3.orth_error << ", max_orth=" << bs.scholqr3.max_orth_cols << "/" << n << ", time=" << bs.scholqr3.time << " us (run " << best_scholqr3 << ")\n";
+    std::cout << "  CQRRT_expl:  orth_err=" << std::scientific << std::setprecision(2) << bd.dense_cqrrt.orth_error << ", max_orth=" << bd.dense_cqrrt.max_orth_cols << "/" << n << ", time=" << bd.dense_cqrrt.time << " us (run " << best_dense << ")\n";
+    std::cout << "  Memory (peak RSS / analytical KB):\n";
+    std::cout << "    CQRRT_linop: " << bc.cqrrt.peak_rss_kb << " / " << bc.cqrrt.analytical_kb << ",  CholQR: " << bq.cholqr.peak_rss_kb << " / " << bq.cholqr.analytical_kb << ",  sCholQR3: " << bs.scholqr3.peak_rss_kb << " / " << bs.scholqr3.analytical_kb << ",  CQRRT_expl: " << bd.dense_cqrrt.peak_rss_kb << " / " << bd.dense_cqrrt.analytical_kb << "\n\n";
 }
 
 // Write CSV headers shared by both modes
@@ -698,17 +686,17 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     int num_threads = 1;
 #endif
 
-    printf("\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl (File Input) ===\n");
-    printf("Precision: %s\n", precision.c_str());
-    printf("Input file: %s\n", input_file.c_str());
-    printf("d_factor (CQRRT_linop): %.2f\n", d_factor);
-    printf("Sketch nnz (CQRRT_linop): %ld\n", sketch_nnz);
-    printf("Block size (CQRRT_linop, CholQR, sCholQR3): %ld (0 = full)\n", block_size);
-    printf("Compute condition number: %s\n", compute_cond ? "yes" : "no");
-    printf("Skip dense CQRRT: %s\n", skip_dense ? "yes" : "no");
-    printf("Runs: %ld\n", num_runs);
-    printf("OpenMP threads: %d\n", num_threads);
-    printf("=====================================\n\n");
+    std::cout << "\n=== CQRRT_linop vs CholQR vs sCholQR3 vs CQRRT_expl (File Input) ===\n";
+    std::cout << "Precision: " << precision.c_str() << "\n";
+    std::cout << "Input file: " << input_file.c_str() << "\n";
+    std::cout << "d_factor (CQRRT_linop): " << std::fixed << std::setprecision(2) << d_factor << "\n";
+    std::cout << "Sketch nnz (CQRRT_linop): " << sketch_nnz << "\n";
+    std::cout << "Block size (CQRRT_linop, CholQR, sCholQR3): " << block_size << " (0 = full)\n";
+    std::cout << "Compute condition number: " << compute_cond ? "yes" : "no" << "\n";
+    std::cout << "Skip dense CQRRT: " << skip_dense ? "yes" : "no" << "\n";
+    std::cout << "Runs: " << num_runs << "\n";
+    std::cout << "OpenMP threads: " << num_threads << "\n";
+    std::cout << "=====================================\n\n";
 
     // Initialize RNG
     auto state = RandBLAS::RNGState<r123::Philox4x32>();
@@ -731,19 +719,19 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
 
     // Warmup run with a small synthetic matrix
     {
-        printf("Performing warmup run (not reported)...\n");
+        std::cout << "Performing warmup run (not reported)...\n";
         auto warmup_state = state;
         run_single_test<T>(1000, 50, (T)1e4, (T)0.1, (T)d_factor, block_size, sketch_nnz, 1, warmup_state);
-        printf("Warmup complete, starting measurements.\n\n");
+        std::cout << "Warmup complete, starting measurements.\n\n";
     }
 
     // Run benchmark on the file-loaded matrix
-    printf("Loading matrix from %s...\n", input_file.c_str());
+    std::cout << "Loading matrix from " << input_file.c_str() << "...\n";
     auto all_runs = run_single_test_from_file<T>(input_file, (T)d_factor, block_size, sketch_nnz, num_runs, compute_cond, skip_dense, state);
 
     int64_t m = all_runs[0].m;
     int64_t n = all_runs[0].n;
-    printf("Matrix loaded: %ld x %ld, density=%.6f\n", m, n, (double)all_runs[0].density);
+    std::cout << "Matrix loaded: " << m << " x " << n << ", density=" << std::fixed << std::setprecision(6) << (double)all_runs[0].density << "\n";
 
     print_console_summary(all_runs, num_runs, n);
     write_results_to_csv(all_runs, num_runs, out, breakdown);
@@ -757,11 +745,11 @@ static int run_benchmark_from_file(int argc, char *argv[]) {
     prepend_runtime(output_file, total_runtime_s);
     prepend_runtime(breakdown_file, total_runtime_s);
 
-    printf("========================================\n");
-    printf("Benchmark complete! (%.1f seconds)\n", total_runtime_s);
-    printf("Results saved to: %s\n", output_file.c_str());
-    printf("Runtime breakdown saved to: %s\n", breakdown_file.c_str());
-    printf("========================================\n");
+    std::cout << "========================================\n";
+    std::cout << "Benchmark complete! (" << std::fixed << std::setprecision(1) << total_runtime_s << " seconds)\n";
+    std::cout << "Results saved to: " << output_file.c_str() << "\n";
+    std::cout << "Runtime breakdown saved to: " << breakdown_file.c_str() << "\n";
+    std::cout << "========================================\n";
 
     return 0;
 }
