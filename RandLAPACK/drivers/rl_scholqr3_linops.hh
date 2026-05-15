@@ -237,8 +237,12 @@ class sCholQR3_linops {
                 t_start = steady_clock::now();
             }
 
-            // Update M: M = I * R1^{-1} = R1^{-1}
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
+            // Initialize M = R1^{-1} by solving R1 * M = I via Side::Left TRSM
+            // (column-by-column backward stable).  Using Side::Right (X * R1 = I)
+            // is mathematically equivalent but produces an M whose subsequent
+            // product A * M has significantly worse backward error when R1 is
+            // ill-conditioned -- see rl_cqrrt_linops.hh for the same pattern.
+            blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
                        Diag::NonUnit, n, n, (T)1.0, G, n, M, n);
 
             if(this->timing) {
