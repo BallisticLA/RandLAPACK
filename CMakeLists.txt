@@ -44,7 +44,10 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR})
 include(compiler_flags)
 
 # Configure the build
-enable_testing()
+option(BUILD_TESTING "Build tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+endif()
 
 include(rl_build_options)
 include(rl_version)
@@ -59,7 +62,9 @@ add_subdirectory(RandBLAS)
 
 # Compile sources
 add_subdirectory(RandLAPACK)
-add_subdirectory(test)
+if(BUILD_TESTING)
+    add_subdirectory(test)
+endif()
 
 # Export the configuration
 include(rl_config)

@@ -22,6 +22,7 @@
 // Extras utilities for Matrix Market I/O
 #include "../../extras/misc/ext_util.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
+#include "cqrrt_bench_common.hh"
 
 // Linops algorithms (now in main RandLAPACK)
 #include "rl_cqrrt_linops.hh"
@@ -68,13 +69,9 @@ template <typename T, typename GLO>
 static void compute_Q_from_R(
     GLO& A_op, T* R, int64_t ldr,
     T* Q_out, int64_t m, int64_t n) {
-    // Step 1: Materialize A into Q_out: Q_out = A * I
-    T* Eye = new T[n * n]();
-    RandLAPACK::util::eye(n, n, Eye);
+    auto Eye = make_eye<T>(n);
     A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-         m, n, n, (T)1.0, Eye, n, (T)0.0, Q_out, m);
-    delete[] Eye;
-    // Step 2: Solve Q * R = A for Q via trsm (backward stable, no explicit inverse)
+         m, n, n, (T)1.0, Eye.data(), n, (T)0.0, Q_out, m);
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_out, m);
 }
@@ -203,8 +200,9 @@ static std::vector<scaling_result<T>> run_algorithms(
             sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
             results[run].scholqr3.peak_rss_kb = scholqr3_mem.stop();
 
-            results[run].scholqr3.time = sCholQR3_alg.times[12];  // total
-            results[run].scholqr3.breakdown.assign(sCholQR3_alg.times.begin(), sCholQR3_alg.times.begin() + 12);
+            results[run].scholqr3.time = sCholQR3_alg.times[17];  // total
+            // breakdown (17): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest
+            results[run].scholqr3.breakdown.assign(sCholQR3_alg.times.begin(), sCholQR3_alg.times.begin() + 17);
 
             // Uniform Q computation (same as all other algorithms)
             compute_Q_from_R(A_linop, R_scholqr3.data(), n, Q_uniform.data(), m, n);
@@ -225,17 +223,14 @@ static std::vector<scaling_result<T>> run_algorithms(
             dense_mem.start();
 
             // Step 1: Materialize the operator by multiplying with identity
-            T* I_mat = new T[n * n]();
-            RandLAPACK::util::eye(n, n, I_mat);
+            auto I_mat = make_eye<T>(n);
             T* A_materialized = new T[m * n]();
 
             auto materialize_start = steady_clock::now();
             A_linop(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                    m, n, n, (T)1.0, I_mat, n, (T)0.0, A_materialized, m);
+                    m, n, n, (T)1.0, I_mat.data(), n, (T)0.0, A_materialized, m);
             auto materialize_stop = steady_clock::now();
             long materialize_time = duration_cast<microseconds>(materialize_stop - materialize_start).count();
-
-            delete[] I_mat;
 
             // Step 2: Call rl_cqrrt with timing, Q-factor disabled (computed uniformly below)
             // Uses same per-run RNG state as CQRRT_linop for fair comparison
@@ -355,12 +350,9 @@ static std::vector<scaling_result<T>> run_single_test_from_file(
     }
 
     // Load matrix from Matrix Market file
-    auto A_coo = RandLAPACK_extras::coo_from_matrix_market<T>(filename);
-    int64_t m = A_coo.n_rows;
-    int64_t n = A_coo.n_cols;
-    T actual_density = static_cast<T>(A_coo.nnz) / (static_cast<T>(m) * n);
-    RandBLAS::sparse_data::csr::CSRMatrix<T> A_csr(m, n);
-    RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
+    int64_t m, n, nnz;
+    auto A_csr = load_csr<T>(filename, m, n, nnz);
+    T actual_density = static_cast<T>(nnz) / (static_cast<T>(m) * n);
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
 
     T cond_num = std::numeric_limits<T>::quiet_NaN();
@@ -642,12 +634,12 @@ static void write_csv_headers(
     breakdown << "# Times are in microseconds\n";
     breakdown << "# CQRRT_linop: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
     breakdown << "# CholQR: alloc, materialize, gram, potrf, rest, total\n";
-    breakdown << "# sCholQR3: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
+    breakdown << "# sCholQR3: alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total\n";
     breakdown << "# CQRRT_expl: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "m,n,run,"
               << "cqrrt_alloc,cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
               << "cholqr_alloc,cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
-              << "scholqr3_alloc,scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
+              << "scholqr3_alloc,scholqr3_fwd1,scholqr3_adj1,scholqr3_chol1,scholqr3_upd1,scholqr3_fwd2,scholqr3_adj2,scholqr3_gemm2,scholqr3_chol2,scholqr3_upd2,scholqr3_fwd3,scholqr3_adj3,scholqr3_gemm3,scholqr3_chol3,scholqr3_upd3,scholqr3_q_mat,scholqr3_rest,scholqr3_total,"
               << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total,"
               << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
               << "cholqr_peak_rss_kb,cholqr_analytical_kb,"
