@@ -75,8 +75,8 @@ void euclidean_distance_submatrix(
     int64_t rows_x, int64_t cols_x, const T* X, const T* sq_colnorms_x,
     int64_t rows_eds, int64_t cols_eds, T* Eds, int64_t ro_eds, int64_t co_eds
 ) {
-    randlapack_require(!((0 > co_eds) && ((co_eds + cols_eds) <= cols_x))) << "column window must satisfy 0 <= co_eds and co_eds+cols_eds <= cols_x; got co_eds=" << co_eds << " cols_eds=" << cols_eds << " cols_x=" << cols_x;
-    randlapack_require(!((0 > ro_eds) && ((ro_eds + rows_eds) <= cols_x))) << "row window must satisfy 0 <= ro_eds and ro_eds+rows_eds <= cols_x; got ro_eds=" << ro_eds << " rows_eds=" << rows_eds << " cols_x=" << cols_x;
+    randlapack_require((0 <= co_eds) && ((co_eds + cols_eds) <= cols_x)) << "column window must satisfy 0 <= co_eds and co_eds+cols_eds <= cols_x; got co_eds=" << co_eds << " cols_eds=" << cols_eds << " cols_x=" << cols_x;
+    randlapack_require((0 <= ro_eds) && ((ro_eds + rows_eds) <= cols_x)) << "row window must satisfy 0 <= ro_eds and ro_eds+rows_eds <= cols_x; got ro_eds=" << ro_eds << " rows_eds=" << rows_eds << " cols_x=" << cols_x;
     const T* sq_colnorms_for_rows = sq_colnorms_x + ro_eds;
     const T* sq_colnorms_for_cols = sq_colnorms_x + co_eds;
 
@@ -136,7 +136,7 @@ void squared_exp_kernel_submatrix(
     T bandwidth
 ) {
     int64_t size_Ksub = rows_ksub * cols_ksub;
-    randlapack_require(!(bandwidth <= 0)) << "kernel bandwidth must be > 0; got bandwidth=" << bandwidth;
+    randlapack_require(bandwidth > 0) << "kernel bandwidth must be > 0; got bandwidth=" << bandwidth;
     euclidean_distance_submatrix(rows_x, cols_x, X, sq_colnorms_x, rows_ksub, cols_ksub, Ksub, ro_ksub, co_ksub);
     T scale = -1.0 / (2.0 * bandwidth * bandwidth);
     auto inplace_exp = [scale](T &val) { val = std::exp(scale*val); };
@@ -275,7 +275,7 @@ struct RBFKernelMatrix {
             todo -= k;
         }
         if (_eval_includes_reg) {
-            randlapack_require(!(num_ops != 1 || n == num_ops)) << "with num_ops>1, n=" << n << " must equal num_ops=" << num_ops << " so each column gets its own regularization";
+            randlapack_require(num_ops == 1 || n == num_ops) << "with num_ops>1, n=" << n << " must equal num_ops=" << num_ops << " so each column gets its own regularization";
             for (int64_t i = 0; i < n; ++i) {
                 T coeff =  alpha * regs[std::min(i, num_ops - 1)];
                 blas::axpy(dim, coeff, B + i*ldb, 1, C +  i*ldc, 1);

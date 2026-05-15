@@ -283,7 +283,7 @@ struct SpectralPrecond {
     }
 
     void reset_owned_buffers(int64_t arg_dim_pre, int64_t arg_num_rhs, int64_t arg_num_ops) {
-        randlapack_require(!(arg_num_rhs != arg_num_ops || arg_num_ops == 1)) << "arg_num_rhs=" << arg_num_rhs << " must equal arg_num_ops=" << arg_num_ops << ", or arg_num_ops must be 1";
+        randlapack_require(arg_num_rhs == arg_num_ops || arg_num_ops == 1) << "arg_num_rhs=" << arg_num_rhs << " must equal arg_num_ops=" << arg_num_ops << ", or arg_num_ops must be 1";
 
         if (arg_dim_pre * arg_num_ops > dim_pre * num_ops) {
             if (D != nullptr) delete [] D;

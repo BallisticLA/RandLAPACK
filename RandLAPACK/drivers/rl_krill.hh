@@ -35,7 +35,7 @@ STATE krill_full_rpchol(
     int64_t mu_size = G.num_ops;
     std::vector<T> mus(mu_size);
     std::copy(G.regs, G.regs + mu_size, mus.data());
-    randlapack_require(!(mu_size != 1 || mu_size == ell)) << "mu_size=" << mu_size << " must equal 1 or ell=" << ell;
+    randlapack_require(mu_size == 1 || mu_size == ell) << "mu_size=" << mu_size << " must equal 1 or ell=" << ell;
 
     if (rpchol_block_size < 0)
         rpchol_block_size = std::min((int64_t) 64, n/4);
