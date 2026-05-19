@@ -2,6 +2,7 @@
 
 // Public API: DenseLinOp — linear operator backed by a dense matrix buffer.
 
+#include "rl_exceptions.hh"
 #include "rl_concepts.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -55,9 +56,9 @@ struct DenseLinOp {
     ) : n_rows(n_rows), n_cols(n_cols), A_buff(A_buff), lda(lda), buff_layout(buff_layout) {
         // Validate leading dimension based on layout
         if (buff_layout == Layout::ColMajor) {
-            randblas_require(lda >= n_rows);
+            randlapack_require(lda >= n_rows) << "lda=" << lda << " < n_rows=" << n_rows << " (lda must be >= n_rows under ColMajor)";
         } else {  // RowMajor
-            randblas_require(lda >= n_cols);
+            randlapack_require(lda >= n_cols) << "lda=" << lda << " < n_cols=" << n_cols << " (lda must be >= n_cols under RowMajor)";
         }
     }
 
@@ -105,22 +106,22 @@ struct DenseLinOp {
         T* C,
         int64_t ldc
     ) {
-        randblas_require(layout == buff_layout);
+        randlapack_require(layout == buff_layout) << "operation layout must match the operator storage layout (buff_layout)";
 
         if (side == Side::Left) {
             // C := alpha * op(A) * op(B) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+            randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
 
             // Layout-aware dimension checks
             if (layout == Layout::ColMajor) {
-                randblas_require(ldb >= rows_B);
-                randblas_require(ldc >= m);
+                randlapack_require(ldb >= rows_B) << "ldb=" << ldb << " < rows_B=" << rows_B << " (ldb must be >= rows of op(B) under ColMajor)";
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {  // RowMajor
-                randblas_require(ldb >= cols_B);
-                randblas_require(ldc >= n);
+                randlapack_require(ldb >= cols_B) << "ldb=" << ldb << " < cols_B=" << cols_B << " (ldb must be >= cols of op(B) under RowMajor)";
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             blas::gemm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B, ldb, beta, C, ldc);
@@ -128,16 +129,16 @@ struct DenseLinOp {
             // C := alpha * op(B) * op(A) + beta * C
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+            randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
 
             // Layout-aware dimension checks
             if (layout == Layout::ColMajor) {
-                randblas_require(ldb >= rows_B);
-                randblas_require(ldc >= m);
+                randlapack_require(ldb >= rows_B) << "ldb=" << ldb << " < rows_B=" << rows_B << " (ldb must be >= rows of op(B) under ColMajor)";
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {  // RowMajor
-                randblas_require(ldb >= cols_B);
-                randblas_require(ldc >= n);
+                randlapack_require(ldb >= cols_B) << "ldb=" << ldb << " < cols_B=" << cols_B << " (ldb must be >= cols of op(B) under RowMajor)";
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             blas::gemm(layout, trans_B, trans_A, m, n, k, alpha, B, ldb, A_buff, lda, beta, C, ldc);
@@ -181,31 +182,31 @@ struct DenseLinOp {
         T* C,
         int64_t ldc
     ) {
-        randblas_require(layout == buff_layout);
+        randlapack_require(layout == buff_layout) << "operation layout must match the operator storage layout (buff_layout)";
 
         if (side == Side::Left) {
             // C = alpha * op(A) * op(B_sp) + beta * C
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+            randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
 
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {
-                randblas_require(ldc >= n);
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             RandBLAS::sparse_data::right_spmm(layout, trans_A, trans_B, m, n, k, alpha, A_buff, lda, B_sp, 0, 0, beta, C, ldc);
         } else {  // Side::Right
             // C = alpha * op(B_sp) * op(A) + beta * C
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+            randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
 
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {
-                randblas_require(ldc >= n);
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             RandBLAS::sparse_data::left_spmm(layout, trans_B, trans_A, m, n, k, alpha, B_sp, 0, 0, A_buff, lda, beta, C, ldc);
@@ -250,19 +251,19 @@ struct DenseLinOp {
         T* C,
         int64_t ldc
     ) {
-        randblas_require(layout == buff_layout);
+        randlapack_require(layout == buff_layout) << "operation layout must match the operator storage layout (buff_layout)";
 
         if (side == Side::Left) {
             // C = alpha * op(A) * op(S) + beta * C
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(m, k, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+            randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
 
             // Layout-aware ldc check
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {
-                randblas_require(ldc >= n);
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             // Right sketch in RandBLAS terms: B = alpha * op(A) * op(S) + beta * B
@@ -271,14 +272,14 @@ struct DenseLinOp {
         } else {  // Side::Right
             // C = alpha * op(S) * op(A) + beta * C
             auto [rows_A, cols_A] = RandBLAS::dims_before_op(k, n, trans_A);
-            randblas_require(rows_A == n_rows);
-            randblas_require(cols_A == n_cols);
+            randlapack_require(rows_A == n_rows) << "op(A) row dim inferred from (m, k, trans_A) is " << rows_A << " but operator n_rows=" << n_rows;
+            randlapack_require(cols_A == n_cols) << "op(A) col dim inferred from (m, k, trans_A) is " << cols_A << " but operator n_cols=" << n_cols;
 
             // Layout-aware ldc check
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {
-                randblas_require(ldc >= n);
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             // Left sketch in RandBLAS terms: B = alpha * op(S) * op(A) + beta * B
@@ -292,9 +293,9 @@ struct DenseLinOp {
 
     /// @brief Create a view of a contiguous row range [row_start, row_start + row_count).
     DenseLinOp<T> row_block(int64_t row_start, int64_t row_count) const {
-        randblas_require(row_start >= 0);
-        randblas_require(row_count > 0);
-        randblas_require(row_start + row_count <= n_rows);
+        randlapack_require(row_start >= 0) << "row_start=" << row_start << " must be >= 0";
+        randlapack_require(row_count > 0) << "row_count=" << row_count << " must be > 0";
+        randlapack_require(row_start + row_count <= n_rows) << "row_start=" << row_start << " + row_count=" << row_count << " exceeds n_rows=" << n_rows;
         const T* offset = (buff_layout == Layout::ColMajor)
             ? A_buff + row_start
             : A_buff + row_start * lda;
@@ -303,9 +304,9 @@ struct DenseLinOp {
 
     /// @brief Create a view of a contiguous column range [col_start, col_start + col_count).
     DenseLinOp<T> col_block(int64_t col_start, int64_t col_count) const {
-        randblas_require(col_start >= 0);
-        randblas_require(col_count > 0);
-        randblas_require(col_start + col_count <= n_cols);
+        randlapack_require(col_start >= 0) << "col_start=" << col_start << " must be >= 0";
+        randlapack_require(col_count > 0) << "col_count=" << col_count << " must be > 0";
+        randlapack_require(col_start + col_count <= n_cols) << "col_start=" << col_start << " + col_count=" << col_count << " exceeds n_cols=" << n_cols;
         const T* offset = (buff_layout == Layout::ColMajor)
             ? A_buff + col_start * lda
             : A_buff + col_start;
@@ -315,12 +316,12 @@ struct DenseLinOp {
     /// @brief Create a view of a submatrix starting at (row_start, col_start).
     DenseLinOp<T> submatrix(int64_t row_start, int64_t col_start,
                             int64_t row_count, int64_t col_count) const {
-        randblas_require(row_start >= 0);
-        randblas_require(col_start >= 0);
-        randblas_require(row_count > 0);
-        randblas_require(col_count > 0);
-        randblas_require(row_start + row_count <= n_rows);
-        randblas_require(col_start + col_count <= n_cols);
+        randlapack_require(row_start >= 0) << "row_start=" << row_start << " must be >= 0";
+        randlapack_require(col_start >= 0) << "col_start=" << col_start << " must be >= 0";
+        randlapack_require(row_count > 0) << "row_count=" << row_count << " must be > 0";
+        randlapack_require(col_count > 0) << "col_count=" << col_count << " must be > 0";
+        randlapack_require(row_start + row_count <= n_rows) << "row_start=" << row_start << " + row_count=" << row_count << " exceeds n_rows=" << n_rows;
+        randlapack_require(col_start + col_count <= n_cols) << "col_start=" << col_start << " + col_count=" << col_count << " exceeds n_cols=" << n_cols;
         const T* offset = (buff_layout == Layout::ColMajor)
             ? A_buff + row_start + col_start * lda
             : A_buff + row_start * lda + col_start;

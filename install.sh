@@ -197,6 +197,87 @@ else
     echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
 fi
 
+#==============================================================================
+# Discovery phase: probe for already-installed dependencies via env vars.
+# If <DEP>_INSTALL_DIR is set and points at a valid install, skip clone+build
+# and reuse it. Otherwise fall back to the fresh clone+build path below.
+# Supported env vars:
+#   BLASPP_INSTALL_DIR    -- root of blaspp install (containing lib/cmake/blaspp/ or lib64/...)
+#   LAPACKPP_INSTALL_DIR  -- root of lapackpp install
+#   RANDOM123_INSTALL_DIR -- root containing include/Random123/
+# RandBLAS is intentionally not covered here -- it stays a submodule.
+#==============================================================================
+
+# find_cmake_config <install_root> <pkg_name>
+# Echoes the directory containing <pkg_name>Config.cmake, or empty if not found.
+# Always returns 0; the caller checks for an empty result (avoids tripping set -e).
+find_cmake_config() {
+    local root="$1"
+    local pkg="$2"
+    local libdir
+    for libdir in lib lib64 lib/x86_64-linux-gnu; do
+        if [[ -f "$root/$libdir/cmake/$pkg/${pkg}Config.cmake" ]]; then
+            echo "$root/$libdir/cmake/$pkg/"
+            return 0
+        fi
+    done
+    return 0
+}
+
+USE_EXTERNAL_BLASPP=false
+USE_EXTERNAL_LAPACKPP=false
+USE_EXTERNAL_RANDOM123=false
+BLASPP_CMAKE_DIR=""
+LAPACKPP_CMAKE_DIR=""
+RANDOM123_DIR=""
+BLASPP_LIB_DIR=""
+LAPACKPP_LIB_DIR=""
+
+echo "=========================================="
+echo "Dependency discovery..."
+echo "=========================================="
+
+if [[ -n "${BLASPP_INSTALL_DIR:-}" ]]; then
+    BLASPP_CMAKE_DIR=$(find_cmake_config "$BLASPP_INSTALL_DIR" "blaspp")
+    if [[ -n "$BLASPP_CMAKE_DIR" ]]; then
+        USE_EXTERNAL_BLASPP=true
+        BLASPP_LIB_DIR=$(dirname "$(dirname "$BLASPP_CMAKE_DIR")")
+        echo "  [blaspp]    Using external install at $BLASPP_INSTALL_DIR"
+        echo "              CMake config: $BLASPP_CMAKE_DIR"
+    else
+        echo "  [blaspp]    BLASPP_INSTALL_DIR=$BLASPP_INSTALL_DIR set but blasppConfig.cmake not found; will build from source."
+    fi
+else
+    echo "  [blaspp]    No BLASPP_INSTALL_DIR set; will build from source."
+fi
+
+if [[ -n "${LAPACKPP_INSTALL_DIR:-}" ]]; then
+    LAPACKPP_CMAKE_DIR=$(find_cmake_config "$LAPACKPP_INSTALL_DIR" "lapackpp")
+    if [[ -n "$LAPACKPP_CMAKE_DIR" ]]; then
+        USE_EXTERNAL_LAPACKPP=true
+        LAPACKPP_LIB_DIR=$(dirname "$(dirname "$LAPACKPP_CMAKE_DIR")")
+        echo "  [lapackpp]  Using external install at $LAPACKPP_INSTALL_DIR"
+        echo "              CMake config: $LAPACKPP_CMAKE_DIR"
+    else
+        echo "  [lapackpp]  LAPACKPP_INSTALL_DIR=$LAPACKPP_INSTALL_DIR set but lapackppConfig.cmake not found; will build from source."
+    fi
+else
+    echo "  [lapackpp]  No LAPACKPP_INSTALL_DIR set; will build from source."
+fi
+
+if [[ -n "${RANDOM123_INSTALL_DIR:-}" ]]; then
+    if [[ -f "$RANDOM123_INSTALL_DIR/include/Random123/philox.h" ]]; then
+        USE_EXTERNAL_RANDOM123=true
+        RANDOM123_DIR="$RANDOM123_INSTALL_DIR/include/"
+        echo "  [random123] Using external install at $RANDOM123_INSTALL_DIR"
+    else
+        echo "  [random123] RANDOM123_INSTALL_DIR=$RANDOM123_INSTALL_DIR set but include/Random123/philox.h not found; will clone from source."
+    fi
+else
+    echo "  [random123] No RANDOM123_INSTALL_DIR set; will clone from source."
+fi
+echo ""
+
 # Initialize and update RandLAPACK submodule -- RandBLAS
 git -C $SCRIPT_DIR submodule init; git -C $SCRIPT_DIR submodule update
 
@@ -205,14 +286,14 @@ if [[ ! -d "$RANDNLA_PROJECT_DIR/lib/RandLAPACK" ]]; then
     mv "$SCRIPT_DIR" "$PARENT_DIR/RandNLA-project/lib/RandLAPACK"
 fi
 
-# Obtain BLAS++ and LAPACK++
-if [[ ! -d "$RANDNLA_PROJECT_DIR/lib/lapackpp" ]]; then
+# Obtain BLAS++ and LAPACK++ (skip the clones for any dep discovered above)
+if [[ "$USE_EXTERNAL_LAPACKPP" != "true" && ! -d "$RANDNLA_PROJECT_DIR/lib/lapackpp" ]]; then
 git clone https://github.com/icl-utk-edu/lapackpp         $RANDNLA_PROJECT_DIR/lib/lapackpp
 fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/lib/blaspp" ]]; then
+if [[ "$USE_EXTERNAL_BLASPP" != "true" && ! -d "$RANDNLA_PROJECT_DIR/lib/blaspp" ]]; then
 git clone https://github.com/icl-utk-edu/blaspp           $RANDNLA_PROJECT_DIR/lib/blaspp
 fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/install/random123" ]]; then
+if [[ "$USE_EXTERNAL_RANDOM123" != "true" && ! -d "$RANDNLA_PROJECT_DIR/install/random123" ]]; then
 git clone https://github.com/DEShawResearch/random123.git $RANDNLA_PROJECT_DIR/install/random123
 fi
 
@@ -244,31 +325,38 @@ if [[ "$(uname)" == "Darwin" ]]; then
     # Flags use semicolon cmake-list syntax to avoid bash word-splitting on spaces.
     MACOS_OPENMP_FLAGS="-DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib -DOpenMP_C_FLAGS=-Xpreprocessor;-fopenmp -DOpenMP_CXX_FLAGS=-Xpreprocessor;-fopenmp"
 fi
-cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ \
-    -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
-    -DCMAKE_BUILD_TYPE=Release \
-    -Dblas_int=$BLAS_INT \
-    -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ \
-    $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS
-make  -C $RANDNLA_PROJECT_DIR/build/blaspp-build/ -j20 install
+if [[ "$USE_EXTERNAL_BLASPP" != "true" ]]; then
+    cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ \
+        -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
+        -DCMAKE_BUILD_TYPE=Release \
+        -Dblas_int=$BLAS_INT \
+        -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ \
+        $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS
+    make  -C $RANDNLA_PROJECT_DIR/build/blaspp-build/ -j20 install
 
-# Check if lib or lib64 folder name will be in use
-LIB_VAR="lib"
-if [[ -d "$RANDNLA_PROJECT_DIR/install/blaspp-install/lib" ]]; then
-    LIB_VAR="lib"
-elif [[ -d "$RANDNLA_PROJECT_DIR/install/blaspp-install/lib64" ]]; then
-    LIB_VAR="lib64"
+    BLASPP_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/blaspp-install" "blaspp")
+    BLASPP_LIB_DIR=$(dirname "$(dirname "$BLASPP_CMAKE_DIR")")
 fi
 
 # Configure, build, and install LAPACK++
 # Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
-make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
+if [[ "$USE_EXTERNAL_LAPACKPP" != "true" ]]; then
+    cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release  -Dblaspp_DIR=$BLASPP_CMAKE_DIR  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
+    make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
+
+    LAPACKPP_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/lapackpp-install" "lapackpp")
+    LAPACKPP_LIB_DIR=$(dirname "$(dirname "$LAPACKPP_CMAKE_DIR")")
+fi
+
+# random123 is header-only; pin RANDOM123_DIR to the local clone if we're not using an external install
+if [[ "$USE_EXTERNAL_RANDOM123" != "true" ]]; then
+    RANDOM123_DIR="$RANDNLA_PROJECT_DIR/install/random123/include/"
+fi
 # Configure, build, and install RandLAPACK
 echo "=========================================="
 echo "Configuring and building RandLAPACK..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_OPENMP_FLAGS
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_OPENMP_FLAGS
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK configuration failed!"
     exit 1
@@ -278,12 +366,17 @@ if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK build failed!"
     exit 1
 fi
+RANDLAPACK_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/RandLAPACK-install" "RandLAPACK")
+RANDLAPACK_LIB_DIR=$(dirname "$(dirname "$RANDLAPACK_CMAKE_DIR")")
 echo "RandLAPACK configured and built successfully"
 echo ""
 
-# If GPU support is disabled, prevent extras and benchmarks from auto-detecting CUDA
+# If GPU support is disabled AND we're building blaspp from source (not using an
+# external install), prevent extras and benchmarks from auto-detecting CUDA.
+# When using an external blaspp install, the external install's configuration
+# dictates whether CUDAToolkit is required (its config calls find_dependency on it).
 DISABLE_CUDA_FLAG=""
-if [[ "$RANDLAPACK_CUDA" == "OFF" ]]; then
+if [[ "$RANDLAPACK_CUDA" == "OFF" && "$USE_EXTERNAL_BLASPP" != "true" ]]; then
     DISABLE_CUDA_FLAG="-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE"
 fi
 
@@ -291,7 +384,7 @@ fi
 echo "=========================================="
 echo "Configuring and building RandLAPACK extras..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/extras/ -B $RANDNLA_PROJECT_DIR/build/extras-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/extras/ -B $RANDNLA_PROJECT_DIR/build/extras-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDLAPACK_CMAKE_DIR -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK extras configuration failed!"
     exit 1
@@ -308,7 +401,7 @@ echo ""
 echo "=========================================="
 echo "Configuring and building RandLAPACK benchmarks..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR/cmake/RandLAPACK/ -Dlapackpp_DIR=$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR/cmake/lapackpp/ -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/ -DRandom123_DIR=$RANDNLA_PROJECT_DIR/install/random123/include/ -DCMAKE_BUILD_RPATH="$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/lapackpp-install/$LIB_VAR;$RANDNLA_PROJECT_DIR/install/RandLAPACK-install/$LIB_VAR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDLAPACK_CMAKE_DIR -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK benchmarks configuration failed!"
     exit 1

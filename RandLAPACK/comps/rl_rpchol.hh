@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_lapackpp.hh"
 #include <blas.hh>
 #include <RandBLAS.hh>
@@ -18,7 +19,7 @@ template <typename T, typename FUNC_T>
 void compute_columns(
     Layout layout, int64_t N, FUNC_T &K_stateless, vector<int64_t> &col_indices, T* buff
 ) {
-    randblas_require(layout == Layout::ColMajor);
+    randlapack_require(layout == Layout::ColMajor) << "this routine only supports ColMajor layout";
     int64_t num_cols = col_indices.size();
     #pragma omp parallel for collapse(2)
     for (int64_t ell = 0; ell < num_cols; ++ell) {
@@ -34,7 +35,7 @@ template <typename T>
 void pack_selected_rows(
     Layout layout, int64_t rows_mat, int64_t cols_mat, T* mat, vector<int64_t> &row_indices, T* submat
 ) {
-    randblas_require(layout == Layout::ColMajor);
+    randlapack_require(layout == Layout::ColMajor) << "this routine only supports ColMajor layout";
     int64_t num_rows = row_indices.size();
     for (int64_t i = 0; i < num_rows; ++i) {
         blas::copy(cols_mat, mat + row_indices[i], rows_mat, submat + i, num_rows);
@@ -44,7 +45,7 @@ void pack_selected_rows(
 
 template <typename T>
 int downdate_d_and_cdf(Layout layout, int64_t N, vector<int64_t> &indices, T* F_panel, vector<T> &d, vector<T> &cdf) {
-    randblas_require(layout == Layout::ColMajor);
+    randlapack_require(layout == Layout::ColMajor) << "this routine only supports ColMajor layout";
     int64_t cols_F_panel = indices.size();
     for (int64_t j = 0; j < cols_F_panel; ++j) {
         for (int64_t i = 0; i < N; ++i) {

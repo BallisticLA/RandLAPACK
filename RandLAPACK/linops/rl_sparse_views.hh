@@ -6,6 +6,7 @@
 // row_block(), col_block(), and submatrix(). Users should interact with these
 // through SparseLinOp's public interface rather than using them directly.
 
+#include "rl_exceptions.hh"
 #include "RandBLAS/sparse_data/base.hh"
 
 #include <RandBLAS.hh>
@@ -41,8 +42,8 @@ CSRRowBlockView<T, sint_t> csr_row_block(
     RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
     int64_t row_start, int64_t row_count
 ) {
-    randblas_require(row_start >= 0 && row_count > 0);
-    randblas_require(row_start + row_count <= A.n_rows);
+    randlapack_require(row_start >= 0 && row_count > 0) << "row_start=" << row_start << " must be >= 0 and row_count=" << row_count << " must be > 0";
+    randlapack_require(row_start + row_count <= A.n_rows) << "row_start=" << row_start << " + row_count=" << row_count << " exceeds A.n_rows=" << A.n_rows;
     sint_t base = A.rowptr[row_start];
     int64_t block_nnz = A.rowptr[row_start + row_count] - base;
     std::vector<sint_t> rebased(row_count + 1);
@@ -67,7 +68,7 @@ CSRColBlock<T, sint_t> csr_col_block(
     RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
     int64_t col_start, int64_t col_count
 ) {
-    randblas_require(col_start >= 0 && col_count > 0 && col_start + col_count <= A.n_cols);
+    randlapack_require(col_start >= 0 && col_count > 0 && col_start + col_count <= A.n_cols) << "column range must satisfy col_start=" << col_start << " >= 0, col_count=" << col_count << " > 0, col_start+col_count <= A.n_cols=" << A.n_cols;
     int64_t col_end = col_start + col_count;
     std::vector<sint_t> rowptr(A.n_rows + 1, 0);
     for (int64_t i = 0; i < A.n_rows; ++i)
@@ -105,7 +106,7 @@ CSCColBlockView<T, sint_t> csc_col_block(
     RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
     int64_t col_start, int64_t col_count
 ) {
-    randblas_require(col_start >= 0 && col_count > 0 && col_start + col_count <= A.n_cols);
+    randlapack_require(col_start >= 0 && col_count > 0 && col_start + col_count <= A.n_cols) << "column range must satisfy col_start=" << col_start << " >= 0, col_count=" << col_count << " > 0, col_start+col_count <= A.n_cols=" << A.n_cols;
     sint_t base = A.colptr[col_start];
     int64_t block_nnz = A.colptr[col_start + col_count] - base;
     std::vector<sint_t> rebased(col_count + 1);
@@ -130,7 +131,7 @@ CSCRowBlock<T, sint_t> csc_row_block(
     RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
     int64_t row_start, int64_t row_count
 ) {
-    randblas_require(row_start >= 0 && row_count > 0 && row_start + row_count <= A.n_rows);
+    randlapack_require(row_start >= 0 && row_count > 0 && row_start + row_count <= A.n_rows) << "row range must satisfy row_start=" << row_start << " >= 0, row_count=" << row_count << " > 0, row_start+row_count <= A.n_rows=" << A.n_rows;
     int64_t row_end = row_start + row_count;
     std::vector<sint_t> colptr(A.n_cols + 1, 0);
     for (int64_t j = 0; j < A.n_cols; ++j)
@@ -159,7 +160,7 @@ std::vector<CSRRowBlockView<T, sint_t>> csr_split_row_blocks(
     RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
     int64_t num_blocks
 ) {
-    randblas_require(num_blocks > 0 && A.n_rows % num_blocks == 0);
+    randlapack_require(num_blocks > 0 && A.n_rows % num_blocks == 0) << "num_blocks=" << num_blocks << " must be > 0 and A.n_rows=" << A.n_rows << " must be divisible by num_blocks";
     int64_t block_size = A.n_rows / num_blocks;
     std::vector<CSRRowBlockView<T, sint_t>> blocks;
     blocks.reserve(num_blocks);
@@ -175,7 +176,7 @@ std::vector<CSCColBlockView<T, sint_t>> csc_split_col_blocks(
     RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
     int64_t num_blocks
 ) {
-    randblas_require(num_blocks > 0 && A.n_cols % num_blocks == 0);
+    randlapack_require(num_blocks > 0 && A.n_cols % num_blocks == 0) << "num_blocks=" << num_blocks << " must be > 0 and A.n_cols=" << A.n_cols << " must be divisible by num_blocks";
     int64_t block_size = A.n_cols / num_blocks;
     std::vector<CSCColBlockView<T, sint_t>> blocks;
     blocks.reserve(num_blocks);
@@ -191,7 +192,7 @@ std::vector<CSRColBlock<T, sint_t>> csr_split_col_blocks(
     RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A,
     int64_t num_blocks
 ) {
-    randblas_require(num_blocks > 0 && A.n_cols % num_blocks == 0);
+    randlapack_require(num_blocks > 0 && A.n_cols % num_blocks == 0) << "num_blocks=" << num_blocks << " must be > 0 and A.n_cols=" << A.n_cols << " must be divisible by num_blocks";
     int64_t block_size = A.n_cols / num_blocks;
     std::vector<CSRColBlock<T, sint_t>> blocks;
     blocks.reserve(num_blocks);
@@ -207,7 +208,7 @@ std::vector<CSCRowBlock<T, sint_t>> csc_split_row_blocks(
     RandBLAS::sparse_data::CSCMatrix<T, sint_t>& A,
     int64_t num_blocks
 ) {
-    randblas_require(num_blocks > 0 && A.n_rows % num_blocks == 0);
+    randlapack_require(num_blocks > 0 && A.n_rows % num_blocks == 0) << "num_blocks=" << num_blocks << " must be > 0 and A.n_rows=" << A.n_rows << " must be divisible by num_blocks";
     int64_t block_size = A.n_rows / num_blocks;
     std::vector<CSCRowBlock<T, sint_t>> blocks;
     blocks.reserve(num_blocks);

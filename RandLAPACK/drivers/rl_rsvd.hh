@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_qb.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -121,6 +122,15 @@ int RSVD<T, RNG>::call(
     T* &V,
     RandBLAS::RNGState<RNG> &state
 ){
+    // Input parameter validation. Bad inputs would otherwise propagate to a
+    // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
+    // RSVD is called through a binding layer (e.g. MEX/MATLAB).
+    randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+    randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+    randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
+    randlapack_require(tol >= (T)0) << "tol=" << tol << " must be >= 0";
+    randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
+
     T* Q = nullptr;
     T* BT = nullptr; 
     // Q and B sizes will be adjusted automatically

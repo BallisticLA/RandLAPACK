@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -129,6 +130,14 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
+            // Input parameter validation. Bad inputs would otherwise propagate to a
+            // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
+            // ABRIK is called through a binding layer (e.g. MEX/MATLAB).
+            randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+            randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+            randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
+            randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
+            randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
             linops::DenseLinOp<T> A_linop(m, n, A, lda, Layout::ColMajor);
             return this->call(A_linop, k, U, V, Sigma, state);
         }
@@ -145,6 +154,10 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ) {
+            // Input parameter validation; same MEX-safety motivation as above.
+            randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+            randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+            randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
             linops::SparseLinOp<SpMat> A_linop(m, n, A);
             return this->call(A_linop, k, U, V, Sigma, state);
         }
@@ -158,6 +171,8 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ){
+            // Input parameter validation; same MEX-safety motivation as above.
+            randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
             steady_clock::time_point allocation_t_start;
             steady_clock::time_point allocation_t_stop;
             steady_clock::time_point get_factors_t_start;
