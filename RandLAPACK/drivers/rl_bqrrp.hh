@@ -4,6 +4,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_hqrrp.hh"
+#include "rl_exceptions.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
@@ -65,6 +66,7 @@ class BQRRP : public BQRRPalg<T, RNG> {
             bool time_subroutines,
             int64_t b_sz
         ) {
+            randlapack_require(b_sz > 0) << "BQRRP block size b_sz=" << b_sz << " must be > 0";
             timing          = time_subroutines;
             tol             = std::numeric_limits<T>::epsilon();
             block_size      = b_sz;
@@ -164,6 +166,17 @@ int BQRRP<T, RNG>::call(
     UNUSED(m); UNUSED(n); UNUSED(A); UNUSED(lda); UNUSED(d_factor); UNUSED(tau); UNUSED(J); UNUSED(state);
     throw std::runtime_error("BQRRP is not supported when BLAS is linked against Apple Accelerate.");
     #else
+    // Input parameter validation. Bad inputs would otherwise lead to a
+    // downstream BLAS/LAPACK failure or, worse, a segfault -- both fatal
+    // when BQRRP is called through a binding layer (e.g. MEX/MATLAB).
+    randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+    randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+    randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
+    randlapack_require(d_factor >= (T)1.0) << "d_factor=" << d_factor << " must be >= 1.0 (so that sketch dim >= block size)";
+    randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
+    randlapack_require(!(tau == nullptr && n > 0)) << "tau buffer is null but n=" << n << " > 0";
+    randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
+
     //-------TIMING VARS--------/
     steady_clock::time_point preallocation_t_start;
     steady_clock::time_point preallocation_t_stop;

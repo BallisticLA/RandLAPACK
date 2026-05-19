@@ -4,6 +4,7 @@
 // config and dependencies
 #include "RandLAPACK/rl_blaspp.hh"
 #include "RandLAPACK/rl_lapackpp.hh"
+#include "RandLAPACK/rl_exceptions.hh"
 #include "RandBLAS.hh"
 
 // misc

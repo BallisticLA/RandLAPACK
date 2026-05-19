@@ -2,6 +2,7 @@
 
 // Public API: CompositeOperator — implicit product of two linear operators.
 
+#include "rl_exceptions.hh"
 #include "rl_concepts.hh"
 #include "rl_blaspp.hh"
 
@@ -121,8 +122,8 @@ public:
         owned_left_(), owned_right_(),
         left_op(left_op), right_op(right_op) {
         // Validate dimensions: left_op is (n_rows x right_op.n_rows), right_op is (right_op.n_rows x n_cols)
-        randblas_require(left_op.n_cols == right_op.n_rows);
-        randblas_require(right_op.n_cols == n_cols);
+        randlapack_require(left_op.n_cols == right_op.n_rows) << "left_op.n_cols=" << left_op.n_cols << " must match right_op.n_rows=" << right_op.n_rows << " for composite operator";
+        randlapack_require(right_op.n_cols == n_cols) << "right_op.n_cols=" << right_op.n_cols << " must match composite operator n_cols=" << n_cols;
     }
 
     // Non-sided dense matrix multiplication operator (required by LinearOperator concept).
@@ -185,16 +186,16 @@ public:
             // Validate input dimensions
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(k, n, trans_B);
             auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
-            randblas_require(rows_comp <= n_rows);
-            randblas_require(cols_comp <= n_cols);
+            randlapack_require(rows_comp <= n_rows) << "op(comp) submatrix row dim inferred from (m, k, trans_comp) is " << rows_comp << " but exceeds composite operator n_rows=" << n_rows;
+            randlapack_require(cols_comp <= n_cols) << "op(comp) submatrix col dim inferred from (m, k, trans_comp) is " << cols_comp << " but exceeds composite operator n_cols=" << n_cols;
 
             // Layout-aware dimension checks
             if (layout == Layout::ColMajor) {
-                randblas_require(ldb >= rows_B);
-                randblas_require(ldc >= m);
+                randlapack_require(ldb >= rows_B) << "ldb=" << ldb << " < rows_B=" << rows_B << " (ldb must be >= rows of op(B) under ColMajor)";
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {  // RowMajor
-                randblas_require(ldb >= cols_B);
-                randblas_require(ldc >= n);
+                randlapack_require(ldb >= cols_B) << "ldb=" << ldb << " < cols_B=" << cols_B << " (ldb must be >= cols of op(B) under RowMajor)";
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             if (trans_comp == Op::NoTrans) {
@@ -231,16 +232,16 @@ public:
 
             auto [rows_B, cols_B] = RandBLAS::dims_before_op(m, k, trans_B);
             auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(k, n, trans_comp);
-            randblas_require(rows_comp <= n_rows);
-            randblas_require(cols_comp <= n_cols);
+            randlapack_require(rows_comp <= n_rows) << "op(comp) submatrix row dim inferred from (m, k, trans_comp) is " << rows_comp << " but exceeds composite operator n_rows=" << n_rows;
+            randlapack_require(cols_comp <= n_cols) << "op(comp) submatrix col dim inferred from (m, k, trans_comp) is " << cols_comp << " but exceeds composite operator n_cols=" << n_cols;
 
             // Layout-aware dimension checks
             if (layout == Layout::ColMajor) {
-                randblas_require(ldb >= rows_B);
-                randblas_require(ldc >= m);
+                randlapack_require(ldb >= rows_B) << "ldb=" << ldb << " < rows_B=" << rows_B << " (ldb must be >= rows of op(B) under ColMajor)";
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {  // RowMajor
-                randblas_require(ldb >= cols_B);
-                randblas_require(ldc >= n);
+                randlapack_require(ldb >= cols_B) << "ldb=" << ldb << " < cols_B=" << cols_B << " (ldb must be >= cols of op(B) under RowMajor)";
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             if (trans_comp == Op::NoTrans) {
@@ -299,12 +300,12 @@ public:
 
             // Validate input dimensions
             auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(m, k, trans_comp);
-            randblas_require(rows_comp <= n_rows);
-            randblas_require(cols_comp <= n_cols);
+            randlapack_require(rows_comp <= n_rows) << "op(comp) submatrix row dim inferred from (m, k, trans_comp) is " << rows_comp << " but exceeds composite operator n_rows=" << n_rows;
+            randlapack_require(cols_comp <= n_cols) << "op(comp) submatrix col dim inferred from (m, k, trans_comp) is " << cols_comp << " but exceeds composite operator n_cols=" << n_cols;
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {  // RowMajor
-                randblas_require(ldc >= n);
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             if (trans_comp == Op::NoTrans) {
@@ -332,12 +333,12 @@ public:
             // Right multiplication: C := alpha * op(B_sp) * (LinOp1 * LinOp2) + beta * C
 
             auto [rows_comp, cols_comp] = RandBLAS::dims_before_op(k, n, trans_comp);
-            randblas_require(rows_comp <= n_rows);
-            randblas_require(cols_comp <= n_cols);
+            randlapack_require(rows_comp <= n_rows) << "op(comp) submatrix row dim inferred from (m, k, trans_comp) is " << rows_comp << " but exceeds composite operator n_rows=" << n_rows;
+            randlapack_require(cols_comp <= n_cols) << "op(comp) submatrix col dim inferred from (m, k, trans_comp) is " << cols_comp << " but exceeds composite operator n_cols=" << n_cols;
             if (layout == Layout::ColMajor) {
-                randblas_require(ldc >= m);
+                randlapack_require(ldc >= m) << "ldc=" << ldc << " < m=" << m << " (ldc must be >= m under ColMajor)";
             } else {  // RowMajor
-                randblas_require(ldc >= n);
+                randlapack_require(ldc >= n) << "ldc=" << ldc << " < n=" << n << " (ldc must be >= n under RowMajor)";
             }
 
             if (trans_comp == Op::NoTrans) {

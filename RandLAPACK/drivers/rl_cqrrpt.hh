@@ -1,5 +1,6 @@
 #pragma once
 
+#include "rl_exceptions.hh"
 #include "rl_util.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
@@ -154,6 +155,18 @@ int CQRRPT<T, RNG>::call(
     T d_factor,
     RandBLAS::RNGState<RNG> &state
 ){
+    // Input parameter validation. Bad inputs would otherwise propagate to a
+    // downstream BLAS/LAPACK failure or a segfault, the latter fatal when
+    // CQRRPT is called through a binding layer (e.g. MEX/MATLAB).
+    randlapack_require(m >= 0) << "m=" << m << " must be >= 0";
+    randlapack_require(n >= 0) << "n=" << n << " must be >= 0";
+    randlapack_require(lda >= m) << "lda=" << lda << " < m=" << m << " (lda must be >= m for ColMajor)";
+    randlapack_require(ldr >= n) << "ldr=" << ldr << " < n=" << n << " (ldr must be >= n)";
+    randlapack_require(d_factor >= (T)1.0) << "d_factor=" << d_factor << " must be >= 1.0";
+    randlapack_require(!(A == nullptr && m > 0 && n > 0)) << "A buffer is null but m=" << m << " and n=" << n << " imply a nonempty matrix";
+    randlapack_require(!(R == nullptr && n > 0)) << "R buffer is null but n=" << n << " > 0";
+    randlapack_require(!(J == nullptr && n > 0)) << "J buffer is null but n=" << n << " > 0";
+
     ///--------------------TIMING VARS--------------------/
     steady_clock::time_point saso_t_stop;
     steady_clock::time_point saso_t_start;

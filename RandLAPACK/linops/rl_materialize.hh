@@ -7,6 +7,7 @@
 // Overloaded specializations avoid that cost when the underlying storage is
 // directly accessible (DenseLinOp, SparseLinOp).
 
+#include "rl_exceptions.hh"
 #include "rl_concepts.hh"
 #include "rl_dense_linop.hh"
 #include "rl_sparse_linop.hh"
@@ -32,7 +33,7 @@ namespace RandLAPACK {
 template <typename LinOp>
 void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, int64_t ldb) {
     using T = typename LinOp::scalar_t;
-    randblas_require(ldb >= m);
+    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     // Zero the output buffer.
     for (int64_t j = 0; j < n; ++j)
         for (int64_t i = 0; i < m; ++i)
@@ -50,9 +51,9 @@ void materialize(LinOp& A, int64_t m, int64_t n, typename LinOp::scalar_t* buf, 
 /// fall back to the generic path (RowMajor).
 template <typename T>
 void materialize(linops::DenseLinOp<T>& A, int64_t m, int64_t n, T* buf, int64_t ldb) {
-    randblas_require(m == A.n_rows);
-    randblas_require(n == A.n_cols);
-    randblas_require(ldb >= m);
+    randlapack_require(m == A.n_rows) << "m=" << m << " must equal A.n_rows=" << A.n_rows << " for materialize specialization";
+    randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
+    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     if (A.buff_layout == blas::Layout::ColMajor) {
         lapack::lacpy(lapack::MatrixType::General, m, n, A.A_buff, A.lda, buf, ldb);
     } else {
@@ -68,9 +69,9 @@ template <RandBLAS::sparse_data::SparseMatrix SpMat>
 void materialize(linops::SparseLinOp<SpMat>& A, int64_t m, int64_t n,
                  typename SpMat::scalar_t* buf, int64_t ldb) {
     using T = typename SpMat::scalar_t;
-    randblas_require(m == A.n_rows);
-    randblas_require(n == A.n_cols);
-    randblas_require(ldb >= m);
+    randlapack_require(m == A.n_rows) << "m=" << m << " must equal A.n_rows=" << A.n_rows << " for materialize specialization";
+    randlapack_require(n == A.n_cols) << "n=" << n << " must equal A.n_cols=" << A.n_cols << " for materialize specialization";
+    randlapack_require(ldb >= m) << "ldb=" << ldb << " < m=" << m << " (ldb must be >= m)";
     // Zero the output buffer.
     for (int64_t j = 0; j < n; ++j)
         for (int64_t i = 0; i < m; ++i)
