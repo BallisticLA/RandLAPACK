@@ -1,19 +1,16 @@
 #pragma once
 
 // Public API: IterRefineLSQ — Q-less, sketch-and-precondition iterative-refinement
-//                             least-squares solver, with optional Tikhonov.
+//                             least-squares solver.
 //
-// Solves min_x ||b - J x||_2  (or, with `lambda > 0`,
-//        min_x ||b - J x||_2^2 + lambda^2 ||x||_2^2)
-// for a tall LinearOperator J using a precomputed triangular preconditioner R
-// (e.g., the R-factor from CQRRT_linops on J or on a sketch SJ). R is treated
-// as a right preconditioner on the normal equations, and two iterative-
-// refinement steps are performed; under standard hypotheses two steps suffice
-// for backward stability. The inner solver is CG on the symmetric-positive-
-// definite preconditioned normal-equation matrix
+// Solves min_x ||b - J x||_2 for a tall LinearOperator J using a precomputed
+// triangular preconditioner R (e.g., the R-factor from CQRRT_linops on J or on
+// a sketch SJ). R is treated as a right preconditioner on the normal equations,
+// and two iterative-refinement steps are performed; under standard hypotheses
+// two steps suffice for backward stability. The inner solver is CG on the
+// symmetric-positive-definite preconditioned normal-equation matrix
 //
-//     M     = R^{-T} J^T J R^{-1}                 (lambda = 0)
-//     M_reg = R^{-T} (J^T J + lambda^2 I) R^{-1}  (lambda > 0)
+//     M = R^{-T} J^T J R^{-1}.
 //
 // Reference: E. N. Epperly, M. Meier, and Y. Nakatsukasa,
 //   "Fast randomized least-squares solvers can be just as accurate and stable
@@ -42,27 +39,20 @@ namespace RandLAPACK {
 
 /// @brief Iterative-refinement least-squares solver with right preconditioner R.
 ///
-/// Solves min_x ||b - J x||_2 (or, with `lambda > 0`, the Tikhonov-regularized
-/// problem min_x ||b - J x||_2^2 + lambda^2 ||x||_2^2) by performing
-/// `n_refine_steps` outer steps of
+/// Solves min_x ||b - J x||_2 by performing `n_refine_steps` outer steps of
 ///
 ///   r_i ← b - J x_i
-///   g_i ← J^T r_i  − lambda^2 x_i        (regularized gradient; lambda=0 → unregularized)
+///   g_i ← J^T r_i
 ///   c_i ← R^{-T} g_i
-///   z_i ← inner_solve(M_reg, c_i)        with M_reg = R^{-T} (J^T J + lambda^2 I) R^{-1}
+///   z_i ← inner_solve(M, c_i)            with M = R^{-T} J^T J R^{-1}
 ///   x_{i+1} ← x_i + R^{-1} z_i
 ///
 /// where R is upper triangular (n × n, ColMajor) and is held constant. The
 /// inner solver is preconditioner-free conjugate gradients on the SPD matrix
-/// M_reg; each inner matvec costs two TRSMs, one J apply (forward), one J^T apply
-/// (adjoint), plus a single axpy when `lambda > 0`. The default
-/// `n_refine_steps = 2` and inner CG stopping rule (relative residual
-/// `< inner_tol`) suffice for backward stability under the conditions of
-/// Epperly et al. (2025) Theorem 6.1.
-///
-/// Tikhonov is useful for ill-posed inverse problems (e.g., NMR relaxometry)
-/// where J has tiny singular values and the unregularized normal-equation
-/// matrix loses positive definiteness in finite precision.
+/// M; each inner matvec costs two TRSMs, one J apply (forward), and one J^T
+/// apply (adjoint). The default `n_refine_steps = 2` and inner CG stopping
+/// rule (relative residual `< inner_tol`) suffice for backward stability
+/// under the conditions of Epperly et al. (2025) Theorem 6.1.
 template <typename T>
 struct IterRefineLSQ {
     // ------------- Configuration -------------
@@ -72,9 +62,6 @@ struct IterRefineLSQ {
     int max_inner_iters;
     /// Outer refinement steps (Algorithm 1 of Epperly et al. uses 2).
     int n_refine_steps;
-    /// Tikhonov regularization parameter. Solves min ||Jx-b||² + lambda²||x||².
-    /// Set to 0 (default) for unregularized LS.
-    T lambda;
     /// Enable per-step / per-substep timing breakdown.
     bool timing;
     /// Print convergence info to stdout.
@@ -96,12 +83,10 @@ struct IterRefineLSQ {
                   int max_inner = 200,
                   int n_steps = 2,
                   bool timing_on = false,
-                  bool verbose_on = false,
-                  T lambda_in = (T)0)
+                  bool verbose_on = false)
         : inner_tol(tol),
           max_inner_iters(max_inner),
           n_refine_steps(n_steps),
-          lambda(lambda_in),
           timing(timing_on),
           verbose(verbose_on),
           outer_iters_done(0),
@@ -129,7 +114,15 @@ struct IterRefineLSQ {
         using clock = std::chrono::steady_clock;
         auto outer_start = clock::now();
 
-        long t_inner_total = 0, t_trsm_total = 0, t_fwd_total = 0, t_adj_total = 0;
+        // Separate outer-only (excluding inner CG) and inner-CG-only counters so
+        // we can report a non-overlapping breakdown. The total wallclock spent
+        // inside inner_cg() is tracked via t_inner_total; the per-op time
+        // inside inner_cg is captured by the t_inner_* counters and would
+        // otherwise be triple-counted (once in t_inner_total, once in the
+        // outer totals) if we shared counters.
+        long t_inner_total = 0;
+        long t_outer_trsm = 0, t_outer_fwd = 0, t_outer_adj = 0;
+        long t_inner_trsm = 0, t_inner_fwd = 0, t_inner_adj = 0;
 
         inner_iters_per_step.clear();
         outer_iters_done = 0;
@@ -154,7 +147,7 @@ struct IterRefineLSQ {
             auto t0 = clock::now();
             J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
               m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m.data(), m);
-            t_fwd_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+            t_outer_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             //   r = b - tmp_m
             for (int64_t i = 0; i < m; ++i) r[i] = b[i] - tmp_m[i];
@@ -164,15 +157,11 @@ struct IterRefineLSQ {
                 std::printf("[IR-LSQ] step %d: ||r||/||b|| = %.4e\n", step, (double)(r_norm / b_norm));
             }
 
-            // g = J^T r  (regularized gradient: g = J^T r - lambda^2 x)
+            // g = J^T r
             t0 = clock::now();
             J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
               n, 1, m, (T)1.0, r.data(), m, (T)0.0, g.data(), n);
-            t_adj_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-            if (lambda != (T)0) {
-                T lambda_sq = lambda * lambda;
-                blas::axpy(n, -lambda_sq, x, 1, g.data(), 1);
-            }
+            t_outer_adj += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // c = R^{-T} g  (in-place TRSM on a copy of g)
             std::copy(g.begin(), g.end(), c.begin());
@@ -180,7 +169,7 @@ struct IterRefineLSQ {
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                        blas::Op::Trans, blas::Diag::NonUnit,
                        n, 1, (T)1.0, R, ldr, c.data(), n);
-            t_trsm_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+            t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // Inner CG on M*z = c
             int inner_iters = 0;
@@ -189,14 +178,15 @@ struct IterRefineLSQ {
                                      z.data(),
                                      cg_r.data(), cg_p.data(), cg_Mp.data(),
                                      tmp_n.data(), tmp_m.data(),
-                                     inner_iters, t_trsm_total, t_fwd_total, t_adj_total);
+                                     inner_iters, t_inner_trsm, t_inner_fwd, t_inner_adj);
             t_inner_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t_in0).count();
             inner_iters_per_step.push_back(inner_iters);
             if (cg_status != 0) {
                 outer_iters_done = step;
                 final_residual_norm = r_norm / b_norm;
-                if (timing) populate_times(outer_start, t_inner_total, t_trsm_total,
-                                            t_fwd_total, t_adj_total);
+                if (timing) populate_times(outer_start, t_inner_total,
+                                            t_outer_trsm, t_outer_fwd, t_outer_adj,
+                                            t_inner_trsm, t_inner_fwd, t_inner_adj);
                 return cg_status;
             }
 
@@ -206,7 +196,7 @@ struct IterRefineLSQ {
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                        blas::Op::NoTrans, blas::Diag::NonUnit,
                        n, 1, (T)1.0, R, ldr, dx.data(), n);
-            t_trsm_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+            t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // x ← x + dx
             blas::axpy(n, (T)1.0, dx.data(), 1, x, 1);
@@ -218,13 +208,14 @@ struct IterRefineLSQ {
             auto t0 = clock::now();
             J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
               m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m.data(), m);
-            t_fwd_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+            t_outer_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
             for (int64_t i = 0; i < m; ++i) tmp_m[i] = b[i] - tmp_m[i];
             final_residual_norm = blas::nrm2(m, tmp_m.data(), 1) / b_norm;
         }
 
-        if (timing) populate_times(outer_start, t_inner_total, t_trsm_total,
-                                    t_fwd_total, t_adj_total);
+        if (timing) populate_times(outer_start, t_inner_total,
+                                    t_outer_trsm, t_outer_fwd, t_outer_adj,
+                                    t_inner_trsm, t_inner_fwd, t_inner_adj);
         return 0;
     }
 
@@ -280,14 +271,6 @@ private:
               n, 1, m, (T)1.0, tmp_m, m, (T)0.0, cg_Mp, n);
             t_adj += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
-            //   Add Tikhonov term: M_reg v = R^{-T} (J^T J + lambda^2 I) R^{-1} v.
-            //   We have JtJv ≡ cg_Mp = J^T J R^{-1} v, and tmp_n ≡ R^{-1} v.
-            //   So (J^T J + lambda^2 I) R^{-1} v = JtJv + lambda^2 * tmp_n.
-            if (lambda != (T)0) {
-                T lambda_sq = lambda * lambda;
-                blas::axpy(n, lambda_sq, tmp_n, 1, cg_Mp, 1);
-            }
-
             //   cg_Mp ← R^{-T} cg_Mp   (in-place TRSM)
             t0 = clock::now();
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
@@ -329,13 +312,25 @@ private:
     }
 
     void populate_times(std::chrono::steady_clock::time_point outer_start,
-                        long inner, long trsm, long fwd, long adj)
+                        long t_inner_total,
+                        long t_outer_trsm, long t_outer_fwd, long t_outer_adj,
+                        long t_inner_trsm, long t_inner_fwd, long t_inner_adj)
     {
         using clock = std::chrono::steady_clock;
         long outer_total = std::chrono::duration_cast<std::chrono::microseconds>(
             clock::now() - outer_start).count();
-        long other = outer_total - inner - trsm - fwd - adj;
-        times = { outer_total, inner, trsm, fwd, adj, other };
+        // Non-overlapping breakdown of outer_total:
+        //   inner_ex   = inner CG wallclock minus its TRSM/fwd/adj portions
+        //   total_trsm = outer-loop TRSMs + inner-CG TRSMs
+        //   total_fwd  = outer-loop J·v  + inner-CG J·v
+        //   total_adj  = outer-loop J^T·v + inner-CG J^T·v
+        //   other      = residual setup, axpy/copy/nrm2 bookkeeping, clock overhead
+        long inner_ex   = t_inner_total - t_inner_trsm - t_inner_fwd - t_inner_adj;
+        long total_trsm = t_outer_trsm + t_inner_trsm;
+        long total_fwd  = t_outer_fwd  + t_inner_fwd;
+        long total_adj  = t_outer_adj  + t_inner_adj;
+        long other      = outer_total - inner_ex - total_trsm - total_fwd - total_adj;
+        times = { outer_total, inner_ex, total_trsm, total_fwd, total_adj, other };
     }
 };
 

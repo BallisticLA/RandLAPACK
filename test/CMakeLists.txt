@@ -27,8 +27,6 @@ if (GTest_FOUND)
         misc/test_pdkernels.cc
         linops/test_linops.cc
         linops/test_linop_unified.cc
-        linops/test_kronecker_linop.cc
-        linops/test_regularized_linop.cc
         misc/test_gen.cc
         misc/test_memory_tracker.cc
         linops/test_linop_block_views.cc

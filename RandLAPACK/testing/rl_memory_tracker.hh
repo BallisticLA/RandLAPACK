@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstdint>
+#include <algorithm>
 
 namespace RandLAPACK {
 
@@ -93,14 +94,22 @@ static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_fac
     return bytes / 1024;
 }
 
-// CQRRT_linops (BQRRP): A_hat(d*n) + R_sk_copy(n*n) + R_buf(n*n) + W(n*n) + R_sk_inv(n*n)
-// Peak is in the BQRRP preconditioner block (lines 288-342 of rl_cqrrt_linops.hh) where all
-// five buffers are simultaneously live.  A_pre (m*b) is not yet allocated at this point.
+// CQRRT_linops (BQRRP): the execution has two distinct peak-memory moments:
+//   (1) BQRRP-preconditioner moment (lines 288-342 of rl_cqrrt_linops.hh):
+//         A_hat(d*n) + R_sk_copy(n*n) + R_buf(n*n) + W(n*n) + R_sk_inv(n*n)
+//       = d*n + 4*n*n.  A_pre is NOT allocated yet here.
+//   (2) Gram-loop moment (same as the non-BQRRP path):
+//         A_hat(d*n) + R_sk_inv(n*n) + tau(n) + A_pre(m*b_eff)
+//       = d*n + n + n*n + m*b_eff.  R_sk_copy/R_buf/W have been freed by now.
+// The true analytical peak is the max of (1) and (2).  Roughly: moment (1) wins for
+// short-and-wide matrices (m <~ 3n); moment (2) wins for tall matrices.
 template <typename T>
-static inline long cqrrt_linops_bqrrp_analytical_kb(int64_t n, double d_factor) {
+static inline long cqrrt_linops_bqrrp_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
     int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
-    long bytes = static_cast<long>(sizeof(T)) * ((long)d * n + 4L * n * n);
-    return bytes / 1024;
+    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+    long bqrrp_peak = static_cast<long>(sizeof(T)) * ((long)d * n + 4L * n * n);
+    long gram_peak  = static_cast<long>(sizeof(T)) * ((long)d * n + n + (long)n * n + (long)m * b_eff);
+    return std::max(bqrrp_peak, gram_peak) / 1024;
 }
 
 // CholQR_linops: I_mat(n*n) + A_temp(m*b_eff)
@@ -113,21 +122,24 @@ static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t blo
 
 // sCholQR3_linops (fully-blocked):
 //   local:  G(n*n) + R_temp(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
-//   member: G1_factor(n*n) + G2_factor(n*n)  (both live during iteration 3)
-// Peak is during the iteration-3 Gram loop where all 5 n*n buffers and the block buffers are live.
+//   member: G1_factor(n*n) + G2_factor(n*n) + G3_factor(n*n)
+// Peak is right after G3_factor.resize() at the end of iteration 3, where all 6 n*n
+// buffers (G + R_temp + M + G1 + G2 + G3) and the block buffers (A_temp + Z_buf) are live.
 template <typename T>
 static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (5L * n * n + (long)(m + n) * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (6L * n * n + (long)(m + n) * b_eff);
     return bytes / 1024;
 }
 
 // sCholQR3_linops_basic: Q_buf(m*n) + G(n*n) + R_temp(n*n) + M(n*n)
+//                      + G1_factor(n*n) + G2_factor(n*n) + G3_factor(n*n)
 // Materializes Q = A * R1^{-1} after iteration 1, then uses dense syrk for iterations 2-3.
-// No blocking — always O(m*n + n^2) peak.
+// Peak is right after G3_factor.resize() in iteration 3, where Q_buf, the three local
+// n*n workspaces, and all three persisted Cholesky factors are simultaneously live.
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
-    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 3L * n * n);
+    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 6L * n * n);
     return bytes / 1024;
 }
 
