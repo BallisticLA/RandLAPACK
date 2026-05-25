@@ -29,14 +29,14 @@
 //                    oracle (which would dominate wall-clock at n=2000) and report
 //                    Phase 1 + Phase 2 driver wall-clock in ms.
 //   force_fallback 0 | 1   (default 0). When 1, sets driver.force_fallback so
-//                    NystromEVD_v2 skips Cholesky-fast and takes the SVD-pinv path.
+//                    NystromEVD skips Cholesky-fast and takes the SVD-pinv path.
 //                    A/B benchmarks of Phase 7a's HMT §5.1 trick.
 //
 // Stdout: one CSV row:
 //   t1,t2,est,true_tr,err,lfa_type,d,sketch_type,vec_nnz,n,k,t_driver_ms,t_phase1_ms,t_phase2_ms,t_specrec_ms,force_fallback
 // where true_tr is the dense-syevd oracle (suppressed in timing mode; reported as NaN).
 // t_specrec_ms is the wall-clock of just the dual-path spectral-recovery
-// block inside NystromEVD_v2 — the tight A/B measurement for Phase 7a.
+// block inside NystromEVD — the tight A/B measurement for Phase 7a.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -67,7 +67,7 @@ static void print_usage(const char *prog) {
         "  vec_nnz        non-zeros per column for SASO (default 8)\n"
         "  seed           RNG seed for SASO generation (default 42)\n"
         "  timing         0 | 1 (default 0). 1 = skip syevd oracle, report driver ms\n"
-        "  force_fallback 0 | 1 (default 0). 1 = skip Cholesky-fast in NystromEVD_v2\n"
+        "  force_fallback 0 | 1 (default 0). 1 = skip Cholesky-fast in NystromEVD\n"
         "Output (stdout): t1,t2,est,true_tr,err,lfa_type,d,sketch_type,vec_nnz,n,k,t_driver_ms,t_phase1_ms,t_phase2_ms,t_specrec_ms,force_fallback\n", prog);
 }
 

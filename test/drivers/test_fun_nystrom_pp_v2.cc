@@ -139,7 +139,7 @@ TEST_F(TestFunNystromPPv2, DiagonalSqrt) {
 }
 
 // Low-rank PSD with k_mat = 10 distinct eigenvalues and an n - k_mat tail
-// of zeros. With k = k_mat, NystromEVD_v2 captures the full effective
+// of zeros. With k = k_mat, NystromEVD captures the full effective
 // rank, so t1 matches the analytical Σ √λⱼ to ~ε_mach.
 //
 // The total estimate, however, carries a ~1e-6 bias even at full-rank

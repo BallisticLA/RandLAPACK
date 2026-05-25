@@ -4,7 +4,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_util.hh"
 #include "rl_linops.hh"
-#include "rl_nystrom_evd_v2.hh"
+#include "rl_nystrom_evd.hh"
 
 #include <RandBLAS.hh>
 #include <chrono>
@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
-#include <vector>
 
 namespace RandLAPACK {
 
@@ -25,7 +24,7 @@ namespace RandLAPACK {
 /// SYPS, no SYRF, no internal_stab plumbing — so that each algorithmic
 /// knob can be added back one at a time with verification.
 ///
-/// Phase 1 (NystromEVD_v2, implemented inline below): Gaussian sketch +
+/// Phase 1 (`NystromEVD` in `rl_nystrom_evd.hh`): Gaussian sketch +
 /// q − 1 subspace-iteration passes (with QR stabilization between
 /// passes) + SVD-pseudoinverse recovery on the k × k Gram. Mirrors
 /// `nystrom.m` line-for-line.
@@ -47,20 +46,29 @@ template <typename T>
 class FunNystromPP_v2 {
 public:
     bool verbose = false;
-    bool force_fallback = false;   // Phase 7a perf knob: skip Cholesky-fast in NystromEVD_v2 and use the SVD-pinv path.
+    bool force_fallback = false;   // Phase 7a perf knob: skip Cholesky-fast in NystromEVD and use the SVD-pinv path.
 
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
     // public so tests can inspect them; in production code you'd treat
-    // them as read-only output.
-    std::vector<T> U;        // m × k_out, column-major
-    std::vector<T> lambda;   // k_out descending eigenvalues
+    // them as read-only output. Heap-owned; grown via util::upsize and
+    // freed in the destructor.
+    T* U      = nullptr; int64_t U_sz      = 0;   // m × k_out, column-major
+    T* lambda = nullptr; int64_t lambda_sz = 0;   // k_out descending eigenvalues
     int64_t k_out = 0;
+
+    // Persistent Phase 1 workspace; grown via util::upsize on each call.
+    NystromEVD_workspace<T> nystrom_ws;
+
+    // Persistent Phase 2 buffers; grown via util::upsize on each call.
+    T* Y_2     = nullptr; int64_t Y_2_sz     = 0;   // k × s
+    T* fAOmega = nullptr; int64_t fAOmega_sz = 0;   // m × s
+    T* Y0      = nullptr; int64_t Y0_sz      = 0;   // m × k (sparse-overload first matvec)
 
     // Phase-split wall-clock timings populated by call() (ms).
     double t_phase1_ms = 0.0;
     double t_phase2_ms = 0.0;
     // Inner wall-clock of just the dual-path spectral-recovery block
-    // inside NystromEVD_v2 (Cholesky-fast vs SVD-pinv fall-back). This
+    // inside NystromEVD (Cholesky-fast vs SVD-pinv fall-back). This
     // is the tight measurement for the Phase 7a A/B comparison; the
     // QR + subspace-iter + final matvec costs that precede it are
     // identical on both paths and contribute to t_phase1_ms.
@@ -69,6 +77,14 @@ public:
     FunNystromPP_v2() = default;
     FunNystromPP_v2(const FunNystromPP_v2&) = delete;
     FunNystromPP_v2& operator=(const FunNystromPP_v2&) = delete;
+
+    ~FunNystromPP_v2() {
+        delete[] U;
+        delete[] lambda;
+        delete[] Y_2;
+        delete[] fAOmega;
+        delete[] Y0;
+    }
 
     /// Returns the estimate t = t1 + t2 of tr(f(A)).
     ///
@@ -185,8 +201,12 @@ T FunNystromPP_v2<T>::call(
 
     // Phase 1.
     auto t_p1_start = std::chrono::steady_clock::now();
-    NystromEVD_v2_workspace<T> ws;
-    NystromEVD_v2<T>(A_op, k, q, Omega1, this->U, this->lambda, ws, this->force_fallback, &this->t_specrec_ms);
+    NystromEVD<T>(A_op, k, q, Omega1,
+                  this->U, this->U_sz,
+                  this->lambda, this->lambda_sz,
+                  this->nystrom_ws,
+                  this->force_fallback,
+                  &this->t_specrec_ms);
     this->k_out = k;
 
     // Resolve f(0) for the optional (n − k) · f(0) correction term in
@@ -226,18 +246,18 @@ T FunNystromPP_v2<T>::call(
         auto t_p2_start = std::chrono::steady_clock::now();
 
         // Step a: Y_2 ← Uᵀ · Ω₂  (k × s)
-        std::vector<T> Y_2(k * s, (T)0);
+        util::upsize(this->Y_2, this->Y_2_sz, k * s);
         blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-                   k, s, m, (T)1, this->U.data(), m, Omega2, m, (T)0, Y_2.data(), k);
+                   k, s, m, (T)1, this->U, m, Omega2, m, (T)0, this->Y_2, k);
 
         // Step b: fAOmega ← f(A) · Ω₂  (m × s, caller-supplied oracle)
-        std::vector<T> fAOmega(m * s, (T)0);
-        fAfun(m, s, Omega2, fAOmega.data());
+        util::upsize(this->fAOmega, this->fAOmega_sz, m * s);
+        fAfun(m, s, Omega2, this->fAOmega);
 
         // Step c: tr_AΩ ← tr(Ω₂ᵀ · fAOmega) = Σⱼ ⟨Ω₂[:,j], fAOmega[:,j]⟩.
         T tr_AOmega = (T)0;
         for (int64_t j = 0; j < s; ++j) {
-            tr_AOmega += blas::dot(m, Omega2 + j * m, 1, fAOmega.data() + j * m, 1);
+            tr_AOmega += blas::dot(m, Omega2 + j * m, 1, this->fAOmega + j * m, 1);
         }
 
         // Step d: tr_AhatΩ ← tr(Ω₂ᵀ · f(Â) · Ω₂).
@@ -249,13 +269,13 @@ T FunNystromPP_v2<T>::call(
         T tr_AhatOmega = (T)0;
         for (int64_t j = 0; j < s; ++j) {
             for (int64_t i = 0; i < k; ++i) {
-                T v = Y_2[i + j * k];
+                T v = this->Y_2[i + j * k];
                 tr_AhatOmega += fscalar(this->lambda[i]) * v * v;
             }
         }
         if (apply_fzero) {
             const T omega_fro_sq = blas::dot(m * s, Omega2, 1, Omega2, 1);
-            const T y2_fro_sq    = blas::dot(k * s, Y_2.data(), 1, Y_2.data(), 1);
+            const T y2_fro_sq    = blas::dot(k * s, this->Y_2, 1, this->Y_2, 1);
             tr_AhatOmega += fz * (omega_fro_sq - y2_fro_sq);
         }
 
@@ -301,8 +321,8 @@ T FunNystromPP_v2<T>::call(
     // ExplicitSymLinOp). Caller is responsible for ensuring A has both
     // triangles populated when using ExplicitSymLinOp — right_spmm
     // treats A as generic dense.
-    std::vector<T> Y0(m * k, (T)0);
-    A_op(Layout::ColMajor, k, (T)1, Omega1_sparse, (T)0, Y0.data(), m);
+    util::upsize(this->Y0, this->Y0_sz, m * k);
+    A_op(Layout::ColMajor, k, (T)1, Omega1_sparse, (T)0, this->Y0, m);
 
     // Delegate to the dense path. q_effective = q - 1 because the
     // sparse first matvec replaces the dense path's initial
@@ -313,7 +333,7 @@ T FunNystromPP_v2<T>::call(
                       std::forward<FAFun>(fAfun),
                       std::forward<FScalar>(fscalar),
                       k, s, q - 1,
-                      Y0.data(), Omega2,
+                      this->Y0, Omega2,
                       t1_out, t2_out, f_zero);
 }
 
