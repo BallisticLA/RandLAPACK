@@ -1,6 +1,7 @@
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(BUILD_SHARED_LIBS "Configure to build shared or static libraries" OFF)
+option(RandLAPACK_BUILD_TESTS "Build RandLAPACK's test suite" ON)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release"

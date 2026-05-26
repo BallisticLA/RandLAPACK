@@ -3,7 +3,7 @@
 #include "rl_blaspp.hh"
 #include "rl_gen.hh"
 #include <RandLAPACK/testing/rl_test_utils.hh>
-#include "../../RandBLAS/test/comparison.hh"
+#include <RandBLAS/testing/comparison.hh>
 
 #include <RandBLAS.hh>
 #include <math.h>
@@ -45,7 +45,7 @@ class TestRPCholesky : public ::testing::Test {
 
         vector<T> Arecovered(F);
         full_gram(n, Arecovered, blas::Op::NoTrans, k);
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, n, n, Abuff, n, Arecovered.data(), n, __PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
         );

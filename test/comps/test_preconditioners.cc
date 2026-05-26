@@ -5,7 +5,7 @@
 #include <math.h>
 #include <lapack.hh>
 
-#include "../../RandBLAS/test/comparison.hh"
+#include <RandBLAS/testing/comparison.hh>
 
 
 template <typename T>

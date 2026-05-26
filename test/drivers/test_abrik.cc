@@ -4,7 +4,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include "../../RandBLAS/test/test_datastructures/test_spmats/common.hh"
+#include <RandBLAS/testing/sparse_data.hh>
 #include <fstream>
 #include <gtest/gtest.h>
 
@@ -208,7 +208,7 @@ TEST_F(TestABRIK, ABRIK_sparse_csc) {
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::testing::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
     RandBLAS::sparse_data::csc::dense_to_csc<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
     test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
@@ -229,7 +229,7 @@ TEST_F(TestABRIK, ABRIK_sparse_csr) {
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::testing::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
     RandBLAS::sparse_data::csr::dense_to_csr<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
     test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
@@ -250,7 +250,7 @@ TEST_F(TestABRIK, ABRIK_sparse_coo) {
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::testing::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
     RandBLAS::sparse_data::coo::dense_to_coo<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
     test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
@@ -272,7 +272,7 @@ TEST_F(TestABRIK, ABRIK_sparse_coo_cqrrt) {
     ABRIK.num_threads_max = RandLAPACK::util::get_omp_threads();
 
     RandLAPACK::gen::mat_gen_info<double> m_info(m, n, RandLAPACK::gen::gaussian);
-    test::test_datastructures::test_spmats::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
+    RandBLAS::testing::iid_sparsify_random_dense<double, r123::Philox4x32>(m, n, Layout::ColMajor, all_data.A_buff, 0.9, 0);
     RandBLAS::sparse_data::coo::dense_to_coo<double>(Layout::ColMajor, all_data.A_buff, 0.0, all_data.A);
 
 test_ABRIK_general<double>(b_sz, target_rank, custom_rank, all_data, ABRIK, state);
