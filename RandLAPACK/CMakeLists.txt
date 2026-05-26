@@ -28,6 +28,7 @@ set(RandLAPACK_cxx_sources
 )
 
 add_library(RandLAPACK INTERFACE)
+target_compile_features(RandLAPACK INTERFACE cxx_std_20)
 
 target_link_libraries(RandLAPACK INTERFACE
     RandBLAS
@@ -45,12 +46,15 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/rl_config.hh
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/RandLAPACK)
 
 
-set(RandLAPACK_cxx_opts -Wall -Wextra)
+# Build-time only: warning and sanitizer flags should not leak into the installed target.
+target_compile_options(RandLAPACK INTERFACE
+    $<BUILD_INTERFACE:-Wall>
+    $<BUILD_INTERFACE:-Wextra>)
+
 if (SANITIZE_ADDRESS)
-    list(APPEND RandLAPACK_cxx_opts -fsanitize=address)
-    target_link_options(RandLAPACK INTERFACE -fsanitize=address)
+    target_compile_options(RandLAPACK INTERFACE $<BUILD_INTERFACE:-fsanitize=address>)
+    target_link_options(RandLAPACK    INTERFACE $<BUILD_INTERFACE:-fsanitize=address>)
 endif()
-target_compile_options(RandLAPACK INTERFACE ${RandLAPACK_cxx_opts})
 
 target_include_directories(
     RandLAPACK INTERFACE
@@ -99,5 +103,4 @@ install(
     NAMESPACE RandLAPACK::
     FILE RandLAPACKTargets.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/RandLAPACK
-    EXPORT_LINK_INTERFACE_LIBRARIES
 )

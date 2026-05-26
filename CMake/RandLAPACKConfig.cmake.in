@@ -13,6 +13,12 @@ if (NOT RandBLAS_DIR)
 endif()
 find_dependency(RandBLAS)
 
+# OpenMP (RandLAPACK's INTERFACE links OpenMP::OpenMP_CXX directly when built with OpenMP).
+set(RandLAPACK_HAS_OpenMP @RandBLAS_HAS_OpenMP@)
+if (RandLAPACK_HAS_OpenMP)
+    find_dependency(OpenMP COMPONENTS CXX)
+endif()
+
 # lapack++
 if (NOT lapackpp_DIR)
     set(lapackpp_DIR "@RandLAPACK_lapackpp_DIR@")
