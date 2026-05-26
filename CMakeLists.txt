@@ -59,7 +59,9 @@ add_subdirectory(RandBLAS)
 
 # Compile sources
 add_subdirectory(RandLAPACK)
-add_subdirectory(test)
+if (RandLAPACK_BUILD_TESTS)
+    add_subdirectory(test)
+endif()
 
 # Export the configuration
 include(rl_config)
