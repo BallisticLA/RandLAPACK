@@ -29,11 +29,11 @@ set(RandLAPACK_cxx_sources
 
 add_library(RandLAPACK INTERFACE)
 
-target_link_libraries(RandLAPACK INTERFACE 
+target_link_libraries(RandLAPACK INTERFACE
     RandBLAS
     lapackpp
     blaspp
-    Random123
+    Random123::Random123
 )
 
 if (RandBLAS_HAS_OpenMP)

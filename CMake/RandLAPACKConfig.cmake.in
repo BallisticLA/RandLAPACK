@@ -8,8 +8,8 @@ set(RandLAPACK_VERSION_PATCH "@RandLAPACK_VERSION_PATCH@")
 
 # randblas
 if (NOT RandBLAS_DIR)
-    # RandBLAS currently installs to lib/cmake/ not lib/cmake/RandBLAS/
-    set(RandBLAS_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
+    # RandBLAS installs to lib/cmake/RandBLAS/ when bundled under the same prefix.
+    set(RandBLAS_DIR ${CMAKE_CURRENT_LIST_DIR}/../RandBLAS)
 endif()
 find_dependency(RandBLAS)
 
