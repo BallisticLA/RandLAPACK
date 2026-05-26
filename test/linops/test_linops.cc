@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 #include <math.h>
 #include <lapack.hh>
-#include "../../RandBLAS/test/comparison.hh"
+#include <RandBLAS/testing/comparison.hh>
 
 
 using std::vector;
@@ -66,7 +66,7 @@ class TestSpectralPrecondLinearOperator: public ::testing::Test {
         invP_operator.prep(pcV, pceigs, mus, n);
         vector<T> G_mu_pre_actual(n*n, 0.0);
         invP_operator(blas::Layout::ColMajor, n, (T) 1.0,  G_mu.data(), n, (T)0.0, G_mu_pre_actual.data(), n);
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, n, n, G_mu_pre_actual.data(), n,
             G_mu_pre_expect.data(), n, __PRETTY_FUNCTION__, 
             __FILE__, __LINE__

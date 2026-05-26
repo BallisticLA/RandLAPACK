@@ -8,15 +8,9 @@ if (GTest_FOUND)
     # Include path to extras subdirectories for utilities
     include_directories(${CMAKE_SOURCE_DIR})
 
-    # RandBLAS test utilities (comparison.hh) are not installed;
-    # resolve them from the source tree via the RandBLAS submodule.
-    set(RANDBLAS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../RandBLAS")
-    if(EXISTS "${RANDBLAS_SOURCE_DIR}/test/comparison.hh")
-        include_directories(${RANDBLAS_SOURCE_DIR})
-        message(STATUS "RandBLAS source tree found at: ${RANDBLAS_SOURCE_DIR}")
-    else()
-        message(WARNING "RandBLAS source tree not found - test comparison utilities unavailable")
-    endif()
+    # RandBLAS testing utilities (comparison.hh, sparse_data.hh, etc.) are
+    # installed as part of the RandBLAS library headers under RandBLAS/testing/;
+    # they're reachable through the RandLAPACK::RandLAPACK transitive include path.
 
     set(RandLAPACK_extras_test_srcs
         linops/test_ext_solver_linop_unified.cc

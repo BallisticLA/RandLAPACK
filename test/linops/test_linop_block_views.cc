@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 #include <math.h>
 #include <lapack.hh>
-#include "../../RandBLAS/test/comparison.hh"
+#include <RandBLAS/testing/comparison.hh>
 #include "../../RandLAPACK/testing/rl_test_utils.hh"
 
 using std::vector;
@@ -81,7 +81,7 @@ protected:
             }
         }
 
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_block.data(), row_count,
             C_expected.data(), row_count,
@@ -137,7 +137,7 @@ protected:
             }
         }
 
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_block.data(), k,
             C_expected.data(), k,
@@ -192,7 +192,7 @@ protected:
                    alpha, A_sub_dense.data(), ld_sub, B.data(), ldb,
                    beta, C_expected.data(), ldc);
 
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_block.data(), row_count,
             C_expected.data(), row_count,
@@ -345,7 +345,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_block.data(), row_count,
             C_expected.data(), row_count,
@@ -402,7 +402,7 @@ protected:
 
             T atol = 100 * std::numeric_limits<T>::epsilon();
             T rtol = 10 * std::numeric_limits<T>::epsilon();
-            test::comparison::matrices_approx_equal(
+            RandBLAS::testing::matrices_approx_equal(
                 Layout::ColMajor, Op::NoTrans, block_size, k,
                 C_block.data(), block_size,
                 C_expected.data(), block_size,
@@ -543,7 +543,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_block.data(), k,
             C_expected.data(), k,
@@ -600,7 +600,7 @@ protected:
 
             T atol = 100 * std::numeric_limits<T>::epsilon();
             T rtol = 10 * std::numeric_limits<T>::epsilon();
-            test::comparison::matrices_approx_equal(
+            RandBLAS::testing::matrices_approx_equal(
                 Layout::ColMajor, Op::NoTrans, k, block_size,
                 C_block.data(), k,
                 C_expected.data(), k,
@@ -775,7 +775,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, k,
             C_block.data(), m,
             C_expected.data(), m,
@@ -1100,7 +1100,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, n,
             blk_dense.data(), row_count,
             expected.data(), row_count,
@@ -1127,7 +1127,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, col_count,
             blk_dense.data(), m,
             expected.data(), m,
@@ -1155,7 +1155,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, col_count,
             blk_dense.data(), row_count,
             expected.data(), row_count,
@@ -1185,7 +1185,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, n,
             blk_dense.data(), row_count,
             expected.data(), row_count,
@@ -1211,7 +1211,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, col_count,
             blk_dense.data(), m,
             expected.data(), m,
@@ -1238,7 +1238,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, col_count,
             blk_dense.data(), row_count,
             expected.data(), row_count,
@@ -1390,7 +1390,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,
@@ -1443,7 +1443,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_blk.data(), k,
             C_expected.data(), k,
@@ -1498,7 +1498,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,
@@ -1544,7 +1544,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,
@@ -1592,7 +1592,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, k, col_count,
             C_blk.data(), k,
             C_expected.data(), k,
@@ -1644,7 +1644,7 @@ protected:
 
         T atol = 100 * std::numeric_limits<T>::epsilon();
         T rtol = 10 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, row_count, k,
             C_blk.data(), row_count,
             C_expected.data(), row_count,

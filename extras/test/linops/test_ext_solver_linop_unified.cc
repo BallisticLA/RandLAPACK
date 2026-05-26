@@ -21,7 +21,7 @@
 #include "../../linops/ext_lusolver_linop.hh"
 #include "../../misc/ext_util.hh"
 #include <RandLAPACK/testing/rl_test_utils.hh>
-#include <test/comparison.hh>
+#include <RandBLAS/testing/comparison.hh>
 
 using std::vector;
 using blas::Layout;
@@ -283,7 +283,7 @@ protected:
 
         T atol = 500 * std::numeric_limits<T>::epsilon() * dim;
         T rtol = 100 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, n, C_solver.data(), m,
             C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
@@ -344,7 +344,7 @@ protected:
 
         T atol = 500 * std::numeric_limits<T>::epsilon() * dim;
         T rtol = 100 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, n, C_halfsv.data(), m,
             C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol
@@ -400,7 +400,7 @@ protected:
 
         T atol = 500 * std::numeric_limits<T>::epsilon() * dim;
         T rtol = 100 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             Layout::ColMajor, Op::NoTrans, m, n, C_halfsv.data(), m,
             C_reference.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__,
             atol, rtol

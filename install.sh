@@ -356,7 +356,7 @@ fi
 echo "=========================================="
 echo "Configuring and building RandLAPACK..."
 echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_OPENMP_FLAGS
+cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON -DBUILD_TESTS=OFF -DRandLAPACK_BUILD_TESTS=ON $MACOS_OPENMP_FLAGS
 if [ $? -ne 0 ]; then
     echo "ERROR: RandLAPACK configuration failed!"
     exit 1
