@@ -3,7 +3,7 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include <RandBLAS/test/comparison.hh>
+#include <RandBLAS/testing/comparison.hh>
 
 #include <math.h>
 #include <chrono>
@@ -348,7 +348,7 @@ class Test_Inplace_Square_Transpose : public ::testing::Test
         double *A2 = new double[n*n];
         blas::copy(n*n, A1, 1, A2, 1);
         RandLAPACK::util::transpose_square(A2, n);
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             layout, blas::Op::Trans, n, n, A1, n, A2, n, 
             __PRETTY_FUNCTION__, __FILE__, __LINE__
         );

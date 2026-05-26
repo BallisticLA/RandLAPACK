@@ -16,7 +16,7 @@
 #include <gtest/gtest.h>
 #include <type_traits>
 #include <optional>
-#include "../../RandBLAS/test/comparison.hh"
+#include <RandBLAS/testing/comparison.hh>
 #include "../../RandLAPACK/testing/rl_test_utils.hh"
 
 using blas::Layout;
@@ -463,7 +463,7 @@ private:
                                err_beta, E, dims.ldc);
 
         // Compare results using componentwise bounds
-        test::comparison::buffs_approx_equal(
+        RandBLAS::testing::buffs_approx_equal(
             C_op, C_reference, E, m * n,
             __PRETTY_FUNCTION__, __FILE__, __LINE__
         );

@@ -4,7 +4,7 @@
 
 #include <RandBLAS.hh>
 #include <RandLAPACK/testing/rl_test_utils.hh>
-#include "../../RandBLAS/test/comparison.hh"
+#include <RandBLAS/testing/comparison.hh>
 
 #include <math.h>
 #include <gtest/gtest.h>
@@ -47,7 +47,7 @@ class TestPDK_SquaredExponential : public ::testing::Test {
             }
         }
         T atol = 3 * d * std::numeric_limits<T>::epsilon() * (1.0 + std::pow(bandwidth, -2));
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, n, n, K_blockimpl.data(), n,
             K_entrywise.data(), n, __PRETTY_FUNCTION__, __FILE__, __LINE__, atol, atol
         );
@@ -76,7 +76,7 @@ class TestPDK_SquaredExponential : public ::testing::Test {
             d, n, _X, squarednorms.data(), n, n, K.data(), 0, 0, bandwidth
         );
         vector<T> expected(n*n, 1.0);
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, n, n, K.data(), n,
             expected.data(), n, __PRETTY_FUNCTION__, __FILE__, __LINE__
         );
@@ -112,7 +112,7 @@ class TestPDK_SquaredExponential : public ::testing::Test {
             }
         }
         T atol = 50 * std::numeric_limits<T>::epsilon();
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, n, n, K.data(), n,
             expect.data(), n,  __PRETTY_FUNCTION__, __FILE__, __LINE__, atol, atol
         );
@@ -194,7 +194,7 @@ class TestPDK_RBFKernelMatrix : public ::testing::Test {
         K(blas::Layout::ColMajor, m, alpha, eye.data(), m, 0.0, K_out_actual1.data(), m);
 
         T atol = d * std::numeric_limits<T>::epsilon() * (1.0 + std::pow(bandwidth, -2));
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, m, m, K_out_actual1.data(), m, 
             K_out_expect.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__, atol, atol
         );
@@ -206,7 +206,7 @@ class TestPDK_RBFKernelMatrix : public ::testing::Test {
         vector<T> K_out_actual2(m * m, 1.0);
         K(blas::Layout::ColMajor, m, alpha, eye.data(), m, beta, K_out_actual2.data(), m);
 
-        test::comparison::matrices_approx_equal(
+        RandBLAS::testing::matrices_approx_equal(
             blas::Layout::ColMajor, blas::Op::NoTrans, m, m, K_out_actual2.data(), m, 
             K_out_expect.data(), m, __PRETTY_FUNCTION__, __FILE__, __LINE__, atol, atol
         );
