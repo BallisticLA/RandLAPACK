@@ -60,7 +60,7 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
 
 === Usage ===
 
-  ABRIK_accuracy_analysis <precision> <output_dir> <input_matrix_path> <m> <n> <b_sz> <num_matmuls>
+  ABRIK_accuracy_analysis <precision> <output_dir> <input_matrix_path> <m> <n> <b_sz> <num_matmuls> <num_runs>
 
   precision        : "double" or "float"
   output_dir       : directory for the output CSV (use "." for current directory)
@@ -68,14 +68,21 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
   m, n             : expected matrix dimensions (verified against file)
   b_sz             : Krylov block size
   num_matmuls      : number of block matrix-vector products (= max_krylov_iters)
+  num_runs         : number of independent ABRIK runs (distinct RNG seeds 0..num_runs-1)
 
-  Total matvecs = b_sz * num_matmuls.
-  ABRIK produces b_sz * num_matmuls / 2 singular triplets.
+  Total matvecs per run = b_sz * num_matmuls.
+  ABRIK produces b_sz * num_matmuls / 2 singular triplets per run.
+  GESDD is deterministic and is run once; its triplets are reused across runs.
 
 === Output CSV format ===
 
   Metadata lines prefixed with '#', then header, then data rows:
-  i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff
+  run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff
+
+  run is the 0-based run index. res_err_gesdd / sval_diff / svec_diff against
+  GESDD vary across runs only because ABRIK's randomness changes u_a, v_a, s_a;
+  the GESDD column itself is identical across runs (kept per-row for plotting
+  convenience).
 
 === Memory requirements ===
 
@@ -84,6 +91,7 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
     = m*n + m*n + m*n + n*n + n*n + O(m*k) + O(m)
   For m = n = 10000: approximately 4.8 GB.
   A_copy and VT_gesdd are freed before the metric computation loop.
+  ABRIK outputs (U_a/V_a/S_a) are freed after each run's metrics are written.
 */
 
 #include "RandLAPACK.hh"
@@ -158,9 +166,9 @@ static T sin_angle_via_qr(T* x1, T* x2, int64_t len, T* work_buf, T* tau_buf) {
 
 template <typename T>
 static void run_analysis(int argc, char *argv[]) {
-    if (argc < 8) {
+    if (argc < 9) {
         std::cerr << "Usage: " << argv[0]
-                  << " <precision> <output_dir> <input_matrix_path> <m> <n> <b_sz> <num_matmuls>"
+                  << " <precision> <output_dir> <input_matrix_path> <m> <n> <b_sz> <num_matmuls> <num_runs>"
                   << std::endl;
         return;
     }
@@ -170,16 +178,22 @@ static void run_analysis(int argc, char *argv[]) {
     int64_t n_expected        = std::stol(argv[5]);
     int64_t b_sz              = std::stol(argv[6]);
     int64_t num_matmuls       = std::stol(argv[7]);
+    int       num_runs        = std::stoi(argv[8]);
     T tol                     = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
-    auto state                = RandBLAS::RNGState();
+    auto state_init           = RandBLAS::RNGState();
     int64_t m = 0, n = 0;
+
+    if (num_runs < 1) {
+        std::cerr << "Error: num_runs must be >= 1 (got " << num_runs << ")" << std::endl;
+        return;
+    }
 
     // Load input matrix via RandLAPACK's file reader.
     // First call with NULL queries dimensions; second reads data.
     RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::custom_input);
     m_info.filename = argv[3];
     m_info.workspace_query_mod = 1;
-    RandLAPACK::gen::mat_gen<T>(m_info, NULL, state);
+    RandLAPACK::gen::mat_gen<T>(m_info, NULL, state_init);
     m = m_info.rows;
     n = m_info.cols;
 
@@ -190,40 +204,16 @@ static void run_analysis(int argc, char *argv[]) {
     }
 
     T* A = new T[m * n]();
-    RandLAPACK::gen::mat_gen(m_info, A, state);
+    RandLAPACK::gen::mat_gen(m_info, A, state_init);
     printf("Matrix loaded: %ld x %ld\n", m, n);
 
     // ======================================================================
-    // Phase 1: Run ABRIK
-    // ======================================================================
-    // ABRIK does not modify A (unlike RSVD which deflates in-place).
-    // It allocates U, V, Sigma internally with new[].
-    printf("Running ABRIK (b_sz=%ld, num_matmuls=%ld, total_matvecs=%ld)...\n",
-           b_sz, num_matmuls, b_sz * num_matmuls);
-
-    RandLAPACK::ABRIK<T, r123::Philox4x32> abrik(true, false, tol);
-    abrik.max_krylov_iters = (int) num_matmuls;
-
-    T* U_a = nullptr;
-    T* V_a = nullptr;
-    T* S_a = nullptr;
-    auto state_alg = state;
-
-    auto t0 = std::chrono::steady_clock::now();
-    abrik.call(m, n, A, m, b_sz, U_a, V_a, S_a, state_alg);
-    auto t1 = std::chrono::steady_clock::now();
-    long dur_abrik = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-
-    int64_t k_a = abrik.singular_triplets_found;
-    printf("ABRIK: %ld singular triplets, %.2f s\n", k_a, dur_abrik / 1e6);
-
-    // ======================================================================
-    // Phase 2: Run GESDD (full SVD via divide-and-conquer)
+    // Run GESDD ONCE (deterministic; reused across all runs)
     // ======================================================================
     // GESDD with Job::SomeVec computes A = U_g * diag(S_g) * VT_g.
     // It destroys its input matrix, so we work on a copy.
     // U_g is m-by-n, S_g is length min(m,n), VT_g is n-by-n.
-    printf("Running GESDD...\n");
+    printf("Running GESDD (once; deterministic)...\n");
     T* U_g  = new T[m * n]();
     T* S_g  = new T[std::min(m, n)]();
     T* VT_g = new T[n * n]();
@@ -231,34 +221,23 @@ static void run_analysis(int argc, char *argv[]) {
     T* A_copy = new T[m * n];
     lapack::lacpy(MatrixType::General, m, n, A, m, A_copy, m);
 
-    t0 = std::chrono::steady_clock::now();
+    auto t0 = std::chrono::steady_clock::now();
     lapack::gesdd(Job::SomeVec, m, n, A_copy, m, S_g, U_g, m, VT_g, n);
-    t1 = std::chrono::steady_clock::now();
+    auto t1 = std::chrono::steady_clock::now();
     long dur_gesdd = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
     printf("GESDD: %.2f s\n", dur_gesdd / 1e6);
 
-    // Free A_copy immediately — no longer needed.
     delete[] A_copy;
 
     // GESDD returns right singular vectors as VT (row-major V^T).
     // Transpose to column-major V for per-column access.
     T* V_g = new T[n * n]();
     RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
-    delete[] VT_g;  // Free VT_g — only V_g needed from here.
+    delete[] VT_g;
 
     // ======================================================================
-    // Phase 3: Compute per-triplet accuracy metrics
+    // Open output CSV once; write metadata + header
     // ======================================================================
-    printf("Computing per-triplet metrics for %ld triplets...\n", k_a);
-
-    // Pre-allocate all scratch buffers used in the metric computation loop.
-    T* scratch_m = new T[m];           // For per_triplet_residual (GEMV result, length m)
-    T* scratch_n = new T[n];           // For per_triplet_residual (GEMV result, length n)
-    T* qr_buf_u  = new T[2 * m];      // For sin_angle_via_qr on u vectors (m-by-2 matrix)
-    T* qr_buf_v  = new T[2 * n];      // For sin_angle_via_qr on v vectors (n-by-2 matrix)
-    T  tau_u[2], tau_v[2];             // Householder scalars for 2-column QR
-
-    // Generate output file with date/time prefix.
     std::time_t now = std::time(nullptr);
     char date_prefix[20];
     std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));
@@ -267,63 +246,99 @@ static void run_analysis(int argc, char *argv[]) {
     std::string path = (output_dir != ".") ? output_dir + "/" + output_filename : output_filename;
     std::ofstream file(path);
 
-    // Write metadata header (lines prefixed with # for easy parsing).
     file << "# ABRIK Per-Triplet Accuracy Analysis\n"
          << "# Precision: " << argv[1] << "\n"
          << "# Input matrix: " << argv[3] << "\n"
          << "# Input size: " << m << " x " << n << "\n"
          << "# b_sz: " << b_sz << "\n"
          << "# num_matmuls: " << num_matmuls << "\n"
-         << "# Total matvecs: " << b_sz * num_matmuls << "\n"
-         << "# Singular triplets: " << k_a << "\n"
-         << "# ABRIK time (us): " << dur_abrik << "\n"
-         << "# GESDD time (us): " << dur_gesdd << "\n"
+         << "# Total matvecs per run: " << b_sz * num_matmuls << "\n"
+         << "# Num runs: " << num_runs << " (distinct RNG seeds 0..num_runs-1)\n"
+         << "# GESDD time (us): " << dur_gesdd << " (run once, reused across runs)\n"
          << "# Residual metric: sqrt(||E_left||^2 + ||E_right||^2) where E_left = inv(s)*Av - u, E_right = v - A'u*inv(s)\n"
          << "# svec_diff metric: sqrt((sin^2(angle(u_g,u_a)) + sin^2(angle(v_g,v_a)))/2), sin via Householder QR\n";
-    file << "i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff\n";
+    file << "run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff\n";
 
-    for (int64_t i = 0; i < k_a; ++i) {
-        T* u_a = &U_a[m * i];   // ABRIK left singular vector i
-        T* v_a = &V_a[n * i];   // ABRIK right singular vector i
-        T  s_a = S_a[i];        // ABRIK singular value i
+    // ======================================================================
+    // Pre-allocate scratch buffers (reused across runs)
+    // ======================================================================
+    T* scratch_m = new T[m];           // For per_triplet_residual (GEMV result, length m)
+    T* scratch_n = new T[n];           // For per_triplet_residual (GEMV result, length n)
+    T* qr_buf_u  = new T[2 * m];       // For sin_angle_via_qr on u vectors (m-by-2 matrix)
+    T* qr_buf_v  = new T[2 * n];       // For sin_angle_via_qr on v vectors (n-by-2 matrix)
+    T  tau_u[2], tau_v[2];             // Householder scalars for 2-column QR
 
-        T* u_g = &U_g[m * i];   // GESDD left singular vector i
-        T* v_g = &V_g[n * i];   // GESDD right singular vector i
-        T  s_g = S_g[i];        // GESDD singular value i
+    // ======================================================================
+    // Loop over runs: ABRIK + per-triplet metrics
+    // ======================================================================
+    for (int run = 0; run < num_runs; ++run) {
+        printf("\n########## Run %d/%d ##########\n", run + 1, num_runs);
 
-        // --- Metric 1 & 2: Per-triplet SVD residuals ---
-        T res_abrik = per_triplet_residual(A, m, n, u_a, v_a, s_a, scratch_m, scratch_n);
-        T res_gesdd = per_triplet_residual(A, m, n, u_g, v_g, s_g, scratch_m, scratch_n);
+        // Distinct RNG seed per run so ABRIK's random draws differ between runs.
+        auto state_run = RandBLAS::RNGState<r123::Philox4x32>(static_cast<uint32_t>(run));
 
-        // --- Metric 3: Relative singular value difference ---
-        T sval_diff = std::abs(s_a - s_g) / s_g;
+        printf("Running ABRIK (b_sz=%ld, num_matmuls=%ld, total_matvecs=%ld)...\n",
+               b_sz, num_matmuls, b_sz * num_matmuls);
 
-        // --- Metric 4: Singular vector angle via QR ---
-        // sin(angle) between GESDD and ABRIK singular vectors, computed via
-        // Householder QR of the 2-column matrix [x_gesdd, x_abrik].
-        // This avoids the sqrt(1-cos^2) catastrophic cancellation.
-        T sin_u = sin_angle_via_qr(u_g, u_a, m, qr_buf_u, tau_u);
-        T sin_v = sin_angle_via_qr(v_g, v_a, n, qr_buf_v, tau_v);
-        T svec_diff = std::sqrt((sin_u * sin_u + sin_v * sin_v) / 2.0);
+        RandLAPACK::ABRIK<T, r123::Philox4x32> abrik(true, false, tol);
+        abrik.max_krylov_iters = (int) num_matmuls;
 
-        file << std::setprecision(15)
-             << (i + 1) << ", " << res_abrik << ", " << res_gesdd << ", "
-             << sval_diff << ", " << svec_diff << "\n";
+        T* U_a = nullptr;
+        T* V_a = nullptr;
+        T* S_a = nullptr;
 
-        if ((i + 1) % 50 == 0)
-            printf("  Processed triplet %ld / %ld\n", i + 1, k_a);
+        auto t0a = std::chrono::steady_clock::now();
+        abrik.call(m, n, A, m, b_sz, U_a, V_a, S_a, state_run);
+        auto t1a = std::chrono::steady_clock::now();
+        long dur_abrik = std::chrono::duration_cast<std::chrono::microseconds>(t1a - t0a).count();
+
+        int64_t k_a = abrik.singular_triplets_found;
+        printf("ABRIK: %ld singular triplets, %.2f s\n", k_a, dur_abrik / 1e6);
+
+        // Per-run metadata as a comment line so downstream tools can pick it up.
+        file << "# Run " << run << " ABRIK time (us): " << dur_abrik
+             << ", triplets: " << k_a << "\n";
+
+        printf("Computing per-triplet metrics for %ld triplets...\n", k_a);
+        for (int64_t i = 0; i < k_a; ++i) {
+            T* u_a = &U_a[m * i];
+            T* v_a = &V_a[n * i];
+            T  s_a = S_a[i];
+
+            T* u_g = &U_g[m * i];
+            T* v_g = &V_g[n * i];
+            T  s_g = S_g[i];
+
+            T res_abrik = per_triplet_residual(A, m, n, u_a, v_a, s_a, scratch_m, scratch_n);
+            T res_gesdd = per_triplet_residual(A, m, n, u_g, v_g, s_g, scratch_m, scratch_n);
+
+            T sval_diff = std::abs(s_a - s_g) / s_g;
+
+            T sin_u = sin_angle_via_qr(u_g, u_a, m, qr_buf_u, tau_u);
+            T sin_v = sin_angle_via_qr(v_g, v_a, n, qr_buf_v, tau_v);
+            T svec_diff = std::sqrt((sin_u * sin_u + sin_v * sin_v) / 2.0);
+
+            file << run << ", " << (i + 1) << ", "
+                 << std::setprecision(15)
+                 << res_abrik << ", " << res_gesdd << ", "
+                 << sval_diff << ", " << svec_diff << "\n";
+
+            if ((i + 1) % 50 == 0)
+                printf("  Processed triplet %ld / %ld\n", i + 1, k_a);
+        }
+        file.flush();
+
+        delete[] U_a;       // Allocated by ABRIK with new[]
+        delete[] V_a;
+        delete[] S_a;
     }
 
-    file.flush();
     file.close();
     printf("Results written to: %s\n", path.c_str());
 
-    // Cleanup all allocations.
+    // Cleanup remaining allocations.
     delete[] A;
-    delete[] U_a;       // Allocated by ABRIK with new[]
-    delete[] V_a;
-    delete[] S_a;
-    delete[] U_g;       // Allocated in this function with new[]
+    delete[] U_g;
     delete[] S_g;
     delete[] V_g;
     delete[] scratch_m;
@@ -336,7 +351,7 @@ int main(int argc, char *argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision: double|float> <output_dir> <input_matrix_path>"
-                  << " <m> <n> <b_sz> <num_matmuls>" << std::endl;
+                  << " <m> <n> <b_sz> <num_matmuls> <num_runs>" << std::endl;
         return 1;
     }
 

@@ -8,8 +8,9 @@ All algorithms run to a fixed total matvec budget. ABRIK uses BK call()/resume()
 so no work is repeated; a convergence curve is produced in a single pass.
 
 Output CSV (long format, one data point per row):
-  method, b_sz, total_matvecs, err, elapsed_us
+  run, method, b_sz, total_matvecs, err, elapsed_us
 
+  run         = run index in [0, num_runs)
   method      = ABRIK | Spectra | RSVD | GESDD
   b_sz        = block size (0 for Spectra/GESDD)
   total_matvecs = matrix-vector products consumed
@@ -20,14 +21,15 @@ Output CSV (long format, one data point per row):
 
 Usage:
   ABRIK_speed_comparisons <precision> <output_dir> <input_file>
-                          <target_rank> <run_gesdd> <budget>
+                          <target_rank> <run_gesdd> <budget> <num_runs>
                           <num_block_sizes> <block_sizes...>
                           [sub_ratio] [use_cqrrt]
 
   budget       = total matvec budget (e.g. 4096)
+  num_runs     = number of independent runs (distinct RNG seeds); rows tagged with run index
   block_sizes  = block sizes for ABRIK (e.g. 4 8 16 32)
                  RSVD uses the largest; Spectra uses a fixed ncv schedule.
-  run_gesdd    = 1 to run GESDD once (dense input only)
+  run_gesdd    = 1 to run GESDD once (dense input only; first run only)
 */
 
 #include "RandLAPACK.hh"
@@ -165,6 +167,9 @@ static std::vector<int64_t> make_checkpoint_matvecs(int64_t step, int64_t budget
 }
 
 // Core benchmark: runs all algorithms with checkpointing.
+// Loops over runs internally; each run uses a fresh RNG state seeded by run index
+// so the ABRIK / Spectra / RSVD draws differ between runs.
+// GESDD is deterministic, so it is run only once (run=0) and reported with the run=0 row.
 template <typename T, typename RNG, RandLAPACK::linops::LinearOperator LinOp, typename SvdsFn>
 static void run_with_budget(
     LinOp& A_op,
@@ -176,8 +181,8 @@ static void run_with_budget(
     T* A_dense_buf,
     std::vector<int64_t>& block_sizes,
     int64_t budget,
+    int num_runs,
     AlgorithmObjects<T, RNG>& algs,
-    RandBLAS::RNGState<RNG>& state,
     std::ofstream& outfile)
 {
     int64_t m = A_op.n_rows;
@@ -191,75 +196,82 @@ static void run_with_budget(
     if (use_cqrrt)
         algs.ABRIK.qr_exp = RandLAPACK::ABRIKSubroutines::QR_explicit::cqrrt;
 
-    // ---- ABRIK: one call_with_checkpoints per block size ----
-    for (auto b_sz : block_sizes) {
-        printf("\n=== ABRIK b=%ld ===\n", b_sz);
-        // Krylov iteration counts for this block size: all checkpoints reachable in >= 1 iter
-        std::vector<int64_t> cp_iters;
-        for (auto mv : checkpoint_matvecs)
-            if (mv >= b_sz)
-                cp_iters.push_back(mv / b_sz);
+    for (int run = 0; run < num_runs; ++run) {
+        printf("\n########## Run %d/%d ##########\n", run + 1, num_runs);
 
-        auto state_alg = state;
-        algs.ABRIK.call_with_checkpoints(A_op, b_sz, target_rank, cp_iters,
-            [&](int64_t total_mv, long elapsed_us, T residual) {
-                outfile << "ABRIK, " << b_sz << ", " << total_mv << ", "
-                        << residual << ", " << elapsed_us << "\n";
-                outfile.flush();
-                printf("  mv=%ld  err=%e  t=%ld us\n", total_mv, residual, elapsed_us);
-            }, state_alg);
-    }
+        // Distinct RNG seed per run so the random draws differ between runs.
+        auto state_run = RandBLAS::RNGState<RNG>(static_cast<uint32_t>(run));
 
-    // ---- Spectra: one independent call per checkpoint budget ----
-    printf("\n=== Spectra ===\n");
-    for (auto budget_mv : checkpoint_matvecs) {
-        long dur_svds = 0;
-        T err_svds = svds_fn(budget_mv, dur_svds);
-        outfile << "Spectra, 0, " << budget_mv << ", " << err_svds << ", " << dur_svds << "\n";
-        outfile.flush();
-        printf("  mv=%ld  err=%e  t=%ld us\n", budget_mv, err_svds, dur_svds);
-    }
+        // ---- ABRIK: one call_with_checkpoints per block size ----
+        for (auto b_sz : block_sizes) {
+            printf("\n=== ABRIK b=%ld (run %d) ===\n", b_sz, run);
+            // Krylov iteration counts for this block size: all checkpoints reachable in >= 1 iter
+            std::vector<int64_t> cp_iters;
+            for (auto mv : checkpoint_matvecs)
+                if (mv >= b_sz)
+                    cp_iters.push_back(mv / b_sz);
 
-    // ---- RSVD: one independent call per checkpoint budget, largest block size ----
-    printf("\n=== RSVD b=%ld ===\n", max_b);
-    algs.RSVD.block_sz = max_b;
-    for (auto budget_mv : checkpoint_matvecs) {
-        int64_t k_r = std::max((int64_t)1, budget_mv / 2);
-        T* U_r = nullptr, *V_r = nullptr, *S_r = nullptr;
-        auto state_rsvd = state;  // fresh state for each independent RSVD call
-        auto t0 = steady_clock::now();
-        algs.RSVD.call(A_op, norm_A, k_r, tol, U_r, S_r, V_r, state_rsvd);
-        long dur_rsvd = duration_cast<microseconds>(steady_clock::now() - t0).count();
-        int64_t k_r_target = std::min(target_rank, k_r);
-        T err_rsvd = residual_via_linop(A_op, U_r, V_r, S_r, k_r_target);
-        free(U_r); free(V_r); free(S_r);
-        outfile << "RSVD, " << max_b << ", " << budget_mv << ", " << err_rsvd << ", " << dur_rsvd << "\n";
-        outfile.flush();
-        printf("  mv=%ld  k_r=%ld  err=%e  t=%ld us\n", budget_mv, k_r, err_rsvd, dur_rsvd);
-    }
+            auto state_alg = state_run;
+            algs.ABRIK.call_with_checkpoints(A_op, b_sz, target_rank, cp_iters,
+                [&](int64_t total_mv, long elapsed_us, T residual) {
+                    outfile << run << ", ABRIK, " << b_sz << ", " << total_mv << ", "
+                            << residual << ", " << elapsed_us << "\n";
+                    outfile.flush();
+                    printf("  mv=%ld  err=%e  t=%ld us\n", total_mv, residual, elapsed_us);
+                }, state_alg);
+        }
 
-    // ---- GESDD: dense only, once ----
-    if (run_gesdd && A_dense_buf) {
-        printf("\n=== GESDD ===\n");
-        T* A_svd = new T[m * n];
-        lapack::lacpy(MatrixType::General, m, n, A_dense_buf, m, A_svd, m);
-        T* U_g = new T[m * n]();
-        T* S_g = new T[n]();
-        T* VT_g = new T[n * n]();
-        T* V_g = new T[n * n]();
+        // ---- Spectra: one independent call per checkpoint budget ----
+        printf("\n=== Spectra (run %d) ===\n", run);
+        for (auto budget_mv : checkpoint_matvecs) {
+            long dur_svds = 0;
+            T err_svds = svds_fn(budget_mv, dur_svds);
+            outfile << run << ", Spectra, 0, " << budget_mv << ", " << err_svds << ", " << dur_svds << "\n";
+            outfile.flush();
+            printf("  mv=%ld  err=%e  t=%ld us\n", budget_mv, err_svds, dur_svds);
+        }
 
-        auto t0 = steady_clock::now();
-        lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, n);
-        long dur_svd = duration_cast<microseconds>(steady_clock::now() - t0).count();
+        // ---- RSVD: one independent call per checkpoint budget, largest block size ----
+        printf("\n=== RSVD b=%ld (run %d) ===\n", max_b, run);
+        algs.RSVD.block_sz = max_b;
+        for (auto budget_mv : checkpoint_matvecs) {
+            int64_t k_r = std::max((int64_t)1, budget_mv / 2);
+            T* U_r = nullptr, *V_r = nullptr, *S_r = nullptr;
+            auto state_rsvd = state_run;  // fresh state for each independent RSVD call
+            auto t0 = steady_clock::now();
+            algs.RSVD.call(A_op, norm_A, k_r, tol, U_r, S_r, V_r, state_rsvd);
+            long dur_rsvd = duration_cast<microseconds>(steady_clock::now() - t0).count();
+            int64_t k_r_target = std::min(target_rank, k_r);
+            T err_rsvd = residual_via_linop(A_op, U_r, V_r, S_r, k_r_target);
+            free(U_r); free(V_r); free(S_r);
+            outfile << run << ", RSVD, " << max_b << ", " << budget_mv << ", " << err_rsvd << ", " << dur_rsvd << "\n";
+            outfile.flush();
+            printf("  mv=%ld  k_r=%ld  err=%e  t=%ld us\n", budget_mv, k_r, err_rsvd, dur_rsvd);
+        }
 
-        RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
-        T err_SVD = residual_via_linop(A_op, U_g, V_g, S_g, target_rank);
-        printf("  err=%e  t=%ld us\n", err_SVD, dur_svd);
+        // ---- GESDD: dense only, once (deterministic; report under run=0) ----
+        if (run == 0 && run_gesdd && A_dense_buf) {
+            printf("\n=== GESDD ===\n");
+            T* A_svd = new T[m * n];
+            lapack::lacpy(MatrixType::General, m, n, A_dense_buf, m, A_svd, m);
+            T* U_g = new T[m * n]();
+            T* S_g = new T[n]();
+            T* VT_g = new T[n * n]();
+            T* V_g = new T[n * n]();
 
-        outfile << "GESDD, 0, 0, " << err_SVD << ", " << dur_svd << "\n";
-        outfile.flush();
+            auto t0 = steady_clock::now();
+            lapack::gesdd(Job::SomeVec, m, n, A_svd, m, S_g, U_g, m, VT_g, n);
+            long dur_svd = duration_cast<microseconds>(steady_clock::now() - t0).count();
 
-        delete[] A_svd; delete[] U_g; delete[] S_g; delete[] VT_g; delete[] V_g;
+            RandLAPACK::util::transposition(n, n, VT_g, n, V_g, n, 0);
+            T err_SVD = residual_via_linop(A_op, U_g, V_g, S_g, target_rank);
+            printf("  err=%e  t=%ld us\n", err_SVD, dur_svd);
+
+            outfile << "0, GESDD, 0, 0, " << err_SVD << ", " << dur_svd << "\n";
+            outfile.flush();
+
+            delete[] A_svd; delete[] U_g; delete[] S_g; delete[] VT_g; delete[] V_g;
+        }
     }
 }
 
@@ -267,10 +279,10 @@ template <typename T>
 static void run_benchmark(int argc, char *argv[]) {
     using EMatrix = typename EigenTypes<T>::Matrix;
 
-    if (argc < 9) {
+    if (argc < 10) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <input_file> <target_rank> <run_gesdd>"
-                  << " <budget> <num_block_sizes> <block_sizes...>"
+                  << " <budget> <num_runs> <num_block_sizes> <block_sizes...>"
                   << " [sub_ratio] [use_cqrrt]\n";
         return;
     }
@@ -280,18 +292,23 @@ static void run_benchmark(int argc, char *argv[]) {
     int64_t target_rank    = std::stol(argv[4]);
     bool run_gesdd         = (std::stoi(argv[5]) != 0);
     int64_t budget         = std::stol(argv[6]);
-    int num_b_sz           = std::stoi(argv[7]);
+    int num_runs           = std::stoi(argv[7]);
+    int num_b_sz           = std::stoi(argv[8]);
+
+    if (num_runs < 1) {
+        std::cerr << "Error: num_runs must be >= 1 (got " << num_runs << ")\n";
+        return;
+    }
 
     std::vector<int64_t> block_sizes;
     for (int i = 0; i < num_b_sz; ++i)
-        block_sizes.push_back(std::stol(argv[8 + i]));
+        block_sizes.push_back(std::stol(argv[9 + i]));
 
-    int args_consumed = 8 + num_b_sz;
+    int args_consumed = 9 + num_b_sz;
     double sub_ratio  = (argc > args_consumed)     ? std::stod(argv[args_consumed])     : 1.0;
     bool cli_cqrrt    = (argc > args_consumed + 1) ? (std::stoi(argv[args_consumed + 1]) != 0) : false;
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
-    auto state = RandBLAS::RNGState();
 
     auto mat = BenchIO::load_matrix<T>(input_path, sub_ratio);
     int64_t m = mat.m;
@@ -318,13 +335,15 @@ static void run_benchmark(int argc, char *argv[]) {
             << "# Format: " << (mat.is_sparse ? "sparse" : "dense") << "\n"
             << "# Target rank: " << target_rank << "\n"
             << "# Budget (total matvecs): " << budget << "\n"
+            << "# Num runs: " << num_runs << " (distinct RNG seeds 0..num_runs-1)\n"
             << "# Block sizes: " << oss_b.str() << "\n"
             << "# RSVD uses largest block size with k_r = budget_mv / 2\n"
             << "# Tolerance: " << tol << "\n"
             << "# ABRIK elapsed = cumulative BK + SVD extraction (not residual eval)\n"
             << "# Spectra/RSVD elapsed = wall clock for that independent call\n"
-            << "# Residual: sqrt(||S^{-1}AV-U||^2_F + ||(A'U)S^{-1}-V||^2_F)\n";
-    outfile << "method, b_sz, total_matvecs, err, elapsed_us\n";
+            << "# Residual: sqrt(||S^{-1}AV-U||^2_F + ||(A'U)S^{-1}-V||^2_F)\n"
+            << "# GESDD is deterministic and runs once (reported under run=0)\n";
+    outfile << "run, method, b_sz, total_matvecs, err, elapsed_us\n";
     outfile.flush();
 
     auto t_total = steady_clock::now();
@@ -340,7 +359,7 @@ static void run_benchmark(int argc, char *argv[]) {
 
         run_with_budget<T>(A_op, svds_fn, norm_A, target_rank,
                            false, cli_cqrrt, nullptr,
-                           block_sizes, budget, algs, state, outfile);
+                           block_sizes, budget, num_runs, algs, outfile);
     } else {
         T* A_dense = mat.data();
         RandLAPACK::linops::DenseLinOp<T> A_op(m, n, A_dense, m, Layout::ColMajor);
@@ -353,7 +372,7 @@ static void run_benchmark(int argc, char *argv[]) {
 
         run_with_budget<T>(A_op, svds_fn, norm_A, target_rank,
                            run_gesdd, false, A_dense,
-                           block_sizes, budget, algs, state, outfile);
+                           block_sizes, budget, num_runs, algs, outfile);
     }
 
     long total_us = duration_cast<microseconds>(steady_clock::now() - t_total).count();
@@ -367,7 +386,7 @@ int main(int argc, char *argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision: double|float> <output_dir> <input_file>"
-                  << " <target_rank> <run_gesdd> <budget>"
+                  << " <target_rank> <run_gesdd> <budget> <num_runs>"
                   << " <num_block_sizes> <block_sizes...>"
                   << " [sub_ratio] [use_cqrrt]\n";
         return 1;
