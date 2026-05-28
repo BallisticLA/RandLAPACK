@@ -1,18 +1,22 @@
 // Generalized SVD benchmark
 //
 // Pipeline:
-//   1. Load K.mtx (m x m SPD) and V.mtx (m x n sparse)  (composite mode)
-//      OR a single A.mtx as a SparseLinOp                (sparse mode)
-//   2. (Composite only) Cholesky-factorize K = LL^T, create L^{-1} operator
-//   3. (Composite only) Form CompositeOperator(L_inv_op, V_op) = L^{-1}V
-//   4. Run Q-less QR on the operator via CQRRT_linops (TRSM_IDENTITY preconditioner)
-//   5. SVD post-processing: gesdd of R for generalized singular values + vectors
-//
-// (For LS post-processing on Kronecker-structured operators see CQRRT_linop_nmr.)
+//   1. Load matrices (FEM mode: K, M, V .mtx files; sparse mode: a single A.mtx).
+//   2. (FEM only) Cholesky-factorize M = L L^T via CholSolverLinOp(half_solve=true).
+//   3. (FEM only) Build J = L^{-1} K V as a doubly-nested CompositeOperator
+//      J = CompositeOperator(L_inv_op, CompositeOperator(K_op, V_op)).
+//      This is the Petrov-Galerkin form B^{-1} A U_h with B = chol(M), A = K, U_h = V.
+//      Because L factors M (not K), the composite does NOT algebraically collapse;
+//      the LS normal equations land on J^T J = V^T K M^{-1} K V (Galerkin coarse-grid
+//      mass-weighted stiffness-squared).
+//   4. Run Q-less QR on the operator via CQRRT_linops (TRSM_IDENTITY preconditioner).
+//   5. SVD post-processing: gesdd of R for generalized singular values + vectors.
 //
 // Usage:
-//   ./CQRRT_linop_applications <prec> <outdir> <runs> <K_file|sparse> <V_file|A_file> <d_factor>
-//                    [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]
+//   ./CQRRT_linop_applications <prec> <outdir> <runs>
+//          sparse <A_file> <d_factor> [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]
+//   ./CQRRT_linop_applications <prec> <outdir> <runs>
+//          <K_file> <M_file> <V_file> <d_factor> [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -606,104 +610,168 @@ static int run_benchmark_inner(
 
 template <typename T, typename RNG = r123::Philox4x32>
 int run_benchmark(int argc, char* argv[]) {
+    // Sparse mode:   <prec> <out> <runs> sparse <A_file>            <d_factor> [...]      (argc >= 7)
+    // FEM mode:      <prec> <out> <runs> <K_file> <M_file> <V_file> <d_factor> [...]      (argc >= 8)
+    //
+    // FEM operator is the Petrov-Galerkin form J = L^{-1} * K * V, where L = chol(M)
+    // (mass-matrix factor applied via half-solve).  Built as a doubly-nested
+    // CompositeOperator:
+    //     J = CompositeOperator(L_inv_op, CompositeOperator(K_op, V_op))
     if (argc < 7) {
         std::cerr << "Usage: " << argv[0]
-                  << " <precision> <output_dir> <num_runs> <K_file|sparse> <V_file|A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n"
-                  << "  sparse mode: pass 'sparse' as K_file and a single A.mtx as V_file\n";
+                  << " <precision> <output_dir> <num_runs>\n"
+                  << "    sparse mode: 'sparse' <A_file> <d_factor> [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n"
+                  << "    FEM mode:    <K_file> <M_file> <V_file> <d_factor> [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n";
         return 1;
     }
 
     std::string output_dir = argv[2];
     int64_t num_runs       = std::stol(argv[3]);
-    std::string K_file     = argv[4];
-    std::string V_file     = argv[5];
-    T d_factor             = std::stod(argv[6]);
-    int64_t sketch_nnz     = (argc >= 8)  ? std::stol(argv[7])  : 4;
-    int64_t block_size     = (argc >= 9)  ? std::stol(argv[8])  : 0;
-    bool skip_apps         = (argc >= 10) ? (std::stol(argv[9])  != 0) : false;
-    bool compute_cond      = (argc >= 11) ? (std::stol(argv[10]) != 0) : false;
-    bool upcast_orth       = (argc >= 12) ? (std::stol(argv[11]) != 0) : false;
+    std::string arg4       = argv[4];
+    bool sparse_mode       = (arg4 == "sparse");
 
-    bool sparse_mode = (K_file == "sparse");
+    std::string K_file, M_file, V_file, A_file;
+    T d_factor;
+    int dfactor_idx;   // index of d_factor in argv; subsequent optional args follow
+
+    if (sparse_mode) {
+        if (argc < 7) {
+            std::cerr << "Error: sparse mode needs <A_file> <d_factor>\n";
+            return 1;
+        }
+        A_file     = argv[5];
+        d_factor   = std::stod(argv[6]);
+        dfactor_idx = 6;
+    } else {
+        if (argc < 8) {
+            std::cerr << "Error: FEM mode needs <K_file> <M_file> <V_file> <d_factor>\n";
+            return 1;
+        }
+        K_file     = arg4;
+        M_file     = argv[5];
+        V_file     = argv[6];
+        d_factor   = std::stod(argv[7]);
+        dfactor_idx = 7;
+    }
+
+    auto opt_long = [&](int rel, int64_t def) {
+        int idx = dfactor_idx + rel;
+        return (argc > idx) ? std::stol(argv[idx]) : def;
+    };
+    int64_t sketch_nnz  = opt_long(1, 4);
+    int64_t block_size  = opt_long(2, 0);
+    bool skip_apps      = (opt_long(3, 0) != 0);
+    bool compute_cond   = (opt_long(4, 0) != 0);
+    bool upcast_orth    = (opt_long(5, 0) != 0);
 
     std::cout << "=== GSVD/Generalized LS Benchmark ===\n";
     if (sparse_mode) {
-        std::cout << "  Mode: sparse (single-matrix SparseLinOp)\n";
-        std::cout << "  A file: " << V_file << "\n";
+        std::cout << "  Mode: sparse (single-matrix SparseLinOp)\n"
+                  << "  A file: " << A_file << "\n";
     } else {
-        std::cout << "  Mode: composite (L^{-1}V)\n";
-        std::cout << "  K file: " << K_file << "\n";
-        std::cout << "  V file: " << V_file << "\n";
+        std::cout << "  Mode: FEM composite (J = L^{-1} K V with L = chol(M))\n"
+                  << "  K file: " << K_file << "\n"
+                  << "  M file: " << M_file << "\n"
+                  << "  V file: " << V_file << "\n";
     }
-    std::cout << "  d_factor: " << d_factor << "\n";
-    std::cout << "  sketch_nnz: " << sketch_nnz << "\n";
-    std::cout << "  block_size: " << block_size << "\n";
-    std::cout << "  skip_apps: " << (skip_apps ? "yes" : "no") << "\n";
-    std::cout << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n";
-    std::cout << "  upcast_orth: " << (upcast_orth ? "yes" : "no") << "\n";
-    std::cout << "  num_runs: " << num_runs << "\n";
+    std::cout << "  d_factor: " << d_factor << "\n"
+              << "  sketch_nnz: " << sketch_nnz << "\n"
+              << "  block_size: " << block_size << "\n"
+              << "  skip_apps: " << (skip_apps ? "yes" : "no") << "\n"
+              << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n"
+              << "  upcast_orth: " << (upcast_orth ? "yes" : "no") << "\n"
+              << "  num_runs: " << num_runs << "\n"
 #ifdef _OPENMP
-    std::cout << "  OpenMP threads: " << omp_get_max_threads() << "\n\n";
+              << "  OpenMP threads: " << omp_get_max_threads() << "\n\n";
 #else
-    std::cout << "  OpenMP threads: 1\n\n";
+              << "  OpenMP threads: 1\n\n";
 #endif
-
-    // ================================================================
-    // Step 1: Load A (sparse mode) or V (composite mode) from Matrix Market
-    // ================================================================
-    std::cout << "Loading " << (sparse_mode ? "A" : "V") << " from " << V_file << "... " << std::flush;
-    int64_t m, n, nnz_V;
-    auto V_csr = load_csr<T>(V_file, m, n, nnz_V);
-    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> V_linop(m, n, V_csr);
-    std::cout << "done (" << m << " x " << n << ", nnz=" << nnz_V << ")\n";
-
-    if (m < n) {
-        std::cerr << "Error: matrix must be overdetermined (m >= n), got " << m << "x" << n << "\n";
-        return 1;
-    }
 
     // ================================================================
     // Sparse mode: wrap A directly as SparseLinOp, skip Cholesky
     // ================================================================
     if (sparse_mode) {
+        std::cout << "Loading A from " << A_file << "... " << std::flush;
+        int64_t m, n, nnz_A;
+        auto A_csr = load_csr<T>(A_file, m, n, nnz_A);
+        RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
+        std::cout << "done (" << m << " x " << n << ", nnz=" << nnz_A << ")\n";
+
+        if (m < n) {
+            std::cerr << "Error: matrix must be overdetermined (m >= n), got " << m << "x" << n << "\n";
+            return 1;
+        }
         return run_benchmark_inner<T, RNG>(
-            V_linop, m, n, output_dir, num_runs,
+            A_linop, m, n, output_dir, num_runs,
             d_factor, sketch_nnz, block_size,
             skip_apps, compute_cond, upcast_orth,
-            0L /*chol_time_us*/, "sparse", V_file,
-            "A (" + V_file + ")");
+            0L /*chol_time_us*/, "sparse", A_file,
+            "A (" + A_file + ")");
     }
 
     // ================================================================
-    // Composite mode: Cholesky-factorize K, build L^{-1}V composite operator
+    // FEM mode: load K, V; Cholesky-factorize M; build J = L^{-1} * K * V
+    // as a doubly-nested CompositeOperator.
     // ================================================================
-    std::cout << "Factorizing K = LL^T from " << K_file << "... " << std::flush;
+    std::cout << "Loading K (stiffness) from " << K_file << "... " << std::flush;
+    int64_t m_K, n_K, nnz_K;
+    auto K_csr = load_csr<T>(K_file, m_K, n_K, nnz_K);
+    std::cout << "done (" << m_K << " x " << n_K << ", nnz=" << nnz_K << ")\n";
+    if (m_K != n_K) {
+        std::cerr << "Error: K must be square; got " << m_K << " x " << n_K << "\n";
+        return 1;
+    }
+    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> K_op(m_K, m_K, K_csr);
 
-    RandLAPACK_extras::linops::CholSolverLinOp<T> L_inv_op(K_file, /*half_solve=*/true);
+    std::cout << "Loading V (prolongation) from " << V_file << "... " << std::flush;
+    int64_t m_V, n_V, nnz_V;
+    auto V_csr = load_csr<T>(V_file, m_V, n_V, nnz_V);
+    std::cout << "done (" << m_V << " x " << n_V << ", nnz=" << nnz_V << ")\n";
+    if (m_V != m_K) {
+        std::cerr << "Error: V row count (" << m_V << ") must match K size (" << m_K << ")\n";
+        return 1;
+    }
+    if (m_V < n_V) {
+        std::cerr << "Error: need tall V (m_fine >= n_coarse); got " << m_V << " x " << n_V << "\n";
+        return 1;
+    }
+    RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> V_op(m_V, n_V, V_csr);
+
+    std::cout << "Factorizing M = L L^T from " << M_file << "... " << std::flush;
+    RandLAPACK_extras::linops::CholSolverLinOp<T> L_inv_op(M_file, /*half_solve=*/true);
     auto chol_start = steady_clock::now();
     L_inv_op.factorize();
     auto chol_stop = steady_clock::now();
     long chol_time_us = duration_cast<microseconds>(chol_stop - chol_start).count();
     std::cout << "done (" << chol_time_us << " us)\n";
+    if (L_inv_op.n_rows != m_K) {
+        std::cerr << "Error: M size (" << L_inv_op.n_rows << ") must match K size ("
+                  << m_K << ")\n";
+        return 1;
+    }
 
-    RandLAPACK::linops::CompositeOperator LiV_op(m, n, L_inv_op, V_linop);
-    LiV_op.block_size = block_size;
-    std::cout << "Composite operator L^{-1}V: " << m << " x " << n << "\n\n";
+    int64_t m = m_V;
+    int64_t n = n_V;
+    RandLAPACK::linops::CompositeOperator KV_op(m, n, K_op, V_op);
+    KV_op.block_size = block_size;
+    RandLAPACK::linops::CompositeOperator J_op(m, n, L_inv_op, KV_op);
+    J_op.block_size = block_size;
+    std::cout << "Composite operator J = L^{-1} K V : " << m << " x " << n << "\n\n";
 
     return run_benchmark_inner<T, RNG>(
-        LiV_op, m, n, output_dir, num_runs,
+        J_op, m, n, output_dir, num_runs,
         d_factor, sketch_nnz, block_size,
         skip_apps, compute_cond, upcast_orth,
         chol_time_us, K_file, V_file,
-        "L^{-1}V");
+        "L^{-1} K V (M=" + M_file + ")");
 }
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
-                  << " <precision> <output_dir> <num_runs> <K_file|sparse> <V_file|A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n";
+                  << " <precision> <output_dir> <num_runs>\n"
+                  << "    sparse mode: 'sparse' <A_file> <d_factor> [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n"
+                  << "    FEM mode:    <K_file> <M_file> <V_file> <d_factor> [sketch_nnz] [block_size] [skip_apps] [compute_cond] [upcast_orth]\n";
         return 1;
     }
 
