@@ -64,7 +64,8 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
 
   precision        : "double" or "float"
   output_dir       : directory for the output CSV (use "." for current directory)
-  input_matrix_path: path to input matrix file (text format, read via mat_gen)
+  input_matrix_path: path to input matrix file (.bin, .txt, or dense-array .mtx;
+                     sparse .mtx is rejected since GESDD requires a dense input)
   m, n             : expected matrix dimensions (verified against file)
   b_sz             : Krylov block size
   num_matmuls      : number of block matrix-vector products (= max_krylov_iters)
@@ -98,6 +99,7 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
+#include "ext_matrix_io.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>
@@ -174,28 +176,29 @@ static void run_analysis(int argc, char *argv[]) {
     }
 
     std::string output_dir    = argv[2];
+    std::string input_path    = argv[3];
     int64_t m_expected        = std::stol(argv[4]);
     int64_t n_expected        = std::stol(argv[5]);
     int64_t b_sz              = std::stol(argv[6]);
     int64_t num_matmuls       = std::stol(argv[7]);
-    int       num_runs        = std::stoi(argv[8]);
+    int     num_runs          = std::stoi(argv[8]);
     T tol                     = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
-    auto state_init           = RandBLAS::RNGState();
-    int64_t m = 0, n = 0;
 
     if (num_runs < 1) {
         std::cerr << "Error: num_runs must be >= 1 (got " << num_runs << ")" << std::endl;
         return;
     }
 
-    // Load input matrix via RandLAPACK's file reader.
-    // First call with NULL queries dimensions; second reads data.
-    RandLAPACK::gen::mat_gen_info<T> m_info(m, n, RandLAPACK::gen::custom_input);
-    m_info.filename = argv[3];
-    m_info.workspace_query_mod = 1;
-    RandLAPACK::gen::mat_gen<T>(m_info, NULL, state_init);
-    m = m_info.rows;
-    n = m_info.cols;
+    // Load input matrix via the unified BenchIO loader (auto-detects .bin / .txt / .mtx).
+    // Accuracy analysis computes a full GESDD on A, so sparse input is not supported.
+    auto mat = BenchIO::load_matrix<T>(input_path);
+    if (mat.is_sparse) {
+        std::cerr << "Error: ABRIK_accuracy_analysis requires dense input; '"
+                  << input_path << "' is sparse." << std::endl;
+        return;
+    }
+    int64_t m = mat.m;
+    int64_t n = mat.n;
 
     if (m_expected != m || n_expected != n) {
         std::cerr << "Expected (" << m_expected << ", " << n_expected
@@ -203,8 +206,7 @@ static void run_analysis(int argc, char *argv[]) {
         return;
     }
 
-    T* A = new T[m * n]();
-    RandLAPACK::gen::mat_gen(m_info, A, state_init);
+    T* A = mat.data();  // owned by `mat`; freed automatically when `mat` goes out of scope
     printf("Matrix loaded: %ld x %ld\n", m, n);
 
     // ======================================================================
@@ -337,7 +339,7 @@ static void run_analysis(int argc, char *argv[]) {
     printf("Results written to: %s\n", path.c_str());
 
     // Cleanup remaining allocations.
-    delete[] A;
+    // (A is owned by `mat` and freed when `mat` goes out of scope.)
     delete[] U_g;
     delete[] S_g;
     delete[] V_g;
