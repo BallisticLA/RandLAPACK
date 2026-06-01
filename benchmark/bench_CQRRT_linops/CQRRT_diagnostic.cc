@@ -59,7 +59,6 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_gen.hh"
-#include "rl_cqrrt_linops.hh"
 
 #include <RandBLAS.hh>
 #include <fstream>

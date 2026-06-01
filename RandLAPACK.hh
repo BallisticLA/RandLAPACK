@@ -28,12 +28,12 @@
 #include "RandLAPACK/comps/rl_syrf.hh"
 #include "RandLAPACK/comps/rl_orth.hh"
 #include "RandLAPACK/comps/rl_rpchol.hh"
+#include "RandLAPACK/comps/rl_cholqr.hh"
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
-#include "RandLAPACK/drivers/rl_cqrrt.hh"
+#include "RandLAPACK/drivers/rl_cqrrt.hh"     // holds both dense CQRRT and CQRRT_linops
 #include "RandLAPACK/drivers/rl_cholqr_linops.hh"
-#include "RandLAPACK/drivers/rl_cqrrt_linops.hh"
 #include "RandLAPACK/drivers/rl_iter_refine_lsq.hh"
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"

@@ -121,25 +121,21 @@ static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t blo
 }
 
 // sCholQR3_linops (fully-blocked):
-//   local:  G(n*n) + R_temp(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
-//   member: G1_factor(n*n) + G2_factor(n*n) + G3_factor(n*n)
-// Peak is right after G3_factor.resize() at the end of iteration 3, where all 6 n*n
-// buffers (G + R_temp + M + G1 + G2 + G3) and the block buffers (A_temp + Z_buf) are live.
+//   local: G(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
+// In-place trmm for R-updates (no R_temp scratch); no persisted G_k_factor members.
 template <typename T>
 static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (6L * n * n + (long)(m + n) * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (2L * n * n + (long)(m + n) * b_eff);
     return bytes / 1024;
 }
 
-// sCholQR3_linops_basic: Q_buf(m*n) + G(n*n) + R_temp(n*n) + M(n*n)
-//                      + G1_factor(n*n) + G2_factor(n*n) + G3_factor(n*n)
+// sCholQR3_linops_basic: Q_buf(m*n) + G(n*n) + M(n*n).
 // Materializes Q = A * R1^{-1} after iteration 1, then uses dense syrk for iterations 2-3.
-// Peak is right after G3_factor.resize() in iteration 3, where Q_buf, the three local
-// n*n workspaces, and all three persisted Cholesky factors are simultaneously live.
+// In-place trmm for R-updates (no R_temp scratch); no persisted G_k_factor members.
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
-    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 6L * n * n);
+    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 2L * n * n);
     return bytes / 1024;
 }
 

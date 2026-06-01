@@ -25,7 +25,6 @@
 #include "cqrrt_bench_common.hh"
 
 // Linops algorithms (now in main RandLAPACK)
-#include "rl_cqrrt_linops.hh"
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
 #include "RandLAPACK/testing/rl_memory_tracker.hh"
