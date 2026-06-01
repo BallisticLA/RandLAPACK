@@ -59,6 +59,17 @@ struct PowerOp {
         randblas_require(power >= 1);                   // identity (j=0) not supported; caller can lacpy
     }
 
+    // Concept-required 12-arg overload (no Side); delegates to Side::Left.
+    void operator()(
+        Layout layout, Op trans_A, Op trans_B,
+        int64_t m, int64_t n, int64_t k,
+        T alpha, T* const B, int64_t ldb,
+        T beta, T* C, int64_t ldc)
+    {
+        (*this)(Side::Left, layout, trans_A, trans_B,
+                m, n, k, alpha, B, ldb, beta, C, ldc);
+    }
+
     // C := alpha * (base^j)^{trans_A} * op_{trans_B}(B) + beta * C
     //
     // Since base is square (N x N), m == k == N for any valid Side::Left call.

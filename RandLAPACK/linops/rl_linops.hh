@@ -15,5 +15,6 @@
 #include "rl_sparse_linop.hh"
 #include "rl_composite_linop.hh"
 #include "rl_power_linop.hh"
+#include "rl_transposed_linop.hh"
 #include "rl_sym_linops.hh"
 #include "rl_materialize.hh"
