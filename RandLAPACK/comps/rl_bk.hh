@@ -721,7 +721,11 @@ class BK {
                 // Set output state
                 this->norm_R_end = norm_R;
                 this->num_krylov_iters = iter;
-                end_cols = iter * k / 2;
+                // Ceiling division: matches the actual Y_od column count after `iter` half-steps.
+                // For even k this is identical to iter*k/2; for odd k (notably k=1) the old
+                // floor formula undercounted by one when iter was odd, producing end_cols=0
+                // on the very first checkpoint of call_with_checkpoints at b_sz=1.
+                end_cols = (iter * k + 1) / 2;
                 iter % 2 == 0 ? end_rows = end_cols + k : end_rows = end_cols;
                 final_iter_is_odd = (iter % 2 != 0);
 
