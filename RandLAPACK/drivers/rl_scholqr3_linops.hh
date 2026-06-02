@@ -112,7 +112,6 @@ class sCholQR3_linops {
                 A, R, ldr,
                 shift_factor_iter1,
                 this->block_size,
-                G, A_temp,
                 fwd1_dur, adj1_dur, chol1_dur, this->timing);
             if (info != 0) {
                 delete[] G; delete[] R_pre; delete[] P_prev;
@@ -303,7 +302,6 @@ class sCholQR3_linops_basic {
                 A, R, ldr,
                 shift_factor_iter1,
                 /*block_size=*/0,   // basic variant is non-blocked
-                G, Q_buf,           // re-use Q_buf as the m × b_eff scratch for cholqr_primitive
                 fwd1_dur, adj1_dur, chol1_dur, this->timing);
             if (info != 0) {
                 delete[] Q_buf; delete[] G; delete[] M;

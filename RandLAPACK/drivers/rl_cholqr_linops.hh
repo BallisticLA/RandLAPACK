@@ -80,22 +80,13 @@ class CholQR_linops {
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
                           ? this->block_size : n;
 
-            // Allocate workspaces for the primitive: G (n×n) and A_temp (m×b_eff).
-            if (this->timing) t0 = steady_clock::now();
-            T* G      = new T[n * n]();
-            T* A_temp = new T[m * b_eff];
-            if (this->timing) { t1 = steady_clock::now(); alloc_dur = duration_cast<microseconds>(t1 - t0).count(); }
-
             int info = cholqr_primitive<T, GLO>(
                 A, R, ldr,
                 /*shift_factor=*/T(0),
                 this->block_size,
-                G, A_temp,
                 fwd_dur, adj_dur, chol_dur, this->timing);
 
             if (info != 0) {
-                delete[] G;
-                delete[] A_temp;
                 return info;
             }
 
@@ -134,8 +125,6 @@ class CholQR_linops {
                 this->times = {alloc_dur, fwd_dur, adj_dur, chol_dur, rest_dur, total_dur};
             }
 
-            delete[] G;
-            delete[] A_temp;
             return 0;
         }
 };

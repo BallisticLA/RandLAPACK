@@ -141,10 +141,10 @@ void blocked_preconditioned_gram(
 //               iter-1 spec wants s = 11 * eps * n * ||A||_F^2 so the caller
 //               passes shift_factor = 11 * eps * n. Pass 0 for unshifted CholQR.
 //
-// Workspaces (caller-owned):
-//   R       — n × n output buffer (lower triangle returned zeroed)
-//   G       — n × n Gram scratch
-//   A_temp  — m × b_eff
+// Output:
+//   R — n × n upper-triangular (lower triangle returned zeroed).
+//
+// Workspaces (G n×n, A_temp m×b_eff) are allocated and freed internally.
 //
 // Returns potrf info (0 on success; >0 on Cholesky breakdown).
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
@@ -153,8 +153,6 @@ int cholqr_primitive(
     T* R, int64_t ldr,
     T shift_factor,
     int64_t block_size,
-    T* G,
-    T* A_temp,
     long& fwd_us, long& adj_us, long& chol_us,
     bool timing)
 {
@@ -164,6 +162,9 @@ int cholqr_primitive(
     int64_t m = A.n_rows;
     int64_t n = A.n_cols;
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+
+    T* G      = new T[n * n]();
+    T* A_temp = new T[m * b_eff];
 
     long gemm_unused = 0;
     blocked_preconditioned_gram<T, GLO>(A, (const T*)nullptr, G, m, n, b_eff,
@@ -184,7 +185,11 @@ int cholqr_primitive(
     if (n > 1)
         lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
     int info = lapack::potrf(Uplo::Upper, n, G, n);
-    if (info) return info;
+    if (info) {
+        delete[] G;
+        delete[] A_temp;
+        return info;
+    }
 
     lapack::lacpy(MatrixType::Upper, n, n, G, n, R, ldr);
     if (n > 1)
@@ -194,6 +199,9 @@ int cholqr_primitive(
         t1 = steady_clock::now();
         chol_us = duration_cast<microseconds>(t1 - t0).count();
     }
+
+    delete[] G;
+    delete[] A_temp;
     return 0;
 }
 
