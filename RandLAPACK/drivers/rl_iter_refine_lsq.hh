@@ -127,16 +127,22 @@ struct IterRefineLSQ {
         inner_iters_per_step.clear();
         outer_iters_done = 0;
 
-        std::vector<T> r(m);              // residual
-        std::vector<T> g(n);              // J^T r
-        std::vector<T> c(n);              // R^{-T} g
-        std::vector<T> z(n);              // inner-solve output
-        std::vector<T> dx(n);             // R^{-1} z
-
-        // CG workspaces (allocated once, reused across outer steps)
-        std::vector<T> cg_r(n), cg_p(n), cg_Mp(n);
-        // Inside-M-apply workspaces
-        std::vector<T> tmp_n(n), tmp_m(m);
+        // Per-call workspace buffers. Allocated once up front, reused across outer steps.
+        T* r     = new T[m]();   // residual
+        T* g     = new T[n]();   // J^T r
+        T* c     = new T[n]();   // R^{-T} g
+        T* z     = new T[n]();   // inner-solve output
+        T* dx    = new T[n]();   // R^{-1} z
+        T* cg_r  = new T[n]();   // CG residual
+        T* cg_p  = new T[n]();   // CG search direction
+        T* cg_Mp = new T[n]();   // M * p inside CG
+        T* tmp_n = new T[n]();   // R^{-1} p scratch
+        T* tmp_m = new T[m]();   // J * v scratch (m-length)
+        auto free_workspace = [&]() {
+            delete[] r; delete[] g; delete[] c; delete[] z; delete[] dx;
+            delete[] cg_r; delete[] cg_p; delete[] cg_Mp;
+            delete[] tmp_n; delete[] tmp_m;
+        };
 
         T b_norm = blas::nrm2(m, b, 1);
         if (b_norm == (T)0) b_norm = (T)1;  // avoid div-by-zero in residual reporting
@@ -146,13 +152,13 @@ struct IterRefineLSQ {
             //   tmp_m = J*x
             auto t0 = clock::now();
             J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-              m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m.data(), m);
+              m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m, m);
             t_outer_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             //   r = b - tmp_m
             for (int64_t i = 0; i < m; ++i) r[i] = b[i] - tmp_m[i];
 
-            T r_norm = blas::nrm2(m, r.data(), 1);
+            T r_norm = blas::nrm2(m, r, 1);
             if (verbose) {
                 std::printf("[IR-LSQ] step %d: ||r||/||b|| = %.4e\n", step, (double)(r_norm / b_norm));
             }
@@ -160,24 +166,22 @@ struct IterRefineLSQ {
             // g = J^T r
             t0 = clock::now();
             J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-              n, 1, m, (T)1.0, r.data(), m, (T)0.0, g.data(), n);
+              n, 1, m, (T)1.0, r, m, (T)0.0, g, n);
             t_outer_adj += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // c = R^{-T} g  (in-place TRSM on a copy of g)
-            std::copy(g.begin(), g.end(), c.begin());
+            std::copy(g, g + n, c);
             t0 = clock::now();
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                        blas::Op::Trans, blas::Diag::NonUnit,
-                       n, 1, (T)1.0, R, ldr, c.data(), n);
+                       n, 1, (T)1.0, R, ldr, c, n);
             t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // Inner CG on M*z = c
             int inner_iters = 0;
             auto t_in0 = clock::now();
-            int cg_status = inner_cg(J, R, ldr, c.data(), n, m,
-                                     z.data(),
-                                     cg_r.data(), cg_p.data(), cg_Mp.data(),
-                                     tmp_n.data(), tmp_m.data(),
+            int cg_status = inner_cg(J, R, ldr, c, n, m,
+                                     z, cg_r, cg_p, cg_Mp, tmp_n, tmp_m,
                                      inner_iters, t_inner_trsm, t_inner_fwd, t_inner_adj);
             t_inner_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t_in0).count();
             inner_iters_per_step.push_back(inner_iters);
@@ -187,19 +191,20 @@ struct IterRefineLSQ {
                 if (timing) populate_times(outer_start, t_inner_total,
                                             t_outer_trsm, t_outer_fwd, t_outer_adj,
                                             t_inner_trsm, t_inner_fwd, t_inner_adj);
+                free_workspace();
                 return cg_status;
             }
 
             // dx = R^{-1} z
-            std::copy(z.begin(), z.end(), dx.begin());
+            std::copy(z, z + n, dx);
             t0 = clock::now();
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                        blas::Op::NoTrans, blas::Diag::NonUnit,
-                       n, 1, (T)1.0, R, ldr, dx.data(), n);
+                       n, 1, (T)1.0, R, ldr, dx, n);
             t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // x ← x + dx
-            blas::axpy(n, (T)1.0, dx.data(), 1, x, 1);
+            blas::axpy(n, (T)1.0, dx, 1, x, 1);
             outer_iters_done = step + 1;
         }
 
@@ -207,15 +212,16 @@ struct IterRefineLSQ {
         {
             auto t0 = clock::now();
             J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-              m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m.data(), m);
+              m, 1, n, (T)1.0, x, n, (T)0.0, tmp_m, m);
             t_outer_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
             for (int64_t i = 0; i < m; ++i) tmp_m[i] = b[i] - tmp_m[i];
-            final_residual_norm = blas::nrm2(m, tmp_m.data(), 1) / b_norm;
+            final_residual_norm = blas::nrm2(m, tmp_m, 1) / b_norm;
         }
 
         if (timing) populate_times(outer_start, t_inner_total,
                                     t_outer_trsm, t_outer_fwd, t_outer_adj,
                                     t_inner_trsm, t_inner_fwd, t_inner_adj);
+        free_workspace();
         return 0;
     }
 

@@ -106,47 +106,54 @@ struct bench_result {
 template <typename T, typename GLO>
 static void compute_AtA_blocked(GLO& A_op, int64_t m, int64_t n, T* AtA, int64_t b) {
     std::fill(AtA, AtA + n * n, (T)0.0);
-    std::vector<T> E_block(n * b, 0.0);
-    std::vector<T> A_block(m * b, 0.0);
-    std::vector<T> AtA_block(n * b, 0.0);
+    T* E_block   = new T[n * b]();
+    T* A_block   = new T[m * b];
+    T* AtA_block = new T[n * b];
 
     for (int64_t j0 = 0; j0 < n; j0 += b) {
         int64_t bk = std::min(b, n - j0);
 
-        std::fill(E_block.begin(), E_block.end(), (T)0.0);
+        std::fill(E_block, E_block + n * b, (T)0.0);
         for (int64_t j = 0; j < bk; ++j)
             E_block[(j0 + j) + j * n] = (T)1.0;
 
         A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, bk, n, (T)1.0, E_block.data(), n, (T)0.0, A_block.data(), m);
+             m, bk, n, (T)1.0, E_block, n, (T)0.0, A_block, m);
 
         A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-             n, bk, m, (T)1.0, A_block.data(), m, (T)0.0, AtA_block.data(), n);
+             n, bk, m, (T)1.0, A_block, m, (T)0.0, AtA_block, n);
 
-        lapack::lacpy(lapack::MatrixType::General, n, bk, AtA_block.data(), n, AtA + j0 * n, n);
+        lapack::lacpy(lapack::MatrixType::General, n, bk, AtA_block, n, AtA + j0 * n, n);
     }
+
+    delete[] E_block;
+    delete[] A_block;
+    delete[] AtA_block;
 }
 
 // Estimate ||A||_2 via power iteration on A^T A. O(iters * (m+n) memory) — no materialization.
 template <typename T, typename GLO>
 static T estimate_op_2norm(GLO& A_op, int64_t m, int64_t n, int iters = 10) {
-    std::vector<T> v(n), Av(m);
+    T* v  = new T[n];
+    T* Av = new T[m];
     {
         std::mt19937 rng(7);
         std::normal_distribution<T> N01(0, 1);
-        for (auto& x : v) x = N01(rng);
+        for (int64_t i = 0; i < n; ++i) v[i] = N01(rng);
     }
     T sigma = (T)0;
     for (int it = 0; it < iters; ++it) {
-        T nv = blas::nrm2(n, v.data(), 1);
-        if (nv == 0) return (T)0;
-        blas::scal(n, (T)1.0 / nv, v.data(), 1);
+        T nv = blas::nrm2(n, v, 1);
+        if (nv == 0) { delete[] v; delete[] Av; return (T)0; }
+        blas::scal(n, (T)1.0 / nv, v, 1);
         A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, 1, n, (T)1.0, v.data(), n, (T)0.0, Av.data(), m);
-        sigma = blas::nrm2(m, Av.data(), 1);
+             m, 1, n, (T)1.0, v, n, (T)0.0, Av, m);
+        sigma = blas::nrm2(m, Av, 1);
         A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-             n, 1, m, (T)1.0, Av.data(), m, (T)0.0, v.data(), n);
+             n, 1, m, (T)1.0, Av, m, (T)0.0, v, n);
     }
+    delete[] v;
+    delete[] Av;
     return sigma;
 }
 
@@ -156,16 +163,17 @@ static T estimate_op_2norm(GLO& A_op, int64_t m, int64_t n, int iters = 10) {
 template <typename T, typename GLO>
 static T compute_orth_error_memlite(GLO& A_op, const T* R, int64_t m, int64_t n, int64_t block_size) {
     int64_t b = (block_size > 0) ? block_size : 256;
-    std::vector<T> X(n * n, (T)0);
-    compute_AtA_blocked(A_op, m, n, X.data(), b);
+    T* X = new T[n * n]();
+    compute_AtA_blocked(A_op, m, n, X, b);
     blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-               blas::Op::Trans, blas::Diag::NonUnit, n, n, (T)1.0, R, n, X.data(), n);
+               blas::Op::Trans, blas::Diag::NonUnit, n, n, (T)1.0, R, n, X, n);
     blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper,
-               blas::Op::NoTrans, blas::Diag::NonUnit, n, n, (T)1.0, R, n, X.data(), n);
+               blas::Op::NoTrans, blas::Diag::NonUnit, n, n, (T)1.0, R, n, X, n);
     for (int64_t i = 0; i < n; ++i) X[i + i * n] -= (T)1.0;
     T s = 0;
     #pragma omp parallel for reduction(+:s) schedule(static)
     for (int64_t i = 0; i < n * n; ++i) s += X[i] * X[i];
+    delete[] X;
     return std::sqrt(s) / std::sqrt((T)n);
 }
 
@@ -386,11 +394,12 @@ static int run_benchmark_inner(
     std::cout << "Running warmup... " << std::flush;
     {
         auto warm_state = run_states[0];
-        std::vector<T> R_warm(n * n, (T)0);
+        T* R_warm = new T[n * n]();
         RandLAPACK::CQRRT_linops<T, RNG> warm_algo(false, tol, false);
         warm_algo.nnz = sketch_nnz;
         warm_algo.block_size = block_size;
-        warm_algo.call(A_op, R_warm.data(), n, d_factor, warm_state);
+        warm_algo.call(A_op, R_warm, n, d_factor, warm_state);
+        delete[] R_warm;
     }
     std::cout << "done\n\n";
 
@@ -408,6 +417,14 @@ static int run_benchmark_inner(
     if (x_true_ptr) x_true_norm = blas::nrm2(n, x_true_ptr->data(), 1);
 
     std::vector<bench_result<T>> all_results;
+
+    // Per-iteration workspaces, hoisted once: invariant sizes across all (alg, run) iters.
+    const int64_t d_init = (int64_t)(d_factor * (T)n);
+    T* R    = new T[n * n]();    // QR output; zero-filled per iter to match prior behavior
+    T* SA   = new T[d_init * n]; // S2 * A (sketch-and-solve LHS); overwritten beta=0
+    T* Sb   = new T[d_init];     // S2 * b; overwritten beta=0
+    T* x_ls = new T[n];          // initial guess + refined solution
+    T* Ax   = new T[m];          // A * x_ls for residual; overwritten beta=0
 
     // ================================================================
     // Per-(method, run) loop
@@ -434,7 +451,7 @@ static int run_benchmark_inner(
             res.peak_rss_kb = 0;
             res.analytical_kb = 0;
 
-            std::vector<T> R(n * n, (T)0);
+            std::fill(R, R + n * n, (T)0);
             auto state = run_states[run_idx];
 
             // ---- QR dispatch (5-way, lifted verbatim from CQRRT_linop_irlsq.cc) ----
@@ -443,7 +460,7 @@ static int run_benchmark_inner(
             if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.block_size = block_size;
-                res.qr_status = qr_algo.call(A_op, R.data(), n);
+                res.qr_status = qr_algo.call(A_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[17];
@@ -452,7 +469,7 @@ static int run_benchmark_inner(
                 }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<T> qr_algo(/*time_subroutines=*/true, tol);
-                res.qr_status = qr_algo.call(A_op, R.data(), n);
+                res.qr_status = qr_algo.call(A_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[14];
@@ -462,7 +479,7 @@ static int run_benchmark_inner(
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<T> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.block_size = block_size;
-                res.qr_status = qr_algo.call(A_op, R.data(), n);
+                res.qr_status = qr_algo.call(A_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[5];
@@ -478,7 +495,7 @@ static int run_benchmark_inner(
                     qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
                 else /* CQRRT_linop_bqrrp */
                     qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::BQRRP;
-                res.qr_status = qr_algo.call(A_op, R.data(), n, d_factor, state);
+                res.qr_status = qr_algo.call(A_op, R, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[10];
@@ -504,7 +521,7 @@ static int run_benchmark_inner(
             std::cout << "done (" << res.qr_time_us << " us)";
 
             // ---- Orth_error: ||Q^T Q - I||_F / sqrt(n), blocked compute. Runs for every method. ----
-            res.orth_error = compute_orth_error_memlite(A_op, R.data(), m, n, block_size);
+            res.orth_error = compute_orth_error_memlite(A_op, R, m, n, block_size);
 
             // ---- IR-LSQ post-processing ----
             {
@@ -514,39 +531,35 @@ static int run_benchmark_inner(
 
                 // Sketch-and-solve initial guess x_0 (Alg. 1 line 3 of Epperly–Meier–Nakatsukasa 2025);
                 // fresh sparse sketch S_2 independent of CQRRT's S_1.
-                const int64_t d_init = (int64_t)(d_factor * (T)n);
                 RandBLAS::SparseDist DS_init(d_init, m, sketch_nnz);
                 auto x0_state = state;
                 x0_state.key.incr(0xA1B2C3D4u);
                 RandBLAS::SparseSkOp<T, RNG> S2(DS_init, x0_state);
                 RandBLAS::fill_sparse(S2);
 
-                std::vector<T> SA(d_init * n, (T)0);
                 A_op(blas::Side::Right, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                     d_init, n, m, (T)1.0, S2, (T)0.0, SA.data(), d_init);
+                     d_init, n, m, (T)1.0, S2, (T)0.0, SA, d_init);
 
-                std::vector<T> Sb(d_init, (T)0);
                 RandBLAS::sketch_general(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
                                          d_init, (int64_t)1, m, (T)1.0,
-                                         S2, b.data(), m, (T)0.0, Sb.data(), d_init);
+                                         S2, b.data(), m, (T)0.0, Sb, d_init);
 
-                std::vector<T> x_ls(n, (T)0);
                 blas::gemv(blas::Layout::ColMajor, blas::Op::Trans, d_init, n,
-                           (T)1.0, SA.data(), d_init, Sb.data(), 1,
-                           (T)0.0, x_ls.data(), 1);
+                           (T)1.0, SA, d_init, Sb, 1,
+                           (T)0.0, x_ls, 1);
                 blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                            blas::Op::Trans, blas::Diag::NonUnit, n, 1,
-                           (T)1.0, R.data(), n, x_ls.data(), n);
+                           (T)1.0, R, n, x_ls, n);
                 blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                            blas::Op::NoTrans, blas::Diag::NonUnit, n, 1,
-                           (T)1.0, R.data(), n, x_ls.data(), n);
+                           (T)1.0, R, n, x_ls, n);
 
                 RandLAPACK::IterRefineLSQ<T> ir(/*tol=*/tol,
                                                 /*max_inner=*/200,
                                                 /*n_steps=*/2,
                                                 /*timing=*/true,
                                                 /*verbose=*/false);
-                int ir_status = ir.call(A_op, R.data(), n, b.data(), m, x_ls.data(), n);
+                int ir_status = ir.call(A_op, R, n, b.data(), m, x_ls, n);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) {
                     std::cerr << "Warning: IterRefineLSQ status " << ir_status << " (CG breakdown)\n";
@@ -561,14 +574,13 @@ static int run_benchmark_inner(
                 // Higham normwise backward-error metric:
                 //   ls_residual_norm = ||A x - b|| / (||A||_2 * ||x|| + ||b||)
                 // Drivable to machine epsilon for a backward-stable LS solver.
-                std::vector<T> Ax(m, (T)0);
                 A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                     m, 1, n, (T)1.0, x_ls.data(), n, (T)0.0, Ax.data(), m);
+                     m, 1, n, (T)1.0, x_ls, n, (T)0.0, Ax, m);
                 T resid_sq = 0;
                 #pragma omp parallel for reduction(+:resid_sq) schedule(static)
                 for (int64_t i = 0; i < m; ++i) { T d = Ax[i] - b[i]; resid_sq += d * d; }
                 T resid_norm = std::sqrt(resid_sq);
-                T x_norm     = blas::nrm2(n, x_ls.data(), 1);
+                T x_norm     = blas::nrm2(n, x_ls, 1);
                 T denom      = A_2norm * x_norm + b_norm;
                 res.ls_residual_norm = (denom > 0) ? resid_norm / denom : (T)-1.0;
 
@@ -606,6 +618,7 @@ static int run_benchmark_inner(
     write_irlsq_breakdown<T>(breakdown_file, all_results);
     std::cout << "IR-LSQ breakdown written to " << breakdown_file << "\n";
 
+    delete[] R; delete[] SA; delete[] Sb; delete[] x_ls; delete[] Ax;
     return 0;
 }
 
@@ -658,15 +671,19 @@ static int run_rspec_benchmark(
     std::cout << "Running rspec warmup... " << std::flush;
     {
         auto warm_state = run_states[0];
-        std::vector<T> R_warm(n * n, (T)0);
+        T* R_warm = new T[n * n]();
         RandLAPACK::CQRRT_linops<T, RNG> warm_algo(false, tol, false);
         warm_algo.nnz = sketch_nnz;
         warm_algo.block_size = block_size;
-        warm_algo.call(V_app_op, R_warm.data(), n, d_factor, warm_state);
+        warm_algo.call(V_app_op, R_warm, n, d_factor, warm_state);
+        delete[] R_warm;
     }
     std::cout << "done\n\n";
 
     std::vector<rspec_result<T>> all_results;
+
+    // Per-iteration QR output; invariant size across all (alg, run) iters.
+    T* R = new T[n * n]();
 
     for (const auto& alg_name : selected_algs) {
         std::cout << "\n=== Algorithm: " << alg_name << " (rspec) ===\n";
@@ -686,7 +703,7 @@ static int run_rspec_benchmark(
 
             auto rspec_t0 = steady_clock::now();
 
-            std::vector<T> R(n * n, (T)0);
+            std::fill(R, R + n * n, (T)0);
             auto state = run_states[run_idx];
 
             std::cout << "[Run " << run_idx << ", " << alg_name << "] PCholQR ... " << std::flush;
@@ -694,7 +711,7 @@ static int run_rspec_benchmark(
             if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(true, tol);
                 qr_algo.block_size = block_size;
-                res.qr_status = qr_algo.call(V_app_op, R.data(), n);
+                res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[17];
@@ -702,7 +719,7 @@ static int run_rspec_benchmark(
                 }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<T> qr_algo(true, tol);
-                res.qr_status = qr_algo.call(V_app_op, R.data(), n);
+                res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[14];
@@ -711,7 +728,7 @@ static int run_rspec_benchmark(
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<T> qr_algo(true, tol);
                 qr_algo.block_size = block_size;
-                res.qr_status = qr_algo.call(V_app_op, R.data(), n);
+                res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[5];
@@ -725,7 +742,7 @@ static int run_rspec_benchmark(
                     qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
                 else
                     qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::BQRRP;
-                res.qr_status = qr_algo.call(V_app_op, R.data(), n, d_factor, state);
+                res.qr_status = qr_algo.call(V_app_op, R, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[10];
@@ -795,11 +812,11 @@ static int run_rspec_benchmark(
             // Apply R^{-T} on the left: T := R^{-T} * T
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                        blas::Op::Trans, blas::Diag::NonUnit,
-                       n, n, (T)1.0, R.data(), n, T_mat, n);
+                       n, n, (T)1.0, R, n, T_mat, n);
             // Apply R^{-1} on the right: T := T * R^{-1}
             blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper,
                        blas::Op::NoTrans, blas::Diag::NonUnit,
-                       n, n, (T)1.0, R.data(), n, T_mat, n);
+                       n, n, (T)1.0, R, n, T_mat, n);
 
             // Symmetrize: T := (T + T^T)/2
             for (int64_t j = 0; j < n; ++j) {
@@ -860,7 +877,7 @@ static int run_rspec_benchmark(
             // R^{-1} * u_blk
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                        blas::Op::NoTrans, blas::Diag::NonUnit,
-                       n, top_k, (T)1.0, R.data(), n, u_blk, n);
+                       n, top_k, (T)1.0, R, n, u_blk, n);
 
             // v_blk = V_app_op * (R^{-1} u_blk)   (m x top_k)
             T* v_blk = new T[(size_t)m * (size_t)top_k]();
@@ -933,6 +950,7 @@ static int run_rspec_benchmark(
                        K_file, M_file, V_file, omega, power_j,
                        sketch_nnz, block_size, method_mask, top_k);
     std::cout << "\nRSPEC results written to " << results_file << "\n";
+    delete[] R;
     return 0;
 }
 
