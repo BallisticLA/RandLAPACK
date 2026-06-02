@@ -606,9 +606,7 @@ static int run_benchmark_inner(
     // ================================================================
     // CSV output
     // ================================================================
-    char time_buf[64];
-    time_t now = time(nullptr);
-    strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", localtime(&now));
+    std::string time_buf = make_run_timestamp();
 
     std::string results_file   = output_dir + "/" + time_buf + "_irlsq_results.csv";
     std::string breakdown_file = output_dir + "/" + time_buf + "_irlsq_breakdown.csv";
@@ -942,9 +940,7 @@ static int run_rspec_benchmark(
     }
 
     // CSV output
-    char time_buf[64];
-    time_t now = time(nullptr);
-    strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", localtime(&now));
+    std::string time_buf = make_run_timestamp();
     std::string results_file = output_dir + "/" + time_buf + "_rspec_results.csv";
     write_rspec_csv<T>(results_file, all_results, m, n, num_runs,
                        K_file, M_file, V_file, omega, power_j,
@@ -1070,11 +1066,9 @@ int run_benchmark(int argc, char* argv[]) {
     // Sparse mode: SparseLinOp directly, no Cholesky.
     // ================================================================
     if (sparse_mode) {
-        std::cout << "Loading A from " << A_file << "... " << std::flush;
         int64_t m, n, nnz_A;
-        auto A_csr = load_csr<T>(A_file, m, n, nnz_A);
+        auto A_csr = load_csr_verbose<T>("A", A_file, m, n, nnz_A);
         RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
-        std::cout << "done (" << m << " x " << n << ", nnz=" << nnz_A << ")\n";
 
         if (m < n) {
             std::cerr << "Error: matrix must be overdetermined (m >= n), got " << m << "x" << n << "\n";
@@ -1115,20 +1109,16 @@ int run_benchmark(int argc, char* argv[]) {
     // ================================================================
     // FEM mode: load K, V; Cholesky-factorize M; build J = L^{-1} K V.
     // ================================================================
-    std::cout << "Loading K (stiffness) from " << K_file << "... " << std::flush;
     int64_t m_K, n_K, nnz_K;
-    auto K_csr = load_csr<T>(K_file, m_K, n_K, nnz_K);
-    std::cout << "done (" << m_K << " x " << n_K << ", nnz=" << nnz_K << ")\n";
+    auto K_csr = load_csr_verbose<T>("K (stiffness)", K_file, m_K, n_K, nnz_K);
     if (m_K != n_K) {
         std::cerr << "Error: K must be square; got " << m_K << " x " << n_K << "\n";
         return 1;
     }
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> K_op(m_K, m_K, K_csr);
 
-    std::cout << "Loading V (prolongation) from " << V_file << "... " << std::flush;
     int64_t m_V, n_V, nnz_V;
-    auto V_csr = load_csr<T>(V_file, m_V, n_V, nnz_V);
-    std::cout << "done (" << m_V << " x " << n_V << ", nnz=" << nnz_V << ")\n";
+    auto V_csr = load_csr_verbose<T>("V (prolongation)", V_file, m_V, n_V, nnz_V);
     if (m_V != m_K) {
         std::cerr << "Error: V row count (" << m_V << ") must match K size (" << m_K << ")\n";
         return 1;
@@ -1207,10 +1197,7 @@ int run_benchmark(int argc, char* argv[]) {
                       << e.what() << "\n";
 
             // Write a single sentinel row to the CSV and return cleanly.
-            char time_buf[64];
-            time_t now = time(nullptr);
-            strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", localtime(&now));
-            std::string results_file = output_dir + "/" + time_buf + "_rspec_results.csv";
+            std::string results_file = output_dir + "/" + make_run_timestamp() + "_rspec_results.csv";
 
             std::vector<rspec_result<T>> stub;
             rspec_result<T> r{};
