@@ -113,11 +113,6 @@ static constexpr const char* PATH_DESCS[N_PATHS] = {
 // ============================================================================
 
 template <typename T>
-static T orth_error(const T* Q, int64_t m, int64_t n) {
-    return RandLAPACK::testing::orthogonality_error<T>(Q, m, n);
-}
-
-template <typename T>
 static T rel_diff(const T* A, const T* B, int64_t len) {
     T nd = 0, na = 0;
     for (int64_t i = 0; i < len; ++i) {
@@ -127,22 +122,13 @@ static T rel_diff(const T* A, const T* B, int64_t len) {
     return (na > 0) ? std::sqrt(nd / na) : std::sqrt(nd);
 }
 
-template <typename T>
-static T condition_number(const T* A, int64_t m, int64_t n) {
-    std::vector<T> tmp(A, A + m * n);
-    std::vector<T> s(n);
-    lapack::gesdd(lapack::Job::NoVec, m, n, tmp.data(), m,
-                  s.data(), nullptr, 1, nullptr, 1);
-    return (s[n-1] > 0) ? s[0] / s[n-1] : std::numeric_limits<T>::infinity();
-}
-
-// Condition number of the Gram matrix G = A_pre^T A_pre
+// Condition number of the Gram matrix G = A_pre^T A_pre.
 template <typename T>
 static T gram_condition_number(const T* A_pre, int64_t m, int64_t n) {
     std::vector<T> G(n * n, 0.0);
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
                n, n, m, (T)1.0, A_pre, m, A_pre, m, (T)0.0, G.data(), n);
-    return condition_number(G.data(), n, n);
+    return RandLAPACK::util::cond_num_check<T>(n, n, G.data(), /*verbose=*/false);
 }
 
 // Full CQRRT pipeline (matching CQRRT_linops Gram computation):
@@ -174,7 +160,7 @@ static T cholqr_orth_error(const std::vector<T>& A_pre, const T* A_orig,
     std::vector<T> Q(A_orig, A_orig + m * n);
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, m, n, (T)1.0, G.data(), n, Q.data(), m);
-    return orth_error(Q.data(), m, n);
+    return RandLAPACK::testing::orthogonality_error<T>(Q.data(), m, n);
 }
 
 // ============================================================================
@@ -241,7 +227,7 @@ static TrialResult<T> run_trial(
             for (int64_t i = 0; i <= j; ++i)
                 R_sk[i + j*n] = Ahat[i + j*d];
     }
-    res.cond_Rsk = (double)condition_number(R_sk.data(), n, n);
+    res.cond_Rsk = (double)RandLAPACK::util::cond_num_check<T>(n, n, R_sk.data(), /*verbose=*/false);
 
     // ----------------------------------------------------------------
     // Explicit inverses of R_sk via two methods
@@ -503,7 +489,7 @@ static TrialResult<T> run_trial(
     // Per-path metrics
     // ----------------------------------------------------------------
     for (int p = 0; p < N_PATHS; ++p) {
-        res.cond_Apre[p] = (double)condition_number(Apre[p].data(), m, n);
+        res.cond_Apre[p] = (double)RandLAPACK::util::cond_num_check<T>(m, n, Apre[p].data(), /*verbose=*/false);
         res.cond_G[p]    = (double)gram_condition_number(Apre[p].data(), m, n);
         res.orth_Q[p]    = (double)cholqr_orth_error(Apre[p], A_dense, m, n, R_sk.data());
     }
@@ -657,7 +643,7 @@ int run_benchmark(int argc, char* argv[]) {
             A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                     m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
         }
-        T cond_A = condition_number(A_dense.data(), m, n);
+        T cond_A = RandLAPACK::util::cond_num_check<T>(m, n, A_dense.data(), /*verbose=*/false);
         std::cout << "  cond(A):    " << std::scientific << std::setprecision(3) << (double)cond_A << "\n\n";
 
         std::string label = "gen_" + std::to_string(m) + "x" + std::to_string(n)
@@ -686,7 +672,7 @@ int run_benchmark(int argc, char* argv[]) {
             A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                     m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
         }
-        T cond_A = condition_number(A_dense.data(), m, n);
+        T cond_A = RandLAPACK::util::cond_num_check<T>(m, n, A_dense.data(), /*verbose=*/false);
         int64_t d = (int64_t)std::ceil(d_factor * n);
 
         std::cout << "\n=== CQRRT Preconditioner Comparison ===\n";
