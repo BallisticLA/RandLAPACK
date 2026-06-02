@@ -1,4 +1,4 @@
-// Unified Q-less QR benchmark — GSVD post-processing and/or IR-LSQ.
+// Unified Q-less QR benchmark — IR-LSQ application, plus rspec (Algorithm 4).
 //
 // Pipeline:
 //   1. Load matrices (FEM mode: K, M, V .mtx files; sparse mode: a single A.mtx).
@@ -8,17 +8,17 @@
 //   4. Run Q-less QR via one of 5 variants (CQRRT_linop, CholQR, sCholQR3,
 //      sCholQR3_basic, CQRRT_linop_bqrrp), selected by method_mask.
 //   5. Post-processing dictated by <mode>:
-//        svd   — orth_err + r_backward_error + gesdd(R) for sing. values/vectors
 //        irlsq — sketch-and-solve x_0 (Epperly–Meier–Nakatsukasa 2025 Alg. 1 line 3) + IterRefineLSQ
-//        both  — both, sharing the same QR step and timestamp
+//        rspec — reduced spectral approximation (Algorithm 4): Rayleigh–Ritz on
+//                range(C^j V_FEM), C = L^T (K - ω M)^{-1} L. FEM-only.
 //
 // Usage:
 //   ./CQRRT_linop_applications <prec> <outdir> <runs> <mode>
-//          sparse <A.mtx> <d_factor> [nnz] [b] [skip_svd] [compute_cond] [upcast_orth] [method_mask] [noise_level]
+//          sparse <A.mtx> <d_factor> [nnz] [b] [compute_cond] [method_mask] [noise_level]
 //   ./CQRRT_linop_applications <prec> <outdir> <runs> <mode>
-//          <K.mtx> <M.mtx> <V.mtx> <d_factor> [nnz] [b] [skip_svd] [compute_cond] [upcast_orth] [method_mask] [noise_level]
+//          <K.mtx> <M.mtx> <V.mtx> <d_factor> [nnz] [b] [compute_cond] [method_mask] [noise_level] [omega] [power_j]
 //
-// mode        = "svd" | "irlsq" | "both"
+// mode        = "irlsq" | "rspec"
 // method_mask = bitmask of Q-less QR variants (default 0b1001111 = 79)
 //                 bit 0 ( 1): CQRRT_linop (TRSM_IDENTITY)
 //                 bit 1 ( 2): CholQR
@@ -80,16 +80,8 @@ struct bench_result {
     int qr_status;         // 0 on success
     long qr_time_us;       // -1 if QR failed
 
-    // SVD-mode fields (sentinel -1 / unset when not computed)
+    // Q-factor orthogonality: ||Q^T Q - I||_F / sqrt(n), computed for all methods.
     T orth_error;
-    bool is_orthonormal;
-    double r_backward_error;
-    double orth_error_upcast;
-    long app_b_time_us;
-    long app_c_time_us;
-    T right_svec_orth_error;
-    long total_b_time_us;
-    long total_c_time_us;
 
     // IR-LSQ-mode fields
     long ir_total_us;
@@ -106,19 +98,11 @@ struct bench_result {
     long analytical_kb;
 };
 
-// Compute Q = A * R^{-1} uniformly for all algorithms
-template <typename T, typename GLO>
-static void compute_Q_from_R(
-    GLO& A_op, T* R, int64_t ldr,
-    T* Q_out, int64_t m, int64_t n) {
-    auto Eye = make_eye<T>(n);
-    A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-         m, n, n, (T)1.0, Eye.data(), n, (T)0.0, Q_out, m);
-    blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper, blas::Op::NoTrans,
-               blas::Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_out, m);
-}
-
-// Compute A^T A via blocked linop calls. Peak memory: O(m*b + n^2).
+// Compute A^T A via blocked linop calls. Peak memory: O(m*b + n*b).
+//   AtA      n x n output (caller-allocated)
+//   E_block  n x b identity-column scratch
+//   A_block  m x b linop NoTrans output
+//   AtA_block n x b linop Trans output, copied into AtA[:, j0:j0+bk] each iter
 template <typename T, typename GLO>
 static void compute_AtA_blocked(GLO& A_op, int64_t m, int64_t n, T* AtA, int64_t b) {
     std::fill(AtA, AtA + n * n, (T)0.0);
@@ -141,111 +125,6 @@ static void compute_AtA_blocked(GLO& A_op, int64_t m, int64_t n, T* AtA, int64_t
 
         lapack::lacpy(lapack::MatrixType::General, n, bk, AtA_block.data(), n, AtA + j0 * n, n);
     }
-}
-
-template <typename T, typename GLO>
-static double compute_r_backward_error(GLO& A_op, const T* R, int64_t m, int64_t n, int64_t block_size) {
-    int64_t b = (block_size > 0) ? block_size : 256;
-
-    std::vector<T> AtA(n * n, 0.0);
-    compute_AtA_blocked(A_op, m, n, AtA.data(), b);
-
-    std::vector<T> RtR(n * n, 0.0);
-    blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
-               n, n, (T)1.0, R, n, (T)0.0, RtR.data(), n);
-    fill_lower_from_upper(RtR.data(), n);
-
-    T norm_A_sq = 0;
-    for (int64_t i = 0; i < n; ++i)
-        norm_A_sq += AtA[i + i * n];
-
-    T diff_norm_sq = 0;
-    #pragma omp parallel for reduction(+:diff_norm_sq) schedule(static)
-    for (int64_t i = 0; i < n * n; ++i) {
-        T d = AtA[i] - RtR[i];
-        diff_norm_sq += d * d;
-    }
-
-    return (double)(std::sqrt(diff_norm_sq) / (norm_A_sq));
-}
-
-// Upcast orthogonality: float->double via BLAS++; double->long double via Eigen.
-template <typename T, typename U, typename GLO>
-static double compute_orth_upcast(GLO& A_op, const T* R, int64_t m, int64_t n,
-                                   const T* A_dense = nullptr) {
-    const T* A_ptr;
-    std::vector<T> A_buf;
-    if (A_dense) {
-        A_ptr = A_dense;
-    } else {
-        A_buf.resize(m * n);
-        auto Eye = make_eye<T>(n);
-        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_buf.data(), m);
-        A_ptr = A_buf.data();
-    }
-
-    std::vector<U> A_U(m * n), R_U(n * n);
-    #pragma omp parallel for schedule(static)
-    for (int64_t i = 0; i < m * n; ++i) A_U[i] = (U)A_ptr[i];
-    #pragma omp parallel for schedule(static)
-    for (int64_t i = 0; i < n * n; ++i) R_U[i] = (U)R[i];
-
-    if constexpr (std::is_same_v<U, double>) {
-        blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper,
-                   blas::Op::NoTrans, blas::Diag::NonUnit,
-                   m, n, 1.0, R_U.data(), n, A_U.data(), m);
-        std::vector<U> GmI(n * n, 0.0);
-        RandLAPACK::util::eye(n, n, GmI.data());
-        blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
-                   n, m, 1.0, A_U.data(), m, -1.0, GmI.data(), n);
-        return lapack::lansy(lapack::Norm::Fro, blas::Uplo::Upper, n, GmI.data(), n) / std::sqrt((double)n);
-    } else {
-        Eigen::Map<Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>>
-            A_map(A_U.data(), m, n);
-        Eigen::Map<Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>>
-            R_map(R_U.data(), n, n);
-        Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic> Qt =
-            R_map.transpose().template triangularView<Eigen::Lower>().solve(A_map.transpose());
-        Eigen::Matrix<U, Eigen::Dynamic, Eigen::Dynamic> QtQ = Qt * Qt.transpose();
-        for (int64_t i = 0; i < n; ++i) QtQ(i, i) -= (U)1.0;
-        return (double)(QtQ.norm() / std::sqrt((U)n));
-    }
-}
-
-// ============================================================================
-// SVD post-processing
-// ============================================================================
-
-template <typename T>
-static void app_generalized_svals(
-    const T* R, int64_t ldr, int64_t n,
-    T* sigma, long& app_time_us)
-{
-    auto start = steady_clock::now();
-    std::vector<T> R_copy(n * n);
-    lapack::lacpy(lapack::MatrixType::General, n, n, R, ldr, R_copy.data(), n);
-    std::vector<T> dummy_U(1), dummy_Vt(1);
-    lapack::gesdd(lapack::Job::NoVec, n, n, R_copy.data(), n,
-                  sigma, dummy_U.data(), 1, dummy_Vt.data(), 1);
-    auto stop = steady_clock::now();
-    app_time_us = duration_cast<microseconds>(stop - start).count();
-}
-
-template <typename T>
-static void app_generalized_svecs(
-    const T* R, int64_t ldr, int64_t n,
-    T* sigma, T* V_R, T* U_R,
-    T& right_svec_orth_error, long& app_time_us)
-{
-    auto start = steady_clock::now();
-    std::vector<T> R_copy(n * n);
-    lapack::lacpy(lapack::MatrixType::General, n, n, R, ldr, R_copy.data(), n);
-    lapack::gesdd(lapack::Job::AllVec, n, n, R_copy.data(), n,
-                  sigma, U_R, n, V_R, n);
-    auto stop = steady_clock::now();
-    app_time_us = duration_cast<microseconds>(stop - start).count();
-    right_svec_orth_error = RandLAPACK::testing::orthogonality_error<T>(V_R, n, n);
 }
 
 // Estimate ||A||_2 via power iteration on A^T A. O(iters * (m+n) memory) — no materialization.
@@ -288,95 +167,6 @@ static T compute_orth_error_memlite(GLO& A_op, const T* R, int64_t m, int64_t n,
     #pragma omp parallel for reduction(+:s) schedule(static)
     for (int64_t i = 0; i < n * n; ++i) s += X[i] * X[i];
     return std::sqrt(s) / std::sqrt((T)n);
-}
-
-// ============================================================================
-// CSV writers — GSVD (preserves the column order of the original applications.cc)
-// ============================================================================
-
-template <typename T>
-static void write_gsvd_header_comments(
-    std::ofstream& out, int64_t m, int64_t n, int num_runs,
-    const std::string& K_file, const std::string& V_file,
-    T d_factor, int64_t sketch_nnz, int64_t block_size,
-    bool skip_apps, bool compute_cond)
-{
-    time_t now = time(nullptr);
-    out << "# Date: " << ctime(&now)
-        << "# Matrix dimensions: m=" << m << " n=" << n << "\n"
-        << "# Runs per algorithm: " << num_runs << "\n"
-#ifdef _OPENMP
-        << "# OpenMP threads: " << omp_get_max_threads() << "\n"
-#else
-        << "# OpenMP threads: 1\n"
-#endif
-        << "# K_file: " << K_file << "\n"
-        << "# V_file: " << V_file << "\n"
-        << "# d_factor: " << d_factor << "\n"
-        << "# sketch_nnz: " << sketch_nnz << "\n"
-        << "# block_size: " << block_size << "\n"
-        << "# skip_apps: " << (skip_apps ? 1 : 0) << "\n"
-        << "# compute_cond: " << (compute_cond ? 1 : 0) << "\n";
-}
-
-template <typename T>
-static void write_gsvd_results(
-    const std::string& filename,
-    const std::vector<bench_result<T>>& results,
-    int64_t m, int64_t n, int num_runs,
-    const std::string& K_file, const std::string& V_file,
-    T d_factor, int64_t sketch_nnz, int64_t block_size,
-    bool skip_apps, bool compute_cond)
-{
-    std::ofstream out(filename);
-    out << "# GSVD Benchmark results\n";
-    write_gsvd_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
-    out << "m,n,run,algorithm,chol_time_us,qr_time_us,orth_error,r_backward_error,orth_error_upcast,"
-        << "app_b_time_us,"
-        << "app_c_time_us,right_svec_orth_error,"
-        << "total_b_time_us,total_c_time_us,"
-        << "peak_rss_kb,analytical_kb\n";
-    for (const auto& r : results) {
-        out << r.m << "," << r.n << "," << r.run_idx << "," << r.alg_name << ","
-            << r.chol_time_us << ","
-            << r.qr_time_us << ","
-            << std::scientific << std::setprecision(6) << r.orth_error << ","
-            << std::scientific << std::setprecision(6) << r.r_backward_error << ","
-            << std::scientific << std::setprecision(6) << r.orth_error_upcast << ","
-            << r.app_b_time_us << ","
-            << r.app_c_time_us << ","
-            << std::scientific << std::setprecision(6) << r.right_svec_orth_error << ","
-            << r.total_b_time_us << "," << r.total_c_time_us << ","
-            << r.peak_rss_kb << "," << r.analytical_kb
-            << "\n";
-    }
-}
-
-template <typename T>
-static void write_gsvd_breakdown(
-    const std::string& filename,
-    const std::vector<bench_result<T>>& results,
-    int64_t m, int64_t n, int num_runs,
-    const std::string& K_file, const std::string& V_file,
-    T d_factor, int64_t sketch_nnz, int64_t block_size,
-    bool skip_apps, bool compute_cond)
-{
-    std::ofstream out(filename);
-    out << "# GSVD Benchmark runtime breakdown\n";
-    write_gsvd_header_comments<T>(out, m, n, num_runs, K_file, V_file, d_factor, sketch_nnz, block_size, skip_apps, compute_cond);
-    out << "# Times are in microseconds\n";
-    out << "# CQRRT_linop breakdown (11): alloc, sketch, qr, tri_inv, fwd, adj, trmm, chol, finalize, rest, total\n";
-    out << "m,n,run,algorithm";
-    for (int i = 0; i < 11; ++i) out << ",t" << i;
-    out << "\n";
-    for (const auto& r : results) {
-        out << r.m << "," << r.n << "," << r.run_idx << "," << r.alg_name;
-        for (size_t i = 0; i < r.qr_breakdown.size(); ++i)
-            out << "," << r.qr_breakdown[i];
-        for (size_t i = r.qr_breakdown.size(); i < 11; ++i)
-            out << ",0";
-        out << "\n";
-    }
 }
 
 // ============================================================================
@@ -524,29 +314,8 @@ static void write_rspec_csv(
 }
 
 // ============================================================================
-// Console summaries
+// Console summary
 // ============================================================================
-
-template <typename T>
-static void print_svd_summary(const std::string& alg_name, const std::vector<bench_result<T>>& results) {
-    printf("\n  %s (SVD):\n", alg_name.c_str());
-    for (const auto& r : results) {
-        if (r.qr_status != 0) {
-            printf("    Run %ld: QR breakdown (status=%d)\n", (long)r.run_idx, r.qr_status);
-            continue;
-        }
-        printf("    Run %ld: orth_err=%.2e, r_bwd_err=%.2e, QR=%ld us\n",
-               (long)r.run_idx, (double)r.orth_error, r.r_backward_error, r.qr_time_us);
-        if (r.orth_error_upcast > 0)
-            printf("           orth_upcast=%.2e\n", r.orth_error_upcast);
-        if (r.app_b_time_us > 0 || r.app_c_time_us > 0) {
-            printf("           SVD: App(b)=%ld us, App(c)=%ld us\n",
-                   r.app_b_time_us, r.app_c_time_us);
-        }
-        printf("           Memory: peak_RSS=%ld KB, predicted=%ld KB\n",
-               r.peak_rss_kb, r.analytical_kb);
-    }
-}
 
 template <typename T>
 static void print_irlsq_summary(const bench_result<T>& r) {
@@ -577,20 +346,15 @@ static int run_benchmark_inner(
     OpType& A_op,
     int64_t m, int64_t n, int64_t input_nnz,
     const std::string& output_dir, int64_t num_runs,
-    const std::string& mode,
     T d_factor, int64_t sketch_nnz, int64_t block_size,
-    bool skip_svd, bool compute_cond, bool upcast_orth,
+    bool compute_cond,
     int64_t method_mask, T noise_level,
     long chol_time_us,
-    const std::string& K_file, const std::string& V_file,
     const std::string& op_label,
     const std::string& input_label,
-    const std::vector<T>* b_ptr,        // M-vector RHS (irlsq/both); nullptr if svd-only
-    const std::vector<T>* x_true_ptr)   // N-vector ground truth (sparse irlsq); nullptr otherwise
+    const std::vector<T>* b_ptr,        // M-vector RHS
+    const std::vector<T>* x_true_ptr)   // N-vector ground truth (sparse only); nullptr otherwise
 {
-    bool do_svd   = (mode == "svd"   || mode == "both");
-    bool do_irlsq = (mode == "irlsq" || mode == "both");
-
     // Build the ordered list of selected algorithm names from the bitmask.
     std::vector<std::string> selected_algs;
     if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
@@ -630,35 +394,14 @@ static int run_benchmark_inner(
     }
     std::cout << "done\n\n";
 
-    // Precompute ||A||_2 and ||b|| for the Higham backward-error metric used by IR-LSQ:
+    // Precompute ||A||_2 and ||b|| for the Higham backward-error metric:
     //   ls_residual_norm = ||A x - b|| / (||A||_2 * ||x|| + ||b||)
     T A_2norm = (T)0, b_norm = (T)0;
-    if (do_irlsq && b_ptr) {
+    if (b_ptr) {
         std::cout << "Estimating ||A||_2 via power iteration (10 iters)... " << std::flush;
         A_2norm = estimate_op_2norm<T>(A_op, m, n, 10);
         b_norm  = blas::nrm2(m, b_ptr->data(), 1);
         std::cout << "||A||_2 ~ " << A_2norm << ", ||b|| = " << b_norm << "\n\n";
-    }
-
-    // Pre-materialize A for upcast / r_backward_error (SVD path only)
-    T* A_materialized = nullptr;
-    std::vector<T> AtA_precomputed;
-    T norm_A_sq_precomputed = 0;
-    if (do_svd && upcast_orth) {
-        std::cout << "Materializing " << op_label << " for upcast (" << m << " x " << n << ", "
-                  << (m * n * sizeof(T) / (1024.0 * 1024.0 * 1024.0)) << " GB)... " << std::flush;
-        A_materialized = new T[m * n];
-        auto Eye = make_eye<T>(n);
-        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_materialized, m);
-        std::cout << "done\n\n";
-
-        AtA_precomputed.assign(n * n, (T)0.0);
-        blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
-                   n, m, (T)1.0, A_materialized, m, (T)0.0, AtA_precomputed.data(), n);
-        fill_lower_from_upper(AtA_precomputed.data(), n);
-        for (int64_t i = 0; i < n; ++i)
-            norm_A_sq_precomputed += AtA_precomputed[i + i * n];
     }
 
     T x_true_norm = (T)0;
@@ -683,14 +426,6 @@ static int run_benchmark_inner(
             res.qr_status = 0;
             res.qr_time_us = 0;
             res.orth_error = (T)-1.0;
-            res.is_orthonormal = false;
-            res.r_backward_error = -1.0;
-            res.orth_error_upcast = 0.0;
-            res.app_b_time_us = 0;
-            res.app_c_time_us = 0;
-            res.right_svec_orth_error = (T)-1.0;
-            res.total_b_time_us = 0;
-            res.total_c_time_us = 0;
             res.ir_total_us = 0;
             res.ir_outer_iters = 0;
             res.ir_inner_iters_total = 0;
@@ -763,56 +498,16 @@ static int run_benchmark_inner(
                 res.analytical_kb = 0;
                 alg_results.push_back(res);
                 all_results.push_back(res);
-                if (do_irlsq) print_irlsq_summary(res);
+                print_irlsq_summary(res);
                 continue;
             }
             std::cout << "done (" << res.qr_time_us << " us)";
 
-            // ---- Orth_error: ||Q^T Q - I||_F / sqrt(n) via blocked compute (memlite). ----
-            // Runs for both SVD and IR-LSQ modes — Max wants this for every method.
-            res.orth_error     = compute_orth_error_memlite(A_op, R.data(), m, n, block_size);
-            res.is_orthonormal = (res.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-
-            // ---- SVD post-processing ----
-            if (do_svd) {
-                if (A_materialized) {
-                    std::vector<T> RtR(n * n, 0.0);
-                    blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
-                               n, n, (T)1.0, R.data(), n, (T)0.0, RtR.data(), n);
-                    fill_lower_from_upper(RtR.data(), n);
-                    T diff_sq = 0;
-                    #pragma omp parallel for reduction(+:diff_sq) schedule(static)
-                    for (int64_t i = 0; i < n * n; ++i) {
-                        T d = AtA_precomputed[i] - RtR[i]; diff_sq += d * d;
-                    }
-                    res.r_backward_error = (double)(std::sqrt(diff_sq) / norm_A_sq_precomputed);
-                } else {
-                    res.r_backward_error = compute_r_backward_error(A_op, R.data(), m, n, block_size);
-                }
-
-                if (upcast_orth) {
-                    if constexpr (std::is_same_v<T, float>) {
-                        res.orth_error_upcast = compute_orth_upcast<T, double>(A_op, R.data(), m, n, A_materialized);
-                    } else if constexpr (std::is_same_v<T, double>) {
-                        res.orth_error_upcast = compute_orth_upcast<T, long double>(A_op, R.data(), m, n, A_materialized);
-                    }
-                }
-
-                if (!skip_svd) {
-                    std::vector<T> sigma_b(n, 0.0);
-                    app_generalized_svals(R.data(), n, n, sigma_b.data(), res.app_b_time_us);
-
-                    std::vector<T> sigma_c(n, 0.0), V_R(n * n, 0.0), U_R(n * n, 0.0);
-                    app_generalized_svecs(R.data(), n, n, sigma_c.data(), V_R.data(), U_R.data(),
-                                          res.right_svec_orth_error, res.app_c_time_us);
-                }
-
-                res.total_b_time_us = res.qr_time_us + res.app_b_time_us;
-                res.total_c_time_us = res.qr_time_us + res.app_c_time_us;
-            }
+            // ---- Orth_error: ||Q^T Q - I||_F / sqrt(n), blocked compute. Runs for every method. ----
+            res.orth_error = compute_orth_error_memlite(A_op, R.data(), m, n, block_size);
 
             // ---- IR-LSQ post-processing ----
-            if (do_irlsq) {
+            {
                 std::cout << ". IR-LSQ ... " << std::flush;
                 const std::vector<T>& b = *b_ptr;
                 auto ls_t0 = steady_clock::now();
@@ -888,46 +583,28 @@ static int run_benchmark_inner(
                     res.ls_solution_error = (T)-1.0;
                 }
                 std::cout << "done (" << res.ir_total_us << " us)\n";
-            } else {
-                std::cout << "\n";
             }
 
-            if (do_irlsq) print_irlsq_summary(res);
+            print_irlsq_summary(res);
             alg_results.push_back(res);
             all_results.push_back(res);
         }
-
-        if (do_svd) print_svd_summary(alg_name, alg_results);
     }
 
-    delete[] A_materialized;
-
     // ================================================================
-    // CSV output (shared timestamp across modes)
+    // CSV output
     // ================================================================
     char time_buf[64];
     time_t now = time(nullptr);
     strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", localtime(&now));
 
-    if (do_svd) {
-        std::string results_file   = output_dir + "/" + time_buf + "_gsvd_results.csv";
-        std::string breakdown_file = output_dir + "/" + time_buf + "_gsvd_breakdown.csv";
-        write_gsvd_results<T>(results_file, all_results, m, n, num_runs,
-                              K_file, V_file, d_factor, sketch_nnz, block_size, skip_svd, compute_cond);
-        std::cout << "\nGSVD results written to " << results_file << "\n";
-        write_gsvd_breakdown<T>(breakdown_file, all_results, m, n, num_runs,
-                                K_file, V_file, d_factor, sketch_nnz, block_size, skip_svd, compute_cond);
-        std::cout << "GSVD breakdown written to " << breakdown_file << "\n";
-    }
-    if (do_irlsq) {
-        std::string results_file   = output_dir + "/" + time_buf + "_irlsq_results.csv";
-        std::string breakdown_file = output_dir + "/" + time_buf + "_irlsq_breakdown.csv";
-        write_irlsq_results<T>(results_file, all_results, m, n, input_nnz, input_label,
-                               noise_level, d_factor, sketch_nnz, block_size, method_mask);
-        std::cout << "\nIR-LSQ results written to " << results_file << "\n";
-        write_irlsq_breakdown<T>(breakdown_file, all_results);
-        std::cout << "IR-LSQ breakdown written to " << breakdown_file << "\n";
-    }
+    std::string results_file   = output_dir + "/" + time_buf + "_irlsq_results.csv";
+    std::string breakdown_file = output_dir + "/" + time_buf + "_irlsq_breakdown.csv";
+    write_irlsq_results<T>(results_file, all_results, m, n, input_nnz, input_label,
+                           noise_level, d_factor, sketch_nnz, block_size, method_mask);
+    std::cout << "\nIR-LSQ results written to " << results_file << "\n";
+    write_irlsq_breakdown<T>(breakdown_file, all_results);
+    std::cout << "IR-LSQ breakdown written to " << breakdown_file << "\n";
 
     return 0;
 }
@@ -1270,22 +947,21 @@ int run_benchmark(int argc, char* argv[]) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <mode>\n"
                   << "    sparse mode: 'sparse' <A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_svd] [compute_cond] [upcast_orth] [method_mask] [noise_level]\n"
+                  << " [sketch_nnz] [block_size] [compute_cond] [method_mask] [noise_level]\n"
                   << "    FEM mode:    <K_file> <M_file> <V_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_svd] [compute_cond] [upcast_orth] [method_mask] [noise_level]"
+                  << " [sketch_nnz] [block_size] [compute_cond] [method_mask] [noise_level]"
                   << " [omega] [power_j]\n"
-                  << "  mode  = svd | irlsq | both | rspec   (rspec is FEM-only)\n";
+                  << "  mode  = irlsq | rspec   (rspec is FEM-only)\n";
         return 1;
     }
 
     std::string output_dir = argv[2];
     int64_t num_runs       = std::stol(argv[3]);
     std::string mode       = argv[4];
-    if (mode != "svd" && mode != "irlsq" && mode != "both" && mode != "rspec") {
-        std::cerr << "Error: <mode> must be one of {svd, irlsq, both, rspec}; got '" << mode << "'\n";
+    if (mode != "irlsq" && mode != "rspec") {
+        std::cerr << "Error: <mode> must be one of {irlsq, rspec}; got '" << mode << "'\n";
         return 1;
     }
-    bool do_irlsq = (mode == "irlsq" || mode == "both");
 
     std::string arg5 = argv[5];
     bool sparse_mode = (arg5 == "sparse");
@@ -1324,13 +1000,11 @@ int run_benchmark(int argc, char* argv[]) {
     };
     int64_t sketch_nnz  = opt_long(1, 4);
     int64_t block_size  = opt_long(2, 0);
-    bool skip_svd       = (opt_long(3, 0) != 0);
-    bool compute_cond   = (opt_long(4, 0) != 0);
-    bool upcast_orth    = (opt_long(5, 0) != 0);
-    int64_t method_mask = opt_long(6, 79);
-    T noise_level       = (T)opt_double(7, 0.05);
-    double omega        = opt_double(8, 0.0);
-    int64_t power_j     = opt_long(9, 1);
+    bool compute_cond   = (opt_long(3, 0) != 0);
+    int64_t method_mask = opt_long(4, 79);
+    T noise_level       = (T)opt_double(5, 0.05);
+    double omega        = opt_double(6, 0.0);
+    int64_t power_j     = opt_long(7, 1);
 
     if (mode == "rspec") {
         if (sparse_mode) {
@@ -1357,9 +1031,7 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "  d_factor: " << d_factor << "\n"
               << "  sketch_nnz: " << sketch_nnz << "\n"
               << "  block_size: " << block_size << "\n"
-              << "  skip_svd: " << (skip_svd ? "yes" : "no") << "\n"
               << "  compute_cond: " << (compute_cond ? "yes" : "no") << "\n"
-              << "  upcast_orth: " << (upcast_orth ? "yes" : "no") << "\n"
               << "  method_mask: " << method_mask
               << " (linop=" << (method_mask&1)
               << " CholQR=" << ((method_mask>>1)&1)
@@ -1392,38 +1064,34 @@ int run_benchmark(int argc, char* argv[]) {
         }
 
         // Sparse irlsq b construction: x_true ~ U(-1,1)^n, b = A x_true + scaled Gaussian noise.
-        std::vector<T> x_true, b;
-        if (do_irlsq) {
-            x_true.assign(n, (T)0);
-            {
-                std::mt19937 rng(42);
-                std::uniform_real_distribution<T> dist((T)-1.0, (T)1.0);
-                for (auto& v : x_true) v = dist(rng);
-            }
-            std::vector<T> b_clean(m, (T)0), noise_vec(m, (T)0);
-            A_linop(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                    m, 1, n, (T)1.0, x_true.data(), n, (T)0.0, b_clean.data(), m);
-            T b_clean_norm = blas::nrm2(m, b_clean.data(), 1);
-            std::mt19937 noise_rng(13);
-            std::normal_distribution<T> N01(0, 1);
-            for (auto& v : noise_vec) v = N01(noise_rng);
-            T raw_noise_norm = blas::nrm2(m, noise_vec.data(), 1);
-            T scale = noise_level * b_clean_norm / raw_noise_norm;
-            b.assign(m, (T)0);
-            for (int64_t i = 0; i < m; ++i) b[i] = b_clean[i] + scale * noise_vec[i];
-            std::cout << "Synthetic LS problem: ||x_true|| = " << blas::nrm2(n, x_true.data(), 1)
-                      << ",  ||b|| = " << blas::nrm2(m, b.data(), 1) << "\n\n";
+        std::vector<T> x_true(n, (T)0);
+        {
+            std::mt19937 rng(42);
+            std::uniform_real_distribution<T> dist((T)-1.0, (T)1.0);
+            for (auto& v : x_true) v = dist(rng);
         }
+        std::vector<T> b_clean(m, (T)0), noise_vec(m, (T)0);
+        A_linop(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+                m, 1, n, (T)1.0, x_true.data(), n, (T)0.0, b_clean.data(), m);
+        T b_clean_norm = blas::nrm2(m, b_clean.data(), 1);
+        std::mt19937 noise_rng(13);
+        std::normal_distribution<T> N01(0, 1);
+        for (auto& v : noise_vec) v = N01(noise_rng);
+        T raw_noise_norm = blas::nrm2(m, noise_vec.data(), 1);
+        T scale = noise_level * b_clean_norm / raw_noise_norm;
+        std::vector<T> b(m, (T)0);
+        for (int64_t i = 0; i < m; ++i) b[i] = b_clean[i] + scale * noise_vec[i];
+        std::cout << "Synthetic LS problem: ||x_true|| = " << blas::nrm2(n, x_true.data(), 1)
+                  << ",  ||b|| = " << blas::nrm2(m, b.data(), 1) << "\n\n";
 
         return run_benchmark_inner<T, RNG>(
-            A_linop, m, n, nnz_A, output_dir, num_runs, mode,
+            A_linop, m, n, nnz_A, output_dir, num_runs,
             d_factor, sketch_nnz, block_size,
-            skip_svd, compute_cond, upcast_orth,
+            compute_cond,
             method_mask, noise_level,
-            0L /*chol_time_us*/, "sparse", A_file,
+            0L /*chol_time_us*/,
             "A (" + A_file + ")", A_file,
-            do_irlsq ? &b : nullptr,
-            do_irlsq ? &x_true : nullptr);
+            &b, &x_true);
     }
 
     // ================================================================
@@ -1584,28 +1252,26 @@ int run_benchmark(int argc, char* argv[]) {
     std::cout << "Composite operator J = L^{-1} K V : " << m << " x " << n << "\n\n";
 
     // FEM irlsq b construction: b = L^{-1} * r, r ~ N(0, 1)^{m_K}. No ground truth x_true.
-    std::vector<T> b;
-    if (do_irlsq) {
-        std::vector<T> r(m_K, (T)0);
+    std::vector<T> r(m_K, (T)0);
+    {
         std::mt19937 rng_b(13);
         std::normal_distribution<T> N01(0, 1);
         for (auto& v : r) v = N01(rng_b);
-        b.assign(m_K, (T)0);
-        L_inv_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                 m_K, 1, m_K, (T)1.0, r.data(), m_K, (T)0.0, b.data(), m_K);
-        std::cout << "FEM IR-LSQ b: ||b|| = " << blas::nrm2(m_K, b.data(), 1)
-                  << " (b = L^{-1} r, r ~ N(0,1)^M)\n\n";
     }
+    std::vector<T> b(m_K, (T)0);
+    L_inv_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+             m_K, 1, m_K, (T)1.0, r.data(), m_K, (T)0.0, b.data(), m_K);
+    std::cout << "FEM IR-LSQ b: ||b|| = " << blas::nrm2(m_K, b.data(), 1)
+              << " (b = L^{-1} r, r ~ N(0,1)^M)\n\n";
 
     return run_benchmark_inner<T, RNG>(
-        J_op, m, n, nnz_K, output_dir, num_runs, mode,
+        J_op, m, n, nnz_K, output_dir, num_runs,
         d_factor, sketch_nnz, block_size,
-        skip_svd, compute_cond, upcast_orth,
+        compute_cond,
         method_mask, noise_level,
-        chol_time_us, K_file, V_file,
+        chol_time_us,
         "L^{-1} K V (M=" + M_file + ")", K_file,
-        do_irlsq ? &b : nullptr,
-        nullptr /*x_true_ptr: FEM has no ground truth*/);
+        &b, nullptr /*x_true_ptr: FEM has no ground truth*/);
 }
 
 int main(int argc, char* argv[]) {
@@ -1613,11 +1279,11 @@ int main(int argc, char* argv[]) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision> <output_dir> <num_runs> <mode>\n"
                   << "    sparse mode: 'sparse' <A_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_svd] [compute_cond] [upcast_orth] [method_mask] [noise_level]\n"
+                  << " [sketch_nnz] [block_size] [compute_cond] [method_mask] [noise_level]\n"
                   << "    FEM mode:    <K_file> <M_file> <V_file> <d_factor>"
-                  << " [sketch_nnz] [block_size] [skip_svd] [compute_cond] [upcast_orth] [method_mask] [noise_level]"
+                  << " [sketch_nnz] [block_size] [compute_cond] [method_mask] [noise_level]"
                   << " [omega] [power_j]\n"
-                  << "  mode  = svd | irlsq | both | rspec   (rspec is FEM-only)\n";
+                  << "  mode  = irlsq | rspec   (rspec is FEM-only)\n";
         return 1;
     }
 

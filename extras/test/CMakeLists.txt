@@ -16,7 +16,6 @@ if (GTest_FOUND)
         linops/test_ext_solver_linop_unified.cc
         linops/test_ext_composite_linop.cc
         linops/test_ext_sparselu_linop.cc
-        misc/test_ext_sparse_axpy.cc
     )
 
     # Create test executable
