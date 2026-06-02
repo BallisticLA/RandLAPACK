@@ -53,10 +53,19 @@ struct SparseLUSolverLinOp {
         randblas_require(n_rows == n_cols);   // must be square to invert
     }
 
+    ~SparseLUSolverLinOp() { delete[] x_buf_; }
+
+    SparseLUSolverLinOp(const SparseLUSolverLinOp&) = delete;
+    SparseLUSolverLinOp& operator=(const SparseLUSolverLinOp&) = delete;
+
 private:
     using Layout = blas::Layout;
     using Op     = blas::Op;
     using Side   = blas::Side;
+
+    // Reused scratch for X = op(A)^{-1} * B; grown on demand in operator().
+    T*      x_buf_      = nullptr;
+    int64_t x_buf_size_ = 0;
 
 public:
 
@@ -117,13 +126,21 @@ public:
                    Eigen::Unaligned, Eigen::OuterStride<>>
             B_map(B, m, n, Eigen::OuterStride<>(ldb));
 
-        Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor> X(m, n);
+        // Grow x_buf_ to hold m × n (ColMajor) on demand; reuse across calls.
+        int64_t needed = m * n;
+        if (needed > x_buf_size_) {
+            delete[] x_buf_;
+            x_buf_ = new T[needed];
+            x_buf_size_ = needed;
+        }
+        Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>>
+            X_map(x_buf_, m, n);
 
         if (trans_A == Op::NoTrans) {
-            X.noalias() = lu_solver.solve(B_map);
+            X_map.noalias() = lu_solver.solve(B_map);
         } else {
             // A^{-T} * B
-            X.noalias() = lu_solver.transpose().solve(B_map);
+            X_map.noalias() = lu_solver.transpose().solve(B_map);
         }
 
         if (lu_solver.info() != Eigen::Success) {
@@ -133,7 +150,7 @@ public:
         // C := alpha * X + beta * C  (in-place column-by-column)
         for (int64_t j = 0; j < n; ++j) {
             T* C_col = C + (size_t)j * (size_t)ldc;
-            const T* X_col = X.data() + (size_t)j * (size_t)m;
+            const T* X_col = x_buf_ + (size_t)j * (size_t)m;
             for (int64_t i = 0; i < m; ++i) {
                 C_col[i] = alpha * X_col[i] + beta * C_col[i];
             }
