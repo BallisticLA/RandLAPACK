@@ -58,7 +58,7 @@ struct TransposedOp {
     void operator()(
         Layout layout, Op trans_self, Op trans_B,
         int64_t m, int64_t n, int64_t k,
-        T alpha, T* const B, int64_t ldb,
+        T alpha, const T* B, int64_t ldb,
         T beta, T* C, int64_t ldc)
     {
         (*this)(Side::Left, layout, trans_self, trans_B,
@@ -73,12 +73,26 @@ struct TransposedOp {
         Side side, Layout layout,
         Op trans_self, Op trans_B,
         int64_t m, int64_t n, int64_t k,
-        T alpha, T* const B, int64_t ldb,
+        T alpha, const T* B, int64_t ldb,
         T beta, T* C, int64_t ldc)
     {
         Op base_trans = (trans_self == Op::NoTrans) ? Op::Trans : Op::NoTrans;
         base(side, layout, base_trans, trans_B,
              m, n, k, alpha, B, ldb, beta, C, ldc);
+    }
+
+    // SkOp overload: delegate to base by flipping trans_self.
+    template <typename SkOp>
+    void operator()(
+        Side side, Layout layout,
+        Op trans_self, Op trans_S,
+        int64_t m, int64_t n, int64_t k,
+        T alpha, SkOp& S,
+        T beta, T* C, int64_t ldc)
+    {
+        Op base_trans = (trans_self == Op::NoTrans) ? Op::Trans : Op::NoTrans;
+        base(side, layout, base_trans, trans_S,
+             m, n, k, alpha, S, beta, C, ldc);
     }
 };
 

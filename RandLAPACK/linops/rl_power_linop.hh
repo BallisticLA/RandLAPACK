@@ -63,7 +63,7 @@ struct PowerOp {
     void operator()(
         Layout layout, Op trans_A, Op trans_B,
         int64_t m, int64_t n, int64_t k,
-        T alpha, T* const B, int64_t ldb,
+        T alpha, const T* B, int64_t ldb,
         T beta, T* C, int64_t ldc)
     {
         (*this)(Side::Left, layout, trans_A, trans_B,
@@ -78,7 +78,7 @@ struct PowerOp {
         Side side, Layout layout,
         Op trans_A, Op trans_B,
         int64_t m, int64_t n, int64_t k,
-        T alpha, T* const B, int64_t ldb,
+        T alpha, const T* B, int64_t ldb,
         T beta, T* C, int64_t ldc)
     {
         randblas_require(side == Side::Left);
@@ -116,6 +116,43 @@ struct PowerOp {
 
         delete[] buf_a;
         if (buf_b) delete[] buf_b;
+    }
+
+    // SkOp overload: materialize S as a dense matrix, then delegate to the dense apply.
+    // Square base means op_{trans_A}(base^j) is square N x N, so op(S) must be N x n
+    // for Side::Left (C is N x n) or m x N for Side::Right (C is m x n).
+    template <typename SkOp>
+    void operator()(
+        Side side, Layout layout,
+        Op trans_A, Op trans_S,
+        int64_t m, int64_t n, int64_t k,
+        T alpha, SkOp& S,
+        T beta, T* C, int64_t ldc)
+    {
+        // Determine the shape of the materialized S.
+        // For Side::Left, op(S) plays the role of B with shape k x n (=> S is k x n or n x k).
+        // For Side::Right, op(S) is m x k.
+        int64_t S_rows = S.n_rows;
+        int64_t S_cols = S.n_cols;
+        int64_t lds = (layout == Layout::ColMajor) ? S_rows : S_cols;
+
+        T* S_dense = new T[(size_t)S_rows * (size_t)S_cols]();
+
+        // Materialize S via sketch_general(S * I) — works for both DenseSkOp and SparseSkOp.
+        T* I_block = new T[(size_t)S_cols * (size_t)S_cols]();
+        for (int64_t i = 0; i < S_cols; ++i) I_block[i + i * S_cols] = (T)1.0;
+        RandBLAS::sketch_general(
+            Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+            S_rows, S_cols, S_cols,
+            (T)1.0, S, I_block, S_cols,
+            (T)0.0, S_dense, S_rows);
+        delete[] I_block;
+
+        // Delegate to the dense overload.
+        (*this)(side, layout, trans_A, trans_S,
+                m, n, k, alpha, S_dense, lds, beta, C, ldc);
+
+        delete[] S_dense;
     }
 };
 

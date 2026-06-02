@@ -79,6 +79,18 @@ public:
         factorization_done = true;
     }
 
+    /// Concept-required 12-arg overload (no Side); delegates to Side::Left.
+    void operator()(
+        Layout layout,
+        Op trans_A, Op trans_B,
+        int64_t m, int64_t n, int64_t k,
+        T alpha, const T* B, int64_t ldb,
+        T beta, T* C, int64_t ldc)
+    {
+        (*this)(Side::Left, layout, trans_A, trans_B,
+                m, n, k, alpha, B, ldb, beta, C, ldc);
+    }
+
     /// Dense operator, Side::Left, ColMajor, Op::NoTrans on B.
     ///   C := alpha * op(A)^{-1} * B + beta * C
     /// where op(A) = A if trans_A == NoTrans, A^T if trans_A == Trans.
@@ -86,7 +98,7 @@ public:
         Side side, Layout layout,
         Op trans_A, Op trans_B,
         int64_t m, int64_t n, int64_t k,
-        T alpha, T* const B, int64_t ldb,
+        T alpha, const T* B, int64_t ldb,
         T beta, T* C, int64_t ldc)
     {
         randblas_require(side == Side::Left);
