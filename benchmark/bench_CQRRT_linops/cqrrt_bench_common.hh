@@ -20,18 +20,3 @@ static RandBLAS::sparse_data::csr::CSRMatrix<T> load_csr(
     return csr;
 }
 
-// Return an n x n identity matrix (column-major).
-template <typename T>
-static std::vector<T> make_eye(int64_t n) {
-    std::vector<T> I(n * n, T(0));
-    RandLAPACK::util::eye(n, n, I.data());
-    return I;
-}
-
-// Fill lower triangle of a column-major symmetric n x n matrix from its upper triangle.
-template <typename T>
-static void fill_lower_from_upper(T* M, int64_t n) {
-    for (int64_t j = 0; j < n; ++j)
-        for (int64_t i = j + 1; i < n; ++i)
-            M[i + j * n] = M[j + i * n];
-}

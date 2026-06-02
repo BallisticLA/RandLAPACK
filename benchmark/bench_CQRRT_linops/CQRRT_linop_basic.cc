@@ -68,7 +68,8 @@ template <typename T, typename GLO>
 static void compute_Q_from_R(
     GLO& A_op, T* R, int64_t ldr,
     T* Q_out, int64_t m, int64_t n) {
-    auto Eye = make_eye<T>(n);
+    std::vector<T> Eye(n * n, T(0));
+    RandLAPACK::util::eye(n, n, Eye.data());
     A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
          m, n, n, (T)1.0, Eye.data(), n, (T)0.0, Q_out, m);
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
@@ -222,7 +223,8 @@ static std::vector<scaling_result<T>> run_algorithms(
             dense_mem.start();
 
             // Step 1: Materialize the operator by multiplying with identity
-            auto I_mat = make_eye<T>(n);
+            std::vector<T> I_mat(n * n, T(0));
+            RandLAPACK::util::eye(n, n, I_mat.data());
             T* A_materialized = new T[m * n]();
 
             auto materialize_start = steady_clock::now();

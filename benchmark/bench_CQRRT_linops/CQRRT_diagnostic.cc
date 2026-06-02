@@ -122,12 +122,15 @@ static T rel_diff(const T* A, const T* B, int64_t len) {
     return (na > 0) ? std::sqrt(nd / na) : std::sqrt(nd);
 }
 
-// Condition number of the Gram matrix G = A_pre^T A_pre.
+// Condition number of the Gram matrix G = A_pre^T A_pre. Uses syrk
+// (upper triangle) + symmetrize so gesdd inside cond_num_check sees a
+// full symmetric matrix.
 template <typename T>
 static T gram_condition_number(const T* A_pre, int64_t m, int64_t n) {
     std::vector<T> G(n * n, 0.0);
-    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-               n, n, m, (T)1.0, A_pre, m, A_pre, m, (T)0.0, G.data(), n);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
+               n, m, (T)1.0, A_pre, m, (T)0.0, G.data(), n);
+    RandBLAS::symmetrize(Layout::ColMajor, Uplo::Upper, n, G.data(), n);
     return RandLAPACK::util::cond_num_check<T>(n, n, G.data(), /*verbose=*/false);
 }
 
@@ -234,7 +237,8 @@ static TrialResult<T> run_trial(
     // ----------------------------------------------------------------
 
     // Method A: TRSM on identity  (path [2])
-    auto R_inv_trsm = make_eye<T>(n);
+    std::vector<T> R_inv_trsm(n * n, T(0));
+    RandLAPACK::util::eye(n, n, R_inv_trsm.data());
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, n, n, (T)1.0,
                R_sk.data(), n, R_inv_trsm.data(), n);
@@ -261,9 +265,7 @@ static TrialResult<T> run_trial(
 
         // Extract upper triangular R_buf before overwriting with Q
         std::vector<T> R_buf(n * n, 0.0);
-        for (int64_t j = 0; j < n; ++j)
-            for (int64_t i = 0; i <= j; ++i)
-                R_buf[i + j*n] = R_copy[i + j*n];
+        lapack::lacpy(MatrixType::Upper, n, n, R_copy.data(), n, R_buf.data(), n);
 
         // Expand Q_buf from Householder reflectors (overwrites R_copy)
         lapack::ungqr(n, n, n, R_copy.data(), n, tau_qr.data());
@@ -322,9 +324,7 @@ static TrialResult<T> run_trial(
         bqrrp.call(n, n, R_copy.data(), n, (T)1.0, tau_qr.data(), jpiv.data(), state);
 
         std::vector<T> R_buf(n * n, 0.0);
-        for (int64_t j = 0; j < n; ++j)
-            for (int64_t i = 0; i <= j; ++i)
-                R_buf[i + j*n] = R_copy[i + j*n];
+        lapack::lacpy(MatrixType::Upper, n, n, R_copy.data(), n, R_buf.data(), n);
 
         lapack::ungqr(n, n, n, R_copy.data(), n, tau_qr.data());
 
@@ -450,7 +450,8 @@ static TrialResult<T> run_trial(
 
         // ---- Path [2]: CQRRT_linop — TRSM_IDENTITY, linop fwd/adj, TRMM ----
         // R_inv via TRSM_IDENTITY: solve X * R_sk_2 = I  (upper triangular result)
-        auto R_inv_2 = make_eye<T>(n);
+        std::vector<T> R_inv_2(n * n, T(0));
+        RandLAPACK::util::eye(n, n, R_inv_2.data());
         blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                    Diag::NonUnit, n, n, (T)1.0, R_sk_2.data(), n, R_inv_2.data(), n);
         for (int64_t j = 0; j < n; ++j)
@@ -639,7 +640,8 @@ int run_benchmark(int argc, char* argv[]) {
 
         std::vector<T> A_dense(m * n, 0.0);
         {
-            auto Eye = make_eye<T>(n);
+            std::vector<T> Eye(n * n, T(0));
+            RandLAPACK::util::eye(n, n, Eye.data());
             A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                     m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
         }
@@ -668,7 +670,8 @@ int run_benchmark(int argc, char* argv[]) {
 
         std::vector<T> A_dense(m * n, 0.0);
         {
-            auto Eye = make_eye<T>(n);
+            std::vector<T> Eye(n * n, T(0));
+            RandLAPACK::util::eye(n, n, Eye.data());
             A_linop(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                     m, n, n, (T)1.0, Eye.data(), n, (T)0.0, A_dense.data(), m);
         }
