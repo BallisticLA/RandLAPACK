@@ -53,6 +53,16 @@ class sCholQR3_linops {
 
         int64_t block_size;
 
+        // Adaptive-shift policy (see cholqr_primitive / pcholqr_primitive).
+        // Lowered from the original `11 * eps * n` to plain `eps` per Oleg: the
+        // smaller initial shift avoids the iter-2 collapse where shift ≫ σ_min²(A)
+        // makes G_2 effectively rank-deficient. The retry loop bumps shift × 10
+        // if potrf still bails, up to max_retries times.
+        T   shift_factor_iter1;
+        T   shift_factor_iter23;
+        int max_retries;
+        T   shift_growth;
+
         sCholQR3_linops(
             bool time_subroutines,
             T ep,
@@ -65,6 +75,10 @@ class sCholQR3_linops {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();
+            shift_factor_iter23 = std::numeric_limits<T>::epsilon();
+            max_retries         = 10;
+            shift_growth        = T(10);
         }
 
         ~sCholQR3_linops() {
@@ -104,27 +118,25 @@ class sCholQR3_linops {
 
             // ============================================================
             // Iter 1: shifted CholQR -> R_1, written into R
-            // shift_factor = 11 * eps * n  so the shift becomes 11*eps*n*||A||_F^2
-            // (per the collaborator's Alg 3 step 3).
+            // Adaptive shift (see cholqr_primitive). Initial shift_factor_iter1
+            // defaults to eps; primitive bumps × shift_growth on potrf failure.
             // ============================================================
-            T shift_factor_iter1 = (T)11.0 * std::numeric_limits<T>::epsilon() * (T)n;
             int info = cholqr_primitive<T, GLO>(
                 A, R, ldr,
-                shift_factor_iter1,
+                this->shift_factor_iter1,
                 this->block_size,
-                fwd1_dur, adj1_dur, chol1_dur, this->timing);
+                fwd1_dur, adj1_dur, chol1_dur, this->timing,
+                this->max_retries, this->shift_growth);
             if (info != 0) {
                 delete[] G; delete[] R_pre; delete[] P_prev;
                 delete[] A_temp; delete[] Z_buf;
                 return 1;
             }
-            // upd1 placeholder kept for matlab CSV compatibility (no inverse formed in iter 1).
             upd1_dur = 0;
 
             // ============================================================
             // Iter 2: pcholqr_primitive(A, P = R_1)
             // ============================================================
-            // Stash R_1 in P_prev before pcholqr_primitive overwrites R with R_2.
             lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
@@ -138,14 +150,13 @@ class sCholQR3_linops {
                 R_pre, G, A_temp, Z_buf,
                 /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
                 precond_inv2, fwd2_dur, adj2_dur, gemm2_dur, chol2_dur, update2,
-                this->timing);
+                this->timing,
+                this->shift_factor_iter23, this->max_retries, this->shift_growth);
             if (info != 0) {
                 delete[] G; delete[] R_pre; delete[] P_prev;
                 delete[] A_temp; delete[] Z_buf;
                 return 2;
             }
-            // Fold pcholqr's precond_inv into upd2 alongside the trmm update (matches the prior
-            // sCholQR3 upd2 semantics = "M update + R update" in one slot).
             upd2_dur = precond_inv2 + update2;
 
             // ============================================================
@@ -164,7 +175,8 @@ class sCholQR3_linops {
                 R_pre, G, A_temp, Z_buf,
                 /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
                 precond_inv3, fwd3_dur, adj3_dur, gemm3_dur, chol3_dur, update3,
-                this->timing);
+                this->timing,
+                this->shift_factor_iter23, this->max_retries, this->shift_growth);
             if (info != 0) {
                 delete[] G; delete[] R_pre; delete[] P_prev;
                 delete[] A_temp; delete[] Z_buf;
@@ -246,12 +258,21 @@ class sCholQR3_linops_basic {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // Timing breakdown (15 entries; layout preserved for matlab plotters):
-        // [0]  alloc      [1]  fwd1   [2]  adj1   [3]  chol1   [4]  trsm1   [5]  fwd_q
+        // Timing layout (15 entries, kept for matlab CSV-column compatibility):
+        // [0]  alloc      [1]  fwd1   [2]  adj1   [3]  chol1   [4]  trsm1=0  [5]  fwd_q=0
         // [6]  syrk2      [7]  chol2  [8]  upd2
         // [9]  syrk3      [10] chol3  [11] upd3
         // [12] q_mat      [13] rest   [14] total
+        // (Post-refactor slots 4, 5, 6, 9 stay 0 because the primitives don't expose
+        //  syrk vs adj/fwd as separate signals; the heavy lifters are folded into
+        //  fwd/adj from blocked_preconditioned_gram and into chol from potrf.)
         std::vector<long> times;
+
+        // Adaptive shift policy — shared with sCholQR3_linops (Oleg's prescription).
+        T   shift_factor_iter1;
+        T   shift_factor_iter23;
+        int max_retries;
+        T   shift_growth;
 
         sCholQR3_linops_basic(
             bool time_subroutines,
@@ -264,6 +285,10 @@ class sCholQR3_linops_basic {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();
+            shift_factor_iter23 = std::numeric_limits<T>::epsilon();
+            max_retries         = 10;
+            shift_growth        = T(10);
         }
 
         ~sCholQR3_linops_basic() {
@@ -272,6 +297,12 @@ class sCholQR3_linops_basic {
             }
         }
 
+        // Non-blocked sCholQR3 expressed via the shared primitives.
+        // Algorithmically identical to sCholQR3_linops with block_size=0; the
+        // distinction is now purely the analytic-memory accounting (no R_pre /
+        // P_prev / Z_buf reuse across iters since the primitives allocate their
+        // own G internally per call). Diagnostic prints from cholqr_primitive /
+        // pcholqr_primitive surface here too.
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
@@ -280,117 +311,121 @@ class sCholQR3_linops_basic {
         ) {
             steady_clock::time_point t0, t1, total_t_start, total_t_stop;
             long alloc_dur = 0;
-            long fwd1_dur = 0, adj1_dur = 0, chol1_dur = 0, trsm1_dur = 0, fwd_q_dur = 0;
-            long syrk2_dur = 0, chol2_dur = 0, upd2_dur = 0;
-            long syrk3_dur = 0, chol3_dur = 0, upd3_dur = 0;
+            long fwd1_dur = 0, adj1_dur = 0, chol1_dur = 0;
+            long chol2_dur = 0, upd2_dur = 0;
+            long chol3_dur = 0, upd3_dur = 0;
             long q_mat_dur = 0, total_dur = 0;
 
             if (this->timing) total_t_start = steady_clock::now();
 
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
+            int64_t b_eff = n;   // non-blocked (block_size = 0 → b_eff = n)
 
+            // Driver-owned scratch for pcholqr_primitive in iters 2 and 3.
             if (this->timing) t0 = steady_clock::now();
-            T* Q_buf = new T[m * n];     // materialized operator, updated in-place through iters
-            T* G     = new T[n * n]();   // Gram workspace
-            T* M     = new T[n * n]();   // n × n — R1^{-1} for Q materialization
+            T* G       = new T[n * n]();
+            T* R_pre   = new T[n * n]();
+            T* P_prev  = new T[n * n]();
+            T* A_temp  = new T[m * b_eff];
+            T* Z_buf   = new T[n * b_eff];
             if (this->timing) { t1 = steady_clock::now(); alloc_dur = duration_cast<microseconds>(t1 - t0).count(); }
 
-            // ---- Iter 1: shifted CholQR via cholqr_primitive (no Q_buf yet) ----
-            T shift_factor_iter1 = (T)11.0 * std::numeric_limits<T>::epsilon() * (T)n;
+            // ---- Iter 1: shifted CholQR via cholqr_primitive -> R_1 ----
             int info = cholqr_primitive<T, GLO>(
                 A, R, ldr,
-                shift_factor_iter1,
-                /*block_size=*/0,   // basic variant is non-blocked
-                fwd1_dur, adj1_dur, chol1_dur, this->timing);
+                this->shift_factor_iter1,
+                /*block_size=*/0,
+                fwd1_dur, adj1_dur, chol1_dur, this->timing,
+                this->max_retries, this->shift_growth);
             if (info != 0) {
-                delete[] Q_buf; delete[] G; delete[] M;
+                delete[] G; delete[] R_pre; delete[] P_prev;
+                delete[] A_temp; delete[] Z_buf;
                 return 1;
             }
 
-            // ---- Materialize Q_buf = A * R1^{-1} (NoTrans linop call #3) ----
-            // First compute M = I * R_1^{-1} = R_1^{-1} via Side::Right TRSM(I, R_1).
-            if (this->timing) t0 = steady_clock::now();
-            RandLAPACK::util::eye(n, n, M);
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, T(1), R, ldr, M, n);
-            if (this->timing) { t1 = steady_clock::now(); trsm1_dur = duration_cast<microseconds>(t1 - t0).count(); }
-
-            if (this->timing) t0 = steady_clock::now();
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-              m, n, n, (T)1.0, M, n, (T)0.0, Q_buf, m);
-            if (this->timing) { t1 = steady_clock::now(); fwd_q_dur = duration_cast<microseconds>(t1 - t0).count(); }
-
-            // ---- Iter 2: dense syrk on Q_buf -> G2 = R_2^T R_2, then Q_buf *= R_2^{-1}, R = R_2 * R ----
-            if (this->timing) t0 = steady_clock::now();
-            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
-                       n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
-            if (this->timing) { t1 = steady_clock::now(); syrk2_dur = duration_cast<microseconds>(t1 - t0).count(); t0 = t1; }
-
+            // ---- Iter 2: pcholqr_primitive(A, P = R_1) ----
+            lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
-                lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] Q_buf; delete[] G; delete[] M;
+                lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
+
+            long precond_inv2 = 0, fwd2 = 0, adj2 = 0, gemm2 = 0, update2 = 0;
+            info = pcholqr_primitive<T, GLO>(
+                A, P_prev, R, ldr,
+                PCholQRPrecondMethod::TRSM_IDENTITY,
+                /*block_size=*/0,
+                /*bqrrp_block_ratio=*/T(1.0),
+                R_pre, G, A_temp, Z_buf,
+                /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
+                precond_inv2, fwd2, adj2, gemm2, chol2_dur, update2,
+                this->timing,
+                this->shift_factor_iter23, this->max_retries, this->shift_growth);
+            if (info != 0) {
+                delete[] G; delete[] R_pre; delete[] P_prev;
+                delete[] A_temp; delete[] Z_buf;
                 return 2;
             }
-            if (this->timing) { t1 = steady_clock::now(); chol2_dur = duration_cast<microseconds>(t1 - t0).count(); t0 = t1; }
+            upd2_dur = precond_inv2 + update2;
+            // Fold iter-2 fwd+adj+gemm into chol2 slot (kept distinct from iter-3
+            // timings; matlab plotter sums them downstream).
+            chol2_dur += fwd2 + adj2 + gemm2;
 
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, m, n, (T)1.0, G, n, Q_buf, m);
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, R, ldr);
-            if (this->timing) { t1 = steady_clock::now(); upd2_dur = duration_cast<microseconds>(t1 - t0).count(); }
-
-            // ---- Iter 3: same pattern ----
-            if (this->timing) t0 = steady_clock::now();
-            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
-                       n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
-            if (this->timing) { t1 = steady_clock::now(); syrk3_dur = duration_cast<microseconds>(t1 - t0).count(); t0 = t1; }
-
+            // ---- Iter 3: pcholqr_primitive(A, P = R_2) ----
+            lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
-                lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] Q_buf; delete[] G; delete[] M;
+                lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
+
+            long precond_inv3 = 0, fwd3 = 0, adj3 = 0, gemm3 = 0, update3 = 0;
+            info = pcholqr_primitive<T, GLO>(
+                A, P_prev, R, ldr,
+                PCholQRPrecondMethod::TRSM_IDENTITY,
+                /*block_size=*/0,
+                /*bqrrp_block_ratio=*/T(1.0),
+                R_pre, G, A_temp, Z_buf,
+                /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
+                precond_inv3, fwd3, adj3, gemm3, chol3_dur, update3,
+                this->timing,
+                this->shift_factor_iter23, this->max_retries, this->shift_growth);
+            if (info != 0) {
+                delete[] G; delete[] R_pre; delete[] P_prev;
+                delete[] A_temp; delete[] Z_buf;
                 return 3;
             }
-            if (this->timing) { t1 = steady_clock::now(); chol3_dur = duration_cast<microseconds>(t1 - t0).count(); t0 = t1; }
+            upd3_dur = precond_inv3 + update3;
+            chol3_dur += fwd3 + adj3 + gemm3;
 
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, R, ldr);
-            if (this->timing) { t1 = steady_clock::now(); upd3_dur = duration_cast<microseconds>(t1 - t0).count(); }
-
-            // ---- Test mode: Q_buf *= R_3^{-1} so Q = A * R^{-1} ----
+            // ---- Test mode: materialize Q = A * R^{-1} via blocked linop call ----
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
-                // Iter 3 didn't update Q_buf (we skip the m × n trsm there since iter 3 is the last
-                // Cholesky polish; the m × n trsm for R_3^{-1} only matters if we want Q).
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                           Diag::NonUnit, m, n, (T)1.0, G, n, Q_buf, m);
+                RandLAPACK::util::eye(n, n, R_pre);
+                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
+                           Diag::NonUnit, n, n, T(1), R, ldr, R_pre, n);
+
+                T* Q_buf = new T[m * n];
+                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                  m, n, n, (T)1.0, R_pre, n, (T)0.0, Q_buf, m);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 this->Q = Q_buf;
                 if (this->timing) { t1 = steady_clock::now(); q_mat_dur = duration_cast<microseconds>(t1 - t0).count(); }
             }
 
-            // ---- Finalize timing ----
+            delete[] G; delete[] R_pre; delete[] P_prev;
+            delete[] A_temp; delete[] Z_buf;
+
             if (this->timing) {
                 total_t_stop = steady_clock::now();
                 total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
                 total_dur -= q_mat_dur;
-
-                long rest_dur = total_dur - (alloc_dur + fwd1_dur + adj1_dur + chol1_dur + trsm1_dur + fwd_q_dur +
-                                              syrk2_dur + chol2_dur + upd2_dur +
-                                              syrk3_dur + chol3_dur + upd3_dur);
-                this->times = {alloc_dur, fwd1_dur, adj1_dur, chol1_dur, trsm1_dur, fwd_q_dur,
-                               syrk2_dur, chol2_dur, upd2_dur,
-                               syrk3_dur, chol3_dur, upd3_dur,
+                long rest_dur = total_dur - (alloc_dur + fwd1_dur + adj1_dur + chol1_dur +
+                                              chol2_dur + upd2_dur +
+                                              chol3_dur + upd3_dur);
+                this->times = {alloc_dur, fwd1_dur, adj1_dur, chol1_dur,
+                               /*trsm1=*/0L, /*fwd_q=*/0L,
+                               /*syrk2=*/0L, chol2_dur, upd2_dur,
+                               /*syrk3=*/0L, chol3_dur, upd3_dur,
                                q_mat_dur, rest_dur, total_dur};
             }
-
-            delete[] G;
-            delete[] M;
-            if (!this->test_mode)
-                delete[] Q_buf;
             return 0;
         }
 };

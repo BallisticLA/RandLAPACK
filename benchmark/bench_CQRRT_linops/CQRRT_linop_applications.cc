@@ -6,7 +6,7 @@
 //   3. (FEM only) Build J = L^{-1} K V as a doubly-nested CompositeOperator
 //      J = CompositeOperator(L_inv_op, CompositeOperator(K_op, V_op)).
 //   4. Run Q-less QR via one of 5 variants (CQRRT_linop, CholQR, sCholQR3,
-//      sCholQR3_basic, CQRRT_linop_bqrrp), selected by method_mask.
+//      sCholQR3_basic, CholQR2), selected by method_mask.
 //   5. Post-processing dictated by <mode>:
 //        irlsq — sketch-and-solve x_0 (Epperly–Meier–Nakatsukasa 2025 Alg. 1 line 3) + IterRefineLSQ
 //        rspec — reduced spectral approximation (Algorithm 4): Rayleigh–Ritz on
@@ -19,12 +19,13 @@
 //          <K.mtx> <M.mtx> <V.mtx> <d_factor> [nnz] [b] [compute_cond] [method_mask] [noise_level] [omega] [power_j]
 //
 // mode        = "irlsq" | "rspec"
-// method_mask = bitmask of Q-less QR variants (default 0b1001111 = 79)
+// method_mask = bitmask of Q-less QR variants (default 0b11111 = 31)
 //                 bit 0 ( 1): CQRRT_linop (TRSM_IDENTITY)
 //                 bit 1 ( 2): CholQR
 //                 bit 2 ( 4): sCholQR3
 //                 bit 3 ( 8): sCholQR3_basic
-//                 bit 6 (64): CQRRT_linop_bqrrp (BQRRP)
+//                 bit 4 (16): CholQR2
+//   CQRRT_linop_bqrrp (legacy bit 6 / 64) was removed in the 2026-06-05 rework.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -349,12 +350,18 @@ static int run_benchmark_inner(
     const std::vector<T>* x_true_ptr)   // N-vector ground truth (sparse only); nullptr otherwise
 {
     // Build the ordered list of selected algorithm names from the bitmask.
+    //   bit 0  ( 1): CQRRT_linop
+    //   bit 1  ( 2): CholQR
+    //   bit 2  ( 4): sCholQR3
+    //   bit 3  ( 8): sCholQR3_basic
+    //   bit 4  (16): CholQR2
+    //   bit 6  (64): CQRRT_linop_bqrrp  [DROPPED in 2026-06-05 rework]
     std::vector<std::string> selected_algs;
     if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
     if (method_mask & 2)   selected_algs.push_back("CholQR");
     if (method_mask & 4)   selected_algs.push_back("sCholQR3");
     if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
-    if (method_mask & 64)  selected_algs.push_back("CQRRT_linop_bqrrp");
+    if (method_mask & 16)  selected_algs.push_back("CholQR2");
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
@@ -472,22 +479,29 @@ static int run_benchmark_inner(
                     res.qr_breakdown.resize(11, 0);
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
                 }
+            } else if (alg_name == "CholQR2") {
+                RandLAPACK::CholQR2_linops<T> qr_algo(/*time_subroutines=*/true, tol);
+                qr_algo.block_size = block_size;
+                res.qr_status = qr_algo.call(A_op, R, n);
+                res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) {
+                    res.qr_time_us = qr_algo.times[10];      // total
+                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
+                    res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<T>(m, n, block_size);
+                }
             } else {
+                // CQRRT_linop (TRSM_IDENTITY precond). CQRRT_linop_bqrrp was
+                // removed from the benchmark dispatch in the 2026-06-05 rework.
                 RandLAPACK::CQRRT_linops<T, RNG> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.nnz = sketch_nnz;
                 qr_algo.block_size = block_size;
-                if (alg_name == "CQRRT_linop")
-                    qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
-                else /* CQRRT_linop_bqrrp */
-                    qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::BQRRP;
+                qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
                 res.qr_status = qr_algo.call(A_op, R, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[10];
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
-                    res.analytical_kb = (alg_name == "CQRRT_linop_bqrrp")
-                        ? RandLAPACK::cqrrt_linops_bqrrp_analytical_kb<T>(m, n, d_factor, block_size)
-                        : RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+                    res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
                 }
             }
 
@@ -624,12 +638,13 @@ static int run_rspec_benchmark(
     double omega, int64_t power_j)
 {
     // Build the list of selected algorithm names from the bitmask (same as run_benchmark_inner).
+    // bit 6 (64) = CQRRT_linop_bqrrp removed in the 2026-06-05 rework.
     std::vector<std::string> selected_algs;
     if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
     if (method_mask & 2)   selected_algs.push_back("CholQR");
     if (method_mask & 4)   selected_algs.push_back("sCholQR3");
     if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
-    if (method_mask & 64)  selected_algs.push_back("CQRRT_linop_bqrrp");
+    if (method_mask & 16)  selected_algs.push_back("CholQR2");
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
@@ -717,21 +732,26 @@ static int run_rspec_benchmark(
                     res.qr_time_us = qr_algo.times[5];
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
                 }
+            } else if (alg_name == "CholQR2") {
+                RandLAPACK::CholQR2_linops<T> qr_algo(true, tol);
+                qr_algo.block_size = block_size;
+                res.qr_status = qr_algo.call(V_app_op, R, n);
+                res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) {
+                    res.qr_time_us = qr_algo.times[10];
+                    res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<T>(m, n, block_size);
+                }
             } else {
+                // CQRRT_linop. CQRRT_linop_bqrrp was removed in 2026-06-05.
                 RandLAPACK::CQRRT_linops<T, RNG> qr_algo(true, tol);
                 qr_algo.nnz = sketch_nnz;
                 qr_algo.block_size = block_size;
-                if (alg_name == "CQRRT_linop")
-                    qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
-                else
-                    qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::BQRRP;
+                qr_algo.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
                 res.qr_status = qr_algo.call(V_app_op, R, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[10];
-                    res.analytical_kb = (alg_name == "CQRRT_linop_bqrrp")
-                        ? RandLAPACK::cqrrt_linops_bqrrp_analytical_kb<T>(m, n, d_factor, block_size)
-                        : RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
+                    res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
                 }
             }
 
@@ -1000,7 +1020,7 @@ int run_benchmark(int argc, char* argv[]) {
     int64_t sketch_nnz  = opt_long(1, 4);
     int64_t block_size  = opt_long(2, 0);
     bool compute_cond   = (opt_long(3, 0) != 0);
-    int64_t method_mask = opt_long(4, 79);
+    int64_t method_mask = opt_long(4, 31);   // bits 0..4: CQRRT_linop, CholQR, sCholQR3, sCholQR3_basic, CholQR2
     T noise_level       = (T)opt_double(5, 0.05);
     double omega        = opt_double(6, 0.0);
     int64_t power_j     = opt_long(7, 1);

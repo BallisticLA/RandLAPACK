@@ -130,12 +130,19 @@ static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t b
     return bytes / 1024;
 }
 
-// sCholQR3_linops_basic: Q_buf(m*n) + G(n*n) + M(n*n).
-// Materializes Q = A * R1^{-1} after iteration 1, then uses dense syrk for iterations 2-3.
-// In-place trmm for R-updates (no R_temp scratch); no persisted G_k_factor members.
+// sCholQR3_linops_basic (post-2026-06-05 refactor to shared primitives):
+// Same algorithm as sCholQR3_linops with block_size=0, expressed via
+// cholqr_primitive + pcholqr_primitive. Persistent driver scratches:
+//   G + R_pre + P_prev (3 n^2) + A_temp (m*n) + Z_buf (n*n) = 4 n^2 + m*n
+// Iter-1 peak adds the primitive's internal G + G_backup + A_temp
+// (2 n^2 + m*n), so the active high-water mark is roughly:
+//   6 n^2 + 2 m*n
+// This is bigger than the legacy Q_buf-materialization layout for tall
+// inputs (m >> n); the "storage efficient" label no longer applies.
+// See [[project_orth_error_memlite_regression]] for follow-up.
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
-    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 2L * n * n);
+    long bytes = static_cast<long>(sizeof(T)) * (6L * n * n + 2L * (long)m * n);
     return bytes / 1024;
 }
 

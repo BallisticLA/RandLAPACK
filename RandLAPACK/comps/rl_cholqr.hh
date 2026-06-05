@@ -138,16 +138,26 @@ void blocked_preconditioned_gram(
 //     G = A^T A   (+ shift * I  if shift_factor > 0)
 //     G = R^T R  (Cholesky)
 //
-// shift_factor: caller-supplied multiplier on trace(G) = ||A||_F^2. The sCholQR3
-//               iter-1 spec wants s = 11 * eps * n * ||A||_F^2 so the caller
-//               passes shift_factor = 11 * eps * n. Pass 0 for unshifted CholQR.
+// shift_factor: caller-supplied multiplier on trace(G) = ||A||_F^2. Pass 0 for
+//               unshifted CholQR (Algorithm 1). sCholQR3 iter-1 spec is
+//               s = c * eps * n * ||A||_F^2 (c constant ~11 in Fukaya et al.);
+//               with adaptive retries enabled the caller may start much smaller
+//               (e.g. eps * ||A||_F^2) and let the loop grow the shift on demand.
+//
+// max_retries:  on potrf failure, multiply shift by shift_growth and retry; up
+//               to max_retries times. Default 0 = no retry (legacy behavior).
+//               The Gram A^T A is computed once and backed up before potrf so
+//               retries are O(n^2) each, not O(m*n^2).
+// shift_growth: factor to multiply shift_factor by between retries (default 10).
 //
 // Output:
 //   R — n × n upper-triangular (lower triangle returned zeroed).
 //
-// Workspaces (G n×n, A_temp m×b_eff) are allocated and freed internally.
+// Workspaces (G n×n, A_temp m×b_eff, G_backup n×n when max_retries>0)
+// are allocated and freed internally.
 //
-// Returns potrf info (0 on success; >0 on Cholesky breakdown).
+// Returns potrf info (0 on success; >0 if Cholesky kept breaking down after
+// max_retries shift bumps).
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int cholqr_primitive(
     GLO& A,
@@ -155,7 +165,9 @@ int cholqr_primitive(
     T shift_factor,
     int64_t block_size,
     long& fwd_us, long& adj_us, long& chol_us,
-    bool timing)
+    bool timing,
+    int max_retries = 0,
+    T shift_growth = T(10))
 {
     using std::chrono::steady_clock;
     using std::chrono::duration_cast;
@@ -164,8 +176,9 @@ int cholqr_primitive(
     int64_t n = A.n_cols;
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
 
-    T* G      = new T[n * n]();
-    T* A_temp = new T[m * b_eff];
+    T* G        = new T[n * n]();
+    T* A_temp   = new T[m * b_eff];
+    T* G_backup = (max_retries > 0) ? new T[n * n] : nullptr;
 
     long gemm_unused = 0;
     blocked_preconditioned_gram<T, GLO>(A, (const T*)nullptr, G, m, n, b_eff,
@@ -173,26 +186,48 @@ int cholqr_primitive(
                                          /*skip_left_factor=*/false,
                                          fwd_us, adj_us, gemm_unused, timing);
 
+    // Compute the once-only trace = ||A||_F^2 and snapshot G so we can restore
+    // before each retry without re-running the linop-side Gram computation.
+    T trace = 0;
+    for (int64_t i = 0; i < n; ++i) trace += G[i * (n + 1)];
+    if (G_backup) std::copy(G, G + n * n, G_backup);
+
     steady_clock::time_point t0, t1;
     if (timing) t0 = steady_clock::now();
 
-    if (shift_factor > T(0)) {
-        T trace = 0;
-        for (int64_t i = 0; i < n; ++i) trace += G[i * (n + 1)];
-        T shift = shift_factor * trace;
-        for (int64_t i = 0; i < n; ++i) G[i * (n + 1)] += shift;
+    int info = 0;
+    T current_shift_factor = shift_factor;
+    for (int attempt = 0; attempt <= max_retries; ++attempt) {
+        if (attempt > 0) {
+            // Restore Gram and grow the shift.
+            std::copy(G_backup, G_backup + n * n, G);
+            current_shift_factor = (current_shift_factor > T(0))
+                                 ? current_shift_factor * shift_growth
+                                 // If the caller started at exactly 0 (CholQR
+                                 // baseline) but still allowed retries, seed
+                                 // with eps * trace on the first bump.
+                                 : std::numeric_limits<T>::epsilon();
+        }
+
+        if (current_shift_factor > T(0)) {
+            T shift = current_shift_factor * trace;
+            for (int64_t i = 0; i < n; ++i) G[i * (n + 1)] += shift;
+        }
+
+        if (n > 1)
+            lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
+        info = lapack::potrf(Uplo::Upper, n, G, n);
+        if (info == 0) break;
     }
 
-    if (n > 1)
-        lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
-    int info = lapack::potrf(Uplo::Upper, n, G, n);
     if (info) {
         std::fprintf(stderr,
-            "[cholqr_primitive] FAIL: lapack::potrf on Gram returned info=%d "
-            "(non-PD pivot at column %d; shift_factor=%g may be too small for kappa(A))\n",
-            info, info, (double)shift_factor);
+            "[cholqr_primitive] FAIL: lapack::potrf returned info=%d after %d "
+            "retries (final shift_factor=%g)\n",
+            info, max_retries, (double)current_shift_factor);
         delete[] G;
         delete[] A_temp;
+        delete[] G_backup;
         return info;
     }
 
@@ -207,6 +242,7 @@ int cholqr_primitive(
 
     delete[] G;
     delete[] A_temp;
+    delete[] G_backup;
     return 0;
 }
 
@@ -234,7 +270,14 @@ int cholqr_primitive(
 // bqrrp_block_ratio: BQRRP block-size knob. Pass 1.0 to use the CQRRPT-style
 //                    adaptive heuristic (1.0 for n<=2000, 0.5 for n<=8000, 1/32 else).
 //
-// Returns 0 on success; nonzero on diag-zero check failure / Cholesky breakdown.
+// shift_factor / max_retries / shift_growth: same adaptive-shift semantics as
+//   cholqr_primitive. Default max_retries=0 = no retry (legacy behavior). When
+//   the iter-2 Gram of sCholQR3 / CholQR2 hits a non-PD pivot due to the
+//   kappa(R_pre)^2-amplified rounding, retries bump the *Gram* diagonal by
+//   shift_factor * trace(G) (= O(n)) on each retry, growing geometrically.
+//
+// Returns 0 on success; nonzero on diag-zero check failure / Cholesky breakdown
+// that survived all retries.
 template <typename T, RandLAPACK::linops::LinearOperator GLO,
           typename RNG = RandBLAS::DefaultRNG>
 int pcholqr_primitive(
@@ -251,7 +294,10 @@ int pcholqr_primitive(
     RandBLAS::RNGState<RNG>* state,
     long& precond_inv_us,
     long& fwd_us, long& adj_us, long& gemm_us, long& chol_us, long& update_us,
-    bool timing)
+    bool timing,
+    T shift_factor = T(0),
+    int max_retries = 0,
+    T shift_growth = T(10))
 {
     using std::chrono::steady_clock;
     using std::chrono::duration_cast;
@@ -388,18 +434,49 @@ int pcholqr_primitive(
         }
     }
 
-    // ---- Step 3: G = (R^chol)^T R^chol ----
+    // ---- Step 3: G = (R^chol)^T R^chol  (with optional adaptive-shift retry) ----
+    //
+    // Snapshot G before potrf so retries restore + bump diag without re-running
+    // the per-block Gram computation. Backup only allocated when retries are on.
+    T* G_backup = (max_retries > 0) ? new T[n * n] : nullptr;
+    T trace_G = 0;
+    if (max_retries > 0) {
+        std::copy(G, G + n * n, G_backup);
+        for (int64_t i = 0; i < n; ++i) trace_G += G[i * (n + 1)];
+    }
+
     if (timing) t0 = steady_clock::now();
-    if (n > 1)
-        lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
-    int info = lapack::potrf(Uplo::Upper, n, G, n);
+
+    int info = 0;
+    T current_shift_factor = shift_factor;
+    for (int attempt = 0; attempt <= max_retries; ++attempt) {
+        if (attempt > 0) {
+            std::copy(G_backup, G_backup + n * n, G);
+            current_shift_factor = (current_shift_factor > T(0))
+                                 ? current_shift_factor * shift_growth
+                                 : std::numeric_limits<T>::epsilon();
+        }
+        if (current_shift_factor > T(0)) {
+            T shift = current_shift_factor * trace_G;
+            for (int64_t i = 0; i < n; ++i) G[i * (n + 1)] += shift;
+        }
+        if (n > 1)
+            lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
+        info = lapack::potrf(Uplo::Upper, n, G, n);
+        if (info == 0) break;
+    }
+
     if (info) {
         std::fprintf(stderr,
-            "[pcholqr_primitive] FAIL: lapack::potrf on preconditioned Gram returned info=%d "
-            "(non-PD pivot at column %d; preconditioner P stability margin insufficient for kappa(A))\n",
-            info, info);
+            "[pcholqr_primitive] FAIL: lapack::potrf on preconditioned Gram returned info=%d after %d "
+            "retries (final shift_factor=%g; preconditioner P stability margin insufficient for kappa(A))\n",
+            info, max_retries, (double)current_shift_factor);
+        delete[] G_backup;
         return info;
     }
+
+    delete[] G_backup;
+
     if (timing) {
         t1 = steady_clock::now();
         chol_us = duration_cast<microseconds>(t1 - t0).count();
