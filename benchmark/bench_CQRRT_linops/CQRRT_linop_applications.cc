@@ -98,39 +98,6 @@ struct bench_result {
     long analytical_kb;
 };
 
-// Compute A^T A via blocked linop calls. Peak memory: O(m*b + n*b).
-//   AtA      n x n output (caller-allocated)
-//   E_block  n x b identity-column scratch
-//   A_block  m x b linop NoTrans output
-//   AtA_block n x b linop Trans output, copied into AtA[:, j0:j0+bk] each iter
-template <typename T, typename GLO>
-static void compute_AtA_blocked(GLO& A_op, int64_t m, int64_t n, T* AtA, int64_t b) {
-    std::fill(AtA, AtA + n * n, (T)0.0);
-    T* E_block   = new T[n * b]();
-    T* A_block   = new T[m * b];
-    T* AtA_block = new T[n * b];
-
-    for (int64_t j0 = 0; j0 < n; j0 += b) {
-        int64_t bk = std::min(b, n - j0);
-
-        std::fill(E_block, E_block + n * b, (T)0.0);
-        for (int64_t j = 0; j < bk; ++j)
-            E_block[(j0 + j) + j * n] = (T)1.0;
-
-        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-             m, bk, n, (T)1.0, E_block, n, (T)0.0, A_block, m);
-
-        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-             n, bk, m, (T)1.0, A_block, m, (T)0.0, AtA_block, n);
-
-        lapack::lacpy(lapack::MatrixType::General, n, bk, AtA_block, n, AtA + j0 * n, n);
-    }
-
-    delete[] E_block;
-    delete[] A_block;
-    delete[] AtA_block;
-}
-
 // Estimate ||A||_2 via power iteration on A^T A. O(iters * (m+n) memory) — no materialization.
 template <typename T, typename GLO>
 static T estimate_op_2norm(GLO& A_op, int64_t m, int64_t n, int iters = 10) {
@@ -157,24 +124,42 @@ static T estimate_op_2norm(GLO& A_op, int64_t m, int64_t n, int iters = 10) {
     return sigma;
 }
 
-// Blocked orth_err: ||R^{-T} A^T A R^{-1} - I||_F / sqrt(n).
-// O(n^2 + m*b) memory (no Q materialization). Mathematically equivalent to
-// ||Q^T Q - I||_F / sqrt(n) with Q = A * R^{-1}.
+// orth_err: ||Q^T Q - I||_F / sqrt(n), with Q = A * R^{-1} materialized explicitly.
+// O(m*n + n^2) memory. Direct path: materialize Q a column block at a time via the
+// linop (so the *peak* extra memory beyond Q itself stays at O(n^2 + m*b)), then
+// hand Q off to testing::orthogonality_error. This matches the OLD applications
+// benchmark (pre-2026-06-01-b) and the April FEM2 plots' numbers.
+//
+// The earlier compute_orth_error_memlite path (X = A^T A; X ← R^{-T} X R^{-1})
+// was mathematically equivalent but amplified forward error by kappa(R)^2 from
+// the two TRSMs against an ill-conditioned R, producing meaningless ~1e8 values
+// on FEM2 where kappa(A) ~ 1e7. The direct path here amplifies only by kappa(R).
 template <typename T, typename GLO>
-static T compute_orth_error_memlite(GLO& A_op, const T* R, int64_t m, int64_t n, int64_t block_size) {
-    int64_t b = (block_size > 0) ? block_size : 256;
-    T* X = new T[n * n]();
-    compute_AtA_blocked(A_op, m, n, X, b);
-    blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-               blas::Op::Trans, blas::Diag::NonUnit, n, n, (T)1.0, R, n, X, n);
+static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n, int64_t block_size) {
+    int64_t b = (block_size > 0 && block_size < n) ? block_size : n;
+    T* Q       = new T[m * n]();
+    T* E_block = new T[n * b]();   // identity column-block scratch
+
+    // Materialize Q = A * R^{-1} one column block at a time:
+    //   E_block = I[:, j:j+b];  Q[:, j:j+b] = A_op * E_block.
+    // After all blocks, Q = A. Then a single TRSM(Side::Right) gives Q = A * R^{-1}.
+    for (int64_t j0 = 0; j0 < n; j0 += b) {
+        int64_t bk = std::min(b, n - j0);
+        std::fill(E_block, E_block + n * b, (T)0.0);
+        for (int64_t j = 0; j < bk; ++j)
+            E_block[(j0 + j) + j * n] = (T)1.0;
+        A_op(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+             m, bk, n, (T)1.0, E_block, n, (T)0.0, Q + j0 * m, m);
+    }
+    delete[] E_block;
+
+    // Q := A * R^{-1}  (TRSM amplifies error by kappa(R) only.)
     blas::trsm(blas::Layout::ColMajor, blas::Side::Right, blas::Uplo::Upper,
-               blas::Op::NoTrans, blas::Diag::NonUnit, n, n, (T)1.0, R, n, X, n);
-    for (int64_t i = 0; i < n; ++i) X[i + i * n] -= (T)1.0;
-    T s = 0;
-    #pragma omp parallel for reduction(+:s) schedule(static)
-    for (int64_t i = 0; i < n * n; ++i) s += X[i] * X[i];
-    delete[] X;
-    return std::sqrt(s) / std::sqrt((T)n);
+               blas::Op::NoTrans, blas::Diag::NonUnit, m, n, (T)1.0, R, n, Q, m);
+
+    T orth = RandLAPACK::testing::orthogonality_error<T>(Q, m, n);
+    delete[] Q;
+    return orth;
 }
 
 // ============================================================================
@@ -521,7 +506,7 @@ static int run_benchmark_inner(
             std::cout << "done (" << res.qr_time_us << " us)";
 
             // ---- Orth_error: ||Q^T Q - I||_F / sqrt(n), blocked compute. Runs for every method. ----
-            res.orth_error = compute_orth_error_memlite(A_op, R, m, n, block_size);
+            res.orth_error = compute_orth_error_explicit(A_op, R, m, n, block_size);
 
             // ---- IR-LSQ post-processing ----
             {

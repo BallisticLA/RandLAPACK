@@ -8,6 +8,7 @@
 
 #include <RandBLAS.hh>
 #include <cstdint>
+#include <cstdio>
 #include <chrono>
 #include <limits>
 #include <algorithm>
@@ -186,6 +187,10 @@ int cholqr_primitive(
         lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
     int info = lapack::potrf(Uplo::Upper, n, G, n);
     if (info) {
+        std::fprintf(stderr,
+            "[cholqr_primitive] FAIL: lapack::potrf on Gram returned info=%d "
+            "(non-PD pivot at column %d; shift_factor=%g may be too small for kappa(A))\n",
+            info, info, (double)shift_factor);
         delete[] G;
         delete[] A_temp;
         return info;
@@ -261,7 +266,10 @@ int pcholqr_primitive(
     // ---- Step 1: R_pre = invert(P) ----
     switch (method) {
         case PCholQRPrecondMethod::TRSM_IDENTITY: {
-            if (!RandLAPACK::util::diag_is_nonzero(n, P, n)) return 1;
+            if (!RandLAPACK::util::diag_is_nonzero(n, P, n)) {
+                std::fprintf(stderr, "[pcholqr_primitive] FAIL: TRSM_IDENTITY diag_is_nonzero(P) failed (P has ~0 diagonal entry)\n");
+                return 1;
+            }
             RandLAPACK::util::eye(n, n, R_pre);
             blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper,
                        Op::NoTrans, Diag::NonUnit,
@@ -271,12 +279,18 @@ int pcholqr_primitive(
             break;
         }
         case PCholQRPrecondMethod::TRTRI: {
-            if (!RandLAPACK::util::diag_is_nonzero(n, P, n)) return 1;
+            if (!RandLAPACK::util::diag_is_nonzero(n, P, n)) {
+                std::fprintf(stderr, "[pcholqr_primitive] FAIL: TRTRI diag_is_nonzero(P) failed (P has ~0 diagonal entry)\n");
+                return 1;
+            }
             lapack::lacpy(MatrixType::Upper, n, n, P, n, R_pre, n);
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), R_pre + 1, n);
             int trtri_info = lapack::trtri(Uplo::Upper, Diag::NonUnit, n, R_pre, n);
-            if (trtri_info) return 1;
+            if (trtri_info) {
+                std::fprintf(stderr, "[pcholqr_primitive] FAIL: lapack::trtri returned info=%d\n", trtri_info);
+                return 1;
+            }
             break;
         }
         case PCholQRPrecondMethod::GEQP3:
@@ -285,7 +299,10 @@ int pcholqr_primitive(
             for (int64_t j = 0; j < n; ++j)
                 for (int64_t i = 0; i <= j; ++i)
                     P_copy[i + j * n] = P[i + j * n];
-            if (!RandLAPACK::util::diag_is_nonzero(n, P_copy, n)) { delete[] P_copy; return 1; }
+            if (!RandLAPACK::util::diag_is_nonzero(n, P_copy, n)) {
+                std::fprintf(stderr, "[pcholqr_primitive] FAIL: GEQP3/BQRRP diag_is_nonzero(P) failed\n");
+                delete[] P_copy; return 1;
+            }
 
             int64_t* jpiv = new int64_t[n]();
             T* tau_qr = new T[n];
@@ -294,6 +311,7 @@ int pcholqr_primitive(
                 lapack::geqp3(n, n, P_copy, n, jpiv, tau_qr);
             } else {
                 if (state == nullptr) {
+                    std::fprintf(stderr, "[pcholqr_primitive] FAIL: BQRRP called with state=nullptr\n");
                     delete[] P_copy; delete[] jpiv; delete[] tau_qr;
                     return 1;
                 }
@@ -375,7 +393,13 @@ int pcholqr_primitive(
     if (n > 1)
         lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), &G[1], n);
     int info = lapack::potrf(Uplo::Upper, n, G, n);
-    if (info) return info;
+    if (info) {
+        std::fprintf(stderr,
+            "[pcholqr_primitive] FAIL: lapack::potrf on preconditioned Gram returned info=%d "
+            "(non-PD pivot at column %d; preconditioner P stability margin insufficient for kappa(A))\n",
+            info, info);
+        return info;
+    }
     if (timing) {
         t1 = steady_clock::now();
         chol_us = duration_cast<microseconds>(t1 - t0).count();
