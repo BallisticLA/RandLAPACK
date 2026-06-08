@@ -84,13 +84,16 @@ private:
 // All return memory in KB.
 // ---------------------------------------------------------------------------
 
-// CQRRT_linops (TRSM_IDENTITY / GEQP3): A_hat(d*n) + tau(n) + R_sk_inv(n*n) + A_pre(m*b_eff)
-// Peak is during the blocked Gram loop where A_hat, R_sk_inv, and A_pre are all live.
+// CQRRT_linops (TRSM_IDENTITY / GEQP3).
+// Peak during the blocked Gram + Cholesky moment:
+//   A_hat(d*n) + tau(n) + R_sk_inv(n*n) + G(n*n) + G_backup(n*n) + A_pre(m*b_eff)
+// = d*n + n + 3*n*n + m*b_eff. The G + G_backup pair is the Cholesky workspace
+// and (per the 2026-06-05 rework) the snapshot used for adaptive-shift retries.
 template <typename T>
 static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
     int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (d * n + n + (long)n * n + (long)m * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (d * n + n + 3L * n * n + (long)m * b_eff);
     return bytes / 1024;
 }
 
@@ -112,34 +115,38 @@ static inline long cqrrt_linops_bqrrp_analytical_kb(int64_t m, int64_t n, double
     return std::max(bqrrp_peak, gram_peak) / 1024;
 }
 
-// CholQR_linops: I_mat(n*n) + A_temp(m*b_eff)
+// CholQR_linops (post-2026-06-05 rework with adaptive-shift retries enabled by default):
+//   cholqr_primitive owns G(n*n) + G_backup(n*n) + A_temp(m*b_eff)
+//   plus blocked_preconditioned_gram's I_block(n*b_eff) inside the Gram loop.
+// Peak = 2*n*n + (m+n)*b_eff.
 template <typename T>
 static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
-    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * ((long)n * n + (long)m * b_eff);
-    return bytes / 1024;
-}
-
-// sCholQR3_linops (fully-blocked):
-//   local: G(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
-// In-place trmm for R-updates (no R_temp scratch); no persisted G_k_factor members.
-template <typename T>
-static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
     long bytes = static_cast<long>(sizeof(T)) * (2L * n * n + (long)(m + n) * b_eff);
     return bytes / 1024;
 }
 
-// sCholQR3_linops_basic (post-2026-06-05 refactor to shared primitives):
-// Same algorithm as sCholQR3_linops with block_size=0, expressed via
-// cholqr_primitive + pcholqr_primitive. Persistent driver scratches:
-//   G + R_pre + P_prev (3 n^2) + A_temp (m*n) + Z_buf (n*n) = 4 n^2 + m*n
-// Iter-1 peak adds the primitive's internal G + G_backup + A_temp
-// (2 n^2 + m*n), so the active high-water mark is roughly:
-//   6 n^2 + 2 m*n
-// This is bigger than the legacy Q_buf-materialization layout for tall
-// inputs (m >> n); the "storage efficient" label no longer applies.
-// See [[project_orth_error_memlite_regression]] for follow-up.
+// sCholQR3_linops (post-2026-06-05 rework with adaptive-shift retries enabled).
+// Persistent driver scratches: G(n*n) + R_pre(n*n) + P_prev(n*n) + A_temp(m*b_eff)
+//   + Z_buf(n*b_eff) = 3*n*n + (m+n)*b_eff.
+// Iter-1 cholqr_primitive also allocates its own G(n*n) + G_backup(n*n) +
+//   A_temp(m*b_eff) transiently (freed before iters 2/3 start), so the peak is:
+//     3*n*n + (m+n)*b_eff + 2*n*n + m*b_eff = 5*n*n + (2m+n)*b_eff.
+// Iter-2 / iter-3 pcholqr_primitive only adds a single G_backup(n*n), which is
+//   strictly smaller than iter-1's transient set, so iter-1 dominates the peak.
+template <typename T>
+static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
+    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+    long bytes = static_cast<long>(sizeof(T)) * (5L * n * n + (long)(2L * m + n) * b_eff);
+    return bytes / 1024;
+}
+
+// sCholQR3_linops_basic (post-2026-06-05 refactor; non-blocked b_eff = n):
+// Same primitive structure as sCholQR3_linops with block_size=0. Plugging
+// b_eff = n into the blocked formula 5*n*n + (2m+n)*b_eff gives:
+//   5*n*n + (2m + n)*n  =  6*n*n + 2*m*n.
+// (Identical accounting to the legacy basic formula by coincidence, since the
+// b_eff = n collapse cancels the persistent + transient split.)
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
     long bytes = static_cast<long>(sizeof(T)) * (6L * n * n + 2L * (long)m * n);
