@@ -146,6 +146,9 @@ void blocked_preconditioned_gram(
 //
 // max_retries:  on potrf failure, multiply shift by shift_growth and retry; up
 //               to max_retries times. Default 0 = no retry (legacy behavior).
+//               max_retries < 0 = unbounded: retry until the (shifted) Gram is
+//               PD. Geometric shift growth guarantees termination — once the
+//               shift reaches trace(G) the Gram is diagonally dominant, hence PD.
 //               The Gram A^T A is computed once and backed up before potrf so
 //               retries are O(n^2) each, not O(m*n^2).
 // shift_growth: factor to multiply shift_factor by between retries (default 10).
@@ -178,7 +181,7 @@ int cholqr_primitive(
 
     T* G        = new T[n * n]();
     T* A_temp   = new T[m * b_eff];
-    T* G_backup = (max_retries > 0) ? new T[n * n] : nullptr;
+    T* G_backup = (max_retries != 0) ? new T[n * n] : nullptr;
 
     long gemm_unused = 0;
     blocked_preconditioned_gram<T, GLO>(A, (const T*)nullptr, G, m, n, b_eff,
@@ -197,7 +200,7 @@ int cholqr_primitive(
 
     int info = 0;
     T current_shift_factor = shift_factor;
-    for (int attempt = 0; attempt <= max_retries; ++attempt) {
+    for (int attempt = 0; max_retries < 0 || attempt <= max_retries; ++attempt) {
         if (attempt > 0) {
             // Restore Gram and grow the shift.
             std::copy(G_backup, G_backup + n * n, G);
@@ -271,8 +274,9 @@ int cholqr_primitive(
 //                    adaptive heuristic (1.0 for n<=2000, 0.5 for n<=8000, 1/32 else).
 //
 // shift_factor / max_retries / shift_growth: same adaptive-shift semantics as
-//   cholqr_primitive. Default max_retries=0 = no retry (legacy behavior). When
-//   the iter-2 Gram of sCholQR3 / CholQR2 hits a non-PD pivot due to the
+//   cholqr_primitive. Default max_retries=0 = no retry (legacy behavior);
+//   max_retries < 0 = unbounded (retry until PD; geometric growth terminates).
+//   When the iter-2 Gram of sCholQR3 / CholQR2 hits a non-PD pivot due to the
 //   kappa(R_pre)^2-amplified rounding, retries bump the *Gram* diagonal by
 //   shift_factor * trace(G) (= O(n)) on each retry, growing geometrically.
 //
@@ -438,9 +442,9 @@ int pcholqr_primitive(
     //
     // Snapshot G before potrf so retries restore + bump diag without re-running
     // the per-block Gram computation. Backup only allocated when retries are on.
-    T* G_backup = (max_retries > 0) ? new T[n * n] : nullptr;
+    T* G_backup = (max_retries != 0) ? new T[n * n] : nullptr;
     T trace_G = 0;
-    if (max_retries > 0) {
+    if (max_retries != 0) {
         std::copy(G, G + n * n, G_backup);
         for (int64_t i = 0; i < n; ++i) trace_G += G[i * (n + 1)];
     }
@@ -449,7 +453,7 @@ int pcholqr_primitive(
 
     int info = 0;
     T current_shift_factor = shift_factor;
-    for (int attempt = 0; attempt <= max_retries; ++attempt) {
+    for (int attempt = 0; max_retries < 0 || attempt <= max_retries; ++attempt) {
         if (attempt > 0) {
             std::copy(G_backup, G_backup + n * n, G);
             current_shift_factor = (current_shift_factor > T(0))

@@ -8,7 +8,8 @@
 //   4. Run Q-less QR via one of 5 variants (CQRRT_linop, CholQR, sCholQR3,
 //      sCholQR3_basic, CholQR2), selected by method_mask.
 //   5. Post-processing dictated by <mode>:
-//        irlsq — sketch-and-solve x_0 (Epperly–Meier–Nakatsukasa 2025 Alg. 1 line 3) + IterRefineLSQ
+//        irlsq — IterRefineLSQ from x_0 = 0 (no sketch-and-solve initial guess;
+//                the only sketch is S_1 inside Q-less QR, which produces R)
 //        rspec — reduced spectral approximation (Algorithm 4): Rayleigh–Ritz on
 //                range(C^j V_FEM), C = L^T (K - ω M)^{-1} L. FEM-only.
 //
@@ -215,8 +216,7 @@ static void write_irlsq_breakdown(
     out << "# Sparse IR-LSQ Benchmark runtime breakdown (microseconds)\n"
         << "# QR breakdown layout depends on algorithm (see CQRRT_linop_applications.cc).\n"
         << "# IR-LSQ breakdown (6): outer_total, inner_cg_total, trsm_total, fwd_total, adj_total, other\n"
-        << "#   (sketch-and-solve x_0 time is folded into the difference between ir_total_us\n"
-        << "#    in the results CSV and outer_total here)\n"
+        << "#   (x_0 = 0, so ir_total_us in the results CSV matches outer_total here up to overhead)\n"
         << "algorithm,run,phase,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << ",QR";
@@ -246,6 +246,7 @@ struct rspec_result {
     long analytical_kb;
     long factor_time_us;
     long rspec_total_us;
+    T orth_error;                 // ||Q^T Q - I||_F / sqrt(n), Q = V_app R^{-1}
     std::vector<T> top_eigvals;
     std::vector<T> top_residuals;
 };
@@ -282,7 +283,7 @@ static void write_rspec_csv(
         << "# top_k: " << top_k << "\n";
 
     out << "algorithm,run,m,n,omega,power_j,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
-           "factor_time_us,rspec_total_us";
+           "factor_time_us,rspec_total_us,orth_error";
     for (int i = 0; i < top_k; ++i) out << ",eig_" << i;
     for (int i = 0; i < top_k; ++i) out << ",resid_" << i;
     out << "\n";
@@ -292,7 +293,8 @@ static void write_rspec_csv(
             << omega << "," << power_j << ","
             << r.qr_status << "," << r.qr_time_us << ","
             << r.peak_rss_kb << "," << r.analytical_kb << ","
-            << r.factor_time_us << "," << r.rspec_total_us;
+            << r.factor_time_us << "," << r.rspec_total_us << ","
+            << std::scientific << std::setprecision(6) << r.orth_error;
         for (int i = 0; i < top_k; ++i) {
             T v = (i < (int)r.top_eigvals.size()) ? r.top_eigvals[i]
                                                   : std::numeric_limits<T>::quiet_NaN();
@@ -322,7 +324,7 @@ static void print_irlsq_summary(const bench_result<T>& r) {
     std::printf("    QR: %ld us, peak_RSS=%ld KB, predicted=%ld KB\n",
                 r.qr_time_us, r.peak_rss_kb, r.analytical_kb);
     if (r.orth_error >= 0) std::printf("    orth_err = %.3e\n", (double)r.orth_error);
-    std::printf("    IR-LSQ (with x_0): total=%ld us, outer=%d, inner_total=%d\n",
+    std::printf("    IR-LSQ (x_0=0): total=%ld us, outer=%d, inner_total=%d\n",
                 r.ir_total_us, r.ir_outer_iters, r.ir_inner_iters_total);
     std::printf("    ||Ax-b||/(||A||*||x||+||b||) = %.3e\n", (double)r.ls_residual_norm);
     if (r.ls_solution_error >= 0)
@@ -411,11 +413,8 @@ static int run_benchmark_inner(
     std::vector<bench_result<T>> all_results;
 
     // Per-iteration workspaces, hoisted once: invariant sizes across all (alg, run) iters.
-    const int64_t d_init = (int64_t)(d_factor * (T)n);
     T* R    = new T[n * n]();    // QR output; zero-filled per iter to match prior behavior
-    T* SA   = new T[d_init * n]; // S2 * A (sketch-and-solve LHS); overwritten beta=0
-    T* Sb   = new T[d_init];     // S2 * b; overwritten beta=0
-    T* x_ls = new T[n];          // initial guess + refined solution
+    T* x_ls = new T[n];          // initial guess (x_0 = 0) + refined solution
     T* Ax   = new T[m];          // A * x_ls for residual; overwritten beta=0
 
     // ================================================================
@@ -528,30 +527,11 @@ static int run_benchmark_inner(
                 const std::vector<T>& b = *b_ptr;
                 auto ls_t0 = steady_clock::now();
 
-                // Sketch-and-solve initial guess x_0 (Alg. 1 line 3 of Epperly–Meier–Nakatsukasa 2025);
-                // fresh sparse sketch S_2 independent of CQRRT's S_1.
-                RandBLAS::SparseDist DS_init(d_init, m, sketch_nnz);
-                auto x0_state = state;
-                x0_state.key.incr(0xA1B2C3D4u);
-                RandBLAS::SparseSkOp<T, RNG> S2(DS_init, x0_state);
-                RandBLAS::fill_sparse(S2);
-
-                A_op(blas::Side::Right, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                     d_init, n, m, (T)1.0, S2, (T)0.0, SA, d_init);
-
-                RandBLAS::sketch_general(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                                         d_init, (int64_t)1, m, (T)1.0,
-                                         S2, b.data(), m, (T)0.0, Sb, d_init);
-
-                blas::gemv(blas::Layout::ColMajor, blas::Op::Trans, d_init, n,
-                           (T)1.0, SA, d_init, Sb, 1,
-                           (T)0.0, x_ls, 1);
-                blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                           blas::Op::Trans, blas::Diag::NonUnit, n, 1,
-                           (T)1.0, R, n, x_ls, n);
-                blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                           blas::Op::NoTrans, blas::Diag::NonUnit, n, 1,
-                           (T)1.0, R, n, x_ls, n);
+                // Initial guess x_0 = 0 (per collaborator: no sketching in the LS
+                // solve itself). The only randomness is S_1 inside Q-less QR, which
+                // yields the preconditioner R; IterRefineLSQ starts from zero and the
+                // preconditioned inner CG converges from there.
+                std::fill(x_ls, x_ls + n, (T)0.0);
 
                 RandLAPACK::IterRefineLSQ<T> ir(/*tol=*/tol,
                                                 /*max_inner=*/200,
@@ -615,7 +595,7 @@ static int run_benchmark_inner(
     write_irlsq_breakdown<T>(breakdown_file, all_results);
     std::cout << "IR-LSQ breakdown written to " << breakdown_file << "\n";
 
-    delete[] R; delete[] SA; delete[] Sb; delete[] x_ls; delete[] Ax;
+    delete[] R; delete[] x_ls; delete[] Ax;
     return 0;
 }
 
@@ -623,12 +603,10 @@ static int run_benchmark_inner(
 // RSPEC mode runner
 // ============================================================================
 
-template <typename T, typename RNG, typename KOpType, typename MOpType, typename VAppOpType, typename CompCOp>
+template <typename T, typename RNG, typename VAppOpType, typename CompCOp>
 static int run_rspec_benchmark(
     VAppOpType& V_app_op,         // m_K x n_V composite: C^j * V_FEM
-    CompCOp&    C_op,             // m_K x m_K composite: L^T X^{-1} L
-    KOpType&    K_op,             // m_K x m_K sparse: K (for residual norm)
-    MOpType&    M_op,             // m_K x m_K sparse: M (for residual norm)
+    CompCOp&    C_op,             // m_K x m_K composite: L^T X^{-1} L  (the operator we Rayleigh-Ritz)
     int64_t m_K, int64_t n_V,
     const std::string& output_dir, int64_t num_runs,
     T d_factor, int64_t sketch_nnz, int64_t block_size,
@@ -698,6 +676,7 @@ static int run_rspec_benchmark(
             res.analytical_kb = 0;
             res.factor_time_us = factor_time_us;
             res.rspec_total_us = 0;
+            res.orth_error = (T)-1.0;
 
             auto rspec_t0 = steady_clock::now();
 
@@ -760,6 +739,7 @@ static int run_rspec_benchmark(
                           << ": QR returned status " << res.qr_status
                           << ". Skipping eigen post-processing.\n";
                 res.qr_time_us = -1;
+                res.orth_error = std::numeric_limits<T>::quiet_NaN();
                 res.top_eigvals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
                 res.top_residuals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
                 auto rspec_t1 = steady_clock::now();
@@ -768,6 +748,15 @@ static int run_rspec_benchmark(
                 continue;
             }
             std::cout << "done (" << res.qr_time_us << " us)\n";
+
+            // ---- Orthogonality loss of the Q-factor: ||Q^T Q - I||_F / sqrt(n),
+            //      Q = V_app * R^{-1}, materialized explicitly (same path as irlsq).
+            //      NOTE: this re-applies V_app to n columns (one extra full pass of the
+            //      C^j chain); at FEM2 scale that is a meaningful cost — see dev log.
+            std::cout << "    orth loss ... " << std::flush;
+            res.orth_error = compute_orth_error_explicit(V_app_op, R, m, n, block_size);
+            std::cout << "done (" << std::scientific << std::setprecision(3)
+                      << res.orth_error << ")\n";
 
             // ----------------------------------------------------------------
             // Rayleigh-Ritz: T = R^{-T} V_app^T C V_app R^{-1}
@@ -853,76 +842,59 @@ static int run_rspec_benchmark(
             for (int i = 0; i < top_k; ++i) res.top_eigvals[i] = eigvals[perm[i]];
 
             // ----------------------------------------------------------------
-            // Ritz residual norms for the top-k pairs:
-            //   v = V_FEM * (R^{-1} * u_k)      -- NOTE: We use V_app * R^{-1} u_k since
-            //   R is the qless-QR factor of V_app (= C^j V_FEM); thus Q = V_app * R^{-1}.
-            //   residual = ||C v_q - lambda_k * M v_q|| not appropriate — see note below.
-            //
-            // Per spec: residual = ||C v - lambda M v|| / (||K v|| + |lambda| ||M v||)
-            //   where v = V_FEM * R^{-1} * u_k. Since u_k is an eigvec of the small RR matrix
-            //   T = Q^T C Q with Q = V_app * R^{-1} (i.e. Q^T Q = I via PCholQR), the Ritz vector
-            //   in the C-operator coordinates is Q u_k = V_app R^{-1} u_k. The spec writes
-            //   v = V_FEM * R^{-1} * u_k, which corresponds to using V_FEM (un-powered) for the
-            //   physical eigenvector recovery. We follow the spec.
+            // Ritz residual norms for the top-k pairs (collaborator spec):
+            //   resid_i = ||C y_i - lambda_i y_i|| / (|lambda_max| * ||y_i||)
+            // where y_i = Q u_i = V_app R^{-1} u_i is the Ritz vector and u_i is an
+            // eigenvector of the small RR matrix T = Q^T C Q (Q = V_app R^{-1}, with
+            // Q^T Q = I via PCholQR). This is the ordinary (non-generalized) eigen-
+            // residual of the symmetric operator C, which is exactly what Rayleigh-
+            // Ritz on range(V_app) approximates. |lambda_max| is the dominant Ritz
+            // value (largest |lambda|), used as the relative scale. K and M are no
+            // longer needed here — only C and the Ritz vectors.
             // ----------------------------------------------------------------
-            // Build V_FEM * R^{-1} * U_topk  (m x top_k)
-            // V_FEM is wrapped inside V_app_op as the right_op... but we need direct access.
-            // Instead, take the Ritz vector in the operator domain: q = V_app * R^{-1} u.
-            // For residuals we follow the spec literally and substitute v -> V_app R^{-1} u.
-            // The denominator uses ||K v|| + |lambda| ||M v||; we use the same v.
             std::cout << "    Ritz residuals ... " << std::flush;
-            T* u_blk = new T[(size_t)n * (size_t)top_k]();  // R^{-1} * U_topk (n x top_k)
-            for (int i = 0; i < top_k; ++i) {
-                for (int64_t r = 0; r < n; ++r) {
+
+            // u_blk = R^{-1} * U_topk  (n x top_k); columns = top-k eigenvectors of T.
+            T* u_blk = new T[(size_t)n * (size_t)top_k]();
+            for (int i = 0; i < top_k; ++i)
+                for (int64_t r = 0; r < n; ++r)
                     u_blk[r + i * n] = T_mat[r + perm[i] * n];
-                }
-            }
-            // R^{-1} * u_blk
             blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
                        blas::Op::NoTrans, blas::Diag::NonUnit,
                        n, top_k, (T)1.0, R, n, u_blk, n);
 
-            // v_blk = V_app_op * (R^{-1} u_blk)   (m x top_k)
-            T* v_blk = new T[(size_t)m * (size_t)top_k]();
+            // y_blk = V_app * (R^{-1} U_topk) = Q U_topk   (m x top_k): the Ritz vectors.
+            T* y_blk = new T[(size_t)m * (size_t)top_k]();
             V_app_op(blas::Side::Left, blas::Layout::ColMajor,
                      blas::Op::NoTrans, blas::Op::NoTrans,
-                     m, top_k, n, (T)1.0, u_blk, n, (T)0.0, v_blk, m);
+                     m, top_k, n, (T)1.0, u_blk, n, (T)0.0, y_blk, m);
 
-            T* Kv_blk = new T[(size_t)m * (size_t)top_k]();
-            T* Mv_blk = new T[(size_t)m * (size_t)top_k]();
-            T* Cv_blk = new T[(size_t)m * (size_t)top_k]();
-            K_op(blas::Side::Left, blas::Layout::ColMajor,
-                 blas::Op::NoTrans, blas::Op::NoTrans,
-                 m, top_k, m, (T)1.0, v_blk, m, (T)0.0, Kv_blk, m);
-            M_op(blas::Side::Left, blas::Layout::ColMajor,
-                 blas::Op::NoTrans, blas::Op::NoTrans,
-                 m, top_k, m, (T)1.0, v_blk, m, (T)0.0, Mv_blk, m);
+            // Cy_blk = C * y_blk   (m x top_k).
+            T* Cy_blk = new T[(size_t)m * (size_t)top_k]();
             C_op(blas::Side::Left, blas::Layout::ColMajor,
                  blas::Op::NoTrans, blas::Op::NoTrans,
-                 m, top_k, m, (T)1.0, v_blk, m, (T)0.0, Cv_blk, m);
+                 m, top_k, m, (T)1.0, y_blk, m, (T)0.0, Cy_blk, m);
+
+            // |lambda_max| = dominant Ritz value (top_eigvals sorted by descending |lambda|).
+            T lam_max = (top_k > 0) ? std::abs(res.top_eigvals[0]) : (T)0;
 
             res.top_residuals.resize(top_k);
             for (int i = 0; i < top_k; ++i) {
                 T lam = res.top_eigvals[i];
-                T num_sq = 0;
-                T Kv_sq  = 0;
-                T Mv_sq  = 0;
+                T num_sq = 0, y_sq = 0;
                 for (int64_t r = 0; r < m; ++r) {
-                    T d = Cv_blk[r + i * m] - lam * Mv_blk[r + i * m];
+                    T d = Cy_blk[r + i * m] - lam * y_blk[r + i * m];
                     num_sq += d * d;
-                    Kv_sq  += Kv_blk[r + i * m] * Kv_blk[r + i * m];
-                    Mv_sq  += Mv_blk[r + i * m] * Mv_blk[r + i * m];
+                    y_sq   += y_blk[r + i * m] * y_blk[r + i * m];
                 }
-                T num   = std::sqrt(num_sq);
-                T denom = std::sqrt(Kv_sq) + std::abs(lam) * std::sqrt(Mv_sq);
-                res.top_residuals[i] = (denom > 0) ? num / denom : std::numeric_limits<T>::quiet_NaN();
+                T denom = lam_max * std::sqrt(y_sq);
+                res.top_residuals[i] = (denom > 0) ? std::sqrt(num_sq) / denom
+                                                   : std::numeric_limits<T>::quiet_NaN();
             }
 
             delete[] u_blk;
-            delete[] v_blk;
-            delete[] Kv_blk;
-            delete[] Mv_blk;
-            delete[] Cv_blk;
+            delete[] y_blk;
+            delete[] Cy_blk;
             delete[] eigvals;
             delete[] perm;
             delete[] T_mat;
@@ -1166,7 +1138,6 @@ int run_benchmark(int argc, char* argv[]) {
                       << ") must match K size " << m_K << "\n";
             return 1;
         }
-        RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> M_op(m_K, m_K, M_csr);
 
         // 1. X = K - omega * M (CSR, shares sparsity with K and M).
         std::cout << "Forming X = K - omega*M ... " << std::flush;
@@ -1248,7 +1219,7 @@ int run_benchmark(int argc, char* argv[]) {
 
         long total_factor_us = chol_time_us + x_factor_time_us;
         return run_rspec_benchmark<T, RNG>(
-            V_app_op, C_op, K_op, M_op,
+            V_app_op, C_op,
             m_K, n_V, output_dir, num_runs,
             d_factor, sketch_nnz, block_size,
             method_mask, total_factor_us,

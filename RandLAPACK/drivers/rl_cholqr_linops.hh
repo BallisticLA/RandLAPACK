@@ -43,6 +43,13 @@ class CholQR_linops {
         // Column-block size for Gram and Q materialization. <=0 or >=n means no blocking.
         int64_t block_size;
 
+        // Adaptive-shift safety net (Oleg's prescription): the first attempt is always
+        // unshifted (shift_factor is hard-wired to 0 in call()); only if potrf breaks
+        // down does the primitive seed the shift at eps*trace(G) and grow it
+        // x shift_growth. max_retries < 0 = unbounded (no ceiling) — retry until PD.
+        int max_retries;
+        T   shift_growth;
+
         CholQR_linops(
             bool time_subroutines,
             T ep,
@@ -55,6 +62,8 @@ class CholQR_linops {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
+            max_retries  = -1;       // unbounded retries (no ceiling)
+            shift_growth = T(10);
         }
 
         ~CholQR_linops() {
@@ -82,9 +91,10 @@ class CholQR_linops {
 
             int info = cholqr_primitive<T, GLO>(
                 A, R, ldr,
-                /*shift_factor=*/T(0),
+                /*shift_factor=*/T(0),                      // unshifted first attempt
                 this->block_size,
-                fwd_dur, adj_dur, chol_dur, this->timing);
+                fwd_dur, adj_dur, chol_dur, this->timing,
+                this->max_retries, this->shift_growth);     // shift only on potrf breakdown
 
             if (info != 0) {
                 return info;
@@ -136,11 +146,12 @@ class CholQR_linops {
 ///   iter 1:  cholqr_primitive(A, shift_factor, max_retries)        -> R_1
 ///   iter 2:  pcholqr_primitive(A, P=R_1, TRSM_IDENTITY, ..., max_retries) -> R
 ///
-/// The initial shift_factor defaults to eps (Oleg's prescription: start at
-/// 1e-16 * ||A||_F^2). On potrf breakdown the primitives multiply the shift by
-/// shift_growth and retry, up to max_retries times. This handles ill-conditioned
-/// FEM-class inputs where unshifted CholQR's Gram becomes non-PD via rounding,
-/// while still falling back to vanilla unshifted CholQR when max_retries=0.
+/// Both passes start UNSHIFTED (shift_factor = 0); only on potrf breakdown does
+/// the primitive seed the shift at eps * ||A||_F^2 and grow it x shift_growth,
+/// retrying unboundedly (max_retries < 0) until the Gram is PD. Starting unshifted
+/// avoids biasing R_1 on well-conditioned inputs — an always-on eps shift was found
+/// to leave CholQR2 *less* orthogonal than a single unshifted CholQR pass; the retry
+/// still rescues Gram matrices driven non-PD by rounding.
 ///
 /// Status codes from call():
 ///   1  if iter-1 cholqr_primitive exhausted retries
@@ -186,9 +197,9 @@ class CholQR2_linops {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
-            shift_factor_iter1 = std::numeric_limits<T>::epsilon();   // ~1e-16 (Oleg's start)
-            shift_factor_iter2 = std::numeric_limits<T>::epsilon();
-            max_retries        = 10;
+            shift_factor_iter1 = T(0);   // unshifted first attempt (shift only on breakdown)
+            shift_factor_iter2 = T(0);
+            max_retries        = -1;     // unbounded retries (no ceiling)
             shift_growth       = T(10);
         }
 

@@ -54,10 +54,12 @@ class sCholQR3_linops {
         int64_t block_size;
 
         // Adaptive-shift policy (see cholqr_primitive / pcholqr_primitive).
-        // Lowered from the original `11 * eps * n` to plain `eps` per Oleg: the
-        // smaller initial shift avoids the iter-2 collapse where shift ≫ σ_min²(A)
-        // makes G_2 effectively rank-deficient. The retry loop bumps shift × 10
-        // if potrf still bails, up to max_retries times.
+        // Unlike CholQR/CholQR2 (unshifted first attempt), sCholQR3 applies the
+        // eps*||A||^2 shift on iter 1 right away. Lowered from the original
+        // `11 * eps * n` to plain `eps` per Oleg: the smaller initial shift avoids
+        // the iter-2 collapse where shift ≫ σ_min²(A) makes G_2 effectively
+        // rank-deficient. The retry loop bumps shift × 10 if potrf still bails,
+        // unboundedly (max_retries = -1) until the Gram is PD.
         T   shift_factor_iter1;
         T   shift_factor_iter23;
         int max_retries;
@@ -75,9 +77,9 @@ class sCholQR3_linops {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
-            shift_factor_iter1  = std::numeric_limits<T>::epsilon();
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*||A||^2 shift right away
             shift_factor_iter23 = std::numeric_limits<T>::epsilon();
-            max_retries         = 10;
+            max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
             shift_growth        = T(10);
         }
 
@@ -285,9 +287,9 @@ class sCholQR3_linops_basic {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
-            shift_factor_iter1  = std::numeric_limits<T>::epsilon();
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*||A||^2 shift right away
             shift_factor_iter23 = std::numeric_limits<T>::epsilon();
-            max_retries         = 10;
+            max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
             shift_growth        = T(10);
         }
 
