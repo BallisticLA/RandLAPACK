@@ -385,6 +385,10 @@ TEST_F(TestCQRRTLinops, precond_method_GEQP3) {
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
 
+// BQRRP throws on macOS (BLAS = Apple Accelerate lacks the required LAPACK
+// routines), so the BQRRP preconditioner path is unavailable there. Skip this
+// case on Apple — same guard the dedicated BQRRP/CQRRPT/HQRRP tests use.
+#if !defined(__APPLE__)
 TEST_F(TestCQRRTLinops, precond_method_BQRRP) {
     int64_t m = 100, n = 50;
     double d_factor = 2.0;
@@ -405,6 +409,7 @@ TEST_F(TestCQRRTLinops, precond_method_BQRRP) {
 
     assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
 }
+#endif  // !defined(__APPLE__)
 
 // ============================================================================
 // sCholQR3_linops (fully-blocked)
