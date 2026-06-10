@@ -91,6 +91,12 @@ struct CholSolverLinOp {
 
     bool factorization_done;
 
+    /// In-memory source matrix, set by the CSR constructor (empty for the
+    /// file-based constructor). Eigen holds it only to feed the Cholesky
+    /// factorization in factorize(); every solve uses the extracted L via RandBLAS.
+    bool has_memory_ = false;
+    Eigen::SparseMatrix<T> A_memory_;
+
     /// Constructor: reads dimensions from the Matrix Market file header.
     /// The matrix data is NOT loaded until factorize() is called (lazy initialization).
     /// @param half_solve  If true, applies L^{-1} only (forward substitution).
@@ -104,6 +110,38 @@ struct CholSolverLinOp {
         half_solve(half_solve),
         factorization_done(false) {
         randblas_require(n_rows == n_cols); // Must be square for Cholesky
+    }
+
+    /// In-memory constructor: build from a RandBLAS CSR matrix (e.g. X = K - omega*M
+    /// computed at runtime via sparse_axpby). The matrix MUST be symmetric positive
+    /// definite for the Cholesky factorization to succeed. Eigen is used only to hold
+    /// the matrix for factorize(); the CSR->Eigen conversion below is the only extra
+    /// Eigen touch on this path (all solves still go through RandBLAS sparse TRSM).
+    template <typename sint_t>
+    CholSolverLinOp(
+        const RandBLAS::sparse_data::CSRMatrix<T, sint_t>& A_csr,
+        bool half_solve = false
+    ) : n_rows(A_csr.n_rows),
+        n_cols(A_csr.n_cols),
+        matrix_file(""),
+        half_solve(half_solve),
+        factorization_done(false),
+        has_memory_(true) {
+        randblas_require(n_rows == n_cols); // Must be square for Cholesky
+        // CSR -> Eigen via triplets (Eigen's setFromTriplets needs a container; this
+        // is part of the Eigen factorization setup, not the solve path).
+        std::vector<Eigen::Triplet<T>> triplets;
+        triplets.reserve(static_cast<size_t>(A_csr.nnz));
+        for (int64_t i = 0; i < n_rows; ++i) {
+            for (sint_t p = A_csr.rowptr[i]; p < A_csr.rowptr[i + 1]; ++p) {
+                triplets.emplace_back(static_cast<int>(i),
+                                      static_cast<int>(A_csr.colidxs[p]),
+                                      A_csr.vals[p]);
+            }
+        }
+        A_memory_.resize(static_cast<Eigen::Index>(n_rows), static_cast<Eigen::Index>(n_cols));
+        A_memory_.setFromTriplets(triplets.begin(), triplets.end());
+        A_memory_.makeCompressed();
     }
 
 private:
@@ -140,16 +178,20 @@ public:
             return;
         }
 
-        // Step 1: Read the sparse matrix from Matrix Market file into Eigen format.
-        Eigen::SparseMatrix<T, Eigen::ColMajor> A_eigen;
-        RandLAPACK_extras::eigen_sparse_from_matrix_market<T>(matrix_file, A_eigen);
-
-        // Validate dimensions match what the constructor read from the header.
-        randblas_require(A_eigen.rows() == n_rows);
-        randblas_require(A_eigen.cols() == n_cols);
-
-        // Step 2: Perform sparse Cholesky factorization (A = L * L^T).
-        chol_solver.compute(A_eigen);
+        // Steps 1+2: obtain the sparse matrix and factorize A = L L^T. The source is
+        // either the in-memory matrix (CSR constructor) or the Matrix Market file
+        // (file constructor). Eigen is confined to this factorization.
+        if (has_memory_) {
+            randblas_require(A_memory_.rows() == n_rows);
+            randblas_require(A_memory_.cols() == n_cols);
+            chol_solver.compute(A_memory_);
+        } else {
+            Eigen::SparseMatrix<T, Eigen::ColMajor> A_eigen;
+            RandLAPACK_extras::eigen_sparse_from_matrix_market<T>(matrix_file, A_eigen);
+            randblas_require(A_eigen.rows() == n_rows);
+            randblas_require(A_eigen.cols() == n_cols);
+            chol_solver.compute(A_eigen);
+        }
 
         if (chol_solver.info() != Eigen::Success) {
             randblas_require(false);

@@ -514,6 +514,37 @@ void gen_random_dense(
     }
 }
 
+/// Generate a symmetric tridiagonal matrix in RandBLAS CSR format (no Eigen).
+///
+/// Row i carries `offdiag` at columns i-1 and i+1 (within bounds) and `diag` on
+/// the diagonal, with column indices stored in ascending order per row. With
+/// diag = 2, offdiag = -1 this is the SPD 1D Laplacian (a convenient PD testbed
+/// for sparse solvers); other (diag, offdiag) give indefinite or non-diagonally-
+/// dominant variants.
+///
+/// @tparam T      Scalar type.
+/// @tparam sint_t CSR index type (default int64_t).
+/// @param[in] n        Matrix dimension (n x n), n >= 1.
+/// @param[in] diag     Diagonal value.
+/// @param[in] offdiag  Sub/super-diagonal value (symmetric).
+/// @return A newly-owned CSR matrix with nnz = 3n - 2 (n >= 2) or 1 (n == 1).
+template <typename T, typename sint_t = int64_t>
+RandBLAS::sparse_data::CSRMatrix<T, sint_t> gen_tridiag_csr(int64_t n, T diag, T offdiag) {
+    randblas_require(n >= 1);
+    int64_t nnz = (n == 1) ? 1 : 3 * n - 2;
+    RandBLAS::sparse_data::CSRMatrix<T, sint_t> A(n, n);
+    A.reserve(nnz);
+    int64_t p = 0;
+    for (int64_t i = 0; i < n; ++i) {
+        A.rowptr[i] = static_cast<sint_t>(p);
+        if (i > 0)     { A.colidxs[p] = static_cast<sint_t>(i - 1); A.vals[p] = offdiag; ++p; }
+                       { A.colidxs[p] = static_cast<sint_t>(i);     A.vals[p] = diag;    ++p; }
+        if (i + 1 < n) { A.colidxs[p] = static_cast<sint_t>(i + 1); A.vals[p] = offdiag; ++p; }
+    }
+    A.rowptr[n] = static_cast<sint_t>(p);
+    return A;
+}
+
 /// Generate a random sparse matrix in COO format.
 /// Creates a sparse matrix with uniformly random positions and values from the specified distribution.
 /// Duplicate (row, col) entries are merged by summing their values.

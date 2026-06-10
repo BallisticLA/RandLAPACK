@@ -15,7 +15,7 @@ if (GTest_FOUND)
     set(RandLAPACK_extras_test_srcs
         linops/test_ext_solver_linop_unified.cc
         linops/test_ext_composite_linop.cc
-        linops/test_ext_sparselu_linop.cc
+        linops/test_ext_cholsolver_inmemory.cc
     )
 
     # Create test executable

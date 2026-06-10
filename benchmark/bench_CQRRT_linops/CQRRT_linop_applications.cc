@@ -34,8 +34,6 @@
 #include "rl_gen.hh"
 
 #include <RandBLAS.hh>
-#include <Eigen/Dense>
-#include <Eigen/SparseCholesky>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -54,7 +52,6 @@
 #include "../../extras/misc/ext_util.hh"
 #include "../../extras/misc/ext_sparse_axpy.hh"
 #include "../../extras/linops/ext_cholsolver_linop.hh"
-#include "../../extras/linops/ext_sparselu_linop.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
 #include "cqrrt_bench_common.hh"
 
@@ -1145,32 +1142,25 @@ int run_benchmark(int argc, char* argv[]) {
             (T)1.0, K_csr, -(T)omega, M_csr);
         std::cout << "done (nnz=" << X_csr.nnz << ")\n";
 
-        // 2. Convert X to Eigen::SparseMatrix<T> (ColMajor) via triplets.
-        std::cout << "Converting X to Eigen sparse... " << std::flush;
-        Eigen::SparseMatrix<T> X_eigen((Eigen::Index)m_K, (Eigen::Index)m_K);
-        {
-            std::vector<Eigen::Triplet<T>> triplets;
-            triplets.reserve((size_t)X_csr.nnz);
-            for (int64_t i = 0; i < m_K; ++i) {
-                for (int64_t p = X_csr.rowptr[i]; p < X_csr.rowptr[i+1]; ++p) {
-                    triplets.emplace_back((int)i, (int)X_csr.colidxs[p], X_csr.vals[p]);
-                }
-            }
-            X_eigen.setFromTriplets(triplets.begin(), triplets.end());
-        }
-        std::cout << "done\n";
-
-        // 3. Factor X via SparseLU (handles indefinite case).
-        std::cout << "Factorizing X = LU (SparseLU) ... " << std::flush;
-        RandLAPACK_extras::linops::SparseLUSolverLinOp<T> X_inv_op(std::move(X_eigen));
+        // 2. Factor X via sparse Cholesky.
+        //
+        // X = K - omega*M is SPD as long as omega < lambda_min(K, M) (the smallest
+        // generalized eigenvalue of the (K, M) pencil). For omega = 0 and the
+        // near-zero shifts this application uses, X stays positive definite, so a
+        // sparse Cholesky factorization suffices: it confines Eigen to the
+        // factorization and applies X^{-1} via RandBLAS sparse TRSM (CholSolverLinOp).
+        // An interior shift (omega >= lambda_min) would make X indefinite; Cholesky
+        // would then (correctly) fail and an indefinite solver would be needed.
+        std::cout << "Factorizing X = L L^T (sparse Cholesky) ... " << std::flush;
+        RandLAPACK_extras::linops::CholSolverLinOp<T> X_inv_op(X_csr, /*half_solve=*/false);
         auto x_fact_start = steady_clock::now();
         try {
             X_inv_op.factorize();
         } catch (RandBLAS::Error const& e) {
             auto x_fact_stop = steady_clock::now();
             long x_fact_us = duration_cast<microseconds>(x_fact_stop - x_fact_start).count();
-            std::cerr << "\nSparseLU factorization failed (omega close to an eigenvalue): "
-                      << e.what() << "\n";
+            std::cerr << "\nCholesky factorization of X failed (X not SPD -- omega at/above "
+                         "lambda_min, or near an eigenvalue): " << e.what() << "\n";
 
             // Write a single sentinel row to the CSV and return cleanly.
             std::string results_file = output_dir + "/" + make_run_timestamp() + "_rspec_results.csv";
@@ -1184,6 +1174,7 @@ int run_benchmark(int argc, char* argv[]) {
             r.qr_time_us = -1;
             r.factor_time_us = x_fact_us;
             r.rspec_total_us = x_fact_us;
+            r.orth_error = std::numeric_limits<T>::quiet_NaN();
             int top_k = (int)std::min<int64_t>(10, n_V);
             r.top_eigvals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
             r.top_residuals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
