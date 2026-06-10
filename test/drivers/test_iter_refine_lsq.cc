@@ -27,23 +27,19 @@ static void fill_random(std::vector<T>& v, uint32_t seed, T scale = 1.0) {
 }
 
 
-// Build R from QR of A_copy (in-place destructive QR), zeroing the strictly
-// lower triangle and copying the upper-triangular n × n into R.
+// Build R from QR of A: destructive geqrf on a copy, then take the upper-
+// triangular n x n factor via lacpy(Upper) + laset(Lower) (raw pointers).
 template <typename T>
 static void build_R_from_A(const T* A, int64_t m, int64_t n, T* R, int64_t ldr) {
-    std::vector<T> A_copy(m * n);
-    std::copy(A, A + m * n, A_copy.begin());
-    std::vector<T> tau(n);
-    lapack::geqrf(m, n, A_copy.data(), m, tau.data());
-    // Copy upper-triangular n × n into R
-    for (int64_t j = 0; j < n; ++j) {
-        for (int64_t i = 0; i <= j; ++i) {
-            R[i + j * ldr] = A_copy[i + j * m];
-        }
-        for (int64_t i = j + 1; i < n; ++i) {
-            R[i + j * ldr] = (T)0;
-        }
-    }
+    T* A_copy = new T[m * n];
+    std::copy(A, A + m * n, A_copy);
+    T* tau = new T[n];
+    lapack::geqrf(m, n, A_copy, m, tau);
+    lapack::lacpy(lapack::MatrixType::Upper, n, n, A_copy, m, R, ldr);
+    if (n > 1)
+        lapack::laset(lapack::MatrixType::Lower, n - 1, n - 1, (T)0, (T)0, R + 1, ldr);
+    delete[] A_copy;
+    delete[] tau;
 }
 
 

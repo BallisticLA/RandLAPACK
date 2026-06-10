@@ -22,6 +22,8 @@
 #include "../../misc/ext_util.hh"
 #include <RandLAPACK/testing/rl_test_utils.hh>
 #include <RandBLAS/testing/comparison.hh>
+#include "rl_gen.hh"
+#include <cmath>
 
 using std::vector;
 using blas::Layout;
@@ -696,4 +698,94 @@ TEST_F(TestExtSolverLinOpUnified, lu_halfsv_right_rowmajor_n) {
 }
 TEST_F(TestExtSolverLinOpUnified, lu_halfsv_right_rowmajor_t) {
     test_lu_half_solve<double>(Side::Right, Layout::RowMajor, Op::Trans, 10, 8, 8);
+}
+
+
+// ============================================================================
+// CholSolverLinOp — in-memory (RandBLAS CSR) constructor
+// ----------------------------------------------------------------------------
+// The cases above build CholSolverLinOp from a Matrix Market file. These cover
+// the in-memory CSR constructor (X = K - omega*M is built at runtime in the
+// rspec application): build an SPD 1D Laplacian in CSR via rl_gen (no Eigen),
+// construct the operator from it, and verify A^{-1} by re-applying A as a
+// RandBLAS sparse x dense product. Raw pointers throughout, no std::vector.
+// ============================================================================
+
+template <typename T>
+using InMemCSR = RandBLAS::sparse_data::csr::CSRMatrix<T>;
+
+// ||u - ref||_2 / ||ref||_2 (diff = ref - u via axpy).
+template <typename T>
+static T inmem_rel_error(const T* u, const T* ref, int64_t n) {
+    T* diff = new T[n];
+    blas::copy(n, ref, 1, diff, 1);
+    blas::axpy(n, (T)(-1), u, 1, diff, 1);
+    T num = blas::nrm2(n, diff, 1);
+    T den = blas::nrm2(n, ref, 1);
+    delete[] diff;
+    return num / den;
+}
+
+// Action: solve A X = B via the inverse operator, re-apply A (sparse x dense),
+// and assert ||A X - B|| / ||B|| ~ machine precision per column.
+template <typename T>
+static void inmem_check_solve(InMemCSR<T>& A_csr,
+                              RandLAPACK_extras::linops::CholSolverLinOp<T>& A_inv,
+                              const T* B, int64_t n, int64_t n_rhs) {
+    T* X = new T[n * n_rhs];
+    A_inv(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+          n, n_rhs, n, (T)1, B, n, (T)0, X, n);
+    RandLAPACK::linops::SparseLinOp<InMemCSR<T>> A_op(n, n, A_csr);
+    T* AX = new T[n * n_rhs];
+    A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+         n, n_rhs, n, (T)1, X, n, (T)0, AX, n);
+    for (int64_t j = 0; j < n_rhs; ++j)
+        ASSERT_LE(inmem_rel_error(AX + j * n, B + j * n, n), (T)1e-12);
+    delete[] X; delete[] AX;
+}
+
+TEST(TestCholSolverInMemory, spd_tridiag_single_rhs) {
+    const int64_t n = 8;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);  // SPD 1D Laplacian
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A);
+    A_inv.factorize();
+    double* b = new double[n];
+    for (int64_t i = 0; i < n; ++i) b[i] = (double)(i + 1);
+    inmem_check_solve<double>(A, A_inv, b, n, 1);
+    delete[] b;
+}
+
+TEST(TestCholSolverInMemory, spd_tridiag_multi_rhs_lazy_factorize) {
+    const int64_t n = 10, n_rhs = 3;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 2.0, -1.0);
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A);  // lazy factorize on first apply
+    double* B = new double[n * n_rhs];
+    for (int64_t i = 0; i < n * n_rhs; ++i) B[i] = std::cos((double)i * 0.5);
+    inmem_check_solve<double>(A, A_inv, B, n, n_rhs);
+    delete[] B;
+}
+
+TEST(TestCholSolverInMemory, spd_tridiag_alpha_beta) {
+    const int64_t n = 6, n_rhs = 3;
+    auto A = RandLAPACK::gen::gen_tridiag_csr<double>(n, 4.0, -1.0);
+    RandLAPACK_extras::linops::CholSolverLinOp<double> A_inv(A);
+    double* B = new double[n * n_rhs];
+    for (int64_t i = 0; i < n * n_rhs; ++i) B[i] = std::sin((double)i * 0.3);
+
+    const double alpha = 2.0, beta = 1.5;
+    double* C      = new double[n * n_rhs];
+    double* C_init = new double[n * n_rhs];
+    for (int64_t i = 0; i < n * n_rhs; ++i) { C[i] = 7.0; C_init[i] = 7.0; }
+
+    A_inv(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+          n, n_rhs, n, alpha, B, n, beta, C, n);
+
+    double* Ainv_B = new double[n * n_rhs];
+    A_inv(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+          n, n_rhs, n, 1.0, B, n, 0.0, Ainv_B, n);
+    double* expected = new double[n * n_rhs];
+    for (int64_t i = 0; i < n * n_rhs; ++i) expected[i] = alpha * Ainv_B[i] + beta * C_init[i];
+
+    ASSERT_LE(inmem_rel_error(C, expected, n * n_rhs), 1e-12);
+    delete[] B; delete[] C; delete[] C_init; delete[] Ainv_B; delete[] expected;
 }

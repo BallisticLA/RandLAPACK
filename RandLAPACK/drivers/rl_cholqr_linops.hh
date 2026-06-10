@@ -144,7 +144,7 @@ class CholQR_linops {
 ///
 /// Two passes of CholQR via the shared primitives:
 ///   iter 1:  cholqr_primitive(A, shift_factor, max_retries)        -> R_1
-///   iter 2:  pcholqr_primitive(A, P=R_1, TRSM_IDENTITY, ..., max_retries) -> R
+///   iter 2:  cholqr_primitive(A, P=R_1, TRSM_IDENTITY, ..., max_retries) -> R
 ///
 /// Both passes start UNSHIFTED (shift_factor = 0); only on potrf breakdown does
 /// the primitive seed the shift at eps * ||A||_F^2 and grow it x shift_growth,
@@ -155,7 +155,7 @@ class CholQR_linops {
 ///
 /// Status codes from call():
 ///   1  if iter-1 cholqr_primitive exhausted retries
-///   2  if iter-2 pcholqr_primitive exhausted retries
+///   2  if iter-2 cholqr_primitive exhausted retries
 ///
 template <typename T>
 class CholQR2_linops {
@@ -175,7 +175,7 @@ class CholQR2_linops {
 
         int64_t block_size;
 
-        // Adaptive-shift policy (see cholqr_primitive / pcholqr_primitive).
+        // Adaptive-shift policy (see cholqr_primitive).
         // shift_factor_iter1 is multiplied by trace(G_1) = ||A||_F^2 on the first
         // attempt. shift_factor_iter2 is multiplied by trace(G_2) (~ n when the
         // preconditioner is well-formed). max_retries bounds the geometric retry
@@ -226,7 +226,7 @@ class CholQR2_linops {
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
                           ? this->block_size : n;
 
-            // ---- Shared per-call scratch for pcholqr_primitive iter-2 ----
+            // ---- Shared per-call scratch for cholqr_primitive iter-2 ----
             if (this->timing) t0 = steady_clock::now();
             T* G       = new T[n * n]();
             T* R_pre   = new T[n * n]();
@@ -249,13 +249,13 @@ class CholQR2_linops {
             }
 
             // ---- Iter 2: PCholQR with P = R_1 (TRSM_IDENTITY precond) ----
-            // Stash R_1 in P_prev before pcholqr_primitive overwrites R with R_2.
+            // Stash R_1 in P_prev before cholqr_primitive overwrites R with R_2.
             lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
 
             long precond_inv2 = 0, update2 = 0;
-            info = pcholqr_primitive<T, GLO>(
+            info = cholqr_primitive<T, GLO>(
                 A, P_prev, R, ldr,
                 PCholQRPrecondMethod::TRSM_IDENTITY,
                 this->block_size,

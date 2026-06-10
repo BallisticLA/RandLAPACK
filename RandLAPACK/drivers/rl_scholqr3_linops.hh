@@ -21,7 +21,7 @@ namespace RandLAPACK {
 ///
 /// Algorithm 3 from the collaborator's spec:
 ///   iter 1: cholqr_primitive(A) with shift s = 11 * eps * n * ||A||_F^2  -> R_1
-///   iter i = 2, 3: pcholqr_primitive(A, R_{i-1}, TRSM_IDENTITY)  -> R_i
+///   iter i = 2, 3: cholqr_primitive(A, R_{i-1}, TRSM_IDENTITY)  -> R_i
 ///   return R_3
 ///
 /// Peak memory O(n^2 + (m+n)*b_eff) — never materializes the m × n operator product
@@ -53,7 +53,7 @@ class sCholQR3_linops {
 
         int64_t block_size;
 
-        // Adaptive-shift policy (see cholqr_primitive / pcholqr_primitive).
+        // Adaptive-shift policy (see cholqr_primitive).
         // Unlike CholQR/CholQR2 (unshifted first attempt), sCholQR3 applies the
         // eps*||A||^2 shift on iter 1 right away. Lowered from the original
         // `11 * eps * n` to plain `eps` per Oleg: the smaller initial shift avoids
@@ -113,7 +113,7 @@ class sCholQR3_linops {
             if (this->timing) t0 = steady_clock::now();
             T* G       = new T[n * n]();             // Gram / Cholesky workspace
             T* R_pre   = new T[n * n]();             // preconditioner inverse (used in iters 2, 3)
-            T* P_prev  = new T[n * n]();             // previous R_{i-1}, fed as P to pcholqr_primitive
+            T* P_prev  = new T[n * n]();             // previous R_{i-1}, fed as P to cholqr_primitive
             T* A_temp  = new T[m * b_eff];           // m × b_eff scratch for linop NoTrans
             T* Z_buf   = new T[n * b_eff];           // n × b_eff scratch for linop Trans
             if (this->timing) { t1 = steady_clock::now(); alloc_dur = duration_cast<microseconds>(t1 - t0).count(); }
@@ -137,14 +137,14 @@ class sCholQR3_linops {
             upd1_dur = 0;
 
             // ============================================================
-            // Iter 2: pcholqr_primitive(A, P = R_1)
+            // Iter 2: cholqr_primitive(A, P = R_1)
             // ============================================================
             lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
 
             long precond_inv2 = 0, update2 = 0;
-            info = pcholqr_primitive<T, GLO>(
+            info = cholqr_primitive<T, GLO>(
                 A, P_prev, R, ldr,
                 PCholQRPrecondMethod::TRSM_IDENTITY,
                 this->block_size,
@@ -162,14 +162,14 @@ class sCholQR3_linops {
             upd2_dur = precond_inv2 + update2;
 
             // ============================================================
-            // Iter 3: pcholqr_primitive(A, P = R_2)
+            // Iter 3: cholqr_primitive(A, P = R_2)
             // ============================================================
             lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
 
             long precond_inv3 = 0, update3 = 0;
-            info = pcholqr_primitive<T, GLO>(
+            info = cholqr_primitive<T, GLO>(
                 A, P_prev, R, ldr,
                 PCholQRPrecondMethod::TRSM_IDENTITY,
                 this->block_size,
@@ -188,7 +188,7 @@ class sCholQR3_linops {
 
             // ============================================================
             // Test mode: materialize Q = A * R^{-1} (outside timing region).
-            // R_pre currently holds R_2^{-1} from iter 3's pcholqr_primitive precond step.
+            // R_pre currently holds R_2^{-1} from iter 3's cholqr_primitive precond step.
             // We need R^{-1} = R_3^{-1} = R^{chol_3}^{-1} * R_2^{-1}.
             // Simpler: recompute R^{-1} from R via trsm(R, I), then materialize Q via blocked linop.
             // ============================================================
@@ -304,7 +304,7 @@ class sCholQR3_linops_basic {
         // distinction is now purely the analytic-memory accounting (no R_pre /
         // P_prev / Z_buf reuse across iters since the primitives allocate their
         // own G internally per call). Diagnostic prints from cholqr_primitive /
-        // pcholqr_primitive surface here too.
+        // cholqr_primitive surface here too.
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
@@ -324,7 +324,7 @@ class sCholQR3_linops_basic {
             int64_t n = A.n_cols;
             int64_t b_eff = n;   // non-blocked (block_size = 0 → b_eff = n)
 
-            // Driver-owned scratch for pcholqr_primitive in iters 2 and 3.
+            // Driver-owned scratch for cholqr_primitive in iters 2 and 3.
             if (this->timing) t0 = steady_clock::now();
             T* G       = new T[n * n]();
             T* R_pre   = new T[n * n]();
@@ -346,13 +346,13 @@ class sCholQR3_linops_basic {
                 return 1;
             }
 
-            // ---- Iter 2: pcholqr_primitive(A, P = R_1) ----
+            // ---- Iter 2: cholqr_primitive(A, P = R_1) ----
             lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
 
             long precond_inv2 = 0, fwd2 = 0, adj2 = 0, gemm2 = 0, update2 = 0;
-            info = pcholqr_primitive<T, GLO>(
+            info = cholqr_primitive<T, GLO>(
                 A, P_prev, R, ldr,
                 PCholQRPrecondMethod::TRSM_IDENTITY,
                 /*block_size=*/0,
@@ -372,13 +372,13 @@ class sCholQR3_linops_basic {
             // timings; matlab plotter sums them downstream).
             chol2_dur += fwd2 + adj2 + gemm2;
 
-            // ---- Iter 3: pcholqr_primitive(A, P = R_2) ----
+            // ---- Iter 3: cholqr_primitive(A, P = R_2) ----
             lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
             if (n > 1)
                 lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
 
             long precond_inv3 = 0, fwd3 = 0, adj3 = 0, gemm3 = 0, update3 = 0;
-            info = pcholqr_primitive<T, GLO>(
+            info = cholqr_primitive<T, GLO>(
                 A, P_prev, R, ldr,
                 PCholQRPrecondMethod::TRSM_IDENTITY,
                 /*block_size=*/0,

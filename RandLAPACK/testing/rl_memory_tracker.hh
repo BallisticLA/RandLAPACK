@@ -132,7 +132,7 @@ static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t blo
 // Iter-1 cholqr_primitive also allocates its own G(n*n) + G_backup(n*n) +
 //   A_temp(m*b_eff) transiently (freed before iters 2/3 start), so the peak is:
 //     3*n*n + (m+n)*b_eff + 2*n*n + m*b_eff = 5*n*n + (2m+n)*b_eff.
-// Iter-2 / iter-3 pcholqr_primitive only adds a single G_backup(n*n), which is
+// Iter-2 / iter-3 cholqr_primitive only adds a single G_backup(n*n), which is
 //   strictly smaller than iter-1's transient set, so iter-1 dominates the peak.
 template <typename T>
 static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {

@@ -213,7 +213,7 @@ int CQRRT<T, RNG>::call(
 // ============================================================================
 //
 // Algorithm 4 from the collaborator's spec.  Cannot modify the operator in place,
-// so it forms R_sk explicitly and delegates to pcholqr_primitive (which handles
+// so it forms R_sk explicitly and delegates to cholqr_primitive (which handles
 // the precondition-inversion strategy via PCholQRPrecondMethod).
 //
 template <typename T, typename RNG = RandBLAS::DefaultRNG>
@@ -324,7 +324,7 @@ class CQRRT_linops {
             if (this->timing) { t1 = steady_clock::now(); qr_dur = duration_cast<microseconds>(t1 - t0).count(); }
 
             // ---- Step 3: PCholQR(A, P = R^sk) ----
-            int info = pcholqr_primitive<T, GLO, RNG>(
+            int info = cholqr_primitive<T, GLO, RNG>(
                 A, P, R, ldr,
                 this->precond_method,
                 this->block_size,
