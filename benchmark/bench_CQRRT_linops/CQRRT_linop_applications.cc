@@ -244,9 +244,33 @@ struct rspec_result {
     long factor_time_us;
     long rspec_total_us;
     T orth_error;                 // ||Q^T Q - I||_F / sqrt(n), Q = V_app R^{-1}
+    std::vector<long> qr_breakdown;   // Q-less QR breakdown (driver times[], same layout as irlsq)
+    std::vector<long> rr_breakdown;   // Rayleigh-Ritz post-processing: [orth, rr_build, syevd, resid] (us)
     std::vector<T> top_eigvals;
     std::vector<T> top_residuals;
 };
+
+template <typename T>
+static void write_rspec_breakdown(
+    const std::string& filename,
+    const std::vector<rspec_result<T>>& results)
+{
+    std::ofstream out(filename);
+    out << "# RSPEC runtime breakdown (microseconds)\n"
+        << "# QR breakdown layout depends on algorithm (see CQRRT_linop_applications.cc).\n"
+        << "# RR breakdown (4): orth_error, rayleigh_ritz_build, syevd, ritz_residuals\n"
+        << "algorithm,run,phase,t0,t1,t2,t3,t4,t5,t6,t7,t8,t9,t10\n";
+    for (const auto& r : results) {
+        out << r.alg_name << "," << r.run_idx << ",QR";
+        for (size_t i = 0; i < r.qr_breakdown.size(); ++i) out << "," << r.qr_breakdown[i];
+        for (size_t i = r.qr_breakdown.size(); i < 11; ++i) out << ",0";
+        out << "\n";
+        out << r.alg_name << "," << r.run_idx << ",RR";
+        for (size_t i = 0; i < r.rr_breakdown.size(); ++i) out << "," << r.rr_breakdown[i];
+        for (size_t i = r.rr_breakdown.size(); i < 11; ++i) out << ",0";
+        out << "\n";
+    }
+}
 
 template <typename T>
 static void write_rspec_csv(
@@ -689,6 +713,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[17];
+                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else if (alg_name == "sCholQR3_basic") {
@@ -697,6 +722,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[14];
+                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
                 }
             } else if (alg_name == "CholQR") {
@@ -706,6 +732,8 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[5];
+                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 6);
+                    res.qr_breakdown.resize(11, 0);
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else if (alg_name == "CholQR2") {
@@ -715,6 +743,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[10];
+                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<T>(m, n, block_size);
                 }
             } else {
@@ -727,6 +756,7 @@ static int run_rspec_benchmark(
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
                     res.qr_time_us = qr_algo.times[10];
+                    res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
                 }
             }
@@ -736,6 +766,8 @@ static int run_rspec_benchmark(
                           << ": QR returned status " << res.qr_status
                           << ". Skipping eigen post-processing.\n";
                 res.qr_time_us = -1;
+                res.qr_breakdown.assign(11, 0);
+                res.rr_breakdown.assign(4, 0);
                 res.orth_error = std::numeric_limits<T>::quiet_NaN();
                 res.top_eigvals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
                 res.top_residuals.assign(top_k, std::numeric_limits<T>::quiet_NaN());
@@ -750,8 +782,14 @@ static int run_rspec_benchmark(
             //      Q = V_app * R^{-1}, materialized explicitly (same path as irlsq).
             //      NOTE: this re-applies V_app to n columns (one extra full pass of the
             //      C^j chain); at FEM2 scale that is a meaningful cost — see dev log.
+            steady_clock::time_point rr_t0, rr_t1;
+            long orth_us = 0, rr_build_us = 0, syevd_us = 0, resid_us = 0;
+
             std::cout << "    orth loss ... " << std::flush;
+            rr_t0 = steady_clock::now();
             res.orth_error = compute_orth_error_explicit(V_app_op, R, m, n, block_size);
+            rr_t1 = steady_clock::now();
+            orth_us = duration_cast<microseconds>(rr_t1 - rr_t0).count();
             std::cout << "done (" << std::scientific << std::setprecision(3)
                       << res.orth_error << ")\n";
 
@@ -760,6 +798,7 @@ static int run_rspec_benchmark(
             // Materialize V_app^T C V_app column-block by column-block on identity.
             // ----------------------------------------------------------------
             std::cout << "    Building Rayleigh-Ritz matrix T (n=" << n << ") ... " << std::flush;
+            rr_t0 = steady_clock::now();
             int64_t b_rr = (block_size > 0) ? std::min<int64_t>(block_size, n) : std::min<int64_t>(64, n);
 
             T* T_mat = new T[(size_t)n * (size_t)n]();
@@ -809,10 +848,13 @@ static int run_rspec_benchmark(
 
             // Symmetrize against rounding drift before the (upper-triangle) syevd.
             RandBLAS::symmetrize(blas::Layout::ColMajor, blas::Uplo::Upper, n, T_mat, n);
+            rr_t1 = steady_clock::now();
+            rr_build_us = duration_cast<microseconds>(rr_t1 - rr_t0).count();
             std::cout << "done\n";
 
             // Eigendecomposition: T = U diag(lambda) U^T, U overwrites T_mat (columns = eigvecs).
             std::cout << "    syevd ... " << std::flush;
+            rr_t0 = steady_clock::now();
             T* eigvals = new T[(size_t)n]();
             int64_t syevd_info = lapack::syevd(lapack::Job::Vec, blas::Uplo::Upper,
                                                 n, T_mat, n, eigvals);
@@ -831,6 +873,8 @@ static int run_rspec_benchmark(
 
             res.top_eigvals.resize(top_k);
             for (int i = 0; i < top_k; ++i) res.top_eigvals[i] = eigvals[perm[i]];
+            rr_t1 = steady_clock::now();
+            syevd_us = duration_cast<microseconds>(rr_t1 - rr_t0).count();
 
             // ----------------------------------------------------------------
             // Ritz residual norms for the top-k pairs (collaborator spec):
@@ -844,6 +888,7 @@ static int run_rspec_benchmark(
             // longer needed here — only C and the Ritz vectors.
             // ----------------------------------------------------------------
             std::cout << "    Ritz residuals ... " << std::flush;
+            rr_t0 = steady_clock::now();
 
             // u_blk = R^{-1} * U_topk  (n x top_k); columns = top-k eigenvectors of T.
             T* u_blk = new T[(size_t)n * (size_t)top_k]();
@@ -882,6 +927,8 @@ static int run_rspec_benchmark(
                 res.top_residuals[i] = (denom > 0) ? std::sqrt(num_sq) / denom
                                                    : std::numeric_limits<T>::quiet_NaN();
             }
+            rr_t1 = steady_clock::now();
+            resid_us = duration_cast<microseconds>(rr_t1 - rr_t0).count();
 
             delete[] u_blk;
             delete[] y_blk;
@@ -893,6 +940,7 @@ static int run_rspec_benchmark(
 
             auto rspec_t1 = steady_clock::now();
             res.rspec_total_us = duration_cast<microseconds>(rspec_t1 - rspec_t0).count();
+            res.rr_breakdown = {orth_us, rr_build_us, syevd_us, resid_us};
 
             std::cout << "    Top eigvals: ";
             for (int i = 0; i < std::min(5, top_k); ++i)
@@ -914,6 +962,11 @@ static int run_rspec_benchmark(
                        K_file, M_file, V_file, omega, power_j,
                        sketch_nnz, block_size, method_mask, top_k);
     std::cout << "\nRSPEC results written to " << results_file << "\n";
+
+    std::string breakdown_file = output_dir + "/" + time_buf + "_rspec_breakdown.csv";
+    write_rspec_breakdown<T>(breakdown_file, all_results);
+    std::cout << "RSPEC breakdown written to " << breakdown_file << "\n";
+
     delete[] R;
     return 0;
 }
