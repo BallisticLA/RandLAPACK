@@ -92,39 +92,35 @@ void blocked_preconditioned_gram(
         if (R_pre != nullptr) {
             B_in = R_pre + j * n;
         } else {
-            for (int64_t c = 0; c < b_j; ++c) I_block[(j + c) + c * n] = (T)1.0;
+            lapack::laset(MatrixType::General, b_j, b_j, (T)0, (T)1, I_block + j, n);
             B_in = I_block;
         }
 
         // A_temp = A * B_in   (m x b_j)
         if (timing) t0 = steady_clock::now();
-        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-          m, b_j, n, (T)1.0, B_in, n, (T)0.0, A_temp, m);
+        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_j, n, (T)1.0, B_in, n, (T)0.0, A_temp, m);
         if (timing) { t1 = steady_clock::now(); fwd_accum += duration_cast<microseconds>(t1 - t0).count(); }
 
         if (R_pre && !skip_left_factor) {
             // Z_buf = A^T * A_temp ; then G[:, blk] = R_pre^T * Z_buf.
             if (timing) t0 = steady_clock::now();
-            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
-              n, b_j, m, (T)1.0, A_temp, m, (T)0.0, Z_buf, n);
+            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_j, m, (T)1.0, A_temp, m, (T)0.0, Z_buf, n);
             if (timing) { t1 = steady_clock::now(); adj_accum += duration_cast<microseconds>(t1 - t0).count(); }
 
             if (timing) t0 = steady_clock::now();
-            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                       n, b_j, n, (T)1.0, R_pre, n, Z_buf, n, (T)0.0, G + j * n, n);
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_j, n, (T)1.0, R_pre, n, Z_buf, n, (T)0.0, G + j * n, n);
             if (timing) { t1 = steady_clock::now(); gemm_accum += duration_cast<microseconds>(t1 - t0).count(); }
         } else {
             // skip_left_factor (preconditioned) and the unpreconditioned path both
             // write A^T * A_temp straight into G[:, blk]; any left factor is applied
             // once after the loop by the caller.
             if (timing) t0 = steady_clock::now();
-            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
-              n, b_j, m, (T)1.0, A_temp, m, (T)0.0, G + j * n, n);
+            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_j, m, (T)1.0, A_temp, m, (T)0.0, G + j * n, n);
             if (timing) { t1 = steady_clock::now(); adj_accum += duration_cast<microseconds>(t1 - t0).count(); }
 
             // Clear this block's identity ones before the next iteration.
             if (R_pre == nullptr)
-                for (int64_t c = 0; c < b_j; ++c) I_block[(j + c) + c * n] = (T)0.0;
+                lapack::laset(MatrixType::General, b_j, b_j, (T)0, (T)0, I_block + j, n);
         }
     }
 
@@ -135,6 +131,24 @@ void blocked_preconditioned_gram(
         adj_us = adj_accum;
         gemm_us = gemm_accum;
     }
+}
+
+
+// Materialize Q = A * R^{-1} (m x n) block-by-block via the linop, for the
+// test/verify paths of the CholQR-family drivers. R is n x n upper-triangular
+// (ld = ldr); Q_out (m x n) is caller-allocated. Forms R^{-1} once (n x n trsm),
+// then applies A to its column blocks. Not on any timed/algorithmic path.
+template <typename T, RandLAPACK::linops::LinearOperator GLO>
+void materialize_Q_from_R(GLO& A, const T* R, int64_t ldr,
+                          int64_t m, int64_t n, int64_t b_eff, T* Q_out) {
+    T* R_inv = new T[n * n];
+    RandLAPACK::util::eye(n, n, R_inv);
+    blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), R, ldr, R_inv, n);
+    for (int64_t j = 0; j < n; j += b_eff) {
+        int64_t b_j = std::min(b_eff, n - j);
+        A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_j, n, T(1), R_inv + j * n, n, T(0), Q_out + j * m, m);
+    }
+    delete[] R_inv;
 }
 
 
@@ -209,9 +223,7 @@ int cholqr_primitive(
                     return 1;
                 }
                 RandLAPACK::util::eye(n, n, R_pre);
-                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper,
-                           Op::NoTrans, Diag::NonUnit,
-                           n, n, T(1), P, n, R_pre, n);
+                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), P, n, R_pre, n);
                 if (n > 1)
                     lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), R_pre + 1, n);
                 break;
@@ -273,16 +285,12 @@ int cholqr_primitive(
                 lapack::lacpy(MatrixType::Upper, n, n, P_copy, n, R_buf, n);   // R_buf = R_tri
                 lapack::ungqr(n, n, n, P_copy, n, tau_qr);                     // P_copy = Q
                 RandLAPACK::util::transpose_square(P_copy, n);                 // P_copy = Q^T
-                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper,
-                           Op::NoTrans, Diag::NonUnit,
-                           n, n, T(1), R_buf, n, P_copy, n);                   // P_copy = R_tri^{-1} Q^T
+                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), R_buf, n, P_copy, n);  // P_copy = R_tri^{-1} Q^T
 
-                // Apply the pivot permutation Pi to the rows: R_pre = Pi (R_tri^{-1} Q^T).
-                // (Row scatter by jpiv; col_swap is column-oriented so it doesn't apply here.)
-                std::fill(R_pre, R_pre + n * n, T(0));
-                for (int64_t k = 0; k < n; ++k)
-                    for (int64_t j = 0; j < n; ++j)
-                        R_pre[(jpiv[k] - 1) + j * n] = P_copy[k + j * n];
+                // R_pre = Pi (R_tri^{-1} Q^T): jpiv is the column-pivot permutation, applied to
+                // the ROWS here, so copy R^{-1} Q^T over and apply it with lapmr (row permute).
+                lapack::lacpy(MatrixType::General, n, n, P_copy, n, R_pre, n);
+                lapack::lapmr(false, n, n, R_pre, n, jpiv);
 
                 delete[] P_copy;
                 delete[] R_buf;
@@ -308,16 +316,12 @@ int cholqr_primitive(
                               && (method == PCholQRPrecondMethod::TRSM_IDENTITY
                                || method == PCholQRPrecondMethod::TRTRI);
 
-    blocked_preconditioned_gram<T, GLO>(A, preconditioned ? R_pre : (const T*)nullptr,
-                                         G, m, n, b_eff, A_temp, Z_buf,
-                                         /*skip_left_factor=*/use_trsm_at_end,
-                                         fwd_us, adj_us, gemm_us, timing);
+    blocked_preconditioned_gram<T, GLO>(A, preconditioned ? R_pre : (const T*)nullptr, G, m, n, b_eff, A_temp, Z_buf, /*skip_left_factor=*/use_trsm_at_end, fwd_us, adj_us, gemm_us, timing);
 
     if (use_trsm_at_end) {
         // G := P^{-T} G  (= R_pre^T A^T A R_pre, since R_pre = P^{-1}).
         if (timing) t0 = steady_clock::now();
-        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans,
-                   Diag::NonUnit, n, n, T(1), P, n, G, n);
+        blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::Trans, Diag::NonUnit, n, n, T(1), P, n, G, n);
         if (timing) { t1 = steady_clock::now(); gemm_us += duration_cast<microseconds>(t1 - t0).count(); }
     }
 
@@ -377,8 +381,7 @@ int cholqr_primitive(
         lapack::lacpy(MatrixType::Upper, n, n, P, n, R, ldr);
         if (n > 1)
             lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), R + 1, ldr);
-        blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper,
-                   Op::NoTrans, Diag::NonUnit, n, n, T(1), G, n, R, ldr);
+        blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, T(1), G, n, R, ldr);
     } else {
         lapack::lacpy(MatrixType::Upper, n, n, G, n, R, ldr);
         if (n > 1)
@@ -424,6 +427,79 @@ int cholqr_primitive(
     delete[] G;
     delete[] A_temp;
     return info;
+}
+
+
+// ============================================================================
+// cholqr_iterate — the shared CholQR-family engine
+// ============================================================================
+//
+// Runs `num_iters` CholQR passes and returns the accumulated R (= R_k ... R_1):
+//   iter 1            : unpreconditioned CholQR with shift_iter1.
+//   iter 2..num_iters : preconditioned CholQR with the previous iterate as P
+//                       (TRSM_IDENTITY) and shift_iter_rest.
+// This is the single engine behind CholQR (num_iters = 1), CholQR2 (2), and
+// sCholQR3 (3); the only differences are the pass count and the per-pass shift
+// (CholQR/CholQR2 start unshifted, shift_iter1 = shift_iter_rest = 0; sCholQR3
+// uses eps). The adaptive-shift retry inside cholqr_primitive handles potrf
+// breakdown; max_retries < 0 means unbounded.
+//
+// Scratch for the preconditioned passes (G, R_pre, P_prev, A_temp, Z_buf) is owned
+// internally and only allocated when num_iters > 1, so the num_iters = 1 (plain
+// CholQR) path keeps its lean footprint.
+//
+// iter_times (optional, length 5*num_iters): per pass [fwd, adj, gemm, chol, upd];
+// gemm and upd are 0 for the unpreconditioned first pass.
+//
+// Returns 0 on success, or the 1-based index of the pass whose Cholesky failed.
+template <typename T, RandLAPACK::linops::LinearOperator GLO>
+int cholqr_iterate(
+    GLO& A, T* R, int64_t ldr, int64_t block_size,
+    int num_iters, T shift_iter1, T shift_iter_rest,
+    int max_retries, T shift_growth, bool timing,
+    long* iter_times = nullptr)
+{
+    int64_t m = A.n_rows;
+    int64_t n = A.n_cols;
+    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+    auto rec = [&](int it, long fwd, long adj, long gemm, long chol, long upd) {
+        if (iter_times) {
+            long* t = iter_times + 5 * (it - 1);
+            t[0] = fwd; t[1] = adj; t[2] = gemm; t[3] = chol; t[4] = upd;
+        }
+    };
+
+    // ---- Iter 1: unpreconditioned CholQR ----
+    long fwd1 = 0, adj1 = 0, chol1 = 0;
+    int info = cholqr_primitive<T, GLO>(A, R, ldr, shift_iter1, block_size, fwd1, adj1, chol1, timing, max_retries, shift_growth);
+    if (info != 0) return 1;
+    rec(1, fwd1, adj1, 0, chol1, 0);
+    if (num_iters <= 1) return 0;
+
+    // ---- Iters 2..num_iters: preconditioned CholQR with P = previous R ----
+    T* G      = new T[n * n]();
+    T* R_pre  = new T[n * n]();
+    T* P_prev = new T[n * n]();
+    T* A_temp = new T[m * b_eff];
+    T* Z_buf  = new T[n * b_eff];
+    for (int it = 2; it <= num_iters; ++it) {
+        lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
+        if (n > 1) lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
+        long precond_inv = 0, fwd = 0, adj = 0, gemm = 0, chol = 0, upd = 0;
+        info = cholqr_primitive<T, GLO>(
+            A, P_prev, R, ldr, PCholQRPrecondMethod::TRSM_IDENTITY,
+            block_size, /*bqrrp_block_ratio=*/T(1), R_pre, G, A_temp, Z_buf,
+            /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
+            precond_inv, fwd, adj, gemm, chol, upd, timing,
+            shift_iter_rest, max_retries, shift_growth);
+        if (info != 0) {
+            delete[] G; delete[] R_pre; delete[] P_prev; delete[] A_temp; delete[] Z_buf;
+            return it;
+        }
+        rec(it, fwd, adj, gemm, chol, precond_inv + upd);
+    }
+    delete[] G; delete[] R_pre; delete[] P_prev; delete[] A_temp; delete[] Z_buf;
+    return 0;
 }
 
 } // namespace RandLAPACK

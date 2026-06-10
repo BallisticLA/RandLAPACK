@@ -98,12 +98,13 @@ static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_fac
 }
 
 // CQRRT_linops (BQRRP): the execution has two distinct peak-memory moments:
-//   (1) BQRRP-preconditioner moment (lines 288-342 of rl_cqrrt_linops.hh):
-//         A_hat(d*n) + R_sk_copy(n*n) + R_buf(n*n) + W(n*n) + R_sk_inv(n*n)
-//       = d*n + 4*n*n.  A_pre is NOT allocated yet here.
+//   (1) BQRRP-preconditioner moment (the column-pivoted-QR inversion inside
+//       cholqr_primitive, rl_cholqr.hh): A_hat(d*n) + R_sk_inv(n*n) + G(n*n)
+//       + P_copy(n*n) + R_buf(n*n) = d*n + 4*n*n.  A_pre is NOT allocated yet here.
+//       (W was eliminated by transposing Q^T in place.)
 //   (2) Gram-loop moment (same as the non-BQRRP path):
 //         A_hat(d*n) + R_sk_inv(n*n) + tau(n) + A_pre(m*b_eff)
-//       = d*n + n + n*n + m*b_eff.  R_sk_copy/R_buf/W have been freed by now.
+//       = d*n + n + n*n + m*b_eff.  P_copy/R_buf have been freed by now.
 // The true analytical peak is the max of (1) and (2).  Roughly: moment (1) wins for
 // short-and-wide matrices (m <~ 3n); moment (2) wins for tall matrices.
 template <typename T>

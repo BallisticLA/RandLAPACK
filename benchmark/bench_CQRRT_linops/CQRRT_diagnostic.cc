@@ -17,10 +17,10 @@
 //   Path [4] uses a rank-revealing QR to invert R_sk; the Q factor makes
 //   the inversion well-conditioned even when R_sk itself is ill-conditioned.
 //   Path [5] uses the SVD (gold standard for stability).
-//   Path [6] uses general LU with partial pivoting; for upper-triangular R_sk
-//   this is expected to behave similarly to paths [2]-[3].
+//   Path [6] uses BQRRP (blocked randomized QRCP) to invert R_sk — the
+//   randomized counterpart of path [4]'s GEQP3.
 //
-//   All four paths use the same sketch (same RNG state).
+//   All six paths use the same sketch (same RNG state).
 //
 //   Per-path metrics:
 //     cond(A_pre)             — condition number of the preconditioned matrix

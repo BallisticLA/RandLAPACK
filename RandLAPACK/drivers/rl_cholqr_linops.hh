@@ -79,7 +79,6 @@ class CholQR_linops {
             int64_t ldr
         ) {
             steady_clock::time_point t0, t1, total_t_start, total_t_stop;
-            long alloc_dur = 0, fwd_dur = 0, adj_dur = 0, chol_dur = 0, total_dur = 0;
             long q_dur = 0;
 
             if (this->timing) total_t_start = steady_clock::now();
@@ -89,50 +88,32 @@ class CholQR_linops {
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
                           ? this->block_size : n;
 
-            int info = cholqr_primitive<T, GLO>(
-                A, R, ldr,
-                /*shift_factor=*/T(0),                      // unshifted first attempt
-                this->block_size,
-                fwd_dur, adj_dur, chol_dur, this->timing,
-                this->max_retries, this->shift_growth);     // shift only on potrf breakdown
+            // Plain CholQR = one unpreconditioned cholqr_iterate pass, unshifted-first.
+            long it[5] = {0};
+            int info = cholqr_iterate<T, GLO>(
+                A, R, ldr, this->block_size, /*num_iters=*/1,
+                /*shift_iter1=*/T(0), /*shift_iter_rest=*/T(0),
+                this->max_retries, this->shift_growth, this->timing,
+                this->timing ? it : nullptr);
+            if (info != 0) return info;
 
-            if (info != 0) {
-                return info;
-            }
-
-            // Test mode: materialize Q = A * R^{-1}. Recompute A * I into a full m×n buffer
-            // (outside the timing region) then apply R^{-1} via trsm.
+            // Test mode: materialize Q = A * R^{-1} (outside the timing region).
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
-
                 T* Q_buf = new T[m * n];
-                T* I_mat = new T[n * n]();
-                RandLAPACK::util::eye(n, n, I_mat);
-
-                for (int64_t j = 0; j < n; j += b_eff) {
-                    int64_t b_j = std::min(b_eff, n - j);
-                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                      m, b_j, n, (T)1.0, I_mat + j * n, n, (T)0.0, Q_buf + j * m, m);
-                }
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                           Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_buf, m);
-
-                delete[] I_mat;
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 this->Q = Q_buf;
-
                 if (this->timing) { t1 = steady_clock::now(); q_dur = duration_cast<microseconds>(t1 - t0).count(); }
             }
 
             if (this->timing) {
                 total_t_stop = steady_clock::now();
-                total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                // Subtract test-mode Q materialization (not part of algorithmic cost).
-                total_dur -= q_dur;
-
-                long rest_dur = total_dur - (alloc_dur + fwd_dur + adj_dur + chol_dur);
-                this->times = {alloc_dur, fwd_dur, adj_dur, chol_dur, rest_dur, total_dur};
+                long total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count() - q_dur;
+                long fwd = it[0], adj = it[1], chol = it[3];
+                long rest_dur = total_dur - (fwd + adj + chol);
+                this->times = {0L, fwd, adj, chol, rest_dur, total_dur};   // [alloc, fwd, adj, chol, rest, total]
             }
 
             return 0;
@@ -147,8 +128,9 @@ class CholQR_linops {
 ///   iter 2:  cholqr_primitive(A, P=R_1, TRSM_IDENTITY, ..., max_retries) -> R
 ///
 /// Both passes start UNSHIFTED (shift_factor = 0); only on potrf breakdown does
-/// the primitive seed the shift at eps * ||A||_F^2 and grow it x shift_growth,
-/// retrying unboundedly (max_retries < 0) until the Gram is PD. Starting unshifted
+/// the primitive seed the shift at eps * trace(G) (= ||A||_F^2 for iter 1, ~ n for
+/// the iter-2 preconditioned Gram) and grow it x shift_growth, retrying unboundedly
+/// (max_retries < 0) until the Gram is PD. Starting unshifted
 /// avoids biasing R_1 on well-conditioned inputs — an always-on eps shift was found
 /// to leave CholQR2 *less* orthogonal than a single unshifted CholQR pass; the retry
 /// still rescues Gram matrices driven non-PD by rounding.
@@ -214,10 +196,7 @@ class CholQR2_linops {
             int64_t ldr
         ) {
             steady_clock::time_point t0, t1, total_t_start, total_t_stop;
-            long alloc_dur = 0;
-            long fwd1_dur = 0, adj1_dur = 0, chol1_dur = 0, upd1_dur = 0;
-            long fwd2_dur = 0, adj2_dur = 0, gemm2_dur = 0, chol2_dur = 0, upd2_dur = 0;
-            long q_mat_dur = 0, total_dur = 0;
+            long q_mat_dur = 0;
 
             if (this->timing) total_t_start = steady_clock::now();
 
@@ -226,83 +205,34 @@ class CholQR2_linops {
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
                           ? this->block_size : n;
 
-            // ---- Shared per-call scratch for cholqr_primitive iter-2 ----
-            if (this->timing) t0 = steady_clock::now();
-            T* G       = new T[n * n]();
-            T* R_pre   = new T[n * n]();
-            T* P_prev  = new T[n * n]();
-            T* A_temp  = new T[m * b_eff];
-            T* Z_buf   = new T[n * b_eff];
-            if (this->timing) { t1 = steady_clock::now(); alloc_dur = duration_cast<microseconds>(t1 - t0).count(); }
-
-            // ---- Iter 1: shifted CholQR via cholqr_primitive -> R_1 in R ----
-            int info = cholqr_primitive<T, GLO>(
-                A, R, ldr,
-                this->shift_factor_iter1,
-                this->block_size,
-                fwd1_dur, adj1_dur, chol1_dur, this->timing,
-                this->max_retries, this->shift_growth);
-            if (info != 0) {
-                delete[] G; delete[] R_pre; delete[] P_prev;
-                delete[] A_temp; delete[] Z_buf;
-                return 1;
-            }
-
-            // ---- Iter 2: PCholQR with P = R_1 (TRSM_IDENTITY precond) ----
-            // Stash R_1 in P_prev before cholqr_primitive overwrites R with R_2.
-            lapack::lacpy(MatrixType::Upper, n, n, R, ldr, P_prev, n);
-            if (n > 1)
-                lapack::laset(MatrixType::Lower, n - 1, n - 1, T(0), T(0), P_prev + 1, n);
-
-            long precond_inv2 = 0, update2 = 0;
-            info = cholqr_primitive<T, GLO>(
-                A, P_prev, R, ldr,
-                PCholQRPrecondMethod::TRSM_IDENTITY,
-                this->block_size,
-                /*bqrrp_block_ratio=*/T(1.0),
-                R_pre, G, A_temp, Z_buf,
-                /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
-                precond_inv2, fwd2_dur, adj2_dur, gemm2_dur, chol2_dur, update2,
-                this->timing,
-                this->shift_factor_iter2, this->max_retries, this->shift_growth);
-            if (info != 0) {
-                delete[] G; delete[] R_pre; delete[] P_prev;
-                delete[] A_temp; delete[] Z_buf;
-                return 2;
-            }
-            upd2_dur = precond_inv2 + update2;
+            // CholQR2 = two cholqr_iterate passes (iter 1 unpreconditioned, iter 2
+            // preconditioned on R_1). Both shifts default to 0 (unshifted-first).
+            long it[10] = {0};
+            int info = cholqr_iterate<T, GLO>(
+                A, R, ldr, this->block_size, /*num_iters=*/2,
+                this->shift_factor_iter1, this->shift_factor_iter2,
+                this->max_retries, this->shift_growth, this->timing,
+                this->timing ? it : nullptr);
+            if (info != 0) return info;   // 1 or 2 = the pass that failed
 
             // ---- Test mode: materialize Q = A * R^{-1} via blocked linop calls ----
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
-
-                RandLAPACK::util::eye(n, n, R_pre);
-                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                           Diag::NonUnit, n, n, T(1), R, ldr, R_pre, n);
-
                 T* Q_buf = new T[m * n];
-                for (int64_t j = 0; j < n; j += b_eff) {
-                    int64_t b_j = std::min(b_eff, n - j);
-                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                      m, b_j, n, (T)1.0, R_pre + j * n, n, (T)0.0, Q_buf + j * m, m);
-                }
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 this->Q = Q_buf;
-
                 if (this->timing) { t1 = steady_clock::now(); q_mat_dur = duration_cast<microseconds>(t1 - t0).count(); }
             }
 
-            delete[] G; delete[] R_pre; delete[] P_prev;
-            delete[] A_temp; delete[] Z_buf;
-
             if (this->timing) {
                 total_t_stop = steady_clock::now();
-                total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                total_dur -= q_mat_dur;
-                this->times = {alloc_dur,
-                               fwd1_dur, adj1_dur, chol1_dur, upd1_dur,
-                               fwd2_dur, adj2_dur, gemm2_dur, chol2_dur, upd2_dur,
+                long total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count() - q_mat_dur;
+                // it = [fwd1,adj1,gemm1=0,chol1,upd1=0, fwd2,adj2,gemm2,chol2,upd2].
+                this->times = {0L,                                  // alloc (now inside cholqr_iterate)
+                               it[0], it[1], it[3], it[4],          // fwd1, adj1, chol1, upd1
+                               it[5], it[6], it[7], it[8], it[9],   // fwd2, adj2, gemm2, chol2, upd2
                                total_dur};
             }
 

@@ -640,7 +640,7 @@ static int run_rspec_benchmark(
 
     T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
 
-    // Warmup (small probe of V_app_op so SparseLU is warm).
+    // Warmup so the Cholesky-factored X^{-1} chain inside V_app_op is warm.
     std::cout << "Running rspec warmup... " << std::flush;
     {
         auto warm_state = run_states[0];
@@ -680,7 +680,7 @@ static int run_rspec_benchmark(
             std::fill(R, R + n * n, (T)0);
             auto state = run_states[run_idx];
 
-            std::cout << "[Run " << run_idx << ", " << alg_name << "] PCholQR ... " << std::flush;
+            std::cout << "[Run " << run_idx << ", " << alg_name << "] QR ... " << std::flush;
             RandLAPACK::PeakRSSTracker mem; mem.start();
             if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(true, tol);
@@ -807,14 +807,8 @@ static int run_rspec_benchmark(
                        blas::Op::NoTrans, blas::Diag::NonUnit,
                        n, n, (T)1.0, R, n, T_mat, n);
 
-            // Symmetrize: T := (T + T^T)/2
-            for (int64_t j = 0; j < n; ++j) {
-                for (int64_t i = j + 1; i < n; ++i) {
-                    T avg = (T_mat[i + j * n] + T_mat[j + i * n]) * (T)0.5;
-                    T_mat[i + j * n] = avg;
-                    T_mat[j + i * n] = avg;
-                }
-            }
+            // Symmetrize against rounding drift before the (upper-triangle) syevd.
+            RandBLAS::symmetrize(blas::Layout::ColMajor, blas::Uplo::Upper, n, T_mat, n);
             std::cout << "done\n";
 
             // Eigendecomposition: T = U diag(lambda) U^T, U overwrites T_mat (columns = eigvecs).
@@ -843,7 +837,7 @@ static int run_rspec_benchmark(
             //   resid_i = ||C y_i - lambda_i y_i|| / (|lambda_max| * ||y_i||)
             // where y_i = Q u_i = V_app R^{-1} u_i is the Ritz vector and u_i is an
             // eigenvector of the small RR matrix T = Q^T C Q (Q = V_app R^{-1}, with
-            // Q^T Q = I via PCholQR). This is the ordinary (non-generalized) eigen-
+            // Q^T Q = I via the Q-less QR). This is the ordinary (non-generalized) eigen-
             // residual of the symmetric operator C, which is exactly what Rayleigh-
             // Ritz on range(V_app) approximates. |lambda_max| is the dominant Ritz
             // value (largest |lambda|), used as the relative scale. K and M are no
@@ -1025,7 +1019,7 @@ int run_benchmark(int argc, char* argv[]) {
               << " CholQR=" << ((method_mask>>1)&1)
               << " sCholQR3=" << ((method_mask>>2)&1)
               << " sCholQR3_basic=" << ((method_mask>>3)&1)
-              << " linop_bqrrp=" << ((method_mask>>6)&1) << ")\n"
+              << " CholQR2=" << ((method_mask>>4)&1) << ")\n"
               << "  noise_level: " << noise_level << "\n"
               << "  omega: " << omega << "\n"
               << "  power_j: " << power_j << "\n"

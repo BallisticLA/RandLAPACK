@@ -21,7 +21,7 @@ namespace RandLAPACK::linops {
 //
 // Template parameter:
 //   InnerOp - Square base operator satisfying LinearOperator concept (dense, sparse,
-//             composite, sparse-LU-inverse, etc.)
+//             composite, sparse-solver-inverse, etc.)
 //
 // Strategy:
 //   Each application chains j calls to the base operator with two ping-pong scratch

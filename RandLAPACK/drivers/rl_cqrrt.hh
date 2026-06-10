@@ -318,9 +318,7 @@ class CQRRT_linops {
             // ---- Step 2: [~, R^sk] = qr(M^sk) ----
             if (this->timing) t0 = steady_clock::now();
             lapack::geqrf(d, n, A_hat, d, tau);
-            for (int64_t j = 0; j < n; ++j)
-                for (int64_t i = 0; i <= j; ++i)
-                    P[i + j * n] = A_hat[i + j * d];
+            lapack::lacpy(MatrixType::Upper, n, n, A_hat, d, P, n);   // R^sk = upper(A_hat); P's lower stays 0
             if (this->timing) { t1 = steady_clock::now(); qr_dur = duration_cast<microseconds>(t1 - t0).count(); }
 
             // ---- Step 3: PCholQR(A, P = R^sk) ----
@@ -343,16 +341,8 @@ class CQRRT_linops {
             if (this->test_mode) {
                 if (this->timing) t0 = steady_clock::now();
 
-                RandLAPACK::util::eye(n, n, R_pre);
-                blas::trsm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                           Diag::NonUnit, n, n, T(1), R, ldr, R_pre, n);
-
                 T* Q_buf = new T[m * n];
-                for (int64_t j = 0; j < n; j += b_eff) {
-                    int64_t b_j = std::min(b_eff, n - j);
-                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                      m, b_j, n, (T)1.0, R_pre + j * n, n, (T)0.0, Q_buf + j * m, m);
-                }
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
                 this->Q_rows = m;
                 this->Q_cols = n;
                 this->Q = Q_buf;
