@@ -65,6 +65,49 @@ using std::chrono::duration_cast;
 using std::chrono::microseconds;
 
 // ============================================================================
+// Condition-number injection + precision-casting helpers (irlsq_reg mode)
+// ============================================================================
+
+// Geometric column-scaling diagonal d[j] = kappa^(j/(n-1)), j = 0..n-1, so the
+// column-norm spread injected into J = L^{-1} K (V D) is kappa (d[0]=1, d[n-1]=kappa).
+// kappa <= 1 (or n <= 1) means no scaling (all ones), i.e. native conditioning.
+static std::vector<double> geometric_colscale(int64_t n, double kappa) {
+    std::vector<double> d(n, 1.0);
+    if (kappa > 1.0 && n > 1) {
+        for (int64_t j = 0; j < n; ++j)
+            d[j] = std::pow(kappa, (double)j / (double)(n - 1));
+    }
+    return d;
+}
+
+// Right-multiply a CSR matrix by diag(d): column j is scaled by d[j].
+// In CSR, nonzero p sits in column colidxs[p], so vals[p] *= d[colidxs[p]].
+template <typename T, typename sint_t>
+static void scale_csr_columns(RandBLAS::sparse_data::csr::CSRMatrix<T, sint_t>& A,
+                              const std::vector<double>& d) {
+    for (int64_t p = 0; p < A.nnz; ++p)
+        A.vals[p] = (T)((double)A.vals[p] * d[(int64_t)A.colidxs[p]]);
+}
+
+// Cast a CSR matrix to a different value precision (structure copied, values cast).
+template <typename Tdst, typename Tsrc, typename sint_t>
+static RandBLAS::sparse_data::csr::CSRMatrix<Tdst, sint_t>
+csr_cast(const RandBLAS::sparse_data::csr::CSRMatrix<Tsrc, sint_t>& src) {
+    RandBLAS::sparse_data::csr::CSRMatrix<Tdst, sint_t> dst(src.n_rows, src.n_cols);
+    if (src.nnz > 0) {
+        dst.reserve(src.nnz);
+        std::copy(src.rowptr,  src.rowptr  + src.n_rows + 1, dst.rowptr);
+        std::copy(src.colidxs, src.colidxs + src.nnz,        dst.colidxs);
+        for (int64_t p = 0; p < src.nnz; ++p) dst.vals[p] = (Tdst)src.vals[p];
+    }
+    return dst;
+}
+
+// Unit roundoff u = eps/2 in precision P (collaborator's mu = mu_factor * u).
+template <typename P>
+static P unit_roundoff() { return std::numeric_limits<P>::epsilon() / (P)2; }
+
+// ============================================================================
 // Result struct (unified — sentinel values for fields irrelevant to the mode)
 // ============================================================================
 
@@ -88,6 +131,11 @@ struct bench_result {
     int  ir_inner_iters_total;
     T    ls_residual_norm;
     T    ls_solution_error;   // -1 sentinel when undefined (FEM irlsq)
+
+    // irlsq_reg only: kappa(A) estimate from the regularized R diagonal
+    // (max|R_ii| / min|R_ii|; floored near sigma_max/mu when sigma_min < mu).
+    // -1 sentinel for the plain irlsq path.
+    T    kappa_measured = (T)-1;
 
     // QR timing breakdown (from algo.times[])
     std::vector<long> qr_breakdown;
@@ -972,6 +1020,348 @@ static int run_rspec_benchmark(
 }
 
 // ============================================================================
+// CSV writer — IR-LSQ regularized (irlsq_reg): base columns + regularization /
+// mixed-precision metadata (kappa_target, kappa_measured, mu, precond/solve prec)
+// ============================================================================
+
+template <typename T>
+static void write_irlsq_reg_results(
+    const std::string& filename,
+    const std::vector<bench_result<T>>& results,
+    int64_t m, int64_t n, int64_t nnz_or_zero, const std::string& input_label,
+    double d_factor, int64_t sketch_nnz, int64_t block_size, int64_t method_mask,
+    double kappa_target, double mu,
+    const std::string& precond_prec, const std::string& solve_prec)
+{
+    std::ofstream out(filename);
+    time_t now = time(nullptr);
+    out << "# Sparse IR-LSQ (regularized augmented operator) Benchmark results\n"
+        << "# Date: " << ctime(&now)
+        << "# input=" << input_label << "\n"
+        << "# M=" << m << " N=" << n << " nnz=" << nnz_or_zero << "\n"
+        << "# d_factor=" << d_factor << " sketch_nnz=" << sketch_nnz
+        << " block_size=" << block_size << "\n"
+        << "# method_mask=" << method_mask << "\n"
+        << "# kappa_target=" << kappa_target << " mu=" << mu << "\n"
+        << "# precond_prec=" << precond_prec << " solve_prec=" << solve_prec << "\n"
+        << "# A_hat = [A; mu*I];  R = chol(A^T A + mu^2 I) built in precond_prec,\n"
+        << "#   used as right preconditioner for IterRefineLSQ run in solve_prec.\n"
+#ifdef _OPENMP
+        << "# OpenMP threads: " << omp_get_max_threads() << "\n"
+#else
+        << "# OpenMP threads: 1\n"
+#endif
+        ;
+    out << "algorithm,run,m,n,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
+           "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
+           "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec\n";
+    for (const auto& r : results) {
+        out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
+            << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
+            << std::scientific << std::setprecision(6) << r.orth_error << ","
+            << r.ir_total_us << "," << r.ir_outer_iters << "," << r.ir_inner_iters_total << ","
+            << std::scientific << std::setprecision(6) << r.ls_residual_norm << ","
+            << std::scientific << std::setprecision(6) << r.ls_solution_error << ","
+            << std::scientific << std::setprecision(6) << kappa_target << ","
+            << std::scientific << std::setprecision(6) << r.kappa_measured << ","
+            << std::scientific << std::setprecision(6) << mu << ","
+            << precond_prec << "," << solve_prec
+            << "\n";
+    }
+}
+
+// kappa(A) estimate from the regularized R diagonal: max|R_ii| / min|R_ii|.
+template <typename P>
+static double kappa_from_R_diag(const P* R, int64_t n) {
+    double mx = 0.0, mn = std::numeric_limits<double>::infinity();
+    for (int64_t i = 0; i < n; ++i) {
+        double v = std::abs((double)R[i + i * n]);
+        if (v > mx) mx = v;
+        if (v > 0 && v < mn) mn = v;
+    }
+    return (mn > 0 && std::isfinite(mn)) ? mx / mn : -1.0;
+}
+
+// ============================================================================
+// irlsq_reg runner — regularized augmented-operator preconditioner with
+// independent preconditioner (P_precond) and solve (T_solve) precisions.
+//
+// Builds two FEM operator chains J = L^{-1} K (V D) from the same kappa-scaled
+// matrices: one in P_precond (for Q-less QR of A_hat = [A; mu*I]) and one in
+// T_solve (for IterRefineLSQ on the base A). For each variant: QR in P_precond
+// -> R (= chol(A^T A + mu^2 I)) -> cast to T_solve -> solve. R is never stored
+// for all variants at once (n^2 is huge at FEM2 scale), so QR and solve are
+// interleaved and both chains coexist.
+// ============================================================================
+
+template <typename T_solve, typename P_precond, typename RNG>
+static int run_irlsq_reg(
+    const std::string& K_file, const std::string& M_file, const std::string& V_file,
+    const std::string& output_dir, int64_t num_runs,
+    double d_factor, int64_t sketch_nnz, int64_t block_size,
+    int64_t method_mask, double kappa_target, double mu_factor, double noise_level,
+    const std::string& precond_prec_str, const std::string& solve_prec_str)
+{
+    namespace rl = RandLAPACK::linops;
+
+    std::vector<std::string> selected_algs;
+    if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
+    if (method_mask & 2)   selected_algs.push_back("CholQR");
+    if (method_mask & 4)   selected_algs.push_back("sCholQR3");
+    if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
+    if (method_mask & 16)  selected_algs.push_back("CholQR2");
+    if (selected_algs.empty()) {
+        std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
+        return 1;
+    }
+
+    // ---- Load double master CSRs ----
+    int64_t m_K, n_K, nnz_K, m_M, n_M, nnz_M, m_V, n_V, nnz_V;
+    auto K_master = load_csr_verbose<double>("K (stiffness)", K_file, m_K, n_K, nnz_K);
+    auto M_master = load_csr_verbose<double>("M (mass)",      M_file, m_M, n_M, nnz_M);
+    auto V_master = load_csr_verbose<double>("V (prolongation)", V_file, m_V, n_V, nnz_V);
+    if (m_K != n_K)   { std::cerr << "Error: K must be square.\n"; return 1; }
+    if (m_M != m_K || n_M != m_K) { std::cerr << "Error: M size must match K.\n"; return 1; }
+    if (m_V != m_K)   { std::cerr << "Error: V rows must match K size.\n"; return 1; }
+    if (m_V < n_V)    { std::cerr << "Error: need tall V (m_fine >= n_coarse).\n"; return 1; }
+    int64_t m = m_V, n = n_V;
+
+    // ---- Inject conditioning: scale V columns by the geometric diagonal ----
+    auto d_scale = geometric_colscale(n_V, kappa_target);
+    scale_csr_columns(V_master, d_scale);
+    std::cout << "Column-scaled V to target kappa=" << kappa_target
+              << " (spread " << d_scale.front() << " .. " << d_scale.back() << ")\n";
+
+    // ---- Build SOLVE chain (precision T_solve), cast down from double master ----
+    auto K_Ts = csr_cast<T_solve>(K_master);
+    auto V_Ts = csr_cast<T_solve>(V_master);
+    auto M_Ts = csr_cast<T_solve>(M_master);
+    rl::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T_solve>> K_op_Ts(m_K, m_K, K_Ts);
+    rl::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T_solve>> V_op_Ts(m_V, n_V, V_Ts);
+    std::cout << "Factorizing M = L L^T (solve precision)... " << std::flush;
+    RandLAPACK_extras::linops::CholSolverLinOp<T_solve> L_inv_Ts(M_Ts, /*half_solve=*/true);
+    L_inv_Ts.factorize();
+    std::cout << "done\n";
+    rl::CompositeOperator KV_Ts(m, n, K_op_Ts, V_op_Ts); KV_Ts.block_size = block_size;
+    rl::CompositeOperator J_Ts(m, n, L_inv_Ts, KV_Ts);   J_Ts.block_size = block_size;
+
+    // Consistent RHS: x_true ~ U(-1,1)^n, b = A x_true (+ noise_level relative
+    // Gaussian noise). Consistency makes the residual metric a true backward error
+    // ~u (kappa-robust: the ||A|| ||x|| factor cancels), and x_true gives a ground
+    // -truth forward-error metric ||x - x_true|| / ||x_true|| ~ u*kappa that exposes
+    // the precision x kappa interaction. Use noise_level = 0 to see the solver's
+    // u-level backward error directly. (Same construction as sparse mode.)
+    std::vector<T_solve> x_true(n, (T_solve)0);
+    { std::mt19937 rng_x(42); std::uniform_real_distribution<double> U(-1.0, 1.0);
+      for (auto& v : x_true) v = (T_solve)U(rng_x); }
+    std::vector<T_solve> b(m, (T_solve)0);
+    J_Ts(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+         m, 1, n, (T_solve)1.0, x_true.data(), n, (T_solve)0.0, b.data(), m);
+    if (noise_level > 0) {
+        T_solve b_clean_norm = blas::nrm2(m, b.data(), 1);
+        std::vector<T_solve> noise(m, (T_solve)0);
+        std::mt19937 rng_n(13); std::normal_distribution<double> N01(0, 1);
+        for (auto& v : noise) v = (T_solve)N01(rng_n);
+        T_solve raw = blas::nrm2(m, noise.data(), 1);
+        T_solve scale = (raw > 0) ? (T_solve)(noise_level) * b_clean_norm / raw : (T_solve)0;
+        for (int64_t i = 0; i < m; ++i) b[i] += scale * noise[i];
+    }
+    const T_solve x_true_norm = blas::nrm2(n, x_true.data(), 1);
+    std::cout << "Consistent RHS b = A x_true"
+              << (noise_level > 0 ? " + noise" : "")
+              << " (||x_true||=" << x_true_norm << ", ||b||=" << blas::nrm2(m, b.data(), 1) << ")\n";
+
+    // ---- Build PRECOND chain (precision P_precond) + augmented operator ----
+    auto K_Pp = csr_cast<P_precond>(K_master);
+    auto V_Pp = csr_cast<P_precond>(V_master);
+    auto M_Pp = csr_cast<P_precond>(M_master);
+    rl::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<P_precond>> K_op_Pp(m_K, m_K, K_Pp);
+    rl::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<P_precond>> V_op_Pp(m_V, n_V, V_Pp);
+    std::cout << "Factorizing M = L L^T (precond precision)... " << std::flush;
+    RandLAPACK_extras::linops::CholSolverLinOp<P_precond> L_inv_Pp(M_Pp, /*half_solve=*/true);
+    L_inv_Pp.factorize();
+    std::cout << "done\n";
+    rl::CompositeOperator KV_Pp(m, n, K_op_Pp, V_op_Pp); KV_Pp.block_size = block_size;
+    rl::CompositeOperator J_Pp(m, n, L_inv_Pp, KV_Pp);   J_Pp.block_size = block_size;
+
+    const P_precond mu_P = (P_precond)(mu_factor * (double)unit_roundoff<P_precond>());
+    rl::ScaledIdentityOp<P_precond> reg_op(n, mu_P);
+    rl::VStackOp<decltype(J_Pp), rl::ScaledIdentityOp<P_precond>> A_hat_Pp(J_Pp, reg_op);
+    A_hat_Pp.block_size = block_size;   // caps the blocked-sketch slice width (CQRRT)
+    std::cout << "Augmented operator A_hat = [J; mu*I], mu=" << (double)mu_P
+              << " (= " << mu_factor << " * u(" << precond_prec_str << "))\n\n";
+
+    const P_precond tol_P = std::pow(std::numeric_limits<P_precond>::epsilon(), (P_precond)0.85);
+    const T_solve   tol_T = std::pow(std::numeric_limits<T_solve>::epsilon(), (T_solve)0.85);
+
+    // Per-run RNG states (CQRRT only).
+    RandBLAS::RNGState<RNG> main_state(123);
+    std::vector<RandBLAS::RNGState<RNG>> run_states(num_runs);
+    for (int64_t r = 0; r < num_runs; ++r) { run_states[r] = main_state; if (r > 0) run_states[r].key.incr(r); }
+
+    // Warmup the precond-chain CQRRT on A_hat (warms the L^{-1} K V chain, the
+    // augmented Gram, and the blocked sketch overload).
+    std::cout << "Running warmup... " << std::flush;
+    { auto ws = run_states[0]; P_precond* Rw = new P_precond[n * n]();
+      RandLAPACK::CQRRT_linops<P_precond, RNG> warm(false, tol_P);
+      warm.nnz = sketch_nnz; warm.block_size = block_size;
+      warm.call(A_hat_Pp, Rw, n, (P_precond)d_factor, ws); delete[] Rw; }
+    std::cout << "done\n";
+
+    // ||A||_2 and ||b|| (Higham backward-error metric, solve precision).
+    T_solve A_2norm = estimate_op_2norm<T_solve>(J_Ts, m, n, 10);
+    T_solve b_norm  = blas::nrm2(m, b.data(), 1);
+    std::cout << "||A||_2 ~ " << A_2norm << ", ||b|| = " << b_norm << "\n\n";
+
+    std::vector<bench_result<T_solve>> all_results;
+
+    P_precond* R_P = new P_precond[n * n]();
+    T_solve*   R_T = new T_solve[n * n]();
+    T_solve*   x_ls = new T_solve[n];
+
+    for (const auto& alg_name : selected_algs) {
+        std::cout << "\n=== Algorithm: " << alg_name << " (irlsq_reg) ===\n";
+        for (int64_t run_idx = 0; run_idx < num_runs; ++run_idx) {
+            bench_result<T_solve> res{};
+            res.m = m; res.n = n; res.run_idx = run_idx; res.alg_name = alg_name;
+            res.qr_status = 0; res.qr_time_us = 0; res.orth_error = (T_solve)-1;
+            res.ls_residual_norm = (T_solve)-1; res.ls_solution_error = (T_solve)-1;
+            res.kappa_measured = (T_solve)-1;
+
+            std::fill(R_P, R_P + n * n, (P_precond)0);
+            auto state = run_states[run_idx];
+
+            std::cout << "[Run " << run_idx << ", " << alg_name << "] QR(" << precond_prec_str
+                      << ") ... " << std::flush;
+            RandLAPACK::PeakRSSTracker mem; mem.start();
+            if (alg_name == "sCholQR3") {
+                RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) { res.qr_time_us = qr.times[17];
+                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
+                    res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(m, n, block_size); }
+            } else if (alg_name == "sCholQR3_basic") {
+                RandLAPACK::sCholQR3_linops_basic<P_precond> qr(true, tol_P);
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) { res.qr_time_us = qr.times[14];
+                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
+                    res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(m, n); }
+            } else if (alg_name == "CholQR") {
+                RandLAPACK::CholQR_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) { res.qr_time_us = qr.times[5];
+                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 6);
+                    res.qr_breakdown.resize(11, 0);
+                    res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<P_precond>(m, n, block_size); }
+            } else if (alg_name == "CholQR2") {
+                RandLAPACK::CholQR2_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) { res.qr_time_us = qr.times[10];
+                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
+                    res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(m, n, block_size); }
+            } else {
+                // CQRRT: sketch + Gram the augmented A_hat (via VStack's blocked sketch
+                // overload), uniformly with the other 4 methods. R = chol(A^T A + mu^2 I).
+                RandLAPACK::CQRRT_linops<P_precond, RNG> qr(true, tol_P);
+                qr.nnz = sketch_nnz; qr.block_size = block_size;
+                qr.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
+                res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) { res.qr_time_us = qr.times[10];
+                    res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
+                    res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<P_precond>(m, n, (P_precond)d_factor, block_size); }
+            }
+
+            if (res.qr_status != 0) {
+                std::cerr << "\n  [" << alg_name << "] Run " << run_idx
+                          << ": QR returned status " << res.qr_status << ". Skipping solve.\n";
+                res.qr_time_us = -1; res.qr_breakdown.assign(11, 0); res.analytical_kb = 0;
+                all_results.push_back(res);
+                continue;
+            }
+            res.kappa_measured = (T_solve)kappa_from_R_diag<P_precond>(R_P, n);
+            std::cout << "done (" << res.qr_time_us << " us, kappa~"
+                      << std::scientific << std::setprecision(2) << (double)res.kappa_measured << ")";
+
+            // Cast R to solve precision.
+            for (int64_t i = 0; i < n * n; ++i) R_T[i] = (T_solve)R_P[i];
+
+            // Orthogonality loss of Q = A R^{-1} (base A in solve precision).
+            res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size);
+
+            // IR-LSQ in solve precision, R as right preconditioner.
+            std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
+            std::fill(x_ls, x_ls + n, (T_solve)0.0);
+            auto ls_t0 = steady_clock::now();
+            RandLAPACK::IterRefineLSQ<T_solve> ir(tol_T, 200, 2, true, false);
+            int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
+            auto ls_t1 = steady_clock::now();
+            if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
+            res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
+            res.ir_outer_iters = ir.outer_iters_done;
+            res.ir_inner_iters_total = 0;
+            for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
+            if (!ir.times.empty()) res.ir_breakdown = ir.times;
+
+            // Higham normwise backward error ||Ax-b|| / (||A||_2 ||x|| + ||b||).
+            std::vector<T_solve> Ax(m, (T_solve)0);
+            J_Ts(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+                 m, 1, n, (T_solve)1.0, x_ls, n, (T_solve)0.0, Ax.data(), m);
+            T_solve resid_sq = 0;
+            for (int64_t i = 0; i < m; ++i) { T_solve dd = Ax[i] - b[i]; resid_sq += dd * dd; }
+            T_solve x_norm = blas::nrm2(n, x_ls, 1);
+            T_solve denom  = A_2norm * x_norm + b_norm;
+            res.ls_residual_norm = (denom > 0) ? std::sqrt(resid_sq) / denom : (T_solve)-1;
+
+            // Forward error vs ground truth: ||x - x_true|| / ||x_true|| ~ u*kappa.
+            T_solve err_sq = 0;
+            for (int64_t i = 0; i < n; ++i) { T_solve dd = x_ls[i] - x_true[i]; err_sq += dd * dd; }
+            res.ls_solution_error = (x_true_norm > 0) ? std::sqrt(err_sq) / x_true_norm : (T_solve)-1;
+
+            std::cout << "done (" << res.ir_total_us << " us, bwd_err="
+                      << std::scientific << std::setprecision(3) << (double)res.ls_residual_norm
+                      << ", fwd_err=" << (double)res.ls_solution_error << ")\n";
+
+            all_results.push_back(res);
+        }
+    }
+    delete[] R_P; delete[] R_T; delete[] x_ls;
+
+    std::string time_buf = make_run_timestamp();
+    std::string results_file   = output_dir + "/" + time_buf + "_irlsq_reg_results.csv";
+    std::string breakdown_file = output_dir + "/" + time_buf + "_irlsq_reg_breakdown.csv";
+    write_irlsq_reg_results<T_solve>(results_file, all_results, m, n, nnz_K,
+        "L^{-1} K (V D) (M=" + M_file + ")", d_factor, sketch_nnz, block_size, method_mask,
+        kappa_target, (double)mu_P, precond_prec_str, solve_prec_str);
+    std::cout << "\nIR-LSQ-reg results written to " << results_file << "\n";
+    write_irlsq_breakdown<T_solve>(breakdown_file, all_results);
+    std::cout << "IR-LSQ-reg breakdown written to " << breakdown_file << "\n";
+    return 0;
+}
+
+// Dispatch run_irlsq_reg on the runtime precond-precision string (solve precision = T).
+template <typename T_solve, typename RNG>
+static int dispatch_irlsq_reg(
+    const std::string& precond_prec,
+    const std::string& K_file, const std::string& M_file, const std::string& V_file,
+    const std::string& output_dir, int64_t num_runs,
+    double d_factor, int64_t sketch_nnz, int64_t block_size,
+    int64_t method_mask, double kappa_target, double mu_factor, double noise_level,
+    const std::string& solve_prec_str)
+{
+    if (precond_prec == "double") {
+        return run_irlsq_reg<T_solve, double, RNG>(
+            K_file, M_file, V_file, output_dir, num_runs, d_factor, sketch_nnz, block_size,
+            method_mask, kappa_target, mu_factor, noise_level, "double", solve_prec_str);
+    } else if (precond_prec == "single" || precond_prec == "float") {
+        return run_irlsq_reg<T_solve, float, RNG>(
+            K_file, M_file, V_file, output_dir, num_runs, d_factor, sketch_nnz, block_size,
+            method_mask, kappa_target, mu_factor, noise_level, "single", solve_prec_str);
+    }
+    std::cerr << "Error: precond_prec must be 'single' or 'double'; got '" << precond_prec << "'\n";
+    return 1;
+}
+
+// ============================================================================
 // Main dispatcher
 // ============================================================================
 
@@ -993,8 +1383,8 @@ int run_benchmark(int argc, char* argv[]) {
     std::string output_dir = argv[2];
     int64_t num_runs       = std::stol(argv[3]);
     std::string mode       = argv[4];
-    if (mode != "irlsq" && mode != "rspec") {
-        std::cerr << "Error: <mode> must be one of {irlsq, rspec}; got '" << mode << "'\n";
+    if (mode != "irlsq" && mode != "rspec" && mode != "irlsq_reg") {
+        std::cerr << "Error: <mode> must be one of {irlsq, rspec, irlsq_reg}; got '" << mode << "'\n";
         return 1;
     }
 
@@ -1040,6 +1430,15 @@ int run_benchmark(int argc, char* argv[]) {
     T noise_level       = (T)opt_double(5, 0.05);
     double omega        = opt_double(6, 0.0);
     int64_t power_j     = opt_long(7, 1);
+    // irlsq_reg-only knobs (positions after rspec's omega/power_j):
+    double kappa_target = opt_double(8, 1.0);    // V column-scaling spread (1 = native)
+    double mu_factor    = opt_double(9, 10.0);   // mu = mu_factor * u(precond_prec)
+    std::string precond_prec = (argc > dfactor_idx + 10) ? std::string(argv[dfactor_idx + 10]) : "single";
+
+    if (mode == "irlsq_reg" && sparse_mode) {
+        std::cerr << "Error: mode 'irlsq_reg' is FEM-only; sparse input is not supported.\n";
+        return 1;
+    }
 
     if (mode == "rspec") {
         if (sparse_mode) {
@@ -1125,6 +1524,25 @@ int run_benchmark(int argc, char* argv[]) {
             0L /*chol_time_us*/,
             "A (" + A_file + ")", A_file,
             &b, &x_true);
+    }
+
+    // ================================================================
+    // irlsq_reg mode (FEM-only): regularized augmented-operator preconditioner
+    // with independent preconditioner / solve precisions. Loads + builds its own
+    // (kappa-scaled, cast-down) chains, so it intercepts before the plain FEM load.
+    // <precision> (argv[1]) is the SOLVE precision; precond precision is a CLI knob.
+    // ================================================================
+    if (mode == "irlsq_reg") {
+        std::string solve_prec_str = (sizeof(T) == 8) ? "double" : "single";
+        std::cout << "\n=== IR-LSQ-reg mode (regularized augmented operator) ===\n"
+                  << "  kappa_target: " << kappa_target << "\n"
+                  << "  mu_factor: "    << mu_factor    << "\n"
+                  << "  noise_level: "  << (double)noise_level << "\n"
+                  << "  precond_prec: " << precond_prec << "\n"
+                  << "  solve_prec: "   << solve_prec_str << "\n\n";
+        return dispatch_irlsq_reg<T, RNG>(precond_prec, K_file, M_file, V_file,
+            output_dir, num_runs, (double)d_factor, sketch_nnz, block_size,
+            method_mask, kappa_target, mu_factor, (double)noise_level, solve_prec_str);
     }
 
     // ================================================================
@@ -1309,10 +1727,10 @@ int main(int argc, char* argv[]) {
     std::string precision = argv[1];
     if (precision == "double") {
         return run_benchmark<double>(argc, argv);
-    } else if (precision == "float") {
+    } else if (precision == "float" || precision == "single") {
         return run_benchmark<float>(argc, argv);
     } else {
-        std::cerr << "Unknown precision: " << precision << " (use 'double' or 'float')\n";
+        std::cerr << "Unknown precision: " << precision << " (use 'double'/'float'/'single')\n";
         return 1;
     }
 }
