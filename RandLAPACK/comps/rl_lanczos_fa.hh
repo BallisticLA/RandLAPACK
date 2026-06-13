@@ -19,8 +19,12 @@
 namespace RandLAPACK {
 
 
-/// d-step block Lanczos for matrix function application f(A)B.
-/// Approximates f(A)B column-wise via independent Krylov subspaces of dimension d.
+/// d-step scalar Lanczos-FA for matrix function application f(A)B.
+/// Approximates f(A)B column by column: each column of B gets its own scalar
+/// (single-vector) Krylov subspace of dimension d, run independently. This is
+/// the per-column counterpart to BlockLanczosFA, which instead builds a single
+/// joint block Krylov subspace (see rl_lanczos_fa_block.hh) and is BLAS-3
+/// throughout; the two are numerically distinct algorithms.
 /// See: T. Chen, "A Lanczos-FA algorithm for matrix function approximation" (2022).
 ///
 /// @tparam T    Floating-point scalar type.

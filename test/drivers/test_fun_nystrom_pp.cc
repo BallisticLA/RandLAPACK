@@ -1,6 +1,7 @@
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
+#include "rl_test_utils.hh"
 
 #include <RandBLAS.hh>
 #include <gtest/gtest.h>
@@ -20,40 +21,10 @@ namespace linops = RandLAPACK::linops;
 
 class TestFunNystromPPv2 : public ::testing::Test {
 protected:
-    // Build an exact f(A)·B oracle from an explicit eigendecomposition.
-    // A_full must be n×n column-major (full symmetric storage). Returns a
-    // captured callable that applies V · diag(f(λ)) · Vᵀ to its input.
-    template <typename T, typename F>
-    static std::function<void(int64_t, int64_t, const T *, T *)>
-    make_exact_fAfun(int64_t n, const std::vector<T> &A_full, F &&fscalar) {
-        // Eigendecompose a copy.
-        std::vector<T> A_cpy = A_full;
-        std::vector<T> ev(n);
-        lapack::syevd(lapack::Job::Vec, lapack::Uplo::Upper, n,
-                      A_cpy.data(), n, ev.data());
-        // A_cpy now holds eigenvectors V (col-major).
-        std::vector<T> V       = std::move(A_cpy);
-        std::vector<T> f_lambda(n);
-        for (int64_t i = 0; i < n; ++i) f_lambda[i] = fscalar(ev[i]);
-
-        // Capture by value into a shared pointer-like lifetime — std::function
-        // copies its lambda. f_lambda and V move into the closure.
-        return [n, V = std::move(V), f_lambda = std::move(f_lambda)]
-               (int64_t m, int64_t s, const T *B, T *Y) {
-            // Y = V · diag(f_lambda) · Vᵀ · B
-            // Step 1: tmp1 = Vᵀ · B  (n × s)
-            std::vector<T> tmp1((int64_t)n * s);
-            blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-                       n, s, m, (T)1, V.data(), n, B, m, (T)0, tmp1.data(), n);
-            // Step 2: scale rows by f_lambda
-            for (int64_t j = 0; j < s; ++j)
-                for (int64_t i = 0; i < n; ++i)
-                    tmp1[i + j * n] *= f_lambda[i];
-            // Step 3: Y = V · tmp1  (m × s)
-            blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                       m, s, n, (T)1, V.data(), m, tmp1.data(), n, (T)0, Y, m);
-        };
-    }
+    // The exact f(A)·B oracle (V·diag(f(λ))·Vᵀ·B) now lives in one place:
+    // RandLAPACK::testing::make_exact_fa_oracle (rl_test_utils.hh). The tests,
+    // the benchmark, and the MEX binding all share that single implementation
+    // rather than re-deriving the GEMM-diag-GEMM apply.
 
     // Compute tr(f(A)) exactly via syevd. A_full must be full-symmetric n×n.
     template <typename T, typename F>
@@ -94,10 +65,10 @@ TEST_F(TestFunNystromPPv2, BinaryIoRoundTrip) {
     ASSERT_GE(fd, 0);
     close(fd);
 
-    RandLAPACK::util::save_dense_bin<T>(tmpname, m, n, orig.data());
+    RandLAPACK::testing::save_dense_bin<T>(tmpname, m, n, orig.data());
     std::vector<T> back(m * n, -1.0);
     int64_t m_b = 0, n_b = 0;
-    RandLAPACK::util::load_dense_bin<T>(tmpname, m_b, n_b,
+    RandLAPACK::testing::load_dense_bin<T>(tmpname, m_b, n_b,
                                         back.data(), (int64_t)back.size());
     EXPECT_EQ(m_b, m);
     EXPECT_EQ(n_b, n);
@@ -122,13 +93,13 @@ TEST_F(TestFunNystromPPv2, DiagonalSqrt) {
     }
 
     auto fscalar = [](T x) { return std::sqrt(x); };
-    auto fAfun   = make_exact_fAfun<T>(n, A, fscalar);
+    auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
 
     std::vector<T> Omega1 = randn<T>(n, k, /*seed=*/1);
     std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/2);
 
     linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
-    RandLAPACK::FunNystromPP_v2<T> driver;
+    RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
                         Omega1.data(), Omega2.data(), t1, t2);
@@ -181,12 +152,12 @@ TEST_F(TestFunNystromPPv2, FullRankCapture) {
     T true_tr = 0;
     for (int64_t j = 0; j < k_mat; ++j) true_tr += fscalar(eigvals[j]);
 
-    auto fAfun = make_exact_fAfun<T>(n, A, fscalar);
+    auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
     std::vector<T> Omega1 = randn<T>(n, k, /*seed=*/11);
     std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/13);
 
     linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
-    RandLAPACK::FunNystromPP_v2<T> driver;
+    RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
                         Omega1.data(), Omega2.data(), t1, t2);
@@ -217,13 +188,13 @@ TEST_F(TestFunNystromPPv2, RandomPSDSqrt) {
 
     auto fscalar = [](T x) { return std::sqrt(x); };
     T true_tr = true_trace_fa<T>(n, A, fscalar);
-    auto fAfun = make_exact_fAfun<T>(n, A, fscalar);
+    auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
 
     std::vector<T> Omega1 = randn<T>(n, k, /*seed=*/19);
     std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/23);
 
     linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
-    RandLAPACK::FunNystromPP_v2<T> driver;
+    RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
                         Omega1.data(), Omega2.data(), t1, t2);

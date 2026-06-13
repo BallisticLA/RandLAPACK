@@ -37,16 +37,20 @@ namespace RandLAPACK {
 ///
 /// The class takes Ω₁ (Phase 1 sketch) and Ω₂ (Phase 2 Hutchinson)
 /// externally — this is the cross-validation harness contract. The
-/// caller generates or loads them via the same RNG as the MATLAB side.
-/// See util::load_dense_bin for the on-disk format.
+/// caller generates or loads them via the same RNG as the MATLAB side
+/// (see RandLAPACK::testing::load_dense_bin for the fixture on-disk format).
 ///
-/// See [funnystrompp-v2-baseline-plan.md](Claude_files/randnla/project-plans/funnystrompp-v2-baseline-plan.md)
-/// for the multi-phase development plan.
+/// Reference: the Persson-Kressner funNyström++ algorithm and its MATLAB
+/// reference implementation (davpersson/funNystrom), cited above.
 template <typename T>
-class FunNystromPP_v2 {
+class FunNystromPP {
 public:
     bool verbose = false;
-    bool force_fallback = false;   // Phase 7a perf knob: skip Cholesky-fast in NystromEVD and use the SVD-pinv path.
+    // Benchmarking / diagnostic aid (not for normal use): when true, skip the
+    // Cholesky-fast path in NystromEVD and force the SVD-pinv fall-back. Used
+    // only for the Phase-7a A/B perf comparison; leave false in production —
+    // the default dual-path picks the faster route automatically.
+    bool force_fallback = false;
 
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
     // public so tests can inspect them; in production code you'd treat
@@ -67,18 +71,22 @@ public:
     // Phase-split wall-clock timings populated by call() (ms).
     double t_phase1_ms = 0.0;
     double t_phase2_ms = 0.0;
-    // Inner wall-clock of just the dual-path spectral-recovery block
-    // inside NystromEVD (Cholesky-fast vs SVD-pinv fall-back). This
-    // is the tight measurement for the Phase 7a A/B comparison; the
-    // QR + subspace-iter + final matvec costs that precede it are
-    // identical on both paths and contribute to t_phase1_ms.
+    // Phase-2 sub-split: wall-clock spent inside the caller-supplied fAfun
+    // oracle (Lanczos-FA / exact apply). t_phase2_ms − t_fafun_ms is the
+    // driver-side trace assembly (Y₂ GEMM + weighted Frobenius sums).
+    double t_fafun_ms  = 0.0;
+    // Benchmarking aid: inner wall-clock of just the dual-path spectral-
+    // recovery block inside NystromEVD (Cholesky-fast vs SVD-pinv fall-back).
+    // This is the tight measurement for the Phase 7a A/B comparison; the
+    // QR + subspace-iter + final matvec costs that precede it are identical
+    // on both paths and contribute to t_phase1_ms instead.
     double t_specrec_ms = 0.0;
 
-    FunNystromPP_v2() = default;
-    FunNystromPP_v2(const FunNystromPP_v2&) = delete;
-    FunNystromPP_v2& operator=(const FunNystromPP_v2&) = delete;
+    FunNystromPP() = default;
+    FunNystromPP(const FunNystromPP&) = delete;
+    FunNystromPP& operator=(const FunNystromPP&) = delete;
 
-    ~FunNystromPP_v2() {
+    ~FunNystromPP() {
         delete[] U;
         delete[] lambda;
         delete[] Y_2;
@@ -176,11 +184,11 @@ public:
 
 
 
-// --- Phase 2: FunNystromPP_v2::call ---------------------------------------
+// --- Phase 2: FunNystromPP::call ---------------------------------------
 
 template <typename T>
 template <linops::SymmetricLinearOperator SLO, typename FAFun, typename FScalar>
-T FunNystromPP_v2<T>::call(
+T FunNystromPP<T>::call(
     SLO &A_op,
     FAFun &&fAfun,
     FScalar &&fscalar,
@@ -197,7 +205,7 @@ T FunNystromPP_v2<T>::call(
 
     if (f_zero.has_value() && !std::isfinite(*f_zero))
         throw std::invalid_argument(
-            "FunNystromPP_v2::call: f_zero must be finite when provided");
+            "FunNystromPP::call: f_zero must be finite when provided");
 
     // Phase 1.
     auto t_p1_start = std::chrono::steady_clock::now();
@@ -252,7 +260,10 @@ T FunNystromPP_v2<T>::call(
 
         // Step b: fAOmega ← f(A) · Ω₂  (m × s, caller-supplied oracle)
         util::upsize(this->fAOmega, this->fAOmega_sz, m * s);
+        auto t_fafun_start = std::chrono::steady_clock::now();
         fAfun(m, s, Omega2, this->fAOmega);
+        this->t_fafun_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t_fafun_start).count();
 
         // Step c: tr_AΩ ← tr(Ω₂ᵀ · fAOmega) = Σⱼ ⟨Ω₂[:,j], fAOmega[:,j]⟩.
         T tr_AOmega = (T)0;
@@ -296,7 +307,7 @@ template <typename T>
 template <linops::SymmetricLinearOperator SLO,
           RandBLAS::SketchingOperator SkOp,
           typename FAFun, typename FScalar>
-T FunNystromPP_v2<T>::call(
+T FunNystromPP<T>::call(
     SLO &A_op,
     FAFun &&fAfun,
     FScalar &&fscalar,
@@ -312,7 +323,7 @@ T FunNystromPP_v2<T>::call(
     int64_t m = A_op.dim;
     if (q < 2) {
         throw std::invalid_argument(
-            "FunNystromPP_v2::call (SkOp overload): q must be >= 2. "
+            "FunNystromPP::call (SkOp overload): q must be >= 2. "
             "For q == 1, densify the sketch caller-side and call the "
             "dense Omega1 overload.");
     }

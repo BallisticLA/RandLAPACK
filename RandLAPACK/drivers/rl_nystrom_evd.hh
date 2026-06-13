@@ -18,13 +18,13 @@ namespace RandLAPACK {
 // --- Phase 1: free-standing NystromEVD ------------------------------------
 //
 // Reference-aligned sketched Nyström spectral recovery. Used by
-// `FunNystromPP_v2` in `rl_fun_nystrom_pp_v2.hh`.
+// `FunNystromPP` in `rl_fun_nystrom_pp.hh`.
 
 // Heap-owned workspace for `NystromEVD`. Buffers grow on demand via
 // `util::upsize`; existing contents are not preserved across calls
 // (each call re-fills what it reads). The struct is deliberately a
 // plain pointer-bag rather than `std::vector`-of-`T` so that callers
-// (FunNystromPP_v2) can keep it alive across many `call()` invocations
+// (FunNystromPP) can keep it alive across many `call()` invocations
 // at amortised allocation cost.
 template <typename T>
 struct NystromEVD_workspace {
@@ -77,7 +77,7 @@ struct NystromEVD_workspace {
 /// Outputs `U_out` (m × k, column-major) and `lambda_out` (length k,
 /// descending) as raw heap buffers managed via `util::upsize`. The
 /// caller owns the buffers and is responsible for `delete[]`-ing them
-/// (FunNystromPP_v2 holds them as class members and frees in its dtor).
+/// (FunNystromPP holds them as class members and frees in its dtor).
 template <typename T, linops::SymmetricLinearOperator SLO>
 void NystromEVD(
     SLO &A_op,

@@ -4,15 +4,15 @@
 // production Phase 2 setup (block LFA at d=200) for cross-validation.
 //
 // Loads A.bin, Omega1.bin, Omega2.bin (column-major doubles, format per
-// RandLAPACK::util::save_dense_bin / matlab `save_dense_bin.m`). Runs the
-// v2 driver end-to-end with the requested Phase-2 oracle.
+// RandLAPACK::testing::save_dense_bin / matlab `save_dense_bin.m`). Runs the
+// driver end-to-end with the requested Phase-2 oracle.
 //
 // Usage:
-//   FunNystromPP_v2_benchmark A.bin Omega1.bin Omega2.bin func q [poly_lambda] [lfa_type] [d] [sketch_type] [vec_nnz] [seed] [timing] [force_fallback]
+//   FunNystromPP_benchmark A.bin Omega1.bin Omega2.bin func q [poly_lambda] [lfa_type] [d] [sketch_type] [vec_nnz] [seed] [timing] [force_fallback]
 //
-//   func           sqrt | log | poly | square | identity   (scalar f)
+//   func           sqrt | log | poly | effdim | square | identity   (scalar f)
 //   q              subspace-iteration count (e.g. 2)
-//   poly_lambda    λ in f(x) = x(x + λ) when func=poly (default 10)
+//   poly_lambda    λ in f(x) = x(x + λ) (func=poly) or x/(x + λ) (func=effdim); default 10
 //   lfa_type       exact | scalar | block        (default exact)
 //                    exact: dense V·diag(f(λ))·Vᵀ via syevd
 //                    scalar: per-column scalar Lanczos-FA at depth d
@@ -58,7 +58,7 @@ static void print_usage(const char *prog) {
     std::fprintf(stderr,
         "Usage: %s A.bin Omega1.bin Omega2.bin func q "
         "[poly_lambda] [lfa_type] [d] [sketch_type] [vec_nnz] [seed] [timing] [force_fallback]\n"
-        "  func           sqrt | log | poly | square | identity\n"
+        "  func           sqrt | log | poly | effdim | square | identity\n"
         "  q              subspace-iter count (e.g. 2)\n"
         "  poly_lambda    λ in x(x+λ) when func=poly (default 10)\n"
         "  lfa_type       exact | scalar | block  (default exact)\n"
@@ -92,15 +92,14 @@ int main(int argc, char **argv) {
 
     int64_t n_A = 0, n2_A = 0, n_O1 = 0, k = 0, n_O2 = 0, s = 0;
 
-    constexpr int64_t CAP = (int64_t)1 << 26;   // 64M doubles per buffer ≈ 512 MB total
-    std::vector<T> A_buf(CAP), O1_buf(CAP), O2_buf(CAP);
-
+    // Size each buffer from its file header (no fixed over-allocation): peek
+    // the (rows, cols) header first, validate, then allocate exactly and load.
     try {
-        RandLAPACK::util::load_dense_bin<T>(A_path,  n_A,  n2_A, A_buf.data(),  CAP);
-        RandLAPACK::util::load_dense_bin<T>(O1_path, n_O1, k,    O1_buf.data(), CAP);
-        RandLAPACK::util::load_dense_bin<T>(O2_path, n_O2, s,    O2_buf.data(), CAP);
+        RandLAPACK::testing::peek_dense_bin_dims(A_path,  n_A,  n2_A);
+        RandLAPACK::testing::peek_dense_bin_dims(O1_path, n_O1, k);
+        RandLAPACK::testing::peek_dense_bin_dims(O2_path, n_O2, s);
     } catch (const std::exception &e) {
-        std::fprintf(stderr, "load error: %s\n", e.what());
+        std::fprintf(stderr, "header read error: %s\n", e.what());
         return 2;
     }
     if (n_A != n2_A || n_O1 != n_A || n_O2 != n_A) {
@@ -109,15 +108,22 @@ int main(int argc, char **argv) {
         return 3;
     }
     const int64_t n = n_A;
-    A_buf.resize(n * n);
-    O1_buf.resize(n * k);
-    O2_buf.resize(n * s);
+
+    std::vector<T> A_buf((size_t)n * n), O1_buf((size_t)n * k), O2_buf((size_t)n * s);
+    try {
+        RandLAPACK::testing::load_dense_bin<T>(A_path,  n_A,  n2_A, A_buf.data(),  (int64_t)A_buf.size());
+        RandLAPACK::testing::load_dense_bin<T>(O1_path, n_O1, k,    O1_buf.data(), (int64_t)O1_buf.size());
+        RandLAPACK::testing::load_dense_bin<T>(O2_path, n_O2, s,    O2_buf.data(), (int64_t)O2_buf.size());
+    } catch (const std::exception &e) {
+        std::fprintf(stderr, "load error: %s\n", e.what());
+        return 2;
+    }
 
     // Phase 6 + Gap 5: SASO sketch handling is now driver-resident. This
     // block only handles benchmark-side bookkeeping:
     //   - For SASO + q >= 2: symmetrize A in place (right_spmm doesn't
     //     exploit symmetry); the SparseSkOp itself is sampled and passed
-    //     directly to the FunNystromPP_v2::call SkOp overload at the
+    //     directly to the FunNystromPP::call SkOp overload at the
     //     dispatch site below.
     //   - For SASO + q == 1: densify the sketch into O1_buf and fall back
     //     to the dense overload (v2 always does an initial QR + final
@@ -153,6 +159,7 @@ int main(int argc, char **argv) {
     if      (fstr == "sqrt")     fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
     else if (fstr == "log")      fscalar = [](T x) { return std::log(x); };
     else if (fstr == "poly")     fscalar = [poly_lambda](T x) { return x * (x + poly_lambda); };
+    else if (fstr == "effdim")   fscalar = [poly_lambda](T x) { return x / (x + poly_lambda); };
     else if (fstr == "square")   fscalar = [](T x) { return x * x; };
     else if (fstr == "identity") fscalar = [](T x) { return x; };
     else { std::fprintf(stderr, "unknown func '%s'\n", fstr.c_str()); return 4; }
@@ -186,21 +193,13 @@ int main(int argc, char **argv) {
     RandLAPACK::BlockLanczosFA<T> block_lfa;
 
     if (lfa_str == "exact") {
-        // V·diag(f(λ))·Vᵀ via the same eigendecomp we already computed.
+        // V·diag(f(λ))·Vᵀ via the eigendecomp we already computed for true_tr.
+        // Shared with the test + MEX through RandLAPACK::testing.
         std::vector<T> V = std::move(A_cpy);
         std::vector<T> f_lambda(n);
         for (int64_t i = 0; i < n; ++i) f_lambda[i] = fscalar(ev[i]);
-        fAfun = [n, V = std::move(V), f_lambda = std::move(f_lambda)]
-                (int64_t m_, int64_t s_, const T *B, T *Y) {
-            std::vector<T> tmp1((int64_t)n * s_);
-            blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-                       n, s_, m_, (T)1, V.data(), n, B, m_, (T)0, tmp1.data(), n);
-            for (int64_t j = 0; j < s_; ++j)
-                for (int64_t i = 0; i < n; ++i)
-                    tmp1[i + j * n] *= f_lambda[i];
-            blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-                       m_, s_, n, (T)1, V.data(), m_, tmp1.data(), n, (T)0, Y, m_);
-        };
+        fAfun = RandLAPACK::testing::make_exact_fa_oracle_from_eig<T>(
+                    n, std::move(V), std::move(f_lambda));
     } else if (lfa_str == "scalar") {
         // Capture references by stable handle. fscalar / A_op live for the
         // remainder of main, so capturing by reference is safe.
@@ -216,7 +215,7 @@ int main(int argc, char **argv) {
         return 5;
     }
 
-    RandLAPACK::FunNystromPP_v2<T> driver;
+    RandLAPACK::FunNystromPP<T> driver;
     driver.force_fallback = force_fallback;
     T t1 = 0, t2 = 0;
     auto t_start = std::chrono::steady_clock::now();
