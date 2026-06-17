@@ -1184,26 +1184,22 @@ static int run_irlsq_reg(
     rl::CompositeOperator KV_Pp(m, n, K_op_Pp, V_op_Pp); KV_Pp.block_size = block_size;
     rl::CompositeOperator J_Pp(m, n, L_inv_Pp, KV_Pp);   J_Pp.block_size = block_size;
 
-    // ||A||_2 and ||b||: needed both for mu (below) and the Higham metric (later).
+    // ||A||_2 and ||b|| for the Higham backward-error metric.
     T_solve A_2norm = estimate_op_2norm<T_solve>(J_Ts, m, n, 10);
     T_solve b_norm  = blas::nrm2(m, b.data(), 1);
     std::cout << "||A||_2 ~ " << A_2norm << ", ||b|| = " << b_norm << "\n";
 
-    // Regularization scaled like the shifted-CholeskyQR shift (Fukaya et al.):
-    //   mu = mu_factor * ||A||_2 * sqrt((mn + n^2) * u(precond)),
-    // so mu^2 is the Fukaya shift (~ ||A||^2 * u * mn) that keeps A^T A + mu^2 I
-    // numerically PD for kappa(A) up to ~1/u. mu_factor ~ sqrt(11) ~ 3.3 is the
-    // textbook shift; the collaborator's "mu = 10u" (no ||A||/size scaling) is
-    // ~mn times too small past kappa ~ 1/sqrt(u) -- lower mu_factor to reproduce
-    // that under-regularized regime deliberately.
-    const double u_P     = (double)unit_roundoff<P_precond>();
-    const double mu_base = std::sqrt(((double)m * (double)n + (double)n * (double)n) * u_P);
-    const P_precond mu_P = (P_precond)(mu_factor * (double)A_2norm * mu_base);
+    // Regularization per the collaborator's spec: mu = mu_factor * u(precond),
+    // with mu_factor = 10 giving mu = 10u (u = unit roundoff of the precond
+    // precision). NO ||A|| or size scaling -- the augmented operator is exactly
+    // A_hat = [A; mu*I], Q-less CholeskyQR of which gives R = chol(A^T A + mu^2 I),
+    // used as a right preconditioner for the LS problem in A.
+    const P_precond mu_P = (P_precond)(mu_factor * (double)unit_roundoff<P_precond>());
     rl::ScaledIdentityOp<P_precond> reg_op(n, mu_P);
     rl::VStackOp<decltype(J_Pp), rl::ScaledIdentityOp<P_precond>> A_hat_Pp(J_Pp, reg_op);
     A_hat_Pp.block_size = block_size;   // caps the blocked-sketch slice width (CQRRT)
     std::cout << "Augmented operator A_hat = [J; mu*I], mu=" << (double)mu_P
-              << " (= " << mu_factor << " * ||A||_2 * sqrt((mn+n^2)*u(" << precond_prec_str << ")))\n\n";
+              << " (= " << mu_factor << " * u(" << precond_prec_str << "))\n\n";
 
     const P_precond tol_P = std::pow(std::numeric_limits<P_precond>::epsilon(), (P_precond)0.85);
     const T_solve   tol_T = std::pow(std::numeric_limits<T_solve>::epsilon(), (T_solve)0.85);
