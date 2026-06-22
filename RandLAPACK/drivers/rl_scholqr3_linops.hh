@@ -53,13 +53,23 @@ class sCholQR3_linops {
 
         int64_t block_size;
 
-        // Adaptive-shift policy (see cholqr_primitive).
-        // Unlike CholQR/CholQR2 (unshifted first attempt), sCholQR3 applies the
-        // eps*||A||^2 shift on iter 1 right away. Lowered from the original
-        // `11 * eps * n` to plain `eps` per Oleg: the smaller initial shift avoids
-        // the iter-2 collapse where shift ≫ σ_min²(A) makes G_2 effectively
-        // rank-deficient. The retry loop bumps shift × 10 if potrf still bails,
-        // unboundedly (max_retries = -1) until the Gram is PD.
+        // Adaptive-shift policy (see cholqr_primitive). Shift s = factor * trace(G).
+        //
+        // iter 1: shifted (shift_factor_iter1 = eps). Lowered from the original
+        //   `11 * eps * n` to plain `eps` per Oleg: the smaller initial shift avoids
+        //   the iter-2 collapse where shift ≫ σ_min²(A) makes G_2 rank-deficient.
+        //
+        // iters 2-3: UNSHIFTED (shift_factor_iter23 = 0). This is the defining
+        //   feature of Fukaya shifted-CholeskyQR3 — the refinement passes are plain
+        //   CholeskyQR2, which is what drives orthogonality down to machine level.
+        //   A persistent eps shift on these passes (the old setting) never gets
+        //   removed: it floors orth at ~2n*eps (≈1.8e-12 in double) and, in single,
+        //   over-regularizes R into a useless preconditioner (CG stalls, 100s of
+        //   inner iters). The adaptive retry below still shifts a refinement pass
+        //   *only* if its potrf genuinely fails.
+        //
+        // The retry loop bumps shift × 10 if potrf bails, unboundedly
+        // (max_retries = -1) until the Gram is PD.
         T   shift_factor_iter1;
         T   shift_factor_iter23;
         int max_retries;
@@ -77,8 +87,8 @@ class sCholQR3_linops {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
-            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*||A||^2 shift right away
-            shift_factor_iter23 = std::numeric_limits<T>::epsilon();
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*trace(G) shift on iter 1
+            shift_factor_iter23 = T(0);   // iters 2-3 unshifted (Fukaya); retry covers genuine non-PD
             max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
             shift_growth        = T(10);
         }
@@ -193,8 +203,8 @@ class sCholQR3_linops_basic {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
-            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*||A||^2 shift right away
-            shift_factor_iter23 = std::numeric_limits<T>::epsilon();
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*trace(G) shift on iter 1
+            shift_factor_iter23 = T(0);   // iters 2-3 unshifted (Fukaya); retry covers genuine non-PD
             max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
             shift_growth        = T(10);
         }
