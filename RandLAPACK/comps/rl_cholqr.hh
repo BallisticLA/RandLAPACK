@@ -263,6 +263,15 @@ int cholqr_primitive(
                 if (method == PCholQRPrecondMethod::GEQP3) {
                     lapack::geqp3(n, n, P_copy, n, jpiv, tau_qr);
                 } else {
+                #if defined(__APPLE__)
+                    // BQRRP cannot link against Apple Accelerate (see rl_bqrrp.hh; the
+                    // sibling rl_cqrrpt.hh / rl_hqrrp.hh guard it the same way). Even
+                    // instantiating RandLAPACK::BQRRP<T, RNG> drags in unsupported paths,
+                    // so on macOS fall back to GEQP3, which produces the same column-
+                    // pivoted QR the code below consumes. (void) the BQRRP-only knob.
+                    (void)bqrrp_block_ratio; (void)state;
+                    lapack::geqp3(n, n, P_copy, n, jpiv, tau_qr);
+                #else
                     if (state == nullptr) {
                         std::fprintf(stderr, "[cholqr_primitive] FAIL: BQRRP called with state=nullptr\n");
                         delete[] P_copy; delete[] jpiv; delete[] tau_qr;
@@ -277,6 +286,7 @@ int cholqr_primitive(
                     int64_t bqrrp_b = std::max(int64_t(1), (int64_t)(n * ratio));
                     RandLAPACK::BQRRP<T, RNG> bqrrp(false, bqrrp_b);
                     bqrrp.call(n, n, P_copy, n, T(1), tau_qr, jpiv, *state);
+                #endif
                 }
 
                 // After QRCP, P_copy holds R_tri (upper) + Householder vectors (lower).
