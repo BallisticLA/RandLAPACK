@@ -240,6 +240,15 @@ class CQRRT_linops {
         T bqrrp_block_ratio;
         int64_t block_size;
 
+        // Adaptive-shift safety net (Oleg's prescription; same as CholQR/CholQR2):
+        // the preconditioned Gram Cholesky's first attempt is always unshifted; only
+        // if potrf breaks down does the primitive seed the shift at eps*trace(G) and
+        // grow it x shift_growth. max_retries < 0 = unbounded — retry until PD. This
+        // lets CQRRT survive an ill-conditioned (e.g. single-precision) Gram instead
+        // of failing outright, matching the CholQR family.
+        int max_retries;
+        T   shift_growth;
+
         CQRRT_linops(
             bool time_subroutines,
             T ep,
@@ -252,6 +261,8 @@ class CQRRT_linops {
             block_size = 0;
             precond_method = PCholQRPrecondMethod::TRSM_IDENTITY;
             bqrrp_block_ratio = (T)1.0;
+            max_retries  = -1;       // unbounded retries (no ceiling), as CholQR/CholQR2
+            shift_growth = T(10);
             test_mode = enable_test_mode;
             Q = nullptr;
             Q_rows = 0;
@@ -330,7 +341,8 @@ class CQRRT_linops {
                 R_pre, G, A_temp, Z_buf,
                 &state,
                 precond_inv_dur, fwd_dur, adj_dur, gemm_dur, chol_dur, finalize_dur,
-                this->timing);
+                this->timing,
+                /*shift_factor=*/T(0), this->max_retries, this->shift_growth);
             if (info != 0) {
                 delete[] A_hat; delete[] tau; delete[] P; delete[] R_pre;
                 delete[] G; delete[] A_temp; delete[] Z_buf;
