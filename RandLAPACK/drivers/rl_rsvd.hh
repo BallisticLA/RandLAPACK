@@ -58,8 +58,10 @@ class RSVD : public RSVDalg<T, RNG> {
         /// @param[in] n
         ///     The number of columns in the matrix A.
         ///
-        /// @param[in] A
-        ///     The m-by-n matrix A, stored in a column-major format.
+        /// @param[in,out] A
+        ///     On entry, the m-by-n matrix A, stored in a column-major format.
+        ///     On exit, A is overwritten: the underlying QB factorization deflates
+        ///     A in place. Callers that need the original A must pass a copy.
         ///
         /// @param[in] k
         ///     Expected rank of the matrix A. If unknown, set k=min(m,n).
@@ -171,7 +173,7 @@ int RSVD<T, RNG>::call(
 
 // -----------------------------------------------------------------------------
 // LinOp-templated RSVD: accepts any LinearOperator.
-// The base operator is never modified — deflation is handled implicitly
+// The base operator is never modified: deflation is handled implicitly
 // by DowndatableLinOp inside QB.
 template <typename T, typename RNG>
 template <linops::LinearOperator LinOp>

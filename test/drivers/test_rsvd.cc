@@ -224,7 +224,7 @@ TEST_F(TestRSVD, LinOpDense) {
     double* A_copy = new double[m * n];
     lapack::lacpy(MatrixType::General, m, n, A, m, A_copy, m);
 
-    // --- Run 1: Raw-pointer RSVD ---
+    // Run 1: Raw-pointer RSVD
     auto state1 = RandBLAS::RNGState();
     auto all_algs1 = new algorithm_objects<double, r123::Philox4x32>(false, false, false, p, passes_per_iteration, block_sz);
     int64_t k1 = k;
@@ -245,7 +245,7 @@ TEST_F(TestRSVD, LinOpDense) {
     double norm_A = lapack::lange(Norm::Fro, m, n, A, m);
     printf("Raw-pointer RSVD: ||A - USV^T||_F / ||A||_F = %e, k=%ld\n", err_raw / norm_A, k1);
 
-    // --- Run 2: LinOp RSVD ---
+    // Run 2: LinOp RSVD
     auto state2 = RandBLAS::RNGState();
     auto all_algs2 = new algorithm_objects<double, r123::Philox4x32>(false, false, false, p, passes_per_iteration, block_sz);
     int64_t k2 = k;

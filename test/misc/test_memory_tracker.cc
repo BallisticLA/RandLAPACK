@@ -40,7 +40,7 @@ TEST_F(TestMemoryTracker, PeakRSSDetectsAllocation) {
 
     long increase = tracker.stop();
 
-    // Free AFTER stop — the peak was captured while the buffer was live.
+    // Free AFTER stop: the peak was captured while the buffer was live.
     free(buf);
 
     // Allow generous bounds: at least 50% of the allocation should be
@@ -61,7 +61,7 @@ TEST_F(TestMemoryTracker, NoAllocationReportsSmall) {
     RandLAPACK::PeakRSSTracker tracker;
     tracker.start();
 
-    // Do trivial work — no large allocations.
+    // Do trivial work, no large allocations.
     volatile int x = 0;
     for (int i = 0; i < 1000; ++i)
         x += i;

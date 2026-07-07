@@ -1,11 +1,11 @@
 /*
-Benchmark matrix loader — auto-detects file format from extension:
+Benchmark matrix loader: auto-detects file format from extension:
   .mtx  → Matrix Market (dense array or sparse coordinate) via fast_matrix_market
   .txt  → Whitespace-delimited text (dense, row-major) via rl_matrix_io.hh
 
 Dense input: provides a T* buffer (column-major).
 Sparse input: provides CSC data for SparseLinOp + Eigen::SparseMatrix for Spectra.
-No materialization — all algorithms use native representations.
+No materialization: all algorithms use native representations.
 */
 
 #ifndef BENCH_MATRIX_IO_HH
@@ -97,9 +97,12 @@ LoadedMatrix<T> load_matrix(const std::string& path, double sub_ratio = 1.0) {
 
             int64_t nnz = (int64_t) vals.size();
 
-            // Build RandBLAS CSC (for SparseLinOp)
+            // Build RandBLAS CSC (for SparseLinOp).
+            // COOMatrix::reserve requires nnz > 0, so guard against an empty
+            // matrix (e.g. a sub_ratio filter that dropped every nonzero).
             RandBLAS::sparse_data::COOMatrix<T> coo(result.m, result.n);
-            coo.reserve(nnz);
+            if (nnz > 0)
+                coo.reserve(nnz);
             for (int64_t i = 0; i < nnz; ++i) {
                 coo.rows[i] = rows[i];
                 coo.cols[i] = cols[i];

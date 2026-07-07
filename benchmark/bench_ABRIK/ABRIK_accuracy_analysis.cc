@@ -9,7 +9,7 @@ triplets against GESDD's (essentially exact) triplets.
 
 Four metrics are computed for each singular triplet i = 1, ..., k:
 
-1. res_err_abrik — Per-triplet SVD residual for ABRIK.
+1. res_err_abrik: Per-triplet SVD residual for ABRIK.
    Formula: sqrt(||E_left_i||^2 + ||E_right_i||^2)
    where    E_left_i  = sigma_i^{-1} A v_i - u_i      (the "left residual")
             E_right_i = v_i - A^T u_i sigma_i^{-1}     (the "right residual")
@@ -23,17 +23,17 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
    in some prior work (e.g., Rob/Hartwig's paper), which CANNOT be driven to machine
    precision in general because the scaling by Sigma amplifies errors in later triplets.
 
-2. res_err_gesdd — Same formula as (1) but using GESDD's factors.
+2. res_err_gesdd: Same formula as (1) but using GESDD's factors.
    This serves as a baseline: GESDD computes the SVD to backward-stable accuracy,
    so this line should sit at O(eps) ≈ 1e-15 for all triplets, confirming the metric
    and matrix are behaving correctly.
 
-3. sval_diff — Relative singular value difference.
+3. sval_diff: Relative singular value difference.
    Formula: |sigma_abrik_i - sigma_gesdd_i| / sigma_gesdd_1
    Normalized by the largest singular value (sigma_gesdd_1) so the metric is
    scale-invariant and directly interpretable as relative accuracy.
 
-4. svec_diff — Singular vector angular difference via QR-based sin(angle).
+4. svec_diff: Singular vector angular difference via QR-based sin(angle).
    Formula: sqrt((sin^2(angle(u_g, u_a)) + sin^2(angle(v_g, v_a))) / 2)
 
    The sin(angle) between two unit vectors x1, x2 is computed as |R(2,2)| from

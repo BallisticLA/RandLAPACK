@@ -104,7 +104,7 @@ void read_txt_matrix(
 ///   m*n doubles             (row-major: row 0 col 0..n-1, row 1 col 0..n-1, ...)
 ///
 /// Output is stored column-major: A[row + m * col], matching LAPACK convention.
-/// Data is fread in one call then scattered with OpenMP — faster than strtod.
+/// Data is fread in one call then scattered with OpenMP, faster than strtod.
 ///
 /// Two-phase API matches read_txt_matrix:
 ///   Phase 1 (query=true):  fills m, n; A may be nullptr.

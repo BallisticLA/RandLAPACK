@@ -137,7 +137,12 @@ int RF<T, RNG>::call(
 }
 
 // -----------------------------------------------------------------------------
-// LinOp-templated RF: identical logic but uses A_op(...) instead of blas::gemm.
+// LinOp-templated RF: mirrors RF::call above, but drives an abstract linear
+// operator via A_op(...) instead of an explicit blas::gemm on a dense A.
+// KEEP IN SYNC with RF::call: any algorithmic or numerical change to one path
+// must be mirrored in the other. The two paths are deliberately not merged
+// because the dense QB::call deflates A in place, whereas the LinOp path defers
+// deflation to a DowndatableLinOp and never mutates the base operator.
 template <typename T, typename RNG, linops::LinearOperator LinOp>
 int rf_linop(
     RF<T, RNG>& rf_obj,
@@ -151,7 +156,7 @@ int rf_linop(
 
     T* Omega = new T[n * k]();
 
-    // Use the RS LinOp path — cast rs to concrete RS type
+    // Use the RS LinOp path: cast rs to concrete RS type
     auto& rs_concrete = static_cast<RS<T, RNG>&>(rf_obj.rs);
     if (rs_linop(rs_concrete, A_op, k, Omega, state)) {
         delete[] Omega;

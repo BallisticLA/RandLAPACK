@@ -1,6 +1,6 @@
 #pragma once
 
-// Public API: DowndatableLinOp — a linear operator that implicitly represents
+// Public API: DowndatableLinOp, a linear operator that implicitly represents
 // A - Q * BT^T, where Q and BT accumulate columns across QB iterations.
 //
 // This enables linop-based QB/RSVD: QB calls operator() for all matmuls
@@ -39,7 +39,7 @@ struct DowndatableLinOp {
     int64_t max_rank;
 
     // Scratch buffer for intermediate products (reused across calls).
-    // Size: max(m, n) * max_rank — allocated lazily on first matmul.
+    // Size: max(m, n) * max_rank, allocated lazily on first matmul.
     T* scratch;
 
     DowndatableLinOp(BaseLinOp& base, int64_t max_rank)
@@ -48,15 +48,15 @@ struct DowndatableLinOp {
     {
         int64_t m = base.n_rows;
         int64_t n = base.n_cols;
-        Q_data  = (T*) calloc(m * max_rank, sizeof(T));
-        BT_data = (T*) calloc(n * max_rank, sizeof(T));
-        scratch = (T*) calloc(std::max(m, n) * max_rank, sizeof(T));
+        Q_data  = new T[m * max_rank]();
+        BT_data = new T[n * max_rank]();
+        scratch = new T[std::max(m, n) * max_rank]();
     }
 
     ~DowndatableLinOp() {
-        free(Q_data);
-        free(BT_data);
-        free(scratch);
+        delete[] Q_data;
+        delete[] BT_data;
+        delete[] scratch;
     }
 
     // Append b_sz new columns to Q and BT (one QB iteration's worth).

@@ -18,10 +18,10 @@ using namespace std::chrono;
 namespace RandLAPACK {
 
     /// ABRIK algorithm is a method for finding truncated SVD based on block Krylov iterations.
-    /// This algorithm is a version of Algroithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
+    /// This algorithm is a version of Algorithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
     ///
     /// The main difference is in the fact that an economy SVD is performed only once at the very end
-    /// of the algorithm run and that the termination criteria is not based on singular vectir residual evaluation.
+    /// of the algorithm run and that the termination criterion is not based on singular vector residual evaluation.
     /// Instead, the scheme terminates if:
     ///     1. ||R||_F > sqrt(1 - eps^2) ||A||_F, which ensures that we've exhausted all vectors and doing more
     ///        iterations would bring no benefit or that ||A - hat(A)||_F < eps * ||A||_F.
@@ -223,14 +223,16 @@ class ABRIK {
                     if(this -> timing)
                         allocation_t_start = steady_clock::now();
 
-                    // Internal SVD workspace — freed in this function.
+                    // Internal SVD workspace: freed in this function.
                     U_hat  = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
                     VT_hat = ( T * ) malloc( end_cols * end_cols * sizeof( T ) );
 
-                    // Output arrays — ownership transfers to caller (use delete[]).
-                    Sigma = new T[std::min(end_cols, end_rows)]();
-                    U     = new T[m * end_cols]();
-                    V     = new T[n * end_cols]();
+                    // Output arrays: ownership transfers to caller (use delete[]).
+                    // No value-initialization: Sigma is fully written by gesdd and U, V are
+                    // fully written by the beta=0 reconstruction GEMMs below.
+                    Sigma = new T[std::min(end_cols, end_rows)];
+                    U     = new T[m * end_cols];
+                    V     = new T[n * end_cols];
 
                     if(this -> timing) {
                         allocation_t_stop = steady_clock::now();
@@ -276,7 +278,7 @@ class ABRIK {
 
                     if (!this->adaptive) break;
 
-                    // --- Adaptive residual check ---
+                    // Adaptive residual check
                     T residual = linops::svd_residual<T>(A, U, V, Sigma, end_cols);
 
                     if (residual <= this->tol) {
@@ -474,9 +476,10 @@ class ABRIK {
 
                 T* U_hat  = (T*) malloc(end_rows * end_cols * sizeof(T));
                 T* VT_hat = (T*) malloc(end_cols * end_cols * sizeof(T));
-                T* Sigma  = new T[std::min(end_rows, end_cols)]();
-                T* U      = new T[m * end_cols]();
-                T* V      = new T[n * end_cols]();
+                // Fully overwritten below (gesdd + beta=0 GEMMs), so no value-init.
+                T* Sigma  = new T[std::min(end_rows, end_cols)];
+                T* U      = new T[m * end_cols];
+                T* V      = new T[n * end_cols];
 
                 lapack::gesdd(Job::SomeVec, end_rows, end_cols, band, end_rows,
                               Sigma, U_hat, end_rows, VT_hat, end_cols);
@@ -490,7 +493,7 @@ class ABRIK {
 
                 elapsed_us += duration_cast<microseconds>(steady_clock::now() - t1).count();
 
-                // Residual check — NOT included in elapsed_us.
+                // Residual check, NOT included in elapsed_us.
                 int64_t k_out = std::min(target_rank, end_cols);
                 T residual = linops::svd_residual<T>(A, U, V, Sigma, k_out);
 

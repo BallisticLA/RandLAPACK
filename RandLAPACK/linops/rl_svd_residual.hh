@@ -2,6 +2,9 @@
 
 #include "rl_linops.hh"
 
+#include <cmath>
+#include <limits>
+
 namespace RandLAPACK::linops {
 
 /// Computes the SVD residual:
@@ -9,6 +12,13 @@ namespace RandLAPACK::linops {
 /// U is m x k (col-major, ld m), V is n x k (col-major, ld n), Sigma is length k.
 template <typename T, LinearOperator GLO>
 T svd_residual(GLO& A, T* U, T* V, T* Sigma, int64_t k) {
+    // No triplets to measure, or the smallest included singular value is
+    // (numerically) zero: the normalized residual is undefined. Report an
+    // infinite residual so the caller's adaptive loop treats it as "not
+    // converged" rather than dividing by zero or indexing Sigma[-1].
+    if (k < 1 || Sigma[k - 1] <= T(0))
+        return std::numeric_limits<T>::infinity();
+
     int64_t m = A.n_rows;
     int64_t n = A.n_cols;
 

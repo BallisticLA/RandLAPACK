@@ -1,5 +1,5 @@
 /*
-Unified ABRIK speed comparison benchmark — budgeted checkpointing mode.
+Unified ABRIK speed comparison benchmark: budgeted checkpointing mode.
 
 Reads input from .mtx (Matrix Market) or .txt/.bin (dense) files.
 Runs ABRIK (4 block sizes), Spectra, and RSVD (largest block size).
@@ -51,34 +51,6 @@ Usage:
 #include <Eigen/SparseCore>
 #include <Spectra/contrib/PartialSVDSolver.h>
 #include "ext_budgeted_svd_solver.hh"
-
-#include <execinfo.h>
-#include <exception>
-#include <unistd.h>
-
-static void abrik_terminate_handler() {
-    void* trace[64];
-    int n = backtrace(trace, 64);
-
-    fprintf(stderr, "\n=== UNCAUGHT EXCEPTION -- TERMINATE ===\n");
-    auto eptr = std::current_exception();
-    if (eptr) {
-        try { std::rethrow_exception(eptr); }
-        catch (const std::exception& e) {
-            fprintf(stderr, "what(): %s\n", e.what());
-        }
-        catch (...) {
-            fprintf(stderr, "(non-std::exception)\n");
-        }
-    }
-
-    fprintf(stderr, "Backtrace (%d frames):\n", n);
-    backtrace_symbols_fd(trace, n, STDERR_FILENO);
-    fprintf(stderr, "Tip: c++filt for names, addr2line -e <binary> <addr> for source:line\n");
-    fflush(stderr);
-
-    std::abort();
-}
 
 // Eigen type traits
 template <typename T> struct EigenTypes;
@@ -202,7 +174,7 @@ static void run_with_budget(
         // Distinct RNG seed per run so the random draws differ between runs.
         auto state_run = RandBLAS::RNGState<RNG>(static_cast<uint32_t>(run));
 
-        // ---- ABRIK: one call_with_checkpoints per block size ----
+        // ABRIK: one call_with_checkpoints per block size
         for (auto b_sz : block_sizes) {
             printf("\n=== ABRIK b=%ld (run %d) ===\n", b_sz, run);
             // Krylov iteration counts for this block size: all checkpoints reachable in >= 1 iter
@@ -221,7 +193,7 @@ static void run_with_budget(
                 }, state_alg);
         }
 
-        // ---- Spectra: one independent call per checkpoint budget ----
+        // Spectra: one independent call per checkpoint budget
         printf("\n=== Spectra (run %d) ===\n", run);
         for (auto budget_mv : checkpoint_matvecs) {
             long dur_svds = 0;
@@ -231,7 +203,7 @@ static void run_with_budget(
             printf("  mv=%ld  err=%e  t=%ld us\n", budget_mv, err_svds, dur_svds);
         }
 
-        // ---- RSVD: one independent call per checkpoint budget, largest block size ----
+        // RSVD: one independent call per checkpoint budget, largest block size
         printf("\n=== RSVD b=%ld (run %d) ===\n", max_b, run);
         algs.RSVD.block_sz = max_b;
         for (auto budget_mv : checkpoint_matvecs) {
@@ -249,7 +221,7 @@ static void run_with_budget(
             printf("  mv=%ld  k_r=%ld  err=%e  t=%ld us\n", budget_mv, k_r, err_rsvd, dur_rsvd);
         }
 
-        // ---- GESDD: dense only, once (deterministic; report under run=0) ----
+        // GESDD: dense only, once (deterministic; report under run=0)
         if (run == 0 && run_gesdd && A_dense_buf) {
             printf("\n=== GESDD ===\n");
             T* A_svd = new T[m * n];
@@ -381,8 +353,6 @@ static void run_benchmark(int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
-    std::set_terminate(abrik_terminate_handler);
-
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0]
                   << " <precision: double|float> <output_dir> <input_file>"

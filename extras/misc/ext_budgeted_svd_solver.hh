@@ -1,5 +1,5 @@
 /*
-BudgetedSVDSolver — a wrapper around Spectra's PartialSVDSolver that exposes
+BudgetedSVDSolver: a wrapper around Spectra's PartialSVDSolver that exposes
 a "max_restarts" parameter and returns ALL Ritz approximations (not just
 converged ones).
 
@@ -206,8 +206,10 @@ inline int64_t effective_ncv(int64_t budget, int64_t nev, int64_t ncv_default)
 inline int64_t budget_to_restarts(int64_t budget, int64_t nev, int64_t ncv)
 {
     int64_t ata_ops = budget / 2;  // A'A operations from matvec budget
-    if (ata_ops <= ncv)
-        return 0;  // not enough budget for even one restart — just initial factorization
+    // Guard the divisor: Spectra requires ncv > nev, but a degenerate ncv would
+    // otherwise divide by zero (or negative) here.
+    if (ata_ops <= ncv || ncv <= nev)
+        return 0;  // not enough budget for even one restart, just the initial factorization
     return (ata_ops - ncv) / (ncv - nev);
 }
 

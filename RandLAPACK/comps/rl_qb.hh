@@ -81,8 +81,11 @@ class QB : public QBalg<T, RNG> {
         /// @param[in] n
         ///     The number of columns in the matrix A.
         ///
-        /// @param[in] A
-        ///     The m-by-n matrix A, stored in a column-major format.
+        /// @param[in,out] A
+        ///     On entry, the m-by-n matrix A, stored in a column-major format.
+        ///     On exit, A is overwritten: this routine deflates A in place
+        ///     (A := A - Q_i * B_i^T at each iteration) instead of copying it.
+        ///     Callers that need the original A must pass a copy.
         ///
         /// @param[in] k
         ///     Expected rank of the matrix A. If unknown, set k=min(m,n).
@@ -281,6 +284,10 @@ int QB<T, RNG>::call(
 // Wraps the input operator in a DowndatableLinOp so that every matmul
 // (including inside RS power iteration) automatically applies accumulated
 // deflation. The base operator A is never modified.
+// KEEP IN SYNC with the dense QB::call above: the two share the same blocked-QB
+// algorithm (block-size schedule, orthogonality/error-estimate logic, return
+// codes). They are deliberately not merged: the dense path deflates A in place,
+// this path defers deflation to the DowndatableLinOp and leaves A untouched.
 template <typename T, typename RNG>
 template <linops::LinearOperator LinOp>
 int QB<T, RNG>::call(
@@ -296,7 +303,7 @@ int QB<T, RNG>::call(
     int64_t m = A_op.n_rows;
     int64_t n = A_op.n_cols;
 
-    // Wrap in DowndatableLinOp — all matmuls go through this, so RS/RF
+    // Wrap in DowndatableLinOp: all matmuls go through this, so RS/RF
     // automatically see the deflated operator at each iteration.
     linops::DowndatableLinOp<T, LinOp> dd_op(A_op, k);
 
@@ -328,7 +335,7 @@ int QB<T, RNG>::call(
         Q_i = &Q[m * curr_sz];
         BT_i = &BT[n * curr_sz];
 
-        // RangeFinder via LinOp path — uses the deflated operator
+        // RangeFinder via LinOp path: uses the deflated operator
         if(rf_linop(this->rf, dd_op, b_sz, Q_i, state)) {
             k = curr_sz;
             free(QtQi);

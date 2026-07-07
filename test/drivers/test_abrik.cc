@@ -306,7 +306,7 @@ TEST_F(TestABRIK, ABRIK_adaptive_converges) {
     ASSERT_GT(ABRIK.num_krylov_iters, 4); // Should have extended beyond initial
 }
 
-// Adaptive mode with unreasonable tolerance — BK norm converges, ABRIK stops gracefully.
+// Adaptive mode with unreasonable tolerance: BK norm converges, ABRIK stops gracefully.
 TEST_F(TestABRIK, ABRIK_adaptive_norm_converged) {
     int64_t m    = 200;
     int64_t n    = 100;
@@ -335,7 +335,7 @@ TEST_F(TestABRIK, ABRIK_adaptive_norm_converged) {
     ASSERT_LE(residual, 10 * std::pow(std::numeric_limits<double>::epsilon(), 0.825));
 }
 
-// Adaptive mode with a rank-deficient matrix — BK detects rank deficiency, ABRIK stops.
+// Adaptive mode with a rank-deficient matrix: BK detects rank deficiency, ABRIK stops.
 TEST_F(TestABRIK, ABRIK_adaptive_rank_deficient) {
     int64_t m    = 100;
     int64_t n    = 50;
@@ -369,7 +369,7 @@ TEST_F(TestABRIK, ABRIK_adaptive_rank_deficient) {
     ASSERT_GT(k, (int64_t)0);
 }
 
-// Adaptive mode with max_retries=1 — verifies the retry limit is respected.
+// Adaptive mode with max_retries=1: verifies the retry limit is respected.
 TEST_F(TestABRIK, ABRIK_adaptive_max_retries) {
     int64_t m    = 200;
     int64_t n    = 100;

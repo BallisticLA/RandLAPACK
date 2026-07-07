@@ -178,8 +178,11 @@ int RS<T, RNG>::call(
 }
 
 // -----------------------------------------------------------------------------
-// LinOp-templated RS: identical logic but uses A_op(...) instead of blas::gemm.
-// This is a non-virtual free function (can't add template virtual methods).
+// LinOp-templated RS: mirrors RS::call, but drives an abstract linear operator
+// via A_op(...) instead of an explicit blas::gemm on a dense A. It is a
+// non-virtual free function (cannot add a template virtual method to the class).
+// KEEP IN SYNC with RS::call: any algorithmic or numerical change to one path
+// must be mirrored in the other.
 template <typename T, typename RNG, linops::LinearOperator LinOp>
 int rs_linop(
     RS<T, RNG>& rs_obj,
@@ -233,8 +236,10 @@ int rs_linop(
         if (rs_obj.cond_check)
             rs_obj.cond_nums.push_back(util::cond_num_check(n, k, Omega, rs_obj.verbose));
 
-        if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(n, k, Omega)))
+        if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(n, k, Omega))) {
+            delete[] Omega_1;
             return 1;
+        }
     }
 
     delete[] Omega_1;

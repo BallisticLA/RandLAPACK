@@ -1,5 +1,5 @@
 /*
-Unified ABRIK runtime breakdown benchmark — assesses the time taken by each
+Unified ABRIK runtime breakdown benchmark: assesses the time taken by each
 subcomponent of ABRIK on dense or sparse input matrices (Matrix Market format).
 
 Precision (float or double) is specified as the first CLI argument.
@@ -33,7 +33,7 @@ Usage:
 
 using Subroutines = RandLAPACK::ABRIKSubroutines;
 
-// Core benchmark loop — templated on LinOp type.
+// Core benchmark loop, templated on LinOp type.
 template <typename T, typename RNG, RandLAPACK::linops::LinearOperator LinOp>
 static void run_all_configs(
     LinOp& A_op,
@@ -109,12 +109,12 @@ static void run_benchmark(int argc, char *argv[]) {
     T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)0.85);
     auto state = RandBLAS::RNGState();
 
-    // --- Load matrix (auto-detects .mtx vs .txt) ---
+    // Load matrix (auto-detects .mtx vs .txt)
     auto mat = BenchIO::load_matrix<T>(input_path, sub_ratio);
     int64_t m = mat.m;
     int64_t n = mat.n;
 
-    // --- Open output CSV ---
+    // Open output CSV
     std::time_t now = std::time(nullptr);
     char date_prefix[20];
     std::strftime(date_prefix, sizeof(date_prefix), "%Y%m%d_%H%M%S_", std::localtime(&now));

@@ -247,7 +247,7 @@ class BK {
                 int64_t n = A.n_cols;
                 int max_iters = this->max_krylov_iters;
 
-                // Loop state — initialized differently for fresh start vs resume.
+                // Loop state: initialized differently for fresh start vs resume.
                 int64_t iter, iter_od, iter_ev;
                 int64_t curr_X_cols, curr_Y_cols;
                 T norm_R;
@@ -273,7 +273,7 @@ class BK {
                 }
 
                 if (!resuming) {
-                    // --- Fresh start: allocate output buffers and initialize state ---
+                    // Fresh start: allocate output buffers and initialize state
                     if(this -> timing)
                         allocation_t_start = steady_clock::now();
 
@@ -282,7 +282,7 @@ class BK {
                     norm_R = 0;
 
                     if (prealloc) {
-                        // Allocate to maximum size upfront — no realloc needed in loop.
+                        // Allocate to maximum size upfront, no realloc needed in loop.
                         Y_od  = ( T * ) calloc( n * max_Y_cols, sizeof( T ) );
                         X_ev  = ( T * ) calloc( m * max_X_cols, sizeof( T ) );
                         R     = ( T * ) calloc( n * max_X_cols, sizeof( T ) );
@@ -310,7 +310,7 @@ class BK {
                         allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
                     }
                 } else {
-                    // --- Resume: reconstruct loop state from stored members ---
+                    // Resume: reconstruct loop state from stored members
                     // Only valid after a prior call() that terminated with max_iters_reached.
                     iter     = this->num_krylov_iters;
                     norm_R   = this->norm_R_end;
@@ -358,7 +358,7 @@ class BK {
                     ++iter;
                 }
 
-                // Internal temporaries — shared for both paths.
+                // Internal temporaries: shared for both paths.
                 // These are pure scratch buffers (beta=0.0 GEMM outputs), no need to zero-initialize.
                 T* Y_orth_buf = ( T * ) malloc( k * n * sizeof( T ) );
                 T* X_orth_buf = ( T * ) malloc( k * (n + k) * sizeof( T ) );
@@ -368,7 +368,7 @@ class BK {
                 // Conditionally allocated below only when CQRRT is used.
                 T* R_11_trans = nullptr;
 
-                // Cleanup lambda for realloc failure — frees all buffers and nulls output pointers.
+                // Cleanup lambda for realloc failure: frees all buffers and nulls output pointers.
                 // free(nullptr) is a no-op, so no guards needed.
                 auto cleanup_and_fail = [&]() -> int {
                     free(Y_od);       Y_od = nullptr;
@@ -398,7 +398,7 @@ class BK {
                 }
 
                 if (!resuming) {
-                    // --- Fresh start: sketch generation, first GEMM, first QR ---
+                    // Fresh start: sketch generation, first GEMM, first QR
                     if(this -> timing)
                         sketching_t_start  = steady_clock::now();
 
@@ -458,7 +458,7 @@ class BK {
                     ++iter;
                 }
 
-                // Main loop — shared for both fresh start and resume.
+                // Main loop: shared for both fresh start and resume.
                 while(1) {
                     if(this -> timing)
                         main_loop_t_start = steady_clock::now();
@@ -721,15 +721,22 @@ class BK {
                 // Set output state
                 this->norm_R_end = norm_R;
                 this->num_krylov_iters = iter;
-                // Ceiling division: matches the actual Y_od column count after `iter` half-steps.
-                // For even k this is identical to iter*k/2; for odd k (notably k=1) the old
-                // floor formula undercounted by one when iter was odd, producing end_cols=0
-                // on the very first checkpoint of call_with_checkpoints at b_sz=1.
-                end_cols = (iter * k + 1) / 2;
+                // end_cols is the number of orthonormal Y_od columns actually built (the V-basis
+                // width): one k-column block is appended per odd-branch completion. After `iter`
+                // half-steps that count is ceil(iter/2) blocks of k columns.
+                //
+                // The scalar form ((iter + 1) / 2) * k does the integer division before the
+                // multiply. This matters: the old (iter * k + 1) / 2 divided after multiplying,
+                // which is identical only when the final iteration is even or k == 1, but on an
+                // odd final iteration with even k it undercounts by k/2 and gesdd then silently
+                // drops k/2 singular triplets. An odd final iteration is reachable via a
+                // rank-deficient break in the odd branch, an odd max_krylov_iters, or an odd
+                // checkpoint value.
+                end_cols = ((iter + 1) / 2) * k;
                 iter % 2 == 0 ? end_rows = end_cols + k : end_rows = end_cols;
                 final_iter_is_odd = (iter % 2 != 0);
 
-                // Free internal temporaries (NOT X_ev, Y_od, R, S — those are returned to caller)
+                // Free internal temporaries (NOT X_ev, Y_od, R, S; those are returned to caller)
                 free(tau);
                 free(Y_orth_buf);
                 free(X_orth_buf);

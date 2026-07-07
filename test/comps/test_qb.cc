@@ -125,7 +125,7 @@ class TestQB : public ::testing::Test
         T* Q  = nullptr;
         T* BT = nullptr;
 
-        // Regular QB2 call — NOTE: this modifies all_data.A in-place.
+        // Regular QB2 call. NOTE: this modifies all_data.A in-place.
         all_algs.QB.call(m, n,  all_data.A.data(), k, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
@@ -204,7 +204,7 @@ class TestQB : public ::testing::Test
         T* Q = nullptr;
         T* BT = nullptr;
 
-        // Regular QB2 call — NOTE: this modifies all_data.A in-place.
+        // Regular QB2 call. NOTE: this modifies all_data.A in-place.
         all_algs.QB.call(m, n, all_data.A.data(), k_est, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
