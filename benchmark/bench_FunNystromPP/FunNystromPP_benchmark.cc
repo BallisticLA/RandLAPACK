@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
     // Scalar function f.
     std::function<T(T)> fscalar;
     if      (fstr == "sqrt")     fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
-    else if (fstr == "log")      fscalar = [](T x) { return std::log(x); };
+    else if (fstr == "log")      fscalar = [](T x) { return std::log(x + (T)1); }; // log(x+1) = tr(log(A+I))
     else if (fstr == "poly")     fscalar = [poly_lambda](T x) { return x * (x + poly_lambda); };
     else if (fstr == "effdim")   fscalar = [poly_lambda](T x) { return x / (x + poly_lambda); };
     else if (fstr == "square")   fscalar = [](T x) { return x * x; };

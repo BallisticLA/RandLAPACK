@@ -4,6 +4,7 @@
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
 #include "rl_util.hh"
+#include "rl_lanczos_fa.hh"
 
 #include <RandBLAS.hh>
 #include <chrono>
@@ -31,6 +32,20 @@ namespace RandLAPACK {
 /// Block Lanczos-FA formula:  out ≈ Q_basis * f(T_k) * E₁ * R₀
 ///   Q_basis = [Q₀|...|Q_{d-1}] (n×d*s), T_k = d*s×d*s block tridiagonal,
 ///   E₁ = first d*s×s columns of identity, B = Q₀*R₀ (initial QR).
+///
+/// Pseudocode (Chen 2024 Alg. 9.2 recurrence + Def. 9.6 reconstruction). Code
+/// blocks in run_lanczos / apply_f are tagged [line N] against this listing:
+///    (1)  Q₀, R₀ ← qr(B)                                (initial block QR)
+///    (2)  for i = 0..d−1:
+///    (3)      Z ← A·Q_i                                 (1 batch matvec)
+///    (4)      if i > 0:  Z ← Z − Q_{i−1}·B_{i−1}ᵀ
+///    (5)      A_i ← Q_iᵀ·Z;  symmetrize                 (s×s block-α)
+///    (6)      Z ← Z − Q_i·A_i
+///    (7)      if reorth:  for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
+///    (8)      if i < d−1:  Q_{i+1}, B_i ← qr(Z)         (s×s block-β = R factor)
+///    (9)  T_k ← blocktridiag({A_i}, {B_i})              (d·s × d·s)
+///   (10)  (V, λ) ← syevd(T_k)
+///   (11)  F ← Q_basis · [ V·diag(f(λ))·V[1:s,:]ᵀ ] · R₀ (= Q_basis·f(T_k)·E₁·R₀)
 ///
 /// Known limitation (v1): deflation is not implemented.  When the block Krylov
 /// space fills before d steps (B_step develops near-zero singular values), accuracy
@@ -99,7 +114,7 @@ public:
         util::upsize(B_blk,   B_blk_sz,   d * s * s);
         if (reorth) util::upsize(proj_buf, proj_buf_sz, s * s);
 
-        // Initial QR: B = Q0 * R0.  Q0 overwrites K_big[0..n*s-1].
+        // [line 1] Q₀, R₀ ← qr(B).  Q0 overwrites K_big[0..n*s-1].
         T* Q0 = K_big;
         lapack::lacpy(lapack::MatrixType::General, n, s, B, n, Q0, n);
         lapack::geqrf(n, s, Q0, n, tau_buf);
@@ -107,6 +122,7 @@ public:
         lapack::lacpy(lapack::MatrixType::Upper, s, s, Q0, n, R0_buf, s);
         lapack::orgqr(n, s, s, Q0, n, tau_buf);
 
+        // [line 2] for i = 0..d−1 (i ≡ step)
         for (int64_t step = 0; step < d; ++step) {
             T* Q_step = K_big + step       * n * s;
             T* Q_prev = (step > 0) ? K_big + (step - 1) * n * s : nullptr;
@@ -114,28 +130,29 @@ public:
             T* A_step = A_blk + step * s * s;
             T* B_prev = (step > 0) ? B_blk + (step - 1) * s * s : nullptr;
 
-            // Y = A * Q_step
+            // [line 3] Z ← A·Q_i  (1 batch matvec; Z lives in Y)
             if (this->timing) _mv_t0 = steady_clock::now();
             A(Layout::ColMajor, s, (T)1.0, Q_step, n, (T)0.0, Y, n);
             if (this->timing) { _mv_t1 = steady_clock::now(); _t_matvec_us += duration_cast<microseconds>(_mv_t1 - _mv_t0).count(); }
 
-            // Y -= Q_{step-1} * B_{step-1}^T
+            // [line 4] if i > 0:  Z ← Z − Q_{i−1}·B_{i−1}ᵀ
             if (step > 0)
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
                            n, s, s, (T)-1.0, Q_prev, n, B_prev, s, (T)1.0, Y, n);
 
-            // A_step = Q_step^T * Y  (block alpha, s×s). Symmetric in
-            // exact arithmetic since Q_stepᵀ·A·Q_step is — symmetrize
-            // away the small finite-arithmetic asymmetry.
+            // [line 5] A_i ← Q_iᵀ·Z; symmetrize  (block alpha, s×s).
+            // Symmetric in exact arithmetic since Q_stepᵀ·A·Q_step is —
+            // symmetrize away the small finite-arithmetic asymmetry.
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
                        s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, s);
             util::symmetrize(s, A_step, s);
 
-            // Y -= Q_step * A_step  (Z = Y - Q_step*A_step, in-place)
+            // [line 6] Z ← Z − Q_i·A_i  (in-place in Y)
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                        n, s, s, (T)-1.0, Q_step, n, A_step, s, (T)1.0, Y, n);
 
-            // Optional full reorthogonalization: Z -= Q_p * (Q_p^T * Z) for each prev block
+            // [line 7] if reorth: for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
+            // (full block classical Gram-Schmidt against every previous block)
             if (reorth) {
                 for (int64_t prev = 0; prev <= step; ++prev) {
                     T* Q_p = K_big + prev * n * s;
@@ -146,8 +163,9 @@ public:
                 }
             }
 
-            // QR of Z → Q_{step+1} (in Y) and B_step (upper R factor).
-            // Skipped at the last step: Q_d is never needed by apply_f.
+            // [line 8] if i < d−1:  Q_{i+1}, B_i ← qr(Z)
+            // (Q_{step+1} overwrites Y; B_step = upper R factor.
+            //  Skipped at the last step: Q_d is never needed by apply_f.)
             if (step < d - 1) {
                 T* B_step = B_blk + step * s * s;
                 lapack::geqrf(n, s, Y, n, tau_buf);
@@ -159,15 +177,16 @@ public:
     }
 
     // ------------------------------------------------------------------
-    /// Evaluate f(A)B from precomputed Krylov data (K_big, R0_buf, A_blk, B_blk).
+    /// Evaluate f(A)B from precomputed Krylov data (K_big, R0_buf, A_blk, B_blk)
+    /// — lines 9-11 of the class-doc pseudocode.
     ///
     /// Computation:
-    ///  1. Assemble T_dense (d*s × d*s block tridiagonal) from A_blk and B_blk.
-    ///  2. syevd: T_dense → eigenvectors V (in-place), eigenvalues λ.
-    ///  3. W (s×m): W[i,j] = f(λⱼ)*V[i,j] for i=0..s-1 (first s rows of V, col-scaled).
-    ///  4. C1 (d*s × s) = V * W^T  — this equals f(T_k) * E₁.
-    ///  5. C1 *= R₀  (TRMM: right-multiply by upper-triangular R₀).
-    ///  6. out (n × s) = Q_basis * C1  (GEMM).
+    ///  [line 9]   Assemble T_dense (d*s × d*s block tridiagonal) from A_blk and B_blk.
+    ///  [line 10]  syevd: T_dense → eigenvectors V (in-place), eigenvalues λ.
+    ///  [line 11a] W (s×m): W[i,j] = f(λⱼ)*V[i,j] for i=0..s-1 (first s rows of V, col-scaled).
+    ///  [line 11b] C1 (d*s × s) = V * W^T  — this equals f(T_k) * E₁.
+    ///  [line 11c] C1 *= R₀  (TRMM: right-multiply by upper-triangular R₀).
+    ///  [line 11d] out (n × s) = Q_basis * C1  (GEMM).
     template <std::invocable<T> F>
     void apply_f(F f, int64_t n, int64_t s, int64_t d, T* out) {
         int64_t m = d * s;
@@ -178,7 +197,8 @@ public:
         T* G        = eig_vals + m;
         T* C1       = G + m * s;
 
-        // 1. Assemble T_dense (m×m, m = d·s) as block tridiagonal:
+        // [line 9] T_k ← blocktridiag({A_i}, {B_i}):
+        // assemble T_dense (m×m, m = d·s) as block tridiagonal:
         //
         //         ┌  A₀   B₀ᵀ                  ┐
         //         │  B₀   A₁   B₁ᵀ             │
@@ -211,10 +231,10 @@ public:
         // explicit B_step lower block and its hand-transposed upper twin.
         util::symmetrize(m, T_dense, m);
 
-        // 2. Eigendecomposition: T_dense → V (eigenvectors overwrite T_dense), eig_vals → λ.
+        // [line 10] (V, λ) ← syevd(T_k): eigenvectors V overwrite T_dense, eig_vals → λ.
         lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, T_dense, m, eig_vals);
 
-        // 3. W (s×m col-major, ld=s; stored in the G buffer): W[i,j] = f(λⱼ)*V[i,j]
+        // [line 11a] W (s×m col-major, ld=s; stored in the G buffer): W[i,j] = f(λⱼ)*V[i,j]
         //    for i=0..s-1, j=0..m-1.  Each column j of W is the first s elements of
         //    column j of V, scaled by f(λⱼ).
         //
@@ -231,16 +251,16 @@ public:
                 W_col[i] = fev * V_col[i];      // first s rows of V[:,j], scaled
         }
 
-        // 4. C1 (m × s) = V * W^T  — equals f(T_k) * E₁.
+        // [line 11b] C1 (m × s) = V * W^T  — equals f(T_k) * E₁.
         //    GEMM(NoTrans, Trans, m, s, m): C = V(m×m) * W^T  where W is s×m (ld=s).
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
                    m, s, m, (T)1.0, T_dense, m, W, s, (T)0.0, C1, m);
 
-        // 5. C1 *= R₀  (TRMM: C1 = C1 * R₀, right upper triangular).
+        // [line 11c] C1 *= R₀  (TRMM: C1 = C1 * R₀, right upper triangular).
         blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
                    m, s, (T)1.0, R0_buf, s, C1, m);
 
-        // 6. out (n × s) = Q_basis (n × m) * C1 (m × s).
+        // [line 11d] out (n × s) = Q_basis (n × m) * C1 (m × s): F = Q_basis·f(T_k)·E₁·R₀.
         //    Q_basis = K_big[0..m*n-1] (n×m col-major, ld=n).
         blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
                    n, s, m, (T)1.0, K_big, n, C1, m, (T)0.0, out, n);
@@ -253,21 +273,7 @@ public:
     /// FunNystromPP and ResidualOp as the LanczosFA_t template parameter.
     template <linops::SymmetricLinearOperator SLO, std::invocable<T> F>
     void call(SLO& A, const T* B, int64_t n, int64_t s, F f, int64_t d, T* out) {
-        using namespace std::chrono;
-        _t_matvec_us = 0;
-        steady_clock::time_point t_total_start, t_lanczos_end, t_end;
-        if (this->timing) t_total_start = steady_clock::now();
-        run_lanczos(A, B, n, s, d);
-        if (this->timing) t_lanczos_end = steady_clock::now();
-        apply_f(f, n, s, d, out);
-        if (this->timing) {
-            t_end = steady_clock::now();
-            long total_us   = duration_cast<microseconds>(t_end         - t_total_start).count();
-            long lanczos_us = duration_cast<microseconds>(t_lanczos_end - t_total_start).count();
-            long apply_f_us = duration_cast<microseconds>(t_end         - t_lanczos_end).count();
-            long rest_us    = total_us - lanczos_us - apply_f_us;
-            this->times = {_t_matvec_us, lanczos_us, apply_f_us, rest_us, total_us};
-        }
+        detail::lanczos_fa_timed_call<T>(*this, A, B, n, s, f, d, out);
     }
 };
 

@@ -26,14 +26,38 @@ namespace RandLAPACK {
 ///
 /// Phase 1 (`NystromEVD` in `rl_nystrom_evd.hh`): Gaussian sketch +
 /// q − 1 subspace-iteration passes (with QR stabilization between
-/// passes) + SVD-pseudoinverse recovery on the k × k Gram. Mirrors
-/// `nystrom.m` line-for-line.
+/// passes) + shifted Nyström spectral recovery on the k × k Gram
+/// (see that file's [Alg. 2, line N] tags).
 ///
 /// Phase 2 (this class's `call`): Hutchinson on the residual
 /// f(A) − f(Â) using a caller-supplied fAfun oracle. Mirrors
 /// `funnystrompp.m` line-for-line. Uses Gaussian Ω₂ to match the
 /// reference. A Rademacher option will be added in Phase 6 of the
 /// project plan.
+///
+/// The driver is numbered to match Algorithm 1 of the funNyström++
+/// writeup (*Accelerating trace estimation*). Code blocks in `call()`
+/// are tagged [Alg. 1, line N] with the step they implement:
+///   (1)  draw a SparseStack Ω ∈ R^{m×k}      caller-supplied: dense Omega1,
+///                                            or the SkOp (SASO) overload below
+///   (2)  Â = U·Λ·Uᵀ ← Nyström(A^q·Ω)         NystromEVD. NB the writeup's q
+///                                            counts extra A-passes on the
+///                                            sketch (it advocates q = 0);
+///                                            ours counts total A-applications
+///                                            in Phase 1, so writeup-q = our q − 1
+///   (3)  tr_top ← Σᵢ₌₁ᵏ f(Λᵢᵢ)
+///   (4)  sample g₁,…,g_ℓ ~ N(0, I)           caller-supplied Omega2 (ℓ ≡ s)
+///   (5)  tr_bot ← (1/ℓ)·Σᵢ Lanczos-QFA(A, f, gᵢ, t)
+///                                            realized as tr(Ω₂ᵀ·fAfun(Ω₂))/s:
+///                                            gᵢᵀ·LanczosFA(A, f, gᵢ) equals
+///                                            Lanczos-QFA(A, f, gᵢ) by the
+///                                            Gauss-quadrature identity
+///   (6)  tr_cor ← (1/ℓ)·Σᵢ gᵢᵀ·U·f(Λ)·Uᵀ·gᵢ
+///   (7)  return tr̃_f++ = tr_top + tr_bot − tr_cor
+///                                            computed as t1 + t2 with
+///                                            t1 = tr_top, t2 = tr_bot − tr_cor
+/// The optional f_zero "zero-fill" correction (documented on `call`) is an
+/// extension beyond Algorithm 1, which implicitly takes f(0) = 0.
 ///
 /// The class takes Ω₁ (Phase 1 sketch) and Ω₂ (Phase 2 Hutchinson)
 /// externally — this is the cross-validation harness contract. The
@@ -46,10 +70,8 @@ template <typename T>
 class FunNystromPP {
 public:
     bool verbose = false;
-    // Benchmarking / diagnostic aid (not for normal use): when true, skip the
-    // Cholesky-fast path in NystromEVD and force the SVD-pinv fall-back. Used
-    // only for the Phase-7a A/B perf comparison; leave false in production —
-    // the default dual-path picks the faster route automatically.
+    // Retained for benchmark call-site compatibility; ignored by NystromEVD
+    // since the shifted-recovery rewrite (there is only one recovery path).
     bool force_fallback = false;
 
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
@@ -75,11 +97,10 @@ public:
     // oracle (Lanczos-FA / exact apply). t_phase2_ms − t_fafun_ms is the
     // driver-side trace assembly (Y₂ GEMM + weighted Frobenius sums).
     double t_fafun_ms  = 0.0;
-    // Benchmarking aid: inner wall-clock of just the dual-path spectral-
-    // recovery block inside NystromEVD (Cholesky-fast vs SVD-pinv fall-back).
-    // This is the tight measurement for the Phase 7a A/B comparison; the
-    // QR + subspace-iter + final matvec costs that precede it are identical
-    // on both paths and contribute to t_phase1_ms instead.
+    // Benchmarking aid: inner wall-clock of just the shifted spectral-
+    // recovery block inside NystromEVD (Alg. 2 lines 3-8); the QR +
+    // subspace-iter + final matvec costs that precede it contribute to
+    // t_phase1_ms instead.
     double t_specrec_ms = 0.0;
 
     FunNystromPP() = default;
@@ -207,7 +228,12 @@ T FunNystromPP<T>::call(
         throw std::invalid_argument(
             "FunNystromPP::call: f_zero must be finite when provided");
 
-    // Phase 1.
+    // ---- Phase 1 (Algorithm 1, lines 1-3) ----
+    //
+    // [Alg. 1, line 1] Ω is caller-supplied: Omega1 here (dense), or a
+    //   SparseStack/SASO via the SkOp overload below.
+    // [Alg. 1, line 2] Â = U·Λ·Uᵀ ← Nyström(A^{q−1}·Ω)  (shifted recovery;
+    //   see the [Alg. 2, line N] tags inside NystromEVD).
     auto t_p1_start = std::chrono::steady_clock::now();
     NystromEVD<T>(A_op, k, q, Omega1,
                   this->U, this->U_sz,
@@ -217,30 +243,31 @@ T FunNystromPP<T>::call(
                   &this->t_specrec_ms);
     this->k_out = k;
 
-    // Resolve f(0) for the optional (n − k) · f(0) correction term in
-    // tr(f(Â)). Default (f_zero = nullopt) matches Persson MATLAB which
-    // omits this term — that's the cross-validation anchor. Caller can
-    // opt in to production-style behavior (PR #132) by passing a finite
-    // f_zero, in which case both t1 (via the (m−k)·f(0) term below) and
-    // t2 (via the projector-complement correction below) are adjusted.
-    // Both estimators converge to tr(f(A)) in expectation; for a fixed Ω
-    // they differ by `f(0)·[(m−k) − (‖Ω‖²_F − ‖VᵀΩ‖²_F)/s]`, a quantity
-    // that vanishes on average when Ω is iid Gaussian / Rademacher.
-    // No auto-resolve from fscalar(0): for f = log the auto-call would
-    // produce -∞, breaking the bit-exact MATLAB anchor on log-style
-    // fixtures.
+    // f(0) for the optional zero-fill correction term in tr(f(Â)). Full
+    // semantics (nullopt = Persson-MATLAB anchor; finite = PR-#132 zero-fill;
+    // no auto-resolve from fscalar(0), which would give -∞ for f = log) are
+    // documented on the f_zero @param above. The two conventions differ, for
+    // a fixed Ω, by  f(0)·[(m−k) − (‖Ω‖²_F − ‖VᵀΩ‖²_F)/s],  which vanishes in
+    // expectation for iid Gaussian / Rademacher Ω.
     const bool   apply_fzero = f_zero.has_value() && (k < m);
     const T      fz          = apply_fzero ? *f_zero : (T)0;
 
-    // t1 = Σ fscalar(λᵢ) (+ (m − k) · fz when f_zero supplied).
+    // [Alg. 1, line 3] tr_top ← Σᵢ₌₁ᵏ f(Λᵢᵢ)  (= t1; plus the beyond-Alg.-1
+    //   zero-fill term (m − k)·f(0) when f_zero is supplied).
     t1_out = (T)0;
     for (int64_t i = 0; i < k; ++i) t1_out += fscalar(this->lambda[i]);
     if (apply_fzero) t1_out += static_cast<T>(m - k) * fz;
     auto t_p1_end = std::chrono::steady_clock::now();
     this->t_phase1_ms = std::chrono::duration<double, std::milli>(t_p1_end - t_p1_start).count();
 
-    // Phase 2: t2 = ( tr(Ω₂ᵀ · fAfun(Ω₂)) − tr(Yᵀ · diag(f(λ)) · Y) ) / s
-    //   where Y = Uᵀ · Ω₂ (shape k × s).
+    // ---- Phase 2 (Algorithm 1, lines 4-7) ----
+    //
+    // t2 = ( tr(Ω₂ᵀ · fAfun(Ω₂)) − tr(Yᵀ · diag(f(λ)) · Y) ) / s
+    //   where Y = Uᵀ · Ω₂ (shape k × s); i.e. t2 = tr_bot − tr_cor with the
+    //   two 1/ℓ probe averages of lines 5-6 computed jointly (ℓ ≡ s).
+    //
+    // [Alg. 1, line 4] g₁,…,g_ℓ ~ N(0, I) are caller-supplied as the columns
+    //   of Omega2.
     //
     // Skip Phase 2 when k == m: Phase 1 has captured the full spectrum
     // exactly (Â = A), so f(A) − f(Â) is analytically zero. Running the
@@ -253,25 +280,31 @@ T FunNystromPP<T>::call(
     if (k < m) {
         auto t_p2_start = std::chrono::steady_clock::now();
 
-        // Step a: Y_2 ← Uᵀ · Ω₂  (k × s)
+        // [Alg. 1, line 6 — prep] Y_2 ← Uᵀ · Ω₂  (k × s), so that
+        //   gᵢᵀ·U·f(Λ)·Uᵀ·gᵢ = Σⱼ f(λⱼ)·Y_2[j,i]².
         util::upsize(this->Y_2, this->Y_2_sz, k * s);
         blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
                    k, s, m, (T)1, this->U, m, Omega2, m, (T)0, this->Y_2, k);
 
-        // Step b: fAOmega ← f(A) · Ω₂  (m × s, caller-supplied oracle)
+        // [Alg. 1, line 5 — oracle] fAOmega ← f(A) · Ω₂  (m × s). fAfun is the
+        //   caller-supplied f(A)-oracle: Lanczos-FA at depth t in production
+        //   (gᵢᵀ·LanczosFA(A, f, gᵢ) ≡ Lanczos-QFA(A, f, gᵢ, t) by the
+        //   Gauss-quadrature identity), or an exact dense oracle in tests.
         util::upsize(this->fAOmega, this->fAOmega_sz, m * s);
         auto t_fafun_start = std::chrono::steady_clock::now();
         fAfun(m, s, Omega2, this->fAOmega);
         this->t_fafun_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - t_fafun_start).count();
 
-        // Step c: tr_AΩ ← tr(Ω₂ᵀ · fAOmega) = Σⱼ ⟨Ω₂[:,j], fAOmega[:,j]⟩.
+        // [Alg. 1, line 5] ℓ·tr_bot = Σᵢ gᵢᵀ·f(A)·gᵢ:
+        //   tr_AΩ ← tr(Ω₂ᵀ · fAOmega) = Σⱼ ⟨Ω₂[:,j], fAOmega[:,j]⟩.
         T tr_AOmega = (T)0;
         for (int64_t j = 0; j < s; ++j) {
             tr_AOmega += blas::dot(m, Omega2 + j * m, 1, this->fAOmega + j * m, 1);
         }
 
-        // Step d: tr_AhatΩ ← tr(Ω₂ᵀ · f(Â) · Ω₂).
+        // [Alg. 1, line 6] ℓ·tr_cor = Σᵢ gᵢᵀ·U·f(Λ)·Uᵀ·gᵢ:
+        //   tr_AhatΩ ← tr(Ω₂ᵀ · f(Â) · Ω₂) = Σᵢⱼ f(λᵢ)·Y_2[i,j]².
         // When apply_fzero, the rank-k Â is "zero-filled" to an n×n
         // operator: f(Â) = V·diag(f(λ))·Vᵀ + f(0)·(I − V·Vᵀ). The
         // projector-complement term contributes
@@ -290,12 +323,15 @@ T FunNystromPP<T>::call(
             tr_AhatOmega += fz * (omega_fro_sq - y2_fro_sq);
         }
 
+        // [Alg. 1, lines 5-6 — probe average] t2 = tr_bot − tr_cor
+        //   = (tr_AΩ − tr_AhatΩ)/ℓ  (single division; ℓ ≡ s).
         t2_out = (tr_AOmega - tr_AhatOmega) / (T)s;
         auto t_p2_end = std::chrono::steady_clock::now();
         this->t_phase2_ms = std::chrono::duration<double, std::milli>(t_p2_end - t_p2_start).count();
     } else {
         this->t_phase2_ms = 0.0;
     }
+    // [Alg. 1, line 7] return tr̃_f++ = tr_top + tr_bot − tr_cor = t1 + t2.
     return t1_out + t2_out;
 }
 
@@ -327,6 +363,8 @@ T FunNystromPP<T>::call(
             "For q == 1, densify the sketch caller-side and call the "
             "dense Omega1 overload.");
     }
+    // [Alg. 1, line 1] Ω is the caller's SparseStack/SASO SkOp; its first
+    // A-application happens here in sparse arithmetic.
     // Y0 = A · S via the SkOp-aware operator() overload on the SLO
     // (dispatches to RandBLAS::sparse_data::right_spmm for
     // ExplicitSymLinOp). Caller is responsible for ensuring A has both

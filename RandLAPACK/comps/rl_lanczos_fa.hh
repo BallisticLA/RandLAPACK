@@ -19,6 +19,36 @@
 namespace RandLAPACK {
 
 
+namespace detail {
+// Shared run+apply timing wrapper for the two Lanczos-FA classes. LanczosFA
+// (scalar) and BlockLanczosFA expose the same run_lanczos / apply_f / timing /
+// times / _t_matvec_us surface and are used interchangeably as the LanczosFA_t
+// template parameter, so their combined-call bodies are identical; this factors
+// that body out rather than duplicating it. Templated on the concrete class
+// (LFA) to avoid a CRTP base for an 18-line wrapper.
+template <typename T, typename LFA, linops::SymmetricLinearOperator SLO,
+          std::invocable<T> F>
+void lanczos_fa_timed_call(LFA& self, SLO& A, const T* B,
+                           int64_t n, int64_t s, F f, int64_t d, T* out) {
+    using namespace std::chrono;
+    self._t_matvec_us = 0;
+    steady_clock::time_point t_total_start, t_lanczos_end, t_end;
+    if (self.timing) t_total_start = steady_clock::now();
+    self.run_lanczos(A, B, n, s, d);
+    if (self.timing) t_lanczos_end = steady_clock::now();
+    self.apply_f(f, n, s, d, out);
+    if (self.timing) {
+        t_end = steady_clock::now();
+        long total_us   = duration_cast<microseconds>(t_end         - t_total_start).count();
+        long lanczos_us = duration_cast<microseconds>(t_lanczos_end - t_total_start).count();
+        long apply_f_us = duration_cast<microseconds>(t_end         - t_lanczos_end).count();
+        long rest_us    = total_us - lanczos_us - apply_f_us;
+        self.times = {self._t_matvec_us, lanczos_us, apply_f_us, rest_us, total_us};
+    }
+}
+} // namespace detail
+
+
 /// d-step scalar Lanczos-FA for matrix function application f(A)B.
 /// Approximates f(A)B column by column: each column of B gets its own scalar
 /// (single-vector) Krylov subspace of dimension d, run independently. This is
@@ -26,6 +56,25 @@ namespace RandLAPACK {
 /// joint block Krylov subspace (see rl_lanczos_fa_block.hh) and is BLAS-3
 /// throughout; the two are numerically distinct algorithms.
 /// See: T. Chen, "A Lanczos-FA algorithm for matrix function approximation" (2022).
+///
+/// Pseudocode (batched scalar Lanczos-FA; Chen's single-vector algorithm run
+/// on all s columns at once, matvecs batched into one GEMM per step). Code
+/// blocks in run_lanczos / apply_f are tagged [line N] against this listing:
+///    (1)  for j = 1..s:  normb[j] ← ‖B[:,j]‖;  q_{1,j} ← B[:,j] / normb[j]
+///    (2)  W ← A·[q_{1,1} … q_{1,s}]                    (1 batch matvec)
+///    (3)  for j:  α_{1,j} ← q_{1,j}·W[:,j]
+///    (4)  for i = 1..d−1:                              (three-term recurrence)
+///    (5)      for j:  r_j ← W[:,j] − α_{i,j}·q_{i,j} − β_{i,j}·q_{i−1,j}
+///    (6)      if reorth:  for j:  project r_j ⟂ span{q_{1,j} … q_{i,j}}
+///    (7)      for j:  β_{i+1,j} ← ‖r_j‖;  q_{i+1,j} ← r_j / β_{i+1,j}
+///    (8)      W ← A·[q_{i+1,1} … q_{i+1,s}]            (1 batch matvec)
+///    (9)      for j:  α_{i+1,j} ← q_{i+1,j}·W[:,j]
+///   (10)  for j = 1..s:                                (reconstruction, parallel)
+///   (11)      (S_j, Θ_j) ← eig( tridiag(α_{·,j}, β_{·,j}) )
+///   (12)      F[:,j] ← normb[j] · Q_j · S_j · diag(f(Θ_j)) · S_j[0,:]ᵀ
+/// Implementation note: line 5's β-subtraction is fused into line 8 of the
+/// *previous* iteration (K_new = A·q_{i+1} − β_{i+1}·q_i), so each loop body
+/// starts from the partial three-term and only subtracts the α part.
 ///
 /// @tparam T    Floating-point scalar type.
 template <typename T>
@@ -70,7 +119,7 @@ public:
     ~LanczosFA() { delete[] K; delete[] alpha; delete[] beta; delete[] normb; delete[] workspace; }
 
     // ------------------------------------------------------------------
-    /// Run the d-step block Lanczos recurrence on B.
+    /// Run the d-step scalar (per-column) Lanczos recurrence on B.
     /// Fills K, alpha, beta, normb from B (n×s column-major).
     /// Calls A exactly d times, each application to an n×s matrix.
     ///
@@ -85,13 +134,14 @@ public:
         steady_clock::time_point _mv_t0, _mv_t1;
         _t_matvec_us = 0;
 
-        // Grow buffers if needed
+        // [setup] Grow buffers if needed (not a pseudocode line).
         util::upsize(K,     K_sz,     (d + 1) * n * s);
         util::upsize(alpha, alpha_sz, d * s);
         if (d > 1) util::upsize(beta, beta_sz, (d - 1) * s);
         util::upsize(normb, normb_sz, s);
 
-        // Step 0: q_1 = column-normalize B; store in K[:,:,0]
+        // [line 1] for j: normb[j] ← ‖B[:,j]‖;  q_{1,j} ← B[:,j] / normb[j]
+        //   (column-normalize B into K[:,:,0])
         T* K0 = K;
         lapack::lacpy(lapack::MatrixType::General, n, s, B, n, K0, n);
 #pragma omp parallel for schedule(static)
@@ -103,41 +153,40 @@ public:
                 blas::scal(n, (T)1.0 / nrm, K0 + j * n, 1);
         }
 
-        // Step 0 matvec: K[:,:,1] = A * K[:,:,0]
+        // [line 2] W ← A·Q₁  (1 batch matvec: K[:,:,1] = A * K[:,:,0])
         T* K1 = K + n * s;
         if (this->timing) _mv_t0 = steady_clock::now();
         A(Layout::ColMajor, s, (T)1.0, K0, n, (T)0.0, K1, n);
         if (this->timing) { _mv_t1 = steady_clock::now(); _t_matvec_us += duration_cast<microseconds>(_mv_t1 - _mv_t0).count(); }
 
-        // α[0, j] = q_1[:,j] · (A q_1)[:,j] — s independent inner products,
-        // one tridiagonal diagonal entry per column.
+        // [line 3] for j: α_{1,j} ← q_{1,j}·W[:,j] — s independent inner
+        //   products, one tridiagonal diagonal entry per column.
 #pragma omp parallel for schedule(static)
         for (int64_t j = 0; j < s; ++j)
             alpha[j * d + 0] = blas::dot(n, K1 + j * n, 1, K0 + j * n, 1);
 
-        // Main Lanczos loop: steps 1..d-1
+        // [line 4] for i = 1..d−1 — main Lanczos loop (three-term recurrence).
         // At the start of iteration i:
-        //   K[:,:,i]   = A*q_i - β_i*q_{i-1}  (partial three-term, β part done last iter)
+        //   K[:,:,i]   = A*q_i - β_i*q_{i-1}  (partial three-term: line 5's β
+        //                part was fused into line 8 of the previous iteration)
         //   K[:,:,i+1] is free workspace
-        // This iteration:
-        //   (1) subtract α_i*q_i to complete three-term → K_{i+1} becomes unnormalized q_{i+1}
-        //   (2) optional reorthogonalization
-        //   (3) β_{i+1} = ||K_{i+1}||, (4) normalize → q_{i+1}
-        //   (5) K_{i+2} = A*q_{i+1} - β_{i+1}*q_i  (start of next three-term)
-        //   (6) α_{i+1} = q_{i+1}[:,j] · K_{i+2}[:,j]
+        // This iteration runs lines 5-9 of the class-doc pseudocode.
         // All per-column loops below are independent across j and parallelized.
         for (int64_t i = 0; i < d - 1; ++i) {
             T* K_prev = K + i * n * s;           // K[:,:,i] = q_i (normalized)
             T* K_curr = K + (i + 1) * n * s;     // K[:,:,i+1] = partial (A*q_i - β_i*q_{i-1})
             T* K_new  = K + (i + 2) * n * s;     // K[:,:,i+2] = workspace for A*q_{i+1}
 
-            // (1) Complete three-term: K_curr -= α_i * K_prev
+            // [line 5] r_j ← W[:,j] − α_{i,j}·q_{i,j} − β_{i,j}·q_{i−1,j}:
+            // complete the three-term with K_curr -= α_i * K_prev (the β part
+            // is already in K_curr, fused with the previous iteration's matvec).
             // Each column has a different scalar α_{i,j}, so GEMM would cost O(n·s²); axpy is optimal.
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < s; ++j)
                 blas::axpy(n, -alpha[j * d + i], K_prev + j * n, 1, K_curr + j * n, 1);
 
-            // (2) Optional full reorthogonalization: project K_curr[:,j] out of all q_0..q_i.
+            // [line 6] if reorth: project r_j ⟂ span{q_{1,j} … q_{i,j}}
+            // (full reorthogonalization: project K_curr[:,j] out of all q_0..q_i).
             // Outer loop over j is parallel (columns are independent); inner prev-loop is
             // sequential per column (each projection modifies K_curr[:,j] in place).
             int64_t reorth_steps = reorth ? (i + 1) : 0;
@@ -150,7 +199,7 @@ public:
                 }
             }
 
-            // (3) β_{i+1} = column norms, (4) normalize → q_{i+1}
+            // [line 7] for j: β_{i+1,j} ← ‖r_j‖;  q_{i+1,j} ← r_j / β_{i+1,j}
             // Zero norm means the Krylov basis has collapsed for that column.
             // Store β=0 (the tridiagonal subdiagonal entry) and skip normalization;
             // stevd handles a zero subdiagonal correctly (independent 1×1 blocks).
@@ -162,8 +211,9 @@ public:
                     blas::scal(n, (T)1.0 / nrm, K_curr + j * n, 1);
             }
 
-            // (5) K_new = A*q_{i+1} - β_{i+1}*q_i
-            // Different β per column — same reasoning as (1), axpy is optimal.
+            // [line 8] W ← A·Q_{i+1} (1 batch matvec), fused with the β part of
+            // the next iteration's line 5: K_new = A*q_{i+1} - β_{i+1}*q_i.
+            // Different β per column — same reasoning as line 5, axpy is optimal.
             if (this->timing) _mv_t0 = steady_clock::now();
             A(Layout::ColMajor, s, (T)1.0, K_curr, n, (T)0.0, K_new, n);
             if (this->timing) { _mv_t1 = steady_clock::now(); _t_matvec_us += duration_cast<microseconds>(_mv_t1 - _mv_t0).count(); }
@@ -171,7 +221,7 @@ public:
             for (int64_t j = 0; j < s; ++j)
                 blas::axpy(n, -beta[j * (d - 1) + i], K_prev + j * n, 1, K_new + j * n, 1);
 
-            // (6) α_{i+1} = q_{i+1}[:,j] · K_new[:,j]
+            // [line 9] for j: α_{i+1,j} ← q_{i+1,j}·W[:,j]
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < s; ++j)
                 alpha[j * d + (i + 1)] = blas::dot(n, K_new + j * n, 1, K_curr + j * n, 1);
@@ -179,7 +229,8 @@ public:
     }
 
     // ------------------------------------------------------------------
-    /// Evaluate f(A)B from precomputed Krylov data (K, alpha, beta, normb).
+    /// Evaluate f(A)B from precomputed Krylov data (K, alpha, beta, normb) —
+    /// lines 10-12 of the class-doc pseudocode.
     /// Per column j: eigendecompose T_j = S_j diag(θ_j) S_j^T via lapack::stev, then:
     ///   out[:,j] = normb[j] * Q_j * S_j * diag(f(θ_j)) * S_j[0,:]^T
     /// where Q_j is the n×d Lanczos basis stored in K and S_j[0,:] is the first row
@@ -203,6 +254,7 @@ public:
 #endif
         util::upsize(workspace, workspace_sz, (int64_t)nthreads * workspace_per_thread);
 
+        // [line 10] for j = 1..s — s independent d×d eigenproblems, parallel.
 #pragma omp parallel for schedule(static)
         for (int64_t j = 0; j < s; ++j) {
             int tid = 0;
@@ -228,20 +280,23 @@ public:
             if (d > 1)
                 blas::copy(d - 1, beta + j * (d - 1), 1, beta_j, 1);
 
-            // d×d tridiagonal eigendecomposition: T_j = Z_j * diag(θ) * Z_j^T
+            // [line 11] (S_j, Θ_j) ← eig( tridiag(α_{·,j}, β_{·,j}) ):
+            // d×d tridiagonal eigendecomposition T_j = Z_j * diag(θ) * Z_j^T.
             // alpha_j → eigenvalues θ (ascending); Z_j → eigenvectors (column-major)
             lapack::stevd(lapack::Job::Vec, d, alpha_j, beta_j, Z_j, d);
 
-            // c_j[i] = f(θ_i) * S_j[0, i]
+            // [line 12, in three kernels] F[:,j] ← normb[j] · Q_j · S_j · diag(f(Θ_j)) · S_j[0,:]ᵀ
+            //
+            // (12a) c_j[i] = f(θ_i) * S_j[0, i]
             // In column-major Z_j (d×d): entry (row=0, col=i) = Z_j[i*d + 0]
             for (int64_t i = 0; i < d; ++i)
                 c_j[i] = f(alpha_j[i]) * Z_j[i * d + 0];
 
-            // v_j = Z_j * c_j  (d×d matrix times d-vector)
+            // (12b) v_j = Z_j * c_j  (d×d matrix times d-vector)
             blas::gemv(Layout::ColMajor, Op::NoTrans, d, d,
                        (T)1.0, Z_j, d, c_j, 1, (T)0.0, v_j, 1);
 
-            // out[:,j] = normb[j] * Q_j * v_j
+            // (12c) out[:,j] = normb[j] * Q_j * v_j
             // Q_j is n×d with column stride n*s (strided view into K buffer)
             blas::gemv(Layout::ColMajor, Op::NoTrans, n, d,
                        normb[j], K + j * n, n * s, v_j, 1, (T)0.0, out + j * n, 1);
@@ -260,21 +315,7 @@ public:
     /// @param[out] out  n×s output, overwritten with f(A)B approximation.
     template <linops::SymmetricLinearOperator SLO, std::invocable<T> F>
     void call(SLO& A, const T* B, int64_t n, int64_t s, F f, int64_t d, T* out) {
-        using namespace std::chrono;
-        _t_matvec_us = 0;
-        steady_clock::time_point t_total_start, t_lanczos_end, t_end;
-        if (this->timing) t_total_start = steady_clock::now();
-        run_lanczos(A, B, n, s, d);
-        if (this->timing) t_lanczos_end = steady_clock::now();
-        apply_f(f, n, s, d, out);
-        if (this->timing) {
-            t_end = steady_clock::now();
-            long total_us   = duration_cast<microseconds>(t_end    - t_total_start).count();
-            long lanczos_us = duration_cast<microseconds>(t_lanczos_end - t_total_start).count();
-            long apply_f_us = duration_cast<microseconds>(t_end    - t_lanczos_end).count();
-            long rest_us    = total_us - lanczos_us - apply_f_us;
-            this->times = {_t_matvec_us, lanczos_us, apply_f_us, rest_us, total_us};
-        }
+        detail::lanczos_fa_timed_call<T>(*this, A, B, n, s, f, d, out);
     }
 };
 
