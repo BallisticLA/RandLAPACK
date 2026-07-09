@@ -69,7 +69,8 @@ public:
     //   First d blocks form Q_basis (n×d*s col-major, ld=n) used by apply_f.
     //   Block d is scratch for the current-step matvec output.
     // R0_buf:    s*s         — upper triangular factor from initial QR of B.
-    // tau_buf:   n           — Householder scalars; reused at each geqrf/orgqr call.
+    // tau_buf:   s           — Householder scalars (geqrf/orgqr on n×s panels
+    //   need min(n, s) = s of them); reused at each geqrf/orgqr call.
     // A_blk:     d*s*s       — block alphas (s×s symmetric), A_blk[step*s*s] = A_step.
     // B_blk:     d*s*s       — block betas  (s×s upper triangular), B_blk[step*s*s] = B_step.
     //   Only d-1 entries are populated (no beta after the last step);
@@ -109,7 +110,7 @@ public:
 
         util::upsize(K_big,   K_big_sz,   (d + 1) * n * s);
         util::upsize(R0_buf,  R0_sz,      s * s);
-        util::upsize(tau_buf, tau_buf_sz, n);
+        util::upsize(tau_buf, tau_buf_sz, s);
         util::upsize(A_blk,   A_blk_sz,   d * s * s);
         util::upsize(B_blk,   B_blk_sz,   d * s * s);
         if (reorth) util::upsize(proj_buf, proj_buf_sz, s * s);
@@ -208,28 +209,25 @@ public:
         //
         // where Aᵢ is the s×s diagonal block in A_blk[i] and Bᵢ is the s×s
         // upper-triangular factor produced by the QR of Z at step i+1.
+        //
+        // Only the lower triangle is assembled: the syevd below is called with
+        // Uplo::Lower and never reads the strict upper triangle, so mirroring
+        // B_stepᵀ into it (and a final symmetrize) would be dead work. The
+        // memset zeroes the below-band region of the lower triangle.
         std::memset(T_dense, 0, m * m * sizeof(T));
         for (int64_t step = 0; step < d; ++step) {
             int64_t b0 = step * s;
             // Diagonal block
             lapack::lacpy(lapack::MatrixType::General, s, s,
                           A_blk + step * s * s, s, T_dense + b0 * m + b0, m);
-            // Off-diagonal blocks (B_step in lower, B_step^T in upper)
+            // Lower off-diagonal block: T(b1:b1+s, b0:b0+s) = B_step
             if (step < d - 1) {
                 T* B_step = B_blk + step * s * s;
                 int64_t b1 = (step + 1) * s;
-                // Lower off-diagonal: T(b1:b1+s, b0:b0+s) = B_step
                 lapack::lacpy(lapack::MatrixType::General, s, s,
                               B_step, s, T_dense + b0 * m + b1, m);
-                // Upper off-diagonal: T(b0:b0+s, b1:b1+s) = B_step^T
-                for (int64_t j = 0; j < s; ++j)
-                    for (int64_t i = 0; i < s; ++i)
-                        T_dense[(b1 + j) * m + (b0 + i)] = B_step[i * s + j];
             }
         }
-        // Symmetrize to eliminate any floating-point asymmetry between the
-        // explicit B_step lower block and its hand-transposed upper twin.
-        util::symmetrize(m, T_dense, m);
 
         // [line 10] (V, λ) ← syevd(T_k): eigenvectors V overwrite T_dense, eig_vals → λ.
         lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, T_dense, m, eig_vals);

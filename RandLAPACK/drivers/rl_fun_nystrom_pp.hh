@@ -70,8 +70,10 @@ template <typename T>
 class FunNystromPP {
 public:
     bool verbose = false;
-    // Retained for benchmark call-site compatibility; ignored by NystromEVD
-    // since the shifted-recovery rewrite (there is only one recovery path).
+    // Vestige of the removed dual-path recovery: NystromEVD now has a single
+    // (shifted) path and no longer takes this flag. Kept only so the benchmark
+    // CLI / CSV schema stays stable mid-campaign; remove with the next
+    // benchmark schema change.
     bool force_fallback = false;
 
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
@@ -239,7 +241,6 @@ T FunNystromPP<T>::call(
                   this->U, this->U_sz,
                   this->lambda, this->lambda_sz,
                   this->nystrom_ws,
-                  this->force_fallback,
                   &this->t_specrec_ms);
     this->k_out = k;
 

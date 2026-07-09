@@ -28,12 +28,12 @@ namespace RandLAPACK {
 // alive across many `call()` invocations at amortised allocation cost.
 template <typename T>
 struct NystromEVD_workspace {
-    T* Omega = nullptr; int64_t Omega_sz = 0;   // m × k
+    T* Omega = nullptr; int64_t Omega_sz = 0;   // m × k  (q > 1 only; ping-pongs with Y)
     T* Y     = nullptr; int64_t Y_sz     = 0;   // m × k  (holds Y, then Y_ν, then B)
     T* G     = nullptr; int64_t G_sz     = 0;   // k × k  (Gram H = ΩᵀY_ν, then its Cholesky factor)
     T* Sigma = nullptr; int64_t Sigma_sz = 0;   // k      (singular values of B)
     T* VT_B  = nullptr; int64_t VT_B_sz  = 0;   // k × k  (gesdd VT output; unused)
-    T* tau   = nullptr; int64_t tau_sz   = 0;   // k      (geqrf reflectors)
+    T* tau   = nullptr; int64_t tau_sz   = 0;   // k      (geqrf reflectors; q > 1 only)
 
     // 11-slot timing vector (microseconds), populated when `times_enabled`.
     // Slots used here: 0 alloc, 1 syrf, 2 matvec, 6 spectral-recovery, 10 total.
@@ -92,8 +92,10 @@ long measure_us(Fn&& fn) {
 /// descending) as raw heap buffers managed via `util::upsize`. The caller owns
 /// the buffers (FunNystromPP holds them as members and frees them in its dtor).
 ///
-/// `force_fallback` is retained for call-site compatibility but ignored: with
-/// the shift there is only one recovery path.
+/// Data movement: at q = 1 (the single-pass spec) the caller's sketch is read
+/// in place, with no m×k copy and no ws.Omega/ws.tau allocation. At q > 1 the
+/// subspace-iteration passes ping-pong between ws.Omega and ws.Y via pointer
+/// swaps, again without m×k copies.
 template <typename T, linops::SymmetricLinearOperator SLO>
 void NystromEVD(
     SLO &A_op,
@@ -103,7 +105,6 @@ void NystromEVD(
     T*& U_out,        int64_t& U_out_sz,
     T*& lambda_out,   int64_t& lambda_out_sz,
     NystromEVD_workspace<T> &ws,
-    bool /*force_fallback*/ = false,
     double *t_specrec_ms_out = nullptr
 ) {
     using namespace blas;
@@ -113,16 +114,20 @@ void NystromEVD(
     auto t_total_start = clk::now();
     long t_alloc = 0, t_syrf = 0, t_matvec = 0;
 
-    // [setup] Allocate/grow workspace (not an Algorithm-2 line).
+    // [setup] Allocate/grow workspace (not an Algorithm-2 line). ws.Omega and
+    // ws.tau are only needed by the q > 1 subspace-iteration path; at q = 1
+    // the caller's sketch is read in place and neither is allocated.
     t_alloc = detail::measure_us([&] {
-        util::upsize(ws.Omega, ws.Omega_sz, m * k);
         util::upsize(ws.Y,     ws.Y_sz,     m * k);
         util::upsize(ws.G,     ws.G_sz,     k * k);
         util::upsize(ws.Sigma, ws.Sigma_sz, k);
         util::upsize(ws.VT_B,  ws.VT_B_sz,  k * k);
-        util::upsize(ws.tau,   ws.tau_sz,   k);
         util::upsize(U_out,      U_out_sz,      m * k);
         util::upsize(lambda_out, lambda_out_sz, k);
+        if (q > 1) {
+            util::upsize(ws.Omega, ws.Omega_sz, m * k);
+            util::upsize(ws.tau,   ws.tau_sz,   k);
+        }
     });
 
     // [Alg. 2, line 1] Ω ← Ω₁  (take the caller's sketch; NOT orthonormalized, per
@@ -131,20 +136,27 @@ void NystromEVD(
     //   sharpen the captured subspace. Re-orthonormalizing A·Ω each pass is the
     //   range-finder and is required for q > 1 (else the iterated columns collapse
     //   onto the dominant eigenvector). q = 1 does none of this (matches Epperly).
+    //
+    //   Om tracks the current sketch without copying it: the caller's buffer at
+    //   q = 1, else ws.Omega after ping-pong swaps with ws.Y (each pass writes
+    //   A·Ω into ws.Y and swaps the pointers instead of copying m×k back).
+    //   The const_cast is required by the linop concept's `T* const B`
+    //   signature; operator() has SYMM semantics and never writes B.
+    T* Om = const_cast<T*>(Omega1_in);
     t_syrf = detail::measure_us([&] {
-        std::copy(Omega1_in, Omega1_in + m * k, ws.Omega);
-
         for (int64_t iter = 1; iter < q; ++iter) {
-            A_op(Layout::ColMajor, k, (T)1, ws.Omega, m, (T)0, ws.Y, m);
-            std::copy(ws.Y, ws.Y + m * k, ws.Omega);
+            A_op(Layout::ColMajor, k, (T)1, Om, m, (T)0, ws.Y, m);
+            std::swap(ws.Omega, ws.Y);
+            std::swap(ws.Omega_sz, ws.Y_sz);
             lapack::geqrf(m, k, ws.Omega, m, ws.tau);
             lapack::ungqr(m, k, k, ws.Omega, m, ws.tau);
+            Om = ws.Omega;
         }
     });
 
     // [Alg. 2, line 2] Y ← A·Ω
     t_matvec = detail::measure_us([&] {
-        A_op(Layout::ColMajor, k, (T)1, ws.Omega, m, (T)0, ws.Y, m);
+        A_op(Layout::ColMajor, k, (T)1, Om, m, (T)0, ws.Y, m);
     });
 
     // ---- Shifted Nyström spectral recovery (Algorithm 2, lines 3-8) ----
@@ -157,20 +169,21 @@ void NystromEVD(
     const T nu = std::sqrt((T)m) * eps_mach * blas::nrm2(m * k, ws.Y, 1);
 
     // [Alg. 2, line 4] Y_ν ← Y + ν·Ω = (A+νI)·Ω  (overwrites ws.Y).
-    blas::axpy(m * k, nu, ws.Omega, 1, ws.Y, 1);
+    blas::axpy(m * k, nu, Om, 1, ws.Y, 1);
 
     // [Alg. 2, line 5a] H ← Ωᵀ·Y_ν  (k×k = Ωᵀ(A+νI)Ω, SPD since A+νI is); symmetrize.
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
-               (T)1, ws.Omega, m, ws.Y, m, (T)0, ws.G, k);
+               (T)1, Om, m, ws.Y, m, (T)0, ws.G, k);
     RandLAPACK::util::symmetrize(k, ws.G, k);
 
     // [Alg. 2, line 5b] C ← chol(H), upper. SPD by construction; guard defensively.
+    //   No need to zero the strict lower triangle of the factor: the only
+    //   consumer is the Uplo::Upper trsm below, which never reads it.
     int chol_status = lapack::potrf(Uplo::Upper, k, ws.G, k);
     if (chol_status != 0)
         throw std::runtime_error(
             "NystromEVD: shifted Cholesky failed (potrf status != 0); "
             "the shift nu was too small for this operator.");
-    RandLAPACK::util::get_U(k, k, ws.G, k);   // zero strict lower of the factor
 
     // [Alg. 2, line 6] B ← Y_ν·C⁻¹  (triangular solve; B overwrites ws.Y).
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,
