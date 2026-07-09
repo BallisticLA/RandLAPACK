@@ -43,7 +43,9 @@ namespace RandLAPACK {
 ///    (6)      Z ← Z − Q_i·A_i
 ///    (7)      if reorth:  for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
 ///    (8)      if i < d−1:  Q_{i+1}, B_i ← qr(Z)         (s×s block-β = R factor)
-///    (9)  T_k ← blocktridiag({A_i}, {B_i})              (d·s × d·s)
+///    (9)  T_k ← blocktridiag({A_i}, {B_i})              (d·s × d·s; in code this is
+///                                                        fused into lines 2-8: the blocks
+///                                                        are written into T_blk in place)
 ///   (10)  (V, λ) ← syevd(T_k)
 ///   (11)  F ← Q_basis · [ V·diag(f(λ))·V[1:s,:]ᵀ ] · R₀ (= Q_basis·f(T_k)·E₁·R₀)
 ///
@@ -71,17 +73,21 @@ public:
     // R0_buf:    s*s         — upper triangular factor from initial QR of B.
     // tau_buf:   s           — Householder scalars (geqrf/orgqr on n×s panels
     //   need min(n, s) = s of them); reused at each geqrf/orgqr call.
-    // A_blk:     d*s*s       — block alphas (s×s symmetric), A_blk[step*s*s] = A_step.
-    // B_blk:     d*s*s       — block betas  (s×s upper triangular), B_blk[step*s*s] = B_step.
-    //   Only d-1 entries are populated (no beta after the last step);
-    //   size d is allocated to keep indexing uniform.
-    // workspace: apply_f scratch — T_dense (d*s×d*s) + eig_vals (d*s) + G (d*s×s) + C1 (d*s×s).
+    // T_blk:     (d*s)^2     — the block tridiagonal T_k, assembled IN PLACE by
+    //   the recurrence (no separate A_blk/B_blk copies): block alpha A_step is
+    //   GEMM'd directly into the diagonal-block position (b0, b0), block beta
+    //   B_step (upper triangular) is copied once from the QR'd Z into the lower
+    //   off-diagonal position (b0+s, b0); ld = d*s throughout. Only the lower
+    //   triangle is populated (syevd reads Uplo::Lower). apply_f's syevd then
+    //   overwrites T_blk with the eigenvectors, so one run_lanczos supports
+    //   exactly one apply_f (the call() pairing; re-applying a different f
+    //   requires re-running the recurrence).
+    // workspace: apply_f scratch — eig_vals (d*s) + G (d*s×s) + C1 (d*s×s).
     // proj_buf:  s*s — reorthogonalization scratch (Q_p^T * Y projection); reused across steps.
     T* K_big     = nullptr; int64_t K_big_sz     = 0;
     T* R0_buf    = nullptr; int64_t R0_sz        = 0;
     T* tau_buf   = nullptr; int64_t tau_buf_sz   = 0;
-    T* A_blk     = nullptr; int64_t A_blk_sz     = 0;
-    T* B_blk     = nullptr; int64_t B_blk_sz     = 0;
+    T* T_blk     = nullptr; int64_t T_blk_sz     = 0;
     T* workspace = nullptr; int64_t workspace_sz = 0;
     T* proj_buf  = nullptr; int64_t proj_buf_sz  = 0;
 
@@ -95,25 +101,39 @@ public:
 
     ~BlockLanczosFA() {
         delete[] K_big; delete[] R0_buf; delete[] tau_buf;
-        delete[] A_blk; delete[] B_blk; delete[] workspace; delete[] proj_buf;
+        delete[] T_blk; delete[] workspace; delete[] proj_buf;
     }
 
     // ------------------------------------------------------------------
     /// Run the d-step block Lanczos recurrence on B (n×s col-major).
-    /// Fills K_big, R0_buf, A_blk, B_blk.
+    /// Fills K_big, R0_buf, and T_blk (the block tridiagonal, assembled in
+    /// place at its final positions — see the member comment).
     /// Calls A exactly d times, each applied to an n×s block.
+    ///
+    /// T_k layout built here (lower triangle only; syevd reads Uplo::Lower):
+    ///
+    ///         ┌  A₀                        ┐
+    ///         │  B₀   A₁                   │
+    ///   T_k = │       B₁   A₂              │      Aᵢ s×s symmetric (GEMM'd in),
+    ///         │              ⋱   ⋱         │      Bᵢ s×s upper triangular (R of
+    ///         └                  B_{d-2}  A_{d-1}┘  the QR of Z at step i+1)
     template <linops::SymmetricLinearOperator SLO>
     void run_lanczos(SLO& A, const T* B, int64_t n, int64_t s, int64_t d) {
         using namespace std::chrono;
         steady_clock::time_point _mv_t0, _mv_t1;
         _t_matvec_us = 0;
+        const int64_t m = d * s;   // T_k dimension / its leading dimension
 
         util::upsize(K_big,   K_big_sz,   (d + 1) * n * s);
         util::upsize(R0_buf,  R0_sz,      s * s);
         util::upsize(tau_buf, tau_buf_sz, s);
-        util::upsize(A_blk,   A_blk_sz,   d * s * s);
-        util::upsize(B_blk,   B_blk_sz,   d * s * s);
+        util::upsize(T_blk,   T_blk_sz,   m * m);
         if (reorth) util::upsize(proj_buf, proj_buf_sz, s * s);
+
+        // Zero T_blk's background once per run (persistent workspace: it holds
+        // the previous call's eigenvectors); the recurrence then writes only
+        // the band blocks.
+        std::memset(T_blk, 0, m * m * sizeof(T));
 
         // [line 1] Q₀, R₀ ← qr(B).  Q0 overwrites K_big[0..n*s-1].
         T* Q0 = K_big;
@@ -128,8 +148,11 @@ public:
             T* Q_step = K_big + step       * n * s;
             T* Q_prev = (step > 0) ? K_big + (step - 1) * n * s : nullptr;
             T* Y      = K_big + (step + 1) * n * s;   // matvec output, then Z in-place
-            T* A_step = A_blk + step * s * s;
-            T* B_prev = (step > 0) ? B_blk + (step - 1) * s * s : nullptr;
+            const int64_t b0 = step * s;
+            // Block positions inside T_blk (ld = m): A_step at (b0, b0),
+            // B_{step-1} at (b0, b0 - s) — written directly, no staging copies.
+            T* A_step = T_blk + b0 * m + b0;
+            T* B_prev = (step > 0) ? T_blk + (b0 - s) * m + b0 : nullptr;
 
             // [line 3] Z ← A·Q_i  (1 batch matvec; Z lives in Y)
             if (this->timing) _mv_t0 = steady_clock::now();
@@ -139,21 +162,22 @@ public:
             // [line 4] if i > 0:  Z ← Z − Q_{i−1}·B_{i−1}ᵀ
             if (step > 0)
                 blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
-                           n, s, s, (T)-1.0, Q_prev, n, B_prev, s, (T)1.0, Y, n);
+                           n, s, s, (T)-1.0, Q_prev, n, B_prev, m, (T)1.0, Y, n);
 
-            // [line 5] A_i ← Q_iᵀ·Z; symmetrize  (block alpha, s×s).
+            // [line 5] A_i ← Q_iᵀ·Z; symmetrize  (block alpha, s×s), GEMM'd
+            // directly into its diagonal-block slot of T_blk.
             // Symmetric in exact arithmetic since Q_stepᵀ·A·Q_step is, but the
             // general GEMM's two triangles disagree at roundoff. The syevd that
             // eventually consumes the block tridiagonal reads a single triangle,
             // so average with util::symmetrize to factor the symmetric part.
             // Same rationale as the Gram symmetrize in rl_nystrom_evd.hh.
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                       s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, s);
-            util::symmetrize(s, A_step, s);
+                       s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, m);
+            util::symmetrize(s, A_step, m);
 
             // [line 6] Z ← Z − Q_i·A_i  (in-place in Y)
             blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                       n, s, s, (T)-1.0, Q_step, n, A_step, s, (T)1.0, Y, n);
+                       n, s, s, (T)-1.0, Q_step, n, A_step, m, (T)1.0, Y, n);
 
             // [line 7] if reorth: for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
             // (full block classical Gram-Schmidt against every previous block)
@@ -168,25 +192,29 @@ public:
             }
 
             // [line 8] if i < d−1:  Q_{i+1}, B_i ← qr(Z)
-            // (Q_{step+1} overwrites Y; B_step = upper R factor.
+            // (Q_{step+1} overwrites Y. B_step = upper R factor, copied once
+            //  from the QR'd Z into its lower off-diagonal slot (b0+s, b0) of
+            //  T_blk — the tile's strict lower stays zero from the memset.
             //  Skipped at the last step: Q_d is never needed by apply_f.)
             if (step < d - 1) {
-                T* B_step = B_blk + step * s * s;
+                T* B_step = T_blk + b0 * m + (b0 + s);
                 lapack::geqrf(n, s, Y, n, tau_buf);
-                lapack::laset(lapack::MatrixType::General, s, s, (T)0, (T)0, B_step, s);
-                lapack::lacpy(lapack::MatrixType::Upper, s, s, Y, n, B_step, s);
+                lapack::lacpy(lapack::MatrixType::Upper, s, s, Y, n, B_step, m);
                 lapack::orgqr(n, s, s, Y, n, tau_buf);
             }
         }
     }
 
     // ------------------------------------------------------------------
-    /// Evaluate f(A)B from precomputed Krylov data (K_big, R0_buf, A_blk, B_blk)
-    /// — lines 9-11 of the class-doc pseudocode.
+    /// Evaluate f(A)B from precomputed Krylov data (K_big, R0_buf, T_blk)
+    /// — lines 9-11 of the class-doc pseudocode. Line 9 (assembling T_k) has
+    /// already happened: the recurrence wrote the blocks into T_blk in place.
+    ///
+    /// CONSUMES T_blk: the syevd overwrites it with the eigenvectors, so one
+    /// run_lanczos supports exactly one apply_f (the call() pairing).
     ///
     /// Computation:
-    ///  [line 9]   Assemble T_dense (d*s × d*s block tridiagonal) from A_blk and B_blk.
-    ///  [line 10]  syevd: T_dense → eigenvectors V (in-place), eigenvalues λ.
+    ///  [line 10]  syevd: T_blk → eigenvectors V (in-place), eigenvalues λ.
     ///  [line 11a] W (s×m): W[i,j] = f(λⱼ)*V[i,j] for i=0..s-1 (first s rows of V, col-scaled).
     ///  [line 11b] C1 (d*s × s) = V * W^T  — this equals f(T_k) * E₁.
     ///  [line 11c] C1 *= R₀  (TRMM: right-multiply by upper-triangular R₀).
@@ -194,45 +222,14 @@ public:
     template <std::invocable<T> F>
     void apply_f(F f, int64_t n, int64_t s, int64_t d, T* out) {
         int64_t m = d * s;
-        util::upsize(workspace, workspace_sz, m * m + m + 2 * m * s);
+        util::upsize(workspace, workspace_sz, m + 2 * m * s);
 
-        T* T_dense = workspace;
-        T* eig_vals = T_dense + m * m;
+        T* eig_vals = workspace;
         T* G        = eig_vals + m;
         T* C1       = G + m * s;
+        T* T_dense  = T_blk;   // eigenvectors V overwrite the block tridiagonal
 
-        // [line 9] T_k ← blocktridiag({A_i}, {B_i}):
-        // assemble T_dense (m×m, m = d·s) as block tridiagonal:
-        //
-        //         ┌  A₀   B₀ᵀ                  ┐
-        //         │  B₀   A₁   B₁ᵀ             │
-        //   T_d = │       B₁   A₂   …          │
-        //         │              ⋱   ⋱   B_{d-2}ᵀ│
-        //         └                  B_{d-2}  A_{d-1}┘
-        //
-        // where Aᵢ is the s×s diagonal block in A_blk[i] and Bᵢ is the s×s
-        // upper-triangular factor produced by the QR of Z at step i+1.
-        //
-        // Only the lower triangle is assembled: the syevd below is called with
-        // Uplo::Lower and never reads the strict upper triangle, so mirroring
-        // B_stepᵀ into it (and a final symmetrize) would be dead work. The
-        // memset zeroes the below-band region of the lower triangle.
-        std::memset(T_dense, 0, m * m * sizeof(T));
-        for (int64_t step = 0; step < d; ++step) {
-            int64_t b0 = step * s;
-            // Diagonal block
-            lapack::lacpy(lapack::MatrixType::General, s, s,
-                          A_blk + step * s * s, s, T_dense + b0 * m + b0, m);
-            // Lower off-diagonal block: T(b1:b1+s, b0:b0+s) = B_step
-            if (step < d - 1) {
-                T* B_step = B_blk + step * s * s;
-                int64_t b1 = (step + 1) * s;
-                lapack::lacpy(lapack::MatrixType::General, s, s,
-                              B_step, s, T_dense + b0 * m + b1, m);
-            }
-        }
-
-        // [line 10] (V, λ) ← syevd(T_k): eigenvectors V overwrite T_dense, eig_vals → λ.
+        // [line 10] (V, λ) ← syevd(T_k): eigenvectors V overwrite T_blk, eig_vals → λ.
         lapack::syevd(lapack::Job::Vec, blas::Uplo::Lower, m, T_dense, m, eig_vals);
 
         // [line 11a] W (s×m col-major, ld=s; stored in the G buffer): W[i,j] = f(λⱼ)*V[i,j]
