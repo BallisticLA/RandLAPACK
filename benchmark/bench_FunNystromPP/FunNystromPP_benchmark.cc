@@ -110,12 +110,14 @@ int main(int argc, char **argv) {
     }
     const int64_t n = n_A;
 
-    std::vector<T> A_buf((size_t)n * n), O2_buf((size_t)n * s);
+    // Raw buffers per house rule (no std::vector for matrix/vector data).
+    T *A_buf  = new T[n * n];
+    T *O2_buf = new T[n * s];
     try {
         // Omega1.bin is peeked above for (n, k) only; its data is unused —
         // the Phase-1 sketch is drawn inside NystromEVD.
-        RandLAPACK::testing::load_dense_bin<T>(A_path,  n_A,  n2_A, A_buf.data(),  (int64_t)A_buf.size());
-        RandLAPACK::testing::load_dense_bin<T>(O2_path, n_O2, s,    O2_buf.data(), (int64_t)O2_buf.size());
+        RandLAPACK::testing::load_dense_bin<T>(A_path,  n_A,  n2_A, A_buf,  n * n);
+        RandLAPACK::testing::load_dense_bin<T>(O2_path, n_O2, s,    O2_buf, n * s);
     } catch (const std::exception &e) {
         std::fprintf(stderr, "load error: %s\n", e.what());
         return 2;
@@ -150,18 +152,18 @@ int main(int argc, char **argv) {
     // The exact-LFA path also needs the eigendecomp, so it is forced off
     // in timing mode (use scalar or block LFA instead).
     T true_tr = std::nan("0");
-    std::vector<T> A_cpy;
-    std::vector<T> ev;
+    T *A_cpy = nullptr;   // eigenvectors of A after syevd (raw; owned here)
+    T *ev    = nullptr;   // eigenvalues
     if (!timing_mode || lfa_str == "exact") {
-        A_cpy = A_buf;
-        ev.assign(n, (T)0);
-        lapack::syevd(lapack::Job::Vec, lapack::Uplo::Upper, n,
-                      A_cpy.data(), n, ev.data());
+        A_cpy = new T[n * n];
+        ev    = new T[n];
+        std::copy(A_buf, A_buf + n * n, A_cpy);
+        lapack::syevd(lapack::Job::Vec, lapack::Uplo::Upper, n, A_cpy, n, ev);
         true_tr = 0;
         for (int64_t i = 0; i < n; ++i) true_tr += fscalar(ev[i]);
     }
 
-    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A_buf.data(), n, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A_buf, n, Layout::ColMajor);
 
     // Three oracle types share a single std::function signature so the
     // driver doesn't need to be retemplated. The exact path captures the
@@ -174,8 +176,10 @@ int main(int argc, char **argv) {
 
     if (lfa_str == "exact") {
         // V·diag(f(λ))·Vᵀ via the eigendecomp we already computed for true_tr.
-        // Shared with the test + MEX through RandLAPACK::testing.
-        std::vector<T> V = std::move(A_cpy);
+        // Shared with the test + MEX through RandLAPACK::testing. The testing
+        // util takes std::vector by value (it moves ownership into the
+        // closure); construct them from the raw buffers at the boundary.
+        std::vector<T> V(A_cpy, A_cpy + n * n);
         std::vector<T> f_lambda(n);
         for (int64_t i = 0; i < n; ++i) f_lambda[i] = fscalar(ev[i]);
         fAfun = RandLAPACK::testing::make_exact_fa_oracle_from_eig<T>(
@@ -203,7 +207,7 @@ int main(int argc, char **argv) {
     using RNG = r123::Philox4x32;
     RandBLAS::RNGState<RNG> state((uint32_t)saso_seed);
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                        state, O2_buf.data(), t1, t2);
+                        state, O2_buf, t1, t2);
     auto t_end = std::chrono::steady_clock::now();
     double t_driver_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
     T err = std::isnan(true_tr) ? std::nan("0") : std::abs(est - true_tr) / std::abs(true_tr);
@@ -214,5 +218,10 @@ int main(int argc, char **argv) {
                 (long)n, (long)k, t_driver_ms,
                 driver.t_phase1_ms, driver.t_phase2_ms, driver.t_specrec_ms,
                 force_fallback ? 1 : 0);
+
+    delete[] A_buf;
+    delete[] O2_buf;
+    delete[] A_cpy;
+    delete[] ev;
     return 0;
 }

@@ -9,8 +9,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
-#include <random>
-#include <vector>
 
 namespace linops = RandLAPACK::linops;
 
@@ -18,9 +16,15 @@ namespace linops = RandLAPACK::linops;
 // once per test from an explicit eigendecomposition of A; that lets
 // each test isolate the v2 driver's behavior from Krylov truncation.
 // Phase 4 will add a block-Lanczos fAfun and re-run an analogous set.
+//
+// All buffers are raw new[]/delete[] (house rule: no std::vector for
+// matrix/vector data) and all randomness goes through RandBLAS
+// (Philox4x32; house rule: no std::mt19937).
 
 class TestFunNystromPPv2 : public ::testing::Test {
 protected:
+    using RNG = r123::Philox4x32;
+
     // The exact f(A)·B oracle (V·diag(f(λ))·Vᵀ·B) now lives in one place:
     // RandLAPACK::testing::make_exact_fa_oracle (rl_test_utils.hh). The tests,
     // the benchmark, and the MEX binding all share that single implementation
@@ -28,23 +32,26 @@ protected:
 
     // Compute tr(f(A)) exactly via syevd. A_full must be full-symmetric n×n.
     template <typename T, typename F>
-    static T true_trace_fa(int64_t n, const std::vector<T> &A_full, F &&fscalar) {
-        std::vector<T> A_cpy = A_full;
-        std::vector<T> ev(n);
-        lapack::syevd(lapack::Job::NoVec, lapack::Uplo::Upper, n,
-                      A_cpy.data(), n, ev.data());
+    static T true_trace_fa(int64_t n, const T *A_full, F &&fscalar) {
+        T *A_cpy = new T[n * n];
+        T *ev    = new T[n];
+        std::copy(A_full, A_full + n * n, A_cpy);
+        lapack::syevd(lapack::Job::NoVec, lapack::Uplo::Upper, n, A_cpy, n, ev);
         T tr = 0;
         for (int64_t i = 0; i < n; ++i) tr += fscalar(ev[i]);
+        delete[] A_cpy;
+        delete[] ev;
         return tr;
     }
 
-    // Sample n×s standard-normal matrix (column-major), seeded.
+    // Sample an n×s standard-normal matrix (column-major) into a new[]
+    // buffer, through RandBLAS. Caller owns the buffer.
     template <typename T>
-    static std::vector<T> randn(int64_t n, int64_t s, uint64_t seed) {
-        std::mt19937_64 rng(seed);
-        std::normal_distribution<T> dist((T)0, (T)1);
-        std::vector<T> M((int64_t)n * s);
-        for (auto &v : M) v = dist(rng);
+    static T* randn(int64_t n, int64_t s, uint32_t seed) {
+        T *M = new T[n * s];
+        RandBLAS::RNGState<RNG> state(seed);
+        RandBLAS::DenseDist D(n, s);
+        RandBLAS::fill_dense(D, M, state);
         return M;
     }
 };
@@ -55,7 +62,7 @@ protected:
 TEST_F(TestFunNystromPPv2, BinaryIoRoundTrip) {
     using T = double;
     int64_t m = 5, n = 3;
-    std::vector<T> orig(m * n);
+    T *orig = new T[m * n];
     for (int64_t j = 0; j < n; ++j)
         for (int64_t i = 0; i < m; ++i)
             orig[i + j * m] = (T)(100 * j + i + 1);
@@ -65,15 +72,17 @@ TEST_F(TestFunNystromPPv2, BinaryIoRoundTrip) {
     ASSERT_GE(fd, 0);
     close(fd);
 
-    RandLAPACK::testing::save_dense_bin<T>(tmpname, m, n, orig.data());
-    std::vector<T> back(m * n, -1.0);
+    RandLAPACK::testing::save_dense_bin<T>(tmpname, m, n, orig);
+    T *back = new T[m * n];
+    std::fill(back, back + m * n, (T)-1.0);
     int64_t m_b = 0, n_b = 0;
-    RandLAPACK::testing::load_dense_bin<T>(tmpname, m_b, n_b,
-                                        back.data(), (int64_t)back.size());
+    RandLAPACK::testing::load_dense_bin<T>(tmpname, m_b, n_b, back, m * n);
     EXPECT_EQ(m_b, m);
     EXPECT_EQ(n_b, n);
-    for (size_t i = 0; i < orig.size(); ++i) EXPECT_DOUBLE_EQ(back[i], orig[i]);
+    for (int64_t i = 0; i < m * n; ++i) EXPECT_DOUBLE_EQ(back[i], orig[i]);
     std::remove(tmpname);
+    delete[] orig;
+    delete[] back;
 }
 
 
@@ -85,7 +94,7 @@ TEST_F(TestFunNystromPPv2, DiagonalSqrt) {
     using T = double;
     const int64_t n = 50, k = 15, s = 300, q = 2;
 
-    std::vector<T> A(n * n, 0.0);
+    T *A = new T[n * n]();
     T true_tr = 0;
     for (int64_t i = 0; i < n; ++i) {
         A[i + i * n] = (T)(i + 1);
@@ -93,22 +102,24 @@ TEST_F(TestFunNystromPPv2, DiagonalSqrt) {
     }
 
     auto fscalar = [](T x) { return std::sqrt(x); };
-    auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
+    auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
 
     // Phase-1 sketch is kernel-internal (SASO drawn from this state);
     // only the Phase-2 probes are supplied explicitly.
-    RandBLAS::RNGState<r123::Philox4x32> state(1);
-    std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/2);
+    RandBLAS::RNGState<RNG> state(1);
+    T *Omega2 = randn<T>(n, s, /*seed=*/2);
 
-    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
     RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                        state, Omega2.data(), t1, t2);
+                        state, Omega2, t1, t2);
     T err = std::abs(est - true_tr) / true_tr;
     std::printf("v2 Diagonal sqrt: est=%.10e true=%.10e err=%.3e (t1=%.3e t2=%.3e)\n",
                 est, true_tr, err, t1, t2);
     EXPECT_LT(err, 5e-2);
+    delete[] A;
+    delete[] Omega2;
 }
 
 // Low-rank PSD with k_mat = 10 distinct eigenvalues and an n - k_mat tail
@@ -128,23 +139,23 @@ TEST_F(TestFunNystromPPv2, FullRankCapture) {
     const int64_t n = 80, k_mat = 10, k = 10, s = 200, q = 2;
 
     // Eigenvalues 100 / j² (algebraic decay, like Persson's setup).
-    std::vector<T> eigvals(k_mat);
+    T eigvals[k_mat];
     for (int64_t j = 0; j < k_mat; ++j) eigvals[j] = (T)100.0 / (T)((j + 1) * (j + 1));
 
     // Construct A = V · diag(eigvals) · Vᵀ with V a random orthonormal m × k_mat.
-    std::vector<T> V_raw = randn<T>(n, k_mat, /*seed=*/7);
-    std::vector<T> tau(k_mat);
-    lapack::geqrf(n, k_mat, V_raw.data(), n, tau.data());
-    lapack::ungqr(n, k_mat, k_mat, V_raw.data(), n, tau.data());
+    T *V_raw = randn<T>(n, k_mat, /*seed=*/7);
+    T *tau   = new T[k_mat];
+    lapack::geqrf(n, k_mat, V_raw, n, tau);
+    lapack::ungqr(n, k_mat, k_mat, V_raw, n, tau);
 
     // A = V · D · Vᵀ
-    std::vector<T> Vd(n * k_mat);
+    T *Vd = new T[n * k_mat];
     for (int64_t j = 0; j < k_mat; ++j)
         for (int64_t i = 0; i < n; ++i)
             Vd[i + j * n] = V_raw[i + j * n] * eigvals[j];
-    std::vector<T> A(n * n, 0.0);
+    T *A = new T[n * n]();
     blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::Trans,
-               n, n, k_mat, (T)1, Vd.data(), n, V_raw.data(), n, (T)0, A.data(), n);
+               n, n, k_mat, (T)1, Vd, n, V_raw, n, (T)0, A, n);
     // symmetrize (drop fp asymmetry)
     for (int64_t j = 0; j < n; ++j)
         for (int64_t i = j + 1; i < n; ++i)
@@ -154,21 +165,26 @@ TEST_F(TestFunNystromPPv2, FullRankCapture) {
     T true_tr = 0;
     for (int64_t j = 0; j < k_mat; ++j) true_tr += fscalar(eigvals[j]);
 
-    auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
-    RandBLAS::RNGState<r123::Philox4x32> state(11);
-    std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/13);
+    auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    RandBLAS::RNGState<RNG> state(11);
+    T *Omega2 = randn<T>(n, s, /*seed=*/13);
 
-    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
     RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                        state, Omega2.data(), t1, t2);
+                        state, Omega2, t1, t2);
     T err_t1  = std::abs(t1  - true_tr) / true_tr;
     T err_tot = std::abs(est - true_tr) / true_tr;
     std::printf("v2 FullRankCapture: t1=%.10e t2=%.3e est=%.10e true=%.10e (err_t1=%.3e err_tot=%.3e)\n",
                 t1, t2, est, true_tr, err_t1, err_tot);
     EXPECT_LT(err_t1,  1e-12);   // Phase 1 captures full rank → ε_mach
     EXPECT_LT(err_tot, 1e-5);    // two-path arithmetic floor (see comment above)
+    delete[] V_raw;
+    delete[] tau;
+    delete[] Vd;
+    delete[] A;
+    delete[] Omega2;
 }
 
 // Random dense PSD, f = sqrt. k = 10, k_mat unknown — Phase 1 captures
@@ -178,10 +194,10 @@ TEST_F(TestFunNystromPPv2, RandomPSDSqrt) {
     const int64_t n = 40, k = 10, s = 400, q = 2;
 
     // A = BᵀB + n·I  (well-conditioned random PSD)
-    std::vector<T> B_raw = randn<T>(n, n, /*seed=*/17);
-    std::vector<T> A(n * n, 0.0);
+    T *B_raw = randn<T>(n, n, /*seed=*/17);
+    T *A = new T[n * n]();
     blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
-               n, n, (T)1, B_raw.data(), n, (T)0, A.data(), n);
+               n, n, (T)1, B_raw, n, (T)0, A, n);
     for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
     // symmetrize
     for (int64_t j = 0; j < n; ++j)
@@ -190,18 +206,21 @@ TEST_F(TestFunNystromPPv2, RandomPSDSqrt) {
 
     auto fscalar = [](T x) { return std::sqrt(x); };
     T true_tr = true_trace_fa<T>(n, A, fscalar);
-    auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
+    auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
 
-    RandBLAS::RNGState<r123::Philox4x32> state(19);
-    std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/23);
+    RandBLAS::RNGState<RNG> state(19);
+    T *Omega2 = randn<T>(n, s, /*seed=*/23);
 
-    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
     RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                        state, Omega2.data(), t1, t2);
+                        state, Omega2, t1, t2);
     T err = std::abs(est - true_tr) / true_tr;
     std::printf("v2 RandomPSDSqrt: est=%.10e true=%.10e err=%.3e (t1=%.3e t2=%.3e)\n",
                 est, true_tr, err, t1, t2);
     EXPECT_LT(err, 0.15);
+    delete[] B_raw;
+    delete[] A;
+    delete[] Omega2;
 }
