@@ -85,6 +85,12 @@ public:
     // SASO default (matches the benchmark CLI default).
     int64_t vec_nnz = 8;
 
+    // Phase-2 oracle convention. false = Lanczos-FA (fAfun fills f(A)·Ω₂, m×s,
+    // and the driver dots it with Ω₂). true = Lanczos-QFA (fAfun fills the s×s
+    // quadratic form Ω₂ᵀ f(A) Ω₂ directly — BlockLanczosQFA — and the driver
+    // takes its trace); QFA skips the f(A)·Ω₂ mapback entirely.
+    bool use_qfa = false;
+
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
     // public so tests can inspect them; in production code you'd treat
     // them as read-only output. Heap-owned; grown via util::upsize and
@@ -98,7 +104,10 @@ public:
 
     // Persistent Phase 2 buffers; grown via util::upsize on each call.
     T* Y_2     = nullptr; int64_t Y_2_sz     = 0;   // k × s
-    T* fAOmega = nullptr; int64_t fAOmega_sz = 0;   // m × s
+    T* fAOmega = nullptr; int64_t fAOmega_sz = 0;   // m × s (FA) or s × s (QFA)
+    // Internal Ω₂ (used only when the caller passes Omega2 == nullptr): a
+    // Gaussian n × s block with each column normalized to ‖·‖₂ = √n.
+    T* Omega2_buf = nullptr; int64_t Omega2_buf_sz = 0;
 
     // Phase-split wall-clock timings populated by call() (ms).
     double t_phase1_ms = 0.0;
@@ -122,6 +131,7 @@ public:
         delete[] lambda;
         delete[] Y_2;
         delete[] fAOmega;
+        delete[] Omega2_buf;
     }
 
     /// Returns the estimate t = t1 + t2 of tr(f(A)).
@@ -160,10 +170,12 @@ public:
     /// @param[in,out] state RNG state for the Phase-1 SASO sketch (generated
     ///                      inside NystromEVD with `this->vec_nnz` nonzeros
     ///                      per column); advanced past the draw.
-    /// @param[in]  Omega2   Caller-supplied m × s sketch for Phase 2
-    ///                      (Gaussian in the v2 baseline). When k == m
-    ///                      Phase 2 is skipped and Omega2 is unread; the
-    ///                      caller may pass nullptr.
+    /// @param[in]  Omega2   Phase-2 Hutchinson probes (m × s, col-major).
+    ///                      Pass nullptr to generate them inside the kernel: a
+    ///                      Gaussian block drawn from `state`, each column
+    ///                      normalized to ‖·‖₂ = √n. Pass an explicit block to
+    ///                      override (e.g. test fixtures). When k == m Phase 2
+    ///                      is skipped and Omega2 is unread.
     /// @param[in]  f_zero   Optional f(0). Default std::nullopt produces
     ///                      Persson-MATLAB-aligned output (no zero-fill
     ///                      correction; bit-exact cross-validation anchor).
@@ -275,28 +287,49 @@ T FunNystromPP<T>::call(
     if (k < m) {
         auto t_p2_start = std::chrono::steady_clock::now();
 
+        // [Alg. 1, line 4] Resolve Ω₂. Caller-supplied when Omega2 != nullptr;
+        //   otherwise generated inside the kernel — a Gaussian n×s block drawn
+        //   from `state`, each column normalized to ‖·‖₂ = √n (uniformly-random
+        //   direction, fixed norm √n).
+        const T* Om2 = Omega2;
+        if (Om2 == nullptr) {
+            util::upsize(this->Omega2_buf, this->Omega2_buf_sz, m * s);
+            RandBLAS::DenseDist D2(m, s);                 // Gaussian (default family)
+            state = RandBLAS::fill_dense(D2, this->Omega2_buf, state);
+            const T target = std::sqrt((T)m);
+            for (int64_t j = 0; j < s; ++j) {
+                T* col = this->Omega2_buf + j * m;
+                T nrm  = blas::nrm2(m, col, 1);
+                if (nrm > (T)0) blas::scal(m, target / nrm, col, 1);
+            }
+            Om2 = this->Omega2_buf;
+        }
+
         // [Alg. 1, line 6 — prep] Y_2 ← Uᵀ · Ω₂  (k × s), so that
         //   gᵢᵀ·U·f(Λ)·Uᵀ·gᵢ = Σⱼ f(λⱼ)·Y_2[j,i]².
         util::upsize(this->Y_2, this->Y_2_sz, k * s);
         blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-                   k, s, m, (T)1, this->U, m, Omega2, m, (T)0, this->Y_2, k);
+                   k, s, m, (T)1, this->U, m, Om2, m, (T)0, this->Y_2, k);
 
-        // [Alg. 1, line 5 — oracle] fAOmega ← f(A) · Ω₂  (m × s). fAfun is the
-        //   caller-supplied f(A)-oracle: Lanczos-FA at depth t in production
-        //   (gᵢᵀ·LanczosFA(A, f, gᵢ) ≡ Lanczos-QFA(A, f, gᵢ, t) by the
-        //   Gauss-quadrature identity), or an exact dense oracle in tests.
-        util::upsize(this->fAOmega, this->fAOmega_sz, m * s);
+        // [Alg. 1, line 5 — oracle] tr_AΩ ← tr(Ω₂ᵀ·f(A)·Ω₂). Two conventions,
+        //   selected by use_qfa (see the member doc):
+        //     FA  : fAfun fills fAOmega = f(A)·Ω₂ (m×s); trace = Σⱼ⟨Ω₂ⱼ, fAOmegaⱼ⟩.
+        //     QFA : fAfun fills the s×s matrix M = Ω₂ᵀf(A)Ω₂ directly, skipping
+        //           the mapback (gᵢᵀ·LanczosFA ≡ Lanczos-QFA); trace = Σᵢ M[i,i].
+        T tr_AOmega = (T)0;
         auto t_fafun_start = std::chrono::steady_clock::now();
-        fAfun(m, s, Omega2, this->fAOmega);
+        if (this->use_qfa) {
+            util::upsize(this->fAOmega, this->fAOmega_sz, s * s);
+            fAfun(m, s, Om2, this->fAOmega);
+            for (int64_t i = 0; i < s; ++i) tr_AOmega += this->fAOmega[i + i * s];
+        } else {
+            util::upsize(this->fAOmega, this->fAOmega_sz, m * s);
+            fAfun(m, s, Om2, this->fAOmega);
+            for (int64_t j = 0; j < s; ++j)
+                tr_AOmega += blas::dot(m, Om2 + j * m, 1, this->fAOmega + j * m, 1);
+        }
         this->t_fafun_ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - t_fafun_start).count();
-
-        // [Alg. 1, line 5] ℓ·tr_bot = Σᵢ gᵢᵀ·f(A)·gᵢ:
-        //   tr_AΩ ← tr(Ω₂ᵀ · fAOmega) = Σⱼ ⟨Ω₂[:,j], fAOmega[:,j]⟩.
-        T tr_AOmega = (T)0;
-        for (int64_t j = 0; j < s; ++j) {
-            tr_AOmega += blas::dot(m, Omega2 + j * m, 1, this->fAOmega + j * m, 1);
-        }
 
         // [Alg. 1, line 6] ℓ·tr_cor = Σᵢ gᵢᵀ·U·f(Λ)·Uᵀ·gᵢ:
         //   tr_AhatΩ ← tr(Ω₂ᵀ · f(Â) · Ω₂) = Σᵢⱼ f(λᵢ)·Y_2[i,j]².
@@ -313,7 +346,7 @@ T FunNystromPP<T>::call(
             }
         }
         if (apply_fzero) {
-            const T omega_fro_sq = blas::dot(m * s, Omega2, 1, Omega2, 1);
+            const T omega_fro_sq = blas::dot(m * s, Om2, 1, Om2, 1);
             const T y2_fro_sq    = blas::dot(k * s, this->Y_2, 1, this->Y_2, 1);
             tr_AhatOmega += fz * (omega_fro_sq - y2_fro_sq);
         }

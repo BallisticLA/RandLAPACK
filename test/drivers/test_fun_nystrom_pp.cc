@@ -224,3 +224,61 @@ TEST_F(TestFunNystromPPv2, RandomPSDSqrt) {
     delete[] A;
     delete[] Omega2;
 }
+
+
+// ===== Block Lanczos-QFA equals Bᵀ·(Block Lanczos-FA output) ================
+// The quadratic form M = BlockLanczosQFA(A, B, f, d) must equal Bᵀ·(f(A)·B),
+// where f(A)·B = BlockLanczosFA(A, B, f, d) — the Gauss-quadrature identity
+// gᵀ·LanczosFA = Lanczos-QFA, lifted to blocks. Exact when the block Krylov
+// basis is orthonormal (reorth on); a looser sanity bound without reorth,
+// where basis-orthogonality loss makes the two approximations differ.
+TEST_F(TestFunNystromPPv2, BlockQFAmatchesBlockFA) {
+    using T = double;
+    const int64_t n = 60, s = 8, d = 50;
+
+    // A = GᵀG + n·I (symmetric PSD), same construction as RandomPSDSqrt.
+    T *G0 = randn<T>(n, n, /*seed=*/31);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+
+    T *Bmat = randn<T>(n, s, /*seed=*/37);
+    auto fscalar = [](T x) { return std::sqrt(x); };
+
+    for (int64_t reorth = 1; reorth >= 0; --reorth) {
+        // FA path: G = f(A)·B (n×s), then BᵀG (s×s).
+        RandLAPACK::BlockLanczosFA<T> fa; fa.reorth = reorth;
+        T *Gout = new T[n * s];
+        fa.call(A_op, Bmat, n, s, fscalar, d, Gout);
+        T *BtG = new T[s * s];
+        blas::gemm(Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+                   s, s, n, (T)1, Bmat, n, Gout, n, (T)0, BtG, s);
+
+        // QFA path: M = Bᵀ f(A) B directly (no mapback).
+        RandLAPACK::BlockLanczosQFA<T> qfa; qfa.reorth = reorth;
+        T *M = new T[s * s];
+        qfa.call(A_op, Bmat, n, s, fscalar, d, M);
+
+        T maxdiff = 0, scale = 0, trFA = 0, trQFA = 0;
+        for (int64_t i = 0; i < s * s; ++i) {
+            maxdiff = std::max(maxdiff, std::abs(M[i] - BtG[i]));
+            scale   = std::max(scale, std::abs(BtG[i]));
+        }
+        for (int64_t i = 0; i < s; ++i) { trFA += BtG[i + i * s]; trQFA += M[i + i * s]; }
+        T relmat = maxdiff / scale;
+        T reltr  = std::abs(trFA - trQFA) / std::abs(trFA);
+        std::printf("BlockQFA vs BᵀFA (reorth=%ld): matrix reldiff=%.3e  tr reldiff=%.3e\n",
+                    reorth, relmat, reltr);
+        // reorth on: block MGS orthogonality (~1e-9); reorth off: for a smooth
+        // f and modest d the raw three-term basis keeps Q₀ ⊥ later blocks to
+        // ~machine precision, so the FA/QFA identity holds tighter still.
+        if (reorth) { EXPECT_LT(relmat, 1e-7); EXPECT_LT(reltr, 1e-7); }
+        else        { EXPECT_LT(relmat, 1e-8); EXPECT_LT(reltr, 1e-8); }
+        delete[] Gout; delete[] BtG; delete[] M;
+    }
+    delete[] G0; delete[] A; delete[] Bmat;
+}

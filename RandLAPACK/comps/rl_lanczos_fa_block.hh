@@ -41,7 +41,7 @@ namespace RandLAPACK {
 ///    (4)      if i > 0:  Z ← Z − Q_{i−1}·B_{i−1}ᵀ
 ///    (5)      A_i ← Q_iᵀ·Z;  symmetrize                 (s×s block-α)
 ///    (6)      Z ← Z − Q_i·A_i
-///    (7)      if reorth:  for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
+///    (7)      if reorth:  for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)   (block MGS)
 ///    (8)      if i < d−1:  Q_{i+1}, B_i ← qr(Z)         (s×s block-β = R factor)
 ///    (9)  T_k ← blocktridiag({A_i}, {B_i})              (d·s × d·s; in code this is
 ///                                                        fused into lines 2-8: the blocks
@@ -180,7 +180,11 @@ public:
                        n, s, s, (T)-1.0, Q_step, n, A_step, m, (T)1.0, Y, n);
 
             // [line 7] if reorth: for p = 0..i:  Z ← Z − Q_p·(Q_pᵀ·Z)
-            // (full block classical Gram-Schmidt against every previous block)
+            // (full block modified Gram-Schmidt against every previous block).
+            // NB a batched block-CLASSICAL-GS variant (one GEMM pair against the
+            // whole Q_basis[0..i] at once) was attempted for BLAS-3 locality but
+            // regressed orthogonality (left ‖QᵀQ−I‖ ~ 1); reverted pending a
+            // correct CGS. Toggle reorthogonalization with `reorth`.
             if (reorth) {
                 for (int64_t prev = 0; prev <= step; ++prev) {
                     T* Q_p = K_big + prev * n * s;
