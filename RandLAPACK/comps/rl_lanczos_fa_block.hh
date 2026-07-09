@@ -142,8 +142,11 @@ public:
                            n, s, s, (T)-1.0, Q_prev, n, B_prev, s, (T)1.0, Y, n);
 
             // [line 5] A_i ← Q_iᵀ·Z; symmetrize  (block alpha, s×s).
-            // Symmetric in exact arithmetic since Q_stepᵀ·A·Q_step is —
-            // symmetrize away the small finite-arithmetic asymmetry.
+            // Symmetric in exact arithmetic since Q_stepᵀ·A·Q_step is, but the
+            // general GEMM's two triangles disagree at roundoff. The syevd that
+            // eventually consumes the block tridiagonal reads a single triangle,
+            // so average with util::symmetrize to factor the symmetric part.
+            // Same rationale as the Gram symmetrize in rl_nystrom_evd.hh.
             blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
                        s, s, n, (T)1.0, Q_step, n, Y, n, (T)0.0, A_step, s);
             util::symmetrize(s, A_step, s);

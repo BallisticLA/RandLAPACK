@@ -95,14 +95,16 @@ TEST_F(TestFunNystromPPv2, DiagonalSqrt) {
     auto fscalar = [](T x) { return std::sqrt(x); };
     auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
 
-    std::vector<T> Omega1 = randn<T>(n, k, /*seed=*/1);
+    // Phase-1 sketch is kernel-internal (SASO drawn from this state);
+    // only the Phase-2 probes are supplied explicitly.
+    RandBLAS::RNGState<r123::Philox4x32> state(1);
     std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/2);
 
     linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
     RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                        Omega1.data(), Omega2.data(), t1, t2);
+                        state, Omega2.data(), t1, t2);
     T err = std::abs(est - true_tr) / true_tr;
     std::printf("v2 Diagonal sqrt: est=%.10e true=%.10e err=%.3e (t1=%.3e t2=%.3e)\n",
                 est, true_tr, err, t1, t2);
@@ -153,14 +155,14 @@ TEST_F(TestFunNystromPPv2, FullRankCapture) {
     for (int64_t j = 0; j < k_mat; ++j) true_tr += fscalar(eigvals[j]);
 
     auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
-    std::vector<T> Omega1 = randn<T>(n, k, /*seed=*/11);
+    RandBLAS::RNGState<r123::Philox4x32> state(11);
     std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/13);
 
     linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
     RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                        Omega1.data(), Omega2.data(), t1, t2);
+                        state, Omega2.data(), t1, t2);
     T err_t1  = std::abs(t1  - true_tr) / true_tr;
     T err_tot = std::abs(est - true_tr) / true_tr;
     std::printf("v2 FullRankCapture: t1=%.10e t2=%.3e est=%.10e true=%.10e (err_t1=%.3e err_tot=%.3e)\n",
@@ -190,14 +192,14 @@ TEST_F(TestFunNystromPPv2, RandomPSDSqrt) {
     T true_tr = true_trace_fa<T>(n, A, fscalar);
     auto fAfun = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A.data(), fscalar);
 
-    std::vector<T> Omega1 = randn<T>(n, k, /*seed=*/19);
+    RandBLAS::RNGState<r123::Philox4x32> state(19);
     std::vector<T> Omega2 = randn<T>(n, s, /*seed=*/23);
 
     linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A.data(), n, Layout::ColMajor);
     RandLAPACK::FunNystromPP<T> driver;
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                        Omega1.data(), Omega2.data(), t1, t2);
+                        state, Omega2.data(), t1, t2);
     T err = std::abs(est - true_tr) / true_tr;
     std::printf("v2 RandomPSDSqrt: est=%.10e true=%.10e err=%.3e (t1=%.3e t2=%.3e)\n",
                 est, true_tr, err, t1, t2);

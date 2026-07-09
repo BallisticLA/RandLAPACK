@@ -18,13 +18,13 @@
 //                    scalar: per-column scalar Lanczos-FA at depth d
 //                    block:  block Lanczos-FA at depth d (Chen 2024 §9)
 //   d              Lanczos depth (default 200 for scalar, 20 for block)
-//   sketch_type    gaussian | saso              (default gaussian — use loaded Ω₁.bin)
-//                    saso: replace loaded Ω₁ with a SparseDist SASO sketch of
-//                          the same shape, materialized to dense; loaded Ω₁ ignored.
-//                          Ω₂ is unaffected (always loaded from disk).
-//   vec_nnz        non-zeros per column for SASO (default 8); ignored if sketch_type=gaussian
-//   seed           RNG seed for the SASO sketch; only used when sketch_type=saso
-//                    (default 42)
+//   sketch_type    IGNORED (accepted for CLI compatibility). The Phase-1
+//                    sketch is now always a kernel-internal SASO drawn inside
+//                    NystromEVD; Omega1.bin is read only for its (n, k) header
+//                    (its data is never loaded). Ω₂ is unaffected (always
+//                    loaded from disk). CSV reports sketch_type=saso.
+//   vec_nnz        non-zeros per column for the SASO (default 8)
+//   seed           RNG seed for the Phase-1 sketch (default 42)
 //   timing         0 | 1   (default 0). When 1, suppress the syevd true-trace
 //                    oracle (which would dominate wall-clock at n=2000) and report
 //                    Phase 1 + Phase 2 driver wall-clock in ms.
@@ -63,9 +63,10 @@ static void print_usage(const char *prog) {
         "  poly_lambda    λ in x(x+λ) when func=poly (default 10)\n"
         "  lfa_type       exact | scalar | block  (default exact)\n"
         "  d              Lanczos depth (default 200 scalar, 20 block)\n"
-        "  sketch_type    gaussian | saso  (default gaussian — use loaded Ω₁)\n"
-        "  vec_nnz        non-zeros per column for SASO (default 8)\n"
-        "  seed           RNG seed for SASO generation (default 42)\n"
+        "  sketch_type    IGNORED (Phase-1 sketch is always a kernel-internal SASO;\n"
+        "                 Omega1.bin supplies only the (n, k) header)\n"
+        "  vec_nnz        non-zeros per column for the SASO (default 8)\n"
+        "  seed           RNG seed for the Phase-1 sketch (default 42)\n"
         "  timing         0 | 1 (default 0). 1 = skip syevd oracle, report driver ms\n"
         "  force_fallback 0 | 1 (default 0). 1 = skip Cholesky-fast in NystromEVD\n"
         "Output (stdout): t1,t2,est,true_tr,err,lfa_type,d,sketch_type,vec_nnz,n,k,t_driver_ms,t_phase1_ms,t_phase2_ms,t_specrec_ms,force_fallback\n", prog);
@@ -109,50 +110,29 @@ int main(int argc, char **argv) {
     }
     const int64_t n = n_A;
 
-    std::vector<T> A_buf((size_t)n * n), O1_buf((size_t)n * k), O2_buf((size_t)n * s);
+    std::vector<T> A_buf((size_t)n * n), O2_buf((size_t)n * s);
     try {
+        // Omega1.bin is peeked above for (n, k) only; its data is unused —
+        // the Phase-1 sketch is drawn inside NystromEVD.
         RandLAPACK::testing::load_dense_bin<T>(A_path,  n_A,  n2_A, A_buf.data(),  (int64_t)A_buf.size());
-        RandLAPACK::testing::load_dense_bin<T>(O1_path, n_O1, k,    O1_buf.data(), (int64_t)O1_buf.size());
         RandLAPACK::testing::load_dense_bin<T>(O2_path, n_O2, s,    O2_buf.data(), (int64_t)O2_buf.size());
     } catch (const std::exception &e) {
         std::fprintf(stderr, "load error: %s\n", e.what());
         return 2;
     }
 
-    // Phase 6 + Gap 5: SASO sketch handling is now driver-resident. This
-    // block only handles benchmark-side bookkeeping:
-    //   - For SASO + q >= 2: symmetrize A in place (right_spmm doesn't
-    //     exploit symmetry); the SparseSkOp itself is sampled and passed
-    //     directly to the FunNystromPP::call SkOp overload at the
-    //     dispatch site below.
-    //   - For SASO + q == 1: densify the sketch into O1_buf and fall back
-    //     to the dense overload (v2 always does an initial QR + final
-    //     matvec at q == 1, so the SkOp path can't amortize).
-    //   - For "gaussian": O1_buf has already been loaded from disk.
-    //
-    // The SkOp path is ~2× off optimal until upstream RandBLAS gains a
-    // `sparse_symm_spmm` — `right_spmm` reads both triangles independently.
-    if (sketch_str == "saso") {
-        if (q >= 2) {
-            // Mirror upper triangle into lower so right_spmm sees a full
-            // symmetric matrix (it reads A as generic dense).
-            for (int64_t j = 0; j < n; ++j)
-                for (int64_t i = j + 1; i < n; ++i)
-                    A_buf[i + j * n] = A_buf[j + i * n];
-        } else {
-            // q == 1: densify SASO into O1_buf so the dense overload handles it.
-            using RNG = r123::Philox4x32;
-            RandBLAS::RNGState<RNG> state((uint32_t)saso_seed);
-            auto S = RandBLAS::SparseDist(n, k, vec_nnz).sample<T, RNG, int64_t>(state);
-            RandBLAS::fill_sparse(S);
-            auto Scoo = RandBLAS::coo_view_of_skop(S);
-            std::fill(O1_buf.begin(), O1_buf.end(), (T)0);
-            RandLAPACK::util::sparse_to_dense(Scoo, Layout::ColMajor, O1_buf.data());
-        }
-    } else if (sketch_str != "gaussian") {
-        std::fprintf(stderr, "unknown sketch_type '%s'\n", sketch_str.c_str());
-        return 6;
-    }
+    if (argc >= 10 && sketch_str != "saso")
+        std::fprintf(stderr,
+            "note: sketch_type '%s' ignored — the Phase-1 sketch is always a "
+            "kernel-internal SASO now.\n", sketch_str.c_str());
+
+    // Mirror upper triangle into lower unconditionally: the kernel's sparse
+    // first A-application goes through right_spmm, which reads A as generic
+    // dense (symmetry not exploited; ~2× off optimal until upstream RandBLAS
+    // gains a `sparse_symm_spmm`).
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i)
+            A_buf[i + j * n] = A_buf[j + i * n];
 
     // Scalar function f.
     std::function<T(T)> fscalar;
@@ -217,30 +197,20 @@ int main(int argc, char **argv) {
 
     RandLAPACK::FunNystromPP<T> driver;
     driver.force_fallback = force_fallback;
+    driver.vec_nnz = vec_nnz;
     T t1 = 0, t2 = 0;
     auto t_start = std::chrono::steady_clock::now();
-    T est;
-    if (sketch_str == "saso" && q >= 2) {
-        // Sparse-sketch path: hand the SparseSkOp directly to the driver's
-        // SkOp overload, which routes the first matvec through right_spmm.
-        using RNG = r123::Philox4x32;
-        RandBLAS::RNGState<RNG> state((uint32_t)saso_seed);
-        auto S = RandBLAS::SparseDist(n, k, vec_nnz).sample<T, RNG, int64_t>(state);
-        RandBLAS::fill_sparse(S);
-        est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                          S, O2_buf.data(), t1, t2);
-    } else {
-        // Dense path: O1_buf holds Gaussian Ω₁ (loaded) or densified SASO (q < 2).
-        est = driver.call(A_op, fAfun, fscalar, k, s, q,
-                          O1_buf.data(), O2_buf.data(), t1, t2);
-    }
+    using RNG = r123::Philox4x32;
+    RandBLAS::RNGState<RNG> state((uint32_t)saso_seed);
+    T est = driver.call(A_op, fAfun, fscalar, k, s, q,
+                        state, O2_buf.data(), t1, t2);
     auto t_end = std::chrono::steady_clock::now();
     double t_driver_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
     T err = std::isnan(true_tr) ? std::nan("0") : std::abs(est - true_tr) / std::abs(true_tr);
 
     std::printf("%.17e,%.17e,%.17e,%.17e,%.6e,%s,%ld,%s,%ld,%ld,%ld,%.3f,%.3f,%.3f,%.3f,%d\n",
                 t1, t2, est, true_tr, err, lfa_str.c_str(), (long)d,
-                sketch_str.c_str(), (long)vec_nnz,
+                "saso", (long)vec_nnz,
                 (long)n, (long)k, t_driver_ms,
                 driver.t_phase1_ms, driver.t_phase2_ms, driver.t_specrec_ms,
                 force_fallback ? 1 : 0);

@@ -24,8 +24,10 @@ namespace RandLAPACK {
 /// SYPS, no SYRF, no internal_stab plumbing — so that each algorithmic
 /// knob can be added back one at a time with verification.
 ///
-/// Phase 1 (`NystromEVD` in `rl_nystrom_evd.hh`): Gaussian sketch +
-/// q − 1 subspace-iteration passes (with QR stabilization between
+/// Phase 1 (`NystromEVD` in `rl_nystrom_evd.hh`): SparseStack/SASO
+/// sketch generated inside the kernel from the caller's RNG state
+/// (vec_nnz nonzeros per column; matches the writeup's Alg. 1 line 1)
+/// + q − 1 subspace-iteration passes (with QR stabilization between
 /// passes) + shifted Nyström spectral recovery on the k × k Gram
 /// (see that file's [Alg. 2, line N] tags).
 ///
@@ -38,8 +40,9 @@ namespace RandLAPACK {
 /// The driver is numbered to match Algorithm 1 of the funNyström++
 /// writeup (*Accelerating trace estimation*). Code blocks in `call()`
 /// are tagged [Alg. 1, line N] with the step they implement:
-///   (1)  draw a SparseStack Ω ∈ R^{m×k}      caller-supplied: dense Omega1,
-///                                            or the SkOp (SASO) overload below
+///   (1)  draw a SparseStack Ω ∈ R^{m×k}      generated inside NystromEVD from
+///                                            the caller's `state` (`vec_nnz`
+///                                            nonzeros per column)
 ///   (2)  Â = U·Λ·Uᵀ ← Nyström(A^q·Ω)         NystromEVD. NB the writeup's q
 ///                                            counts extra A-passes on the
 ///                                            sketch (it advocates q = 0);
@@ -59,10 +62,11 @@ namespace RandLAPACK {
 /// The optional f_zero "zero-fill" correction (documented on `call`) is an
 /// extension beyond Algorithm 1, which implicitly takes f(0) = 0.
 ///
-/// The class takes Ω₁ (Phase 1 sketch) and Ω₂ (Phase 2 Hutchinson)
-/// externally — this is the cross-validation harness contract. The
-/// caller generates or loads them via the same RNG as the MATLAB side
-/// (see RandLAPACK::testing::load_dense_bin for the fixture on-disk format).
+/// The Phase-1 sketch is kernel-internal (SASO from `state`); only Ω₂
+/// (Phase 2 Hutchinson probes) is taken externally. NB this drops the
+/// original bit-exact Ω₁ cross-validation contract with the MATLAB
+/// reference (which uses its own sketching anyway); Phase-2 fixtures
+/// via Ω₂ and tolerance-level accuracy checks remain.
 ///
 /// Reference: the Persson-Kressner funNyström++ algorithm and its MATLAB
 /// reference implementation (davpersson/funNystrom), cited above.
@@ -75,6 +79,11 @@ public:
     // CLI / CSV schema stays stable mid-campaign; remove with the next
     // benchmark schema change.
     bool force_fallback = false;
+
+    // Nonzeros per column of the Phase-1 SASO sketch (forwarded to
+    // NystromEVD's internal sketch generation). 8 is the project-wide
+    // SASO default (matches the benchmark CLI default).
+    int64_t vec_nnz = 8;
 
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
     // public so tests can inspect them; in production code you'd treat
@@ -90,7 +99,6 @@ public:
     // Persistent Phase 2 buffers; grown via util::upsize on each call.
     T* Y_2     = nullptr; int64_t Y_2_sz     = 0;   // k × s
     T* fAOmega = nullptr; int64_t fAOmega_sz = 0;   // m × s
-    T* Y0      = nullptr; int64_t Y0_sz      = 0;   // m × k (sparse-overload first matvec)
 
     // Phase-split wall-clock timings populated by call() (ms).
     double t_phase1_ms = 0.0;
@@ -114,7 +122,6 @@ public:
         delete[] lambda;
         delete[] Y_2;
         delete[] fAOmega;
-        delete[] Y0;
     }
 
     /// Returns the estimate t = t1 + t2 of tr(f(A)).
@@ -124,14 +131,35 @@ public:
     /// In Phase 1 tests we pass a dense exact-f(A) oracle; in Phase 4
     /// we will swap it for block_lanczos_fa.
     ///
+    /// fscalar and fAfun are the SAME function f in two representations,
+    /// consumed in different places:
+    ///   - fscalar (T -> T) acts on scalars. Used wherever eigenvalues are
+    ///     already in hand: t1 = Σᵢ fscalar(λ̂ᵢ) [Alg. 1, line 3] and the
+    ///     correction Σᵢⱼ fscalar(λ̂ᵢ)·Y₂[i,j]² [Alg. 1, line 6]. Â is
+    ///     diagonalized by Phase 1, so f(Â) is never formed as a matrix;
+    ///     f on k scalars is exact and essentially free.
+    ///   - fAfun acts on the operator: B ↦ f(A)·B [Alg. 1, line 5], the one
+    ///     place f must be applied to A itself, whose eigendecomposition we
+    ///     do not have (Lanczos-FA in production; exact dense oracle in
+    ///     tests). Expensive and approximate.
+    /// CALLER OBLIGATION: the two must realize the same f. If they disagree,
+    /// t2 silently estimates tr(f₁(A)) − tr(f₂(Â)) — nonsense with no error
+    /// raised. In practice Lanczos-FA also evaluates f only on scalars (the
+    /// Ritz values of its tridiagonal), so pass the same lambda once directly
+    /// as fscalar and once captured inside the fAfun wrapper.
+    ///
     /// @param[in]  A_op     Symmetric linop providing A * X.
     /// @param[in]  fAfun    Callable B ↦ f(A) * B.
-    /// @param[in]  fscalar  Scalar f operating on each eigenvalue.
+    /// @param[in]  fscalar  Scalar f operating on each eigenvalue; must
+    ///                      realize the same f as fAfun (see the contract
+    ///                      note above).
     /// @param[in]  k        Phase 1 Nyström rank.
     /// @param[in]  s        Phase 2 Hutchinson sample count.
     /// @param[in]  q        Phase 1 number of A applications (q = 1 single
     ///                      pass; q = 2 = 1 subspace-iter pass; etc.).
-    /// @param[in]  Omega1   Caller-supplied m × k sketch for Phase 1.
+    /// @param[in,out] state RNG state for the Phase-1 SASO sketch (generated
+    ///                      inside NystromEVD with `this->vec_nnz` nonzeros
+    ///                      per column); advanced past the draw.
     /// @param[in]  Omega2   Caller-supplied m × s sketch for Phase 2
     ///                      (Gaussian in the v2 baseline). When k == m
     ///                      Phase 2 is skipped and Omega2 is unread; the
@@ -153,42 +181,7 @@ public:
     ///                      f_zero is supplied.
     /// @param[out] t2_out   Phase 2 stochastic correction; 0 when k == m.
     /// @return     t = t1 + t2.
-    template <linops::SymmetricLinearOperator SLO, typename FAFun, typename FScalar>
-    T call(
-        SLO &A_op,
-        FAFun &&fAfun,
-        FScalar &&fscalar,
-        int64_t k,
-        int64_t s,
-        int64_t q,
-        const T *Omega1,
-        const T *Omega2,
-        T &t1_out,
-        T &t2_out,
-        std::optional<T> f_zero = std::nullopt
-    );
-
-    /// Sparse-sketch overload: Phase 1 sketch is a `RandBLAS::SparseSkOp`
-    /// rather than a dense buffer. Routes the first matvec Y0 = A · S
-    /// through the SkOp-taking operator() on the SLO (which dispatches
-    /// to `RandBLAS::sparse_data::right_spmm` for `ExplicitSymLinOp`),
-    /// then delegates to the dense path with `q_effective = q − 1`.
-    /// Algorithmically equivalent to the reference; same answer at
-    /// fixed RNG as densifying `S` and calling the dense overload.
-    ///
-    /// PRECONDITIONS:
-    ///   - q >= 2. For q == 1 there's no first-matvec to amortize
-    ///     (the dense path does QR + one matvec; with sparse Ω₁ that
-    ///     means densifying anyway). Throws std::invalid_argument.
-    ///   - The SLO supports the SkOp-taking operator() overload.
-    ///     For `linops::ExplicitSymLinOp` this requires BOTH triangles
-    ///     of A populated (right_spmm doesn't exploit symmetry; the
-    ///     `RandBLAS::sparse_symm_spmm` upstream work, when it lands,
-    ///     will close the ~2× cost gap).
-    ///
-    /// Other parameters and semantics match the dense overload above.
-    template <linops::SymmetricLinearOperator SLO,
-              RandBLAS::SketchingOperator SkOp,
+    template <linops::SymmetricLinearOperator SLO, typename RNG,
               typename FAFun, typename FScalar>
     T call(
         SLO &A_op,
@@ -197,7 +190,7 @@ public:
         int64_t k,
         int64_t s,
         int64_t q,
-        SkOp &Omega1_sparse,
+        RandBLAS::RNGState<RNG> &state,
         const T *Omega2,
         T &t1_out,
         T &t2_out,
@@ -210,7 +203,8 @@ public:
 // --- Phase 2: FunNystromPP::call ---------------------------------------
 
 template <typename T>
-template <linops::SymmetricLinearOperator SLO, typename FAFun, typename FScalar>
+template <linops::SymmetricLinearOperator SLO, typename RNG,
+          typename FAFun, typename FScalar>
 T FunNystromPP<T>::call(
     SLO &A_op,
     FAFun &&fAfun,
@@ -218,7 +212,7 @@ T FunNystromPP<T>::call(
     int64_t k,
     int64_t s,
     int64_t q,
-    const T *Omega1,
+    RandBLAS::RNGState<RNG> &state,
     const T *Omega2,
     T &t1_out,
     T &t2_out,
@@ -232,12 +226,12 @@ T FunNystromPP<T>::call(
 
     // ---- Phase 1 (Algorithm 1, lines 1-3) ----
     //
-    // [Alg. 1, line 1] Ω is caller-supplied: Omega1 here (dense), or a
-    //   SparseStack/SASO via the SkOp overload below.
+    // [Alg. 1, line 1] Ω (SparseStack/SASO, vec_nnz nonzeros per column) is
+    //   drawn inside NystromEVD from `state`.
     // [Alg. 1, line 2] Â = U·Λ·Uᵀ ← Nyström(A^{q−1}·Ω)  (shifted recovery;
     //   see the [Alg. 2, line N] tags inside NystromEVD).
     auto t_p1_start = std::chrono::steady_clock::now();
-    NystromEVD<T>(A_op, k, q, Omega1,
+    NystromEVD<T>(A_op, k, q, this->vec_nnz, state,
                   this->U, this->U_sz,
                   this->lambda, this->lambda_sz,
                   this->nystrom_ws,
@@ -334,57 +328,6 @@ T FunNystromPP<T>::call(
     }
     // [Alg. 1, line 7] return tr̃_f++ = tr_top + tr_bot − tr_cor = t1 + t2.
     return t1_out + t2_out;
-}
-
-
-// Sparse-sketch overload (Phase 6 + Gap 5: SASO + SkOp-aware first matvec
-// pulled into the driver). Computes Y0 = A · S through the SkOp path on
-// the SLO, then delegates to the dense overload with q − 1.
-template <typename T>
-template <linops::SymmetricLinearOperator SLO,
-          RandBLAS::SketchingOperator SkOp,
-          typename FAFun, typename FScalar>
-T FunNystromPP<T>::call(
-    SLO &A_op,
-    FAFun &&fAfun,
-    FScalar &&fscalar,
-    int64_t k,
-    int64_t s,
-    int64_t q,
-    SkOp &Omega1_sparse,
-    const T *Omega2,
-    T &t1_out,
-    T &t2_out,
-    std::optional<T> f_zero
-) {
-    int64_t m = A_op.dim;
-    if (q < 2) {
-        throw std::invalid_argument(
-            "FunNystromPP::call (SkOp overload): q must be >= 2. "
-            "For q == 1, densify the sketch caller-side and call the "
-            "dense Omega1 overload.");
-    }
-    // [Alg. 1, line 1] Ω is the caller's SparseStack/SASO SkOp; its first
-    // A-application happens here in sparse arithmetic.
-    // Y0 = A · S via the SkOp-aware operator() overload on the SLO
-    // (dispatches to RandBLAS::sparse_data::right_spmm for
-    // ExplicitSymLinOp). Caller is responsible for ensuring A has both
-    // triangles populated when using ExplicitSymLinOp — right_spmm
-    // treats A as generic dense.
-    util::upsize(this->Y0, this->Y0_sz, m * k);
-    A_op(Layout::ColMajor, k, (T)1, Omega1_sparse, (T)0, this->Y0, m);
-
-    // Delegate to the dense path. q_effective = q - 1 because the
-    // sparse first matvec replaces the dense path's initial
-    // qr(Ω) → A·Ω' step; the dense path will then do q - 2 subspace-iter
-    // passes + a final A·Ω matvec, matching the reference's total of
-    // q matvecs of A.
-    return this->call(A_op,
-                      std::forward<FAFun>(fAfun),
-                      std::forward<FScalar>(fscalar),
-                      k, s, q - 1,
-                      this->Y0, Omega2,
-                      t1_out, t2_out, f_zero);
 }
 
 

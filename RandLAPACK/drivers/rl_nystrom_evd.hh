@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace RandLAPACK {
@@ -28,7 +29,7 @@ namespace RandLAPACK {
 // alive across many `call()` invocations at amortised allocation cost.
 template <typename T>
 struct NystromEVD_workspace {
-    T* Omega = nullptr; int64_t Omega_sz = 0;   // m × k  (q > 1 only; ping-pongs with Y)
+    T* Omega = nullptr; int64_t Omega_sz = 0;   // m × k  (densified sketch at q = 1; QR iterate / ping-pong partner at q > 1)
     T* Y     = nullptr; int64_t Y_sz     = 0;   // m × k  (holds Y, then Y_ν, then B)
     T* G     = nullptr; int64_t G_sz     = 0;   // k × k  (Gram H = ΩᵀY_ν, then its Cholesky factor)
     T* Sigma = nullptr; int64_t Sigma_sz = 0;   // k      (singular values of B)
@@ -69,13 +70,18 @@ long measure_us(Fn&& fn) {
 
 
 /// Reference-aligned sketched Nyström spectral recovery, shifted variant.
-/// Port of davpersson/funNystrom nystrom_epperly.m, numbered to match
-/// Algorithm 2 of the funNyström++ writeup. Every code block below is
-/// tagged [Alg. 2, line N] with the step it implements:
-///   (1)  Ω   ← Ω₁                 take the caller's sketch (NOT orthonormalized)
+/// Numbered to match Algorithm 2 of the funNyström++ writeup. Every code
+/// block below is tagged [Alg. 2, line N] with the step it implements:
+///   (1)  draw sparse Ω ∈ R^{m×k}   SparseStack/SASO with `vec_nnz` nonzeros
+///                                  per column, generated internally from
+///                                  `state` (CQRRPT-style; `state` is advanced).
+///                                  Matches Alg. 1 line 1 of the writeup, which
+///                                  specifies a SparseStack sketch.
 ///        (+ q−1 subspace-iteration passes Ω ← orthonormalize(A·Ω); a
 ///         generalization of Algorithm 2, which is single-pass)
-///   (2)  Y   ← A·Ω
+///   (2)  Y   ← A·Ω                 in sparse arithmetic when the operator
+///                                  supports a SkOp matvec (ExplicitSymLinOp:
+///                                  right_spmm, needs BOTH triangles populated)
 ///   (3)  ν   ← sqrt(m)·eps·‖Y‖_F   shift (pseudocode convention)
 ///   (4)  Y_ν ← Y + ν·Ω             = (A+νI)·Ω
 ///   (5)  C   ← chol(Ωᵀ·Y_ν)        Ωᵀ(A+νI)Ω is SPD, so Cholesky never fails
@@ -88,20 +94,24 @@ long measure_us(Fn&& fn) {
 /// fail on a (near) rank-deficient spectrum and no fall-back path is needed (the
 /// earlier dual-path recovery has been removed).
 ///
+/// Sparsity is consumed by exactly one operation: the first product A·Ω.
+/// Everything downstream (QR stabilizations, further applications, the Gram,
+/// the SVD) runs on dense m×k iterates regardless of how Ω was drawn, so at
+/// q = 1 the sketch is additionally materialized densely into ws.Omega (an
+/// O(m·k) scatter, invisible next to the O(m·k²) Gram) for the axpy and GEMM
+/// operands of lines 4-5a. At q > 1 the subspace-iteration passes ping-pong
+/// between ws.Omega and ws.Y via pointer swaps; no m×k copies anywhere.
+///
 /// Outputs `U_out` (m × k, column-major) and `lambda_out` (length k,
 /// descending) as raw heap buffers managed via `util::upsize`. The caller owns
 /// the buffers (FunNystromPP holds them as members and frees them in its dtor).
-///
-/// Data movement: at q = 1 (the single-pass spec) the caller's sketch is read
-/// in place, with no m×k copy and no ws.Omega/ws.tau allocation. At q > 1 the
-/// subspace-iteration passes ping-pong between ws.Omega and ws.Y via pointer
-/// swaps, again without m×k copies.
-template <typename T, linops::SymmetricLinearOperator SLO>
+template <typename T, linops::SymmetricLinearOperator SLO, typename RNG>
 void NystromEVD(
     SLO &A_op,
     int64_t k,
     int64_t q,
-    const T *Omega1_in,
+    int64_t vec_nnz,
+    RandBLAS::RNGState<RNG> &state,
     T*& U_out,        int64_t& U_out_sz,
     T*& lambda_out,   int64_t& lambda_out_sz,
     NystromEVD_workspace<T> &ws,
@@ -110,54 +120,95 @@ void NystromEVD(
     using namespace blas;
     int64_t m = A_op.dim;
 
+    if (vec_nnz < 1 || vec_nnz > m)
+        throw std::invalid_argument(
+            "NystromEVD: vec_nnz must be in [1, m]; got vec_nnz = " +
+            std::to_string(vec_nnz) + " with m = " + std::to_string(m) + ".");
+
     using clk = std::chrono::steady_clock;
     auto t_total_start = clk::now();
     long t_alloc = 0, t_syrf = 0, t_matvec = 0;
 
-    // [setup] Allocate/grow workspace (not an Algorithm-2 line). ws.Omega and
-    // ws.tau are only needed by the q > 1 subspace-iteration path; at q = 1
-    // the caller's sketch is read in place and neither is allocated.
+    // [setup] Allocate/grow workspace (not an Algorithm-2 line). ws.Omega holds
+    // the densified sketch at q = 1 (recovery operand) or the orthonormalized
+    // iterate at q > 1 (ping-pong partner of ws.Y); ws.tau is q > 1 only.
     t_alloc = detail::measure_us([&] {
+        util::upsize(ws.Omega, ws.Omega_sz, m * k);
         util::upsize(ws.Y,     ws.Y_sz,     m * k);
         util::upsize(ws.G,     ws.G_sz,     k * k);
         util::upsize(ws.Sigma, ws.Sigma_sz, k);
         util::upsize(ws.VT_B,  ws.VT_B_sz,  k * k);
         util::upsize(U_out,      U_out_sz,      m * k);
         util::upsize(lambda_out, lambda_out_sz, k);
-        if (q > 1) {
-            util::upsize(ws.Omega, ws.Omega_sz, m * k);
-            util::upsize(ws.tau,   ws.tau_sz,   k);
-        }
+        if (q > 1) util::upsize(ws.tau, ws.tau_sz, k);
     });
 
-    // [Alg. 2, line 1] Ω ← Ω₁  (take the caller's sketch; NOT orthonormalized, per
-    //   nystrom_epperly.m and the basis-invariance of the shifted recovery).
+    // [Alg. 2, line 1] Draw the SparseStack/SASO sketch Ω internally
+    //   (CQRRPT-style; `state` is advanced past the draw). NOT orthonormalized,
+    //   per Algorithm 2 and the basis-invariance of the shifted recovery.
+    RandBLAS::SparseDist DS(m, k, vec_nnz);
+    RandBLAS::SparseSkOp<T, RNG> S(DS, state);
+
+    // Whether the operator can apply itself to the sparse sketch directly
+    // (ExplicitSymLinOp: right_spmm). If not, the sketch is materialized
+    // densely once and every application runs through the dense matvec.
+    constexpr bool sparse_matvec =
+        requires { A_op(Layout::ColMajor, k, (T)1, S, (T)0, ws.Y, m); };
+
+    auto densify_S = [&] {
+        auto S_coo = RandBLAS::coo_view_of_skop(S);
+        std::fill(ws.Omega, ws.Omega + m * k, (T)0);
+        util::sparse_to_dense(S_coo, Layout::ColMajor, ws.Omega);
+    };
+
     //   Beyond Algorithm 2: q−1 subspace-iteration passes Ω ← orthonormalize(A·Ω)
     //   sharpen the captured subspace. Re-orthonormalizing A·Ω each pass is the
     //   range-finder and is required for q > 1 (else the iterated columns collapse
-    //   onto the dominant eigenvector). q = 1 does none of this (matches Epperly).
-    //
-    //   Om tracks the current sketch without copying it: the caller's buffer at
-    //   q = 1, else ws.Omega after ping-pong swaps with ws.Y (each pass writes
-    //   A·Ω into ws.Y and swaps the pointers instead of copying m×k back).
-    //   The const_cast is required by the linop concept's `T* const B`
-    //   signature; operator() has SYMM semantics and never writes B.
-    T* Om = const_cast<T*>(Omega1_in);
+    //   onto the dominant eigenvector). q = 1 does none of this. The iterates
+    //   ping-pong between ws.Y and ws.Omega via pointer swaps (no m×k copies);
+    //   the q-th (final) application happens in the t_matvec block below.
     t_syrf = detail::measure_us([&] {
-        for (int64_t iter = 1; iter < q; ++iter) {
-            A_op(Layout::ColMajor, k, (T)1, Om, m, (T)0, ws.Y, m);
-            std::swap(ws.Omega, ws.Y);
-            std::swap(ws.Omega_sz, ws.Y_sz);
-            lapack::geqrf(m, k, ws.Omega, m, ws.tau);
-            lapack::ungqr(m, k, k, ws.Omega, m, ws.tau);
-            Om = ws.Omega;
+        RandBLAS::fill_sparse(S);
+        state = S.next_state;
+        if (q == 1) {
+            // Single-pass: densify Ω for the recovery operands (lines 4-5a);
+            // the one A-application is timed as t_matvec below (sparse when
+            // supported — the entire point of the SASO).
+            densify_S();
+        } else {
+            if constexpr (sparse_matvec) {
+                A_op(Layout::ColMajor, k, (T)1, S, (T)0, ws.Y, m);
+            } else {
+                densify_S();
+                A_op(Layout::ColMajor, k, (T)1, ws.Omega, m, (T)0, ws.Y, m);
+            }
+            for (int64_t iter = 1; iter < q; ++iter) {
+                lapack::geqrf(m, k, ws.Y, m, ws.tau);
+                lapack::ungqr(m, k, k, ws.Y, m, ws.tau);
+                std::swap(ws.Omega, ws.Y);
+                std::swap(ws.Omega_sz, ws.Y_sz);
+                if (iter < q - 1)
+                    A_op(Layout::ColMajor, k, (T)1, ws.Omega, m, (T)0, ws.Y, m);
+            }
         }
     });
 
-    // [Alg. 2, line 2] Y ← A·Ω
+    // [Alg. 2, line 2] Y ← A·Ω  (the application whose output the recovery
+    //   consumes: the single sparse pass at q = 1, the q-th application else).
     t_matvec = detail::measure_us([&] {
-        A_op(Layout::ColMajor, k, (T)1, Om, m, (T)0, ws.Y, m);
+        if (q == 1) {
+            if constexpr (sparse_matvec)
+                A_op(Layout::ColMajor, k, (T)1, S, (T)0, ws.Y, m);
+            else
+                A_op(Layout::ColMajor, k, (T)1, ws.Omega, m, (T)0, ws.Y, m);
+        } else {
+            A_op(Layout::ColMajor, k, (T)1, ws.Omega, m, (T)0, ws.Y, m);
+        }
     });
+
+    // Om = the dense image of Ω consumed by the recovery: the densified sketch
+    // at q = 1, the last orthonormalized iterate at q > 1.
+    T* Om = ws.Omega;
 
     // ---- Shifted Nyström spectral recovery (Algorithm 2, lines 3-8) ----
     auto t_specrec_start = clk::now();
@@ -171,7 +222,16 @@ void NystromEVD(
     // [Alg. 2, line 4] Y_ν ← Y + ν·Ω = (A+νI)·Ω  (overwrites ws.Y).
     blas::axpy(m * k, nu, Om, 1, ws.Y, 1);
 
-    // [Alg. 2, line 5a] H ← Ωᵀ·Y_ν  (k×k = Ωᵀ(A+νI)Ω, SPD since A+νI is); symmetrize.
+    // [Alg. 2, line 5a] H ← Ωᵀ·Y_ν  (k×k = Ωᵀ(A+νI)Ω, SPD since A+νI is).
+    //   H is symmetric in exact arithmetic, but the general GEMM forms its two
+    //   triangles from independent dot products, so they disagree at roundoff
+    //   (‖H−Hᵀ‖ ~ ε‖Ω‖‖Y_ν‖). The Cholesky below reads a single triangle, so
+    //   average H ← (H+Hᵀ)/2 (util::symmetrize; deliberately NOT the
+    //   reflect-one-triangle RandBLAS::symmetrize — both triangles carry
+    //   equally valid information). potrf then factors the symmetric part,
+    //   the nearest symmetric matrix in ‖·‖_F, rather than whichever of two
+    //   slightly different matrices the Uplo convention would select. O(k²),
+    //   invisible next to the O(mk²) GEMM.
     blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, k, m,
                (T)1, Om, m, ws.Y, m, (T)0, ws.G, k);
     RandLAPACK::util::symmetrize(k, ws.G, k);
