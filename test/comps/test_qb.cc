@@ -88,8 +88,18 @@ class TestQB : public ::testing::Test
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_2.data(), 1);
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_3.data(), 1);
 
-        // Get low-rank SVD
-        lapack::gesdd(Job::SomeVec, m, n, all_data.A_cpy.data(), m, all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
+        // Reference (economy) SVD U*diag(s)*VT = A_cpy.
+        // Uses gesvd (Golub-Reinsch, QR-based) rather than gesdd
+        // (divide-and-conquer). gesdd has a version-sensitive bug on Apple
+        // Silicon that returns a spurious NEGATIVE singular value for 100x100
+        // matrices (this test's exact shape) -- confirmed a genuine LAPACK bug
+        // on the BALLISTIC list (Murray/Langou/Demmel, Mar 2026; reproduced with
+        // OpenBLAS, scipy's dgesdd gives sane values on the same matrix). In CI
+        // it surfaced as ||U*S_k*VT - QB|| ~ 4.6 while ||A - QB|| ~ 1e-15 (QB is
+        // fine). gesvd does not use the buggy D&C path and reconstructs to
+        // ~1e-15 on Linux/MKL; it is the expected macOS fix.
+        lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, all_data.A_cpy.data(), m,
+                      all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
     }
 
     /// General test for QB:
