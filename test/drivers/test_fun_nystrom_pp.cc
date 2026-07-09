@@ -94,7 +94,7 @@ TEST_F(TestFunNystromPPv2, DiagonalSqrt) {
     using T = double;
     const int64_t n = 50, k = 15, s = 300, q = 2;
 
-    T *A = new T[n * n]();
+    T *A = new T[n * n]();   // zero-init required: only the diagonal is written below
     T true_tr = 0;
     for (int64_t i = 0; i < n; ++i) {
         A[i + i * n] = (T)(i + 1);
@@ -153,7 +153,7 @@ TEST_F(TestFunNystromPPv2, FullRankCapture) {
     for (int64_t j = 0; j < k_mat; ++j)
         for (int64_t i = 0; i < n; ++i)
             Vd[i + j * n] = V_raw[i + j * n] * eigvals[j];
-    T *A = new T[n * n]();
+    T *A = new T[n * n];   // no zero-init: gemm(beta=0) writes every entry
     blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::Trans,
                n, n, k_mat, (T)1, Vd, n, V_raw, n, (T)0, A, n);
     // symmetrize (drop fp asymmetry)
@@ -195,7 +195,7 @@ TEST_F(TestFunNystromPPv2, RandomPSDSqrt) {
 
     // A = BᵀB + n·I  (well-conditioned random PSD)
     T *B_raw = randn<T>(n, n, /*seed=*/17);
-    T *A = new T[n * n]();
+    T *A = new T[n * n];   // no zero-init: syrk(beta=0) + the mirror loop write every entry
     blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
                n, n, (T)1, B_raw, n, (T)0, A, n);
     for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
