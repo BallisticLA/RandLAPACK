@@ -87,7 +87,7 @@ public:
 
     // Phase-2 oracle convention. false = Lanczos-FA (fAfun fills f(A)·Ω₂, m×s,
     // and the driver dots it with Ω₂). true = Lanczos-QFA (fAfun fills the s×s
-    // quadratic form Ω₂ᵀ f(A) Ω₂ directly — BlockLanczosQFA — and the driver
+    // quadratic form Ω₂ᵀ f(A) Ω₂ directly, via BlockLanczosQFA, and the driver
     // takes its trace); QFA skips the f(A)·Ω₂ mapback entirely.
     bool use_qfa = false;
 
@@ -288,7 +288,7 @@ T FunNystromPP<T>::call(
         auto t_p2_start = std::chrono::steady_clock::now();
 
         // [Alg. 1, line 4] Resolve Ω₂. Caller-supplied when Omega2 != nullptr;
-        //   otherwise generated inside the kernel — a Gaussian n×s block drawn
+        //   otherwise generated inside the kernel: a Gaussian n×s block drawn
         //   from `state`, each column normalized to ‖·‖₂ = √n (uniformly-random
         //   direction, fixed norm √n).
         const T* Om2 = Omega2;
