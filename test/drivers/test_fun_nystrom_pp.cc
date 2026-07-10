@@ -282,3 +282,47 @@ TEST_F(TestFunNystromPPv2, BlockQFAmatchesBlockFA) {
     }
     delete[] G0; delete[] A; delete[] Bmat;
 }
+
+
+// ===== Adaptive-depth block Lanczos-QFA =====================================
+// With adaptive = true the recurrence stops before d_max once the block
+// quadrature estimate tr(M_k) settles (windowed relative change <= rtol). On a
+// well-conditioned SPD matrix (fast Krylov convergence) it must stop early, and
+// its trace must match the fully-converged fixed-depth QFA to ~rtol.
+TEST_F(TestFunNystromPPv2, BlockQFAadaptiveStopsEarly) {
+    using T = double;
+    const int64_t n = 80, s = 6, d_max = 70;
+
+    // A = GᵀG + n·I  (well-conditioned SPD ⟹ fast Lanczos convergence).
+    T *G0 = randn<T>(n, n, /*seed=*/41);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    T *Bmat = randn<T>(n, s, /*seed=*/43);
+    auto fscalar = [](T x) { return std::sqrt(x); };
+
+    // Fixed-depth reference (fully converged at d_max).
+    RandLAPACK::BlockLanczosQFA<T> qfa_fixed;
+    T *M_fixed = new T[s * s];
+    qfa_fixed.call(A_op, Bmat, n, s, fscalar, d_max, M_fixed);
+    T tr_fixed = 0; for (int64_t i = 0; i < s; ++i) tr_fixed += M_fixed[i + i * s];
+
+    // Adaptive.
+    RandLAPACK::BlockLanczosQFA<T> qfa;
+    qfa.adaptive = true; qfa.adaptive_rtol = 1e-3; qfa.adaptive_delay = 5;
+    T *M_adapt = new T[s * s];
+    qfa.call(A_op, Bmat, n, s, fscalar, d_max, M_adapt);
+    T tr_adapt = 0; for (int64_t i = 0; i < s; ++i) tr_adapt += M_adapt[i + i * s];
+
+    T reltr = std::abs(tr_adapt - tr_fixed) / std::abs(tr_fixed);
+    std::printf("adaptive QFA: d_used=%ld / d_max=%ld  tr_adapt=%.8e tr_fixed=%.8e reltr=%.3e\n",
+                (long)qfa.d_used, (long)d_max, tr_adapt, tr_fixed, reltr);
+    EXPECT_GT(qfa.d_used, 0);
+    EXPECT_LT(qfa.d_used, d_max);   // stopped early
+    EXPECT_LT(reltr, 1e-2);         // matches the converged value
+    delete[] G0; delete[] A; delete[] Bmat; delete[] M_fixed; delete[] M_adapt;
+}

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <vector>
 #include <cstring>
+#include <functional>
 
 namespace RandLAPACK {
 
@@ -95,6 +96,12 @@ public:
     std::vector<long> times;
     long _t_matvec_us = 0;
 
+    // Number of block steps actually completed by the last run_lanczos call.
+    // Equals the requested d unless an early-stop callback fired sooner (used by
+    // BlockLanczosQFA's adaptive depth). The leading steps_run*s block of T_blk
+    // is the valid block-tridiagonal after the call.
+    int64_t steps_run = 0;
+
     BlockLanczosFA()                                 = default;
     BlockLanczosFA(const BlockLanczosFA&)            = delete;
     BlockLanczosFA& operator=(const BlockLanczosFA&) = delete;
@@ -117,11 +124,18 @@ public:
     ///   T_k = │       B₁   A₂              │      Aᵢ s×s symmetric (GEMM'd in),
     ///         │              ⋱   ⋱         │      Bᵢ s×s upper triangular (R of
     ///         └                  B_{d-2}  A_{d-1}┘  the QR of Z at step i+1)
+    /// `stop_after` (optional): called after each block step with the number of
+    /// steps completed so far (1-based); return true to terminate the recurrence
+    /// early (before d). Used by BlockLanczosQFA for adaptive depth. When it
+    /// fires at step k, the leading k*s block of T_blk is the valid tridiagonal
+    /// and steps_run == k. Default {} runs all d steps.
     template <linops::SymmetricLinearOperator SLO>
-    void run_lanczos(SLO& A, const T* B, int64_t n, int64_t s, int64_t d) {
+    void run_lanczos(SLO& A, const T* B, int64_t n, int64_t s, int64_t d,
+                     const std::function<bool(int64_t)>& stop_after = {}) {
         using namespace std::chrono;
         steady_clock::time_point _mv_t0, _mv_t1;
         _t_matvec_us = 0;
+        steps_run = 0;
         const int64_t m = d * s;   // T_k dimension / its leading dimension
 
         util::upsize(K_big,   K_big_sz,   (d + 1) * n * s);
@@ -206,6 +220,11 @@ public:
                 lapack::lacpy(lapack::MatrixType::Upper, s, s, Y, n, B_step, m);
                 lapack::orgqr(n, s, s, Y, n, tau_buf);
             }
+
+            // Leading (step+1)*s block-tridiagonal is now complete; offer the
+            // early-stop hook the current depth (used by adaptive QFA).
+            steps_run = step + 1;
+            if (stop_after && stop_after(steps_run)) break;
         }
     }
 
