@@ -201,7 +201,8 @@ int cholqr_primitive(
     bool timing,
     T shift_factor = T(0),
     int max_retries = 0,
-    T shift_growth = T(10))
+    T shift_growth = T(10),
+    int* n_retries = nullptr)   // out: number of shift retries used (0 = clean first attempt)
 {
     using std::chrono::steady_clock;
     using std::chrono::duration_cast;
@@ -245,6 +246,17 @@ int cholqr_primitive(
             }
             case PCholQRPrecondMethod::GEQP3:
             case PCholQRPrecondMethod::BQRRP: {
+            #if defined(__APPLE__)
+                // The whole QRCP-based preconditioner path (GEQP3/BQRRP, then ungqr +
+                // lapmr to form Pi R_tri^{-1} Q^T) pulls in LAPACK / BQRRP routines that
+                // are unsupported under Apple Accelerate; the sibling rl_cqrrpt.hh /
+                // rl_hqrrp.hh guard the whole QRCP path the same way. The standard
+                // CholQR / CholQR2 / sCholQR3 methods use TRSM_IDENTITY and never reach
+                // here, so only the stabilized QRCP preconditioner is disabled on macOS.
+                (void)bqrrp_block_ratio; (void)state;
+                std::fprintf(stderr, "[cholqr_primitive] FAIL: GEQP3/BQRRP preconditioning is unsupported on Apple Accelerate.\n");
+                return 1;
+            #else
                 // Invert P stably via column-pivoted QR. Column pivoting gives
                 //     P Pi = Q R_tri   (Pi the pivot permutation),
                 // so  P^{-1} = Pi R_tri^{-1} Q^T. We build that below from the QRCP
@@ -263,15 +275,6 @@ int cholqr_primitive(
                 if (method == PCholQRPrecondMethod::GEQP3) {
                     lapack::geqp3(n, n, P_copy, n, jpiv, tau_qr);
                 } else {
-                #if defined(__APPLE__)
-                    // BQRRP cannot link against Apple Accelerate (see rl_bqrrp.hh; the
-                    // sibling rl_cqrrpt.hh / rl_hqrrp.hh guard it the same way). Even
-                    // instantiating RandLAPACK::BQRRP<T, RNG> drags in unsupported paths,
-                    // so on macOS fall back to GEQP3, which produces the same column-
-                    // pivoted QR the code below consumes. (void) the BQRRP-only knob.
-                    (void)bqrrp_block_ratio; (void)state;
-                    lapack::geqp3(n, n, P_copy, n, jpiv, tau_qr);
-                #else
                     if (state == nullptr) {
                         std::fprintf(stderr, "[cholqr_primitive] FAIL: BQRRP called with state=nullptr\n");
                         delete[] P_copy; delete[] jpiv; delete[] tau_qr;
@@ -286,7 +289,6 @@ int cholqr_primitive(
                     int64_t bqrrp_b = std::max(int64_t(1), (int64_t)(n * ratio));
                     RandLAPACK::BQRRP<T, RNG> bqrrp(false, bqrrp_b);
                     bqrrp.call(n, n, P_copy, n, T(1), tau_qr, jpiv, *state);
-                #endif
                 }
 
                 // After QRCP, P_copy holds R_tri (upper) + Householder vectors (lower).
@@ -307,6 +309,7 @@ int cholqr_primitive(
                 delete[] jpiv;
                 delete[] tau_qr;
                 break;
+            #endif
             }
         }
     }
@@ -352,8 +355,9 @@ int cholqr_primitive(
     if (timing) t0 = steady_clock::now();
 
     int info = 0;
+    int attempt = 0;
     T current_shift_factor = shift_factor;
-    for (int attempt = 0; max_retries < 0 || attempt <= max_retries; ++attempt) {
+    for (; max_retries < 0 || attempt <= max_retries; ++attempt) {
         if (attempt > 0) {
             // Restore the Gram and grow the shift (seed at eps if we started at 0).
             std::copy(G_backup, G_backup + n * n, G);
@@ -370,6 +374,7 @@ int cholqr_primitive(
         info = lapack::potrf(Uplo::Upper, n, G, n);
         if (info == 0) break;
     }
+    if (n_retries) *n_retries = attempt;   // 0 = succeeded on the unshifted first attempt
 
     if (info) {
         std::fprintf(stderr,
@@ -415,7 +420,8 @@ int cholqr_primitive(
     long& fwd_us, long& adj_us, long& chol_us,
     bool timing,
     int max_retries = 0,
-    T shift_growth = T(10))
+    T shift_growth = T(10),
+    int* n_retries = nullptr)
 {
     int64_t m = A.n_rows;
     int64_t n = A.n_cols;
@@ -432,7 +438,7 @@ int cholqr_primitive(
         G, A_temp, /*Z_buf=*/(T*)nullptr,
         /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
         precond_inv_us, fwd_us, adj_us, gemm_us, chol_us, update_us,
-        timing, shift_factor, max_retries, shift_growth);
+        timing, shift_factor, max_retries, shift_growth, n_retries);
 
     delete[] G;
     delete[] A_temp;
@@ -467,11 +473,13 @@ int cholqr_iterate(
     GLO& A, T* R, int64_t ldr, int64_t block_size,
     int num_iters, T shift_iter1, T shift_iter_rest,
     int max_retries, T shift_growth, bool timing,
-    long* iter_times = nullptr)
+    long* iter_times = nullptr,
+    int* n_retries_total = nullptr)   // out: total shift retries summed across all passes
 {
     int64_t m = A.n_rows;
     int64_t n = A.n_cols;
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+    int total_retries = 0, pass_retries = 0;
     auto rec = [&](int it, long fwd, long adj, long gemm, long chol, long upd) {
         if (iter_times) {
             long* t = iter_times + 5 * (it - 1);
@@ -481,10 +489,11 @@ int cholqr_iterate(
 
     // ---- Iter 1: unpreconditioned CholQR ----
     long fwd1 = 0, adj1 = 0, chol1 = 0;
-    int info = cholqr_primitive<T, GLO>(A, R, ldr, shift_iter1, block_size, fwd1, adj1, chol1, timing, max_retries, shift_growth);
-    if (info != 0) return 1;
+    int info = cholqr_primitive<T, GLO>(A, R, ldr, shift_iter1, block_size, fwd1, adj1, chol1, timing, max_retries, shift_growth, &pass_retries);
+    total_retries += pass_retries;
+    if (info != 0) { if (n_retries_total) *n_retries_total = total_retries; return 1; }
     rec(1, fwd1, adj1, 0, chol1, 0);
-    if (num_iters <= 1) return 0;
+    if (num_iters <= 1) { if (n_retries_total) *n_retries_total = total_retries; return 0; }
 
     // ---- Iters 2..num_iters: preconditioned CholQR with P = previous R ----
     T* G      = new T[n * n]();
@@ -501,14 +510,17 @@ int cholqr_iterate(
             block_size, /*bqrrp_block_ratio=*/T(1), R_pre, G, A_temp, Z_buf,
             /*state=*/(RandBLAS::RNGState<RandBLAS::DefaultRNG>*)nullptr,
             precond_inv, fwd, adj, gemm, chol, upd, timing,
-            shift_iter_rest, max_retries, shift_growth);
+            shift_iter_rest, max_retries, shift_growth, &pass_retries);
+        total_retries += pass_retries;
         if (info != 0) {
             delete[] G; delete[] R_pre; delete[] P_prev; delete[] A_temp; delete[] Z_buf;
+            if (n_retries_total) *n_retries_total = total_retries;
             return it;
         }
         rec(it, fwd, adj, gemm, chol, precond_inv + upd);
     }
     delete[] G; delete[] R_pre; delete[] P_prev; delete[] A_temp; delete[] Z_buf;
+    if (n_retries_total) *n_retries_total = total_retries;
     return 0;
 }
 

@@ -58,6 +58,7 @@
 // Linops algorithms
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
+#include "rl_blendenpik.hh"
 #include "RandLAPACK/testing/rl_memory_tracker.hh"
 
 using std::chrono::steady_clock;
@@ -121,6 +122,7 @@ struct bench_result {
     long chol_time_us;     // FEM: shared, measured once. Sparse: 0.
     int qr_status;         // 0 on success
     long qr_time_us;       // -1 if QR failed
+    int  chol_retries = 0; // CholeskyQR adaptive-shift retries (0 = clean; N/A for Blendenpik)
 
     // Q-factor orthogonality: ||Q^T Q - I||_F / sqrt(n), computed for all methods.
     T orth_error;
@@ -426,6 +428,7 @@ static int run_benchmark_inner(
     //   bit 2  ( 4): sCholQR3
     //   bit 3  ( 8): sCholQR3_basic
     //   bit 4  (16): CholQR2
+    //   bit 5  (32): Blendenpik (sketch + QR + LSQR; independent LSQ solver)
     //   bit 6  (64): CQRRT_linop_bqrrp  [DROPPED in 2026-06-05 rework]
     std::vector<std::string> selected_algs;
     if (method_mask & 1)   selected_algs.push_back("CQRRT_linop");
@@ -433,6 +436,7 @@ static int run_benchmark_inner(
     if (method_mask & 4)   selected_algs.push_back("sCholQR3");
     if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
     if (method_mask & 16)  selected_algs.push_back("CholQR2");
+    if (method_mask & 32)  selected_algs.push_back("Blendenpik");
 
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
@@ -513,11 +517,29 @@ static int run_benchmark_inner(
 
             std::fill(R, R + n * n, (T)0);
             auto state = run_states[run_idx];
+            long blendenpik_lsqr_us = 0; int blendenpik_lsqr_iters = 0;  // Blendenpik solve stats
 
-            // ---- QR dispatch (5-way, lifted verbatim from CQRRT_linop_irlsq.cc) ----
+            // ---- QR dispatch (lifted verbatim from CQRRT_linop_irlsq.cc; +Blendenpik) ----
             std::cout << "[Run " << run_idx << ", " << alg_name << "] QR ... " << std::flush;
             RandLAPACK::PeakRSSTracker mem; mem.start();
-            if (alg_name == "sCholQR3") {
+            if (alg_name == "Blendenpik") {
+                // Independent sketch-and-precondition LSQ solver: sketch -> QR -> LSQR.
+                // Produces x_ls directly (no mu, no IR-LSQ). R_out holds the sketch R factor
+                // used for the Q = A R^{-1} orthogonality check.
+                RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, tol);
+                bp.nnz = sketch_nnz;
+                std::fill(x_ls, x_ls + n, (T)0);
+                res.qr_status = bp.call(A_op, b_ptr->data(), m, x_ls, n, d_factor, state);
+                res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) {
+                    res.qr_time_us = bp.times[0] + bp.times[1];       // sketch + QR (preconditioner build)
+                    std::copy(bp.R_out.begin(), bp.R_out.end(), R);   // sketch R factor for orth
+                    res.qr_breakdown.assign(11, 0);
+                    res.analytical_kb = 0;
+                    blendenpik_lsqr_us    = bp.times[2];
+                    blendenpik_lsqr_iters = bp.lsqr_iters;
+                }
+            } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<T> qr_algo(/*time_subroutines=*/true, tol);
                 qr_algo.block_size = block_size;
                 res.qr_status = qr_algo.call(A_op, R, n);
@@ -592,32 +614,40 @@ static int run_benchmark_inner(
 
             // ---- IR-LSQ post-processing ----
             {
-                std::cout << ". IR-LSQ ... " << std::flush;
                 const std::vector<T>& b = *b_ptr;
-                auto ls_t0 = steady_clock::now();
+                if (alg_name == "Blendenpik") {
+                    // x_ls was already computed by Blendenpik's own LSQR above; no IR-LSQ.
+                    std::cout << ". LSQR ... " << std::flush;
+                    res.ir_total_us         = blendenpik_lsqr_us;
+                    res.ir_outer_iters       = 1;
+                    res.ir_inner_iters_total = blendenpik_lsqr_iters;   // LSQR iters in the CG-iters slot
+                } else {
+                    std::cout << ". IR-LSQ ... " << std::flush;
+                    auto ls_t0 = steady_clock::now();
 
-                // Initial guess x_0 = 0 (per collaborator: no sketching in the LS
-                // solve itself). The only randomness is S_1 inside Q-less QR, which
-                // yields the preconditioner R; IterRefineLSQ starts from zero and the
-                // preconditioned inner CG converges from there.
-                std::fill(x_ls, x_ls + n, (T)0.0);
+                    // Initial guess x_0 = 0 (per collaborator: no sketching in the LS
+                    // solve itself). The only randomness is S_1 inside Q-less QR, which
+                    // yields the preconditioner R; IterRefineLSQ starts from zero and the
+                    // preconditioned inner CG converges from there.
+                    std::fill(x_ls, x_ls + n, (T)0.0);
 
-                RandLAPACK::IterRefineLSQ<T> ir(/*tol=*/tol,
-                                                /*max_inner=*/200,
-                                                /*n_steps=*/2,
-                                                /*timing=*/true,
-                                                /*verbose=*/false);
-                int ir_status = ir.call(A_op, R, n, b.data(), m, x_ls, n);
-                auto ls_t1 = steady_clock::now();
-                if (ir_status != 0) {
-                    std::cerr << "Warning: IterRefineLSQ status " << ir_status << " (CG breakdown)\n";
+                    RandLAPACK::IterRefineLSQ<T> ir(/*tol=*/tol,
+                                                    /*max_inner=*/200,
+                                                    /*n_steps=*/2,
+                                                    /*timing=*/true,
+                                                    /*verbose=*/false);
+                    int ir_status = ir.call(A_op, R, n, b.data(), m, x_ls, n);
+                    auto ls_t1 = steady_clock::now();
+                    if (ir_status != 0) {
+                        std::cerr << "Warning: IterRefineLSQ status " << ir_status << " (CG breakdown)\n";
+                    }
+
+                    res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
+                    res.ir_outer_iters = ir.outer_iters_done;
+                    res.ir_inner_iters_total = 0;
+                    for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
+                    if (!ir.times.empty()) res.ir_breakdown = ir.times;
                 }
-
-                res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
-                res.ir_outer_iters = ir.outer_iters_done;
-                res.ir_inner_iters_total = 0;
-                for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
-                if (!ir.times.empty()) res.ir_breakdown = ir.times;
 
                 // Higham normwise backward-error metric:
                 //   ls_residual_norm = ||A x - b|| / (||A||_2 * ||x|| + ||b||)
@@ -1054,7 +1084,7 @@ static void write_irlsq_reg_results(
         ;
     out << "algorithm,run,m,n,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
-           "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec\n";
+           "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
@@ -1065,7 +1095,7 @@ static void write_irlsq_reg_results(
             << std::scientific << std::setprecision(6) << kappa_target << ","
             << std::scientific << std::setprecision(6) << r.kappa_measured << ","
             << std::scientific << std::setprecision(6) << mu << ","
-            << precond_prec << "," << solve_prec
+            << precond_prec << "," << solve_prec << "," << r.chol_retries
             << "\n";
     }
 }
@@ -1110,6 +1140,7 @@ static int run_irlsq_reg(
     if (method_mask & 4)   selected_algs.push_back("sCholQR3");
     if (method_mask & 8)   selected_algs.push_back("sCholQR3_basic");
     if (method_mask & 16)  selected_algs.push_back("CholQR2");
+    if (method_mask & 32)  selected_algs.push_back("Blendenpik");   // independent sketch+QR+LSQR
     if (selected_algs.empty()) {
         std::cerr << "Error: method_mask selects no algorithms (got " << method_mask << ").\n";
         return 1;
@@ -1235,32 +1266,48 @@ static int run_irlsq_reg(
 
             std::fill(R_P, R_P + n * n, (P_precond)0);
             auto state = run_states[run_idx];
+            const bool is_bp = (alg_name == "Blendenpik");
+            long bp_lsqr_us = 0; int bp_lsqr_iters = 0;
 
             std::cout << "[Run " << run_idx << ", " << alg_name << "] QR(" << precond_prec_str
                       << ") ... " << std::flush;
             RandLAPACK::PeakRSSTracker mem; mem.start();
-            if (alg_name == "sCholQR3") {
+            if (is_bp) {
+                // Independent Blendenpik in SOLVE precision on the BASE operator J_Ts (no mu,
+                // no augmented A_hat): sketch -> Householder QR -> LSQR, producing x_ls directly.
+                RandLAPACK::Blendenpik_linops<T_solve, RNG> bp(true, tol_T);
+                bp.nnz = sketch_nnz;
+                std::fill(x_ls, x_ls + n, (T_solve)0);
+                res.qr_status = bp.call(J_Ts, b.data(), m, x_ls, n, (T_solve)d_factor, state);
+                res.peak_rss_kb = mem.stop();
+                if (res.qr_status == 0) {
+                    res.qr_time_us = bp.times[0] + bp.times[1];          // sketch + QR (preconditioner build)
+                    std::copy(bp.R_out.begin(), bp.R_out.end(), R_T);    // R_T = sketch R factor (orth + kappa)
+                    res.qr_breakdown.assign(11, 0); res.analytical_kb = 0;
+                    bp_lsqr_us = bp.times[2]; bp_lsqr_iters = bp.lsqr_iters;
+                }
+            } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
                 if (res.qr_status == 0) { res.qr_time_us = qr.times[17];
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(m, n, block_size); }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<P_precond> qr(true, tol_P);
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
                 if (res.qr_status == 0) { res.qr_time_us = qr.times[14];
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(m, n); }
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
                 if (res.qr_status == 0) { res.qr_time_us = qr.times[5];
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 6);
                     res.qr_breakdown.resize(11, 0);
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<P_precond>(m, n, block_size); }
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop();
+                res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
                 if (res.qr_status == 0) { res.qr_time_us = qr.times[10];
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(m, n, block_size); }
@@ -1270,7 +1317,7 @@ static int run_irlsq_reg(
                 RandLAPACK::CQRRT_linops<P_precond, RNG> qr(true, tol_P);
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
                 qr.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
-                res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.peak_rss_kb = mem.stop();
+                res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
                 if (res.qr_status == 0) { res.qr_time_us = qr.times[10];
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<P_precond>(m, n, (P_precond)d_factor, block_size); }
@@ -1283,29 +1330,38 @@ static int run_irlsq_reg(
                 all_results.push_back(res);
                 continue;
             }
-            res.kappa_measured = (T_solve)kappa_from_R_diag<P_precond>(R_P, n);
+            res.kappa_measured = is_bp ? (T_solve)kappa_from_R_diag<T_solve>(R_T, n)
+                                       : (T_solve)kappa_from_R_diag<P_precond>(R_P, n);
             std::cout << "done (" << res.qr_time_us << " us, kappa~"
                       << std::scientific << std::setprecision(2) << (double)res.kappa_measured << ")";
 
-            // Cast R to solve precision.
-            for (int64_t i = 0; i < n * n; ++i) R_T[i] = (T_solve)R_P[i];
+            // Cast R to solve precision (Blendenpik already produced R_T directly).
+            if (!is_bp) for (int64_t i = 0; i < n * n; ++i) R_T[i] = (T_solve)R_P[i];
 
             // Orthogonality loss of Q = A R^{-1} (base A in solve precision).
             res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size);
 
-            // IR-LSQ in solve precision, R as right preconditioner.
-            std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
-            std::fill(x_ls, x_ls + n, (T_solve)0.0);
-            auto ls_t0 = steady_clock::now();
-            RandLAPACK::IterRefineLSQ<T_solve> ir(tol_T, 200, 2, true, false);
-            int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
-            auto ls_t1 = steady_clock::now();
-            if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
-            res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
-            res.ir_outer_iters = ir.outer_iters_done;
-            res.ir_inner_iters_total = 0;
-            for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
-            if (!ir.times.empty()) res.ir_breakdown = ir.times;
+            // Solve in solve precision. Blendenpik already solved (its own LSQR above);
+            // everyone else runs IR-LSQ with R as the right preconditioner.
+            if (is_bp) {
+                std::cout << ". LSQR(" << solve_prec_str << ") ... " << std::flush;
+                res.ir_total_us         = bp_lsqr_us;
+                res.ir_outer_iters       = 1;
+                res.ir_inner_iters_total = bp_lsqr_iters;   // LSQR iters in the CG-iters slot
+            } else {
+                std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
+                std::fill(x_ls, x_ls + n, (T_solve)0.0);
+                auto ls_t0 = steady_clock::now();
+                RandLAPACK::IterRefineLSQ<T_solve> ir(tol_T, 200, 2, true, false);
+                int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
+                auto ls_t1 = steady_clock::now();
+                if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
+                res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
+                res.ir_outer_iters = ir.outer_iters_done;
+                res.ir_inner_iters_total = 0;
+                for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
+                if (!ir.times.empty()) res.ir_breakdown = ir.times;
+            }
 
             // Higham normwise backward error ||Ax-b|| / (||A||_2 ||x|| + ||b||).
             std::vector<T_solve> Ax(m, (T_solve)0);

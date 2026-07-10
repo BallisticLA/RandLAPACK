@@ -74,6 +74,7 @@ class sCholQR3_linops {
         T   shift_factor_iter23;
         int max_retries;
         T   shift_growth;
+        int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
 
         sCholQR3_linops(
             bool time_subroutines,
@@ -122,7 +123,7 @@ class sCholQR3_linops {
                 A, R, ldr, this->block_size, /*num_iters=*/3,
                 this->shift_factor_iter1, this->shift_factor_iter23,
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr);
+                this->timing ? it : nullptr, &this->n_chol_retries);
             if (info != 0) return info;   // 1/2/3 = the pass that failed
 
             // Test mode: materialize Q = A * R^{-1} (outside timing region).
@@ -191,6 +192,7 @@ class sCholQR3_linops_basic {
         T   shift_factor_iter23;
         int max_retries;
         T   shift_growth;
+        int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
 
         sCholQR3_linops_basic(
             bool time_subroutines,
@@ -242,7 +244,7 @@ class sCholQR3_linops_basic {
                 A, R, ldr, /*block_size=*/0, /*num_iters=*/3,
                 this->shift_factor_iter1, this->shift_factor_iter23,
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr);
+                this->timing ? it : nullptr, &this->n_chol_retries);
             if (info != 0) return info;
 
             // ---- Test mode: materialize Q = A * R^{-1} via blocked linop call ----

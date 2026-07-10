@@ -49,6 +49,7 @@ class CholQR_linops {
         // x shift_growth. max_retries < 0 = unbounded (no ceiling) — retry until PD.
         int max_retries;
         T   shift_growth;
+        int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
 
         CholQR_linops(
             bool time_subroutines,
@@ -94,7 +95,7 @@ class CholQR_linops {
                 A, R, ldr, this->block_size, /*num_iters=*/1,
                 /*shift_iter1=*/T(0), /*shift_iter_rest=*/T(0),
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr);
+                this->timing ? it : nullptr, &this->n_chol_retries);
             if (info != 0) return info;
 
             // Test mode: materialize Q = A * R^{-1} (outside the timing region).
@@ -166,6 +167,7 @@ class CholQR2_linops {
         T   shift_factor_iter2;
         int max_retries;
         T   shift_growth;
+        int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
 
         CholQR2_linops(
             bool time_subroutines,
@@ -212,7 +214,7 @@ class CholQR2_linops {
                 A, R, ldr, this->block_size, /*num_iters=*/2,
                 this->shift_factor_iter1, this->shift_factor_iter2,
                 this->max_retries, this->shift_growth, this->timing,
-                this->timing ? it : nullptr);
+                this->timing ? it : nullptr, &this->n_chol_retries);
             if (info != 0) return info;   // 1 or 2 = the pass that failed
 
             // ---- Test mode: materialize Q = A * R^{-1} via blocked linop calls ----

@@ -248,6 +248,7 @@ class CQRRT_linops {
         // of failing outright, matching the CholQR family.
         int max_retries;
         T   shift_growth;
+        int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
 
         CQRRT_linops(
             bool time_subroutines,
@@ -342,7 +343,7 @@ class CQRRT_linops {
                 &state,
                 precond_inv_dur, fwd_dur, adj_dur, gemm_dur, chol_dur, finalize_dur,
                 this->timing,
-                /*shift_factor=*/T(0), this->max_retries, this->shift_growth);
+                /*shift_factor=*/T(0), this->max_retries, this->shift_growth, &this->n_chol_retries);
             if (info != 0) {
                 delete[] A_hat; delete[] tau; delete[] P; delete[] R_pre;
                 delete[] G; delete[] A_temp; delete[] Z_buf;
