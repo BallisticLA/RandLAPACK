@@ -61,7 +61,12 @@ public:
     // ---- adaptive depth controls (used only when `adaptive`) --------------
     bool    adaptive        = false;   ///< choose depth online from the certificate
     T       adaptive_rtol   = (T)1e-2; ///< relative-change tolerance on tr(M_k)
-    int64_t adaptive_delay  = 5;       ///< δ: compare depth k against k − δ checks
+    // First convergence test is at depth (adaptive_min + adaptive_delay), so these
+    // set the floor on d_used. delay=2 was chosen empirically (2026-07-10): across
+    // easy-to-moderate spectra it matched delay=5's accuracy exactly while stopping
+    // ~3 steps sooner (fewer matvecs). Raise it if a stalling spectrum trips a
+    // premature stop (tr(M_k) plateauing before it has truly converged).
+    int64_t adaptive_delay  = 2;       ///< δ: compare depth k against k − δ checks
     int64_t adaptive_min    = 2;       ///< do not test convergence before this depth
     int64_t d_used          = 0;       ///< block steps actually used by the last call
 
