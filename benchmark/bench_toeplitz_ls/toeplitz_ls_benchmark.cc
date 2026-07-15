@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <ctime>
 #include <fstream>
 #include <random>
@@ -68,11 +69,18 @@ static double power_lambda_max(TOp& T, int64_t m, int64_t n, int iters) {
     return lam;
 }
 
-// Q-factor orthogonality loss ||Q^T Q - I||_F / sqrt(n), Q = A R^{-1}. Materializes Q
-// one column-block at a time (mtot x n peak, not mtot x n x extra), then a single
-// Side::Right TRSM -- the same blocked pattern the FEM benchmark uses at ISAAC scale.
+// Preconditioner quality of R via Q = A R^{-1}. Materializes Q one column-block at a
+// time (mtot x n peak), one Side::Right TRSM -- the blocked pattern the FEM benchmark
+// uses at ISAAC scale -- then forms the Gram G = Q^T Q (n x n) once and reads two of
+// Oleg's metrics from it:
+//   orth_out = ||G - I||_F / sqrt(n)                 (orthogonality loss)
+//   cond_out = sqrt(lambda_max(G) / lambda_min(G))   = cond(A R^{-1})
+// The cond estimate needs an n x n symmetric eigendecomposition (O(n^3)); it is skipped
+// (returned as NaN) when n > cond_cap, since that eig is infeasible at ISAAC-large n.
 template <typename AOp>
-static double compute_orth_error(AOp& A, const double* R, int64_t mtot, int64_t n, int64_t block_size) {
+static void compute_orth_and_cond(AOp& A, const double* R, int64_t mtot, int64_t n,
+                                  int64_t block_size, int64_t cond_cap,
+                                  double& orth_out, double& cond_out) {
     int64_t b = (block_size > 0 && block_size < n) ? block_size : n;
     std::vector<double> Q(mtot * n), E(n * b);
     for (int64_t j0 = 0; j0 < n; j0 += b) {
@@ -83,7 +91,25 @@ static double compute_orth_error(AOp& A, const double* R, int64_t mtot, int64_t 
     }
     blas::trsm(Layout::ColMajor, Side::Right, blas::Uplo::Upper, Op::NoTrans, blas::Diag::NonUnit,
                mtot, n, 1.0, R, n, Q.data(), mtot);   // Q = A R^{-1}
-    return RandLAPACK::testing::orthogonality_error<double>(Q.data(), mtot, n);
+
+    // G = Q^T Q (upper triangle), n x n.
+    std::vector<double> G(n * n, 0.0);
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, Op::Trans, n, mtot, 1.0, Q.data(), mtot, 0.0, G.data(), n);
+
+    // orth = ||G - I||_F / sqrt(n) (from a copy; leaves G intact for the eig).
+    {
+        std::vector<double> GmI(G);
+        for (int64_t j = 0; j < n; ++j) GmI[j + j * n] -= 1.0;
+        orth_out = lapack::lansy(lapack::Norm::Fro, blas::Uplo::Upper, n, GmI.data(), n) / std::sqrt((double)n);
+    }
+
+    // cond(A R^{-1}) = sqrt(lambda_max/lambda_min) of G, only if within the size cap.
+    cond_out = std::numeric_limits<double>::quiet_NaN();
+    if (cond_cap <= 0 || n <= cond_cap) {
+        std::vector<double> evals(n);
+        int info = lapack::syevd(lapack::Job::NoVec, blas::Uplo::Upper, n, G.data(), n, evals.data());
+        if (info == 0 && evals[0] > 0) cond_out = std::sqrt(evals[n - 1] / evals[0]);  // ascending
+    }
 }
 
 int main(int argc, char** argv) {
@@ -150,6 +176,12 @@ int main(int argc, char** argv) {
     std::vector<double> rhs(mtot, 0.0); std::copy(b.begin(), b.end(), rhs.begin());
     double rhs_norm = blas::nrm2(mtot, rhs.data(), 1);
     double x_true_norm = blas::nrm2(n, x_true.data(), 1);
+    // normalRhs = A^T rhs (for normalRelres = ||A^T(Ax-rhs)|| / ||A^T rhs||).
+    std::vector<double> normalRhs(n);
+    A_hat(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, 1, mtot, 1.0, rhs.data(), mtot, 0.0, normalRhs.data(), n);
+    double normalRhs_norm = blas::nrm2(n, normalRhs.data(), 1);
+    // cond(A R^{-1}) needs an n x n eig; skip it above this size (infeasible at ISAAC-large n).
+    const int64_t cond_est_max_n = 16384;   // includes small (n=8256), excludes large (n=33024)
 
     // 4. Method list from the mask.
     std::vector<std::string> algs;
@@ -169,7 +201,8 @@ int main(int argc, char** argv) {
     out << "# Toeplitz LS benchmark m=" << m << " n=" << n << " omega=" << omega
         << " lambda=" << lambda << " tol=" << tol << " d_factor=" << d_factor << "\n";
     out << "algorithm,m,n,qr_status,qr_time_us,solve_time_us,peak_rss_kb,analytical_kb,"
-           "orth_error,iterations,solver_flag,aug_relres,data_relres,recovery_error,chol_retries\n";
+           "orth_error,iterations,solver_flag,solver_relres,aug_relres,normal_relres,"
+           "data_relres,recovery_error,cond_estimate,chol_retries\n";
 
     std::vector<double> R(n*n), x(n), Tx(m), Ax(mtot);
 
@@ -180,6 +213,7 @@ int main(int argc, char** argv) {
         auto state = RandBLAS::RNGState<RNG>((uint32_t)seed);
         int qr_status = 0, iters = 0, flag = 0, chol_retries = 0;
         long qr_us = 0, solve_us = 0, peak_kb = 0, analytical_kb = 0;
+        double solver_relres = -1;   // LSQR's own ||b - Ã y|| / ||b|| at termination
         bool have_R = false, is_bp = (alg == "Blendenpik"), is_unprec = (alg == "unpreconditioned");
 
         rl::PeakRSSTracker mem; mem.start();
@@ -194,7 +228,7 @@ int main(int argc, char** argv) {
                 iters = bp.lsqr_iters; std::copy(bp.R_out.begin(), bp.R_out.end(), R.begin()); have_R = true; }
         } else if (is_unprec) {
             long lt[4] = {0};
-            flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol, maxit, iters, lt);
+            flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
             solve_us = lt[3]; peak_kb = mem.stop();
         } else {
             // Build R via the selected Q-less QR method, then shared LSQR with right precond R.
@@ -229,20 +263,26 @@ int main(int argc, char** argv) {
             if (qr_status == 0) {
                 have_R = true;
                 long lt[4] = {0};
-                flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt);
+                flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
                 solve_us = lt[3];
             }
             peak_kb = mem.stop();
         }
         (void)duration_cast<microseconds>(steady_clock::now() - t0).count();
 
-        // Metrics.
-        double orth_err = -1, aug_relres = -1, data_relres = -1, recov = -1;
+        // Metrics (Oleg's set: solver/data/aug/normal relres, recovery, orth, cond).
+        double orth_err = -1, aug_relres = -1, data_relres = -1, normal_relres = -1, recov = -1;
+        double cond_est = std::numeric_limits<double>::quiet_NaN();
         if (qr_status == 0) {
-            if (have_R) orth_err = compute_orth_error(A_hat, R.data(), mtot, n, block_size);
+            if (have_R) compute_orth_and_cond(A_hat, R.data(), mtot, n, block_size, cond_est_max_n, orth_err, cond_est);
+            // augResidual = A_hat x - rhs  (length mtot).
             A_hat(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, mtot, 1, n, 1.0, x.data(), n, 0.0, Ax.data(), mtot);
-            double ar = 0; for (int64_t i = 0; i < mtot; ++i) { double d = Ax[i] - rhs[i]; ar += d*d; }
+            double ar = 0; for (int64_t i = 0; i < mtot; ++i) { Ax[i] -= rhs[i]; ar += Ax[i]*Ax[i]; }
             aug_relres = std::sqrt(ar) / std::max(rhs_norm, 1e-300);
+            // normalResidual = A_hat^T (A_hat x - rhs); normalRelres = ||.|| / ||A^T rhs||.
+            std::vector<double> nres(n);
+            A_hat(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, 1, mtot, 1.0, Ax.data(), mtot, 0.0, nres.data(), n);
+            normal_relres = blas::nrm2(n, nres.data(), 1) / std::max(normalRhs_norm, 1e-300);
             T(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, 1, n, 1.0, x.data(), n, 0.0, Tx.data(), m);
             double dr = 0; for (int64_t i = 0; i < m; ++i) { double d = Tx[i] - b[i]; dr += d*d; }
             data_relres = std::sqrt(dr) / std::max(b_norm, 1e-300);
@@ -252,13 +292,14 @@ int main(int argc, char** argv) {
 
         std::printf("  qr_status=%d iters=%d flag=%d qr_us=%ld solve_us=%ld peak_kb=%ld\n",
                     qr_status, iters, flag, qr_us, solve_us, peak_kb);
-        std::printf("  orth=%.3e aug_relres=%.3e data_relres=%.3e recovery=%.3e retries=%d\n",
-                    orth_err, aug_relres, data_relres, recov, chol_retries);
+        std::printf("  orth=%.3e solver_relres=%.3e aug=%.3e normal=%.3e data=%.3e recovery=%.3e cond=%.3e retries=%d\n",
+                    orth_err, solver_relres, aug_relres, normal_relres, data_relres, recov, cond_est, chol_retries);
 
         out << alg << "," << m << "," << n << "," << qr_status << "," << qr_us << "," << solve_us << ","
             << peak_kb << "," << analytical_kb << ","
             << std::scientific << orth_err << "," << iters << "," << flag << ","
-            << aug_relres << "," << data_relres << "," << recov << "," << chol_retries << "\n";
+            << solver_relres << "," << aug_relres << "," << normal_relres << ","
+            << data_relres << "," << recov << "," << cond_est << "," << chol_retries << "\n";
     }
     out.close();
     std::printf("\nresults -> %s\n", csv.c_str());

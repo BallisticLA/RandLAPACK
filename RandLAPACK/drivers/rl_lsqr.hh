@@ -44,6 +44,9 @@ namespace RandLAPACK {
 /// @param[in]  max_iters iteration cap.
 /// @param[out] iters_done number of iterations actually run.
 /// @param[out] times    optional [fwd_us, adj_us, trsm_us, total_us] (may be nullptr).
+/// @param[out] final_relres optional: the solver's own ||b - Ã y|| / ||b|| at
+///                      termination (the Paige-Saunders S1 estimate). For a right
+///                      preconditioner this equals ||b - A x|| / ||b|| since Ã y = A x.
 /// @returns 0 if a stopping test was met; 1 if the iteration cap was hit.
 template <typename T, RandLAPACK::linops::LinearOperator GLO>
 int lsqr(
@@ -52,7 +55,8 @@ int lsqr(
     const T* b, T* x,
     T atol, T btol, int max_iters,
     int& iters_done,
-    long* times = nullptr)
+    long* times = nullptr,
+    T* final_relres = nullptr)
 {
     using clock = std::chrono::steady_clock;
     using std::chrono::duration_cast;
@@ -107,7 +111,7 @@ int lsqr(
     T beta = blas::nrm2(m, u, 1);
     T bnorm = beta;
     for (int64_t i = 0; i < n; ++i) x[i] = (T)0;
-    if (beta == (T)0) { iters_done = 0; cleanup(); if (times) { times[0]=t_fwd; times[1]=t_adj; times[2]=t_trsm; times[3]=duration_cast<microseconds>(clock::now()-total_start).count(); } return 0; }
+    if (beta == (T)0) { iters_done = 0; cleanup(); if (times) { times[0]=t_fwd; times[1]=t_adj; times[2]=t_trsm; times[3]=duration_cast<microseconds>(clock::now()-total_start).count(); } if (final_relres) *final_relres = (T)0; return 0; }
     blas::scal(m, (T)1.0 / beta, u, 1);
 
     apply_AtildeT(u, v);
@@ -168,6 +172,8 @@ int lsqr(
     }
 
     if (times) { times[0]=t_fwd; times[1]=t_adj; times[2]=t_trsm; times[3]=duration_cast<microseconds>(clock::now()-total_start).count(); }
+    // phibar holds the last ||b - Ã y|| estimate; bnorm is ||b||.
+    if (final_relres) *final_relres = (bnorm > (T)0) ? (phibar / bnorm) : (T)0;
     cleanup();
     return status;
 }
