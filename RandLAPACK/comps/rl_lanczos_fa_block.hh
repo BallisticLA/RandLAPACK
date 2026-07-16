@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <vector>
 #include <cstring>
+#include <stdexcept>
+#include <string>
 #include <functional>
 
 namespace RandLAPACK {
@@ -134,6 +136,13 @@ public:
                      const std::function<bool(int64_t)>& stop_after = {}) {
         using namespace std::chrono;
         steady_clock::time_point _mv_t0, _mv_t1;
+        // A block wider than the operator dimension has no valid reduced QR
+        // (the s x s R factor would be read from an n-row panel, corrupting
+        // memory); reject it here rather than fault deep in LAPACK.
+        if (s > n)
+            throw std::invalid_argument(
+                "BlockLanczosFA::run_lanczos: block size s = " + std::to_string(s) +
+                " exceeds the operator dimension n = " + std::to_string(n));
         _t_matvec_us = 0;
         steps_run = 0;
         const int64_t m = d * s;   // T_k dimension / its leading dimension

@@ -326,3 +326,76 @@ TEST_F(TestFunNystromPPv2, BlockQFAadaptiveStopsEarly) {
     EXPECT_LT(reltr, 1e-2);         // matches the converged value
     delete[] G0; delete[] A; delete[] Bmat; delete[] M_fixed; delete[] M_adapt;
 }
+
+// The knob-free overload call(A, f, m, eps, state, ...) must (a) close the
+// matvec budget exactly (probe + q*k + s*t == m at q = 1), (b) allocate rank-
+// heavy (k >> s, the paper's advocacy, automatic from the cost split), and
+// (c) deliver a sane estimate. Well-conditioned SPD so the probe depth stays
+// small and k = ~m/2 stays below n.
+TEST_F(TestFunNystromPPv2, AutoBudgetClosesAndEstimates) {
+    using T = double;
+    const int64_t n = 400;
+    const int64_t m_budget = 700;
+    const T eps = 1e-3;
+
+    T *G0 = randn<T>(n, n, /*seed=*/61);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    auto fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
+    T true_tr = true_trace_fa(n, A, fscalar);
+
+    RandBLAS::RNGState<RNG> state(29);
+    RandLAPACK::FunNystromPP<T> driver;
+    driver.auto_qfa_batch = 32;   // force multiple Phase-2 QFA batches (s ~ 96)
+    T t1 = 0, t2 = 0;
+    T est = driver.call(A_op, fscalar, m_budget, eps, state, t1, t2);
+
+    const int64_t spend = driver.auto_probe_matvecs
+                        + driver.auto_k + driver.auto_s * driver.auto_t;
+    T err = std::abs(est - true_tr) / std::abs(true_tr);
+    std::printf("auto: m=%ld spend=%ld (probe=%ld k=%ld s=%ld t=%ld conv=%d)  relerr=%.3e\n",
+                (long)m_budget, (long)spend, (long)driver.auto_probe_matvecs,
+                (long)driver.auto_k, (long)driver.auto_s, (long)driver.auto_t,
+                (int)driver.auto_probe_converged, err);
+    EXPECT_TRUE(driver.auto_probe_converged);
+    EXPECT_LE(driver.auto_k, n / 2);          // rank cap (fragile k -> n Gram corner)
+    EXPECT_LE(spend, m_budget);               // never overspends ...
+    EXPECT_LT(m_budget - spend, driver.auto_t); // ... and underspends < one probe
+    EXPECT_GT(driver.auto_k, driver.auto_s);  // rank-heavy split
+    EXPECT_LT(err, 1e-2);
+    delete[] G0; delete[] A;
+}
+
+// Infeasible inputs must throw with a descriptive message, not proceed.
+TEST_F(TestFunNystromPPv2, AutoInfeasibleThrows) {
+    using T = double;
+    const int64_t n = 100;
+    T *G0 = randn<T>(n, n, /*seed=*/67);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    auto fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
+
+    RandLAPACK::FunNystromPP<T> driver;
+    T t1 = 0, t2 = 0;
+    {   // budget too small to fund probe + one probe + one unit of rank
+        RandBLAS::RNGState<RNG> state(5);
+        EXPECT_THROW(driver.call(A_op, fscalar, (int64_t)5, (T)1e-3, state, t1, t2),
+                     std::invalid_argument);
+    }
+    {   // eps outside (0, 1)
+        RandBLAS::RNGState<RNG> state(5);
+        EXPECT_THROW(driver.call(A_op, fscalar, (int64_t)1000, (T)0, state, t1, t2),
+                     std::invalid_argument);
+    }
+    delete[] G0; delete[] A;
+}

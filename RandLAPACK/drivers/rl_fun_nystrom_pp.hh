@@ -5,13 +5,16 @@
 #include "rl_util.hh"
 #include "rl_linops.hh"
 #include "rl_nystrom_evd.hh"
+#include "rl_lanczos_qfa_block.hh"
 
 #include <RandBLAS.hh>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <string>
 
 namespace RandLAPACK {
 
@@ -91,6 +94,36 @@ public:
     // takes its trace); QFA skips the f(A)·Ω₂ mapback entirely.
     bool use_qfa = false;
 
+    // ---- knob-free tier ("auto"): state for the (matvec_budget, eps) overload ----
+    // The auto overload owns its Phase-2 oracle (the expert overload takes fAfun
+    // from the caller, but choosing the depth is the auto tier's whole job).
+    BlockLanczosQFA<T> auto_qfa;
+    // Tunables. auto_probe_block is the probe block size b: the depth probe costs
+    // b*t matvecs, so small b is cheap; the probed t is conservative for the
+    // larger Phase-2 block (a bigger block spans a richer joint Krylov subspace,
+    // so it needs at most as many steps). auto_depth_cap bounds the probe depth;
+    // the probe is additionally capped so it can spend at most half the budget.
+    int64_t auto_probe_block = 4;
+    int64_t auto_depth_cap   = 200;
+    // Phase-2 probe batch size. The driver reads only the DIAGONAL of the QFA
+    // output (the trace), so the s probes are pushed through block QFA in
+    // batches of this many columns, each batch filling its own diagonal block.
+    // Identical estimator and matvec count; what it avoids is the one-block
+    // (t*s)^2 dense eigenproblem, which dominates wall-clock once s is large
+    // (the same block-eig blowup that keeps the block variants out of the
+    // budget sweep).
+    int64_t auto_qfa_batch   = 100;
+    // Outputs of the last auto call, for cost accounting: the chosen rank/probe
+    // count/oracle depth, the matvecs the probe spent (auto_probe_matvecs = b*t;
+    // total spend = auto_probe_matvecs + q*auto_k + auto_s*auto_t = matvec_budget,
+    // exactly when the n/2 rank cap does not bind and up to a remainder < t when
+    // it does; q = 1), and whether the probe certificate converged before its cap.
+    int64_t auto_k = 0, auto_s = 0, auto_t = 0, auto_probe_matvecs = 0;
+    bool    auto_probe_converged = true;
+    // Probe scratch (normalized-Gaussian block + probe QFA output).
+    T* auto_probe_buf = nullptr; int64_t auto_probe_buf_sz = 0;
+    T* auto_M_buf     = nullptr; int64_t auto_M_buf_sz     = 0;
+
     // After call(), these hold Phase 1's eigenpairs of Â. Exposed as
     // public so tests can inspect them; in production code you'd treat
     // them as read-only output. Heap-owned; grown via util::upsize and
@@ -132,6 +165,8 @@ public:
         delete[] Y_2;
         delete[] fAOmega;
         delete[] Omega2_buf;
+        delete[] auto_probe_buf;
+        delete[] auto_M_buf;
     }
 
     /// Returns the estimate t = t1 + t2 of tr(f(A)).
@@ -204,6 +239,47 @@ public:
         int64_t q,
         RandBLAS::RNGState<RNG> &state,
         const T *Omega2,
+        T &t1_out,
+        T &t2_out,
+        std::optional<T> f_zero = std::nullopt
+    );
+
+    /// Knob-free overload: same estimator, but the caller sets only a total
+    /// A-matvec budget and a target accuracy; the rank k, probe count s, and
+    /// oracle depth are chosen inside. Flow (Raphael's budget recipe):
+    ///
+    ///   1. Depth probe: run the adaptive block Lanczos-QFA certificate on a
+    ///      small internal probe block (auto_probe_block columns, rtol = eps)
+    ///      to find the depth t one accurate probe needs. Costs b*t matvecs.
+    ///   2. Allocation: give the correction half the remaining budget,
+    ///        s = floor((m - b*t) / (2t)),   k = m - b*t - s*t,
+    ///      which closes the budget exactly (probe + q*k + s*t = m at q = 1)
+    ///      and buys ~t times more rank than probes (k >> s automatically,
+    ///      matching the paper's advocacy). The rank is capped at n/2 (the
+    ///      k -> n shifted-Nystrom Gram corner is numerically fragile, and n/2
+    ///      matches the benchmark's rank-heavy split); when the cap binds the
+    ///      surplus goes into probes and at most t - 1 matvecs go unspent.
+    ///   3. Delegate to the expert call() above with a fixed-depth-t QFA
+    ///      oracle (use_qfa path) and kernel-internal Omega2.
+    ///
+    /// Conventions this tier fixes (the expert overload keeps them free):
+    /// the budget currency is the A-MATVEC COUNT (not wall-clock); q = 1
+    /// (single-pass Nystrom, the paper's advocated setting); eps is a target
+    /// scale for the oracle bias (certificate rtol = eps), not an end-to-end
+    /// error guarantee (the stochastic probe error is budget-limited).
+    /// Chosen values are reported in auto_k / auto_s / auto_t /
+    /// auto_probe_matvecs / auto_probe_converged.
+    ///
+    /// Throws std::invalid_argument for an infeasible (matvec_budget, eps):
+    /// the budget must cover the probe plus at least one depth-t probe and
+    /// one unit of rank.
+    template <linops::SymmetricLinearOperator SLO, typename RNG, typename FScalar>
+    T call(
+        SLO &A_op,
+        FScalar &&fscalar,
+        int64_t matvec_budget,
+        T eps,
+        RandBLAS::RNGState<RNG> &state,
         T &t1_out,
         T &t2_out,
         std::optional<T> f_zero = std::nullopt
@@ -361,6 +437,123 @@ T FunNystromPP<T>::call(
     }
     // [Alg. 1, line 7] return tr̃_f++ = tr_top + tr_bot − tr_cor = t1 + t2.
     return t1_out + t2_out;
+}
+
+
+// --- Knob-free tier: FunNystromPP::call(A, f, matvec_budget, eps, ...) --------
+
+template <typename T>
+template <linops::SymmetricLinearOperator SLO, typename RNG, typename FScalar>
+T FunNystromPP<T>::call(
+    SLO &A_op,
+    FScalar &&fscalar,
+    int64_t matvec_budget,
+    T eps,
+    RandBLAS::RNGState<RNG> &state,
+    T &t1_out,
+    T &t2_out,
+    std::optional<T> f_zero
+) {
+    const int64_t n = A_op.dim;
+    const int64_t q = 1;   // single-pass Nystrom (the paper's advocated setting)
+
+    if (!(eps > (T)0) || !(eps < (T)1))
+        throw std::invalid_argument(
+            "FunNystromPP::call(auto): eps must lie in (0, 1); got " + std::to_string((double)eps));
+
+    // ---- 1. Depth probe: adaptive QFA certificate on a small probe block ----
+    // Cap the probe depth so it can spend at most half the budget; the harder
+    // cap (n, auto_depth_cap) keeps the certificate eigensolves small.
+    const int64_t b = std::min(this->auto_probe_block, n);
+    const int64_t probe_cap = std::min({this->auto_depth_cap, n,
+                                        std::max((int64_t)1, matvec_budget / (2 * b))});
+    if (probe_cap < 1 || b < 1)
+        throw std::invalid_argument(
+            "FunNystromPP::call(auto): matvec_budget " + std::to_string(matvec_budget) +
+            " cannot fund a depth probe (block " + std::to_string(b) + ")");
+
+    // Probe block: Gaussian, columns normalized to sqrt(n) (the same probe
+    // convention as the internal Omega2).
+    util::upsize(this->auto_probe_buf, this->auto_probe_buf_sz, n * b);
+    util::upsize(this->auto_M_buf,     this->auto_M_buf_sz,     b * b);
+    RandBLAS::DenseDist Dp(n, b);
+    state = RandBLAS::fill_dense(Dp, this->auto_probe_buf, state);
+    const T colnorm_target = std::sqrt((T)n);
+    for (int64_t j = 0; j < b; ++j) {
+        T* col = this->auto_probe_buf + j * n;
+        T nrm  = blas::nrm2(n, col, 1);
+        if (nrm > (T)0) blas::scal(n, colnorm_target / nrm, col, 1);
+    }
+
+    this->auto_qfa.adaptive      = true;
+    this->auto_qfa.adaptive_rtol = eps;
+    this->auto_qfa.call(A_op, this->auto_probe_buf, n, b, fscalar, probe_cap,
+                        this->auto_M_buf);
+    const int64_t t = this->auto_qfa.d_used;
+    this->auto_t               = t;
+    this->auto_probe_matvecs   = b * t;
+    this->auto_probe_converged = (t < probe_cap);
+
+    // ---- 2. Allocation: close the budget (probe + q*k + s*t = m, up to < t) ----
+    const int64_t m_rem = matvec_budget - this->auto_probe_matvecs;
+    int64_t s = m_rem / (2 * t);                 // floor: probes get ~half of m_rem
+    int64_t k = (m_rem - s * t) / q;             // rank absorbs the rounding
+    if (s < 1 || k < 1)
+        throw std::invalid_argument(
+            "FunNystromPP::call(auto): matvec_budget " + std::to_string(matvec_budget) +
+            " is infeasible after the depth probe (b*t = " +
+            std::to_string(this->auto_probe_matvecs) + ", t = " + std::to_string(t) +
+            "): need at least one probe and one unit of rank");
+    // Cap the rank at n/2 and put the surplus budget into probes. Two reasons:
+    // (a) as k approaches n the shifted-Nystrom Gram Omega^T(A + nu I)Omega goes
+    // numerically singular with a sparse SASO sketch and the tiny shift (potrf
+    // throws), so the k -> n corner is not reliably available; (b) n/2 is the
+    // same rank cap the benchmark's rank-heavy split uses, so the tiers agree.
+    // After the cap the leftover r = m_rem - q*k - s*t satisfies 0 <= r < t
+    // (not enough for one more probe); the budget is spent up to that remainder.
+    const int64_t k_cap = std::max((int64_t)1, n / 2);
+    if (k > k_cap) {
+        k = k_cap;
+        s = (m_rem - q * k) / t;
+    }
+    // Cap the probe count at n - k (the estimator's k + s <= n convention; the
+    // block-QFA oracle also requires a block no wider than n). Past this point
+    // the estimator SATURATES: a larger budget buys nothing more in this tier,
+    // and the leftover goes unspent (visible as matvec_budget minus the
+    // auto_* accounting). Batching the probes to spend arbitrarily large
+    // budgets is possible but not implemented.
+    s = std::min(s, n - k);
+    this->auto_k = k;
+    this->auto_s = s;
+
+    // ---- 3. Delegate to the expert overload with a fixed-depth-t QFA oracle ----
+    this->auto_qfa.adaptive = false;
+    const int64_t s_batch = std::max((int64_t)1, this->auto_qfa_batch);
+    util::upsize(this->auto_M_buf, this->auto_M_buf_sz, s_batch * s_batch);
+    auto fAfun = [&](int64_t fa_n, int64_t fa_s, const T* Bblk, T* Y) {
+        // Batched QFA (see auto_qfa_batch): per-batch M_b on the diagonal of Y.
+        // Off-diagonal blocks of the true M are never read by the driver, so
+        // they are left unwritten.
+        for (int64_t j0 = 0; j0 < fa_s; j0 += s_batch) {
+            const int64_t sb = std::min(s_batch, fa_s - j0);
+            this->auto_qfa.call(A_op, Bblk + j0 * fa_n, fa_n, sb, fscalar, t,
+                                this->auto_M_buf);
+            for (int64_t jj = 0; jj < sb; ++jj)
+                Y[(j0 + jj) + (j0 + jj) * fa_s] = this->auto_M_buf[jj + jj * sb];
+        }
+    };
+    const bool saved_use_qfa = this->use_qfa;
+    this->use_qfa = true;
+    T est;
+    try {
+        est = this->call(A_op, fAfun, fscalar, k, s, q, state,
+                         /*Omega2=*/nullptr, t1_out, t2_out, f_zero);
+    } catch (...) {
+        this->use_qfa = saved_use_qfa;
+        throw;
+    }
+    this->use_qfa = saved_use_qfa;
+    return est;
 }
 
 
