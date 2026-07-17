@@ -90,6 +90,10 @@ class TestQB : public ::testing::Test
 
         // Get low-rank SVD
         lapack::gesdd(Job::SomeVec, m, n, all_data.A_cpy.data(), m, all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
+        std::cout << "singular values:" << std::endl;
+        for (int64_t i = 0; i < static_cast<int64_t>(std::min(m, n)); ++i) {
+            std::cout << "\t" << s[i] << std::endl;
+        }
     }
 
     /// General test for QB:
