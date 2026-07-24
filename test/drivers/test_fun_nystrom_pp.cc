@@ -226,6 +226,264 @@ TEST_F(TestFunNystromPPv2, RandomPSDSqrt) {
 }
 
 
+// ===== Scalar Lanczos-FA vs the exact oracle ================================
+// First direct coverage of the scalar (per-column) LanczosFA: on a
+// well-conditioned SPD matrix the depth-d Krylov approximation of f(A)B must
+// match the exact V·diag(f(λ))·Vᵀ·B oracle to near machine precision, with and
+// without reorthogonalization (Lanczos-FA tolerates orthogonality loss,
+// Paige-Greenbaum).
+TEST_F(TestFunNystromPPv2, ScalarLanczosFAMatchesExact) {
+    using T = double;
+    const int64_t n = 60, s = 8, d = 30;
+
+    // A = GᵀG + n·I (symmetric PSD, well-conditioned ⟹ fast Krylov convergence).
+    T *G0 = randn<T>(n, n, /*seed=*/47);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+
+    T *Bmat = randn<T>(n, s, /*seed=*/53);
+    auto fscalar = [](T x) { return std::sqrt(x); };
+    auto exact   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    T *ref = new T[n * s];
+    exact(n, s, Bmat, ref);
+    T ref_nrm = blas::nrm2(n * s, ref, 1);
+
+    for (int64_t reorth = 1; reorth >= 0; --reorth) {
+        RandLAPACK::LanczosFA<T> lfa; lfa.reorth = reorth;
+        T *out = new T[n * s];
+        lfa.call(A_op, Bmat, n, s, fscalar, d, out);
+        for (int64_t i = 0; i < n * s; ++i) out[i] -= ref[i];
+        T relF = blas::nrm2(n * s, out, 1) / ref_nrm;
+        std::printf("scalar LanczosFA vs exact (reorth=%ld): rel Frobenius diff=%.3e\n",
+                    reorth, relF);
+        EXPECT_LT(relF, 1e-10);
+        delete[] out;
+    }
+    delete[] G0; delete[] A; delete[] Bmat; delete[] ref;
+}
+
+
+// ===== Scalar Lanczos-QFA equals the per-column FA dots =====================
+// The Gauss-quadrature identity bᵀ·LanczosFA(A, f, b) = Lanczos-QFA(A, f, b),
+// per column: the fixed-depth scalar QFA vector out[j] must match
+// ⟨B[:,j], (LanczosFA output)[:,j]⟩ computed by the reorth-0 scalar FA at the
+// same depth (identical recurrence in exact arithmetic), and both must match
+// the exact quadratic forms.
+TEST_F(TestFunNystromPPv2, ScalarQFAmatchesScalarFAdots) {
+    using T = double;
+    const int64_t n = 60, s = 8, d = 30;
+
+    T *G0 = randn<T>(n, n, /*seed=*/59);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+
+    T *Bmat = randn<T>(n, s, /*seed=*/71);
+    auto fscalar = [](T x) { return std::sqrt(x); };
+
+    // FA path (vanilla Lanczos to match QFA's no-reorth recurrence).
+    RandLAPACK::LanczosFA<T> lfa; lfa.reorth = 0;
+    T *Gout = new T[n * s];
+    lfa.call(A_op, Bmat, n, s, fscalar, d, Gout);
+
+    // QFA path.
+    RandLAPACK::LanczosQFA<T> qfa;
+    T *qf = new T[s];
+    qfa.call(A_op, Bmat, n, s, fscalar, d, qf);
+    EXPECT_EQ(qfa.d_used, d);
+    EXPECT_EQ(qfa.matvecs, s * d);
+
+    // Exact quadratic forms for the absolute reference.
+    auto exact = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    T *ref = new T[n * s];
+    exact(n, s, Bmat, ref);
+
+    T maxrel_fa = 0, maxrel_exact = 0;
+    for (int64_t j = 0; j < s; ++j) {
+        T dot_fa    = blas::dot(n, Bmat + j * n, 1, Gout + j * n, 1);
+        T dot_exact = blas::dot(n, Bmat + j * n, 1, ref  + j * n, 1);
+        maxrel_fa    = std::max(maxrel_fa,    std::abs(qf[j] - dot_fa)    / std::abs(dot_fa));
+        maxrel_exact = std::max(maxrel_exact, std::abs(qf[j] - dot_exact) / std::abs(dot_exact));
+    }
+    std::printf("scalar QFA vs FA dots: maxrel=%.3e  vs exact: maxrel=%.3e\n",
+                maxrel_fa, maxrel_exact);
+    EXPECT_LT(maxrel_fa,    1e-10);
+    EXPECT_LT(maxrel_exact, 1e-10);
+    delete[] G0; delete[] A; delete[] Bmat; delete[] Gout; delete[] qf; delete[] ref;
+}
+
+
+// ===== Gauss/Gauss-Radau bracket on a diagonal matrix =======================
+// On A = diag(1..n) the quadratic form bᵀf(A)b = Σᵢ f(i)·bᵢ² is exact and
+// cheap. At several truncation depths the Gauss value (gauss_val) and the
+// Gauss-Radau value (radau_val, node pinned at 0) must bracket the truth —
+// this is the entire foundation of the certified stopping rule. Depths are
+// probed by running adaptive mode with an unreachable tolerance so every
+// column reports its (unclosed) bracket at the cap.
+TEST_F(TestFunNystromPPv2, ScalarQFAradauBracketsDiagonal) {
+    using T = double;
+    const int64_t n = 80, s = 6;
+
+    T *A = new T[n * n]();   // zero-init: only the diagonal is written
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] = (T)(i + 1);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    T *Bmat = randn<T>(n, s, /*seed=*/73);
+    // Column 1 = e₉: on the diagonal A the three-term residual is exactly zero
+    // in floating point, exercising the true breakdown path (certifies at t=1
+    // with the exact value √10 despite the unreachable tolerance below).
+    std::fill(Bmat + 1 * n, Bmat + 2 * n, (T)0);
+    Bmat[9 + 1 * n] = (T)1;
+    auto fscalar = [](T x) { return std::sqrt(x); };
+
+    T truth[s];
+    for (int64_t j = 0; j < s; ++j) {
+        truth[j] = 0;
+        for (int64_t i = 0; i < n; ++i) {
+            T bij = Bmat[i + j * n];
+            truth[j] += std::sqrt((T)(i + 1)) * bij * bij;
+        }
+    }
+
+    T *qf = new T[s];
+    for (int64_t depth : {4, 8, 16}) {
+        RandLAPACK::LanczosQFA<T> qfa;
+        qfa.adaptive = true;
+        qfa.adaptive_rtol = std::numeric_limits<T>::min();  // never fires
+        qfa.call(A_op, Bmat, n, s, fscalar, depth, qf);
+        for (int64_t j = 0; j < s; ++j) {
+            T hi = std::max(qfa.gauss_val[j], qfa.radau_val[j]);
+            T lo = std::min(qfa.gauss_val[j], qfa.radau_val[j]);
+            T slack = 1e-12 * std::abs(truth[j]);
+            EXPECT_LE(lo - slack, truth[j]) << "depth " << depth << " col " << j;
+            EXPECT_LE(truth[j], hi + slack) << "depth " << depth << " col " << j;
+        }
+        // Breakdown column: certified exactly at t = 1 regardless of tolerance.
+        EXPECT_TRUE(qfa.certified[1]);
+        EXPECT_EQ(qfa.t_used[1], 1);
+        EXPECT_NEAR(qf[1], std::sqrt((T)10), 1e-14);
+        T w0 = std::abs(qfa.gauss_val[0] - qfa.radau_val[0]) / std::abs(truth[0]);
+        std::printf("Radau bracket d=%2ld: col0 gap/truth=%.3e (U=%.6e L=%.6e true=%.6e)\n",
+                    depth, w0, qfa.gauss_val[0], qfa.radau_val[0], truth[0]);
+    }
+    delete[] A; delete[] Bmat; delete[] qf;
+}
+
+
+// ===== Certified relative error =============================================
+// With adaptive stopping at eps, a certified column's Gauss value must be
+// within eps of the true quadratic form (up to a small roundoff factor) —
+// eps is a guarantee, not a target scale.
+TEST_F(TestFunNystromPPv2, ScalarQFAcertifiedRelErr) {
+    using T = double;
+    const int64_t n = 80, s = 8, d_cap = 79;
+    const T eps = 1e-6;
+
+    T *G0 = randn<T>(n, n, /*seed=*/79);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    T *Bmat = randn<T>(n, s, /*seed=*/83);
+    auto fscalar = [](T x) { return std::sqrt(x); };
+
+    auto exact = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    T *ref = new T[n * s];
+    exact(n, s, Bmat, ref);
+
+    RandLAPACK::LanczosQFA<T> qfa;
+    qfa.adaptive = true; qfa.adaptive_rtol = eps;
+    T *qf = new T[s];
+    qfa.call(A_op, Bmat, n, s, fscalar, d_cap, qf);
+
+    EXPECT_TRUE(qfa.all_certified);
+    int64_t sum_t = 0;
+    T maxrel = 0;
+    for (int64_t j = 0; j < s; ++j) {
+        T tj = blas::dot(n, Bmat + j * n, 1, ref + j * n, 1);
+        maxrel = std::max(maxrel, std::abs(qf[j] - tj) / std::abs(tj));
+        sum_t += qfa.t_used[j];
+        EXPECT_TRUE(qfa.certified[j]) << "col " << j;
+    }
+    std::printf("certified relerr: max=%.3e (eps=%.0e)  d_used=%ld  matvecs=%ld=Σt\n",
+                maxrel, eps, (long)qfa.d_used, (long)qfa.matvecs);
+    EXPECT_LT(maxrel, 2 * eps);          // certified bound + roundoff slack
+    EXPECT_EQ(qfa.matvecs, sum_t);       // honest per-column accounting
+    delete[] G0; delete[] A; delete[] Bmat; delete[] ref; delete[] qf;
+}
+
+
+// ===== Adaptive stopping with heterogeneous per-column depths ===============
+// One probe column is an exact eigenvector of A: its Krylov space is
+// 1-dimensional, so it breaks down (β = 0) and certifies exactly at t = 1
+// while random columns run deeper — exercising the retire/compaction
+// bookkeeping (shrinking batched matvec) that a uniform-depth run never hits.
+TEST_F(TestFunNystromPPv2, ScalarQFAadaptiveStopsEarly) {
+    using T = double;
+    const int64_t n = 80, s = 6, d_max = 70;
+
+    T *G0 = randn<T>(n, n, /*seed=*/89);
+    T *A  = new T[n * n];
+    blas::syrk(Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+               n, n, (T)1, G0, n, (T)0, A, n);
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+
+    // Eigendecomposition of A: plant V[:,0] (smallest eigenvalue) as column 2.
+    T *Vfull = new T[n * n];
+    T *ev    = new T[n];
+    std::copy(A, A + n * n, Vfull);
+    lapack::syevd(lapack::Job::Vec, lapack::Uplo::Upper, n, Vfull, n, ev);
+    T *Bmat = randn<T>(n, s, /*seed=*/97);
+    blas::copy(n, Vfull, 1, Bmat + 2 * n, 1);
+
+    auto fscalar = [](T x) { return std::sqrt(x); };
+
+    // Fixed-depth reference at the cap.
+    RandLAPACK::LanczosQFA<T> qfa_fixed;
+    T *qf_fixed = new T[s];
+    qfa_fixed.call(A_op, Bmat, n, s, fscalar, d_max, qf_fixed);
+
+    // Adaptive.
+    RandLAPACK::LanczosQFA<T> qfa;
+    qfa.adaptive = true; qfa.adaptive_rtol = 1e-8;
+    T *qf = new T[s];
+    qfa.call(A_op, Bmat, n, s, fscalar, d_max, qf);
+
+    EXPECT_TRUE(qfa.all_certified);
+    EXPECT_LT(qfa.d_used, d_max);            // stopped early
+    EXPECT_LT(qfa.matvecs, s * d_max);       // spent less than the uniform cost
+    // Eigenvector column: the three-term residual is roundoff (~1e-15), so it
+    // certifies via the bracket at t = 2 rather than the exact-breakdown path.
+    EXPECT_LE(qfa.t_used[2], 2);
+    EXPECT_NEAR(qf[2], fscalar(ev[0]), 1e-8 * std::abs(fscalar(ev[0])));
+
+    T maxrel = 0;
+    for (int64_t j = 0; j < s; ++j)
+        maxrel = std::max(maxrel, std::abs(qf[j] - qf_fixed[j]) / std::abs(qf_fixed[j]));
+    std::printf("adaptive scalar QFA: d_used=%ld/%ld matvecs=%ld/%ld  t_used=[",
+                (long)qfa.d_used, (long)d_max, (long)qfa.matvecs, (long)(s * d_max));
+    for (int64_t j = 0; j < s; ++j) std::printf("%ld ", (long)qfa.t_used[j]);
+    std::printf("]  vs fixed maxrel=%.3e\n", maxrel);
+    EXPECT_LT(maxrel, 1e-7);                 // matches the converged value
+    delete[] G0; delete[] A; delete[] Vfull; delete[] ev;
+    delete[] Bmat; delete[] qf_fixed; delete[] qf;
+}
+
+
 // ===== Block Lanczos-QFA equals Bᵀ·(Block Lanczos-FA output) ================
 // The quadratic form M = BlockLanczosQFA(A, B, f, d) must equal Bᵀ·(f(A)·B),
 // where f(A)·B = BlockLanczosFA(A, B, f, d) — the Gauss-quadrature identity
@@ -327,11 +585,13 @@ TEST_F(TestFunNystromPPv2, BlockQFAadaptiveStopsEarly) {
     delete[] G0; delete[] A; delete[] Bmat; delete[] M_fixed; delete[] M_adapt;
 }
 
-// The knob-free overload call(A, f, m, eps, state, ...) must (a) close the
-// matvec budget exactly (probe + q*k + s*t == m at q = 1), (b) allocate rank-
-// heavy (k >> s, the paper's advocacy, automatic from the cost split), and
-// (c) deliver a sane estimate. Well-conditioned SPD so the probe depth stays
-// small and k = ~m/2 stays below n.
+// The knob-free overload call(A, f, m, eps, state, ...) must (a) never
+// overspend the matvec budget — with the certified scalar-QFA oracle the
+// closure is an upper bound, probe + q*k + oracle_mv <= m, since columns stop
+// at their own certified depths — (b) allocate rank-heavy (k >> s, the
+// paper's advocacy, automatic from the cost split), and (c) deliver a sane
+// estimate. Well-conditioned SPD so the probe depth stays small and k = ~m/2
+// stays below n.
 TEST_F(TestFunNystromPPv2, AutoBudgetClosesAndEstimates) {
     using T = double;
     const int64_t n = 400;
@@ -351,21 +611,23 @@ TEST_F(TestFunNystromPPv2, AutoBudgetClosesAndEstimates) {
 
     RandBLAS::RNGState<RNG> state(29);
     RandLAPACK::FunNystromPP<T> driver;
-    driver.auto_qfa_batch = 32;   // force multiple Phase-2 QFA batches (s ~ 96)
     T t1 = 0, t2 = 0;
     T est = driver.call(A_op, fscalar, m_budget, eps, state, t1, t2);
 
     const int64_t spend = driver.auto_probe_matvecs
-                        + driver.auto_k + driver.auto_s * driver.auto_t;
+                        + driver.auto_k + driver.auto_oracle_matvecs;
     T err = std::abs(est - true_tr) / std::abs(true_tr);
-    std::printf("auto: m=%ld spend=%ld (probe=%ld k=%ld s=%ld t=%ld conv=%d)  relerr=%.3e\n",
+    std::printf("auto: m=%ld spend=%ld (probe=%ld k=%ld s=%ld t=%ld oracle_mv=%ld conv=%d)  relerr=%.3e\n",
                 (long)m_budget, (long)spend, (long)driver.auto_probe_matvecs,
                 (long)driver.auto_k, (long)driver.auto_s, (long)driver.auto_t,
+                (long)driver.auto_oracle_matvecs,
                 (int)driver.auto_probe_converged, err);
     EXPECT_TRUE(driver.auto_probe_converged);
     EXPECT_LE(driver.auto_k, n / 2);          // rank cap (fragile k -> n Gram corner)
-    EXPECT_LE(spend, m_budget);               // never overspends ...
-    EXPECT_LT(m_budget - spend, driver.auto_t); // ... and underspends < one probe
+    EXPECT_LE(spend, m_budget);               // certified stopping never overspends
+    EXPECT_GT(driver.auto_oracle_matvecs, 0);
+    EXPECT_LE(driver.auto_oracle_matvecs,    // per-column depths never exceed the cap
+              driver.auto_s * driver.auto_t);
     EXPECT_GT(driver.auto_k, driver.auto_s);  // rank-heavy split
     EXPECT_LT(err, 1e-2);
     delete[] G0; delete[] A;

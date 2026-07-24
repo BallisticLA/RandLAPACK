@@ -245,8 +245,12 @@ void NystromEVD(
     int chol_status = lapack::potrf(Uplo::Upper, k, ws.G, k);
     if (chol_status != 0)
         throw std::runtime_error(
-            "NystromEVD: shifted Cholesky failed (potrf status != 0); "
-            "the shift nu was too small for this operator.");
+            "NystromEVD: shifted Cholesky failed (potrf status " +
+            std::to_string(chol_status) + " at rank k=" + std::to_string(k) +
+            ", n=" + std::to_string(m) + "). The shifted Gram Omega^T(A+nu I)Omega "
+            "goes numerically singular as k approaches n with a sparse SASO sketch "
+            "and the tiny shift nu; keep the sketch rank k <~ n/2 (the knob-free "
+            "auto tier caps it there for this reason).");
 
     // [Alg. 2, line 6] B ← Y_ν·C⁻¹  (triangular solve; B overwrites ws.Y).
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit,

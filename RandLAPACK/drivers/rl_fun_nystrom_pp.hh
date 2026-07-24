@@ -5,7 +5,7 @@
 #include "rl_util.hh"
 #include "rl_linops.hh"
 #include "rl_nystrom_evd.hh"
-#include "rl_lanczos_qfa_block.hh"
+#include "rl_lanczos_qfa.hh"       // scalar LanczosQFA: the driver's actual QFA oracle (auto_sqfa)
 
 #include <RandBLAS.hh>
 #include <algorithm>
@@ -90,35 +90,41 @@ public:
 
     // Phase-2 oracle convention. false = Lanczos-FA (fAfun fills f(A)·Ω₂, m×s,
     // and the driver dots it with Ω₂). true = Lanczos-QFA (fAfun fills the s×s
-    // quadratic form Ω₂ᵀ f(A) Ω₂ directly, via BlockLanczosQFA, and the driver
-    // takes its trace); QFA skips the f(A)·Ω₂ mapback entirely.
+    // quadratic form Ω₂ᵀ f(A) Ω₂ — via BlockLanczosQFA, or diagonal-only via
+    // the scalar LanczosQFA — and the driver takes its trace, which reads ONLY
+    // the diagonal); QFA skips the f(A)·Ω₂ mapback entirely.
     bool use_qfa = false;
 
     // ---- knob-free tier ("auto"): state for the (matvec_budget, eps) overload ----
     // The auto overload owns its Phase-2 oracle (the expert overload takes fAfun
     // from the caller, but choosing the depth is the auto tier's whole job).
-    BlockLanczosQFA<T> auto_qfa;
+    // Scalar Lanczos-QFA with the Gauss-Radau certified stop: eps is a certified
+    // per-probe relative error, columns stop at their own depths, and the
+    // batched matvec shrinks as they do (see rl_lanczos_qfa.hh).
+    LanczosQFA<T> auto_sqfa;
     // Tunables. auto_probe_block is the probe block size b: the depth probe costs
-    // b*t matvecs, so small b is cheap; the probed t is conservative for the
-    // larger Phase-2 block (a bigger block spans a richer joint Krylov subspace,
-    // so it needs at most as many steps). auto_depth_cap bounds the probe depth;
+    // at most b*t matvecs, so small b is cheap; the probed t is a per-probe cost
+    // ceiling for the Phase-2 allocation. auto_depth_cap bounds the probe depth;
     // the probe is additionally capped so it can spend at most half the budget.
     int64_t auto_probe_block = 4;
     int64_t auto_depth_cap   = 200;
-    // Phase-2 probe batch size. The driver reads only the DIAGONAL of the QFA
-    // output (the trace), so the s probes are pushed through block QFA in
-    // batches of this many columns, each batch filling its own diagonal block.
-    // Identical estimator and matvec count; what it avoids is the one-block
-    // (t*s)^2 dense eigenproblem, which dominates wall-clock once s is large
-    // (the same block-eig blowup that keeps the block variants out of the
-    // budget sweep).
+    // VESTIGIAL: Phase-2 batching existed to dodge BlockLanczosQFA's one-block
+    // (t*s)^2 dense eigenproblem. The scalar oracle has per-column tridiagonals
+    // (no block eigenproblem), so batching buys nothing; the member is kept only
+    // so existing call sites / CSV schemas stay stable. Remove with the next
+    // benchmark schema change (same policy as force_fallback above).
     int64_t auto_qfa_batch   = 100;
     // Outputs of the last auto call, for cost accounting: the chosen rank/probe
-    // count/oracle depth, the matvecs the probe spent (auto_probe_matvecs = b*t;
-    // total spend = auto_probe_matvecs + q*auto_k + auto_s*auto_t = matvec_budget,
-    // exactly when the n/2 rank cap does not bind and up to a remainder < t when
-    // it does; q = 1), and whether the probe certificate converged before its cap.
+    // count/oracle depth cap, the matvecs the probe actually spent
+    // (auto_probe_matvecs = sum of per-column certified depths <= b*t), the
+    // matvecs Phase 2 actually spent (auto_oracle_matvecs = sum of per-probe
+    // depths <= auto_s*auto_t), and whether every probe column certified. With
+    // certified early stopping the budget closes as an UPPER BOUND:
+    //   auto_probe_matvecs + q*auto_k + auto_oracle_matvecs <= matvec_budget
+    // (q = 1); the allocation still charges the worst case s*t up front, so the
+    // certified savings surface as underspend, not overspend.
     int64_t auto_k = 0, auto_s = 0, auto_t = 0, auto_probe_matvecs = 0;
+    int64_t auto_oracle_matvecs = 0;
     bool    auto_probe_converged = true;
     // Probe scratch (normalized-Gaussian block + probe QFA output).
     T* auto_probe_buf = nullptr; int64_t auto_probe_buf_sz = 0;
@@ -198,7 +204,12 @@ public:
     /// @param[in]  fscalar  Scalar f operating on each eigenvalue; must
     ///                      realize the same f as fAfun (see the contract
     ///                      note above).
-    /// @param[in]  k        Phase 1 Nyström rank.
+    /// @param[in]  k        Phase 1 Nyström rank. Precondition: 1 <= k <= m,
+    ///                      and for a sparse SASO sketch keep k <~ m/2 — as k
+    ///                      approaches m the shifted Gram Ωᵀ(A+νI)Ω goes
+    ///                      numerically singular and NystromEVD's potrf throws
+    ///                      (the knob-free auto tier caps k at m/2 for this
+    ///                      reason; k == m is exact and safe).
     /// @param[in]  s        Phase 2 Hutchinson sample count.
     /// @param[in]  q        Phase 1 number of A applications (q = 1 single
     ///                      pass; q = 2 = 1 subspace-iter pass; etc.).
@@ -259,8 +270,12 @@ public:
     ///      k -> n shifted-Nystrom Gram corner is numerically fragile, and n/2
     ///      matches the benchmark's rank-heavy split); when the cap binds the
     ///      surplus goes into probes and at most t - 1 matvecs go unspent.
-    ///   3. Delegate to the expert call() above with a fixed-depth-t QFA
-    ///      oracle (use_qfa path) and kernel-internal Omega2.
+    ///   3. Delegate to the expert call() above with a QFA oracle (use_qfa
+    ///      path) and kernel-internal Omega2. The oracle stays ADAPTIVE
+    ///      (certificate rtol = eps), depth-capped at the probe-discovered t:
+    ///      per-column early stopping is the knob-free tier's efficiency
+    ///      feature, so "auto d" names the auto ALLOCATION of (k, s) from the
+    ///      budget, not a fixed oracle depth.
     ///
     /// Conventions this tier fixes (the expert overload keeps them free):
     /// the budget currency is the A-MATVEC COUNT (not wall-clock); q = 1
@@ -475,7 +490,7 @@ T FunNystromPP<T>::call(
     // Probe block: Gaussian, columns normalized to sqrt(n) (the same probe
     // convention as the internal Omega2).
     util::upsize(this->auto_probe_buf, this->auto_probe_buf_sz, n * b);
-    util::upsize(this->auto_M_buf,     this->auto_M_buf_sz,     b * b);
+    util::upsize(this->auto_M_buf,     this->auto_M_buf_sz,     b);   // scalar QFA writes a length-b (per-column) output, not b*b
     RandBLAS::DenseDist Dp(n, b);
     state = RandBLAS::fill_dense(Dp, this->auto_probe_buf, state);
     const T colnorm_target = std::sqrt((T)n);
@@ -485,16 +500,18 @@ T FunNystromPP<T>::call(
         if (nrm > (T)0) blas::scal(n, colnorm_target / nrm, col, 1);
     }
 
-    this->auto_qfa.adaptive      = true;
-    this->auto_qfa.adaptive_rtol = eps;
-    this->auto_qfa.call(A_op, this->auto_probe_buf, n, b, fscalar, probe_cap,
-                        this->auto_M_buf);
-    const int64_t t = this->auto_qfa.d_used;
+    this->auto_sqfa.adaptive      = true;
+    this->auto_sqfa.adaptive_rtol = eps;
+    this->auto_sqfa.call(A_op, this->auto_probe_buf, n, b, fscalar, probe_cap,
+                         this->auto_M_buf);
+    const int64_t t = this->auto_sqfa.d_used;
     this->auto_t               = t;
-    this->auto_probe_matvecs   = b * t;
-    this->auto_probe_converged = (t < probe_cap);
+    this->auto_probe_matvecs   = this->auto_sqfa.matvecs;   // actual Σ t_j <= b*t
+    this->auto_probe_converged = this->auto_sqfa.all_certified;
 
-    // ---- 2. Allocation: close the budget (probe + q*k + s*t = m, up to < t) ----
+    // ---- 2. Allocation: close the budget from above (probe + q*k + s*t <= m;
+    //         certified early stopping in Phase 2 turns the s*t term into an
+    //         upper bound, so the actual spend is reported, not assumed) ----
     const int64_t m_rem = matvec_budget - this->auto_probe_matvecs;
     int64_t s = m_rem / (2 * t);                 // floor: probes get ~half of m_rem
     int64_t k = (m_rem - s * t) / q;             // rank absorbs the rounding
@@ -526,21 +543,19 @@ T FunNystromPP<T>::call(
     this->auto_k = k;
     this->auto_s = s;
 
-    // ---- 3. Delegate to the expert overload with a fixed-depth-t QFA oracle ----
-    this->auto_qfa.adaptive = false;
-    const int64_t s_batch = std::max((int64_t)1, this->auto_qfa_batch);
-    util::upsize(this->auto_M_buf, this->auto_M_buf_sz, s_batch * s_batch);
+    // ---- 3. Delegate to the expert overload with a certified QFA oracle ----
+    // The scalar oracle stays adaptive in Phase 2 (rtol = eps, depth cap t from
+    // the probe): each probe column stops at its own certified depth, spending
+    // auto_oracle_matvecs = Σ_j t_j <= s*t. One call over the whole block; the
+    // per-column output vector lands on the diagonal of Y (the only part the
+    // use_qfa trace read touches; off-diagonals are left unwritten).
+    this->auto_oracle_matvecs = 0;
     auto fAfun = [&](int64_t fa_n, int64_t fa_s, const T* Bblk, T* Y) {
-        // Batched QFA (see auto_qfa_batch): per-batch M_b on the diagonal of Y.
-        // Off-diagonal blocks of the true M are never read by the driver, so
-        // they are left unwritten.
-        for (int64_t j0 = 0; j0 < fa_s; j0 += s_batch) {
-            const int64_t sb = std::min(s_batch, fa_s - j0);
-            this->auto_qfa.call(A_op, Bblk + j0 * fa_n, fa_n, sb, fscalar, t,
-                                this->auto_M_buf);
-            for (int64_t jj = 0; jj < sb; ++jj)
-                Y[(j0 + jj) + (j0 + jj) * fa_s] = this->auto_M_buf[jj + jj * sb];
-        }
+        util::upsize(this->auto_M_buf, this->auto_M_buf_sz, fa_s);
+        this->auto_sqfa.call(A_op, Bblk, fa_n, fa_s, fscalar, t, this->auto_M_buf);
+        for (int64_t jj = 0; jj < fa_s; ++jj)
+            Y[jj + jj * fa_s] = this->auto_M_buf[jj];
+        this->auto_oracle_matvecs += this->auto_sqfa.matvecs;
     };
     const bool saved_use_qfa = this->use_qfa;
     this->use_qfa = true;
