@@ -90,6 +90,13 @@ class CQRRT : public CQRRTalg<T, RNG> {
         // 10 entries: saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total
         // Matches CQRRT_linops timing indices for direct comparison.
         std::vector<long> times;
+        /// Total measured wall-clock (microseconds) of the last call(), or -1 if timing
+        /// was off. Every driver in this family packs the total as the LAST times[] entry,
+        /// but the entry COUNT differs per driver (6 / 11 / 15 / 18). Callers used to hard-
+        /// code that index (times[5], times[10], times[14], times[17]), so adding or
+        /// removing one slot silently wrote the wrong number into every CSV with no compile
+        /// error. Read the total through here instead.
+        long total_us() const { return times.empty() ? -1L : times.back(); }
 
         int64_t nnz;
         bool orthogonalization;
@@ -233,6 +240,13 @@ class CQRRT_linops {
         // [0] alloc, [1] sketch, [2] qr, [3] tri_inv, [4] fwd, [5] adj, [6] trsm_gram,
         // [7] chol, [8] finalize, [9] rest, [10] total
         std::vector<long> times;
+        /// Total measured wall-clock (microseconds) of the last call(), or -1 if timing
+        /// was off. Every driver in this family packs the total as the LAST times[] entry,
+        /// but the entry COUNT differs per driver (6 / 11 / 15 / 18). Callers used to hard-
+        /// code that index (times[5], times[10], times[14], times[17]), so adding or
+        /// removing one slot silently wrote the wrong number into every CSV with no compile
+        /// error. Read the total through here instead.
+        long total_us() const { return times.empty() ? -1L : times.back(); }
 
         int64_t nnz;
         bool use_dense_sketch;
@@ -358,6 +372,9 @@ class CQRRT_linops {
                 RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
                 this->Q_rows = m;
                 this->Q_cols = n;
+                // The class owns Q (the destructor frees it), so release any buffer from a
+                // previous call() before taking ownership of this one.
+                delete[] this->Q;
                 this->Q = Q_buf;
 
                 if (this->timing) { t1 = steady_clock::now(); q_dur = duration_cast<microseconds>(t1 - t0).count(); }

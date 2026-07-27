@@ -123,8 +123,18 @@ struct ToeplitzLinOp {
             DftiComputeForward(desc, work);
             for (int64_t i = 0; i < L; ++i) work[i] *= Fuse[i];
             DftiComputeBackward(desc, work);   // scaled by 1/L
-            for (int64_t i = 0; i < out_rows; ++i)
-                cj[i] = alpha * work[i].real() + beta * cj[i];
+            // beta == 0 must NOT read C: BLAS semantics say C is write-only in that
+            // case, and callers rely on it -- CompositeOperator hands this operator a
+            // freshly allocated scratch with beta = 0. Reading it would multiply
+            // indeterminate memory by zero, which is 0 for normal values but NaN for a
+            // trap representation. Branch on beta rather than trusting the buffer.
+            if (beta == (T)0) {
+                for (int64_t i = 0; i < out_rows; ++i)
+                    cj[i] = alpha * work[i].real();
+            } else {
+                for (int64_t i = 0; i < out_rows; ++i)
+                    cj[i] = alpha * work[i].real() + beta * cj[i];
+            }
         }
     }
 

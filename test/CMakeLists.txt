@@ -23,6 +23,7 @@ if (GTest_FOUND)
         drivers/test_abrik.cc
         drivers/test_orth_linop.cc
         drivers/test_iter_refine_lsq.cc
+        drivers/test_lsqr_blendenpik.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
         linops/test_linops.cc

@@ -26,7 +26,19 @@
 //                 bit 2 ( 4): sCholQR3
 //                 bit 3 ( 8): sCholQR3_basic
 //                 bit 4 (16): CholQR2
+//                 bit 5 (32): Blendenpik  (NOT in the default mask; pass 63 to include it)
 //   CQRRT_linop_bqrrp (legacy bit 6 / 64) was removed in the 2026-06-05 rework.
+//
+// Trailing optional args after precond_prec (irlsq / irlsq_reg), added 2026-07-27:
+//   [ir_max_inner] inner-CG iteration cap per outer refinement step (default 200).
+//                  With 2 outer steps this is what produced the fixed 400-iteration
+//                  ceiling in earlier CSVs. Pass <= 0 to keep the default.
+//   [ir_inner_tol] inner-CG relative-residual tolerance (default: eps^0.85 in the
+//                  working precision, ~4.9e-14 in double). Pass < 0 to keep it.
+// Both exist so a diagnostic sweep can separate "CG stagnates below an unreachable
+// tolerance" from "CG is still converging when the cap stops it" without a rebuild.
+// The per-run answer is written to the CSV as ir_inner_capped / ir_inner_relres /
+// ir_inner_best_relres / ir_inner_best_iter.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -134,6 +146,24 @@ struct bench_result {
     T    ls_residual_norm;
     T    ls_solution_error;   // -1 sentinel when undefined (FEM irlsq)
 
+    // Inner-CG diagnosis (2026-07-27). ir_inner_iters_total alone cannot say whether a
+    // solve converged or merely exhausted its budget -- both used to report success.
+    //   ir_inner_capped   : 1 if ANY outer step hit max_inner (0 = all converged,
+    //                       2 = a CG breakdown occurred). -1 for Blendenpik (no IR).
+    //   ir_inner_relres   : worst per-step achieved ||Mz-c||/||c||.
+    //   ir_inner_best_relres / ir_inner_best_iter : the smallest residual seen in the
+    //       worst step and the iteration it happened at. best_iter far below the
+    //       iteration count means the solve STAGNATED (tolerance below the attainable
+    //       floor); best_iter near the count means it was still converging when capped.
+    int  ir_inner_capped      = -1;
+    T    ir_inner_relres      = (T)-1;
+    T    ir_inner_best_relres = (T)-1;
+    int  ir_inner_best_iter   = -1;
+
+    // cond(J R^-1): the number that actually says whether the preconditioner works.
+    // -1 when not computed (too large, or not requested).
+    T    cond_precond = (T)-1;
+
     // irlsq_reg only: kappa(A) estimate from the regularized R diagonal
     // (max|R_ii| / min|R_ii|; floored near sigma_max/mu when sigma_min < mu).
     // -1 sentinel for the plain irlsq path.
@@ -146,6 +176,51 @@ struct bench_result {
     long peak_rss_kb;
     long analytical_kb;
 };
+
+// ---- CLI-configurable inner-CG controls -------------------------------------
+// File-scope rather than threaded through the runners, whose signatures already take
+// 14 parameters. Both are set once in main() from argv before any runner is called and
+// are read-only thereafter.
+//
+// Why they are configurable at all (2026-07-27): the inner-CG budget was hard-coded at
+// 200 per outer step, which with 2 outer steps produced the fixed 400-iteration ceiling
+// seen in the CSVs, and the tolerance was fixed at eps^0.85 (~4.9e-14 in double) -- a
+// relative-residual target close enough to the floating-point stagnation floor that CG
+// can be unable to reach it regardless of preconditioner quality. Exposing both lets a
+// diagnostic sweep separate those two effects without a rebuild.
+static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
+static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
+
+// Summarize an IterRefineLSQ run's inner-CG behavior into the CSV fields.
+//
+// Reports the WORST outer step, since one capped step is enough to make the reported
+// iteration count meaningless as a convergence measure. `capped` is 0 if every step
+// converged, 1 if any step exhausted max_inner, 2 if any step broke down.
+template <typename T>
+static void record_inner_cg_diagnosis(const RandLAPACK::IterRefineLSQ<T>& ir,
+                                      bench_result<T>& res) {
+    if (ir.inner_status_per_step.empty()) return;
+    int worst = 0;
+    size_t worst_idx = 0;
+    for (size_t i = 0; i < ir.inner_status_per_step.size(); ++i) {
+        if (ir.inner_status_per_step[i] > worst) {
+            worst = ir.inner_status_per_step[i];
+            worst_idx = i;
+        }
+    }
+    // With no capping/breakdown, report the step that got the least far.
+    if (worst == 0 && !ir.inner_relres_per_step.empty()) {
+        for (size_t i = 0; i < ir.inner_relres_per_step.size(); ++i)
+            if (ir.inner_relres_per_step[i] > ir.inner_relres_per_step[worst_idx]) worst_idx = i;
+    }
+    res.ir_inner_capped = worst;
+    if (worst_idx < ir.inner_relres_per_step.size())
+        res.ir_inner_relres = ir.inner_relres_per_step[worst_idx];
+    if (worst_idx < ir.inner_best_relres_per_step.size())
+        res.ir_inner_best_relres = ir.inner_best_relres_per_step[worst_idx];
+    if (worst_idx < ir.inner_best_iter_per_step.size())
+        res.ir_inner_best_iter = ir.inner_best_iter_per_step[worst_idx];
+}
 
 // Estimate ||A||_2 via power iteration on A^T A. O(iters * (m+n) memory) — no materialization.
 template <typename T, typename GLO>
@@ -183,8 +258,16 @@ static T estimate_op_2norm(GLO& A_op, int64_t m, int64_t n, int iters = 10) {
 // was mathematically equivalent but amplified forward error by kappa(R)^2 from
 // the two TRSMs against an ill-conditioned R, producing meaningless ~1e8 values
 // on FEM2 where kappa(A) ~ 1e7. The direct path here amplifies only by kappa(R).
+// cond_out (optional): when non-null and n <= cond_cap, also returns
+// cond(A R^{-1}) = sqrt(lambda_max/lambda_min) of Q^T Q. This is the number that says
+// whether the preconditioner actually works, and it costs only one extra n x n syevd on
+// top of the Gram this routine already forms -- the expensive part (materializing Q) is
+// shared. Added 2026-07-27: App-1 previously logged only max|R_ii|/min|R_ii|, which says
+// nothing about cond(A R^{-1}), so a "too many CG iterations" report could not be
+// attributed to a weak preconditioner versus an unreachable tolerance.
 template <typename T, typename GLO>
-static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n, int64_t block_size) {
+static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n, int64_t block_size,
+                                     T* cond_out = nullptr, int64_t cond_cap = 16384) {
     int64_t b = (block_size > 0 && block_size < n) ? block_size : n;
     T* Q       = new T[m * n]();
     T* E_block = new T[n * b]();   // identity column-block scratch
@@ -207,6 +290,24 @@ static T compute_orth_error_explicit(GLO& A_op, const T* R, int64_t m, int64_t n
                blas::Op::NoTrans, blas::Diag::NonUnit, m, n, (T)1.0, R, n, Q, m);
 
     T orth = RandLAPACK::testing::orthogonality_error<T>(Q, m, n);
+
+    // cond(A R^{-1}) from the eigenvalues of the Gram, reusing the Q we already built.
+    // Skipped above cond_cap because syevd is O(n^3) and n reaches 33024 on FEM2-large.
+    if (cond_out) {
+        *cond_out = (T)-1;
+        if (cond_cap <= 0 || n <= cond_cap) {
+            T* G = new T[n * n]();
+            blas::syrk(blas::Layout::ColMajor, blas::Uplo::Upper, blas::Op::Trans,
+                       n, m, (T)1.0, Q, m, (T)0.0, G, n);
+            T* evals = new T[n];
+            int info = lapack::syevd(lapack::Job::NoVec, blas::Uplo::Upper, n, G, n, evals);
+            if (info == 0 && evals[0] > 0)
+                *cond_out = std::sqrt(evals[n - 1] / evals[0]);   // syevd returns ascending
+            delete[] G;
+            delete[] evals;
+        }
+    }
+
     delete[] Q;
     return orth;
 }
@@ -242,14 +343,20 @@ static void write_irlsq_results(
     out << "algorithm,run,m,n,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,"
            "ir_total_us,ir_outer_iters,ir_inner_iters_total,"
-           "ls_residual_norm,ls_solution_error\n";
+           "ls_residual_norm,ls_solution_error,"
+           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
             << std::scientific << std::setprecision(6) << r.orth_error << ","
             << r.ir_total_us << "," << r.ir_outer_iters << "," << r.ir_inner_iters_total << ","
             << std::scientific << std::setprecision(6) << r.ls_residual_norm << ","
-            << std::scientific << std::setprecision(6) << r.ls_solution_error
+            << std::scientific << std::setprecision(6) << r.ls_solution_error << ","
+            << r.ir_inner_capped << ","
+            << std::scientific << std::setprecision(6) << r.ir_inner_relres << ","
+            << std::scientific << std::setprecision(6) << r.ir_inner_best_relres << ","
+            << r.ir_inner_best_iter << ","
+            << std::scientific << std::setprecision(6) << r.cond_precond
             << "\n";
     }
 }
@@ -528,6 +635,10 @@ static int run_benchmark_inner(
                 // used for the Q = A R^{-1} orthogonality check.
                 RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, tol);
                 bp.nnz = sketch_nnz;
+                // Match the inner-solve budget the Q-less QR methods get from the IR
+                // driver (max_inner per step x 2 steps), so the comparison is not
+                // decided by an accidental cap difference.
+                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * 2;
                 std::fill(x_ls, x_ls + n, (T)0);
                 res.qr_status = bp.call(A_op, b_ptr->data(), m, x_ls, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
@@ -536,6 +647,10 @@ static int run_benchmark_inner(
                     std::copy(bp.R_out.begin(), bp.R_out.end(), R);   // sketch R factor for orth
                     res.qr_breakdown.assign(11, 0);
                     res.analytical_kb = 0;
+                    // Blendenpik has no IR loop, so reuse the inner-CG diagnosis columns:
+                    // capped = 0/1 from LSQR's own convergence flag, relres = its residual.
+                    res.ir_inner_capped = bp.converged ? 0 : 1;
+                    res.ir_inner_relres = bp.final_relres;
                     blendenpik_lsqr_us    = bp.times[2];
                     blendenpik_lsqr_iters = bp.lsqr_iters;
                 }
@@ -545,7 +660,7 @@ static int run_benchmark_inner(
                 res.qr_status = qr_algo.call(A_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[17];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
                 }
@@ -554,7 +669,7 @@ static int run_benchmark_inner(
                 res.qr_status = qr_algo.call(A_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[14];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
                 }
@@ -564,7 +679,7 @@ static int run_benchmark_inner(
                 res.qr_status = qr_algo.call(A_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[5];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 6);
                     res.qr_breakdown.resize(11, 0);
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
@@ -575,7 +690,7 @@ static int run_benchmark_inner(
                 res.qr_status = qr_algo.call(A_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[10];      // total
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<T>(m, n, block_size);
                 }
@@ -589,7 +704,7 @@ static int run_benchmark_inner(
                 res.qr_status = qr_algo.call(A_op, R, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[10];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
                 }
@@ -610,7 +725,7 @@ static int run_benchmark_inner(
             std::cout << "done (" << res.qr_time_us << " us)";
 
             // ---- Orth_error: ||Q^T Q - I||_F / sqrt(n), blocked compute. Runs for every method. ----
-            res.orth_error = compute_orth_error_explicit(A_op, R, m, n, block_size);
+            res.orth_error = compute_orth_error_explicit(A_op, R, m, n, block_size, &res.cond_precond);
 
             // ---- IR-LSQ post-processing ----
             {
@@ -631,11 +746,12 @@ static int run_benchmark_inner(
                     // preconditioned inner CG converges from there.
                     std::fill(x_ls, x_ls + n, (T)0.0);
 
-                    RandLAPACK::IterRefineLSQ<T> ir(/*tol=*/tol,
-                                                    /*max_inner=*/200,
-                                                    /*n_steps=*/2,
-                                                    /*timing=*/true,
-                                                    /*verbose=*/false);
+                    RandLAPACK::IterRefineLSQ<T> ir(
+                        /*tol=*/     (g_ir_inner_tol > 0) ? (T)g_ir_inner_tol : tol,
+                        /*max_inner=*/(g_ir_max_inner > 0) ? g_ir_max_inner : 200,
+                        /*n_steps=*/2,
+                        /*timing=*/true,
+                        /*verbose=*/false);
                     int ir_status = ir.call(A_op, R, n, b.data(), m, x_ls, n);
                     auto ls_t1 = steady_clock::now();
                     if (ir_status != 0) {
@@ -646,6 +762,7 @@ static int run_benchmark_inner(
                     res.ir_outer_iters = ir.outer_iters_done;
                     res.ir_inner_iters_total = 0;
                     for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
+                    record_inner_cg_diagnosis(ir, res);
                     if (!ir.times.empty()) res.ir_breakdown = ir.times;
                 }
 
@@ -790,7 +907,7 @@ static int run_rspec_benchmark(
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[17];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<T>(m, n, block_size);
                 }
@@ -799,7 +916,7 @@ static int run_rspec_benchmark(
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[14];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<T>(m, n);
                 }
@@ -809,7 +926,7 @@ static int run_rspec_benchmark(
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[5];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 6);
                     res.qr_breakdown.resize(11, 0);
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<T>(m, n, block_size);
@@ -820,7 +937,7 @@ static int run_rspec_benchmark(
                 res.qr_status = qr_algo.call(V_app_op, R, n);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[10];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<T>(m, n, block_size);
                 }
@@ -833,7 +950,7 @@ static int run_rspec_benchmark(
                 res.qr_status = qr_algo.call(V_app_op, R, n, d_factor, state);
                 res.peak_rss_kb = mem.stop();
                 if (res.qr_status == 0) {
-                    res.qr_time_us = qr_algo.times[10];
+                    res.qr_time_us = qr_algo.total_us();
                     res.qr_breakdown.assign(qr_algo.times.begin(), qr_algo.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<T>(m, n, d_factor, block_size);
                 }
@@ -1084,7 +1201,8 @@ static void write_irlsq_reg_results(
         ;
     out << "algorithm,run,m,n,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
-           "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries\n";
+           "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries,"
+           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
@@ -1095,7 +1213,12 @@ static void write_irlsq_reg_results(
             << std::scientific << std::setprecision(6) << kappa_target << ","
             << std::scientific << std::setprecision(6) << r.kappa_measured << ","
             << std::scientific << std::setprecision(6) << mu << ","
-            << precond_prec << "," << solve_prec << "," << r.chol_retries
+            << precond_prec << "," << solve_prec << "," << r.chol_retries << ","
+            << r.ir_inner_capped << ","
+            << std::scientific << std::setprecision(6) << r.ir_inner_relres << ","
+            << std::scientific << std::setprecision(6) << r.ir_inner_best_relres << ","
+            << r.ir_inner_best_iter << ","
+            << std::scientific << std::setprecision(6) << r.cond_precond
             << "\n";
     }
 }
@@ -1277,6 +1400,8 @@ static int run_irlsq_reg(
                 // no augmented A_hat): sketch -> Householder QR -> LSQR, producing x_ls directly.
                 RandLAPACK::Blendenpik_linops<T_solve, RNG> bp(true, tol_T);
                 bp.nnz = sketch_nnz;
+                // Same inner-solve budget as the IR methods (see the irlsq path).
+                bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * 2;
                 std::fill(x_ls, x_ls + n, (T_solve)0);
                 res.qr_status = bp.call(J_Ts, b.data(), m, x_ls, n, (T_solve)d_factor, state);
                 res.peak_rss_kb = mem.stop();
@@ -1284,31 +1409,33 @@ static int run_irlsq_reg(
                     res.qr_time_us = bp.times[0] + bp.times[1];          // sketch + QR (preconditioner build)
                     std::copy(bp.R_out.begin(), bp.R_out.end(), R_T);    // R_T = sketch R factor (orth + kappa)
                     res.qr_breakdown.assign(11, 0); res.analytical_kb = 0;
+                    res.ir_inner_capped = bp.converged ? 0 : 1;
+                    res.ir_inner_relres = bp.final_relres;
                     bp_lsqr_us = bp.times[2]; bp_lsqr_iters = bp.lsqr_iters;
                 }
             } else if (alg_name == "sCholQR3") {
                 RandLAPACK::sCholQR3_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
-                if (res.qr_status == 0) { res.qr_time_us = qr.times[17];
+                if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_analytical_kb<P_precond>(m, n, block_size); }
             } else if (alg_name == "sCholQR3_basic") {
                 RandLAPACK::sCholQR3_linops_basic<P_precond> qr(true, tol_P);
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
-                if (res.qr_status == 0) { res.qr_time_us = qr.times[14];
+                if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::scholqr3_linops_basic_analytical_kb<P_precond>(m, n); }
             } else if (alg_name == "CholQR") {
                 RandLAPACK::CholQR_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
-                if (res.qr_status == 0) { res.qr_time_us = qr.times[5];
+                if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 6);
                     res.qr_breakdown.resize(11, 0);
                     res.analytical_kb = RandLAPACK::cholqr_linops_analytical_kb<P_precond>(m, n, block_size); }
             } else if (alg_name == "CholQR2") {
                 RandLAPACK::CholQR2_linops<P_precond> qr(true, tol_P); qr.block_size = block_size;
                 res.qr_status = qr.call(A_hat_Pp, R_P, n); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
-                if (res.qr_status == 0) { res.qr_time_us = qr.times[10];
+                if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cholqr2_linops_analytical_kb<P_precond>(m, n, block_size); }
             } else {
@@ -1318,7 +1445,7 @@ static int run_irlsq_reg(
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
                 qr.precond_method = RandLAPACK::CQRRTLinopPrecond::TRSM_IDENTITY;
                 res.qr_status = qr.call(A_hat_Pp, R_P, n, (P_precond)d_factor, state); res.peak_rss_kb = mem.stop(); res.chol_retries = qr.n_chol_retries;
-                if (res.qr_status == 0) { res.qr_time_us = qr.times[10];
+                if (res.qr_status == 0) { res.qr_time_us = qr.total_us();
                     res.qr_breakdown.assign(qr.times.begin(), qr.times.begin() + 11);
                     res.analytical_kb = RandLAPACK::cqrrt_linops_analytical_kb<P_precond>(m, n, (P_precond)d_factor, block_size); }
             }
@@ -1339,7 +1466,7 @@ static int run_irlsq_reg(
             if (!is_bp) for (int64_t i = 0; i < n * n; ++i) R_T[i] = (T_solve)R_P[i];
 
             // Orthogonality loss of Q = A R^{-1} (base A in solve precision).
-            res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size);
+            res.orth_error = compute_orth_error_explicit<T_solve>(J_Ts, R_T, m, n, block_size, &res.cond_precond);
 
             // Solve in solve precision. Blendenpik already solved (its own LSQR above);
             // everyone else runs IR-LSQ with R as the right preconditioner.
@@ -1352,7 +1479,10 @@ static int run_irlsq_reg(
                 std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
                 std::fill(x_ls, x_ls + n, (T_solve)0.0);
                 auto ls_t0 = steady_clock::now();
-                RandLAPACK::IterRefineLSQ<T_solve> ir(tol_T, 200, 2, true, false);
+                RandLAPACK::IterRefineLSQ<T_solve> ir(
+                    (g_ir_inner_tol > 0) ? (T_solve)g_ir_inner_tol : tol_T,
+                    (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
+                    2, true, false);
                 int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
@@ -1360,6 +1490,7 @@ static int run_irlsq_reg(
                 res.ir_outer_iters = ir.outer_iters_done;
                 res.ir_inner_iters_total = 0;
                 for (int v : ir.inner_iters_per_step) res.ir_inner_iters_total += v;
+                record_inner_cg_diagnosis(ir, res);
                 if (!ir.times.empty()) res.ir_breakdown = ir.times;
             }
 
@@ -1495,6 +1626,10 @@ int run_benchmark(int argc, char* argv[]) {
     double kappa_target = opt_double(8, 1.0);    // V column-scaling spread (1 = native)
     double mu_factor    = opt_double(9, 10.0);   // mu = mu_factor * u(precond_prec)
     std::string precond_prec = (argc > dfactor_idx + 10) ? std::string(argv[dfactor_idx + 10]) : "single";
+    // Inner-CG controls (appended 2026-07-27; both optional and backward compatible).
+    // ir_max_inner <= 0 keeps the 200 default; ir_inner_tol < 0 keeps eps^0.85.
+    g_ir_max_inner = (int)opt_long(11, 200);
+    g_ir_inner_tol = opt_double(12, -1.0);
 
     if (mode == "irlsq_reg" && sparse_mode) {
         std::cerr << "Error: mode 'irlsq_reg' is FEM-only; sparse input is not supported.\n";

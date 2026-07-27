@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <chrono>
+#include <cmath>
 #include <limits>
 #include <algorithm>
 
@@ -357,13 +358,28 @@ int cholqr_primitive(
     int info = 0;
     int attempt = 0;
     T current_shift_factor = shift_factor;
-    for (; max_retries < 0 || attempt <= max_retries; ++attempt) {
+    // max_retries < 0 means "unbounded", which with a geometrically growing shift is
+    // *usually* fine: the shift eventually makes G diagonally dominant and potrf
+    // succeeds. But the argument fails on non-finite data -- an inf/NaN in G, or a shift
+    // that overflows to inf, gives a Gram potrf can never factor, and the loop then never
+    // terminates. kUnboundedRetryCeiling is a backstop for exactly that case: it is far
+    // above any legitimate retry count (each attempt multiplies the shift by
+    // shift_growth, so tens of attempts already span the entire exponent range), so it
+    // cannot truncate a run that would otherwise have succeeded.
+    constexpr int kUnboundedRetryCeiling = 128;
+    for (; (max_retries < 0) ? (attempt < kUnboundedRetryCeiling) : (attempt <= max_retries); ++attempt) {
         if (attempt > 0) {
             // Restore the Gram and grow the shift (seed at eps if we started at 0).
             std::copy(G_backup, G_backup + n * n, G);
             current_shift_factor = (current_shift_factor > T(0))
                                  ? current_shift_factor * shift_growth
                                  : std::numeric_limits<T>::epsilon();
+            // A non-finite shift can never rescue the factorization; bail out rather
+            // than spin. Same for a non-finite trace, which poisons every shift below.
+            if (!std::isfinite(current_shift_factor) || !std::isfinite(trace_G)) {
+                info = -1;
+                break;
+            }
         }
         if (current_shift_factor > T(0)) {
             T shift = current_shift_factor * trace_G;
@@ -377,10 +393,12 @@ int cholqr_primitive(
     if (n_retries) *n_retries = attempt;   // 0 = succeeded on the unshifted first attempt
 
     if (info) {
+        // Report the retries actually made (`attempt`), not the configured limit --
+        // with max_retries = -1 the old message printed "-1 retries".
         std::fprintf(stderr,
             "[cholqr_primitive] FAIL: lapack::potrf returned info=%d after %d "
-            "retries (final shift_factor=%g)\n",
-            info, max_retries, (double)current_shift_factor);
+            "attempt(s) (final shift_factor=%g)\n",
+            info, attempt, (double)current_shift_factor);
         delete[] G_backup;
         return info;
     }

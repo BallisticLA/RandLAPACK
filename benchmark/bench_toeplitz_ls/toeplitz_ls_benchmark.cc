@@ -222,10 +222,18 @@ int main(int argc, char** argv) {
         if (is_bp) {
             rl::Blendenpik_linops<double, RNG> bp(true, tol);
             bp.nnz = sketch_nnz;
+            // Give Blendenpik the SAME iteration budget as every other method. It
+            // previously fell back to its internal min(4n,1000) default while the others
+            // received the CLI maxit (3000 in the campaigns) -- a silent 3x handicap.
+            bp.max_iters = maxit;
             qr_status = bp.call(A_hat, rhs.data(), mtot, x.data(), n, d_factor, state);
             peak_kb = mem.stop();
             if (qr_status == 0) { qr_us = bp.times[0] + bp.times[1]; solve_us = bp.times[2];
-                iters = bp.lsqr_iters; std::copy(bp.R_out.begin(), bp.R_out.end(), R.begin()); have_R = true; }
+                iters = bp.lsqr_iters; std::copy(bp.R_out.begin(), bp.R_out.end(), R.begin()); have_R = true;
+                // Report the same convergence signals as the other methods: flag 0/1 for
+                // met-tolerance / hit-cap, and a real solver residual instead of -1.
+                flag = bp.converged ? 0 : 1;
+                solver_relres = bp.final_relres; }
         } else if (is_unprec) {
             long lt[4] = {0};
             flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
@@ -235,29 +243,29 @@ int main(int argc, char** argv) {
             if (alg == "CholQR") {
                 rl::CholQR_linops<double> qr(true, tol); qr.block_size = block_size;
                 qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.times[5]; chol_retries = qr.n_chol_retries;
+                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries;
                     analytical_kb = rl::cholqr_linops_analytical_kb<double>(mtot, n, block_size); }
             } else if (alg == "CholQR2") {
                 rl::CholQR2_linops<double> qr(true, tol); qr.block_size = block_size;
                 qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.times[10]; chol_retries = qr.n_chol_retries;
+                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries;
                     analytical_kb = rl::cholqr2_linops_analytical_kb<double>(mtot, n, block_size); }
             } else if (alg == "sCholQR3") {
                 rl::sCholQR3_linops<double> qr(true, tol); qr.block_size = block_size;
                 qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.times[17]; chol_retries = qr.n_chol_retries;
+                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries;
                     analytical_kb = rl::scholqr3_linops_analytical_kb<double>(mtot, n, block_size); }
             } else if (alg == "sCholQR3_basic") {
                 rl::sCholQR3_linops_basic<double> qr(true, tol);
                 qr_status = qr.call(A_hat, R.data(), n);
-                if (qr_status == 0) { qr_us = qr.times[14]; chol_retries = qr.n_chol_retries;
+                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries;
                     analytical_kb = rl::scholqr3_linops_basic_analytical_kb<double>(mtot, n); }
             } else { // CQRRT_linop
                 rl::CQRRT_linops<double, RNG> qr(true, tol);
                 qr.nnz = sketch_nnz; qr.block_size = block_size;
                 qr.precond_method = rl::CQRRTLinopPrecond::TRSM_IDENTITY;
                 qr_status = qr.call(A_hat, R.data(), n, d_factor, state);
-                if (qr_status == 0) { qr_us = qr.times[10]; chol_retries = qr.n_chol_retries;
+                if (qr_status == 0) { qr_us = qr.total_us(); chol_retries = qr.n_chol_retries;
                     analytical_kb = rl::cqrrt_linops_analytical_kb<double>(mtot, n, d_factor, block_size); }
             }
             if (qr_status == 0) {

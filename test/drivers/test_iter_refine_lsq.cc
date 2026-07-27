@@ -172,3 +172,65 @@ TEST_F(TestIterRefineLSQ, imperfect_preconditioner) {
     // Imperfect R: CG should take more than 1 iter but well under the cap.
     EXPECT_LT(ir.inner_iters_per_step.front(), 100);
 }
+
+
+// A capped, non-converged inner solve must be DISTINGUISHABLE from a converged one.
+//
+// Before the 2026-07-27 instrumentation both looked identical to the caller: inner_cg
+// returned 0 whether it converged or exhausted its budget, so a benchmark CSV could not
+// tell "converged in 6 iterations" from "gave up at the cap". That ambiguity is exactly
+// what made the App-1 iteration-count complaint hard to diagnose.
+//
+// Here the cap is set absurdly low (2) against a tolerance that cannot be met that fast,
+// forcing the HitCap path, and then the same problem is solved with a generous budget to
+// confirm the Converged path reports differently.
+TEST_F(TestIterRefineLSQ, capped_solve_is_reported) {
+    using T = double;
+    int64_t m = 120, n = 20;
+
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 4242);
+    fill_random(x_true, 777);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+
+    // Deliberately weak preconditioner: R from a heavily perturbed A, so CG needs
+    // several iterations and cannot satisfy a tight tolerance in only two.
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 31337, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    // --- capped run: 2 inner iterations against a 1e-14 tolerance ---
+    {
+        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/2, /*n_steps=*/2);
+        std::vector<T> x(n, 0);
+        int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
+        EXPECT_EQ(status, 0);   // capping is still not an error return ...
+        ASSERT_EQ(ir.inner_status_per_step.size(), 2u);
+        // ... but it is now visible.
+        EXPECT_EQ(ir.inner_status_per_step.front(),
+                  static_cast<int>(RandLAPACK::InnerCGStatus::HitCap));
+        EXPECT_EQ(ir.inner_iters_per_step.front(), 2);
+        // Achieved residual must be worse than the tolerance it was asked for.
+        EXPECT_GT(ir.inner_relres_per_step.front(), 1e-14);
+        // Still descending when the cap hit: best residual is at (or near) the last iter.
+        EXPECT_EQ(ir.inner_best_iter_per_step.front(), 2);
+    }
+
+    // --- generous run: same problem, enough budget to converge ---
+    {
+        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/200, /*n_steps=*/2);
+        std::vector<T> x(n, 0);
+        int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
+        EXPECT_EQ(status, 0);
+        ASSERT_EQ(ir.inner_status_per_step.size(), 2u);
+        EXPECT_EQ(ir.inner_status_per_step.front(),
+                  static_cast<int>(RandLAPACK::InnerCGStatus::Converged));
+        EXPECT_LT(ir.inner_iters_per_step.front(), 200);
+        EXPECT_LE(ir.inner_relres_per_step.front(), 1e-14);
+    }
+}

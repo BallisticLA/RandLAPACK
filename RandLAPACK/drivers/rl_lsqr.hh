@@ -81,8 +81,8 @@ int lsqr(
         if (prec) {
             std::copy(vin, vin + n, sc);                      // sc = v
             auto ts = clock::now();
-            blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit, n, 1, (T)1.0, R, ldr, sc, n);
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, sc, 1);
             t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
             fwd_in = sc;                                       // sc = R^{-1} v
         }
@@ -100,8 +100,8 @@ int lsqr(
         t_adj += duration_cast<microseconds>(clock::now() - ta).count();
         if (prec) {
             auto ts = clock::now();
-            blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit, n, 1, (T)1.0, R, ldr, out, n);
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
             t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
         }
     };
@@ -166,8 +166,8 @@ int lsqr(
     // Undo the preconditioner: x = R^{-1} y  (y currently in x).
     if (prec) {
         auto ts = clock::now();
-        blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                   blas::Op::NoTrans, blas::Diag::NonUnit, n, 1, (T)1.0, R, ldr, x, n);
+        blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                   blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, x, 1);
         t_trsm += duration_cast<microseconds>(clock::now() - ts).count();
     }
 

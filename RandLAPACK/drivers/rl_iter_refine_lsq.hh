@@ -53,6 +53,15 @@ namespace RandLAPACK {
 /// apply (adjoint). The default `n_refine_steps = 2` and inner CG stopping
 /// rule (relative residual `< inner_tol`) suffice for backward stability
 /// under the conditions of Epperly et al. (2025) Theorem 6.1.
+/// Exit condition of one inner-CG solve. Recorded per outer refinement step so a
+/// capped, non-converged solve is distinguishable from a converged one -- previously
+/// both reported success and were indistinguishable in the benchmark CSV.
+enum class InnerCGStatus : int {
+    Converged = 0,   ///< reached inner_tol
+    HitCap    = 1,   ///< exhausted max_inner_iters without reaching inner_tol
+    Breakdown = 2    ///< p^T M p <= 0 (loss of orthogonality / non-SPD M)
+};
+
 template <typename T>
 struct IterRefineLSQ {
     // ------------- Configuration -------------
@@ -72,6 +81,19 @@ struct IterRefineLSQ {
     int outer_iters_done;
     /// CG iteration counts for each outer step.
     std::vector<int> inner_iters_per_step;
+    /// Exit condition of each outer step's inner CG (see InnerCGStatus).
+    std::vector<int> inner_status_per_step;
+    /// Relative CG residual ||M z - c|| / ||c|| at exit, per outer step.
+    std::vector<T> inner_relres_per_step;
+    /// Smallest relative CG residual seen during that step, and the iteration at
+    /// which it occurred. Together with inner_relres_per_step these separate the two
+    /// ways a solve can burn its budget:
+    ///   best_iter << iters and best ~= final  -> converged then STAGNATED (the
+    ///       tolerance is below the attainable floor; more iterations cannot help)
+    ///   best_iter ~= iters                    -> still descending at the cap (the
+    ///       preconditioner is weak; more iterations would help)
+    std::vector<T>   inner_best_relres_per_step;
+    std::vector<int> inner_best_iter_per_step;
     /// Final relative residual ||b - J x|| / ||b|| (or ||b - J x|| if ||b|| == 0).
     T final_residual_norm;
     /// Per-substep wall-clock breakdown (microseconds), populated when timing == true.
@@ -125,6 +147,10 @@ struct IterRefineLSQ {
         long t_inner_trsm = 0, t_inner_fwd = 0, t_inner_adj = 0;
 
         inner_iters_per_step.clear();
+        inner_status_per_step.clear();
+        inner_relres_per_step.clear();
+        inner_best_relres_per_step.clear();
+        inner_best_iter_per_step.clear();
         outer_iters_done = 0;
 
         // Per-call workspace buffers. Allocated once up front, reused across outer steps.
@@ -172,19 +198,29 @@ struct IterRefineLSQ {
             // c = R^{-T} g  (in-place TRSM on a copy of g)
             std::copy(g, g + n, c);
             t0 = clock::now();
-            blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit,
-                       n, 1, (T)1.0, R, ldr, c, n);
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, c, 1);
             t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // Inner CG on M*z = c
-            int inner_iters = 0;
+            InnerCGReport rep{};
             auto t_in0 = clock::now();
             int cg_status = inner_cg(J, R, ldr, c, n, m,
                                      z, cg_r, cg_p, cg_Mp, tmp_n, tmp_m,
-                                     inner_iters, t_inner_trsm, t_inner_fwd, t_inner_adj);
+                                     rep, t_inner_trsm, t_inner_fwd, t_inner_adj);
             t_inner_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t_in0).count();
-            inner_iters_per_step.push_back(inner_iters);
+            inner_iters_per_step.push_back(rep.iters);
+            inner_status_per_step.push_back(static_cast<int>(rep.status));
+            inner_relres_per_step.push_back(rep.relres);
+            inner_best_relres_per_step.push_back(rep.best_relres);
+            inner_best_iter_per_step.push_back(rep.best_iter);
+            if (verbose) {
+                static const char* kNames[] = {"converged", "HIT CAP", "breakdown"};
+                std::printf("[IR-LSQ] step %d: inner CG %s after %d iters, "
+                            "relres=%.4e (best %.4e at iter %d)\n",
+                            step, kNames[static_cast<int>(rep.status)], rep.iters,
+                            (double)rep.relres, (double)rep.best_relres, rep.best_iter);
+            }
             if (cg_status != 0) {
                 outer_iters_done = step;
                 final_residual_norm = r_norm / b_norm;
@@ -198,9 +234,8 @@ struct IterRefineLSQ {
             // dx = R^{-1} z
             std::copy(z, z + n, dx);
             t0 = clock::now();
-            blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit,
-                       n, 1, (T)1.0, R, ldr, dx, n);
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, dx, 1);
             t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             // x ← x + dx
@@ -225,6 +260,16 @@ struct IterRefineLSQ {
         return 0;
     }
 
+public:
+    /// What one inner-CG solve did, for diagnosis (see the per-step output vectors).
+    struct InnerCGReport {
+        int           iters       = 0;
+        InnerCGStatus status      = InnerCGStatus::Converged;
+        T             relres      = (T)0;   ///< ||r||/||c|| at exit
+        T             best_relres = (T)0;   ///< smallest ||r||/||c|| seen
+        int           best_iter   = 0;      ///< iteration achieving best_relres
+    };
+
 private:
     // Inner CG: solve M z = c, where M = R^{-T} J^T J R^{-1}, on ℝ^n.
     // Workspaces (caller-allocated, length n unless noted): cg_r, cg_p, cg_Mp,
@@ -235,7 +280,7 @@ private:
                  T* z,
                  T* cg_r, T* cg_p, T* cg_Mp,
                  T* tmp_n, T* tmp_m,
-                 int& iters_out,
+                 InnerCGReport& rep,
                  long& t_trsm, long& t_fwd, long& t_adj)
     {
         using clock = std::chrono::steady_clock;
@@ -249,9 +294,17 @@ private:
         T c_norm = blas::nrm2(n, c, 1);
         T tol_abs = inner_tol * c_norm;
         if (c_norm == (T)0) {
-            iters_out = 0;
+            rep.iters = 0;
+            rep.status = InnerCGStatus::Converged;
+            rep.relres = (T)0; rep.best_relres = (T)0; rep.best_iter = 0;
             return 0;
         }
+
+        // Track the best (smallest) relative residual and where it occurred, so a
+        // solve that hits its floor early and then grinds to the cap is separable
+        // from one that is still making progress when the cap stops it.
+        rep.best_relres = (T)1;
+        rep.best_iter   = 0;
 
         T rs_old = blas::dot(n, cg_r, 1, cg_r, 1);
 
@@ -260,9 +313,8 @@ private:
             //   tmp_n = R^{-1} p
             std::copy(cg_p, cg_p + n, tmp_n);
             auto t0 = clock::now();
-            blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit,
-                       n, 1, (T)1.0, R, ldr, tmp_n, n);
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, tmp_n, 1);
             t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             //   tmp_m = J * tmp_n
@@ -279,14 +331,15 @@ private:
 
             //   cg_Mp ← R^{-T} cg_Mp   (in-place TRSM)
             t0 = clock::now();
-            blas::trsm(blas::Layout::ColMajor, blas::Side::Left, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit,
-                       n, 1, (T)1.0, R, ldr, cg_Mp, n);
+            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, cg_Mp, 1);
             t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
             T pMp = blas::dot(n, cg_p, 1, cg_Mp, 1);
             if (!(pMp > 0)) {
-                iters_out = it;
+                rep.iters  = it;
+                rep.status = InnerCGStatus::Breakdown;
+                rep.relres = std::sqrt(rs_old) / c_norm;
                 return 1;  // CG breakdown (loss of orthogonality / non-SPD M)
             }
             T alpha = rs_old / pMp;
@@ -298,13 +351,20 @@ private:
 
             T rs_new = blas::dot(n, cg_r, 1, cg_r, 1);
             T r_norm = std::sqrt(rs_new);
+            T relres = r_norm / c_norm;
+            if (relres < rep.best_relres) {
+                rep.best_relres = relres;
+                rep.best_iter   = it + 1;
+            }
 
             if (verbose) {
                 std::printf("[IR-LSQ]   inner CG iter %d: ||r||/||c|| = %.4e\n",
-                            it + 1, (double)(r_norm / c_norm));
+                            it + 1, (double)relres);
             }
             if (r_norm <= tol_abs) {
-                iters_out = it + 1;
+                rep.iters  = it + 1;
+                rep.status = InnerCGStatus::Converged;
+                rep.relres = relres;
                 return 0;
             }
 
@@ -313,8 +373,13 @@ private:
             for (int64_t i = 0; i < n; ++i) cg_p[i] = cg_r[i] + beta * cg_p[i];
             rs_old = rs_new;
         }
-        iters_out = max_inner_iters;
-        return 0;  // hit cap; not necessarily an error — caller can inspect inner_iters
+        // Exhausted the budget without reaching inner_tol. Still returns 0, because a
+        // capped solve is not necessarily an error for the caller -- but the status is
+        // now recorded so the benchmark can tell the two apart (it previously could not).
+        rep.iters  = max_inner_iters;
+        rep.status = InnerCGStatus::HitCap;
+        rep.relres = std::sqrt(rs_old) / c_norm;
+        return 0;
     }
 
     void populate_times(std::chrono::steady_clock::time_point outer_start,
