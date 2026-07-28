@@ -38,6 +38,12 @@
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"
 #include "RandLAPACK/drivers/rl_revd2.hh"
+#include "RandLAPACK/comps/rl_lanczos_fa.hh"
+#include "RandLAPACK/comps/rl_lanczos_fa_block.hh"
+#include "RandLAPACK/comps/rl_lanczos_qfa.hh"
+#include "RandLAPACK/comps/rl_lanczos_qfa_block.hh"
+#include "RandLAPACK/drivers/rl_nystrom_evd.hh"
+#include "RandLAPACK/drivers/rl_fun_nystrom_pp.hh"
 #include "RandLAPACK/drivers/rl_abrik.hh"
 #include "RandLAPACK/drivers/rl_krill.hh"
 
