@@ -441,3 +441,68 @@ TEST_F(TestABRIK, ABRIK_adaptive_matches_nonadaptive) {
     ASSERT_LE(residual1, 10 * std::pow(std::numeric_limits<double>::epsilon(), 0.825));
     ASSERT_LE(residual2, 10 * std::pow(std::numeric_limits<double>::epsilon(), 0.825));
 }
+
+// Adaptive mode must stop BEFORE the Krylov subspace saturates, on a spectrum
+// that decays.
+//
+// This is the regression test for the defect fixed on 2026-07-28. The adaptive
+// criterion used to be assessed over every computed triplet rather than over the
+// leading ones requested. On a decaying spectrum that cannot terminate early:
+// each restart appends trailing triplets whose relative error is order one, so
+// the assessment is dominated by exactly the terms the restart just introduced,
+// and it only passes once the subspace is exhausted. The driver therefore always
+// ran to end_cols = n and then reported failure.
+//
+// Every pre-existing adaptive test uses mat_type::gaussian. A flat spectrum
+// converges on all triplets at once, so those tests cannot distinguish the two
+// behaviors, which is why the defect survived. This test uses a rotated spectrum
+// decaying over six decades via gen_singvec, and asserts on the ITERATION COUNT
+// rather than only on the residual, since a run to saturation also produces a
+// small residual and would otherwise pass.
+TEST_F(TestABRIK, ABRIK_adaptive_stops_before_saturation_on_decaying_spectrum) {
+    int64_t m    = 3000;
+    int64_t n    = 300;
+    int64_t b_sz = 10;
+    double tol   = 1e-14;
+    auto state   = RandBLAS::RNGState();
+
+    // Subspace saturation: ceil(p/2)*b_sz reaches n at p = 2n/b_sz.
+    const int p_saturation = (int)(2 * n / b_sz);
+
+    ABRIKTestData<double> all_data(m, n);
+
+    // A = U diag(s) V^T with Haar-like factors and s decaying over six decades.
+    // The rotation matters: a column-scaled generator would leave the leading
+    // triplets easy and the test would not exercise the criterion.
+    std::vector<double> s(n), S(n * n, 0.0);
+    for (int64_t i = 0; i < n; ++i)
+        s[i] = std::pow(10.0, -6.0 * (double)i / (double)(n - 1));
+    RandLAPACK::util::diag(n, n, s.data(), n, S.data());
+    RandLAPACK::gen::gen_singvec<double>(m, n, all_data.A, n, S.data(), state);
+    lapack::lacpy(MatrixType::General, m, n, all_data.A, m, all_data.A_buff, m);
+
+    RandLAPACK::ABRIK<double, r123::Philox4x32> ABRIK(false, false, tol);
+    ABRIK.adaptive = true;
+    ABRIK.max_krylov_iters = 2;   // assessed_rank = ceil(2/2)*b_sz = b_sz
+
+    ABRIK.call(m, n, all_data.A, m, b_sz, all_data.U, all_data.V, all_data.Sigma, state);
+
+    printf("adaptive_decaying: iters=%d (saturation %d), assessed_rank=%ld, triplets=%ld\n",
+           ABRIK.num_krylov_iters, p_saturation,
+           (long)ABRIK.assessed_rank, (long)ABRIK.singular_triplets_found);
+
+    // The assessed rank is derived from the initial budget, not from the number
+    // of triplets that end up being computed.
+    ASSERT_EQ(ABRIK.assessed_rank, b_sz);
+
+    // It must terminate on its own criterion, not by exhausting the subspace or
+    // the retry budget.
+    ASSERT_EQ(ABRIK.termination_reason, RandLAPACK::ABRIKTermination::converged);
+
+    // The point of the test: strictly fewer iterations than saturation.
+    ASSERT_LT(ABRIK.num_krylov_iters, p_saturation);
+
+    // And the triplets it vouched for are genuinely accurate.
+    double residual = residual_error_comp<double>(all_data, ABRIK.assessed_rank);
+    ASSERT_LE(residual, tol);
+}
