@@ -661,3 +661,203 @@ TEST_F(TestFunNystromPPv2, AutoInfeasibleThrows) {
     }
     delete[] G0; delete[] A;
 }
+
+// ---------------------------------------------------------------------------
+// Panel-kernel DECOMPOSITION invariants (pure arithmetic; no OpenMP, no timing).
+//
+// This exists because two shipped versions of LanczosQFA's panel kernels had
+// parallelization defects that EVERY correctness test passed bit-identically:
+//   (1) a fixed 4096-element row block gave ONE block at n = 3000, so one thread
+//       worked and the rest idled (measured 2x slower);
+//   (2) after that was "fixed", a 512-element lower clamp still pinned the block
+//       count at 6 for any n <= 114688, so at the auto tier's 4-column probe the
+//       trip count was 24 and 88 of 112 threads idled.
+// A parallelization defect has no numerical signature, so no accuracy test can
+// see it. These assertions check the DECOMPOSITION instead, and would have
+// failed on both versions above.
+TEST_F(TestFunNystromPPv2, PanelChunkPlanInvariants) {
+    using QFA = RandLAPACK::LanczosQFA<double>;
+    const int64_t Ns[]     = {1, 17, 1000, 3000, 100000, 1000000};
+    const int64_t NCOLS[]  = {1, 2, 4, 8, 32, 96, 128};
+    const int     THREADS[] = {1, 2, 16, 112};
+
+    for (int64_t n : Ns)
+    for (int64_t nc : NCOLS)
+    for (int p : THREADS) {
+        auto cp = QFA::chunk_plan(n, nc, p);
+        const int64_t total = n * nc;
+
+        // 1. Never request more threads than exist, and always at least one.
+        ASSERT_GE(cp.n_threads, 1)  << "n=" << n << " nc=" << nc << " P=" << p;
+        ASSERT_LE(cp.n_threads, p)  << "n=" << n << " nc=" << nc << " P=" << p;
+
+        // 2. THE INVARIANT BOTH BUGS VIOLATED: every requested thread gets work.
+        //    The chunk count is defined as a multiple of the team size, so it can
+        //    never fall below it for any (n, ncols, nthreads).
+        ASSERT_GE(cp.n_chunks, (int64_t)cp.n_threads)
+            << "starved team: n=" << n << " ncols=" << nc << " threads=" << p
+            << " -> chunks=" << cp.n_chunks << " team=" << cp.n_threads;
+
+        // 3. Never fork a team for trivial work (the opposite failure: satisfying
+        //    invariant 2 by splitting a 24 KB panel across 112 threads).
+        if (cp.n_threads > 1) {
+            ASSERT_GE(total / cp.n_threads, QFA::MIN_ELEMS_PER_THREAD)
+                << "forked for trivial work: n=" << n << " ncols=" << nc;
+        }
+
+        // 4. The chunk ranges must tile [0, total) exactly: contiguous, no gaps,
+        //    no overlap, covering everything (correctness of the decomposition).
+        int64_t prev_hi = 0;
+        for (int64_t c = 0; c < cp.n_chunks; ++c) {
+            int64_t lo, hi;
+            QFA::chunk_range(total, cp.n_chunks, c, lo, hi);
+            ASSERT_EQ(lo, prev_hi) << "gap/overlap at chunk " << c;
+            ASSERT_LE(lo, hi);
+            prev_hi = hi;
+        }
+        ASSERT_EQ(prev_hi, total) << "chunks do not cover the panel";
+    }
+}
+
+// Per-thread partial slots must be cache-line padded, else threads writing
+// adjacent slots ping-pong one line -- worst exactly when ncols is small, which
+// is the retirement tail this kernel exists to serve.
+TEST_F(TestFunNystromPPv2, PanelPartialStrideIsCacheLinePadded) {
+    using QFA = RandLAPACK::LanczosQFA<double>;
+    constexpr int64_t LINE = 64 / (int64_t)sizeof(double);
+    for (int64_t nc : {1, 2, 4, 7, 8, 9, 32, 96, 100}) {
+        const int64_t st = QFA::partial_stride(nc);
+        ASSERT_GE(st, nc);
+        ASSERT_EQ(st % LINE, 0) << "stride " << st << " for ncols=" << nc
+                                << " is not a multiple of a cache line";
+    }
+}
+
+
+// ===== Driver reuse across calls ============================================
+//
+// The benchmark makes thousands of calls against one matrix. Hoisting the
+// driver out of the per-call path (persistent-handle MEX) is only sound if a
+// reused FunNystromPP carries no state between calls. util::upsize buffers grow
+// but never shrink, so the risk is real: an oversized buffer from a previous
+// larger (k, s), or a timer/counter left over from a previous branch.
+//
+// These tests pin the invariant in the library's own CI, independent of MATLAB.
+
+// A reused driver must produce BIT-IDENTICAL results to fresh instances, for a
+// call sequence whose (k, s) GROWS THEN SHRINKS. Monotone-growing k never
+// exercises the oversized-buffer path, which is exactly where the bug would be.
+TEST_F(TestFunNystromPPv2, ReuseAcrossCallsIsBitIdentical) {
+    using T = double;
+    const int64_t n = 60, q = 2;
+    T *A = randn<T>(n, n, /*seed=*/21);
+    for (int64_t j = 0; j < n; ++j)                     // make it PSD-ish + symmetric
+        for (int64_t i = 0; i < n; ++i)
+            A[i + j * n] = A[i + j * n] + A[j + i * n];
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)2 * n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+
+    auto fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
+    auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+
+    // grow, shrink, grow again. k stays >= the default vec_nnz (8): the SASO
+    // test matrix requires vec_nnz <= k, so smaller ranks are not a legal
+    // configuration rather than an untested one.
+    const std::vector<std::pair<int64_t,int64_t>> tuples = {
+        {10, 20}, {25, 60}, {8, 12}, {30, 40}, {9, 10}, {25, 60}
+    };
+
+    std::vector<T> fresh_est, fresh_t1, fresh_t2;
+    for (auto [k, s] : tuples) {
+        RandLAPACK::FunNystromPP<T> d1;
+        RandBLAS::RNGState<RNG> st(101);
+        T t1 = 0, t2 = 0;
+        fresh_est.push_back(d1.call(A_op, fAfun, fscalar, k, s, q, st, nullptr, t1, t2));
+        fresh_t1.push_back(t1); fresh_t2.push_back(t2);
+    }
+
+    RandLAPACK::FunNystromPP<T> shared;
+    for (size_t i = 0; i < tuples.size(); ++i) {
+        auto [k, s] = tuples[i];
+        RandBLAS::RNGState<RNG> st(101);
+        T t1 = 0, t2 = 0;
+        T est = shared.call(A_op, fAfun, fscalar, k, s, q, st, nullptr, t1, t2);
+        EXPECT_EQ(est, fresh_est[i]) << "reuse diverged at tuple " << i
+                                     << " (k=" << k << ", s=" << s << ")";
+        EXPECT_EQ(t1, fresh_t1[i]) << "t1 diverged at tuple " << i;
+        EXPECT_EQ(t2, fresh_t2[i]) << "t2 diverged at tuple " << i;
+    }
+    delete[] A;
+}
+
+// t_fafun_ms must be CLEARED on the k == n path, not left at the previous
+// call's value. Consumers compute assembly = t_phase2_ms - t_fafun_ms, so a
+// stale value makes that negative. Regression test for the fix in
+// rl_fun_nystrom_pp.hh's Phase-2 skip branch.
+TEST_F(TestFunNystromPPv2, FafunTimerResetAtKEqualsN) {
+    using T = double;
+    const int64_t n = 40, q = 2;
+    T *A = randn<T>(n, n, /*seed=*/23);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < n; ++i)
+            A[i + j * n] = A[i + j * n] + A[j + i * n];
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)2 * n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+
+    auto fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
+    auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+
+    RandLAPACK::FunNystromPP<T> driver;
+    T t1 = 0, t2 = 0;
+
+    // First a k < n call, which sets a nonzero t_fafun_ms ...
+    RandBLAS::RNGState<RNG> s1(31);
+    driver.call(A_op, fAfun, fscalar, /*k=*/10, /*s=*/20, q, s1, nullptr, t1, t2);
+    ASSERT_GT(driver.t_fafun_ms, 0.0) << "precondition: k<n call should time the oracle";
+
+    // ... then a k == n call, which skips Phase 2 entirely.
+    RandBLAS::RNGState<RNG> s2(31);
+    driver.call(A_op, fAfun, fscalar, /*k=*/n, /*s=*/20, q, s2, nullptr, t1, t2);
+    EXPECT_EQ(driver.t_phase2_ms, 0.0);
+    EXPECT_EQ(driver.t_fafun_ms,  0.0) << "stale t_fafun_ms leaked across the k==n branch";
+    EXPECT_GE(driver.t_phase2_ms - driver.t_fafun_ms, 0.0) << "assembly time went negative";
+    delete[] A;
+}
+
+// A rank below the sketch's vec_nnz must DEGRADE (dense sketch columns), not
+// throw. Regression for "(vec_nnz <= dim_major) was required, but did not hold,
+// in function SparseDist", which killed 47 of 221 rungs in the 2026-07-28
+// rehearsal and would have hit the real campaign at its smallest budgets
+// (k = B/2 = 5 at B = 10) as well as the knob-free auto tier.
+TEST_F(TestFunNystromPPv2, SmallRankBelowVecNnzDoesNotThrow) {
+    using T = double;
+    const int64_t n = 40, q = 1;
+    T *A = randn<T>(n, n, /*seed=*/29);
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = 0; i < n; ++i) A[i + j * n] = A[i + j * n] + A[j + i * n];
+    for (int64_t i = 0; i < n; ++i) A[i + i * n] += (T)2 * n;
+    for (int64_t j = 0; j < n; ++j)
+        for (int64_t i = j + 1; i < n; ++i) A[i + j * n] = A[j + i * n];
+
+    auto fscalar = [](T x) { return std::sqrt(std::max(x, (T)0)); };
+    auto fAfun   = RandLAPACK::testing::make_exact_fa_oracle<T>(n, A, fscalar);
+    linops::ExplicitSymLinOp<T> A_op(n, blas::Uplo::Upper, A, n, Layout::ColMajor);
+    T true_tr = true_trace_fa<T>(n, A, fscalar);
+
+    for (int64_t k : {1, 2, 5, 7, 8}) {          // default vec_nnz is 8
+        RandLAPACK::FunNystromPP<T> driver;
+        RandBLAS::RNGState<RNG> st(41);
+        T t1 = 0, t2 = 0;
+        T est = 0;
+        ASSERT_NO_THROW(est = driver.call(A_op, fAfun, fscalar, k, /*s=*/12, q,
+                                          st, nullptr, t1, t2))
+            << "k=" << k << " (< vec_nnz) must degrade, not throw";
+        EXPECT_TRUE(std::isfinite(est)) << "k=" << k;
+        EXPECT_LT(std::abs(est - true_tr) / true_tr, 0.5) << "k=" << k;
+    }
+    delete[] A;
+}

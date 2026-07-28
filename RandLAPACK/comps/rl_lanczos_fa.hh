@@ -32,6 +32,7 @@ void lanczos_fa_timed_call(LFA& self, SLO& A, const T* B,
                            int64_t n, int64_t s, F f, int64_t d, T* out) {
     using namespace std::chrono;
     self._t_matvec_us = 0;
+    self._t_reorth_us = 0;
     steady_clock::time_point t_total_start, t_lanczos_end, t_end;
     if (self.timing) t_total_start = steady_clock::now();
     self.run_lanczos(A, B, n, s, d);
@@ -43,7 +44,7 @@ void lanczos_fa_timed_call(LFA& self, SLO& A, const T* B,
         long lanczos_us = duration_cast<microseconds>(t_lanczos_end - t_total_start).count();
         long apply_f_us = duration_cast<microseconds>(t_end         - t_lanczos_end).count();
         long rest_us    = total_us - lanczos_us - apply_f_us;
-        self.times = {self._t_matvec_us, lanczos_us, apply_f_us, rest_us, total_us};
+        self.times = {self._t_matvec_us, lanczos_us, apply_f_us, rest_us, total_us, self._t_reorth_us};
     }
 }
 } // namespace detail
@@ -111,6 +112,12 @@ public:
     std::vector<long> times;   // populated after call() when timing==true
     // Slots: matvec, run_lanczos, apply_f, rest, total
     long _t_matvec_us = 0;     // accumulated in run_lanczos() when timing==true
+    // FULL reorthogonalization is O(d^2 n s) against the recurrence's O(d n s),
+    // and is the entire difference between this oracle and the basis-free
+    // LanczosQFA (measured 926 vs 446 ms at n=3000, d=207). Time it explicitly
+    // so that cost is a reported number rather than something inferred by
+    // differencing two tiers.
+    long _t_reorth_us = 0;
 
     LanczosFA()                            = default;
     LanczosFA(const LanczosFA&)            = delete;
@@ -133,6 +140,7 @@ public:
         using namespace std::chrono;
         steady_clock::time_point _mv_t0, _mv_t1;
         _t_matvec_us = 0;
+        _t_reorth_us = 0;
 
         // [setup] Grow buffers if needed (not a pseudocode line).
         util::upsize(K,     K_sz,     (d + 1) * n * s);
@@ -190,6 +198,8 @@ public:
             // Outer loop over j is parallel (columns are independent); inner prev-loop is
             // sequential per column (each projection modifies K_curr[:,j] in place).
             int64_t reorth_steps = reorth ? (i + 1) : 0;
+            std::chrono::steady_clock::time_point _r0;
+            if (timing) _r0 = std::chrono::steady_clock::now();
 #pragma omp parallel for schedule(static)
             for (int64_t j = 0; j < s; ++j) {
                 for (int64_t prev = 0; prev < reorth_steps; ++prev) {
@@ -198,6 +208,8 @@ public:
                     blas::axpy(n, -coeff, K_p + j * n, 1, K_curr + j * n, 1);
                 }
             }
+            if (timing) _t_reorth_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - _r0).count();
 
             // [line 7] for j: β_{i+1,j} ← ‖r_j‖;  q_{i+1,j} ← r_j / β_{i+1,j}
             // Zero norm means the Krylov basis has collapsed for that column.

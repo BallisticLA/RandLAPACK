@@ -97,6 +97,10 @@ public:
     bool timing = false;
     std::vector<long> times;
     long _t_matvec_us = 0;
+    /// Block-MGS reorthogonalization time (see LanczosFA's counterpart): full
+    /// reorth against every previous block is O(d^2) work against the
+    /// recurrence's O(d), so it is reported rather than inferred.
+    long _t_reorth_us = 0;
 
     // Number of block steps actually completed by the last run_lanczos call.
     // Equals the requested d unless an early-stop callback fired sooner (used by
@@ -208,6 +212,8 @@ public:
             // whole Q_basis[0..i] at once) was attempted for BLAS-3 locality but
             // regressed orthogonality (left ‖QᵀQ−I‖ ~ 1); reverted pending a
             // correct CGS. Toggle reorthogonalization with `reorth`.
+            std::chrono::steady_clock::time_point _r0;
+            if (timing) _r0 = std::chrono::steady_clock::now();
             if (reorth) {
                 for (int64_t prev = 0; prev <= step; ++prev) {
                     T* Q_p = K_big + prev * n * s;
@@ -217,6 +223,8 @@ public:
                                n, s, s, (T)-1.0, Q_p, n, proj_buf, s, (T)1.0, Y, n);
                 }
             }
+            if (timing) _t_reorth_us += std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - _r0).count();
 
             // [line 8] if i < d−1:  Q_{i+1}, B_i ← qr(Z)
             // (Q_{step+1} overwrites Y. B_step = upper R factor, copied once

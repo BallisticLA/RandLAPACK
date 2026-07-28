@@ -66,8 +66,16 @@ public:
     // easy-to-moderate spectra it matched delay=5's accuracy exactly while stopping
     // ~3 steps sooner (fewer matvecs). Raise it if a stalling spectrum trips a
     // premature stop (tr(M_k) plateauing before it has truly converged).
-    int64_t adaptive_delay  = 2;       ///< δ: compare depth k against k − δ checks
-    int64_t adaptive_min    = 2;       ///< do not test convergence before this depth
+    /// Named so callers that reuse an instance across calls can RESTORE these
+    /// rather than relying on fresh construction to supply them. A cached
+    /// oracle no longer gets a constructor between calls, so "assign only if
+    /// the caller passed one" silently leaks the previous call's window into
+    /// the next — changing d_used, the estimate, and the matvec count.
+    static constexpr int64_t default_adaptive_delay = 2;
+    static constexpr int64_t default_adaptive_min   = 2;
+
+    int64_t adaptive_delay  = default_adaptive_delay;  ///< δ: compare depth k against k − δ checks
+    int64_t adaptive_min    = default_adaptive_min;    ///< do not test convergence before this depth
     int64_t d_used          = 0;       ///< block steps actually used by the last call
 
     /// Reused block recurrence + its buffers (K_big, R0_buf, T_blk, ...).
@@ -163,7 +171,7 @@ public:
             long lanczos_us = span_us - cert_us;      // recurrence net of certificate
             long apply_us   = cert_us + final_us;     // all compute_M work
             long rest_us    = total_us - lanczos_us - apply_us;
-            this->times = {this->_t_matvec_us, lanczos_us, apply_us, rest_us, total_us};
+            this->times = {this->_t_matvec_us, lanczos_us, apply_us, rest_us, total_us, 0L};
         }
     }
 

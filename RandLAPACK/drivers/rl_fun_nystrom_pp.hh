@@ -334,7 +334,18 @@ T FunNystromPP<T>::call(
     // [Alg. 1, line 2] Â = U·Λ·Uᵀ ← Nyström(A^{q−1}·Ω)  (shifted recovery;
     //   see the [Alg. 2, line N] tags inside NystromEVD).
     auto t_p1_start = std::chrono::steady_clock::now();
-    NystromEVD<T>(A_op, k, q, this->vec_nnz, state,
+    // Clamp the sketch's nonzeros-per-column to the number of columns actually
+    // being drawn. A SASO with vec_nnz > k asks for more nonzeros in a column
+    // than the column has entries to place them in, and RandBLAS rejects it
+    // outright: "(vec_nnz <= dim_major) was required, but did not hold, in
+    // function SparseDist". Before this clamp, ANY call with k < vec_nnz (default
+    // 8) threw rather than degrading -- which is not an exotic corner: the
+    // benchmark's smallest budgets give k = B/2 = 5 at B = 10, and the knob-free
+    // `auto` tier picks its own k and lands below 8 at small budgets too
+    // (47 of 221 rungs in the 2026-07-28 rehearsal died this way). vec_nnz = k
+    // is a dense column, which is the correct degenerate limit of a SASO.
+    const int64_t vnz = std::max((int64_t)1, std::min(this->vec_nnz, k));
+    NystromEVD<T>(A_op, k, q, vnz, state,
                   this->U, this->U_sz,
                   this->lambda, this->lambda_sz,
                   this->nystrom_ws,
@@ -449,6 +460,12 @@ T FunNystromPP<T>::call(
         this->t_phase2_ms = std::chrono::duration<double, std::milli>(t_p2_end - t_p2_start).count();
     } else {
         this->t_phase2_ms = 0.0;
+        // t_fafun_ms must be cleared here too, not just left over from a prior
+        // call. Consumers compute assembly = t_phase2_ms - t_fafun_ms; with a
+        // stale t_fafun_ms that goes NEGATIVE on the first k == m call after a
+        // k < m one. Latent while every call constructed a fresh driver; a real
+        // wrong-answer bug as soon as the driver is reused across calls.
+        this->t_fafun_ms  = 0.0;
     }
     // [Alg. 1, line 7] return tr̃_f++ = tr_top + tr_bot − tr_cor = t1 + t2.
     return t1_out + t2_out;
