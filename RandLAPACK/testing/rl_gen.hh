@@ -358,22 +358,41 @@ void gen_oleg_adversarial_mat(
 }
 
 /// Generate singular values for the "bad CholQR" matrix.
-/// The first k values are 1, then values start at 10^-8 and decrease
-/// exponentially, controlled by cond and n.
 ///
-/// @param[in] k     Number of singular values (= sketching dimension)
-/// @param[in] n     Number of columns in the target matrix
-/// @param[in] cond  Condition number
+/// The leading half of the spectrum is set to one. The trailing half drops to
+/// 1e-8 and then decays geometrically to 1/cond, so the returned spectrum has
+/// condition number exactly cond. The cliff between the two blocks is the point
+/// of this input: it is what drives the Gram matrix numerically indefinite, and
+/// so exposes the failure mode of an unshifted CholeskyQR.
 ///
-/// @return Vector of k singular values
+/// Requires cond >= 1e8. Below that threshold the trailing block would rise from
+/// 1e-8 toward 1/cond rather than decay, leaving a non-monotone spectrum whose
+/// condition number is 1e8 rather than the requested value. That threshold is
+/// also where the failure being modeled begins, since an unshifted CholeskyQR
+/// loses orthogonality once cond exceeds eps^(-1/2), about 1.5e8 in double.
+///
+/// The previous version of this routine took an unused second dimension argument
+/// and computed an empty loop, returning all ones (condition number 1) for every
+/// requested cond. It had no callers other than gen_bad_cholqr_mat below.
+///
+/// @param[in] k     Number of singular values to generate. Must be >= 2.
+/// @param[in] cond  Target condition number. Must be >= 1e8.
+///
+/// @return Vector of k singular values, non-increasing, with s[0] = 1 and
+///         s[k-1] = 1/cond.
 template <typename T>
-std::vector<T> gen_bad_cholqr_singvals(int64_t k, int64_t n, T cond) {
+std::vector<T> gen_bad_cholqr_singvals(int64_t k, T cond) {
+    randlapack_require(k >= 2) << "k=" << k << " must be >= 2 to admit both a leading and a trailing block";
+    randlapack_require(cond >= T(1e8)) << "cond=" << cond << " must be >= 1e8; below that the trailing block is not monotone";
+
     std::vector<T> s(k, 1.0);
-    int offset = k;
-    T t = log(std::pow(10, 8) / cond) / (1 - (n - offset));
-    T cnt = 0.0;
-    for (int i = offset; i < k; ++i) {
-        s[i] = (std::exp(t) / std::pow(10, 8)) * (std::exp(++cnt * -t));
+    int64_t offset  = k / 2;          // size of the leading block of ones
+    int64_t n_decay = k - offset;     // size of the trailing block
+
+    // Geometric interpolation from 1e-8 down to 1/cond across the trailing block.
+    for (int64_t i = 0; i < n_decay; ++i) {
+        T frac = (n_decay == 1) ? T(0) : T(i) / T(n_decay - 1);
+        s[offset + i] = T(1e-8) * std::pow(cond * T(1e-8), -frac);
     }
     return s;
 }
@@ -390,7 +409,7 @@ void gen_bad_cholqr_mat(
     bool diagon,
     RandBLAS::RNGState<RNG> &state
 ) {
-    auto s = gen_bad_cholqr_singvals(k, n, cond);
+    auto s = gen_bad_cholqr_singvals<T>(k, cond);
 
     T* S = new T[k * k]();
     RandLAPACK::util::diag(k, k, s.data(), k, S);
