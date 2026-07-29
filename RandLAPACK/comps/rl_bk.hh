@@ -382,7 +382,24 @@ class BK {
                     return -1;
                 };
 
-                // Pre-compute Fro norm of an input matrix.
+                // Termination criteria (both checked inside the main loop below).
+                //
+                // 1. Frobenius-content convergence: stop once norm_R = ||R||_F exceeds
+                //    threshold = sqrt(1 - tol^2) * ||M||_F. R is the coordinate representation
+                //    X'MY of M in the accumulated Krylov bases, and hat(M) = X (X'MY) Y' is the
+                //    two-sided orthogonal projection of M onto those bases. Since X, Y have
+                //    orthonormal columns, ||R||_F = ||hat(M)||_F, and the projection residual is
+                //    Frobenius-orthogonal to hat(M), so ||M||_F^2 = ||hat(M)||_F^2 + ||M - hat(M)||_F^2.
+                //    Hence norm_R > sqrt(1 - tol^2)||M||_F is equivalent to the relative bound
+                //    ||M - hat(M)||_F <= tol * ||M||_F, obtained without any SVD. norm_R is
+                //    recomputed only on odd iterations (where R is the current triangular factor).
+                //    Exact in exact arithmetic; holds to working precision thanks to the double
+                //    reorthogonalization in the qr_add steps.
+                // 2. Rank deficiency: stop if the trailing diagonal entry of the band just updated
+                //    (R on odd iters, S on even) falls below sqrt(eps), i.e. the Krylov subspace
+                //    can no longer grow. See the per-branch checks below.
+                // The bounded loop also stops at max_krylov_iters (termination_reason set per case;
+                // the ABRIK driver only resumes when that was the reason).
                 T norm_A = A.fro_nrm();
                 T sq_tol = std::pow(this->tol, 2);
                 T threshold =  std::sqrt(1 - sq_tol) * norm_A;
@@ -711,7 +728,8 @@ class BK {
                     }
 
                     ++iter;
-                    //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
+                    // Frobenius-content convergence (criterion 1 above): ||R||_F exceeding
+                    // sqrt(1 - tol^2)||M||_F means ||M - hat(M)||_F <= tol * ||M||_F.
                     if(norm_R > threshold) {
                         this->termination_reason = BKTermination::norm_converged;
                         break;
