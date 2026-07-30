@@ -158,6 +158,7 @@ struct bench_result {
 
     // IR-LSQ-mode fields
     long ir_total_us;
+    long ir_setup_us = 0;  // warm-start x0 build time INSIDE ir_total_us (0 = cold start)
     int  ir_outer_iters;
     int  ir_inner_iters_total;
     T    ls_residual_norm;
@@ -1240,7 +1241,7 @@ static void write_irlsq_reg_results(
     out << "algorithm,run,m,n,qr_status,qr_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,ir_total_us,ir_outer_iters,ir_inner_iters_total,"
            "ls_residual_norm,ls_solution_error,kappa_target,kappa_measured,mu,precond_prec,solve_prec,chol_retries,"
-           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond\n";
+           "ir_inner_capped,ir_inner_relres,ir_inner_best_relres,ir_inner_best_iter,cond_precond,ir_setup_us\n";
     for (const auto& r : results) {
         out << r.alg_name << "," << r.run_idx << "," << r.m << "," << r.n << ","
             << r.qr_status << "," << r.qr_time_us << "," << r.peak_rss_kb << "," << r.analytical_kb << ","
@@ -1256,7 +1257,8 @@ static void write_irlsq_reg_results(
             << std::scientific << std::setprecision(6) << r.ir_inner_relres << ","
             << std::scientific << std::setprecision(6) << r.ir_inner_best_relres << ","
             << r.ir_inner_best_iter << ","
-            << std::scientific << std::setprecision(6) << r.cond_precond
+            << std::scientific << std::setprecision(6) << r.cond_precond << ","
+            << r.ir_setup_us
             << "\n";
     }
 }
@@ -1527,6 +1529,7 @@ static int run_irlsq_reg(
                 std::vector<T_solve> x0_ws, r_ws;
                 const T_solve* ir_rhs = b.data();
                 if (g_ir_warm_start) {
+                    auto ws_t0 = steady_clock::now();
                     x0_ws.assign(n, (T_solve)0); r_ws.assign(m, (T_solve)0);
                     auto ws_state = run_states[run_idx];
                     RandLAPACK::Blendenpik_linops<T_solve, RNG> ss(false, tol_T);
@@ -1542,6 +1545,7 @@ static int run_irlsq_reg(
                          m, 1, n, (T_solve)1.0, x0_ws.data(), n, (T_solve)0.0, r_ws.data(), m);
                     for (int64_t i = 0; i < m; ++i) r_ws[i] = b[i] - r_ws[i];
                     ir_rhs = r_ws.data();
+                    res.ir_setup_us = duration_cast<microseconds>(steady_clock::now() - ws_t0).count();
                 }
                 std::fill(x_ls, x_ls + n, (T_solve)0.0);
                 RandLAPACK::IterRefineLSQ<T_solve> ir(
