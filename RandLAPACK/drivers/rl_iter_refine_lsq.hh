@@ -59,7 +59,8 @@ namespace RandLAPACK {
 enum class InnerCGStatus : int {
     Converged = 0,   ///< reached inner_tol
     HitCap    = 1,   ///< exhausted max_inner_iters without reaching inner_tol
-    Breakdown = 2    ///< p^T M p <= 0 (loss of orthogonality / non-SPD M)
+    Breakdown = 2,   ///< p^T M p <= 0 (loss of orthogonality / non-SPD M)
+    Stagnated = 3    ///< residual stopped descending; exited early with the best iterate
 };
 
 template <typename T>
@@ -69,6 +70,34 @@ struct IterRefineLSQ {
     T inner_tol;
     /// Hard cap on inner CG iterations per outer refinement step.
     int max_inner_iters;
+    /// STAGNATION EXIT (added 2026-07-29 from ISAAC diagnostic evidence).
+    ///
+    /// Stop the inner CG when its residual has not improved significantly for
+    /// `inner_stag_window` consecutive iterations, and return the BEST iterate seen
+    /// rather than the last one. Set `inner_stag_window <= 0` to disable.
+    ///
+    /// WHY, and why this rather than a bigger cap. On the FEM2 operator at
+    /// kappa^colnorm = 1e10 the CholQR preconditioner is unusable (measured
+    /// cond(J R^-1) = 7.8e4 against ~1.000 for the other methods, orthogonality error
+    /// 0.56 against 1e-6). Its inner CG reached its floor at iteration 17 of each
+    /// 200-iteration step and then ground out the remaining ~183 with no progress. A
+    /// paired diagnostic run with a 10x larger cap settled the mechanism:
+    ///
+    ///     cap 200/step (400 total):  best_relres 3.483414e-09 @ iter 17, solution error 48.7
+    ///     cap 2000/step (4000 total): best_relres 3.483414e-09 @ iter 17, solution error 547.0
+    ///
+    /// Ten times the budget left the best residual BIT-IDENTICAL and made the outer
+    /// solution 11x WORSE, while spending 166 s instead of 13 s. So the cap was never the
+    /// binding constraint, raising it is actively harmful, and the last iterate is worse
+    /// than the best one -- hence both halves of this fix.
+    ///
+    /// A converging solve is unaffected: it returns Converged before the window elapses.
+    /// The window is deliberately generous (and the improvement threshold small) so that
+    /// slow-but-real descent is not mistaken for stagnation.
+    int inner_stag_window;
+    /// Relative residual drop that counts as progress for the stagnation test
+    /// (default 1e-3, i.e. the residual must fall by at least 0.1%).
+    T inner_stag_rel_improve;
     /// Outer refinement steps (Algorithm 1 of Epperly et al. uses 2).
     int n_refine_steps;
     /// Enable per-step / per-substep timing breakdown.
@@ -108,6 +137,8 @@ struct IterRefineLSQ {
                   bool verbose_on = false)
         : inner_tol(tol),
           max_inner_iters(max_inner),
+          inner_stag_window(20),
+          inner_stag_rel_improve((T)1e-3),
           n_refine_steps(n_steps),
           timing(timing_on),
           verbose(verbose_on),
@@ -164,10 +195,14 @@ struct IterRefineLSQ {
         T* cg_Mp = new T[n]();   // M * p inside CG
         T* tmp_n = new T[n]();   // R^{-1} p scratch
         T* tmp_m = new T[m]();   // J * v scratch (m-length)
+        // Best-iterate snapshot for the stagnation exit. One extra n-vector, and one
+        // n-copy per improvement -- negligible against a CG iteration's two operator
+        // applies and two triangular solves.
+        T* cg_zbest = new T[n]();
         auto free_workspace = [&]() {
             delete[] r; delete[] g; delete[] c; delete[] z; delete[] dx;
             delete[] cg_r; delete[] cg_p; delete[] cg_Mp;
-            delete[] tmp_n; delete[] tmp_m;
+            delete[] tmp_n; delete[] tmp_m; delete[] cg_zbest;
         };
 
         T b_norm = blas::nrm2(m, b, 1);
@@ -206,7 +241,7 @@ struct IterRefineLSQ {
             InnerCGReport rep{};
             auto t_in0 = clock::now();
             int cg_status = inner_cg(J, R, ldr, c, n, m,
-                                     z, cg_r, cg_p, cg_Mp, tmp_n, tmp_m,
+                                     z, cg_r, cg_p, cg_Mp, tmp_n, tmp_m, cg_zbest,
                                      rep, t_inner_trsm, t_inner_fwd, t_inner_adj);
             t_inner_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t_in0).count();
             inner_iters_per_step.push_back(rep.iters);
@@ -215,7 +250,7 @@ struct IterRefineLSQ {
             inner_best_relres_per_step.push_back(rep.best_relres);
             inner_best_iter_per_step.push_back(rep.best_iter);
             if (verbose) {
-                static const char* kNames[] = {"converged", "HIT CAP", "breakdown"};
+                static const char* kNames[] = {"converged", "HIT CAP", "breakdown", "STAGNATED"};
                 std::printf("[IR-LSQ] step %d: inner CG %s after %d iters, "
                             "relres=%.4e (best %.4e at iter %d)\n",
                             step, kNames[static_cast<int>(rep.status)], rep.iters,
@@ -279,13 +314,16 @@ private:
                  const T* c, int64_t n, int64_t m,
                  T* z,
                  T* cg_r, T* cg_p, T* cg_Mp,
-                 T* tmp_n, T* tmp_m,
+                 T* tmp_n, T* tmp_m, T* cg_zbest,
                  InnerCGReport& rep,
                  long& t_trsm, long& t_fwd, long& t_adj)
     {
         using clock = std::chrono::steady_clock;
         // Initial guess z = 0.
         std::fill(z, z + n, (T)0);
+        // Best-iterate snapshot starts at the initial guess, so restoring it is safe even
+        // if no iteration ever improves on relres = 1.
+        std::fill(cg_zbest, cg_zbest + n, (T)0);
 
         // r = c - M*z = c (since z=0)
         std::copy(c, c + n, cg_r);
@@ -305,6 +343,13 @@ private:
         // from one that is still making progress when the cap stops it.
         rep.best_relres = (T)1;
         rep.best_iter   = 0;
+
+        // Stagnation state: `stag_ref` is the residual at the last SIGNIFICANT improvement
+        // (a drop of at least inner_stag_rel_improve), and `last_improve_it` when it
+        // happened. A merely-noisy decrease does not count as progress, which is the whole
+        // point: the pathological case descends by ~0 for hundreds of iterations.
+        T   stag_ref        = std::numeric_limits<T>::max();
+        int last_improve_it = 0;
 
         T rs_old = blas::dot(n, cg_r, 1, cg_r, 1);
 
@@ -355,16 +400,41 @@ private:
             if (relres < rep.best_relres) {
                 rep.best_relres = relres;
                 rep.best_iter   = it + 1;
+                std::copy(z, z + n, cg_zbest);   // snapshot for the stagnation exit
+            }
+            if (relres < stag_ref * ((T)1 - inner_stag_rel_improve)) {
+                stag_ref        = relres;
+                last_improve_it = it + 1;
             }
 
             if (verbose) {
                 std::printf("[IR-LSQ]   inner CG iter %d: ||r||/||c|| = %.4e\n",
                             it + 1, (double)relres);
             }
+            // Convergence is checked BEFORE stagnation: a solve that reaches inner_tol
+            // reports Converged even if its last few steps were flat.
             if (r_norm <= tol_abs) {
                 rep.iters  = it + 1;
                 rep.status = InnerCGStatus::Converged;
                 rep.relres = relres;
+                return 0;
+            }
+            if (inner_stag_window > 0 &&
+                (it + 1) - last_improve_it >= inner_stag_window) {
+                // Residual has flatlined. More iterations cannot reach inner_tol, and are
+                // measurably harmful to the outer solution, so stop and hand back the best
+                // iterate rather than the last one.
+                std::copy(cg_zbest, cg_zbest + n, z);
+                rep.iters  = it + 1;
+                rep.status = InnerCGStatus::Stagnated;
+                rep.relres = rep.best_relres;
+                if (verbose) {
+                    std::printf("[IR-LSQ]   inner CG STAGNATED at iter %d "
+                                "(no %.1e improvement in %d iters); returning best "
+                                "iterate from iter %d, relres %.4e\n",
+                                it + 1, (double)inner_stag_rel_improve, inner_stag_window,
+                                rep.best_iter, (double)rep.best_relres);
+                }
                 return 0;
             }
 
@@ -376,9 +446,12 @@ private:
         // Exhausted the budget without reaching inner_tol. Still returns 0, because a
         // capped solve is not necessarily an error for the caller -- but the status is
         // now recorded so the benchmark can tell the two apart (it previously could not).
+        // Hand back the best iterate here too: best_relres <= final relres by construction,
+        // so this is never worse, and it matters when the cap lands after a flat stretch.
+        std::copy(cg_zbest, cg_zbest + n, z);
         rep.iters  = max_inner_iters;
         rep.status = InnerCGStatus::HitCap;
-        rep.relres = std::sqrt(rs_old) / c_norm;
+        rep.relres = rep.best_relres;
         return 0;
     }
 

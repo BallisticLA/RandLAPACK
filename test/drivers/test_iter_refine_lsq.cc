@@ -234,3 +234,107 @@ TEST_F(TestIterRefineLSQ, capped_solve_is_reported) {
         EXPECT_LE(ir.inner_relres_per_step.front(), 1e-14);
     }
 }
+
+// Stagnation exit (added 2026-07-29). The ISAAC diagnostic showed an inner CG reaching its
+// residual floor at iteration 17 of a 200-iteration step and then grinding out the
+// remaining ~183 with a BIT-IDENTICAL best residual, while the outer solution got 11x worse
+// when the budget was raised 10x. The driver now detects the flatline, stops, and returns
+// the best iterate rather than the last.
+//
+// HOW THIS IS PROVOKED, and one thing that does NOT work. The obvious trick -- ask for an
+// unreachable tolerance via inner_tol = 0 -- fails: on a small well-conditioned system CG
+// drives the recursive residual to EXACTLY 0.0 (here by iteration 11), and `r_norm <= 0` is
+// then true, so the solve reports Converged. inner_tol = 0 is reachable, not unreachable.
+//
+// Instead the window logic is driven directly: inner_stag_rel_improve = 1 demands an
+// impossible 100% residual drop, so no iteration ever counts as progress and the exit must
+// fire at exactly inner_stag_window iterations. That tests the mechanism (window, status,
+// best-residual reporting) without needing to manufacture a pathological matrix.
+TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
+    using T = double;
+    int64_t m = 120, n = 20;
+
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 4242);
+    fill_random(x_true, 777);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+
+    // IMPERFECT preconditioner on purpose. build_R_from_A on the unperturbed A gives the
+    // exact Cholesky factor, so M = R^-T A^T A R^-1 = I and CG converges in ONE iteration --
+    // which leaves nothing for the contrast case below to measure.
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 31337, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    const int kCap    = 400;
+    const int kWindow = 3;
+
+    // --- stagnation fires: impossible improvement threshold, small window ---
+    std::vector<T> x_stag(n, 0);
+    {
+        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/kCap, /*n_steps=*/2);
+        ir.inner_stag_window     = kWindow;
+        ir.inner_stag_rel_improve = 1.0;      // no drop can ever qualify as progress
+        int status = ir.call(J, R.data(), n, b.data(), m, x_stag.data(), n);
+        EXPECT_EQ(status, 0);                 // stagnating is not an error return
+        ASSERT_EQ(ir.inner_status_per_step.size(), 2u);
+        EXPECT_EQ(ir.inner_status_per_step.front(),
+                  static_cast<int>(RandLAPACK::InnerCGStatus::Stagnated));
+        // Deterministic: nothing counts as progress, so the window elapses immediately.
+        EXPECT_EQ(ir.inner_iters_per_step.front(), kWindow);
+        // The reported residual is the BEST seen, not the last.
+        EXPECT_DOUBLE_EQ(ir.inner_relres_per_step.front(),
+                         ir.inner_best_relres_per_step.front());
+        EXPECT_LE(ir.inner_best_iter_per_step.front(), ir.inner_iters_per_step.front());
+        for (int64_t i = 0; i < n; ++i) EXPECT_TRUE(std::isfinite(x_stag[i]));
+    }
+
+    // --- contrast: the SAME problem with the exit disabled behaves as before ---
+    {
+        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/kCap, /*n_steps=*/2);
+        ir.inner_stag_window = 0;             // disable the exit entirely
+        std::vector<T> x(n, 0);
+        int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
+        EXPECT_EQ(status, 0);
+        // Reaches the tolerance on its own, and takes MORE iterations than the window did.
+        EXPECT_EQ(ir.inner_status_per_step.front(),
+                  static_cast<int>(RandLAPACK::InnerCGStatus::Converged));
+        EXPECT_GT(ir.inner_iters_per_step.front(), kWindow)
+            << "contrast case needs a preconditioner weak enough to require several "
+               "CG iterations, otherwise it cannot distinguish the early exit";
+        for (int64_t i = 0; i < n; ++i) EXPECT_NEAR(x[i], x_true[i], 1e-8);
+    }
+}
+
+// A converging solve must be untouched by the stagnation logic: it reports Converged, and
+// the exit does not fire before the tolerance is met.
+TEST_F(TestIterRefineLSQ, stagnation_exit_does_not_disturb_a_converging_solve) {
+    using T = double;
+    int64_t m = 150, n = 25;
+
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 9091);
+    fill_random(x_true, 1234);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    IterRefineLSQ<T> ir(/*tol=*/1e-12, /*max_inner=*/200, /*n_steps=*/2);
+    std::vector<T> x(n, 0);
+    int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
+    EXPECT_EQ(status, 0);
+    for (size_t s = 0; s < ir.inner_status_per_step.size(); ++s) {
+        EXPECT_EQ(ir.inner_status_per_step[s],
+                  static_cast<int>(RandLAPACK::InnerCGStatus::Converged))
+            << "step " << s << " should converge, not stagnate";
+    }
+    for (int64_t i = 0; i < n; ++i)
+        EXPECT_NEAR(x[i], x_true[i], 1e-8);
+}

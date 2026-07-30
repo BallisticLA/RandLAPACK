@@ -205,15 +205,31 @@ template <typename T>
 static void record_inner_cg_diagnosis(const RandLAPACK::IterRefineLSQ<T>& ir,
                                       bench_result<T>& res) {
     if (ir.inner_status_per_step.empty()) return;
-    int worst = 0;
+    // Rank by SEVERITY, not by the enum's numeric value. The codes are not ordered by
+    // severity: Stagnated = 3 was added after Breakdown = 2, so a plain `>` comparison would
+    // let a clean stagnation (which exits early WITH the best iterate) mask a genuine CG
+    // breakdown in another step. Severity order, worst first:
+    //   Breakdown (2) -- solver failed outright
+    //   HitCap    (1) -- ran out of budget while still descending
+    //   Stagnated (3) -- reached its floor and stopped; benign, best iterate returned
+    //   Converged (0) -- met the tolerance
+    auto severity = [](int status) -> int {
+        switch (status) {
+            case 2:  return 3;   // Breakdown
+            case 1:  return 2;   // HitCap
+            case 3:  return 1;   // Stagnated
+            default: return 0;   // Converged
+        }
+    };
+    int worst = ir.inner_status_per_step[0];
     size_t worst_idx = 0;
-    for (size_t i = 0; i < ir.inner_status_per_step.size(); ++i) {
-        if (ir.inner_status_per_step[i] > worst) {
+    for (size_t i = 1; i < ir.inner_status_per_step.size(); ++i) {
+        if (severity(ir.inner_status_per_step[i]) > severity(worst)) {
             worst = ir.inner_status_per_step[i];
             worst_idx = i;
         }
     }
-    // With no capping/breakdown, report the step that got the least far.
+    // All steps converged: report the step that got the least far.
     if (worst == 0 && !ir.inner_relres_per_step.empty()) {
         for (size_t i = 0; i < ir.inner_relres_per_step.size(); ++i)
             if (ir.inner_relres_per_step[i] > ir.inner_relres_per_step[worst_idx]) worst_idx = i;
