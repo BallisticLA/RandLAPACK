@@ -19,7 +19,12 @@
 //   ./CQRRT_linop_applications <prec> <outdir> <runs> <mode>
 //          <K.mtx> <M.mtx> <V.mtx> <d_factor> [nnz] [b] [compute_cond] [method_mask] [noise_level] [omega] [power_j]
 //
-// mode        = "irlsq" | "rspec"
+// mode        = "irlsq_reg" | "rspec"
+//   NOTE: these are the ONLY accepted values, and an unrecognized mode is NOT diagnosed --
+//   it matches neither dispatch branch, so the run allocates its node, performs no
+//   experiment, writes no CSV, and exits 0. Six SLURM scripts passing the long-removed
+//   "irlsq" were archived on 2026-07-29 for exactly this reason. If you add a mode, add it
+//   here and consider erroring on the unknown case.
 // method_mask = bitmask of Q-less QR variants (default 0b11111 = 31)
 //                 bit 0 ( 1): CQRRT_linop (TRSM_IDENTITY)
 //                 bit 1 ( 2): CholQR

@@ -202,7 +202,8 @@ int main(int argc, char** argv) {
         << " lambda=" << lambda << " tol=" << tol << " d_factor=" << d_factor << "\n";
     out << "algorithm,m,n,qr_status,qr_time_us,solve_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,iterations,solver_flag,solver_relres,aug_relres,normal_relres,"
-           "data_relres,recovery_error,cond_estimate,chol_retries\n";
+           "data_relres,recovery_error,cond_estimate,chol_retries,"
+           "solve_fwd_us,solve_adj_us,solve_trsm_us\n";   // appended 2026-07-29 (see note above)
 
     std::vector<double> R(n*n), x(n), Tx(m), Ax(mtot);
 
@@ -213,6 +214,21 @@ int main(int argc, char** argv) {
         auto state = RandBLAS::RNGState<RNG>((uint32_t)seed);
         int qr_status = 0, iters = 0, flag = 0, chol_retries = 0;
         long qr_us = 0, solve_us = 0, peak_kb = 0, analytical_kb = 0;
+        // Solve-time DECOMPOSITION (added 2026-07-29 to localize a timing anomaly).
+        // rl_lsqr already computes these into times[0..2] but the benchmark previously
+        // recorded only times[3] (the total), which made the solve column impossible to
+        // interpret: the 07-29 campaign showed per-iteration solve cost FALLING as the
+        // circulant FFT length L grew 32768 -> 131072 -> 524288, which no cost model allows.
+        //
+        // Two things must be separated before any solve-time claim is trustworthy:
+        //   * operator cost (t_fwd + t_adj) vs preconditioner cost (t_trsm) vs LSQR's own
+        //     vector work and one-time setup, which is total - (fwd + adj + trsm);
+        //   * fixed setup vs per-iteration cost. Dividing the TOTAL by the iteration count
+        //     is invalid at 4 iterations (setup dominates) yet fine at 471, which by itself
+        //     manufactures a large apparent gap between preconditioned and unpreconditioned
+        //     runs. Reporting the parts removes that trap.
+        // -1 means "not measured for this method" (Blendenpik exposes only a lumped solve).
+        long solve_fwd_us = -1, solve_adj_us = -1, solve_trsm_us = -1;
         double solver_relres = -1;   // LSQR's own ||b - Ã y|| / ||b|| at termination
         bool have_R = false, is_bp = (alg == "Blendenpik"), is_unprec = (alg == "unpreconditioned");
 
@@ -238,6 +254,7 @@ int main(int argc, char** argv) {
             long lt[4] = {0};
             flag = rl::lsqr<double>(A_hat, mtot, n, nullptr, 0, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
             solve_us = lt[3]; peak_kb = mem.stop();
+            solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];  // t_trsm is 0 here (no R)
         } else {
             // Build R via the selected Q-less QR method, then shared LSQR with right precond R.
             if (alg == "CholQR") {
@@ -273,6 +290,7 @@ int main(int argc, char** argv) {
                 long lt[4] = {0};
                 flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
                 solve_us = lt[3];
+                solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];
             }
             peak_kb = mem.stop();
         }
@@ -300,6 +318,17 @@ int main(int argc, char** argv) {
 
         std::printf("  qr_status=%d iters=%d flag=%d qr_us=%ld solve_us=%ld peak_kb=%ld\n",
                     qr_status, iters, flag, qr_us, solve_us, peak_kb);
+        // Solve breakdown, also echoed to the job log so the anomaly is visible without
+        // pulling the CSV. `other` = LSQR's own vector work + one-time setup.
+        if (solve_fwd_us >= 0) {
+            long other = solve_us - (solve_fwd_us + solve_adj_us + solve_trsm_us);
+            std::printf("  solve breakdown: fwd=%ld adj=%ld trsm=%ld other=%ld us"
+                        "  (per-iter over %d iters: fwd=%.3f adj=%.3f trsm=%.3f ms)\n",
+                        solve_fwd_us, solve_adj_us, solve_trsm_us, other, iters,
+                        iters > 0 ? solve_fwd_us  / 1000.0 / iters : 0.0,
+                        iters > 0 ? solve_adj_us  / 1000.0 / iters : 0.0,
+                        iters > 0 ? solve_trsm_us / 1000.0 / iters : 0.0);
+        }
         std::printf("  orth=%.3e solver_relres=%.3e aug=%.3e normal=%.3e data=%.3e recovery=%.3e cond=%.3e retries=%d\n",
                     orth_err, solver_relres, aug_relres, normal_relres, data_relres, recov, cond_est, chol_retries);
 
@@ -307,7 +336,8 @@ int main(int argc, char** argv) {
             << peak_kb << "," << analytical_kb << ","
             << std::scientific << orth_err << "," << iters << "," << flag << ","
             << solver_relres << "," << aug_relres << "," << normal_relres << ","
-            << data_relres << "," << recov << "," << cond_est << "," << chol_retries << "\n";
+            << data_relres << "," << recov << "," << cond_est << "," << chol_retries << ","
+            << solve_fwd_us << "," << solve_adj_us << "," << solve_trsm_us << "\n";
     }
     out.close();
     std::printf("\nresults -> %s\n", csv.c_str());
