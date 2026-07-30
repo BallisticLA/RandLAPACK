@@ -43,10 +43,11 @@ using ABRIKSubroutines = BKSubroutines;
 /// exhausted retry budget from a saturated Krylov subspace.
 enum class ABRIKTermination {
     not_adaptive,    ///< Adaptive mode was off; a single pass was run.
-    converged,       ///< Assessed error fell to or below tol.
+    converged,       ///< Assessed error fell to or below tol over the full assessed rank.
     max_retries,     ///< Retry budget exhausted with the error still above tol.
     norm_converged,  ///< BK exhausted the Frobenius content of the input.
-    rank_deficient   ///< BK could not grow the Krylov subspace any further.
+    rank_deficient,  ///< BK could not grow the Krylov subspace any further.
+    under_delivered  ///< Fewer triplets exist than were asked for; see below.
 };
 
 template <typename T, typename RNG>
@@ -68,8 +69,8 @@ class ABRIK {
 
         // Adaptive mode: assess the error after BK and resume if needed.
         //
-        // The number of leading triplets the error is assessed over is NOT a separate
-        // parameter. It is derived once, at entry, from the initial iteration budget:
+        // The number of leading triplets the error is assessed over is derived, by
+        // default, from the initial iteration budget:
         //
         //     assessed_rank = ceil(max_krylov_iters / 2) * b
         //
@@ -78,6 +79,13 @@ class ABRIK {
         // below states how hard the driver may work to make them so. Deriving it this way
         // makes the request unsatisfiable-by-construction impossible: you cannot ask for
         // more triplets than your own starting budget yields.
+        //
+        // Set `assessed_rank` explicitly to override that. The derived value is a multiple
+        // of the block size, so a specific count such as ten cannot be expressed at b = 4;
+        // an evaluation protocol that holds the assessed rank fixed while sweeping the
+        // block size needs the override, since block size is a performance knob and the
+        // assessed rank is a problem specification. When set, the initial budget must be
+        // large enough to produce that many triplets, which is checked at entry.
         //
         // Assessing over ALL computed triplets instead (the behavior before 2026-07-28)
         // cannot work on a decaying spectrum: every restart appends trailing triplets
@@ -93,8 +101,10 @@ class ABRIK {
         // Algorithm 1 requires p > 1, so 2 rather than 1.
         static constexpr int adaptive_default_iters = 2;
 
-        // Populated by call() when adaptive is set.
-        int64_t assessed_rank;     // Leading triplets the error was assessed over.
+        // Leading triplets the error is assessed over. Set to 0 (the default) to derive it
+        // from the initial budget as above; set > 0 to request a specific count. On exit
+        // this always holds the value actually used.
+        int64_t assessed_rank;
         ABRIKTermination termination_reason;
 
         ABRIK(
@@ -245,7 +255,7 @@ class ABRIK {
                 // triplets, otherwise each restart manufactures the very error terms that
                 // keep the loop from terminating.
                 this->termination_reason = ABRIKTermination::not_adaptive;
-                this->assessed_rank = 0;
+                int64_t requested_rank = this->assessed_rank;   // 0 = derive
                 if (this->adaptive) {
                     if (this->max_krylov_iters == INT_MAX)
                         this->max_krylov_iters = adaptive_default_iters;
@@ -255,7 +265,23 @@ class ABRIK {
                     randlapack_require(this->adaptive_growth > 1.0)
                         << "adaptive_growth=" << this->adaptive_growth
                         << " must be > 1 for the budget to make progress";
-                    this->assessed_rank = ((this->max_krylov_iters + 1) / 2) * k;
+
+                    int64_t derived = ((this->max_krylov_iters + 1) / 2) * k;
+                    if (requested_rank <= 0) {
+                        this->assessed_rank = derived;
+                    } else {
+                        // An explicit request must be reachable from the initial budget,
+                        // otherwise the first assessment would be taken over fewer triplets
+                        // than asked for and the growth would chase a moving target.
+                        randlapack_require(derived >= requested_rank)
+                            << "assessed_rank=" << requested_rank << " exceeds the "
+                            << derived << " triplets that the initial budget produces; "
+                            << "raise max_krylov_iters to at least "
+                            << (2 * ((requested_rank + k - 1) / k) - 1);
+                        this->assessed_rank = requested_rank;
+                    }
+                } else {
+                    this->assessed_rank = 0;
                 }
 
                 int status = bk_obj.call(A, k, X_ev, Y_od, R, S,
@@ -341,11 +367,33 @@ class ABRIK {
                     int64_t k_assess = std::min(this->assessed_rank, end_cols);
                     T residual = linops::svd_residual<T>(A, U, V, Sigma, k_assess);
 
-                    if (residual <= this->tol) {
+                    // A small residual over FEWER triplets than were asked for is not
+                    // convergence. The two cases look identical here but are not: the
+                    // subspace may simply not have grown yet (benign, keep going), or it
+                    // may be unable to grow at all, in which case the request can never be
+                    // met and reporting success would be a silent under-delivery. The
+                    // identity matrix is the extreme case: its Krylov space is span(Omega)
+                    // and never grows, so a request for any rank above b is unsatisfiable.
+                    bool short_of_request = (k_assess < this->assessed_rank);
+                    bool cannot_grow =
+                        bk_obj.termination_reason == BKTermination::norm_converged ||
+                        bk_obj.termination_reason == BKTermination::rank_deficient;
+
+                    if (residual <= this->tol && !short_of_request) {
                         this->termination_reason = ABRIKTermination::converged;
                         if (this->verbose)
                             printf("ABRIK adaptive: converged, residual %e <= tol %e over %ld triplets after %d retries.\n",
                                    residual, this->tol, (long)k_assess, retries);
+                        break;
+                    }
+
+                    if (short_of_request && cannot_grow) {
+                        this->termination_reason = ABRIKTermination::under_delivered;
+                        if (this->verbose)
+                            std::cerr << "ABRIK adaptive: only " << k_assess << " of the "
+                                      << this->assessed_rank << " requested triplets exist and the "
+                                      << "Krylov subspace cannot grow further. Residual over the "
+                                      << "available triplets = " << residual << "." << std::endl;
                         break;
                     }
 

@@ -59,4 +59,75 @@ T svd_residual(GLO& A, T* U, T* V, T* Sigma, int64_t k) {
     return std::hypot(nrm1, nrm2);
 }
 
+
+/// The three residual metrics used by block Krylov SVD software, computed together.
+///
+/// They differ along two independent axes: whether the residual is one-sided or
+/// two-sided, and whether it is normalized per triplet. Only the two-sided and
+/// normalized combination bounds the relative backward error of a full triplet.
+///
+///   two_sided_normalized  ours: sqrt( ||A V S^-1 - U||_F^2 + ||A' U S^-1 - V||_F^2 )
+///   one_sided_normalized  sqrt( ||A V S^-1 - U||_F^2 ) alone; small while its
+///                         counterpart is not, so it forfeits the backward-error
+///                         interpretation for the pair (u_j, v_j)
+///   two_sided_absolute    sqrt( ||A V - U S||_F^2 + ||A' U - V S||_F^2 ), unnormalized;
+///                         certifies only ~eps_mach * sigma_1 / sigma_i relative accuracy
+///                         for triplet i, and accepts sigma_i <= eps vacuously
+///
+/// Computed in one pass because all three are the same two operator applications with
+/// different scalings; running them separately would triple the matvec cost, which
+/// dominates. The unscaled residuals are formed first, the absolute norms taken, then
+/// the columns are scaled by 1/sigma_i in place for the normalized variants.
+template <typename T>
+struct SvdResidualTriple {
+    T two_sided_normalized;
+    T one_sided_normalized;
+    T two_sided_absolute;
+};
+
+template <typename T, LinearOperator GLO>
+SvdResidualTriple<T> svd_residual_all(GLO& A, T* U, T* V, T* Sigma, int64_t k) {
+    const T inf = std::numeric_limits<T>::infinity();
+    if (k < 1 || Sigma[k - 1] <= T(0))
+        return SvdResidualTriple<T>{inf, inf, inf};
+
+    int64_t m = A.n_rows;
+    int64_t n = A.n_cols;
+
+    T* U_cpy = new T[m * k]();
+    T* V_cpy = new T[n * k]();
+
+    // U_cpy = A V - U diag(Sigma); V_cpy = A' U - V diag(Sigma). Unnormalized.
+    lapack::lacpy(MatrixType::General, m, k, U, m, U_cpy, m);
+    for (int64_t i = 0; i < k; ++i)
+        blas::scal(m, Sigma[i], &U_cpy[m * i], 1);
+    A(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, (T)1.0, V, n, (T)-1.0, U_cpy, m);
+
+    lapack::lacpy(MatrixType::General, n, k, V, n, V_cpy, n);
+    for (int64_t i = 0; i < k; ++i)
+        blas::scal(n, Sigma[i], &V_cpy[n * i], 1);
+    A(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, (T)1.0, U, m, (T)-1.0, V_cpy, n);
+
+    // Absolute variant, before any normalization destroys it.
+    T abs1 = lapack::lange(Norm::Fro, m, k, U_cpy, m);
+    T abs2 = lapack::lange(Norm::Fro, n, k, V_cpy, n);
+
+    // Normalize each column by its own sigma_i, in place.
+    for (int64_t i = 0; i < k; ++i) {
+        blas::scal(m, T(1) / Sigma[i], &U_cpy[m * i], 1);
+        blas::scal(n, T(1) / Sigma[i], &V_cpy[n * i], 1);
+    }
+    T nrm1 = lapack::lange(Norm::Fro, m, k, U_cpy, m);
+    T nrm2 = lapack::lange(Norm::Fro, n, k, V_cpy, n);
+
+    delete[] U_cpy;
+    delete[] V_cpy;
+
+    return SvdResidualTriple<T>{
+        std::hypot(nrm1, nrm2),   // ours
+        nrm1,                     // one-sided, normalized
+        std::hypot(abs1, abs2)    // two-sided, absolute
+    };
+}
+
 } // end namespace RandLAPACK::linops
