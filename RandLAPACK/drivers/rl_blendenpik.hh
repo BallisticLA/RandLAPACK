@@ -56,6 +56,11 @@ class Blendenpik_linops {
         /// Start LSQR from the sketch-and-solve solution rather than from zero.
         /// Required for forward stability (see the file header); on by default.
         bool warm_start;
+        /// Stop after the sketch-and-solve initial guess and return it as x, skipping
+        /// LSQR entirely (implies warm_start). Lets a caller reuse this class as a
+        /// standalone sketch-and-solve solver -- e.g. to warm-start IterRefineLSQ with
+        /// the exact same x0 Blendenpik uses, isolating the initialization effect.
+        bool init_only;
 
         // [0]=sketch, [1]=qr, [2]=lsqr, [3]=total  (microseconds)
         std::vector<long> times;
@@ -67,6 +72,7 @@ class Blendenpik_linops {
             nnz       = 4;   // sparse projection, 4 nnz/col (as CQRRT)
             lsqr_iters = 0;
             warm_start = true;
+            init_only  = false;
         }
 
         /// Solve min ||b - A x||_2. A is m x n; b length m; x length n (output).
@@ -79,6 +85,7 @@ class Blendenpik_linops {
             using std::chrono::duration_cast; using std::chrono::microseconds;
             long t_sketch = 0, t_qr = 0, t_lsqr = 0;
             auto total_start = clock::now();
+            if (init_only) warm_start = true;   // x0 is the whole output
 
             int64_t d = (int64_t)(d_factor * (T)n);
             if (d < n) d = n;
@@ -136,6 +143,23 @@ class Blendenpik_linops {
                 A(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
                   m, 1, n, (T)1.0, x0, n, (T)0.0, r0, m);
                 for (int64_t i = 0; i < m; ++i) r0[i] = b[i] - r0[i];
+            }
+
+            // init_only: the sketch-and-solve x0 IS the answer; skip LSQR. Report the
+            // true relative residual of x0 so callers can log the warm start's quality.
+            if (init_only) {
+                std::copy(x0, x0 + n, x);
+                lsqr_iters = 0;
+                converged  = false;   // no tolerance was pursued
+                T nb = blas::nrm2(m, b, 1);
+                final_relres = (nb > (T)0) ? blas::nrm2(m, r0, 1) / nb : (T)-1;
+                if (timing) {
+                    long total = duration_cast<microseconds>(clock::now() - total_start).count();
+                    this->times = {t_sketch, t_qr, 0, total};
+                }
+                R_out.assign(R, R + n * n);
+                cleanup();
+                return 0;
             }
 
             // ---- Step 4: LSQR on A with right preconditioner R; x = R^{-1} y ----

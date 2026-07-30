@@ -44,6 +44,18 @@
 // tolerance" from "CG is still converging when the cap stops it" without a rebuild.
 // The per-run answer is written to the CSV as ir_inner_capped / ir_inner_relres /
 // ir_inner_best_relres / ir_inner_best_iter.
+//
+// Warm-start ablation knobs (added 2026-07-30; irlsq_reg mode):
+//   [ir_warm_start] 1 => IterRefineLSQ starts from the sketch-and-solve x0 (computed
+//                   with Blendenpik's own init machinery) instead of x0 = 0, via the
+//                   shift trick x = x0 + dx. Default 0 (x0 = 0, per collaborator
+//                   request 2026-06-09).
+//   [bp_warm_start] 0 => Blendenpik's LSQR starts from zero instead of its
+//                   sketch-and-solve x0. Default 1 (its published configuration).
+// Together they form the 2x2 that separates initialization from preconditioner
+// quality: at kc1e10 Blendenpik beat every Q-less QR method by 4-5 orders of
+// FORWARD error while the preconditioners measured equally healthy -- these knobs
+// decide whether that gap is the x0 policy or the method.
 
 #include "RandLAPACK.hh"
 #include "rl_blaspp.hh"
@@ -195,6 +207,8 @@ struct bench_result {
 // diagnostic sweep separate those two effects without a rebuild.
 static int    g_ir_max_inner = 200;    // <= 0 => keep the IterRefineLSQ default
 static double g_ir_inner_tol = -1.0;   // <  0 => eps^0.85 in the working precision
+static bool   g_ir_warm_start = false; // IterRefineLSQ from sketch-and-solve x0 (irlsq_reg)
+static bool   g_bp_warm_start = true;  // Blendenpik's own warm start (0 = ablate to x0=0)
 
 // Summarize an IterRefineLSQ run's inner-CG behavior into the CSV fields.
 //
@@ -656,6 +670,7 @@ static int run_benchmark_inner(
                 // used for the Q = A R^{-1} orthogonality check.
                 RandLAPACK::Blendenpik_linops<T, RNG> bp(/*time_subroutines=*/true, tol);
                 bp.nnz = sketch_nnz;
+                bp.warm_start = g_bp_warm_start;
                 // Match the inner-solve budget the Q-less QR methods get from the IR
                 // driver (max_inner per step x 2 steps), so the comparison is not
                 // decided by an accidental cap difference.
@@ -1212,6 +1227,8 @@ static void write_irlsq_reg_results(
         << "# method_mask=" << method_mask << "\n"
         << "# kappa_target=" << kappa_target << " mu=" << mu << "\n"
         << "# precond_prec=" << precond_prec << " solve_prec=" << solve_prec << "\n"
+        << "# ir_warm_start=" << (g_ir_warm_start ? 1 : 0)
+        << " bp_warm_start=" << (g_bp_warm_start ? 1 : 0) << "\n"
         << "# A_hat = [A; mu*I];  R = chol(A^T A + mu^2 I) built in precond_prec,\n"
         << "#   used as right preconditioner for IterRefineLSQ run in solve_prec.\n"
 #ifdef _OPENMP
@@ -1421,6 +1438,7 @@ static int run_irlsq_reg(
                 // no augmented A_hat): sketch -> Householder QR -> LSQR, producing x_ls directly.
                 RandLAPACK::Blendenpik_linops<T_solve, RNG> bp(true, tol_T);
                 bp.nnz = sketch_nnz;
+                bp.warm_start = g_bp_warm_start;
                 // Same inner-solve budget as the IR methods (see the irlsq path).
                 bp.max_iters = ((g_ir_max_inner > 0) ? g_ir_max_inner : 200) * 2;
                 std::fill(x_ls, x_ls + n, (T_solve)0);
@@ -1497,14 +1515,42 @@ static int run_irlsq_reg(
                 res.ir_outer_iters       = 1;
                 res.ir_inner_iters_total = bp_lsqr_iters;   // LSQR iters in the CG-iters slot
             } else {
-                std::cout << ". IR-LSQ(" << solve_prec_str << ") ... " << std::flush;
-                std::fill(x_ls, x_ls + n, (T_solve)0.0);
+                std::cout << ". IR-LSQ(" << solve_prec_str
+                          << (g_ir_warm_start ? ", warm x0" : "") << ") ... " << std::flush;
                 auto ls_t0 = steady_clock::now();
+                // Warm start (2026-07-30 ablation): x0 = sketch-and-solve solution,
+                // computed with Blendenpik's own init machinery so it is the exact
+                // same x0 Blendenpik uses. IR then solves for the correction dx
+                // against r0 = b - J x0 and we return x = x0 + dx (shift trick,
+                // as rl_blendenpik.hh does around rl_lsqr). The x0 build cost is
+                // deliberately inside ir_total_us: it is part of this variant's solve.
+                std::vector<T_solve> x0_ws, r_ws;
+                const T_solve* ir_rhs = b.data();
+                if (g_ir_warm_start) {
+                    x0_ws.assign(n, (T_solve)0); r_ws.assign(m, (T_solve)0);
+                    auto ws_state = run_states[run_idx];
+                    RandLAPACK::Blendenpik_linops<T_solve, RNG> ss(false, tol_T);
+                    ss.nnz = sketch_nnz; ss.init_only = true;
+                    int ss_status = ss.call(J_Ts, b.data(), m, x0_ws.data(), n,
+                                            (T_solve)d_factor, ws_state);
+                    if (ss_status != 0) {
+                        std::cerr << "Warning: sketch-and-solve x0 failed (status "
+                                  << ss_status << "); falling back to x0 = 0\n";
+                        x0_ws.assign(n, (T_solve)0);
+                    }
+                    J_Ts(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+                         m, 1, n, (T_solve)1.0, x0_ws.data(), n, (T_solve)0.0, r_ws.data(), m);
+                    for (int64_t i = 0; i < m; ++i) r_ws[i] = b[i] - r_ws[i];
+                    ir_rhs = r_ws.data();
+                }
+                std::fill(x_ls, x_ls + n, (T_solve)0.0);
                 RandLAPACK::IterRefineLSQ<T_solve> ir(
                     (g_ir_inner_tol > 0) ? (T_solve)g_ir_inner_tol : tol_T,
                     (g_ir_max_inner > 0) ? g_ir_max_inner : 200,
                     2, true, false);
-                int ir_status = ir.call(J_Ts, R_T, n, b.data(), m, x_ls, n);
+                int ir_status = ir.call(J_Ts, R_T, n, ir_rhs, m, x_ls, n);
+                if (g_ir_warm_start)
+                    blas::axpy(n, (T_solve)1.0, x0_ws.data(), 1, x_ls, 1);
                 auto ls_t1 = steady_clock::now();
                 if (ir_status != 0) std::cerr << "Warning: IterRefineLSQ status " << ir_status << "\n";
                 res.ir_total_us = duration_cast<microseconds>(ls_t1 - ls_t0).count();
@@ -1651,6 +1697,9 @@ int run_benchmark(int argc, char* argv[]) {
     // ir_max_inner <= 0 keeps the 200 default; ir_inner_tol < 0 keeps eps^0.85.
     g_ir_max_inner = (int)opt_long(11, 200);
     g_ir_inner_tol = opt_double(12, -1.0);
+    // Warm-start ablation (2026-07-30); see the usage comment at the top of the file.
+    g_ir_warm_start = (opt_long(13, 0) != 0);
+    g_bp_warm_start = (opt_long(14, 1) != 0);
 
     if (mode == "irlsq_reg" && sparse_mode) {
         std::cerr << "Error: mode 'irlsq_reg' is FEM-only; sparse input is not supported.\n";
