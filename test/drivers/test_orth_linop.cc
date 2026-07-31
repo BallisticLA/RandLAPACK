@@ -339,6 +339,78 @@ TEST_F(TestCQRRTLinops, block_vs_full_agreement) {
     ASSERT_LE(norm_diff / norm_R, 1000 * std::numeric_limits<double>::epsilon());
 }
 
+// --- Precond-method coverage: TRTRI / GEQP3 / BQRRP all should produce a
+//     valid Q-less QR (Q = A * R^{-1} has orthonormal columns). Exercises
+//     the dispatch in pcholqr_primitive via the CQRRT_linops wrapper.
+
+TEST_F(TestCQRRTLinops, precond_method_TRTRI) {
+    int64_t m = 100, n = 50;
+    double d_factor = 2.0;
+
+    std::vector<double> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<> state(7);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+    std::vector<double> A_copy = A_data;
+
+    RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    std::vector<double> R(n * n, 0.0);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    algo.precond_method = RandLAPACK::PCholQRPrecondMethod::TRTRI;
+    state = RandBLAS::RNGState<>(11);
+    ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
+
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+}
+
+TEST_F(TestCQRRTLinops, precond_method_GEQP3) {
+    int64_t m = 100, n = 50;
+    double d_factor = 2.0;
+
+    std::vector<double> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<> state(7);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+    std::vector<double> A_copy = A_data;
+
+    RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    std::vector<double> R(n * n, 0.0);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    algo.precond_method = RandLAPACK::PCholQRPrecondMethod::GEQP3;
+    state = RandBLAS::RNGState<>(11);
+    ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
+
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+}
+
+// BQRRP throws on macOS (BLAS = Apple Accelerate lacks the required LAPACK
+// routines), so the BQRRP preconditioner path is unavailable there. Skip this
+// case on Apple — same guard the dedicated BQRRP/CQRRPT/HQRRP tests use.
+#if !defined(__APPLE__)
+TEST_F(TestCQRRTLinops, precond_method_BQRRP) {
+    int64_t m = 100, n = 50;
+    double d_factor = 2.0;
+
+    std::vector<double> A_data(m * n);
+    RandBLAS::DenseDist D(m, n);
+    RandBLAS::RNGState<> state(7);
+    RandBLAS::fill_dense(D, A_data.data(), state);
+    std::vector<double> A_copy = A_data;
+
+    RandLAPACK::linops::DenseLinOp<double> A_linop(m, n, A_data.data(), m, Layout::ColMajor);
+
+    std::vector<double> R(n * n, 0.0);
+    RandLAPACK::CQRRT_linops<double> algo(false, default_tol<double>(), true);
+    algo.precond_method = RandLAPACK::PCholQRPrecondMethod::BQRRP;
+    state = RandBLAS::RNGState<>(11);
+    ASSERT_EQ(algo.call(A_linop, R.data(), n, d_factor, state), 0);
+
+    assert_qr_ok(A_copy.data(), algo.Q, R.data(), m, n, n);
+}
+#endif  // !defined(__APPLE__)
+
 // ============================================================================
 // sCholQR3_linops (fully-blocked)
 // ============================================================================

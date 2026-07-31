@@ -28,12 +28,18 @@
 #include "RandLAPACK/comps/rl_syrf.hh"
 #include "RandLAPACK/comps/rl_orth.hh"
 #include "RandLAPACK/comps/rl_rpchol.hh"
+#include "RandLAPACK/comps/rl_cholqr.hh"
 
 // Drivers
 #include "RandLAPACK/drivers/rl_rsvd.hh"
-#include "RandLAPACK/drivers/rl_cqrrt.hh"
+#include "RandLAPACK/drivers/rl_cqrrt.hh"     // holds both dense CQRRT and CQRRT_linops
 #include "RandLAPACK/drivers/rl_cholqr_linops.hh"
-#include "RandLAPACK/drivers/rl_cqrrt_linops.hh"
+#include "RandLAPACK/drivers/rl_cholqr_dense.hh"
+#include "RandLAPACK/drivers/rl_iter_refine_lsq.hh"
+// Both of these declare themselves "Public API" in their headers but were reachable
+// only by including them directly, which is part of why neither had any test coverage.
+#include "RandLAPACK/drivers/rl_lsqr.hh"
+#include "RandLAPACK/drivers/rl_blendenpik.hh"
 #include "RandLAPACK/drivers/rl_scholqr3_linops.hh"
 #include "RandLAPACK/drivers/rl_cqrrpt.hh"
 #include "RandLAPACK/drivers/rl_bqrrp.hh"

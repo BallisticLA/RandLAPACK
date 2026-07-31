@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cmath>
 #include <cstdint>
+#include <algorithm>
 
 namespace RandLAPACK {
 
@@ -83,38 +84,73 @@ private:
 // All return memory in KB.
 // ---------------------------------------------------------------------------
 
-// CQRRT_linops: A_hat(d*n) + tau(n) + R_sk_inv(n*n) + A_pre(m*b_eff)
+// CQRRT_linops (TRSM_IDENTITY / GEQP3).
+// Peak during the blocked Gram + Cholesky moment:
+//   A_hat(d*n) + tau(n) + R_sk_inv(n*n) + G(n*n) + G_backup(n*n) + A_pre(m*b_eff)
+// = d*n + n + 3*n*n + m*b_eff. The G + G_backup pair is the Cholesky workspace
+// and (per the 2026-06-05 rework) the snapshot used for adaptive-shift retries.
 template <typename T>
 static inline long cqrrt_linops_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
     int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (d * n + n + (long)n * n + (long)m * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (d * n + n + 3L * n * n + (long)m * b_eff);
     return bytes / 1024;
 }
 
-// CholQR_linops: I_mat(n*n) + A_temp(m*b_eff)
+// CQRRT_linops (BQRRP): the execution has two distinct peak-memory moments:
+//   (1) BQRRP-preconditioner moment (the column-pivoted-QR inversion inside
+//       cholqr_primitive, rl_cholqr.hh): A_hat(d*n) + R_sk_inv(n*n) + G(n*n)
+//       + P_copy(n*n) + R_buf(n*n) = d*n + 4*n*n.  A_pre is NOT allocated yet here.
+//       (W was eliminated by transposing Q^T in place.)
+//   (2) Gram-loop moment (same as the non-BQRRP path):
+//         A_hat(d*n) + R_sk_inv(n*n) + tau(n) + A_pre(m*b_eff)
+//       = d*n + n + n*n + m*b_eff.  P_copy/R_buf have been freed by now.
+// The true analytical peak is the max of (1) and (2).  Roughly: moment (1) wins for
+// short-and-wide matrices (m <~ 3n); moment (2) wins for tall matrices.
+template <typename T>
+static inline long cqrrt_linops_bqrrp_analytical_kb(int64_t m, int64_t n, double d_factor, int64_t block_size) {
+    int64_t d = static_cast<int64_t>(std::ceil(d_factor * n));
+    int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
+    long bqrrp_peak = static_cast<long>(sizeof(T)) * ((long)d * n + 4L * n * n);
+    long gram_peak  = static_cast<long>(sizeof(T)) * ((long)d * n + n + (long)n * n + (long)m * b_eff);
+    return std::max(bqrrp_peak, gram_peak) / 1024;
+}
+
+// CholQR_linops (post-2026-06-05 rework with adaptive-shift retries enabled by default):
+//   cholqr_primitive owns G(n*n) + G_backup(n*n) + A_temp(m*b_eff)
+//   plus blocked_preconditioned_gram's I_block(n*b_eff) inside the Gram loop.
+// Peak = 2*n*n + (m+n)*b_eff.
 template <typename T>
 static inline long cholqr_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * ((long)n * n + (long)m * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (2L * n * n + (long)(m + n) * b_eff);
     return bytes / 1024;
 }
 
-// sCholQR3_linops (fully-blocked): G(n*n) + R_temp(n*n) + M(n*n) + A_temp(m*b) + Z_buf(n*b)
-// No m x n buffer during QR iterations; all Gram matrices computed through blocked linop calls.
+// sCholQR3_linops (post-2026-06-05 rework with adaptive-shift retries enabled).
+// Persistent driver scratches: G(n*n) + R_pre(n*n) + P_prev(n*n) + A_temp(m*b_eff)
+//   + Z_buf(n*b_eff) = 3*n*n + (m+n)*b_eff.
+// Iter-1 cholqr_primitive also allocates its own G(n*n) + G_backup(n*n) +
+//   A_temp(m*b_eff) transiently (freed before iters 2/3 start), so the peak is:
+//     3*n*n + (m+n)*b_eff + 2*n*n + m*b_eff = 5*n*n + (2m+n)*b_eff.
+// Iter-2 / iter-3 cholqr_primitive only adds a single G_backup(n*n), which is
+//   strictly smaller than iter-1's transient set, so iter-1 dominates the peak.
 template <typename T>
 static inline long scholqr3_linops_analytical_kb(int64_t m, int64_t n, int64_t block_size = 0) {
     int64_t b_eff = (block_size > 0 && block_size < n) ? block_size : n;
-    long bytes = static_cast<long>(sizeof(T)) * (3L * n * n + (long)(m + n) * b_eff);
+    long bytes = static_cast<long>(sizeof(T)) * (5L * n * n + (long)(2L * m + n) * b_eff);
     return bytes / 1024;
 }
 
-// sCholQR3_linops_basic: Q_buf(m*n) + G(n*n) + R_temp(n*n) + M(n*n)
-// Materializes Q = A * R1^{-1} after iteration 1, then uses dense syrk for iterations 2-3.
-// No blocking — always O(m*n + n^2) peak.
+// sCholQR3_linops_basic (post-2026-06-05 refactor; non-blocked b_eff = n):
+// Same primitive structure as sCholQR3_linops with block_size=0. Plugging
+// b_eff = n into the blocked formula 5*n*n + (2m+n)*b_eff gives:
+//   5*n*n + (2m + n)*n  =  6*n*n + 2*m*n.
+// (Identical accounting to the legacy basic formula by coincidence, since the
+// b_eff = n collapse cancels the persistent + transient split.)
 template <typename T>
 static inline long scholqr3_linops_basic_analytical_kb(int64_t m, int64_t n) {
-    long bytes = static_cast<long>(sizeof(T)) * ((long)m * n + 3L * n * n);
+    long bytes = static_cast<long>(sizeof(T)) * (6L * n * n + 2L * (long)m * n);
     return bytes / 1024;
 }
 

@@ -4,6 +4,7 @@
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
 #include "rl_linops.hh"
+#include "../comps/rl_cholqr.hh"
 
 #include <cstdint>
 #include <vector>
@@ -16,33 +17,16 @@ using namespace std::chrono;
 
 namespace RandLAPACK {
 
-/// Shifted Cholesky QR3 for abstract linear operators.
+/// Shifted Cholesky QR3 for abstract linear operators (fully-blocked variant).
 ///
-/// Linop analogue of shifted CholQR3: computes A = QR where A is any type
-/// satisfying the LinearOperator concept. All Gram matrices are formed through
-/// A(NoTrans, ...) and A(Trans, ...) calls, so A can be dense, sparse,
-/// composite, or any other operator type without modification.
+/// Algorithm 3 from the collaborator's spec:
+///   iter 1: cholqr_primitive(A) with shift s = eps * ||A||_F^2  -> R_1
+///   iter i = 2, 3: cholqr_primitive(A, R_{i-1}, TRSM_IDENTITY)  -> R_i
+///   return R_3
 ///
-/// Fully-blocked implementation: never materializes the full m x n operator product
-/// during the QR iterations. All three iterations compute their Gram matrices through
-/// blocked linop calls, using an accumulated right-factor M = R1^{-1} R2^{-1} ...
-/// to avoid storing Q explicitly.
-///
-/// Algorithm:
-///   1. Shifted CholQR1: G1 = A^T A + s*I,  R1 = chol(G1),  M <- R1^{-1}
-///   2. CholQR2:         G2 = M^T A^T A M,   R2 = chol(G2),  R = R2*R1,  M <- M*R2^{-1}
-///   3. CholQR3:         G3 = M^T A^T A M,   R3 = chol(G3),  R = R3*R
-///
-/// Blocked Gram computation for iteration k (M_k = accumulated R-inverse):
-///   for each column block j of width b:
-///     W = A * M_k[:, j:j+b]          (linop NoTrans, m x b)
-///     Z = A^T * W                    (linop Trans,  n x b)
-///     G[:, j:j+b] = M_k^T * Z       (gemm, n x b)
-///
-/// Peak memory: O(m*b + n^2) -- no m x n buffer needed during QR iterations.
-/// If test_mode is enabled, Q = A * R^{-1} is materialized at the end (m x n).
-///
-/// The shift is computed as: shift = 11 * eps * n * ||A||_F^2
+/// Peak memory O(n^2 + (m+n)*b_eff) — never materializes the m × n operator product
+/// during the QR iterations. If test_mode is enabled, Q = A * R^{-1} is materialized
+/// at the end (m × n, outside the timing region).
 ///
 /// Reference: Shifted Cholesky QR from Fukaya et al. (SISC, 2020).
 ///
@@ -59,41 +43,45 @@ class sCholQR3_linops {
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // Individual Cholesky factors from each iteration (n x n upper triangular).
-        std::vector<T> G1_factor;
-        std::vector<T> G2_factor;
-        std::vector<T> G3_factor;
-
-        // Timing breakdown (18 entries):
-        // [0]  alloc      - buffer allocation
-        // [1]  fwd1       - Iter 1 NoTrans: A * M[:, block]
-        // [2]  adj1       - Iter 1 Trans: A^T * W (direct to G since M=I)
-        // [3]  chol1      - Iter 1 Cholesky (potrf)
-        // [4]  upd1       - M = R1^{-1} (n x n trsm)
-        // [5]  fwd2       - Iter 2 NoTrans: A * M[:, block]
-        // [6]  adj2       - Iter 2 Trans: A^T * W
-        // [7]  gemm2      - Iter 2 M^T * Z
-        // [8]  chol2      - Iter 2 Cholesky
-        // [9]  upd2       - R = R2*R1, M *= R2^{-1}
-        // [10] fwd3       - Iter 3 NoTrans
-        // [11] adj3       - Iter 3 Trans
-        // [12] gemm3      - Iter 3 M^T * Z
-        // [13] chol3      - Iter 3 Cholesky
-        // [14] upd3       - R = R3*R
-        // [15] q_mat      - Q materialization for test mode (0 if not test_mode)
-        // [16] rest       - unaccounted time
-        // [17] total      - wall-clock total
+        // Timing breakdown (18 entries; layout preserved for matlab plotters):
+        // [0]  alloc
+        // [1]  fwd1     [2]  adj1    [3]  chol1   [4]  upd1
+        // [5]  fwd2     [6]  adj2    [7]  gemm2   [8]  chol2   [9]  upd2
+        // [10] fwd3     [11] adj3    [12] gemm3   [13] chol3   [14] upd3
+        // [15] q_mat    [16] rest    [17] total
         std::vector<long> times;
+        /// Total measured wall-clock (microseconds) of the last call(), or -1 if timing
+        /// was off. Every driver in this family packs the total as the LAST times[] entry,
+        /// but the entry COUNT differs per driver (6 / 11 / 15 / 18). Callers used to hard-
+        /// code that index (times[5], times[10], times[14], times[17]), so adding or
+        /// removing one slot silently wrote the wrong number into every CSV with no compile
+        /// error. Read the total through here instead.
+        long total_us() const { return times.empty() ? -1L : times.back(); }
 
-        // Column-block size for blocked Gram computations.
-        //
-        // Controls the width of column blocks used in all three iterations'
-        // Gram matrix computations. Smaller values reduce peak memory
-        // (O(m*block_size + n^2) instead of O(m*n)), at the cost of
-        // more linop calls (2 * ceil(n/block_size) per iteration).
-        //
-        // When block_size <= 0 or >= n, uses b_eff = n (single block per loop).
         int64_t block_size;
+
+        // Adaptive-shift policy (see cholqr_primitive). Shift s = factor * trace(G).
+        //
+        // iter 1: shifted (shift_factor_iter1 = eps). Lowered from the original
+        //   `11 * eps * n` to plain `eps` per Oleg: the smaller initial shift avoids
+        //   the iter-2 collapse where shift ≫ σ_min²(A) makes G_2 rank-deficient.
+        //
+        // iters 2-3: UNSHIFTED (shift_factor_iter23 = 0). This is the defining
+        //   feature of Fukaya shifted-CholeskyQR3 — the refinement passes are plain
+        //   CholeskyQR2, which is what drives orthogonality down to machine level.
+        //   A persistent eps shift on these passes (the old setting) never gets
+        //   removed: it floors orth at ~2n*eps (≈1.8e-12 in double) and, in single,
+        //   over-regularizes R into a useless preconditioner (CG stalls, 100s of
+        //   inner iters). The adaptive retry below still shifts a refinement pass
+        //   *only* if its potrf genuinely fails.
+        //
+        // The retry loop bumps shift × 10 if potrf bails, unboundedly
+        // (max_retries = -1) until the Gram is PD.
+        T   shift_factor_iter1;
+        T   shift_factor_iter23;
+        int max_retries;
+        T   shift_growth;
+        int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
 
         sCholQR3_linops(
             bool time_subroutines,
@@ -107,6 +95,10 @@ class sCholQR3_linops {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*trace(G) shift on iter 1
+            shift_factor_iter23 = T(0);   // iters 2-3 unshifted (Fukaya); retry covers genuine non-PD
+            max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
+            shift_growth        = T(10);
         }
 
         ~sCholQR3_linops() {
@@ -115,351 +107,73 @@ class sCholQR3_linops {
             }
         }
 
-        /// Computes the QR factorization A = QR using shifted Cholesky QR3.
-        ///
-        /// @param[in] A
-        ///     The m-by-n linear operator (m and n read from A.n_rows, A.n_cols).
-        ///
-        /// @param[out] R
-        ///     Pre-allocated n-by-n buffer. On exit, stores the upper-triangular
-        ///     R factor. Zero entries are not compressed.
-        ///
-        /// @param[in] ldr
-        ///     Leading dimension of R.
-        ///
-        /// @return = 0: successful exit
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
             T* R,
             int64_t ldr
         ) {
-            ///--------------------TIMING VARS--------------------/
-            steady_clock::time_point t_start, t_stop;
-            steady_clock::time_point total_t_start, total_t_stop;
-            long alloc_dur = 0;
-            long fwd1_dur = 0, adj1_dur = 0, chol1_dur = 0, upd1_dur = 0;
-            long fwd2_dur = 0, adj2_dur = 0, gemm2_dur = 0, chol2_dur = 0, upd2_dur = 0;
-            long fwd3_dur = 0, adj3_dur = 0, gemm3_dur = 0, chol3_dur = 0, upd3_dur = 0;
-            long q_mat_dur = 0, total_dur = 0;
+            steady_clock::time_point t0, t1, total_t_start, total_t_stop;
+            long q_mat_dur = 0;
 
-            if(this->timing)
-                total_t_start = steady_clock::now();
+            if (this->timing) total_t_start = steady_clock::now();
 
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
-
-            // Determine effective block width.
             int64_t b_eff = (this->block_size > 0 && this->block_size < n)
                           ? this->block_size : n;
 
-            if(this->timing)
-                t_start = steady_clock::now();
+            // sCholQR3 = three cholqr_iterate passes; iter 1 carries the eps shift
+            // right away (shift_factor_iter1), iters 2-3 use shift_factor_iter23.
+            long it[15] = {0};
+            int info = cholqr_iterate<T, GLO>(
+                A, R, ldr, this->block_size, /*num_iters=*/3,
+                this->shift_factor_iter1, this->shift_factor_iter23,
+                this->max_retries, this->shift_growth, this->timing,
+                this->timing ? it : nullptr, &this->n_chol_retries);
+            if (info != 0) return info;   // 1/2/3 = the pass that failed
 
-            // ---- Allocate buffers ----
-            // G: n x n Gram matrix / Cholesky workspace (zero-init for lower triangle)
-            T* G = new T[n * n]();
+            // Test mode: materialize Q = A * R^{-1} (outside timing region).
+            if (this->test_mode) {
+                if (this->timing) t0 = steady_clock::now();
 
-            // R_temp: n x n workspace for R accumulation via trmm
-            T* R_temp = new T[n * n]();
-
-            // M: n x n accumulated R-inverse product (starts as identity)
-            T* M = new T[n * n]();
-            RandLAPACK::util::eye(n, n, M);
-
-            // A_temp: m x b_eff buffer for linop NoTrans output
-            T* A_temp = new T[m * b_eff];
-
-            // Z_buf: n x b_eff buffer for linop Trans output (used in iterations 2-3)
-            T* Z_buf = new T[n * b_eff];
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                alloc_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            //================================================================
-            // Iteration 1: Shifted Cholesky QR
-            //================================================================
-            // Blocked Gram: G = A^T A (since M = I, no M^T multiply needed)
-            long fwd1_accum = 0, adj1_accum = 0;
-            for (int64_t j = 0; j < n; j += b_eff) {
-                int64_t b_j = std::min(b_eff, n - j);
-
-                // W = A * M[:, j:j+b]  (= A * I[:, j:j+b] since M = I)
-                if(this->timing) t_start = steady_clock::now();
-                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                  m, b_j, n, (T)1.0, M + j * n, n, (T)0.0, A_temp, m);
-                if(this->timing) { t_stop = steady_clock::now(); fwd1_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-
-                // G[:, j:j+b] = A^T * W  (direct to G since M = I)
-                if(this->timing) t_start = steady_clock::now();
-                A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
-                  n, b_j, m, (T)1.0, A_temp, m, (T)0.0, G + j * n, n);
-                if(this->timing) { t_stop = steady_clock::now(); adj1_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-            }
-
-            // Compute shift from ||A||_F^2 = trace(G)
-            T norm_A_sq = 0;
-            for (int64_t i = 0; i < n; ++i)
-                norm_A_sq += G[i * (n + 1)];
-            T shift = 11 * std::numeric_limits<T>::epsilon() * n * norm_A_sq;
-
-            // Add shift to diagonal: G = G + shift * I
-            for (int64_t i = 0; i < n; ++i)
-                G[i * (n + 1)] += shift;
-
-            if(this->timing) {
-                fwd1_dur = fwd1_accum;
-                adj1_dur = adj1_accum;
-                t_start = steady_clock::now();
-            }
-
-            // Zero lower triangle, Cholesky: G = R1^T * R1
-            if (n > 1)
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] G; delete[] R_temp; delete[] M;
-                delete[] A_temp; delete[] Z_buf;
-                return 1;
-            }
-
-            // Save G1 factor
-            this->G1_factor.resize(n * n, (T)0.0);
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G1_factor.data(), n);
-
-            // Initialize R = R1
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, R, ldr);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                chol1_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                t_start = steady_clock::now();
-            }
-
-            // Update M: M = I * R1^{-1} = R1^{-1}
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, M, n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                upd1_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            //================================================================
-            // Iteration 2: Cholesky QR
-            //================================================================
-            // Blocked Gram: G2 = M^T * A^T * A * M  where M = R1^{-1}
-            long fwd2_accum = 0, adj2_accum = 0, gemm2_accum = 0;
-            for (int64_t j = 0; j < n; j += b_eff) {
-                int64_t b_j = std::min(b_eff, n - j);
-
-                // W = A * M[:, j:j+b]
-                if(this->timing) t_start = steady_clock::now();
-                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                  m, b_j, n, (T)1.0, M + j * n, n, (T)0.0, A_temp, m);
-                if(this->timing) { t_stop = steady_clock::now(); fwd2_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-
-                // Z = A^T * W
-                if(this->timing) t_start = steady_clock::now();
-                A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
-                  n, b_j, m, (T)1.0, A_temp, m, (T)0.0, Z_buf, n);
-                if(this->timing) { t_stop = steady_clock::now(); adj2_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-
-                // G[:, j:j+b] = M^T * Z
-                if(this->timing) t_start = steady_clock::now();
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                           n, b_j, n, (T)1.0, M, n, Z_buf, n, (T)0.0, G + j * n, n);
-                if(this->timing) { t_stop = steady_clock::now(); gemm2_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-            }
-
-            if(this->timing) {
-                fwd2_dur = fwd2_accum;
-                adj2_dur = adj2_accum;
-                gemm2_dur = gemm2_accum;
-                t_start = steady_clock::now();
-            }
-
-            // Zero lower triangle, Cholesky: G = R2^T * R2
-            if (n > 1)
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] G; delete[] R_temp; delete[] M;
-                delete[] A_temp; delete[] Z_buf;
-                return 2;
-            }
-
-            // Save G2 factor
-            this->G2_factor.resize(n * n, (T)0.0);
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G2_factor.data(), n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                chol2_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                t_start = steady_clock::now();
-            }
-
-            // R = R2 * R1
-            lapack::lacpy(MatrixType::Upper, n, n, R, ldr, R_temp, n);
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, R_temp, n);
-            lapack::lacpy(MatrixType::Upper, n, n, R_temp, n, R, ldr);
-
-            // M = M * R2^{-1}
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, M, n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                upd2_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            //================================================================
-            // Iteration 3: Cholesky QR
-            //================================================================
-            // Blocked Gram: G3 = M^T * A^T * A * M  where M = R1^{-1} * R2^{-1}
-            long fwd3_accum = 0, adj3_accum = 0, gemm3_accum = 0;
-            for (int64_t j = 0; j < n; j += b_eff) {
-                int64_t b_j = std::min(b_eff, n - j);
-
-                // W = A * M[:, j:j+b]
-                if(this->timing) t_start = steady_clock::now();
-                A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                  m, b_j, n, (T)1.0, M + j * n, n, (T)0.0, A_temp, m);
-                if(this->timing) { t_stop = steady_clock::now(); fwd3_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-
-                // Z = A^T * W
-                if(this->timing) t_start = steady_clock::now();
-                A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
-                  n, b_j, m, (T)1.0, A_temp, m, (T)0.0, Z_buf, n);
-                if(this->timing) { t_stop = steady_clock::now(); adj3_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-
-                // G[:, j:j+b] = M^T * Z
-                if(this->timing) t_start = steady_clock::now();
-                blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans,
-                           n, b_j, n, (T)1.0, M, n, Z_buf, n, (T)0.0, G + j * n, n);
-                if(this->timing) { t_stop = steady_clock::now(); gemm3_accum += duration_cast<microseconds>(t_stop - t_start).count(); }
-            }
-
-            if(this->timing) {
-                fwd3_dur = fwd3_accum;
-                adj3_dur = adj3_accum;
-                gemm3_dur = gemm3_accum;
-                t_start = steady_clock::now();
-            }
-
-            // Zero lower triangle, Cholesky: G = R3^T * R3
-            if (n > 1)
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] G; delete[] R_temp; delete[] M;
-                delete[] A_temp; delete[] Z_buf;
-                return 3;
-            }
-
-            // Save G3 factor
-            this->G3_factor.resize(n * n, (T)0.0);
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G3_factor.data(), n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                chol3_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                t_start = steady_clock::now();
-            }
-
-            // R = R3 * R
-            lapack::lacpy(MatrixType::Upper, n, n, R, ldr, R_temp, n);
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, R_temp, n);
-            lapack::lacpy(MatrixType::Upper, n, n, R_temp, n, R, ldr);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                upd3_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            //================================================================
-            // Test mode: materialize Q = A * R^{-1} = A * M * R3^{-1}
-            //================================================================
-            if(this->test_mode) {
-                if(this->timing)
-                    t_start = steady_clock::now();
-
-                // M currently holds R1^{-1} R2^{-1}; update to R^{-1} = R1^{-1} R2^{-1} R3^{-1}
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                           Diag::NonUnit, n, n, (T)1.0, G, n, M, n);
-
-                // Materialize Q = A * M in blocks
-                T* Q_buf = new T[m * n]();
-                for (int64_t j = 0; j < n; j += b_eff) {
-                    int64_t b_j = std::min(b_eff, n - j);
-                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-                      m, b_j, n, (T)1.0, M + j * n, n, (T)0.0, Q_buf + j * m, m);
-                }
-
+                T* Q_buf = new T[m * n];
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
                 this->Q_rows = m;
                 this->Q_cols = n;
+                // The class owns Q (the destructor frees it), so release any buffer from a
+                // previous call() before taking ownership of this one.
+                delete[] this->Q;
                 this->Q = Q_buf;
 
-                if(this->timing) {
-                    t_stop = steady_clock::now();
-                    q_mat_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                }
+                if (this->timing) { t1 = steady_clock::now(); q_mat_dur = duration_cast<microseconds>(t1 - t0).count(); }
             }
 
-            //================================================================
+            // ============================================================
             // Finalize timing
-            //================================================================
-            if(this->timing) {
+            // ============================================================
+            if (this->timing) {
                 total_t_stop = steady_clock::now();
-                total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-
-                // Subtract Q materialization from total (test overhead, not algorithmic cost)
-                total_dur -= q_mat_dur;
-
-                long rest_dur = total_dur - (alloc_dur +
-                    fwd1_dur + adj1_dur + chol1_dur + upd1_dur +
-                    fwd2_dur + adj2_dur + gemm2_dur + chol2_dur + upd2_dur +
-                    fwd3_dur + adj3_dur + gemm3_dur + chol3_dur + upd3_dur);
-
-                // 18 entries
-                this->times = {alloc_dur,
-                    fwd1_dur, adj1_dur, chol1_dur, upd1_dur,
-                    fwd2_dur, adj2_dur, gemm2_dur, chol2_dur, upd2_dur,
-                    fwd3_dur, adj3_dur, gemm3_dur, chol3_dur, upd3_dur,
+                long total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count() - q_mat_dur;
+                long iters_sum = 0;
+                for (int i = 0; i < 15; ++i) iters_sum += it[i];
+                long rest_dur = total_dur - iters_sum;
+                // it groups [fwd,adj,gemm,chol,upd] per pass; iter-1 gemm/upd are 0.
+                this->times = {0L,
+                    it[0], it[1], it[3], it[4],             // fwd1, adj1, chol1, upd1
+                    it[5], it[6], it[7], it[8], it[9],      // fwd2, adj2, gemm2, chol2, upd2
+                    it[10], it[11], it[12], it[13], it[14], // fwd3, adj3, gemm3, chol3, upd3
                     q_mat_dur, rest_dur, total_dur};
             }
-
-            // Cleanup
-            delete[] G;
-            delete[] R_temp;
-            delete[] M;
-            delete[] A_temp;
-            delete[] Z_buf;
 
             return 0;
         }
 };
 
-/// Non-blocked (basic) sCholQR3 algorithm for computing QR factorization via linear operators.
-///
-/// Matches the standard sCholQR3 pseudocode from Fukaya et al. (SISC, 2020) exactly:
-///   1. Compute G1 = A^T A via linop, add shift, Cholesky → R1
-///   2. Materialize Q = A * R1^{-1} via linop
-///   3. Iterations 2-3: G = Q^T Q via dense syrk, Cholesky, Q *= R_k^{-1} via dense trsm
-///
-/// Accesses the linear operator exactly 3 times:
-///   - NoTrans: W = A * I (materialization for Gram computation)
-///   - Trans:   G1 = A^T * W (Gram matrix)
-///   - NoTrans: Q = A * R1^{-1} (first Q-factor)
-///
-/// After the first Q-factor, iterations 2-3 use dense syrk on Q (no further linop calls).
-/// This is theoretically distinct from sCholQR3_linops (fully-blocked), which recomputes
-/// each Gram through the linop and never materializes the m x n operator product.
-///
-/// Peak memory: O(m*n + n^2) — Q is explicitly stored as m x n dense.
-///
-/// Reference: Shifted Cholesky QR from Fukaya et al. (SISC, 2020).
+/// Non-blocked (basic) sCholQR3 — algorithmically identical to sCholQR3_linops with
+/// block_size = 0: all three iterations route through cholqr_primitive on the linop
+/// (no materialized-Q / dense-syrk shortcut). It exists only as a separate analytic-
+/// memory accounting case; the heavy work is the same per-iteration linop Gram.
 ///
 template <typename T>
 class sCholQR3_linops_basic {
@@ -469,33 +183,33 @@ class sCholQR3_linops_basic {
         bool test_mode;
         T eps;
 
-        // Q-factor for test mode (only allocated if test_mode = true)
         T* Q;
         int64_t Q_rows;
         int64_t Q_cols;
 
-        // Individual Cholesky factors from each iteration (n x n upper triangular).
-        std::vector<T> G1_factor;
-        std::vector<T> G2_factor;
-        std::vector<T> G3_factor;
-
-        // Timing breakdown (15 entries):
-        // [0]  alloc      - buffer allocation
-        // [1]  fwd1       - NoTrans: W = A * I (m x n)
-        // [2]  adj1       - Trans: G = A^T * W (n x n)
-        // [3]  chol1      - Iter 1 Cholesky
-        // [4]  trsm1      - M = R1^{-1} (n x n trsm)
-        // [5]  fwd_q      - NoTrans: Q = A * M (m x n)
-        // [6]  syrk2      - G = Q^T Q
-        // [7]  chol2      - Iter 2 Cholesky
-        // [8]  upd2       - Q *= R2^{-1}, R = R2*R1
-        // [9]  syrk3      - G = Q^T Q
-        // [10] chol3      - Iter 3 Cholesky
-        // [11] upd3       - R = R3*R
-        // [12] q_mat      - test mode: Q_buf *= R3^{-1} (m x n trsm), 0 otherwise
-        // [13] rest       - unaccounted time
-        // [14] total      - wall-clock total
+        // Timing layout (15 entries, kept for matlab CSV-column compatibility):
+        // [0]  alloc      [1]  fwd1   [2]  adj1   [3]  chol1   [4]  trsm1=0  [5]  fwd_q=0
+        // [6]  syrk2      [7]  chol2  [8]  upd2
+        // [9]  syrk3      [10] chol3  [11] upd3
+        // [12] q_mat      [13] rest   [14] total
+        // (Post-refactor slots 4, 5, 6, 9 stay 0 because the primitives don't expose
+        //  syrk vs adj/fwd as separate signals; the heavy lifters are folded into
+        //  fwd/adj from blocked_preconditioned_gram and into chol from potrf.)
         std::vector<long> times;
+        /// Total measured wall-clock (microseconds) of the last call(), or -1 if timing
+        /// was off. Every driver in this family packs the total as the LAST times[] entry,
+        /// but the entry COUNT differs per driver (6 / 11 / 15 / 18). Callers used to hard-
+        /// code that index (times[5], times[10], times[14], times[17]), so adding or
+        /// removing one slot silently wrote the wrong number into every CSV with no compile
+        /// error. Read the total through here instead.
+        long total_us() const { return times.empty() ? -1L : times.back(); }
+
+        // Adaptive shift policy — shared with sCholQR3_linops (Oleg's prescription).
+        T   shift_factor_iter1;
+        T   shift_factor_iter23;
+        int max_retries;
+        T   shift_growth;
+        int n_chol_retries = 0;   ///< shift retries used on the last call (0 = clean)
 
         sCholQR3_linops_basic(
             bool time_subroutines,
@@ -508,6 +222,10 @@ class sCholQR3_linops_basic {
             Q = nullptr;
             Q_rows = 0;
             Q_cols = 0;
+            shift_factor_iter1  = std::numeric_limits<T>::epsilon();  // eps*trace(G) shift on iter 1
+            shift_factor_iter23 = T(0);   // iters 2-3 unshifted (Fukaya); retry covers genuine non-PD
+            max_retries         = -1;     // unbounded retries (no ceiling), consistent with CholQR/CholQR2
+            shift_growth        = T(10);
         }
 
         ~sCholQR3_linops_basic() {
@@ -516,269 +234,65 @@ class sCholQR3_linops_basic {
             }
         }
 
-        /// Computes the QR factorization A = QR using shifted Cholesky QR3 (basic variant).
-        ///
-        /// @param[in] A
-        ///     The m-by-n linear operator (m and n read from A.n_rows, A.n_cols).
-        ///
-        /// @param[out] R
-        ///     Pre-allocated n-by-n buffer. On exit, stores the upper-triangular
-        ///     R factor. Zero entries are not compressed.
-        ///
-        /// @param[in] ldr
-        ///     Leading dimension of R.
-        ///
-        /// @return = 0: successful exit
+        // Non-blocked sCholQR3 expressed via the shared primitives.
+        // Algorithmically identical to sCholQR3_linops with block_size=0; the
+        // distinction is now purely the analytic-memory accounting (no R_pre /
+        // P_prev / Z_buf reuse across iters since the primitives allocate their
+        // own G internally per call). Diagnostic prints from cholqr_primitive
+        // surface here too.
         template <RandLAPACK::linops::LinearOperator GLO>
         int call(
             GLO& A,
             T* R,
             int64_t ldr
         ) {
-            ///--------------------TIMING VARS--------------------/
-            steady_clock::time_point t_start, t_stop;
-            steady_clock::time_point total_t_start, total_t_stop;
-            long alloc_dur = 0;
-            long fwd1_dur = 0, adj1_dur = 0, chol1_dur = 0, trsm1_dur = 0, fwd_q_dur = 0;
-            long syrk2_dur = 0, chol2_dur = 0, upd2_dur = 0;
-            long syrk3_dur = 0, chol3_dur = 0, upd3_dur = 0;
-            long q_mat_dur = 0, total_dur = 0;
+            steady_clock::time_point t0, t1, total_t_start, total_t_stop;
+            long q_mat_dur = 0;
 
-            if(this->timing)
-                total_t_start = steady_clock::now();
+            if (this->timing) total_t_start = steady_clock::now();
 
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
+            int64_t b_eff = n;   // non-blocked (block_size = 0 → b_eff = n)
 
-            if(this->timing)
-                t_start = steady_clock::now();
+            // Non-blocked sCholQR3 = three cholqr_iterate passes with block_size = 0.
+            long it[15] = {0};
+            int info = cholqr_iterate<T, GLO>(
+                A, R, ldr, /*block_size=*/0, /*num_iters=*/3,
+                this->shift_factor_iter1, this->shift_factor_iter23,
+                this->max_retries, this->shift_growth, this->timing,
+                this->timing ? it : nullptr, &this->n_chol_retries);
+            if (info != 0) return info;
 
-            // ---- Allocate buffers ----
-            // Q_buf: m x n — materialized operator, updated in-place through iterations
-            T* Q_buf = new T[m * n];
-
-            // G: n x n Gram matrix / Cholesky workspace (zero-init for lower triangle)
-            T* G = new T[n * n]();
-
-            // R_temp: n x n workspace for R accumulation via trmm
-            T* R_temp = new T[n * n]();
-
-            // M: n x n — starts as identity, becomes R1^{-1} for Q materialization
-            T* M = new T[n * n]();
-            RandLAPACK::util::eye(n, n, M);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                alloc_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            //================================================================
-            // Iteration 1: Shifted Cholesky QR
-            //================================================================
-            // Gram: G1 = A^T * A via linop (2 of 3 total linop accesses)
-
-            // Linop access 1: W = A * I (NoTrans, materializes operator as m x n dense)
-            if(this->timing) t_start = steady_clock::now();
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-              m, n, n, (T)1.0, M, n, (T)0.0, Q_buf, m);
-            if(this->timing) { t_stop = steady_clock::now(); fwd1_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
-
-            // Linop access 2: G1 = A^T * W (Trans, n x n Gram matrix)
-            if(this->timing) t_start = steady_clock::now();
-            A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans,
-              n, n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
-            if(this->timing) { t_stop = steady_clock::now(); adj1_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
-
-            // Compute shift from ||A||_F^2 = trace(G)
-            T norm_A_sq = 0;
-            for (int64_t i = 0; i < n; ++i)
-                norm_A_sq += G[i * (n + 1)];
-            T shift = 11 * std::numeric_limits<T>::epsilon() * n * norm_A_sq;
-
-            // Add shift to diagonal: G = G + shift * I
-            for (int64_t i = 0; i < n; ++i)
-                G[i * (n + 1)] += shift;
-
-            if(this->timing) {
-                t_start = steady_clock::now();
-            }
-
-            // Zero lower triangle, Cholesky: G = R1^T * R1
-            if (n > 1)
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] Q_buf; delete[] G; delete[] R_temp; delete[] M;
-                return 1;
-            }
-
-            // Save G1 factor
-            this->G1_factor.resize(n * n, (T)0.0);
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G1_factor.data(), n);
-
-            // Initialize R = R1
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, R, ldr);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                chol1_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            // Compute M = I * R1^{-1} = R1^{-1}
-            if(this->timing) t_start = steady_clock::now();
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, M, n);
-            if(this->timing) { t_stop = steady_clock::now(); trsm1_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
-
-            // Linop access 3: Q_buf = A * M = A * R1^{-1} (NoTrans, m x n)
-            if(this->timing) t_start = steady_clock::now();
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
-              m, n, n, (T)1.0, M, n, (T)0.0, Q_buf, m);
-            if(this->timing) { t_stop = steady_clock::now(); fwd_q_dur = duration_cast<microseconds>(t_stop - t_start).count(); }
-
-            //================================================================
-            // Iteration 2: Cholesky QR (dense syrk on Q_buf)
-            //================================================================
-            if(this->timing)
-                t_start = steady_clock::now();
-
-            // G2 = Q_buf^T * Q_buf (dense syrk, upper triangle only)
-            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
-                       n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                syrk2_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                t_start = steady_clock::now();
-            }
-
-            // Zero lower triangle, Cholesky: G = R2^T * R2
-            if (n > 1)
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] Q_buf; delete[] G; delete[] R_temp; delete[] M;
-                return 2;
-            }
-
-            // Save G2 factor
-            this->G2_factor.resize(n * n, (T)0.0);
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G2_factor.data(), n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                chol2_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                t_start = steady_clock::now();
-            }
-
-            // Q_buf *= R2^{-1} (m x n trsm — update Q in-place)
-            blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, m, n, (T)1.0, G, n, Q_buf, m);
-
-            // R = R2 * R1
-            lapack::lacpy(MatrixType::Upper, n, n, R, ldr, R_temp, n);
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, R_temp, n);
-            lapack::lacpy(MatrixType::Upper, n, n, R_temp, n, R, ldr);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                upd2_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            //================================================================
-            // Iteration 3: Cholesky QR (dense syrk on Q_buf)
-            //================================================================
-            if(this->timing)
-                t_start = steady_clock::now();
-
-            // G3 = Q_buf^T * Q_buf (dense syrk, upper triangle only)
-            blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans,
-                       n, m, (T)1.0, Q_buf, m, (T)0.0, G, n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                syrk3_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                t_start = steady_clock::now();
-            }
-
-            // Zero lower triangle, Cholesky: G = R3^T * R3
-            if (n > 1)
-                lapack::laset(MatrixType::Lower, n-1, n-1, (T)0.0, (T)0.0, &G[1], n);
-            if (lapack::potrf(Uplo::Upper, n, G, n)) {
-                delete[] Q_buf; delete[] G; delete[] R_temp; delete[] M;
-                return 3;
-            }
-
-            // Save G3 factor
-            this->G3_factor.resize(n * n, (T)0.0);
-            lapack::lacpy(MatrixType::Upper, n, n, G, n, this->G3_factor.data(), n);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                chol3_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                t_start = steady_clock::now();
-            }
-
-            // R = R3 * R
-            lapack::lacpy(MatrixType::Upper, n, n, R, ldr, R_temp, n);
-            blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans,
-                       Diag::NonUnit, n, n, (T)1.0, G, n, R_temp, n);
-            lapack::lacpy(MatrixType::Upper, n, n, R_temp, n, R, ldr);
-
-            if(this->timing) {
-                t_stop = steady_clock::now();
-                upd3_dur = duration_cast<microseconds>(t_stop - t_start).count();
-            }
-
-            //================================================================
-            // Test mode: Q = Q_buf * R3^{-1}
-            //================================================================
-            if(this->test_mode) {
-                if(this->timing)
-                    t_start = steady_clock::now();
-
-                // Q_buf currently holds A * R1^{-1} * R2^{-1}
-                // Apply R3^{-1}: Q_buf = Q_buf * R3^{-1} = A * R^{-1} = Q
-                blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
-                           Diag::NonUnit, m, n, (T)1.0, G, n, Q_buf, m);
-
+            // ---- Test mode: materialize Q = A * R^{-1} via blocked linop call ----
+            if (this->test_mode) {
+                if (this->timing) t0 = steady_clock::now();
+                T* Q_buf = new T[m * n];
+                RandLAPACK::materialize_Q_from_R(A, R, ldr, m, n, b_eff, Q_buf);
                 this->Q_rows = m;
                 this->Q_cols = n;
-                this->Q = Q_buf;  // Take ownership of Q_buf
-
-                if(this->timing) {
-                    t_stop = steady_clock::now();
-                    q_mat_dur = duration_cast<microseconds>(t_stop - t_start).count();
-                }
+                // The class owns Q (the destructor frees it), so release any buffer from a
+                // previous call() before taking ownership of this one.
+                delete[] this->Q;
+                this->Q = Q_buf;
+                if (this->timing) { t1 = steady_clock::now(); q_mat_dur = duration_cast<microseconds>(t1 - t0).count(); }
             }
 
-            //================================================================
-            // Finalize timing
-            //================================================================
-            if(this->timing) {
+            if (this->timing) {
                 total_t_stop = steady_clock::now();
-                total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-
-                // Subtract Q materialization from total (test overhead, not algorithmic cost)
-                total_dur -= q_mat_dur;
-
-                long rest_dur = total_dur - (alloc_dur + fwd1_dur + adj1_dur + chol1_dur + trsm1_dur + fwd_q_dur +
-                                              syrk2_dur + chol2_dur + upd2_dur +
-                                              syrk3_dur + chol3_dur + upd3_dur);
-
-                // 15 entries
-                this->times = {alloc_dur, fwd1_dur, adj1_dur, chol1_dur, trsm1_dur, fwd_q_dur,
-                               syrk2_dur, chol2_dur, upd2_dur,
-                               syrk3_dur, chol3_dur, upd3_dur,
+                long total_dur = duration_cast<microseconds>(total_t_stop - total_t_start).count() - q_mat_dur;
+                long iters_sum = 0;
+                for (int i = 0; i < 15; ++i) iters_sum += it[i];
+                long rest_dur = total_dur - iters_sum;
+                // Basic layout folds each iter's fwd+adj+gemm into its chol slot.
+                long chol2 = it[8] + it[5] + it[6] + it[7];
+                long chol3 = it[13] + it[10] + it[11] + it[12];
+                this->times = {0L, it[0], it[1], it[3],
+                               /*trsm1=*/0L, /*fwd_q=*/0L,
+                               /*syrk2=*/0L, chol2, it[9],
+                               /*syrk3=*/0L, chol3, it[14],
                                q_mat_dur, rest_dur, total_dur};
             }
-
-            // Cleanup
-            delete[] G;
-            delete[] R_temp;
-            delete[] M;
-            if(!this->test_mode)
-                delete[] Q_buf;
-
             return 0;
         }
 };

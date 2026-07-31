@@ -22,9 +22,9 @@
 // Extras utilities for Matrix Market I/O
 #include "../../extras/misc/ext_util.hh"
 #include "RandLAPACK/testing/rl_test_utils.hh"
+#include "cqrrt_bench_common.hh"
 
 // Linops algorithms (now in main RandLAPACK)
-#include "rl_cqrrt_linops.hh"
 #include "rl_cholqr_linops.hh"
 #include "rl_scholqr3_linops.hh"
 #include "RandLAPACK/testing/rl_memory_tracker.hh"
@@ -68,15 +68,13 @@ template <typename T, typename GLO>
 static void compute_Q_from_R(
     GLO& A_op, T* R, int64_t ldr,
     T* Q_out, int64_t m, int64_t n) {
-    // Step 1: Materialize A into Q_out: Q_out = A * I
     T* Eye = new T[n * n]();
     RandLAPACK::util::eye(n, n, Eye);
     A_op(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans,
          m, n, n, (T)1.0, Eye, n, (T)0.0, Q_out, m);
-    delete[] Eye;
-    // Step 2: Solve Q * R = A for Q via trsm (backward stable, no explicit inverse)
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans,
                Diag::NonUnit, m, n, (T)1.0, R, ldr, Q_out, m);
+    delete[] Eye;
 }
 
 // Core algorithm runner: operates on a pre-constructed SparseLinOp.
@@ -108,7 +106,7 @@ static std::vector<scaling_result<T>> run_algorithms(
     T tol = std::pow(std::numeric_limits<T>::epsilon(), 0.85);
 
     // Single reusable Q buffer for uniform Q = A * R^{-1} computation across all algorithms
-    std::vector<T> Q_uniform(m * n);
+    T* Q_uniform = new T[m * n];
 
     // ============================================================
     // Run CQRRT (preconditioned Cholesky QR) - multiple runs
@@ -119,36 +117,39 @@ static std::vector<scaling_result<T>> run_algorithms(
         // RSS measurement (test_mode=false)
         long cqrrt_peak_rss_kb = 0;
         {
-            std::vector<T> R_rss(n * n, 0.0);
+            T* R_rss = new T[n * n]();
             auto state_rss = run_states[0];
             RandLAPACK::CQRRT_linops<T, RNG> CQRRT_rss(false, tol, false);
             CQRRT_rss.nnz = sketch_nnz;
             CQRRT_rss.block_size = block_size;
             RandLAPACK::PeakRSSTracker cqrrt_mem;
             cqrrt_mem.start();
-            CQRRT_rss.call(A_linop, R_rss.data(), n, d_factor, state_rss);
+            CQRRT_rss.call(A_linop, R_rss, n, d_factor, state_rss);
             cqrrt_peak_rss_kb = cqrrt_mem.stop();
+            delete[] R_rss;
         }
 
+        T* R_cqrrt = new T[n * n];
         for (int64_t run = 0; run < num_runs; ++run) {
-            std::vector<T> R_cqrrt(n * n, 0.0);
+            std::fill(R_cqrrt, R_cqrrt + n * n, (T)0);
             auto state_copy = run_states[run];  // Per-run RNG state
 
             RandLAPACK::CQRRT_linops<T, RNG> CQRRT_QR(true, tol, false);  // timing=true, test_mode=false
             CQRRT_QR.nnz = sketch_nnz;
             CQRRT_QR.block_size = block_size;
-            CQRRT_QR.call(A_linop, R_cqrrt.data(), n, d_factor, state_copy);
+            CQRRT_QR.call(A_linop, R_cqrrt, n, d_factor, state_copy);
 
             results[run].cqrrt.time = CQRRT_QR.times[10];  // total_t_dur
             results[run].cqrrt.peak_rss_kb = cqrrt_peak_rss_kb;
             results[run].cqrrt.breakdown.assign(CQRRT_QR.times.begin(), CQRRT_QR.times.begin() + 10);
 
             // Uniform Q computation for every run: Q = A * R^{-1} via operator
-            compute_Q_from_R(A_linop, R_cqrrt.data(), n, Q_uniform.data(), m, n);
-            results[run].cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform.data(), m, n);
+            compute_Q_from_R(A_linop, R_cqrrt, n, Q_uniform, m, n);
+            results[run].cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
             results[run].cqrrt.is_orthonormal = (results[run].cqrrt.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform.data(), m, n);
+            results[run].cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
         }
+        delete[] R_cqrrt;
     }
 
     // ============================================================
@@ -160,58 +161,64 @@ static std::vector<scaling_result<T>> run_algorithms(
         // RSS measurement (test_mode=false)
         long cholqr_peak_rss_kb = 0;
         {
-            std::vector<T> R_rss(n * n, 0.0);
+            T* R_rss = new T[n * n]();
             RandLAPACK::CholQR_linops<T> CholQR_rss(false, tol, false);
             CholQR_rss.block_size = block_size;
             RandLAPACK::PeakRSSTracker cholqr_mem;
             cholqr_mem.start();
-            CholQR_rss.call(A_linop, R_rss.data(), n);
+            CholQR_rss.call(A_linop, R_rss, n);
             cholqr_peak_rss_kb = cholqr_mem.stop();
+            delete[] R_rss;
         }
 
+        T* R_cholqr = new T[n * n];
         for (int64_t run = 0; run < num_runs; ++run) {
-            std::vector<T> R_cholqr(n * n, 0.0);
+            std::fill(R_cholqr, R_cholqr + n * n, (T)0);
 
             RandLAPACK::CholQR_linops<T> CholQR_alg(true, tol, false);  // timing=true, test_mode=false
             CholQR_alg.block_size = block_size;
-            CholQR_alg.call(A_linop, R_cholqr.data(), n);
+            CholQR_alg.call(A_linop, R_cholqr, n);
 
             results[run].cholqr.time = CholQR_alg.times[5];  // total
             results[run].cholqr.peak_rss_kb = cholqr_peak_rss_kb;
             results[run].cholqr.breakdown.assign(CholQR_alg.times.begin(), CholQR_alg.times.begin() + 5);
 
             // Uniform Q computation for every run
-            compute_Q_from_R(A_linop, R_cholqr.data(), n, Q_uniform.data(), m, n);
-            results[run].cholqr.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform.data(), m, n);
+            compute_Q_from_R(A_linop, R_cholqr, n, Q_uniform, m, n);
+            results[run].cholqr.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
             results[run].cholqr.is_orthonormal = (results[run].cholqr.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].cholqr.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform.data(), m, n);
+            results[run].cholqr.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
         }
+        delete[] R_cholqr;
     }
 
     // ============================================================
     // Run sCholQR3 (shifted Cholesky QR with 3 iterations) - multiple runs
     // ============================================================
     {
+        T* R_scholqr3 = new T[n * n];
         for (int64_t run = 0; run < num_runs; ++run) {
-            std::vector<T> R_scholqr3(n * n, 0.0);
+            std::fill(R_scholqr3, R_scholqr3 + n * n, (T)0);
 
             RandLAPACK::sCholQR3_linops<T> sCholQR3_alg(true, tol, false);  // timing=true, test_mode=false
             sCholQR3_alg.block_size = block_size;
 
             RandLAPACK::PeakRSSTracker scholqr3_mem;
             scholqr3_mem.start();
-            sCholQR3_alg.call(A_linop, R_scholqr3.data(), n);
+            sCholQR3_alg.call(A_linop, R_scholqr3, n);
             results[run].scholqr3.peak_rss_kb = scholqr3_mem.stop();
 
-            results[run].scholqr3.time = sCholQR3_alg.times[12];  // total
-            results[run].scholqr3.breakdown.assign(sCholQR3_alg.times.begin(), sCholQR3_alg.times.begin() + 12);
+            results[run].scholqr3.time = sCholQR3_alg.times[17];  // total
+            // breakdown (17): alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest
+            results[run].scholqr3.breakdown.assign(sCholQR3_alg.times.begin(), sCholQR3_alg.times.begin() + 17);
 
             // Uniform Q computation (same as all other algorithms)
-            compute_Q_from_R(A_linop, R_scholqr3.data(), n, Q_uniform.data(), m, n);
-            results[run].scholqr3.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform.data(), m, n);
+            compute_Q_from_R(A_linop, R_scholqr3, n, Q_uniform, m, n);
+            results[run].scholqr3.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
             results[run].scholqr3.is_orthonormal = (results[run].scholqr3.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].scholqr3.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform.data(), m, n);
+            results[run].scholqr3.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
         }
+        delete[] R_scholqr3;
     }
 
     // ============================================================
@@ -220,13 +227,14 @@ static std::vector<scaling_result<T>> run_algorithms(
     // Peak RSS with compute_Q=true is correct: Q overwrites A_materialized in-place (no extra allocation).
     // Skipped when skip_dense=true (e.g., for large file-input matrices where m*n dense doesn't fit in memory).
     if (!skip_dense) {
+        T* I_mat   = new T[n * n]();
+        RandLAPACK::util::eye(n, n, I_mat);
+        T* R_dense = new T[n * n];
         for (int64_t run = 0; run < num_runs; ++run) {
             RandLAPACK::PeakRSSTracker dense_mem;
             dense_mem.start();
 
             // Step 1: Materialize the operator by multiplying with identity
-            T* I_mat = new T[n * n]();
-            RandLAPACK::util::eye(n, n, I_mat);
             T* A_materialized = new T[m * n]();
 
             auto materialize_start = steady_clock::now();
@@ -235,17 +243,15 @@ static std::vector<scaling_result<T>> run_algorithms(
             auto materialize_stop = steady_clock::now();
             long materialize_time = duration_cast<microseconds>(materialize_stop - materialize_start).count();
 
-            delete[] I_mat;
-
             // Step 2: Call rl_cqrrt with timing, Q-factor disabled (computed uniformly below)
             // Uses same per-run RNG state as CQRRT_linop for fair comparison
-            std::vector<T> R_dense(n * n, 0.0);
+            std::fill(R_dense, R_dense + n * n, (T)0);
             auto state_copy = run_states[run];  // Same RNG state as CQRRT_linop's run
             RandLAPACK::CQRRT<T, RNG> dense_alg(true, tol);  // timing=true
             dense_alg.compute_Q = false;
             dense_alg.orthogonalization = false;
             dense_alg.nnz = sketch_nnz;
-            dense_alg.call(m, n, A_materialized, m, R_dense.data(), n, d_factor, state_copy);
+            dense_alg.call(m, n, A_materialized, m, R_dense, n, d_factor, state_copy);
 
             results[run].dense_cqrrt.peak_rss_kb = dense_mem.stop();
 
@@ -268,11 +274,13 @@ static std::vector<scaling_result<T>> run_algorithms(
             };
 
             // Uniform Q computation for every run
-            compute_Q_from_R(A_linop, R_dense.data(), n, Q_uniform.data(), m, n);
-            results[run].dense_cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform.data(), m, n);
+            compute_Q_from_R(A_linop, R_dense, n, Q_uniform, m, n);
+            results[run].dense_cqrrt.orth_error    = RandLAPACK::testing::orthogonality_error<T>(Q_uniform, m, n);
             results[run].dense_cqrrt.is_orthonormal = (results[run].dense_cqrrt.orth_error <= std::pow(std::numeric_limits<T>::epsilon(), (T)0.75));
-            results[run].dense_cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform.data(), m, n);
+            results[run].dense_cqrrt.max_orth_cols  = RandLAPACK::testing::max_orthonormal_cols<T>(Q_uniform, m, n);
         }
+        delete[] I_mat;
+        delete[] R_dense;
     } // if (!skip_dense)
 
     // Compute analytical peak working memory for each algorithm (same for all runs)
@@ -287,6 +295,7 @@ static std::vector<scaling_result<T>> run_algorithms(
         results[r].dense_cqrrt.analytical_kb = dense_cqrrt_akb;
     }
 
+    delete[] Q_uniform;
     return results;
 }
 
@@ -354,12 +363,9 @@ static std::vector<scaling_result<T>> run_single_test_from_file(
     }
 
     // Load matrix from Matrix Market file
-    auto A_coo = RandLAPACK_extras::coo_from_matrix_market<T>(filename);
-    int64_t m = A_coo.n_rows;
-    int64_t n = A_coo.n_cols;
-    T actual_density = static_cast<T>(A_coo.nnz) / (static_cast<T>(m) * n);
-    RandBLAS::sparse_data::csr::CSRMatrix<T> A_csr(m, n);
-    RandBLAS::sparse_data::conversions::coo_to_csr(A_coo, A_csr);
+    int64_t m, n, nnz;
+    auto A_csr = load_csr<T>(filename, m, n, nnz);
+    T actual_density = static_cast<T>(nnz) / (static_cast<T>(m) * n);
     RandLAPACK::linops::SparseLinOp<RandBLAS::sparse_data::csr::CSRMatrix<T>> A_linop(m, n, A_csr);
 
     T cond_num = std::numeric_limits<T>::quiet_NaN();
@@ -630,12 +636,12 @@ static void write_csv_headers(
     breakdown << "# Times are in microseconds\n";
     breakdown << "# CQRRT_linop: alloc, saso, qr, trtri, linop_precond, linop_gram, trmm_gram, potrf, finalize, rest, total\n";
     breakdown << "# CholQR: alloc, materialize, gram, potrf, rest, total\n";
-    breakdown << "# sCholQR3: alloc, materialize, gram1, potrf1, trsm1, syrk2, potrf2, update2, syrk3, potrf3, update3, rest, total\n";
+    breakdown << "# sCholQR3: alloc, fwd1, adj1, chol1, upd1, fwd2, adj2, gemm2, chol2, upd2, fwd3, adj3, gemm3, chol3, upd3, q_mat, rest, total\n";
     breakdown << "# CQRRT_expl: materialize, saso, qr, trtri(=0), precond, gram, trmm_gram(=0), potrf, finalize, rest, total\n";
     breakdown << "m,n,run,"
               << "cqrrt_alloc,cqrrt_saso,cqrrt_qr,cqrrt_trtri,cqrrt_linop_precond,cqrrt_linop_gram,cqrrt_trmm_gram,cqrrt_potrf,cqrrt_finalize,cqrrt_rest,cqrrt_total,"
               << "cholqr_alloc,cholqr_materialize,cholqr_gram,cholqr_potrf,cholqr_rest,cholqr_total,"
-              << "scholqr3_alloc,scholqr3_materialize,scholqr3_gram1,scholqr3_potrf1,scholqr3_trsm1,scholqr3_syrk2,scholqr3_potrf2,scholqr3_update2,scholqr3_syrk3,scholqr3_potrf3,scholqr3_update3,scholqr3_rest,scholqr3_total,"
+              << "scholqr3_alloc,scholqr3_fwd1,scholqr3_adj1,scholqr3_chol1,scholqr3_upd1,scholqr3_fwd2,scholqr3_adj2,scholqr3_gemm2,scholqr3_chol2,scholqr3_upd2,scholqr3_fwd3,scholqr3_adj3,scholqr3_gemm3,scholqr3_chol3,scholqr3_upd3,scholqr3_q_mat,scholqr3_rest,scholqr3_total,"
               << "dense_materialize,dense_saso,dense_qr,dense_trtri,dense_precond,dense_gram,dense_trmm_gram,dense_potrf,dense_finalize,dense_rest,dense_total,"
               << "cqrrt_peak_rss_kb,cqrrt_analytical_kb,"
               << "cholqr_peak_rss_kb,cholqr_analytical_kb,"

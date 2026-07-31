@@ -156,8 +156,44 @@ set(
     Eigen3::Eigen
     fast_matrix_market
 )
-add_benchmark(NAME CQRRT_linop_composite_applications CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_composite_applications.cc LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRT_linop_applications           CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_applications.cc           LINK_LIBS ${Benchmark_libs_cqrrt_linops})
 add_benchmark(NAME CQRRT_linop_basic                  CXX_SOURCES bench_CQRRT_linops/CQRRT_linop_basic.cc                  LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+add_benchmark(NAME CQRRT_diagnostic                   CXX_SOURCES bench_CQRRT_linops/CQRRT_diagnostic.cc                   LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+
+# Toeplitz LS benchmark (Oleg's autoregression/system-id experiment). The matrix-free
+# prolate-Toeplitz operator (extras/linops/ext_toeplitz_linop.hh) uses MKL's FFT (DFTI),
+# so this target additionally needs the MKL include dir + the ILP64 define (the MKL libs
+# themselves are already linked transitively via RandLAPACK -> blaspp -> MKL).
+add_benchmark(NAME toeplitz_ls_benchmark              CXX_SOURCES bench_toeplitz_ls/toeplitz_ls_benchmark.cc              LINK_LIBS ${Benchmark_libs_cqrrt_linops})
+# Locate mkl_dfti.h. MKLROOT is the usual signal, but batch builds (e.g. ISAAC's
+# fresh-clone install job) may not export it, so also probe the other oneAPI env
+# vars and common install roots. As a last resort, derive it from a BLAS/LAPACK
+# library dir that CMake already resolved (MKL's lib and include are siblings).
+find_path(MKL_DFTI_INCLUDE_DIR mkl_dfti.h
+    HINTS
+        $ENV{MKLROOT}/include
+        $ENV{MKL_ROOT}/include
+        $ENV{ONEAPI_ROOT}/mkl/latest/include
+        $ENV{CMPLR_ROOT}/../mkl/latest/include
+        /opt/intel/oneapi/mkl/latest/include
+        /opt/intel/oneapi/mkl/2026.0/include
+    PATH_SUFFIXES include)
+if(NOT MKL_DFTI_INCLUDE_DIR)
+    # Derive from a resolved MKL/LAPACK library path (…/mkl/<ver>/lib -> …/include).
+    foreach(_lib ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${blaspp_libraries})
+        if(_lib MATCHES "mkl")
+            get_filename_component(_libdir "${_lib}" DIRECTORY)
+            find_path(MKL_DFTI_INCLUDE_DIR mkl_dfti.h HINTS "${_libdir}/../include" "${_libdir}/../../include")
+        endif()
+    endforeach()
+endif()
+if(NOT MKL_DFTI_INCLUDE_DIR)
+    message(FATAL_ERROR "mkl_dfti.h not found; pass -DMKL_DFTI_INCLUDE_DIR=<MKL>/include "
+                        "or export MKLROOT for the Toeplitz benchmark.")
+endif()
+message(STATUS "Toeplitz benchmark: mkl_dfti.h in ${MKL_DFTI_INCLUDE_DIR}")
+target_include_directories(toeplitz_ls_benchmark PRIVATE ${MKL_DFTI_INCLUDE_DIR})
+target_compile_definitions(toeplitz_ls_benchmark PRIVATE MKL_ILP64)
 
 # ABRIK benchmarks
 add_benchmark(NAME ABRIK_runtime_breakdown        CXX_SOURCES bench_ABRIK/ABRIK_runtime_breakdown.cc        LINK_LIBS ${Benchmark_libs})

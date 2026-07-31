@@ -22,9 +22,14 @@ if (GTest_FOUND)
         drivers/test_hqrrp.cc
         drivers/test_abrik.cc
         drivers/test_orth_linop.cc
+        drivers/test_iter_refine_lsq.cc
+        drivers/test_lsqr_blendenpik.cc
         misc/test_util.cc
         misc/test_pdkernels.cc
         linops/test_linops.cc
+        linops/test_power_linop.cc
+        linops/test_transposed_linop.cc
+        linops/test_vstack_linop.cc
         linops/test_linop_unified.cc
         misc/test_gen.cc
         misc/test_memory_tracker.cc
