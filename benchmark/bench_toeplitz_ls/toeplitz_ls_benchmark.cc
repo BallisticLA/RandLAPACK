@@ -115,7 +115,7 @@ static void compute_orth_and_cond(AOp& A, const double* R, int64_t mtot, int64_t
 int main(int argc, char** argv) {
     if (argc < 12) {
         std::fprintf(stderr, "usage: %s <prec> <outdir> <m> <n> <omega> <lambda_rel> <method_mask> "
-                             "<tol> <maxit> <d_factor> <sketch_nnz> [seed]\n", argv[0]);
+                             "<tol> <maxit> <d_factor> <sketch_nnz> [seed] [qless_warm_start] [bp_warm_start]\n", argv[0]);
         return 1;
     }
     std::string prec = argv[1];          // "double" (v1)
@@ -130,6 +130,16 @@ int main(int argc, char** argv) {
     double d_factor = std::stod(argv[10]);
     int64_t sketch_nnz = std::stoll(argv[11]);
     int64_t seed = (argc > 12) ? std::stoll(argv[12]) : 1;
+    // Warm-start ablation (2026-07-31, mirrors CQRRT_linop_applications):
+    //   qless_warm_start: 1 => every Q-less QR method's LSQR starts from the
+    //     sketch-and-solve x0 (built with an AUXILIARY sketch via Blendenpik
+    //     init_only; the method's own QR stays sketch-free). Cost recorded in
+    //     the setup_us CSV column. Default 0 (historical behavior).
+    //   bp_warm_start: 0 => Blendenpik's own warm start disabled. Default 1
+    //     (its class default since 2026-07-27 -- which silently made the
+    //     07-29 campaign MIXED: Blendenpik warm, everyone else cold).
+    bool qless_warm = (argc > 13) && std::stoi(argv[13]) != 0;
+    bool bp_warm    = (argc > 14) ? (std::stoi(argv[14]) != 0) : true;
     int64_t block_size = 256;
     if (m < n) { std::fprintf(stderr, "require m >= n\n"); return 1; }
 
@@ -200,10 +210,11 @@ int main(int argc, char** argv) {
     std::ofstream out(csv);
     out << "# Toeplitz LS benchmark m=" << m << " n=" << n << " omega=" << omega
         << " lambda=" << lambda << " tol=" << tol << " d_factor=" << d_factor << "\n";
+    out << "# qless_warm_start=" << (qless_warm ? 1 : 0) << " bp_warm_start=" << (bp_warm ? 1 : 0) << "\n";
     out << "algorithm,m,n,qr_status,qr_time_us,solve_time_us,peak_rss_kb,analytical_kb,"
            "orth_error,iterations,solver_flag,solver_relres,aug_relres,normal_relres,"
            "data_relres,recovery_error,cond_estimate,chol_retries,"
-           "solve_fwd_us,solve_adj_us,solve_trsm_us\n";   // appended 2026-07-29 (see note above)
+           "solve_fwd_us,solve_adj_us,solve_trsm_us,setup_us\n";   // fwd/adj/trsm 2026-07-29; setup_us 2026-07-31
 
     std::vector<double> R(n*n), x(n), Tx(m), Ax(mtot);
 
@@ -229,6 +240,7 @@ int main(int argc, char** argv) {
         //     runs. Reporting the parts removes that trap.
         // -1 means "not measured for this method" (Blendenpik exposes only a lumped solve).
         long solve_fwd_us = -1, solve_adj_us = -1, solve_trsm_us = -1;
+        long setup_us = 0;   // warm-start x0 build; 0 = cold (or embedded, for warm Blendenpik)
         double solver_relres = -1;   // LSQR's own ||b - Ã y|| / ||b|| at termination
         bool have_R = false, is_bp = (alg == "Blendenpik"), is_unprec = (alg == "unpreconditioned");
 
@@ -238,6 +250,7 @@ int main(int argc, char** argv) {
         if (is_bp) {
             rl::Blendenpik_linops<double, RNG> bp(true, tol);
             bp.nnz = sketch_nnz;
+            bp.warm_start = bp_warm;
             // Give Blendenpik the SAME iteration budget as every other method. It
             // previously fell back to its internal min(4n,1000) default while the others
             // received the CLI maxit (3000 in the campaigns) -- a silent 3x handicap.
@@ -288,7 +301,35 @@ int main(int argc, char** argv) {
             if (qr_status == 0) {
                 have_R = true;
                 long lt[4] = {0};
-                flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+                if (qless_warm) {
+                    // Sketch-and-solve x0 via an auxiliary sketch (Blendenpik init_only,
+                    // fresh deterministic state), then the shift trick around rl_lsqr:
+                    // solve for the correction dx against r0 = rhs - A_hat x0 and return
+                    // x = x0 + dx, exactly as rl_blendenpik.hh does internally.
+                    auto ws_t0 = steady_clock::now();
+                    std::vector<double> x0(n, 0.0), r0(mtot, 0.0);
+                    auto ws_state = RandBLAS::RNGState<RNG>((uint32_t)(seed + 7919));
+                    rl::Blendenpik_linops<double, RNG> ss(false, tol);
+                    ss.nnz = sketch_nnz; ss.init_only = true;
+                    int ss_status = ss.call(A_hat, rhs.data(), mtot, x0.data(), n, d_factor, ws_state);
+                    if (ss_status != 0) {
+                        std::fprintf(stderr, "warning: sketch-and-solve x0 failed (%d); falling back to x0=0\n", ss_status);
+                        std::fill(x0.begin(), x0.end(), 0.0);
+                    }
+                    A_hat(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, mtot, 1, n, 1.0, x0.data(), n, 0.0, r0.data(), mtot);
+                    for (int64_t i = 0; i < mtot; ++i) r0[i] = rhs[i] - r0[i];
+                    setup_us = duration_cast<microseconds>(steady_clock::now() - ws_t0).count();
+                    flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, r0.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+                    blas::axpy(n, 1.0, x0.data(), 1, x.data(), 1);
+                    // LSQR normalized its residual by ||r0||; rescale to mean the same
+                    // thing as every other row (||rhs - A x|| / ||rhs||).
+                    if (solver_relres >= 0) {
+                        double nr0 = blas::nrm2(mtot, r0.data(), 1);
+                        if (rhs_norm > 0) solver_relres *= nr0 / rhs_norm;
+                    }
+                } else {
+                    flag = rl::lsqr<double>(A_hat, mtot, n, R.data(), n, rhs.data(), x.data(), tol, tol, maxit, iters, lt, &solver_relres);
+                }
                 solve_us = lt[3];
                 solve_fwd_us = lt[0]; solve_adj_us = lt[1]; solve_trsm_us = lt[2];
             }
@@ -337,7 +378,7 @@ int main(int argc, char** argv) {
             << std::scientific << orth_err << "," << iters << "," << flag << ","
             << solver_relres << "," << aug_relres << "," << normal_relres << ","
             << data_relres << "," << recov << "," << cond_est << "," << chol_retries << ","
-            << solve_fwd_us << "," << solve_adj_us << "," << solve_trsm_us << "\n";
+            << solve_fwd_us << "," << solve_adj_us << "," << solve_trsm_us << "," << setup_us << "\n";
     }
     out.close();
     std::printf("\nresults -> %s\n", csv.c_str());
