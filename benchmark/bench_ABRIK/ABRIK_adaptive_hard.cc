@@ -54,7 +54,9 @@ Usage:
                       <num_runs> <num_block_sizes> <block_sizes...> [sub_ratio]
 
   tol_exponent = tolerance as eps^exponent (e.g. 0.85 matches the other ABRIK
-                 benchmarks; use a smaller exponent for a looser target)
+                 benchmarks; use a smaller exponent for a looser target).
+                 NEGATIVE values mean an ABSOLUTE tolerance of 10^value
+                 (e.g. -5 -> 1e-5, -10 -> 1e-10; added 2026-08-03).
   iters_start  = first Krylov-iteration budget in the sweep, and the initial
                  budget handed to the adaptive driver
   iters_step   = increment between sweep points (the sweep is additive so the
@@ -237,7 +239,14 @@ static void run_benchmark(int argc, char* argv[]) {
     int args_consumed = 11 + num_b_sz;
     double sub_ratio  = (argc > args_consumed) ? std::stod(argv[args_consumed]) : 1.0;
 
-    T tol = std::pow(std::numeric_limits<T>::epsilon(), (T)tol_exponent);
+    // tol_exponent > 0: tolerance = eps^tol_exponent (historical form).
+    // tol_exponent < 0: tolerance = 10^tol_exponent, an ABSOLUTE tolerance
+    //   (2026-08-03: lets Rob's adaptive configs "10 triplets at 1e-5 / 1e-10"
+    //   be expressed exactly -- pass -5 or -10 -- instead of via eps-exponent
+    //   rounding).
+    T tol = (tol_exponent > 0)
+        ? std::pow(std::numeric_limits<T>::epsilon(), (T)tol_exponent)
+        : std::pow((T)10.0, (T)tol_exponent);
 
     auto mat = BenchIO::load_matrix<T>(input_path, sub_ratio);
     int64_t m = mat.m;

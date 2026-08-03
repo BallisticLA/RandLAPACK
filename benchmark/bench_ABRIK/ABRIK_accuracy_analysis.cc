@@ -116,10 +116,16 @@ Four metrics are computed for each singular triplet i = 1, ..., k:
 //
 // scratch_m (length m) and scratch_n (length n) are pre-allocated work buffers,
 // overwritten on each call.
+// Optional outputs (2026-08-03, for the metric-vs-metric comparison Max requested;
+// the S 2.3 / App A framing of WHICH variant is "Rob/Hartwig's" is still an open
+// Cognitive Debt item, so BOTH candidate readings are recorded):
+//   out_2sided_sw : sqrt(||Av-us||^2 + ||A'u-vs||^2)      (Sigma-scaled, NO /s_i)
+//   out_1sided_nm : ||Av - us|| / s_i                      (one-sided, normalized)
 template <typename T>
 static T per_triplet_residual(T* A, int64_t m, int64_t n,
                               T* u_i, T* v_i, T s_i,
-                              T* scratch_m, T* scratch_n) {
+                              T* scratch_m, T* scratch_n,
+                              T* out_2sided_sw = nullptr, T* out_1sided_nm = nullptr) {
     // scratch_m = A * v_i  (m-by-n times n-by-1 → m-by-1)
     blas::gemv(Layout::ColMajor, Op::NoTrans, m, n, (T)1, A, m, v_i, 1, (T)0, scratch_m, 1);
     // scratch_m -= u_i * s_i  →  scratch_m = A*v_i - u_i*s_i
@@ -133,6 +139,8 @@ static T per_triplet_residual(T* A, int64_t m, int64_t n,
     T nrm_right = blas::nrm2(n, scratch_n, 1);
 
     // sqrt(nrm_left^2 + nrm_right^2) / s_i = sqrt(||E_left||^2 + ||E_right||^2)
+    if (out_2sided_sw) *out_2sided_sw = std::hypot(nrm_left, nrm_right);
+    if (out_1sided_nm) *out_1sided_nm = nrm_left / s_i;
     return std::hypot(nrm_left, nrm_right) / s_i;
 }
 
@@ -258,8 +266,10 @@ static void run_analysis(int argc, char *argv[]) {
          << "# Num runs: " << num_runs << " (distinct RNG seeds 0..num_runs-1)\n"
          << "# GESDD time (us): " << dur_gesdd << " (run once, reused across runs)\n"
          << "# Residual metric: sqrt(||E_left||^2 + ||E_right||^2) where E_left = inv(s)*Av - u, E_right = v - A'u*inv(s)\n"
+         << "# res_sw_* = Rob/Tropp-Webber eq.(6.1): two-sided UNSTANDARDIZED sqrt(||Av-us||^2+||A'u-vs||^2); res_1s_* = Hartwig/Tomas eq.(14): one-sided normalized ||Av-us||/s  (C4 of abrik-paper-open-questions)\n"
          << "# svec_diff metric: sqrt((sin^2(angle(u_g,u_a)) + sin^2(angle(v_g,v_a)))/2), sin via Householder QR\n";
-    file << "run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff\n";
+    file << "run, i, res_err_abrik, res_err_gesdd, sval_diff, svec_diff, "
+            "res_sw_abrik, res_sw_gesdd, res_1s_abrik, res_1s_gesdd\n";
 
     // ======================================================================
     // Pre-allocate scratch buffers (reused across runs)
@@ -311,8 +321,9 @@ static void run_analysis(int argc, char *argv[]) {
             T* v_g = &V_g[n * i];
             T  s_g = S_g[i];
 
-            T res_abrik = per_triplet_residual(A, m, n, u_a, v_a, s_a, scratch_m, scratch_n);
-            T res_gesdd = per_triplet_residual(A, m, n, u_g, v_g, s_g, scratch_m, scratch_n);
+            T sw_abrik = 0, os_abrik = 0, sw_gesdd = 0, os_gesdd = 0;
+            T res_abrik = per_triplet_residual(A, m, n, u_a, v_a, s_a, scratch_m, scratch_n, &sw_abrik, &os_abrik);
+            T res_gesdd = per_triplet_residual(A, m, n, u_g, v_g, s_g, scratch_m, scratch_n, &sw_gesdd, &os_gesdd);
 
             T sval_diff = std::abs(s_a - s_g) / s_g;
 
@@ -323,7 +334,9 @@ static void run_analysis(int argc, char *argv[]) {
             file << run << ", " << (i + 1) << ", "
                  << std::setprecision(15)
                  << res_abrik << ", " << res_gesdd << ", "
-                 << sval_diff << ", " << svec_diff << "\n";
+                 << sval_diff << ", " << svec_diff << ", "
+                 << sw_abrik << ", " << sw_gesdd << ", "
+                 << os_abrik << ", " << os_gesdd << "\n";
 
             if ((i + 1) % 50 == 0)
                 printf("  Processed triplet %ld / %ld\n", i + 1, k_a);
