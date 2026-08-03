@@ -1,7 +1,7 @@
 # RandLAPACK
 
 RandLAPACK provides high-performance randomized algorithms for linear algebra problems such as least squares, (kernel) ridge regression, low-rank approximation, and matrix factorizations.
-RandLAPACK's API is not yet stable. We're interested in changing that, but commitment is scary.
+RandLAPACK's API is not yet stable; we're actively working on changing that.
 
 Please swing by [**our Discord server**](https://discord.gg/R4qj8Er9YW) if you have questions about RandLAPACK or would like to get involved in its development.
 
