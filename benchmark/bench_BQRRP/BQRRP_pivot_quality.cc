@@ -1,5 +1,9 @@
 #if defined(__APPLE__)
-int main() {return 0;}
+#include <iostream>
+int main() {
+    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
+    return 1;
+}
 #else
 /*
 Performs computations in order to assess the pivot quality of BQRRP.

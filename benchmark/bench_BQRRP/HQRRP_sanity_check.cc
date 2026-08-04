@@ -1,7 +1,11 @@
 
 
 #if defined(__APPLE__)
-int main() {return 0;}
+#include <iostream>
+int main() {
+    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
+    return 1;
+}
 #else
 
 // Making sure that HQRRP's performance instability is specific to HQRRP and not related to the flaws in behcnmarking logic
