@@ -369,7 +369,7 @@ void rl_orhr_col(
         for(i = 0; i < n; ++i) {
             blas::scal(i + 1, -D[i], &T_dat[n * i], 1);
         }
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::Unit, n, n, 1.0, A, lda, T_dat, n);	
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Lower, Op::Trans, Diag::Unit, n, n, (T) 1.0, A, lda, T_dat, n);	
     }
 }
 

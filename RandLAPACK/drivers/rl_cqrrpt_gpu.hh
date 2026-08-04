@@ -300,7 +300,7 @@ int CQRRPT_GPU<T, RNG>::call(
     //RandBLAS::util::print_colmaj(m, n, A, name);
 
     // A_pre * R_sp = AP
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp_device, k, A_device, lda, blas_queue);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing) {
         a_mod_trsm_t_stop = steady_clock::now();
@@ -308,7 +308,7 @@ int CQRRPT_GPU<T, RNG>::call(
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A_device, lda, 0.0, R_sp_device, k, blas_queue);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A_device, lda, (T) 0.0, R_sp_device, k, blas_queue);
     lapack::potrf(Uplo::Upper, k, R_sp_device, k, d_info, lapack_queue);
     blas_queue.sync();
 
@@ -344,13 +344,13 @@ int CQRRPT_GPU<T, RNG>::call(
         }
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp_device, k, A_device, lda, blas_queue);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp_device, k, A_device, lda, blas_queue);
 
     if(this -> timing)
         cholqr_t_stop = steady_clock::now();
 
     // Get the final R-factor.
-    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, R_sp_device, k, R_device, ldr, blas_queue);
+    blas::trmm(Layout::ColMajor, Side::Left, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, R_sp_device, k, R_device, ldr, blas_queue);
 
     // Set the rank parameter to the value comuted a posteriori.
     this->rank = k;

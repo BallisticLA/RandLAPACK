@@ -205,7 +205,7 @@ int CQRRT<T, RNG>::call(
         delete[] tau;
         return 1;
     }
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, R_sk, ldr, A, lda);
 
     if(this -> timing) {
         precond_t_stop = steady_clock::now();
@@ -213,7 +213,7 @@ int CQRRT<T, RNG>::call(
     }
 
     // Gram matrix: G = A^T * A (SYRK, upper triangle only)
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, 1.0, A, lda, 0.0, R_sk, ldr);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, n, m, (T) 1.0, A, lda, (T) 0.0, R_sk, ldr);
 
     if(this -> timing) {
         gram_t_stop = steady_clock::now();
@@ -235,7 +235,7 @@ int CQRRT<T, RNG>::call(
         if(this -> timing)
             q_t_start = steady_clock::now();
 
-        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, 1.0, R_sk, ldr, A, lda);
+        blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, n, (T) 1.0, R_sk, ldr, A, lda);
 
         if(this -> timing)
             q_t_stop = steady_clock::now();
@@ -247,7 +247,7 @@ int CQRRT<T, RNG>::call(
     if (!this->orthogonalization) {
         // Get the final R-factor - undoing the preconditioning
         // R := R_chol * R_sk (returned by QR on sketch)
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, 1.0, A_hat, d, R_sk, ldr);
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, n, n, (T) 1.0, A_hat, d, R_sk, ldr);
     }
 
     if(this -> timing) {

@@ -383,14 +383,14 @@ class ABRIK {
 
                     if (iter != 1) {
                         // R_i' = Y_i' * Y_od
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, R_i, n);            
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, (T) 1.0, Y_i, n, Y_od, n, (T) 0.0, R_i, n);            
                         
                         // Y_i = Y_i - Y_od * R_i
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, R_i, n, 1.0, Y_i, n);
+                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, (T) -1.0, Y_od, n, R_i, n, (T) 1.0, Y_i, n);
 
                         // Reorthogonalization
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, 1.0, Y_i, n, Y_od, n, 0.0, Y_orth_buf, k);
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, -1.0, Y_od, n, Y_orth_buf, k, 1.0, Y_i, n);
+                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, (T) 1.0, Y_i, n, Y_od, n, (T) 0.0, Y_orth_buf, k);
+                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, (T) -1.0, Y_od, n, Y_orth_buf, k, (T) 1.0, Y_i, n);
                     }
 
                     if(this -> timing) {
@@ -512,14 +512,14 @@ class ABRIK {
                     }
 
                     // S_i = X_ev' * X_i 
-                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, S_i, n + k);
+                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, (T) 1.0, X_ev, m, X_i, m, (T) 0.0, S_i, n + k);
                     
                     //X_i = X_i - X_ev * S_i;
-                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, S_i, n + k, 1.0, X_i, m);
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, (T) -1.0, X_ev, m, S_i, n + k, (T) 1.0, X_i, m);
 
                     // Reorthogonalization
-                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, 1.0, X_ev, m, X_i, m, 0.0, X_orth_buf, n + k);
-                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, -1.0, X_ev, m, X_orth_buf, n + k, 1.0, X_i, m);
+                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, (T) 1.0, X_ev, m, X_i, m, (T) 0.0, X_orth_buf, n + k);
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, (T) -1.0, X_ev, m, X_orth_buf, n + k, (T) 1.0, X_i, m);
 
                     if(this -> timing) {
                         reorth_t_stop  = steady_clock::now();
@@ -587,7 +587,7 @@ class ABRIK {
                     // REMOVE ME
                     std::vector<double> buffer2 (iter_ev * k * iter_ev * k, 0.0);
                     RandLAPACK::util::eye(iter_ev * k, iter_ev * k, buffer2.data());
-                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_ev * k, iter_ev * k, m, 1.0, X_ev, m, X_ev, m, -1.0, buffer2.data(), iter_ev * k);
+                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_ev * k, iter_ev * k, m, (T) 1.0, X_ev, m, X_ev, m, (T) -1.0, buffer2.data(), iter_ev * k);
                     std::cout << "Orthonormality error in the basis for the left Krylov subspace at iteration " << iter << ": " << std::scientific << lapack::lange(Norm::Fro, iter_ev * k, iter_ev * k, buffer2.data(), iter_ev * k) / sqrt(iter_ev * k) << "\n\n";
 
                     // Early termination
@@ -696,9 +696,9 @@ class ABRIK {
             }
 
             // U = X_ev * U_hat
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, 1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, (T) 1.0, X_ev, m, U_hat, end_rows, (T) 0.0, U, m);
             // V = Y_od * V_hat
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols, 1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols, (T) 1.0, Y_od, n, VT_hat, end_cols, (T) 0.0, V, n);
 
             this->singular_triplets_found = end_cols;
 

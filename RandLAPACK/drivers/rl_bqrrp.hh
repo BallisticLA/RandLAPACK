@@ -310,7 +310,7 @@ int BQRRP<T, RNG>::call(
     T* S = new T[d * m]();
     RandBLAS::DenseDist D(d, m);
     state = RandBLAS::fill_dense(D, S, state);
-    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, 1.0, S, d, A, m, 0.0, A_sk, d);
+    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, d, n, m, (T) 1.0, S, d, A, m, (T) 0.0, A_sk, d);
     delete[] S;
 
     if(this -> timing) {
