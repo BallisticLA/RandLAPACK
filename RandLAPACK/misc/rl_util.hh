@@ -95,7 +95,9 @@ void diag(
     blas::copy(k, s, 1, S, m + 1);
 }
 
-/// Zeros-out the upper-triangular portion of A
+/// Zeros-out the strictly upper-triangular portion of A (lda == m),
+/// optionally overwriting the diagonal with ones. Implemented via
+/// LAPACK's laset.
 template <typename T>
 void get_L(
     int64_t m,
@@ -103,15 +105,17 @@ void get_L(
     T* A,
     int overwrite_diagonal
 ) {
-    for(int i = 0; i < n; ++i) {
-        std::fill(&A[m * i], &A[i + m * i], 0.0);
-        
-        if(overwrite_diagonal)
-            A[i + m * i] = 1.0;
+    if (overwrite_diagonal) {
+        lapack::laset(lapack::MatrixType::Upper, m, n, (T) 0.0, (T) 1.0, A, m);
+    } else if (n > 1) {
+        // The strictly upper triangle of A is the upper triangle, diagonal
+        // included, of the m by (n - 1) submatrix starting at A(0, 1).
+        lapack::laset(lapack::MatrixType::Upper, m, n - 1, (T) 0.0, (T) 0.0, &A[m], m);
     }
 }
 
-/// Zeros-out the lower-triangular portion of A
+/// Zeros-out the strictly lower-triangular portion of A. Implemented via
+/// LAPACK's laset.
 template <typename T>
 void get_U(
     int64_t m,
@@ -119,8 +123,10 @@ void get_U(
     T* A,
     int64_t lda
 ) {
-    for(int i = 0; i < n - 1; ++i) {
-        std::fill(&A[i * (lda + 1) + 1], &A[(i * lda) + m], 0.0);
+    if (m > 1) {
+        // The strictly lower triangle of A is the lower triangle, diagonal
+        // included, of the (m - 1) by n submatrix starting at A(1, 0).
+        lapack::laset(lapack::MatrixType::Lower, m - 1, n, (T) 0.0, (T) 0.0, &A[1], lda);
     }
 }
 
