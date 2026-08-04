@@ -193,7 +193,7 @@ int CQRRPT_GPU<T, RNG>::call(
     T* A_hat = new T[d * n]();
     T* tau   = new T[n]();
     // Buffer for column pivoting.
-    std::vector<int64_t> J_buf(n, 0);
+    int64_t* J_buf = new int64_t[n]();
 
     if(this -> timing)
         saso_t_start = steady_clock::now();
@@ -256,7 +256,7 @@ int CQRRPT_GPU<T, RNG>::call(
         a_mod_piv_t_start = steady_clock::now();
 
     // Swap k columns of A with pivots from J
-    blas::copy(n, J, 1, J_buf.data(), 1);
+    blas::copy(n, J, 1, J_buf, 1);
     util::col_swap(m, n, k, A, lda, J_buf);
 
     if(this -> timing) {
@@ -378,6 +378,7 @@ int CQRRPT_GPU<T, RNG>::call(
     cudaFree(R_device);
     cudaFree(R_sp_device);
     delete[] A_hat;
+    delete[] J_buf;
     delete[] R_sp;
     delete[] tau;    
     delete[] R_sp_diag;

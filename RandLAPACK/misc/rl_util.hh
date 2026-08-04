@@ -141,8 +141,13 @@ bool diag_is_nonzero(int64_t n, const T* R, int64_t ldr) {
     return true;
 }
 
-/// Positions columns of A in accordance with idx vector of length k.
-/// idx array modified ONLY within the scope of this function.
+/// Positions columns of A in accordance with the 1-based permutation idx
+/// (GEQP3 style, full length n): on exit, column i of A holds what was
+/// column idx[i] - 1. The first k columns are the caller's contract;
+/// k <= n is enforced. Delegates to LAPACK's LAPMT (forward pass), which
+/// uses in-place cycle-following: no per-step search, no copy of the
+/// pivot vector. LAPMT uses idx as sign-marking scratch internally and
+/// restores it on exit.
 template <typename T>
 void col_swap(
     int64_t m,
@@ -150,46 +155,46 @@ void col_swap(
     int64_t k,
     T* A,
     int64_t lda,
-    std::vector<int64_t> idx
+    int64_t* idx
 ) {
-    if(k > n) 
+    if(k > n)
         throw std::runtime_error("Invalid rank parameter.");
 
-    int64_t i, j; //, l;
-    for (i = 0, j = 0; i < k; ++i) {
-        j = idx[i] - 1;
-        blas::swap(m, &A[i * lda], 1, &A[j * lda], 1);
-
-        // swap idx array elements
-        // Find idx element with value i and assign it to j
-        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
-        idx[it - (idx.begin())] = j + 1;
-    }
+    lapack::lapmt(true, m, n, A, lda, idx);
 }
 
-/// A version of the above function to be used on a vector of integers
-template <typename T>
-void col_swap(
+/// A version of the above function to be used on a vector of integers.
+/// LAPMT itself only handles real matrices, so this overload implements
+/// the same forward cycle-following directly; idx serves as sign-marking
+/// scratch internally and is restored on exit. Unlike the matrix overload,
+/// idx here is a 1-based permutation of 1..k (not 1..n), and entries of A
+/// beyond the first k are left untouched; the GPU counterpart
+/// (vec_ell_swap_gpu) and its subvector use in the tests rely on exactly
+/// this prefix-only contract.
+inline void col_swap(
     int64_t n,
     int64_t k,
     int64_t* A,
-    std::vector<int64_t> idx
+    int64_t* idx
 ) {
-    if(k > n) 
+    if(k > n)
         throw std::runtime_error("Incorrect rank parameter.");
 
-    int64_t* idx_dat = idx.data();
-
-    int64_t i, j;
-    for (i = 0, j = 0; i < k; ++i) {
-        j = idx_dat[i] - 1;
-        std::swap(A[i], A[j]);
-
-        // swap idx array elements
-        // Find idx element with value i and assign it to j
-        auto it = std::find(idx.begin() + i, idx.begin() + k, i + 1);
-        idx[it - (idx.begin())] = j + 1;
+    for (int64_t i = 0; i < k; ++i) {
+        if (idx[i] < 0)
+            continue;
+        int64_t j = i;
+        while (true) {
+            int64_t src = idx[j] - 1;
+            idx[j] = -idx[j];
+            if (src == i)
+                break;
+            std::swap(A[j], A[src]);
+            j = src;
+        }
     }
+    for (int64_t i = 0; i < k; ++i)
+        idx[i] = std::abs(idx[i]);
 }
 
 /// Checks if the given size is larger than available. 

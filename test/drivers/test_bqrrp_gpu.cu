@@ -196,8 +196,8 @@ class TestBQRRP : public ::testing::TestWithParam<int64_t>
             RandLAPACK::util::upsize(all_data.rank * n, all_data.R);
             lapack::lacpy(MatrixType::Upper, all_data.rank, n, all_data.R_full.data(), m, all_data.R.data(), all_data.rank);
 
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+            RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
 
             error_check(norm_A, all_data, atol);
         }

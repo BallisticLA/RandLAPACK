@@ -205,7 +205,7 @@ int CQRRPT<T, RNG>::call(
     T* A_hat = new T[d * n]();
     T* tau   = new T[n]();
     // Buffer for column pivoting.
-    std::vector<int64_t> J_buf(n, 0);
+    int64_t* J_buf = new int64_t[n]();
 
     if(this -> timing)
         saso_t_start = steady_clock::now();
@@ -254,6 +254,9 @@ int CQRRPT<T, RNG>::call(
 
     // Check if the input is all zeros
     if (!A_hat[0]) {
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
         return 0;
     }
 
@@ -281,7 +284,7 @@ int CQRRPT<T, RNG>::call(
         a_mod_piv_t_start = steady_clock::now();
 
     // Swap k columns of A with pivots from J
-    blas::copy(n, J, 1, J_buf.data(), 1);
+    blas::copy(n, J, 1, J_buf, 1);
     util::col_swap(m, n, k, A, lda, J_buf);
 
     if(this -> timing) {
@@ -293,6 +296,7 @@ int CQRRPT<T, RNG>::call(
     if (!RandLAPACK::util::diag_is_nonzero(k, R_sp, ldr)) {
         delete[] A_hat;
         delete[] tau;
+        delete[] J_buf;
         return 1;
     }
     blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_sp, ldr, A, lda);
@@ -381,6 +385,7 @@ int CQRRPT<T, RNG>::call(
 
     delete[] A_hat;
     delete[] tau;
+    delete[] J_buf;
 
     return 0;
 }

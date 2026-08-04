@@ -166,8 +166,8 @@ static void CQRRPT_benchmark_run(
         }
 
         // Permuting the columns of the copies of the original matrix A
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
     
         error_check<T>(all_data, col_sz, atol, error_output);
     }
