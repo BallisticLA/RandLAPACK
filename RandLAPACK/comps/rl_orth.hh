@@ -75,7 +75,7 @@ int CholQRQ<T>::call(
     T* A_gram  = new T[k * k]();
 
     // Find normal equation Q'Q - Just the upper triangular portion
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, m, 0.0, A_gram, k);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A, m, (T) 0.0, A_gram, k);
 
     // Positive definite cholesky factorization
     if (lapack::potrf(Uplo::Upper, k, A_gram, k)) {
@@ -92,7 +92,7 @@ int CholQRQ<T>::call(
         }
     }
 
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, A_gram, k, A, m);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, A_gram, k, A, m);
     delete[] A_gram;
     return 0;
 }
@@ -216,10 +216,11 @@ int PLUL<T>::call(
 ){
     int64_t* ipiv  = new int64_t[n]();
 
-    if(lapack::getrf(m, n, A, m, ipiv)) {
-        delete[] ipiv;
-        return 1; // failure condition
-    }
+    // A positive exit code from GETRF means the U-factor is singular; the
+    // factorization itself is still valid, and this routine discards U
+    // anyway, so it is not a failure here. LAPACK++ throws on
+    // its own for invalid arguments (info < 0).
+    lapack::getrf(m, n, A, m, ipiv);
 
     util::get_L(m, n, A, 1);
     lapack::laswp(n, A, m, 1, n, ipiv, 1);
