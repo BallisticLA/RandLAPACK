@@ -260,6 +260,28 @@ RANDOM123_DIR=""
 BLASPP_LIB_DIR=""
 LAPACKPP_LIB_DIR=""
 
+# Idempotent re-runs: a dependency this project already built and installed
+# is reused as if it were external, instead of re-driving its build. This is
+# faster, and it also sidesteps an upstream blaspp defect where re-running
+# cmake over an existing build directory regenerates blas/defines.h WITHOUT
+# the Fortran-mangling and BLAS-backend defines (cached detection results
+# skip the list-building code), which then breaks every downstream compile
+# through LAPACK_GLOBAL. --fresh forces the full rebuild.
+if [[ "$FRESH" != "1" ]]; then
+    if [[ -z "${BLASPP_INSTALL_DIR:-}" ]]; then
+        PRIOR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/blaspp-install" "blaspp")
+        if [[ -n "$PRIOR" ]]; then
+            BLASPP_INSTALL_DIR="$RANDNLA_PROJECT_DIR/install/blaspp-install"
+        fi
+    fi
+    if [[ -z "${LAPACKPP_INSTALL_DIR:-}" ]]; then
+        PRIOR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/lapackpp-install" "lapackpp")
+        if [[ -n "$PRIOR" ]]; then
+            LAPACKPP_INSTALL_DIR="$RANDNLA_PROJECT_DIR/install/lapackpp-install"
+        fi
+    fi
+fi
+
 echo "Dependency discovery:"
 if [[ -n "${BLASPP_INSTALL_DIR:-}" ]]; then
     BLASPP_CMAKE_DIR=$(find_cmake_config "$BLASPP_INSTALL_DIR" "blaspp")
