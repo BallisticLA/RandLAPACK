@@ -1,3 +1,10 @@
+#if defined(__APPLE__)
+#include <iostream>
+int main() {
+    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
+    return 1;
+}
+#else
 /*
 CQRRPT speed comparison benchmark - runs:
     1. CQRRPT
@@ -176,7 +183,6 @@ static void call_all_algs(
         data_regen(m_info, all_data, state_gen);
 
         // Testing GEQR + GEQPT
-#if !defined(__APPLE__)
         auto start_geqpt = steady_clock::now();
         auto start_geqr  = steady_clock::now();
         // GEQR(A) part
@@ -198,7 +204,6 @@ static void call_all_algs(
 
         state_gen = state;
         data_regen(m_info, all_data, state_gen);
-#endif
 
         std::ofstream file(output_filename, std::ios::app);
         file << dur_cqrrpt_default << ",  " << dur_cqrrpt_hqrrp << ",  " << dur_cqrrpt_bqrrp << ",  " << dur_geqpt <<  ",  " 
@@ -269,3 +274,4 @@ int main(int argc, char *argv[]) {
     file << "Total benchmark execution time:" +  std::to_string(dur_time_all) + "\n";
     file.flush();   
 }
+#endif

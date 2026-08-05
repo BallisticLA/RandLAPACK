@@ -187,7 +187,7 @@ class TestUtil_GPU : public ::testing::Test
         RandLAPACK::cuda_kernels::col_swap_gpu(strm, m, n, n, all_data.A_device, m, all_data.J_device);
         cudaMemcpyAsync(all_data.A_host_buffer.data(), all_data.A_device, m * n * sizeof(T), cudaMemcpyDeviceToHost, strm);
         cudaMemcpyAsync(all_data.J_host_buffer.data(), all_data.J_device, n * sizeof(int64_t), cudaMemcpyDeviceToHost, strm);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A.data(), m, all_data.J.data());
         cudaStreamSynchronize(strm);
 
         for(int i = 0; i < m*n; ++i)
@@ -230,7 +230,7 @@ class TestUtil_GPU : public ::testing::Test
 
         T* A = all_data.A.data();
         T* A_submat = all_data.A.data() + (col_offset * m + offset);
-        RandLAPACK::util::col_swap(m_submat, n_submat, k_submat, A_submat, lda, all_data.J);
+        RandLAPACK::util::col_swap(m_submat, n_submat, k_submat, A_submat, lda, all_data.J.data());
 
         cudaStreamSynchronize(strm);
 
@@ -268,7 +268,7 @@ class TestUtil_GPU : public ::testing::Test
 
         int64_t* J_subvec = all_data.J.data() + offset;
         std::vector<int64_t> buf;
-        RandLAPACK::util::col_swap<T>(m, k, J_subvec, all_data.idx);
+        RandLAPACK::util::col_swap(m, k, J_subvec, all_data.idx.data());
         cudaStreamSynchronize(strm);
 
         for(int i = 0; i < m; ++i){

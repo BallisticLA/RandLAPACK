@@ -72,6 +72,28 @@ build system, *and RandLAPACK requires that they be installed via CMake.*
 RandLAPACK's git repository includes a C++ project called *RandBLAS* as a git submodule.
 RandBLAS has BLAS++ and Random123 as dependencies.
 
+### RandBLAS is a pinned submodule
+
+The RandBLAS copy inside this repository is pinned to an exact commit, and
+that pinned copy is the only RandBLAS configuration RandLAPACK is developed
+and tested against. Two rules follow:
+
+1. **Do not develop RandBLAS inside the submodule checkout.** If you want to
+   work on RandBLAS itself, clone it separately
+   (`git clone https://github.com/BallisticLA/RandBLAS.git`) and build and
+   install it as its own project. An installed RandBLAS is not consumed by
+   RandLAPACK, and nothing you install can leak into RandLAPACK builds: the
+   submodule stays authoritative.
+2. **Do not point RandLAPACK at your own RandBLAS working copy.** Version
+   skew between RandLAPACK and RandBLAS is not a supported configuration.
+
+The one sanctioned exception is for *package maintainers* (Spack,
+conda-forge, and similar), whose recipes must build RandBLAS as its own
+package: configuring RandLAPACK with `-DRandLAPACK_EXTERNAL_RandBLAS=ON`
+consumes an installed RandBLAS instead of the submodule, and a configure-time
+gate hard-fails unless that install was built from exactly the commit the
+submodule pins, so skew remains impossible by construction.
+
 We give recipes for installing BLAS++, LAPACK++, and Random123 below.
 Later on, we'll assume these recipes were executed from a directory
 that contains (or will contain) the ``RandLAPACK`` project directory as a subdirectory.

@@ -225,13 +225,13 @@ int QB<T, RNG>::call(
         // No need to reorthogonalize on the 1st pass
         if(curr_sz != 0) {
             // Q_i = orth(Q_i - Q(Q'Q_i))
-            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, 1.0, Q, m, Q_i, m, 0.0, QtQi, next_sz);
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, -1.0, Q, m, QtQi, next_sz, 1.0, Q_i, m);
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, (T) 1.0, Q, m, Q_i, m, (T) 0.0, QtQi, next_sz);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, (T) -1.0, Q, m, QtQi, next_sz, (T) 1.0, Q_i, m);
             this->orth.call(m, b_sz, Q_i);
         }
 
         //B_i' = A' * Q_i'
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, 1.0, A, m, Q_i, m, 0.0, BT_i, n);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, n, b_sz, m, (T) 1.0, A, m, Q_i, m, (T) 0.0, BT_i, n);
 
         // Updating B norm estimation
         T norm_B_i = lapack::lange(Norm::Fro, n, b_sz, BT_i, n);
@@ -270,7 +270,7 @@ int QB<T, RNG>::call(
 
         // This step is only necessary for the next iteration
         // A = A - Q_i * B_i
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, -1.0, Q_i, m, BT_i, n, 1.0, A, m);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, m, n, b_sz, (T) -1.0, Q_i, m, BT_i, n, (T) 1.0, A, m);
     }
 
     free(QtQi);
@@ -351,8 +351,8 @@ int QB<T, RNG>::call(
         }
 
         if(curr_sz != 0) {
-            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, 1.0, Q, m, Q_i, m, 0.0, QtQi, next_sz);
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, -1.0, Q, m, QtQi, next_sz, 1.0, Q_i, m);
+            blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, curr_sz, b_sz, m, (T) 1.0, Q, m, Q_i, m, (T) 0.0, QtQi, next_sz);
+            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, b_sz, curr_sz, (T) -1.0, Q, m, QtQi, next_sz, (T) 1.0, Q_i, m);
             this->orth.call(m, b_sz, Q_i);
         }
 

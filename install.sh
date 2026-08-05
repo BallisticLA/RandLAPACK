@@ -1,220 +1,247 @@
 #!/bin/bash
-# Make sure to enable the script via "chmod +x install.sh"
+# RandLAPACK autoinstaller.
 #
-# This script automatically installs RandLAPACK library with all of its dependencies, as well as builds the RandLAPACK benchmark files (done separately).
-# The project layout will be as such: the directory where the RandLAPACK project was originally located will contain the top-level "RandNLA-project" project direcory with three subdirectories:
-# lib: contains library files for RandLAPACK, blaspp, and lapackpp;
-# install: will contain the installed RandLAPACK-install, blaspp-install, lapackpp-install and random123;
-# build: will contain builds for RandLAPACK-build, benchmark-build, blaspp-build, lapackpp-build.
-# Prerequisites for installation can be seen in the INSTALL.md file.
-# Stop execution on error
-set -e
+# Installs RandLAPACK with all of its dependencies and builds the extras and
+# benchmark projects. The directory that contains the RandLAPACK clone ends up
+# with a top-level "RandNLA-project" directory:
+#   lib:     RandLAPACK, blaspp, lapackpp sources
+#   install: RandLAPACK-install, blaspp-install, lapackpp-install, random123
+#   build:   one build directory per project above
+#
+# Usage: bash install.sh [options]
+#
+#   -y, --yes             Assume "yes" for every prompt (also the behavior when
+#                         stdin is not a terminal, e.g. curl | bash or CI).
+#       --gpu             Build with CUDA support without asking.
+#       --no-gpu          Build without GPU support without asking.
+#   -j, --jobs <N>        Parallel build jobs (default: number of cores).
+#       --fresh           Clear all build directories first. The default reuses
+#                         them, so re-running after a failure or a source
+#                         update is an incremental rebuild.
+#       --modify-rc       Append RANDNLA_PROJECT_DIR / RANDNLA_PROJECT_GPU_AVAIL
+#                         exports to your shell config. The default never
+#                         touches your shell config; the final summary prints
+#                         the export lines to add yourself if you want them.
+#       --project-dir <D> Place/locate RandNLA-project at D instead of next to
+#                         this clone.
+#   -h, --help            Show this help and exit.
+#
+# Every option has an environment-variable equivalent (flags win):
+#   RANDLAPACK_INSTALL_YES=1, RANDLAPACK_INSTALL_GPU=on|off,
+#   RANDLAPACK_INSTALL_JOBS=N, RANDLAPACK_INSTALL_FRESH=1,
+#   RANDLAPACK_INSTALL_MODIFY_RC=1, RANDLAPACK_INSTALL_PROJECT_DIR=D
+#
+# Already-installed dependencies are discovered through:
+#   BLASPP_INSTALL_DIR, LAPACKPP_INSTALL_DIR, RANDOM123_INSTALL_DIR
+# (RandBLAS is intentionally not covered: it stays a git submodule.)
+#
+# All compiler output goes to <project-dir>/install.log; the console shows one
+# line per step. On failure the log path is printed.
+#
+# Prerequisites are listed in INSTALL.md.
+set -euo pipefail
 
-# Determine the appropriate shell config file:
-#   zsh (default on macOS)       → ~/.zshrc
-#   bash on macOS (login shell)  → ~/.bash_profile  (macOS terminals don't source ~/.bashrc)
-#   bash on Linux                → ~/.bashrc
-if [[ "$(basename "${SHELL:-bash}")" == "zsh" ]]; then
-    SHELL_RC="$HOME/.zshrc"
-elif [[ "$(uname)" == "Darwin" ]]; then
-    SHELL_RC="$HOME/.bash_profile"
-else
-    SHELL_RC="$HOME/.bashrc"
+#==============================================================================
+# Option parsing. Environment variables provide defaults; flags override.
+#==============================================================================
+ASSUME_YES="${RANDLAPACK_INSTALL_YES:-0}"
+GPU_CHOICE="${RANDLAPACK_INSTALL_GPU:-ask}"       # ask | on | off
+JOBS="${RANDLAPACK_INSTALL_JOBS:-}"
+FRESH="${RANDLAPACK_INSTALL_FRESH:-0}"
+MODIFY_RC="${RANDLAPACK_INSTALL_MODIFY_RC:-0}"
+PROJECT_DIR_OVERRIDE="${RANDLAPACK_INSTALL_PROJECT_DIR:-}"
+
+usage() { sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -y|--yes)        ASSUME_YES=1 ;;
+        --gpu)           GPU_CHOICE="on" ;;
+        --no-gpu)        GPU_CHOICE="off" ;;
+        -j|--jobs)       JOBS="${2:?--jobs requires a number}"; shift ;;
+        --jobs=*)        JOBS="${1#*=}" ;;
+        --fresh)         FRESH=1 ;;
+        --modify-rc)     MODIFY_RC=1 ;;
+        --project-dir)   PROJECT_DIR_OVERRIDE="${2:?--project-dir requires a path}"; shift ;;
+        --project-dir=*) PROJECT_DIR_OVERRIDE="${1#*=}" ;;
+        -h|--help)       usage; exit 0 ;;
+        *) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+# Prompts happen only on a terminal and only without --yes. When stdin is not
+# a terminal (piped/CI), every prompt silently takes its default.
+INTERACTIVE=0
+if [[ -t 0 && "$ASSUME_YES" != "1" ]]; then
+    INTERACTIVE=1
 fi
 
-# Check for GCC version
+# ask <question> <default y|n> -> returns 0 for yes.
+ask() {
+    local question="$1" default="$2" reply
+    if [[ "$INTERACTIVE" != "1" ]]; then
+        [[ "$default" == "y" ]]
+        return
+    fi
+    read -r -p "$question [$( [[ $default == y ]] && echo Y/n || echo y/N )]: " reply
+    reply="${reply:-$default}"
+    [[ "$reply" == "y" || "$reply" == "Y" || "$reply" == "yes" ]]
+}
+
+if [[ -z "$JOBS" ]]; then
+    JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+fi
+
+# Plain output when not on a terminal or when NO_COLOR/TERM=dumb ask for it.
+if [[ -t 1 && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]; then
+    C_OK=$'\033[32m'; C_ERR=$'\033[31m'; C_BOLD=$'\033[1m'; C_OFF=$'\033[0m'
+else
+    C_OK=""; C_ERR=""; C_BOLD=""; C_OFF=""
+fi
+
+#==============================================================================
+# Toolchain checks. Warn always; abort only if the user says so at a prompt.
+#==============================================================================
 PREFERRED_GCC_VERSION="13.3.0"
 CURRENT_GCC_VERSION=$(gcc --version 2>/dev/null | head -n 1 | awk '{print $NF}')
-
 if [[ "$CURRENT_GCC_VERSION" != "$PREFERRED_GCC_VERSION" ]]; then
-    echo "Warning: GCC $PREFERRED_GCC_VERSION is preferred. Found GCC $CURRENT_GCC_VERSION."
-    echo "Consider installing GCC $PREFERRED_GCC_VERSION before running this script."
-
-    # Ask the user if they want to continue or terminate the script
-    read -p "Do you want to continue with the current GCC version? (y/n): " user_input
-    if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
-        echo "Terminating script. Please install GCC $PREFERRED_GCC_VERSION and try again."
+    echo "Note: GCC $PREFERRED_GCC_VERSION is the reference version; found ${CURRENT_GCC_VERSION:-none}."
+    if ! ask "Continue with the current GCC?" y; then
+        echo "Stopping at your request. Install GCC $PREFERRED_GCC_VERSION and re-run."
         exit 1
     fi
 fi
 
-RELOAD_SHELL=0
+#==============================================================================
+# GPU decision. --gpu/--no-gpu (or RANDLAPACK_INSTALL_GPU) decide outright;
+# otherwise detection + prompt. Non-interactive defaults: NVIDIA detected ->
+# GPU on; AMD or nothing detected -> GPU off (the CUDA-only build cannot
+# succeed on AMD, so saying yes for the user would guarantee a failure).
+#==============================================================================
 RANDLAPACK_CUDA="OFF"
 RANDNLA_PROJECT_GPU_AVAIL="none"
-# Detect NVIDIA GPU
-echo "Detecting a GPU..."
-if command -v nvidia-smi &> /dev/null; then
-    # NVIDIA GPU found. Ask user if they want to proceed with GPU support or not.
-    read -p "NVIDIA GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
-    if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
-        echo "Building libraries without GPU support."
-        RANDNLA_PROJECT_GPU_AVAIL="none"
-    else
-        echo "Building libraries with GPU support."
-        RANDNLA_PROJECT_GPU_AVAIL="auto"
-        RANDLAPACK_CUDA="ON"
-        # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" $SHELL_RC; then
-            echo "#Added via RandLAPACK/install.sh" >> $SHELL_RC
-            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> $SHELL_RC
-            RELOAD_SHELL=1
+case "$GPU_CHOICE" in
+    on)  RANDLAPACK_CUDA="ON";  RANDNLA_PROJECT_GPU_AVAIL="auto" ;;
+    off) ;;
+    ask)
+        if command -v nvidia-smi &> /dev/null; then
+            if ask "NVIDIA GPU detected. Build with CUDA support?" y; then
+                RANDLAPACK_CUDA="ON"; RANDNLA_PROJECT_GPU_AVAIL="auto"
+            fi
+        elif { command -v lspci &>/dev/null && lspci | grep -i "VGA" | grep -qi "AMD"; } || \
+             { [[ "$(uname)" == "Darwin" ]] && system_profiler SPDisplaysDataType 2>/dev/null | grep -qi "AMD"; }; then
+            if ask "AMD GPU detected, but only a CUDA build is available for now. Attempt a CUDA build anyway?" n; then
+                RANDLAPACK_CUDA="ON"; RANDNLA_PROJECT_GPU_AVAIL="auto"
+            fi
+        else
+            echo "No GPU detected; building without GPU support."
         fi
-    fi
-elif { command -v lspci &>/dev/null && lspci | grep -i "VGA" | grep -qi "AMD"; } || \
-     { [[ "$(uname)" == "Darwin" ]] && system_profiler SPDisplaysDataType 2>/dev/null | grep -qi "AMD"; }; then
-    # AMD GPU found. Ask user if they want to proceed with GPU support or not.
-    read -p "AMD GPU detected. Would you like to build libraries with GPU support? (CUDA-only option available for now) (y/n): " user_input
-    if [[ "$user_input" != "y" && "$user_input" != "Y" && "$user_input" != "yes" ]]; then
-        echo "Building libraries without GPU support."
-        RANDNLA_PROJECT_GPU_AVAIL="none"
-    else
-        echo "Building libraries with GPU support."
-        RANDLAPACK_CUDA="ON"
-        RANDNLA_PROJECT_GPU_AVAIL="auto"
-        # We need to add the RANDNLA_PROJECT_GPU_AVAIL variable to bashrc so that it can be used in our other scripts
-        if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" $SHELL_RC; then
-            echo "#Added via RandLAPACK/install.sh" >> $SHELL_RC
-            echo "export RANDNLA_PROJECT_GPU_AVAIL=\"auto\"" >> $SHELL_RC
-            RELOAD_SHELL=1
-        fi
-    fi
-else
-    echo "No NVIDIA GPU detected."
-fi
+        ;;
+    *) echo "RANDLAPACK_INSTALL_GPU must be 'on' or 'off' (got '$GPU_CHOICE')" >&2; exit 2 ;;
+esac
 
 if [[ "$RANDNLA_PROJECT_GPU_AVAIL" == "auto" ]]; then
-    # Check for NVCC version
     PREFERRED_NVCC_VERSION="12.9"
     CURRENT_NVCC_VERSION=$(nvcc --version 2>/dev/null | grep "release" | awk '{print $5}' | cut -d',' -f1)
-
     if [[ "$CURRENT_NVCC_VERSION" != "$PREFERRED_NVCC_VERSION" ]]; then
-        echo "Warning: NVCC $PREFERRED_NVCC_VERSION is preferred. Found NVCC $CURRENT_NVCC_VERSION."
-        echo "Consider installing NVCC $PREFERRED_NVCC_VERSION before running this script."
-
-        # Ask the user if they want to continue or terminate the script
-        read -p "Do you want to continue with the current NVCC version? (y/n): " user_input
-        if [[ "$user_input" != "y" && "$user_input" != "Y" ]]; then
-            echo "Terminating script. Please install NVCC $PREFERRED_NVCC_VERSION and try again."
+        echo "Note: NVCC $PREFERRED_NVCC_VERSION is the reference version; found ${CURRENT_NVCC_VERSION:-none}."
+        if ! ask "Continue with the current NVCC?" y; then
+            echo "Stopping at your request. Install NVCC $PREFERRED_NVCC_VERSION and re-run."
             exit 1
         fi
     fi
 fi
 
-# On macOS, OpenBLAS must be installed via Homebrew before running this script:
-#   brew install openblas
-# On Linux, ensure your BLAS/LAPACK installation (MKL, AOCL, OpenBLAS, etc.) is on PATH.
+#==============================================================================
+# macOS preflight: Homebrew OpenBLAS + libomp, SDK C++ headers, OpenMP hints.
+#==============================================================================
+BLAS_INT="int64"
+MACOS_BLAS_FLAGS=""
+MACOS_LAPACK_FLAGS=""
+MACOS_OPENMP_FLAGS=""
 if [[ "$(uname)" == "Darwin" ]]; then
     if [[ ! -f /opt/homebrew/opt/openblas/lib/libopenblas.dylib ]]; then
-        echo "ERROR: OpenBLAS not found. Install it first: brew install openblas"
+        echo "ERROR: OpenBLAS not found. Install it first: brew install openblas" >&2
         exit 1
     fi
     if [[ ! -f /opt/homebrew/opt/libomp/lib/libomp.dylib ]]; then
-        echo "ERROR: libomp not found. Install it first: brew install libomp"
+        echo "ERROR: libomp not found. Install it first: brew install libomp" >&2
         exit 1
     fi
+    BLAS_INT="int32"
+    MACOS_SDK_PATH=$(xcrun --show-sdk-path)
+    # SDK C++ headers + Apple Clang OpenMP flags (no native OpenMP; Homebrew
+    # libomp). Appending to CXXFLAGS/CFLAGS lets cmake pick them up via
+    # CMAKE_<LANG>_FLAGS_INIT for all try_compile tests, including FindOpenMP.
+    export CXXFLAGS="-isystem ${MACOS_SDK_PATH}/usr/include/c++/v1 -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
+    export CFLAGS="-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
+    export LDFLAGS="-L/opt/homebrew/opt/libomp/lib"
+    MACOS_BLAS_FLAGS="-DBLAS_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib -Dblas_fortran=add"
+    MACOS_LAPACK_FLAGS="-DLAPACK_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib"
+    MACOS_OPENMP_FLAGS="-DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib -DOpenMP_C_FLAGS=-Xpreprocessor;-fopenmp -DOpenMP_CXX_FLAGS=-Xpreprocessor;-fopenmp"
 fi
 
-# Get the directory where the script is located
+#==============================================================================
+# Project layout. The clone moves itself into <parent>/RandNLA-project/lib/
+# on first run; on re-runs (script already under lib/) the layout is detected.
+#==============================================================================
 SCRIPT_DIR=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
-# Get the parent directory (one level above the script)
 PARENT_DIR=$(dirname "$SCRIPT_DIR")
-PARENT_BASE=$(basename "$(dirname "$SCRIPT_DIR")")
-# Define the project directory
-if [[ "$PARENT_BASE" == "lib" ]]; then
-    # Project already exists
-    RANDNLA_PROJECT_DIR=$(dirname "$(dirname "$SCRIPT_DIR")")
+PARENT_BASE=$(basename "$PARENT_DIR")
+if [[ -n "$PROJECT_DIR_OVERRIDE" ]]; then
+    RANDNLA_PROJECT_DIR="$PROJECT_DIR_OVERRIDE"
+elif [[ "$PARENT_BASE" == "lib" ]]; then
+    RANDNLA_PROJECT_DIR=$(dirname "$PARENT_DIR")
 else
-    # New project library to be created
     RANDNLA_PROJECT_DIR="$PARENT_DIR/RandNLA-project"
-    # We want to make sure that RANDNLA_PROJECT_DIR variable is in the
-    # user's bashrc so that it can be used by our other bash scripts.
-    # $RANDNLA_PROJECT_DIR is already absolute (derived from realpath of script path);
-    # avoid calling realpath on a path that may not exist yet (macOS BSD realpath requires existence)
-    RANDNLA_PROJECT_DIR_ABSOLUTE_PATH="$RANDNLA_PROJECT_DIR"
-    if ! grep -q "export RANDNLA_PROJECT_DIR=" $SHELL_RC; then
-        echo "#Added via RandLAPACK/install.sh" >> $SHELL_RC
-        echo "export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR_ABSOLUTE_PATH\"" >> $SHELL_RC
-        RELOAD_SHELL=1
+fi
+
+mkdir -p "$RANDNLA_PROJECT_DIR"/{install,lib,build}
+for d in blaspp-build lapackpp-build RandLAPACK-build extras-build benchmark-build; do
+    if [[ "$FRESH" == "1" ]]; then
+        rm -rf "$RANDNLA_PROJECT_DIR/build/$d"
     fi
-fi
+    mkdir -p "$RANDNLA_PROJECT_DIR/build/$d"
+done
 
-# Create the project directory and its subdirectories
-if [[ ! -d "$RANDNLA_PROJECT_DIR" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/install/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/install/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/install/"
-else 
-    echo "Directory exists at: $RANDNLA_PROJECT_DIR/install/"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/lib/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/lib/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/lib/"
-else 
-    echo "Directory exists at: $RANDNLA_PROJECT_DIR/lib/"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/build/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/build/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/"
-else 
-    echo "Directory exists at: $RANDNLA_PROJECT_DIR/build/"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/build/blaspp-build/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/build/blaspp-build/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/blaspp-build/"
-else 
-    rm -rf $RANDNLA_PROJECT_DIR/build/blaspp-build/*
-    echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/blaspp-build/"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/build/lapackpp-build/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/build/lapackpp-build/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/lapackpp-build/"
-else 
-    rm -rf $RANDNLA_PROJECT_DIR/build/lapackpp-build/*
-    echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/lapackpp-build/"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/build/RandLAPACK-build/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/build/RandLAPACK-build/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/"
-else 
-    rm -rf $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/*
-    echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/build/extras-build/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/build/extras-build/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/extras-build/"
-else
-    rm -rf $RANDNLA_PROJECT_DIR/build/extras-build/*
-    echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/extras-build/"
-fi
-if [[ ! -d "$RANDNLA_PROJECT_DIR/build/benchmark-build/" ]]; then
-    mkdir -p "$RANDNLA_PROJECT_DIR/build/benchmark-build/"
-    echo "Directory created at: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
-else
-    rm -rf $RANDNLA_PROJECT_DIR/build/benchmark-build/*
-    echo "Directory cleared at: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
-fi
+LOG="$RANDNLA_PROJECT_DIR/install.log"
+: > "$LOG"
+echo "RandLAPACK install started $(date)" >> "$LOG"
+
+# run_step <label> <command...>: one console line per step, full output in the
+# log, log path printed on failure.
+STEP=0
+TOTAL_STEPS=10
+run_step() {
+    local label="$1"; shift
+    STEP=$((STEP + 1))
+    printf "%s[%d/%d]%s %s ... " "$C_BOLD" "$STEP" "$TOTAL_STEPS" "$C_OFF" "$label"
+    local t0 t1
+    t0=$(date +%s)
+    {
+        echo ""
+        echo "===== [$STEP/$TOTAL_STEPS] $label ====="
+        echo "\$ $*"
+    } >> "$LOG"
+    if "$@" >> "$LOG" 2>&1; then
+        t1=$(date +%s)
+        printf "%sdone%s (%ds)\n" "$C_OK" "$C_OFF" "$((t1 - t0))"
+    else
+        printf "%sFAILED%s\n" "$C_ERR" "$C_OFF" >&2
+        echo "" >&2
+        echo "Step '$label' failed. Full output: $LOG" >&2
+        echo "The last 20 log lines:" >&2
+        tail -20 "$LOG" >&2
+        exit 1
+    fi
+}
 
 #==============================================================================
-# Discovery phase: probe for already-installed dependencies via env vars.
-# If <DEP>_INSTALL_DIR is set and points at a valid install, skip clone+build
-# and reuse it. Otherwise fall back to the fresh clone+build path below.
-# Supported env vars:
-#   BLASPP_INSTALL_DIR    -- root of blaspp install (containing lib/cmake/blaspp/ or lib64/...)
-#   LAPACKPP_INSTALL_DIR  -- root of lapackpp install
-#   RANDOM123_INSTALL_DIR -- root containing include/Random123/
-# RandBLAS is intentionally not covered here -- it stays a submodule.
+# Dependency discovery: reuse preinstalled deps pointed at by env vars.
 #==============================================================================
-
-# find_cmake_config <install_root> <pkg_name>
-# Echoes the directory containing <pkg_name>Config.cmake, or empty if not found.
-# Always returns 0; the caller checks for an empty result (avoids tripping set -e).
 find_cmake_config() {
-    local root="$1"
-    local pkg="$2"
-    local libdir
+    local root="$1" pkg="$2" libdir
     for libdir in lib lib64 lib/x86_64-linux-gnu; do
         if [[ -f "$root/$libdir/cmake/$pkg/${pkg}Config.cmake" ]]; then
             echo "$root/$libdir/cmake/$pkg/"
@@ -233,188 +260,225 @@ RANDOM123_DIR=""
 BLASPP_LIB_DIR=""
 LAPACKPP_LIB_DIR=""
 
-echo "=========================================="
-echo "Dependency discovery..."
-echo "=========================================="
+# Idempotent re-runs: a dependency this project already built and installed
+# is reused as if it were external, instead of re-driving its build. This is
+# faster, and it also sidesteps an upstream blaspp defect where re-running
+# cmake over an existing build directory regenerates blas/defines.h WITHOUT
+# the Fortran-mangling and BLAS-backend defines (cached detection results
+# skip the list-building code), which then breaks every downstream compile
+# through LAPACK_GLOBAL. --fresh forces the full rebuild.
+if [[ "$FRESH" != "1" ]]; then
+    if [[ -z "${BLASPP_INSTALL_DIR:-}" ]]; then
+        PRIOR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/blaspp-install" "blaspp")
+        if [[ -n "$PRIOR" ]]; then
+            BLASPP_INSTALL_DIR="$RANDNLA_PROJECT_DIR/install/blaspp-install"
+        fi
+    fi
+    if [[ -z "${LAPACKPP_INSTALL_DIR:-}" ]]; then
+        PRIOR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/lapackpp-install" "lapackpp")
+        if [[ -n "$PRIOR" ]]; then
+            LAPACKPP_INSTALL_DIR="$RANDNLA_PROJECT_DIR/install/lapackpp-install"
+        fi
+    fi
+fi
 
+echo "Dependency discovery:"
 if [[ -n "${BLASPP_INSTALL_DIR:-}" ]]; then
     BLASPP_CMAKE_DIR=$(find_cmake_config "$BLASPP_INSTALL_DIR" "blaspp")
     if [[ -n "$BLASPP_CMAKE_DIR" ]]; then
         USE_EXTERNAL_BLASPP=true
         BLASPP_LIB_DIR=$(dirname "$(dirname "$BLASPP_CMAKE_DIR")")
-        echo "  [blaspp]    Using external install at $BLASPP_INSTALL_DIR"
-        echo "              CMake config: $BLASPP_CMAKE_DIR"
+        echo "  [blaspp]    external install: $BLASPP_INSTALL_DIR"
     else
-        echo "  [blaspp]    BLASPP_INSTALL_DIR=$BLASPP_INSTALL_DIR set but blasppConfig.cmake not found; will build from source."
+        echo "  [blaspp]    BLASPP_INSTALL_DIR set but blasppConfig.cmake not found; building from source."
     fi
 else
-    echo "  [blaspp]    No BLASPP_INSTALL_DIR set; will build from source."
+    echo "  [blaspp]    building from source (set BLASPP_INSTALL_DIR to reuse an install)."
 fi
-
 if [[ -n "${LAPACKPP_INSTALL_DIR:-}" ]]; then
     LAPACKPP_CMAKE_DIR=$(find_cmake_config "$LAPACKPP_INSTALL_DIR" "lapackpp")
     if [[ -n "$LAPACKPP_CMAKE_DIR" ]]; then
         USE_EXTERNAL_LAPACKPP=true
         LAPACKPP_LIB_DIR=$(dirname "$(dirname "$LAPACKPP_CMAKE_DIR")")
-        echo "  [lapackpp]  Using external install at $LAPACKPP_INSTALL_DIR"
-        echo "              CMake config: $LAPACKPP_CMAKE_DIR"
+        echo "  [lapackpp]  external install: $LAPACKPP_INSTALL_DIR"
     else
-        echo "  [lapackpp]  LAPACKPP_INSTALL_DIR=$LAPACKPP_INSTALL_DIR set but lapackppConfig.cmake not found; will build from source."
+        echo "  [lapackpp]  LAPACKPP_INSTALL_DIR set but lapackppConfig.cmake not found; building from source."
     fi
 else
-    echo "  [lapackpp]  No LAPACKPP_INSTALL_DIR set; will build from source."
+    echo "  [lapackpp]  building from source (set LAPACKPP_INSTALL_DIR to reuse an install)."
 fi
-
 if [[ -n "${RANDOM123_INSTALL_DIR:-}" ]]; then
     if [[ -f "$RANDOM123_INSTALL_DIR/include/Random123/philox.h" ]]; then
         USE_EXTERNAL_RANDOM123=true
         RANDOM123_DIR="$RANDOM123_INSTALL_DIR/include/"
-        echo "  [random123] Using external install at $RANDOM123_INSTALL_DIR"
+        echo "  [random123] external install: $RANDOM123_INSTALL_DIR"
     else
-        echo "  [random123] RANDOM123_INSTALL_DIR=$RANDOM123_INSTALL_DIR set but include/Random123/philox.h not found; will clone from source."
+        echo "  [random123] RANDOM123_INSTALL_DIR set but include/Random123/philox.h not found; cloning."
     fi
 else
-    echo "  [random123] No RANDOM123_INSTALL_DIR set; will clone from source."
+    echo "  [random123] cloning (set RANDOM123_INSTALL_DIR to reuse an install)."
 fi
-echo ""
 
-# Initialize and update RandLAPACK submodule -- RandBLAS
-git -C $SCRIPT_DIR submodule init; git -C $SCRIPT_DIR submodule update
+#==============================================================================
+# Sources: submodule, self-move into the layout, dependency clones.
+#==============================================================================
+git -C "$SCRIPT_DIR" submodule init >> "$LOG" 2>&1
+git -C "$SCRIPT_DIR" submodule update >> "$LOG" 2>&1
 
 if [[ ! -d "$RANDNLA_PROJECT_DIR/lib/RandLAPACK" ]]; then
-    # Move RandLAPACK in its intended location (use $SCRIPT_DIR to support any clone folder name)
-    mv "$SCRIPT_DIR" "$PARENT_DIR/RandNLA-project/lib/RandLAPACK"
+    mv "$SCRIPT_DIR" "$RANDNLA_PROJECT_DIR/lib/RandLAPACK"
+    echo "Moved this clone to $RANDNLA_PROJECT_DIR/lib/RandLAPACK"
 fi
 
-# Obtain BLAS++ and LAPACK++ (skip the clones for any dep discovered above)
 if [[ "$USE_EXTERNAL_LAPACKPP" != "true" && ! -d "$RANDNLA_PROJECT_DIR/lib/lapackpp" ]]; then
-git clone https://github.com/icl-utk-edu/lapackpp         $RANDNLA_PROJECT_DIR/lib/lapackpp
+    git clone https://github.com/icl-utk-edu/lapackpp "$RANDNLA_PROJECT_DIR/lib/lapackpp" >> "$LOG" 2>&1
 fi
 if [[ "$USE_EXTERNAL_BLASPP" != "true" && ! -d "$RANDNLA_PROJECT_DIR/lib/blaspp" ]]; then
-git clone https://github.com/icl-utk-edu/blaspp           $RANDNLA_PROJECT_DIR/lib/blaspp
+    git clone https://github.com/icl-utk-edu/blaspp "$RANDNLA_PROJECT_DIR/lib/blaspp" >> "$LOG" 2>&1
 fi
 if [[ "$USE_EXTERNAL_RANDOM123" != "true" && ! -d "$RANDNLA_PROJECT_DIR/install/random123" ]]; then
-git clone https://github.com/DEShawResearch/random123.git $RANDNLA_PROJECT_DIR/install/random123
+    git clone https://github.com/DEShawResearch/random123.git "$RANDNLA_PROJECT_DIR/install/random123" >> "$LOG" 2>&1
 fi
 
-echo "All libraries placed in: $RANDNLA_PROJECT_DIR/lib"
-
-# Configure, build, and install BLAS++
-# Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-# On macOS, Homebrew OpenBLAS is LP64 (int32); Linux typically has ILP64 (int64) BLAS available.
-# The macOS CLT does not expose C++ stdlib headers in its default search path — export CXXFLAGS
-# so cmake picks them up via CMAKE_CXX_FLAGS_INIT for all subsequent cmake invocations.
-BLAS_INT="int64"
-MACOS_BLAS_FLAGS=""
-MACOS_LAPACK_FLAGS=""
-MACOS_OPENMP_FLAGS=""
-if [[ "$(uname)" == "Darwin" ]]; then
-    BLAS_INT="int32"
-    MACOS_SDK_PATH=$(xcrun --show-sdk-path)
-    # SDK C++ headers + Apple Clang OpenMP flags (no native OpenMP; use Homebrew libomp).
-    # Appending to CXXFLAGS/CFLAGS lets cmake pick them up via CMAKE_CXX_FLAGS_INIT /
-    # CMAKE_C_FLAGS_INIT for all try_compile tests, including FindOpenMP.
-    export CXXFLAGS="-isystem ${MACOS_SDK_PATH}/usr/include/c++/v1 -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
-    export CFLAGS="-Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include"
-    export LDFLAGS="-L/opt/homebrew/opt/libomp/lib"
-    # Homebrew OpenBLAS is keg-only; pass full path and Fortran mangling directly.
-    MACOS_BLAS_FLAGS="-DBLAS_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib -Dblas_fortran=add"
-    # OpenBLAS bundles LAPACK; point lapackpp at the same library.
-    MACOS_LAPACK_FLAGS="-DLAPACK_LIBRARIES=/opt/homebrew/opt/openblas/lib/libopenblas.dylib"
-    # Explicit hints for cmake's FindOpenMP (C and CXX).
-    # Flags use semicolon cmake-list syntax to avoid bash word-splitting on spaces.
-    MACOS_OPENMP_FLAGS="-DOpenMP_C_LIB_NAMES=omp -DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=/opt/homebrew/opt/libomp/lib/libomp.dylib -DOpenMP_C_FLAGS=-Xpreprocessor;-fopenmp -DOpenMP_CXX_FLAGS=-Xpreprocessor;-fopenmp"
-fi
-cmake  -S $RANDNLA_PROJECT_DIR/lib/blaspp/ -B $RANDNLA_PROJECT_DIR/build/blaspp-build/ \
-    -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_TESTING=OFF \
-    -Dblas_int=$BLAS_INT \
-    -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/blaspp-install/ \
-    $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS
-make  -C $RANDNLA_PROJECT_DIR/build/blaspp-build/ -j20 install
-
+#==============================================================================
+# Builds. Each pair below is one configure step + one build step; skipped
+# steps still advance the counter so the numbering is stable.
+#==============================================================================
+if [[ "$USE_EXTERNAL_BLASPP" != "true" ]]; then
+    # Add "-DBLAS_LIBRARIES='-lflame -lblis'" here if using AMD AOCL.
+    # The MACOS_* variables expand unquoted on purpose: they hold multiple
+    # -D words, and some values are CMake lists with semicolons, which must
+    # reach cmake verbatim (never re-parse them through a shell string).
+    run_step "Configuring BLAS++" \
+        cmake -S "$RANDNLA_PROJECT_DIR/lib/blaspp/" -B "$RANDNLA_PROJECT_DIR/build/blaspp-build/" \
+            -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dblas_int=$BLAS_INT \
+            -DCMAKE_INSTALL_PREFIX="$RANDNLA_PROJECT_DIR/install/blaspp-install/" \
+            $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS
+    run_step "Building + installing BLAS++" \
+        cmake --build "$RANDNLA_PROJECT_DIR/build/blaspp-build/" -j "$JOBS" --target install
     BLASPP_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/blaspp-install" "blaspp")
     BLASPP_LIB_DIR=$(dirname "$(dirname "$BLASPP_CMAKE_DIR")")
+else
+    STEP=$((STEP + 2)); echo "[$STEP/$TOTAL_STEPS] BLAS++ ... reused external install"
 fi
 
-# Configure, build, and install LAPACK++
-# Add "-DBLAS_LIBRARIES='-lflame -lblis'" if using AMD AOCL
-cmake  -S $RANDNLA_PROJECT_DIR/lib/lapackpp/ -B $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -Dblaspp_DIR=$RANDNLA_PROJECT_DIR/install/blaspp-install/$LIB_VAR/cmake/blaspp/  -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/lapackpp-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
-make  -C $RANDNLA_PROJECT_DIR/build/lapackpp-build/ -j20 install
-# Configure, build, and install RandLAPACK
-echo "=========================================="
-echo "Configuring and building RandLAPACK..."
-echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/ -B $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -DCMAKE_BUILD_TYPE=Release -DRequireCUDA=$RANDLAPACK_CUDA -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_INSTALL_PREFIX=$RANDNLA_PROJECT_DIR/install/RandLAPACK-install -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON -DBUILD_TESTS=OFF -DRandLAPACK_BUILD_TESTS=ON $MACOS_OPENMP_FLAGS
-if [ $? -ne 0 ]; then
-    echo "ERROR: RandLAPACK configuration failed!"
-    exit 1
+if [[ "$USE_EXTERNAL_LAPACKPP" != "true" ]]; then
+    run_step "Configuring LAPACK++" \
+        cmake -S "$RANDNLA_PROJECT_DIR/lib/lapackpp/" -B "$RANDNLA_PROJECT_DIR/build/lapackpp-build/" \
+            -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
+            -DCMAKE_INSTALL_PREFIX="$RANDNLA_PROJECT_DIR/install/lapackpp-install" \
+            -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON \
+            $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
+    run_step "Building + installing LAPACK++" \
+        cmake --build "$RANDNLA_PROJECT_DIR/build/lapackpp-build/" -j "$JOBS" --target install
+    LAPACKPP_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/lapackpp-install" "lapackpp")
+    LAPACKPP_LIB_DIR=$(dirname "$(dirname "$LAPACKPP_CMAKE_DIR")")
+else
+    STEP=$((STEP + 2)); echo "[$STEP/$TOTAL_STEPS] LAPACK++ ... reused external install"
 fi
-make  -C $RANDNLA_PROJECT_DIR/build/RandLAPACK-build/ -j20 install
-if [ $? -ne 0 ]; then
-    echo "ERROR: RandLAPACK build failed!"
-    exit 1
+
+if [[ "$USE_EXTERNAL_RANDOM123" != "true" ]]; then
+    RANDOM123_DIR="$RANDNLA_PROJECT_DIR/install/random123/include/"
 fi
+
+RL_SRC="$RANDNLA_PROJECT_DIR/lib/RandLAPACK"
+run_step "Configuring RandLAPACK" \
+    cmake -S "$RL_SRC" -B "$RANDNLA_PROJECT_DIR/build/RandLAPACK-build/" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DRequireCUDA=$RANDLAPACK_CUDA \
+        -Dlapackpp_DIR="$LAPACKPP_CMAKE_DIR" \
+        -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
+        -DRandom123_DIR="$RANDOM123_DIR" \
+        -DCMAKE_INSTALL_PREFIX="$RANDNLA_PROJECT_DIR/install/RandLAPACK-install" \
+        -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON \
+        -DBUILD_TESTS=OFF -DRandLAPACK_BUILD_TESTS=ON $MACOS_OPENMP_FLAGS
+run_step "Building + installing RandLAPACK" \
+    cmake --build "$RANDNLA_PROJECT_DIR/build/RandLAPACK-build/" -j "$JOBS" --target install
 RANDLAPACK_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/RandLAPACK-install" "RandLAPACK")
 RANDLAPACK_LIB_DIR=$(dirname "$(dirname "$RANDLAPACK_CMAKE_DIR")")
-echo "RandLAPACK configured and built successfully"
-echo ""
 
-# If GPU support is disabled AND we're building blaspp from source (not using an
-# external install), prevent extras and benchmarks from auto-detecting CUDA.
-# When using an external blaspp install, the external install's configuration
-# dictates whether CUDAToolkit is required (its config calls find_dependency on it).
+# If GPU support is disabled AND blaspp was built from source, keep extras and
+# benchmarks from auto-detecting CUDA. With an external blaspp, its own config
+# dictates whether CUDAToolkit is required.
 DISABLE_CUDA_FLAG=""
 if [[ "$RANDLAPACK_CUDA" == "OFF" && "$USE_EXTERNAL_BLASPP" != "true" ]]; then
     DISABLE_CUDA_FLAG="-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE"
 fi
 
-# Configure and build RandLAPACK-extras
-echo "=========================================="
-echo "Configuring and building RandLAPACK extras..."
-echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/extras/ -B $RANDNLA_PROJECT_DIR/build/extras-build/ -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDLAPACK_CMAKE_DIR -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
-if [ $? -ne 0 ]; then
-    echo "ERROR: RandLAPACK extras configuration failed!"
-    exit 1
-fi
-make  -C $RANDNLA_PROJECT_DIR/build/extras-build/ -j20
-if [ $? -ne 0 ]; then
-    echo "ERROR: RandLAPACK extras build failed!"
-    exit 1
-fi
-echo "RandLAPACK extras configured and built successfully"
-echo ""
+run_step "Configuring extras" \
+    cmake -S "$RL_SRC/extras/" -B "$RANDNLA_PROJECT_DIR/build/extras-build/" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DFETCHCONTENT_BASE_DIR="$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/" \
+        -DRandLAPACK_DIR="$RANDLAPACK_CMAKE_DIR" \
+        -Dlapackpp_DIR="$LAPACKPP_CMAKE_DIR" \
+        -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
+        -DRandom123_DIR="$RANDOM123_DIR" \
+        -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" \
+        $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
+run_step "Building extras" \
+    cmake --build "$RANDNLA_PROJECT_DIR/build/extras-build/" -j "$JOBS"
 
-# Configure and build RandLAPACK-benchmark
-echo "=========================================="
-echo "Configuring and building RandLAPACK benchmarks..."
-echo "=========================================="
-cmake  -S $RANDNLA_PROJECT_DIR/lib/RandLAPACK/benchmark/ -B $RANDNLA_PROJECT_DIR/build/benchmark-build/  -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_BASE_DIR=$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/ -DRandLAPACK_DIR=$RANDLAPACK_CMAKE_DIR -Dlapackpp_DIR=$LAPACKPP_CMAKE_DIR -Dblaspp_DIR=$BLASPP_CMAKE_DIR -DRandom123_DIR=$RANDOM123_DIR -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
-if [ $? -ne 0 ]; then
-    echo "ERROR: RandLAPACK benchmarks configuration failed!"
-    exit 1
-fi
-make  -C $RANDNLA_PROJECT_DIR/build/benchmark-build/ -j20
-if [ $? -ne 0 ]; then
-    echo "ERROR: RandLAPACK benchmarks build failed!"
-    exit 1
-fi
-echo "RandLAPACK benchmarks configured and built successfully"
-echo ""
+run_step "Configuring benchmarks" \
+    cmake -S "$RL_SRC/benchmark/" -B "$RANDNLA_PROJECT_DIR/build/benchmark-build/" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DFETCHCONTENT_BASE_DIR="$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/" \
+        -DRandLAPACK_DIR="$RANDLAPACK_CMAKE_DIR" \
+        -Dlapackpp_DIR="$LAPACKPP_CMAKE_DIR" \
+        -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
+        -DRandom123_DIR="$RANDOM123_DIR" \
+        -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" \
+        $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
+run_step "Building benchmarks" \
+    cmake --build "$RANDNLA_PROJECT_DIR/build/benchmark-build/" -j "$JOBS"
 
-echo "=========================================="
-echo "Installation Complete!"
-echo "=========================================="
-echo "RandLAPACK, extras, and benchmarks are ready to use."
-echo ""
-echo "Extras executables: $RANDNLA_PROJECT_DIR/build/extras-build/"
-echo "Benchmark executables: $RANDNLA_PROJECT_DIR/build/benchmark-build/"
-echo ""
+#==============================================================================
+# Shell config: opt-in only. The default prints what to add and touches nothing.
+#==============================================================================
+if [[ "$(basename "${SHELL:-bash}")" == "zsh" ]]; then
+    SHELL_RC="$HOME/.zshrc"
+elif [[ "$(uname)" == "Darwin" ]]; then
+    SHELL_RC="$HOME/.bash_profile"
+else
+    SHELL_RC="$HOME/.bashrc"
+fi
+EXPORT_DIR="export RANDNLA_PROJECT_DIR=\"$RANDNLA_PROJECT_DIR\""
+EXPORT_GPU="export RANDNLA_PROJECT_GPU_AVAIL=\"$RANDNLA_PROJECT_GPU_AVAIL\""
+if [[ "$MODIFY_RC" == "1" ]]; then
+    if ! grep -q "export RANDNLA_PROJECT_DIR=" "$SHELL_RC" 2>/dev/null; then
+        { echo "# Added via RandLAPACK/install.sh"; echo "$EXPORT_DIR"; } >> "$SHELL_RC"
+    fi
+    if ! grep -q "export RANDNLA_PROJECT_GPU_AVAIL=" "$SHELL_RC" 2>/dev/null; then
+        echo "$EXPORT_GPU" >> "$SHELL_RC"
+    fi
+    echo "Added RANDNLA_PROJECT_DIR and RANDNLA_PROJECT_GPU_AVAIL to $SHELL_RC (open a new shell to pick them up)."
+fi
 
-if [ $RELOAD_SHELL -eq 1 ]; then
-    # Source the shell config and spawn a new shell so that the variable change takes place
-    echo "Writing variables into $SHELL_RC"
-    exec "${SHELL:-bash}" -c "source $SHELL_RC && exec ${SHELL:-bash}"
+#==============================================================================
+# Success summary.
+#==============================================================================
+echo ""
+echo "${C_OK}${C_BOLD}RandLAPACK installed successfully.${C_OFF}"
+echo ""
+echo "  Project layout:    $RANDNLA_PROJECT_DIR"
+echo "  Installed library: $RANDNLA_PROJECT_DIR/install/RandLAPACK-install"
+echo "  Extras:            $RANDNLA_PROJECT_DIR/build/extras-build/"
+echo "  Benchmarks:        $RANDNLA_PROJECT_DIR/build/benchmark-build/"
+echo "  Full build log:    $LOG"
+echo ""
+echo "  Smoke test:"
+echo "    ctest --test-dir $RANDNLA_PROJECT_DIR/build/RandLAPACK-build"
+echo ""
+echo "  Consume from CMake with:"
+echo "    -DRandLAPACK_DIR=$RANDLAPACK_CMAKE_DIR"
+if [[ "$MODIFY_RC" != "1" ]]; then
+    echo ""
+    echo "  The benchmark scripts expect two environment variables. This script"
+    echo "  no longer edits your shell config; add them yourself if needed:"
+    echo "    $EXPORT_DIR"
+    echo "    $EXPORT_GPU"
+    echo "  (or re-run with --modify-rc to have them appended to $SHELL_RC)"
 fi

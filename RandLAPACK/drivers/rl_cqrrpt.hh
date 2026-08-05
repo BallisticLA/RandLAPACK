@@ -205,7 +205,7 @@ int CQRRPT<T, RNG>::call(
     T* A_hat = new T[d * n]();
     T* tau   = new T[n]();
     // Buffer for column pivoting.
-    std::vector<int64_t> J_buf(n, 0);
+    int64_t* J_buf = new int64_t[n]();
 
     if(this -> timing)
         saso_t_start = steady_clock::now();
@@ -254,6 +254,9 @@ int CQRRPT<T, RNG>::call(
 
     // Check if the input is all zeros
     if (!A_hat[0]) {
+        delete[] A_hat;
+        delete[] tau;
+        delete[] J_buf;
         return 0;
     }
 
@@ -281,7 +284,7 @@ int CQRRPT<T, RNG>::call(
         a_mod_piv_t_start = steady_clock::now();
 
     // Swap k columns of A with pivots from J
-    blas::copy(n, J, 1, J_buf.data(), 1);
+    blas::copy(n, J, 1, J_buf, 1);
     util::col_swap(m, n, k, A, lda, J_buf);
 
     if(this -> timing) {
@@ -293,9 +296,10 @@ int CQRRPT<T, RNG>::call(
     if (!RandLAPACK::util::diag_is_nonzero(k, R_sp, ldr)) {
         delete[] A_hat;
         delete[] tau;
+        delete[] J_buf;
         return 1;
     }
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, 1.0, R_sp, ldr, A, lda);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, k, (T) 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing) {
         a_mod_trsm_t_stop = steady_clock::now();
@@ -303,7 +307,7 @@ int CQRRPT<T, RNG>::call(
     }
 
     // Do Cholesky QR
-    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, 1.0, A, lda, 0.0, R_sp, ldr);
+    blas::syrk(Layout::ColMajor, Uplo::Upper, Op::Trans, k, m, (T) 1.0, A, lda, (T) 0.0, R_sp, ldr);
     if(lapack::potrf(Uplo::Upper, k, R_sp, ldr)) {
         // Perform aposteriori rank estimation of CholQR failed?
 
@@ -331,14 +335,14 @@ int CQRRPT<T, RNG>::call(
     this->rank = new_rank;
 
     // Obtain the output Q-factor
-    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, 1.0, R_sp, ldr, A, lda);
+    blas::trsm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, m, new_rank, (T) 1.0, R_sp, ldr, A, lda);
 
     if(this -> timing)
         cholqr_t_stop = steady_clock::now();
 
     if (!this->orthogonalization) {
         // Get the final R-factor -- undoing the preconditioning
-        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, 1.0, A_hat, d, R_sp, ldr); 
+        blas::trmm(Layout::ColMajor, Side::Right, Uplo::Upper, Op::NoTrans, Diag::NonUnit, new_rank, n, (T) 1.0, A_hat, d, R_sp, ldr); 
     } 
     else if (new_rank != n) {
         // Complete the orthonormal set
@@ -351,9 +355,9 @@ int CQRRPT<T, RNG>::call(
         // First compute QQ^T * G and store temporarily
         T* temp = new T[m * cols_to_fill]();
         // temp = Q^T * G
-        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, cols_to_fill, m, 1.0, A, lda, &A[new_rank * lda], lda, 0.0, temp, new_rank);
+        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, new_rank, cols_to_fill, m, (T) 1.0, A, lda, &A[new_rank * lda], lda, (T) 0.0, temp, new_rank);
         // G := G - Q * temp (i.e., G = G - QQ^T * G)
-        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cols_to_fill, new_rank, -1.0, A, lda, temp, new_rank, 1.0, &A[new_rank * lda], lda);
+        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, cols_to_fill, new_rank, (T) -1.0, A, lda, temp, new_rank, (T) 1.0, &A[new_rank * lda], lda);
         delete[] temp;
         
         // Orthogonalize G using QRF + ORGQR
@@ -381,6 +385,7 @@ int CQRRPT<T, RNG>::call(
 
     delete[] A_hat;
     delete[] tau;
+    delete[] J_buf;
 
     return 0;
 }
