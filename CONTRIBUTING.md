@@ -6,7 +6,7 @@ mechanics of contributing code.
 
 ## Getting a working setup
 
-Run `bash install.sh` from your clone (see [INSTALL.md](INSTALL.md) for
+Run `bash install.sh` from your clone (see [docs/INSTALL.md](docs/INSTALL.md) for
 manual installation). The installer builds the test suite; verify your
 baseline before changing anything:
 
@@ -21,7 +21,7 @@ RandLAPACK build directory.
 
 ## How the library fits together
 
-Read [ARCHITECTURE.md](ARCHITECTURE.md) first, and `devnotes/idioms.md` for
+Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first, and `devnotes/idioms.md` for
 the C++ idioms we use deliberately (duck-typed callables, caller-provided
 workspaces, and so on).
 
@@ -37,7 +37,7 @@ Conventions enforced in review:
 - Randomness only through `RandBLAS::RNGState` (counter-based Philox), never
   through `std::rand` or `std::mt19937`, so results stay reproducible.
 - The RandBLAS submodule is read-only from this repository's point of view:
-  develop RandBLAS in its own clone (see INSTALL.md, "RandBLAS is a pinned
+  develop RandBLAS in its own clone (see docs/INSTALL.md, "RandBLAS is a pinned
   submodule").
 
 ## Tests

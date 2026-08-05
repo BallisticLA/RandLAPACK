@@ -38,7 +38,7 @@
 # All compiler output goes to <project-dir>/install.log; the console shows one
 # line per step. On failure the log path is printed.
 #
-# Prerequisites are listed in INSTALL.md.
+# Prerequisites are listed in docs/INSTALL.md.
 set -euo pipefail
 
 #==============================================================================

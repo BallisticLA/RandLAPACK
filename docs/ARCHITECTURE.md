@@ -2,7 +2,7 @@
 
 This is the map for reading or extending the library. For installation see
 [INSTALL.md](INSTALL.md); for the contribution workflow see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## The one-paragraph version
 
@@ -86,8 +86,11 @@ The repository builds as three CMake projects, not one:
 2. **extras/** and 3. **benchmark/**: separate downstream projects that
    consume the *installed* RandLAPACK via `find_package`, exactly like user
    code does. This keeps them honest as consumers and keeps their extra
-   dependencies (Eigen, fast_matrix_market via FetchContent) out of the
-   library build.
+   dependencies out of the library build. Their purposes differ: `benchmark/`
+   measures RandLAPACK's performance (the harnesses behind the papers),
+   while `extras/` is a holding area for functionality that currently needs
+   third-party libraries (Eigen, fast_matrix_market) that core RandLAPACK
+   will not depend on; see `extras/README.md` for the graduation policy.
 
 `install.sh` drives all three in order, plus the dependency builds.
 
@@ -106,5 +109,5 @@ The repository builds as three CMake projects, not one:
   only in CUDA translation units; the umbrella header does not include it
   (a known 1.0 work item tracks improving this).
 
-See `devnotes/idioms.md` for a catalog of the C++ idioms (duck-typed
+See `../devnotes/idioms.md` (repo root) for a catalog of the C++ idioms (duck-typed
 callables, workspace patterns) with rationale and examples.

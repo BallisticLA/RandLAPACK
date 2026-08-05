@@ -6,7 +6,7 @@ single command.
 
 **When to use this guide:** Use this automated installation method if you want
 a quick, streamlined setup process. If you need fine-grained control over
-dependency configurations, refer to RandLAPACK's `INSTALL.md` instead.
+dependency configurations, refer to RandLAPACK's `docs/INSTALL.md` instead.
 
 ## 0. Software Requirements
 
@@ -258,4 +258,4 @@ summary prints the exact `RandLAPACK_DIR` for your machine).
 Benchmark executables are built automatically into
 `RandNLA-project/build/benchmark-build/`. Usage, including the GPU
 benchmarks and their output formats, is documented in
-[`benchmark/README.md`](benchmark/README.md).
+[`benchmark/README.md`](../benchmark/README.md).
