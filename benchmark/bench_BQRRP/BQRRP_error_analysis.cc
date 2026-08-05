@@ -1,5 +1,9 @@
 #if defined(__APPLE__)
-int main() {return 0;}
+#include <iostream>
+int main() {
+    std::cout << "This benchmark cannot run on Apple machines." << std::endl;
+    return 1;
+}
 #else
 /*
 Performs computations in order to assess the pivot quality of BQRRP.
@@ -167,8 +171,8 @@ static void BQRRP_benchmark_run(
         // Extracting an explicit Q-factor 
         lapack::ungqr(m, std::min(m, n), std::min(m, n), all_data.A.data(), m, all_data.tau.data());
         // Permuting the columns of the copies of the original matrix A
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J);
-        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J);
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy1.data(), m, all_data.J.data());
+        RandLAPACK::util::col_swap(m, n, n, all_data.A_cpy2.data(), m, all_data.J.data());
         
         error_check<T>(all_data, atol, error_output);
     }

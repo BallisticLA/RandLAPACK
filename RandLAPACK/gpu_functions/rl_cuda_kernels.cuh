@@ -2,12 +2,34 @@
 #include "rl_cuda_macros.hh"
 #include <cuda.h>
 #include <cuda_runtime.h>
+#include <cusolverDn.h>
 #include <cooperative_groups.h>
+#include <type_traits>
 
 namespace RandLAPACK::cuda_kernels {
 
 // This conditional allows us to make sure that the cuda kernels are only compiled with nvcc.
 #ifdef USE_CUDA
+
+// cuSOLVER's ormqr interface is typed by precision; these templates infer
+// the element type from the arguments and dispatch to the S or D symbol at
+// compile time (if constexpr), so the indirection has no runtime cost.
+template <typename T>
+inline cusolverStatus_t cusolver_ormqr_buffer_size(cusolverDnHandle_t handle, cublasSideMode_t side, cublasOperation_t trans, int m, int n, int k, const T* A, int lda, const T* tau, const T* C, int ldc, int* lwork) {
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>, "cusolver_ormqr_buffer_size supports float and double only");
+    if constexpr (std::is_same_v<T, double>)
+        return cusolverDnDormqr_bufferSize(handle, side, trans, m, n, k, A, lda, tau, C, ldc, lwork);
+    else
+        return cusolverDnSormqr_bufferSize(handle, side, trans, m, n, k, A, lda, tau, C, ldc, lwork);
+}
+template <typename T>
+inline cusolverStatus_t cusolver_ormqr(cusolverDnHandle_t handle, cublasSideMode_t side, cublasOperation_t trans, int m, int n, int k, const T* A, int lda, const T* tau, T* C, int ldc, T* work, int lwork, int* dev_info) {
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>, "cusolver_ormqr supports float and double only");
+    if constexpr (std::is_same_v<T, double>)
+        return cusolverDnDormqr(handle, side, trans, m, n, k, A, lda, tau, C, ldc, work, lwork, dev_info);
+    else
+        return cusolverDnSormqr(handle, side, trans, m, n, k, A, lda, tau, C, ldc, work, lwork, dev_info);
+}
 
 /** Given the dimensions of a matrix decompose the work for CUDA.
  * @param[in] m number of rows

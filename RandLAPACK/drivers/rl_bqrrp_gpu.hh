@@ -717,21 +717,21 @@ int BQRRP_GPU<T, RNG>::call(
         if (block_rank != b_sz_const) {
             if (iter == 0) {
                 // Compute optimal workspace size
-                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+                RandLAPACK::cuda_kernels::cusolver_ormqr_buffer_size(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
                 // Allocate workspace
-                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(T) * lwork_ormqr);
             }
-            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+            RandLAPACK::cuda_kernels::cusolver_ormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, block_rank, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
             // Synchronization required after using cusolver
             cudaStreamSynchronize(strm);
         } else {
             if (iter == 0) {
                 // Compute optimal workspace size
-                cusolverDnDormqr_bufferSize(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
+                RandLAPACK::cuda_kernels::cusolver_ormqr_buffer_size(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, &lwork_ormqr);
                 // Allocate workspace
-                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(double) * lwork_ormqr);
+                cudaMalloc(reinterpret_cast<void **>(&d_work_ormqr), sizeof(T) * lwork_ormqr);
             }
-            cusolverDnDormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
+            RandLAPACK::cuda_kernels::cusolver_ormqr(cusolverH, CUBLAS_SIDE_LEFT, CUBLAS_OP_T, rows, cols - b_sz, block_rank, A_work, lda, &tau[iter * b_sz], Work1, lda, d_work_ormqr, lwork_ormqr, d_info_cusolver);
             // Synchronization required after using cusolver
             cudaStreamSynchronize(strm);
         }
