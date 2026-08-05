@@ -1,0 +1,111 @@
+# Exercises install.sh itself -- the one artifact the core workflows never
+# run (they hand-replicate the build recipes instead). Three things are
+# verified per OS:
+#   1. a fresh clone piped through the installer non-interactively builds
+#      and its test suite passes;
+#   2. re-running the installer in place succeeds (idempotent re-runs are
+#      part of the script's contract);
+#   3. the dependency-discovery path (BLASPP_INSTALL_DIR & co.) configures
+#      a second project against already-installed dependencies.
+# A Windows job slot is reserved for the native-Windows work (install.ps1).
+name: install-script
+on:
+  pull_request:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+  workflow_dispatch:
+  push:
+    branches-ignore:
+      - cqrrp-gpu-benchmarking
+
+jobs:
+  install-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: |
+          export DEBIAN_FRONTEND="noninteractive"
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y git-core gcc g++ gfortran cmake libgtest-dev libopenblas-openmp-dev
+
+      # blaspp/lapackpp/random123 rarely change; cache their installs keyed
+      # per-OS. On a cache hit the discovery env vars are seeded, so the
+      # installer's reuse path gets exercised; on a miss the full
+      # build-from-source path runs and the installs are copied out for the
+      # cache. Bump the -v suffix to force a from-scratch run.
+      - name: cache dependencies
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: deps-install
+          key: installer-deps-${{ runner.os }}-v1
+
+      - name: seed discovery variables from cache
+        if: steps.deps-cache.outputs.cache-hit == 'true'
+        run: |
+          echo "BLASPP_INSTALL_DIR=$GITHUB_WORKSPACE/deps-install/blaspp-install" >> "$GITHUB_ENV"
+          echo "LAPACKPP_INSTALL_DIR=$GITHUB_WORKSPACE/deps-install/lapackpp-install" >> "$GITHUB_ENV"
+          echo "RANDOM123_INSTALL_DIR=$GITHUB_WORKSPACE/deps-install/random123" >> "$GITHUB_ENV"
+
+      - name: keep a pristine clone for the discovery test
+        run: cp -a RandLAPACK RandLAPACK-discovery
+
+      - name: run the installer (non-interactive)
+        run: bash RandLAPACK/install.sh --yes --no-gpu
+
+      - name: populate the dependency cache
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p deps-install
+          cp -a RandNLA-project/install/blaspp-install   deps-install/
+          cp -a RandNLA-project/install/lapackpp-install deps-install/
+          cp -a RandNLA-project/install/random123        deps-install/
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --exclude-regex "^TestABRIK\.ABRIK_catch_instability" \
+                --output-on-failure
+
+      - name: re-run the installer in place (idempotency)
+        run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
+
+      - name: install a second project via dependency discovery
+        run: |
+          BLASPP_INSTALL_DIR="$GITHUB_WORKSPACE/deps-install/blaspp-install" \
+          LAPACKPP_INSTALL_DIR="$GITHUB_WORKSPACE/deps-install/lapackpp-install" \
+          RANDOM123_INSTALL_DIR="$GITHUB_WORKSPACE/deps-install/random123" \
+          bash RandLAPACK-discovery/install.sh --yes --no-gpu \
+              --project-dir "$GITHUB_WORKSPACE/RandNLA-project-discovery" \
+              | tee discovery.out
+          grep -q "reused external install" discovery.out
+          test -d RandNLA-project-discovery/build/RandLAPACK-build
+
+  install-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: RandLAPACK
+
+      - name: configure OS
+        run: brew install googletest openblas libomp
+
+      - name: run the installer (non-interactive)
+        run: bash RandLAPACK/install.sh --yes --no-gpu
+
+      - name: test the installed library
+        run: |
+          ctest --test-dir RandNLA-project/build/RandLAPACK-build \
+                --exclude-regex "^TestABRIK\.ABRIK_catch_instability" \
+                --output-on-failure
+
+      - name: re-run the installer in place (idempotency)
+        run: bash RandNLA-project/lib/RandLAPACK/install.sh --yes --no-gpu
+
+  # install-windows: reserved. Lands with the native Windows support
+  # (install.ps1 + MSVC/oneMKL recipe mirroring RandBLAS PR #179).

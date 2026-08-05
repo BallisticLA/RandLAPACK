@@ -123,30 +123,43 @@ bash install.sh
 ```
 
 The script will:
-1. Detect if GPU hardware is available on your system
-2. If GPU is detected, prompt: `"GPU detected. Would you like to enable GPU support? (yes/no)"`
-3. Automatically clone and build all dependencies
-4. Build RandLAPACK with appropriate configuration
-5. Build test and benchmark executables
+1. Detect if GPU hardware is available on your system and, on a terminal,
+   ask whether to build with CUDA support
+2. Automatically clone and build all dependencies (or reuse preinstalled
+   ones, see the discovery variables below)
+3. Build RandLAPACK with appropriate configuration
+4. Build test and benchmark executables
+
+Run `bash install.sh --help` for the full option list. The main flags, each
+with an environment-variable equivalent:
+
+```
+-y, --yes             assume "yes" for every prompt
+    --gpu / --no-gpu  decide GPU support without asking
+-j, --jobs <N>        parallel build jobs (default: number of cores)
+    --fresh           clear build directories first (default: reuse them,
+                      so re-running is an incremental rebuild)
+    --modify-rc       append RANDNLA_PROJECT_DIR/RANDNLA_PROJECT_GPU_AVAIL
+                      exports to your shell config (default: never touch it;
+                      the summary prints the lines to add yourself)
+    --project-dir <D> place/locate RandNLA-project at D
+```
 
 ### Automated Installation (Non-Interactive)
 
-If you want to automatically answer "yes" to all prompts (useful for scripts):
+Prompts appear only when stdin is a terminal. Piped and CI runs are already
+non-interactive with safe defaults (NVIDIA detected: GPU build; AMD or no
+GPU: CPU build), so no `yes |` piping is needed:
 
 ```shell
-yes | bash install.sh
+bash install.sh < /dev/null      # or simply: bash install.sh --yes
 ```
 
-### Installation with Logging
+### Installation Logging
 
-To capture the entire installation process in a log file:
-
-```shell
-yes | bash install.sh 2>&1 | tee install_log.txt
-```
-
-This creates `install_log.txt` with complete build output, which is invaluable
-for troubleshooting if issues arise.
+All compiler output goes to `<project-dir>/install.log` automatically; the
+console shows one line per step, and any failure prints the log path plus
+the last lines of the log. There is no need to tee the output yourself.
 
 ## 3. What the Script Does
 
