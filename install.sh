@@ -212,7 +212,7 @@ echo "RandLAPACK install started $(date)" >> "$LOG"
 # run_step <label> <command...>: one console line per step, full output in the
 # log, log path printed on failure.
 STEP=0
-TOTAL_STEPS=7
+TOTAL_STEPS=10
 run_step() {
     local label="$1"; shift
     STEP=$((STEP + 1))
@@ -324,34 +324,39 @@ fi
 #==============================================================================
 if [[ "$USE_EXTERNAL_BLASPP" != "true" ]]; then
     # Add "-DBLAS_LIBRARIES='-lflame -lblis'" here if using AMD AOCL.
-    run_step "Configuring + building BLAS++" bash -c "
-        cmake -S '$RANDNLA_PROJECT_DIR/lib/blaspp/' -B '$RANDNLA_PROJECT_DIR/build/blaspp-build/' \
+    # The MACOS_* variables expand unquoted on purpose: they hold multiple
+    # -D words, and some values are CMake lists with semicolons, which must
+    # reach cmake verbatim (never re-parse them through a shell string).
+    run_step "Configuring BLAS++" \
+        cmake -S "$RANDNLA_PROJECT_DIR/lib/blaspp/" -B "$RANDNLA_PROJECT_DIR/build/blaspp-build/" \
             -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
             -DCMAKE_BUILD_TYPE=Release \
             -Dblas_int=$BLAS_INT \
-            -DCMAKE_INSTALL_PREFIX='$RANDNLA_PROJECT_DIR/install/blaspp-install/' \
-            $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS &&
-        cmake --build '$RANDNLA_PROJECT_DIR/build/blaspp-build/' -j $JOBS --target install"
+            -DCMAKE_INSTALL_PREFIX="$RANDNLA_PROJECT_DIR/install/blaspp-install/" \
+            $MACOS_BLAS_FLAGS $MACOS_OPENMP_FLAGS
+    run_step "Building + installing BLAS++" \
+        cmake --build "$RANDNLA_PROJECT_DIR/build/blaspp-build/" -j "$JOBS" --target install
     BLASPP_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/blaspp-install" "blaspp")
     BLASPP_LIB_DIR=$(dirname "$(dirname "$BLASPP_CMAKE_DIR")")
 else
-    STEP=$((STEP + 1)); echo "[$STEP/$TOTAL_STEPS] BLAS++ ... reused external install"
+    STEP=$((STEP + 2)); echo "[$STEP/$TOTAL_STEPS] BLAS++ ... reused external install"
 fi
 
 if [[ "$USE_EXTERNAL_LAPACKPP" != "true" ]]; then
-    run_step "Configuring + building LAPACK++" bash -c "
-        cmake -S '$RANDNLA_PROJECT_DIR/lib/lapackpp/' -B '$RANDNLA_PROJECT_DIR/build/lapackpp-build/' \
+    run_step "Configuring LAPACK++" \
+        cmake -S "$RANDNLA_PROJECT_DIR/lib/lapackpp/" -B "$RANDNLA_PROJECT_DIR/build/lapackpp-build/" \
             -Dgpu_backend=$RANDNLA_PROJECT_GPU_AVAIL \
             -DCMAKE_BUILD_TYPE=Release \
-            -Dblaspp_DIR='$BLASPP_CMAKE_DIR' \
-            -DCMAKE_INSTALL_PREFIX='$RANDNLA_PROJECT_DIR/install/lapackpp-install' \
+            -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
+            -DCMAKE_INSTALL_PREFIX="$RANDNLA_PROJECT_DIR/install/lapackpp-install" \
             -DCMAKE_INSTALL_RPATH_USE_LINK_PATH=ON \
-            $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS &&
-        cmake --build '$RANDNLA_PROJECT_DIR/build/lapackpp-build/' -j $JOBS --target install"
+            $MACOS_LAPACK_FLAGS $MACOS_OPENMP_FLAGS
+    run_step "Building + installing LAPACK++" \
+        cmake --build "$RANDNLA_PROJECT_DIR/build/lapackpp-build/" -j "$JOBS" --target install
     LAPACKPP_CMAKE_DIR=$(find_cmake_config "$RANDNLA_PROJECT_DIR/install/lapackpp-install" "lapackpp")
     LAPACKPP_LIB_DIR=$(dirname "$(dirname "$LAPACKPP_CMAKE_DIR")")
 else
-    STEP=$((STEP + 1)); echo "[$STEP/$TOTAL_STEPS] LAPACK++ ... reused external install"
+    STEP=$((STEP + 2)); echo "[$STEP/$TOTAL_STEPS] LAPACK++ ... reused external install"
 fi
 
 if [[ "$USE_EXTERNAL_RANDOM123" != "true" ]]; then
@@ -382,29 +387,31 @@ if [[ "$RANDLAPACK_CUDA" == "OFF" && "$USE_EXTERNAL_BLASPP" != "true" ]]; then
     DISABLE_CUDA_FLAG="-DCMAKE_DISABLE_FIND_PACKAGE_CUDAToolkit=TRUE"
 fi
 
-run_step "Configuring + building extras" bash -c "
-    cmake -S '$RL_SRC/extras/' -B '$RANDNLA_PROJECT_DIR/build/extras-build/' \
+run_step "Configuring extras" \
+    cmake -S "$RL_SRC/extras/" -B "$RANDNLA_PROJECT_DIR/build/extras-build/" \
         -DCMAKE_BUILD_TYPE=Release \
-        -DFETCHCONTENT_BASE_DIR='$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/' \
-        -DRandLAPACK_DIR='$RANDLAPACK_CMAKE_DIR' \
-        -Dlapackpp_DIR='$LAPACKPP_CMAKE_DIR' \
-        -Dblaspp_DIR='$BLASPP_CMAKE_DIR' \
-        -DRandom123_DIR='$RANDOM123_DIR' \
-        -DCMAKE_BUILD_RPATH='$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR' \
-        $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS &&
-    cmake --build '$RANDNLA_PROJECT_DIR/build/extras-build/' -j $JOBS"
+        -DFETCHCONTENT_BASE_DIR="$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/" \
+        -DRandLAPACK_DIR="$RANDLAPACK_CMAKE_DIR" \
+        -Dlapackpp_DIR="$LAPACKPP_CMAKE_DIR" \
+        -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
+        -DRandom123_DIR="$RANDOM123_DIR" \
+        -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" \
+        $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
+run_step "Building extras" \
+    cmake --build "$RANDNLA_PROJECT_DIR/build/extras-build/" -j "$JOBS"
 
-run_step "Configuring + building benchmarks" bash -c "
-    cmake -S '$RL_SRC/benchmark/' -B '$RANDNLA_PROJECT_DIR/build/benchmark-build/' \
+run_step "Configuring benchmarks" \
+    cmake -S "$RL_SRC/benchmark/" -B "$RANDNLA_PROJECT_DIR/build/benchmark-build/" \
         -DCMAKE_BUILD_TYPE=Release \
-        -DFETCHCONTENT_BASE_DIR='$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/' \
-        -DRandLAPACK_DIR='$RANDLAPACK_CMAKE_DIR' \
-        -Dlapackpp_DIR='$LAPACKPP_CMAKE_DIR' \
-        -Dblaspp_DIR='$BLASPP_CMAKE_DIR' \
-        -DRandom123_DIR='$RANDOM123_DIR' \
-        -DCMAKE_BUILD_RPATH='$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR' \
-        $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS &&
-    cmake --build '$RANDNLA_PROJECT_DIR/build/benchmark-build/' -j $JOBS"
+        -DFETCHCONTENT_BASE_DIR="$RANDNLA_PROJECT_DIR/build/fetchcontent-cache/" \
+        -DRandLAPACK_DIR="$RANDLAPACK_CMAKE_DIR" \
+        -Dlapackpp_DIR="$LAPACKPP_CMAKE_DIR" \
+        -Dblaspp_DIR="$BLASPP_CMAKE_DIR" \
+        -DRandom123_DIR="$RANDOM123_DIR" \
+        -DCMAKE_BUILD_RPATH="$BLASPP_LIB_DIR;$LAPACKPP_LIB_DIR;$RANDLAPACK_LIB_DIR" \
+        $DISABLE_CUDA_FLAG $MACOS_OPENMP_FLAGS
+run_step "Building benchmarks" \
+    cmake --build "$RANDNLA_PROJECT_DIR/build/benchmark-build/" -j "$JOBS"
 
 #==============================================================================
 # Shell config: opt-in only. The default prints what to add and touches nothing.
