@@ -98,6 +98,22 @@ struct IterRefineLSQ {
     /// Relative residual drop that counts as progress for the stagnation test
     /// (default 1e-3, i.e. the residual must fall by at least 0.1%).
     T inner_stag_rel_improve;
+    /// SINGLE RESTART (added 2026-08-05, Max's proposition).
+    ///
+    /// After the inner CG terminates (converged, stagnated, or capped), restart it
+    /// once from the iterate it returned: recompute the TRUE residual r = c - M z
+    /// and run a fresh CG from there. Number of restarts per outer step; 0 disables.
+    ///
+    /// Why this helps: CG tracks its residual through the recurrence
+    /// r <- r - alpha M p, which drifts from the true residual c - M z in finite
+    /// precision. Both the convergence test and the stagnation window read the
+    /// RECURSIVE residual, so a solve can stop at a floor (or declare convergence)
+    /// that the true residual does not corroborate. The restart discards the drifted
+    /// recurrence, re-measures the truth, and gives CG fresh conjugacy from the
+    /// returned iterate; a genuinely converged solve costs only one extra M apply
+    /// (the entry check sees the true residual already under tolerance and returns
+    /// immediately with 0 iterations).
+    int inner_restarts;
     /// Outer refinement steps (Algorithm 1 of Epperly et al. uses 2).
     int n_refine_steps;
     /// Enable per-step / per-substep timing breakdown.
@@ -139,6 +155,7 @@ struct IterRefineLSQ {
           max_inner_iters(max_inner),
           inner_stag_window(20),
           inner_stag_rel_improve((T)1e-3),
+          inner_restarts(1),
           n_refine_steps(n_steps),
           timing(timing_on),
           verbose(verbose_on),
@@ -237,12 +254,34 @@ struct IterRefineLSQ {
                        blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, c, 1);
             t_outer_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
 
-            // Inner CG on M*z = c
+            // Inner CG on M*z = c, then `inner_restarts` restarts from the returned
+            // iterate (attempt > 0 recomputes the TRUE residual c - M z and runs a
+            // fresh CG; see the inner_restarts field comment for why). The per-step
+            // report aggregates the attempts: iters summed, best tracked across all,
+            // status/relres from the final attempt.
             InnerCGReport rep{};
+            rep.best_relres = (T)1;
+            int cg_status = 0;
             auto t_in0 = clock::now();
-            int cg_status = inner_cg(J, R, ldr, c, n, m,
+            for (int attempt = 0; attempt <= std::max(0, inner_restarts); ++attempt) {
+                InnerCGReport att{};
+                cg_status = inner_cg(J, R, ldr, c, n, m,
                                      z, cg_r, cg_p, cg_Mp, tmp_n, tmp_m, cg_zbest,
-                                     rep, t_inner_trsm, t_inner_fwd, t_inner_adj);
+                                     att, t_inner_trsm, t_inner_fwd, t_inner_adj,
+                                     /*warm_start=*/attempt > 0);
+                if (att.best_relres < rep.best_relres) {
+                    rep.best_relres = att.best_relres;
+                    rep.best_iter   = rep.iters + att.best_iter;
+                }
+                rep.iters += att.iters;
+                rep.status  = att.status;
+                rep.relres  = att.relres;
+                if (cg_status != 0) break;   // breakdown: no restart can help
+                if (verbose && attempt < std::max(0, inner_restarts)) {
+                    std::printf("[IR-LSQ] step %d: restarting inner CG from its "
+                                "returned iterate (attempt %d)\n", step, attempt + 2);
+                }
+            }
             t_inner_total += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t_in0).count();
             inner_iters_per_step.push_back(rep.iters);
             inner_status_per_step.push_back(static_cast<int>(rep.status));
@@ -306,9 +345,49 @@ public:
     };
 
 private:
+    // One application of M = R^{-T} J^T J R^{-1}: out = M * v. Shared by the CG
+    // iteration body and the warm-start entry residual, so the two can never
+    // compute M differently. Clobbers tmp_n / tmp_m.
+    template <linops::LinearOperator J_LO>
+    void apply_M(J_LO& J, const T* R, int64_t ldr,
+                 const T* v, T* out, int64_t n, int64_t m,
+                 T* tmp_n, T* tmp_m,
+                 long& t_trsm, long& t_fwd, long& t_adj)
+    {
+        using clock = std::chrono::steady_clock;
+        //   tmp_n = R^{-1} v
+        std::copy(v, v + n, tmp_n);
+        auto t0 = clock::now();
+        blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                   blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, tmp_n, 1);
+        t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+
+        //   tmp_m = J * tmp_n
+        t0 = clock::now();
+        J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+          m, 1, n, (T)1.0, tmp_n, n, (T)0.0, tmp_m, m);
+        t_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+
+        //   out = J^T * tmp_m
+        t0 = clock::now();
+        J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
+          n, 1, m, (T)1.0, tmp_m, m, (T)0.0, out, n);
+        t_adj += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+
+        //   out ← R^{-T} out   (in-place TRSM)
+        t0 = clock::now();
+        blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
+                   blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, out, 1);
+        t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+    }
+
     // Inner CG: solve M z = c, where M = R^{-T} J^T J R^{-1}, on ℝ^n.
     // Workspaces (caller-allocated, length n unless noted): cg_r, cg_p, cg_Mp,
     // tmp_n (for R^{-1} v), tmp_m (m-length, for J v_pre).
+    // warm_start = false: initial guess z = 0 (r = c, historical behavior).
+    // warm_start = true : z holds the starting iterate on entry; the TRUE residual
+    //                     r = c - M z is computed (one extra M apply) and CG runs
+    //                     from there. Used by the single-restart pass (2026-08-05).
     template <linops::LinearOperator J_LO>
     int inner_cg(J_LO& J, const T* R, int64_t ldr,
                  const T* c, int64_t n, int64_t m,
@@ -316,22 +395,18 @@ private:
                  T* cg_r, T* cg_p, T* cg_Mp,
                  T* tmp_n, T* tmp_m, T* cg_zbest,
                  InnerCGReport& rep,
-                 long& t_trsm, long& t_fwd, long& t_adj)
+                 long& t_trsm, long& t_fwd, long& t_adj,
+                 bool warm_start = false)
     {
         using clock = std::chrono::steady_clock;
-        // Initial guess z = 0.
-        std::fill(z, z + n, (T)0);
-        // Best-iterate snapshot starts at the initial guess, so restoring it is safe even
-        // if no iteration ever improves on relres = 1.
-        std::fill(cg_zbest, cg_zbest + n, (T)0);
-
-        // r = c - M*z = c (since z=0)
-        std::copy(c, c + n, cg_r);
-        std::copy(c, c + n, cg_p);
 
         T c_norm = blas::nrm2(n, c, 1);
         T tol_abs = inner_tol * c_norm;
         if (c_norm == (T)0) {
+            // M is SPD, so M z = 0 has the unique solution z = 0. On a warm start
+            // the incoming z is already the previous attempt's answer to the same
+            // c = 0 system, i.e. 0 -- so writing 0 is correct on both paths.
+            std::fill(z, z + n, (T)0);
             rep.iters = 0;
             rep.status = InnerCGStatus::Converged;
             rep.relres = (T)0; rep.best_relres = (T)0; rep.best_iter = 0;
@@ -341,8 +416,33 @@ private:
         // Track the best (smallest) relative residual and where it occurred, so a
         // solve that hits its floor early and then grinds to the cap is separable
         // from one that is still making progress when the cap stops it.
-        rep.best_relres = (T)1;
-        rep.best_iter   = 0;
+        rep.best_iter = 0;
+
+        if (!warm_start) {
+            // Initial guess z = 0; r = c - M*z = c.
+            std::fill(z, z + n, (T)0);
+            std::fill(cg_zbest, cg_zbest + n, (T)0);
+            std::copy(c, c + n, cg_r);
+            rep.best_relres = (T)1;
+        } else {
+            // TRUE residual at the incoming iterate: r = c - M z. The best-iterate
+            // snapshot starts at z itself, so a restart can never end worse than
+            // where it began.
+            apply_M(J, R, ldr, z, cg_Mp, n, m, tmp_n, tmp_m, t_trsm, t_fwd, t_adj);
+            for (int64_t i = 0; i < n; ++i) cg_r[i] = c[i] - cg_Mp[i];
+            std::copy(z, z + n, cg_zbest);
+            T r0 = blas::nrm2(n, cg_r, 1);
+            rep.best_relres = r0 / c_norm;
+            // Entry convergence check against the TRUE residual: a genuinely
+            // converged first attempt makes the restart free (0 iterations).
+            if (r0 <= tol_abs) {
+                rep.iters  = 0;
+                rep.status = InnerCGStatus::Converged;
+                rep.relres = rep.best_relres;
+                return 0;
+            }
+        }
+        std::copy(cg_r, cg_r + n, cg_p);
 
         // Stagnation state: `stag_ref` is the residual at the last SIGNIFICANT improvement
         // (a drop of at least inner_stag_rel_improve), and `last_improve_it` when it
@@ -355,30 +455,7 @@ private:
 
         for (int it = 0; it < max_inner_iters; ++it) {
             // Mp = M * p =  R^{-T} J^T J R^{-1} p
-            //   tmp_n = R^{-1} p
-            std::copy(cg_p, cg_p + n, tmp_n);
-            auto t0 = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::NoTrans, blas::Diag::NonUnit, n, R, ldr, tmp_n, 1);
-            t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-            //   tmp_m = J * tmp_n
-            t0 = clock::now();
-            J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-              m, 1, n, (T)1.0, tmp_n, n, (T)0.0, tmp_m, m);
-            t_fwd += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-            //   cg_Mp = J^T * tmp_m
-            t0 = clock::now();
-            J(blas::Side::Left, blas::Layout::ColMajor, blas::Op::Trans, blas::Op::NoTrans,
-              n, 1, m, (T)1.0, tmp_m, m, (T)0.0, cg_Mp, n);
-            t_adj += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
-
-            //   cg_Mp ← R^{-T} cg_Mp   (in-place TRSM)
-            t0 = clock::now();
-            blas::trsv(blas::Layout::ColMajor, blas::Uplo::Upper,
-                       blas::Op::Trans, blas::Diag::NonUnit, n, R, ldr, cg_Mp, 1);
-            t_trsm += std::chrono::duration_cast<std::chrono::microseconds>(clock::now() - t0).count();
+            apply_M(J, R, ldr, cg_p, cg_Mp, n, m, tmp_n, tmp_m, t_trsm, t_fwd, t_adj);
 
             T pMp = blas::dot(n, cg_p, 1, cg_Mp, 1);
             if (!(pMp > 0)) {

@@ -207,6 +207,10 @@ TEST_F(TestIterRefineLSQ, capped_solve_is_reported) {
     // --- capped run: 2 inner iterations against a 1e-14 tolerance ---
     {
         IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/2, /*n_steps=*/2);
+        // This test pins SINGLE-attempt mechanics (exact cap count); the default
+        // single restart (2026-08-05) would rerun and double the reported iters.
+        // Restart semantics get their own test below.
+        ir.inner_restarts = 0;
         std::vector<T> x(n, 0);
         int status = ir.call(J, R.data(), n, b.data(), m, x.data(), n);
         EXPECT_EQ(status, 0);   // capping is still not an error return ...
@@ -279,6 +283,9 @@ TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
         IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/kCap, /*n_steps=*/2);
         ir.inner_stag_window     = kWindow;
         ir.inner_stag_rel_improve = 1.0;      // no drop can ever qualify as progress
+        // Single-attempt mechanics under test (exact window count); the default
+        // restart would re-stagnate and double the reported iters.
+        ir.inner_restarts = 0;
         int status = ir.call(J, R.data(), n, b.data(), m, x_stag.data(), n);
         EXPECT_EQ(status, 0);                 // stagnating is not an error return
         ASSERT_EQ(ir.inner_status_per_step.size(), 2u);
@@ -307,6 +314,80 @@ TEST_F(TestIterRefineLSQ, stagnating_solve_exits_early_with_best_iterate) {
             << "contrast case needs a preconditioner weak enough to require several "
                "CG iterations, otherwise it cannot distinguish the early exit";
         for (int64_t i = 0; i < n; ++i) EXPECT_NEAR(x[i], x_true[i], 1e-8);
+    }
+}
+
+// Single restart (added 2026-08-05, default inner_restarts = 1). After the inner CG
+// terminates, it is rerun once from the iterate it returned, against the TRUE residual
+// c - M z (the recursive residual CG tracks internally drifts in finite precision, so
+// both the convergence test and the stagnation window can be reading fiction by the
+// time they fire).
+//
+// Three properties pinned here:
+//   1. A capped attempt restarts and the reported per-step count is the SUM of both
+//      attempts (cap 2 => exactly 4 with the same weak preconditioner).
+//   2. The restart never loses ground: its entry snapshot is the incoming iterate, so
+//      the aggregated best residual is <= the single-attempt one.
+//   3. For a solve whose first attempt genuinely converged, the restart is (near) free:
+//      the entry check sees the true residual already under tolerance.
+TEST_F(TestIterRefineLSQ, single_restart_reruns_from_returned_iterate) {
+    using T = double;
+    int64_t m = 120, n = 20;
+
+    std::vector<T> A(m * n), b(m), x_true(n);
+    fill_random(A, 4242);
+    fill_random(x_true, 777);
+    blas::gemm(Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+               m, 1, n, (T)1.0, A.data(), m, x_true.data(), n, (T)0.0, b.data(), m);
+
+    // Same deliberately weak preconditioner as capped_solve_is_reported.
+    std::vector<T> A_pert(A.begin(), A.end()), pert(m * n);
+    fill_random(pert, 31337, (T)0.30);
+    for (int64_t i = 0; i < m * n; ++i) A_pert[i] += pert[i];
+    std::vector<T> R(n * n, 0);
+    build_R_from_A(A_pert.data(), m, n, R.data(), n);
+    DenseLinOp<T> J(m, n, A.data(), m, Layout::ColMajor);
+
+    // Baseline: one attempt, cap 2.
+    T best_single = 0;
+    {
+        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/2, /*n_steps=*/2);
+        ir.inner_restarts = 0;
+        std::vector<T> x(n, 0);
+        ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x.data(), n), 0);
+        best_single = ir.inner_best_relres_per_step.front();
+    }
+
+    // (1) + (2): default restart on the same capped problem.
+    {
+        IterRefineLSQ<T> ir(/*tol=*/1e-14, /*max_inner=*/2, /*n_steps=*/2);
+        std::vector<T> x(n, 0);
+        ASSERT_EQ(ir.call(J, R.data(), n, b.data(), m, x.data(), n), 0);
+        EXPECT_EQ(ir.inner_restarts, 1);   // the documented default
+        EXPECT_EQ(ir.inner_status_per_step.front(),
+                  static_cast<int>(RandLAPACK::InnerCGStatus::HitCap));
+        EXPECT_EQ(ir.inner_iters_per_step.front(), 4);   // 2 (attempt) + 2 (restart)
+        EXPECT_LE(ir.inner_best_relres_per_step.front(), best_single);
+        for (int64_t i = 0; i < n; ++i) EXPECT_TRUE(std::isfinite(x[i]));
+    }
+
+    // (3): a converging solve pays at most the one extra M apply, not extra budget.
+    {
+        IterRefineLSQ<T> ir_no(/*tol=*/1e-12, /*max_inner=*/200, /*n_steps=*/2);
+        ir_no.inner_restarts = 0;
+        std::vector<T> x0v(n, 0);
+        ASSERT_EQ(ir_no.call(J, R.data(), n, b.data(), m, x0v.data(), n), 0);
+
+        IterRefineLSQ<T> ir1(/*tol=*/1e-12, /*max_inner=*/200, /*n_steps=*/2);
+        std::vector<T> x1v(n, 0);
+        ASSERT_EQ(ir1.call(J, R.data(), n, b.data(), m, x1v.data(), n), 0);
+        EXPECT_EQ(ir1.inner_status_per_step.front(),
+                  static_cast<int>(RandLAPACK::InnerCGStatus::Converged));
+        // The restart may add a couple of true-residual polish iterations when the
+        // recursive residual was optimistic, but never a second full solve.
+        EXPECT_LE(ir1.inner_iters_per_step.front(),
+                  ir_no.inner_iters_per_step.front() + 3);
+        for (int64_t i = 0; i < n; ++i) EXPECT_NEAR(x1v[i], x_true[i], 1e-8);
     }
 }
 
