@@ -12,7 +12,7 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: submodule update
         run: |
@@ -49,10 +49,9 @@ jobs:
           git clone https://github.com/icl-utk-edu/lapackpp.git
           mkdir lapackpp-build
           cd lapackpp-build
-          cmake -DCMAKE_BUILD_TYPE=Debug \
+          cmake -DCMAKE_BUILD_TYPE=Release \
               -Dblaspp_DIR=`pwd`/../blaspp-install/lib/cmake/blaspp \
               -DCMAKE_INSTALL_PREFIX=`pwd`/../lapackpp-install \
-              -DCMAKE_BINARY_DIR=`pwd` \
               -Dbuild_tests=OFF \
               `pwd`/../lapackpp
           make -j2 install
@@ -91,7 +90,7 @@ jobs:
           cd ..
           mkdir benchmark-build
           cd benchmark-build
-          cmake -DCMAKE_BINARY_DIR=`pwd` \
+          cmake \
             -DRandLAPACK_DIR=`pwd`/../RandLAPACK-install/lib/cmake/RandLAPACK \
             ../RandLAPACK/benchmark
           make -j2
