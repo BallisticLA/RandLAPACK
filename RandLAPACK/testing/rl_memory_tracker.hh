@@ -13,6 +13,9 @@
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
+#if defined(__GLIBC__) || defined(__linux__)
+#include <malloc.h>   // malloc_trim
+#endif
 
 namespace RandLAPACK {
 
@@ -42,6 +45,20 @@ static inline long get_rss_kb() {
 class PeakRSSTracker {
 public:
     void start() {
+        // Release freed heap back to the OS before taking the baseline
+        // (2026-08-05). RSS is process-cumulative: glibc keeps freed arenas
+        // mapped, so without this the FIRST tracked algorithm in a benchmark
+        // absorbs the whole process ramp-up (its delta over-reports) while
+        // every later one reuses already-faulted pages (delta ~0 -- the
+        // "peak_rss_kb=4" effect diagnosed 2026-07-29, and the inflated
+        // CQRRT_linop storage bars in the Toeplitz figures). Trimming resets
+        // the floor to live memory only, making per-method deltas comparable
+        // regardless of execution order. Frees only unused arena space; no
+        // effect on correctness or on MKL's internal buffers (a warmup pass
+        // should absorb those).
+#if defined(__GLIBC__)
+        malloc_trim(0);
+#endif
         baseline_kb_ = get_rss_kb();
         peak_kb_.store(baseline_kb_, std::memory_order_relaxed);
         running_.store(true, std::memory_order_relaxed);
