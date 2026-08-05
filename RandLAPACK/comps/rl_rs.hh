@@ -177,4 +177,73 @@ int RS<T, RNG>::call(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+// LinOp-templated RS: mirrors RS::call, but drives an abstract linear operator
+// via A_op(...) instead of an explicit blas::gemm on a dense A. It is a
+// non-virtual free function (cannot add a template virtual method to the class).
+// KEEP IN SYNC with RS::call: any algorithmic or numerical change to one path
+// must be mirrored in the other.
+template <typename T, typename RNG, linops::LinearOperator LinOp>
+int rs_linop(
+    RS<T, RNG>& rs_obj,
+    LinOp& A_op,
+    int64_t k,
+    T* &Omega,
+    RandBLAS::RNGState<RNG> &state
+){
+    int64_t m = A_op.n_rows;
+    int64_t n = A_op.n_cols;
+    int64_t p = rs_obj.passes_over_data;
+    int64_t q = rs_obj.passes_per_stab;
+    int64_t p_done = 0;
+
+    T* Omega_1 = new T[m * k]();
+
+    if (p % 2 == 0) {
+        RandBLAS::DenseDist D(n, k);
+        state = RandBLAS::fill_dense(D, Omega, state);
+    } else {
+        RandBLAS::DenseDist D(m, k);
+        state = RandBLAS::fill_dense(D, Omega_1, state);
+
+        // Omega = A' * Omega_1
+        A_op(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, Omega_1, m, 0.0, Omega, n);
+
+        ++p_done;
+        if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(n, k, Omega))) {
+            delete[] Omega_1;
+            return 1;
+        }
+    }
+
+    while (p - p_done > 0) {
+        // Omega_1 = A * Omega
+        A_op(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Omega, n, 0.0, Omega_1, m);
+        ++p_done;
+
+        if (rs_obj.cond_check)
+            rs_obj.cond_nums.push_back(util::cond_num_check(m, k, Omega_1, rs_obj.verbose));
+
+        if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(m, k, Omega_1))) {
+            delete[] Omega_1;
+            return 1;
+        }
+
+        // Omega = A' * Omega_1
+        A_op(Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, Omega_1, m, 0.0, Omega, n);
+        ++p_done;
+
+        if (rs_obj.cond_check)
+            rs_obj.cond_nums.push_back(util::cond_num_check(n, k, Omega, rs_obj.verbose));
+
+        if ((p_done % q == 0) && (rs_obj.Stab_Obj.call(n, k, Omega))) {
+            delete[] Omega_1;
+            return 1;
+        }
+    }
+
+    delete[] Omega_1;
+    return 0;
+}
+
 } // end namespace RandLAPACK

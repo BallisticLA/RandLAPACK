@@ -88,12 +88,18 @@ class TestQB : public ::testing::Test
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_2.data(), 1);
         blas::copy(m * n, all_data.A.data(), 1, all_data.A_cpy_3.data(), 1);
 
-        // Get low-rank SVD
-        lapack::gesdd(Job::SomeVec, m, n, all_data.A_cpy.data(), m, all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
-        std::cout << "singular values:" << std::endl;
-        for (int64_t i = 0; i < static_cast<int64_t>(std::min(m, n)); ++i) {
-            std::cout << "\t" << all_data.s[i] << std::endl;
-        }
+        // Reference (economy) SVD U*diag(s)*VT = A_cpy.
+        // Uses gesvd (Golub-Reinsch, QR-based) rather than gesdd
+        // (divide-and-conquer). gesdd has a version-sensitive bug on Apple
+        // Silicon that returns a spurious NEGATIVE singular value for 100x100
+        // matrices (this test's exact shape) -- confirmed a genuine LAPACK bug
+        // on the BALLISTIC list (Murray/Langou/Demmel, Mar 2026; reproduced with
+        // OpenBLAS, scipy's dgesdd gives sane values on the same matrix). In CI
+        // it surfaced as ||U*S_k*VT - QB|| ~ 4.6 while ||A - QB|| ~ 1e-15 (QB is
+        // fine). gesvd does not use the buggy D&C path and reconstructs to
+        // ~1e-15 on Linux/MKL; it is the expected macOS fix.
+        lapack::gesvd(Job::SomeVec, Job::SomeVec, m, n, all_data.A_cpy.data(), m,
+                      all_data.s.data(), all_data.U.data(), m, all_data.VT.data(), n);
     }
 
     /// General test for QB:
@@ -114,7 +120,6 @@ class TestQB : public ::testing::Test
         auto n = all_data.col;
         auto k = all_data.rank;
 
-        T* A_dat = all_data.A.data();
         T* A_hat_dat = all_data.A_hat.data();
         T* A_k_dat = all_data.A_k.data();
 
@@ -123,10 +128,14 @@ class TestQB : public ::testing::Test
         T* S_dat = all_data.S.data();
         T* VT_dat = all_data.VT.data();
 
+        // Save a copy of A before QB call (QB now modifies A in-place via deflation).
+        T* A_dat = new T[m * n];
+        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, A_dat, m);
+
         T* Q  = nullptr;
         T* BT = nullptr;
 
-        // Regular QB2 call
+        // Regular QB2 call. NOTE: this modifies all_data.A in-place.
         all_algs.QB.call(m, n,  all_data.A.data(), k, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
@@ -172,6 +181,7 @@ class TestQB : public ::testing::Test
         T norm_test_4 = lapack::lange(Norm::Fro, m, n, A_hat_dat, m);
         std::cout << "FRO NORM OF A_k - QB:  " << std::scientific << norm_test_4 << "\n";
         ASSERT_NEAR(norm_test_4, 0, test_tol);
+        delete[] A_dat;
         free(Q);
         free(BT);
     }
@@ -193,15 +203,18 @@ class TestQB : public ::testing::Test
 
         int64_t k_est = std::min(m, n);
 
-        T* A_dat = all_data.A.data();
         T* Q_dat = all_data.Q.data();
         T* BT_dat = all_data.BT.data();
         T* A_hat_dat = all_data.A_hat.data();
 
+        // Save a copy of A before QB call (QB now modifies A in-place via deflation).
+        T* A_dat = new T[m * n];
+        lapack::lacpy(MatrixType::General, m, n, all_data.A.data(), m, A_dat, m);
+
         T* Q = nullptr;
         T* BT = nullptr;
 
-        // Regular QB2 call
+        // Regular QB2 call. NOTE: this modifies all_data.A in-place.
         all_algs.QB.call(m, n, all_data.A.data(), k_est, block_sz, tol, Q, BT, state);
 
         // Reassing pointers because Q, B have been resized
@@ -228,6 +241,7 @@ class TestQB : public ::testing::Test
             std::cout << "FRO NORM OF A:         " << std::scientific << norm_A << "\n";
             EXPECT_TRUE(norm_test_1 <= (tol * norm_A));
         }
+        delete[] A_dat;
         free(Q);
         free(BT);
     }

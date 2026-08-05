@@ -136,4 +136,46 @@ int RF<T, RNG>::call(
     return 0;
 }
 
+// -----------------------------------------------------------------------------
+// LinOp-templated RF: mirrors RF::call above, but drives an abstract linear
+// operator via A_op(...) instead of an explicit blas::gemm on a dense A.
+// KEEP IN SYNC with RF::call: any algorithmic or numerical change to one path
+// must be mirrored in the other. The two paths are deliberately not merged
+// because the dense QB::call deflates A in place, whereas the LinOp path defers
+// deflation to a DowndatableLinOp and never mutates the base operator.
+template <typename T, typename RNG, linops::LinearOperator LinOp>
+int rf_linop(
+    RF<T, RNG>& rf_obj,
+    LinOp& A_op,
+    int64_t k,
+    T* Q,
+    RandBLAS::RNGState<RNG> &state
+){
+    int64_t m = A_op.n_rows;
+    int64_t n = A_op.n_cols;
+
+    T* Omega = new T[n * k]();
+
+    // Use the RS LinOp path: cast rs to concrete RS type
+    auto& rs_concrete = static_cast<RS<T, RNG>&>(rf_obj.rs);
+    if (rs_linop(rs_concrete, A_op, k, Omega, state)) {
+        delete[] Omega;
+        return 1;
+    }
+
+    // Q = orth(A * Omega)
+    A_op(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Omega, n, 0.0, Q, m);
+
+    if (rf_obj.cond_check)
+        rf_obj.cond_nums.push_back(util::cond_num_check(m, k, Q, rf_obj.verbose));
+
+    if (rf_obj.orth.call(m, k, Q)) {
+        delete[] Omega;
+        return 2;
+    }
+
+    delete[] Omega;
+    return 0;
+}
+
 } // end namespace RandLAPACK

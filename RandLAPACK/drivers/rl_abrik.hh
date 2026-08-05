@@ -1,42 +1,53 @@
 #pragma once
 
-#include "rl_exceptions.hh"
-#include "rl_util.hh"
+#include "rl_bk.hh"
 #include "rl_blaspp.hh"
 #include "rl_lapackpp.hh"
-#include "rl_hqrrp.hh"
+#include "rl_util.hh"
 #include "rl_linops.hh"
+#include "rl_svd_residual.hh"
 
 #include <RandBLAS.hh>
 #include <cstdint>
 #include <vector>
 #include <chrono>
-#include <numeric>
 #include <climits>
-#include <iomanip>
-#include <optional>
 
 using namespace std::chrono;
 
 namespace RandLAPACK {
 
     /// ABRIK algorithm is a method for finding truncated SVD based on block Krylov iterations.
-    /// This algorithm is a version of Algroithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
-    /// 
-    /// The main difference is in the fact that an economy SVD is performed only once at the very end 
-    /// of the algorithm run and that the termination criteria is not based on singular vectir residual evaluation.
+    /// This algorithm is a version of Algorithm A.1 from https://arxiv.org/pdf/2306.12418.pdf
+    ///
+    /// The main difference is in the fact that an economy SVD is performed only once at the very end
+    /// of the algorithm run and that the termination criterion is not based on singular vector residual evaluation.
     /// Instead, the scheme terminates if:
-    ///     1. ||R||_F > sqrt(1 - eps^2) ||A||_F, which ensures that we've exhausted all vectors and doing more 
+    ///     1. ||R||_F > sqrt(1 - eps^2) ||A||_F, which ensures that we've exhausted all vectors and doing more
     ///        iterations would bring no benefit or that ||A - hat(A)||_F < eps * ||A||_F.
     ///     2. Stop if the bottom right entry of R or S is numerically close to zero (up to square root of machine eps).
-    /// 
+    ///
     /// The main cost of this algorithm comes from large GEMMs with the input matrix A.
     ///
     /// The algorithm optionally times all of its subcomponents through a user-defined 'timing' parameter.
+    ///
+    /// ABRIK is a driver that delegates the block Krylov iteration to the BK computational routine,
+    /// then performs SVD on the resulting band matrix and reconstructs the final U, Sigma, V factors.
+    /// This follows the same pattern as RSVD (driver) + QB (comp).
 
-// Struct outside of ABRIK class to make symbols shorter
-struct ABRIKSubroutines {
-    enum QR_explicit {geqrf_ungqr, cqrrt};
+// Backward compatibility alias
+using ABRIKSubroutines = BKSubroutines;
+
+/// Why the adaptive loop stopped. Reported through ABRIK::termination_reason so
+/// callers do not have to infer it from the residual, which cannot distinguish an
+/// exhausted retry budget from a saturated Krylov subspace.
+enum class ABRIKTermination {
+    not_adaptive,    ///< Adaptive mode was off; a single pass was run.
+    converged,       ///< Assessed error fell to or below tol over the full assessed rank.
+    max_retries,     ///< Retry budget exhausted with the error still above tol.
+    norm_converged,  ///< BK exhausted the Frobenius content of the input.
+    rank_deficient,  ///< BK could not grow the Krylov subspace any further.
+    under_delivered  ///< Fewer triplets exist than were asked for; see below.
 };
 
 template <typename T, typename RNG>
@@ -54,26 +65,64 @@ class ABRIK {
         std::vector<long> times;
         T norm_R_end;
 
-        // Numbr of threads that will be used in 
-        // functions where parallelism can tank performance.
-        int num_threads_min;
-        // Number of threads used in the rest of the code.
-        int num_threads_max;
         int64_t singular_triplets_found;
+
+        // Adaptive mode: assess the error after BK and resume if needed.
+        //
+        // The number of leading triplets the error is assessed over is derived, by
+        // default, from the initial iteration budget:
+        //
+        //     assessed_rank = ceil(max_krylov_iters / 2) * b
+        //
+        // which is exactly the number of triplets that budget produces. So the initial
+        // budget states how many triplets you are asking to be accurate, and the growth
+        // below states how hard the driver may work to make them so. Deriving it this way
+        // makes the request unsatisfiable-by-construction impossible: you cannot ask for
+        // more triplets than your own starting budget yields.
+        //
+        // Set `assessed_rank` explicitly to override that. The derived value is a multiple
+        // of the block size, so a specific count such as ten cannot be expressed at b = 4;
+        // an evaluation protocol that holds the assessed rank fixed while sweeping the
+        // block size needs the override, since block size is a performance knob and the
+        // assessed rank is a problem specification. When set, the initial budget must be
+        // large enough to produce that many triplets, which is checked at entry.
+        //
+        // Assessing over ALL computed triplets instead (the behavior before 2026-07-28)
+        // cannot work on a decaying spectrum: every restart appends trailing triplets
+        // whose relative error is order one, so the assessment is dominated by exactly the
+        // terms the restart just introduced and only passes once the Krylov subspace
+        // saturates. Measured on a spectrum decaying over six decades, the leading-10
+        // error fell from 3.5e-1 to 6.6e-15 while the all-triplets figure stayed near 1.7.
+        bool adaptive;             // Enable adaptive error assessment (default: false).
+        double adaptive_growth;    // Budget multiplier per retry (default: 2.0).
+        int adaptive_max_retries;  // Hard limit on resume attempts (default: 10).
+
+        // Smallest initial budget that yields a triplet; also the adaptive default.
+        // Algorithm 1 requires p > 1, so 2 rather than 1.
+        static constexpr int adaptive_default_iters = 2;
+
+        // Leading triplets the error is assessed over. Set to 0 (the default) to derive it
+        // from the initial budget as above; set > 0 to request a specific count. On exit
+        // this always holds the value actually used.
+        int64_t assessed_rank;
+        ABRIKTermination termination_reason;
 
         ABRIK(
             bool verb,
             bool time_subroutines,
             T ep
-        ) {
+        ) : bk_obj(verb, time_subroutines, ep) {
             qr_exp = Subroutines::QR_explicit::geqrf_ungqr;
             verbose = verb;
             timing = time_subroutines;
             tol = ep;
             max_krylov_iters = INT_MAX;
-            num_threads_min = util::get_omp_threads();
-            num_threads_max = util::get_omp_threads();
             singular_triplets_found = 0;
+            adaptive = false;
+            adaptive_growth = 2.0;
+            adaptive_max_retries = 10;
+            assessed_rank = 0;
+            termination_reason = ABRIKTermination::not_adaptive;
         }
 
         /// Computes an SVD of the form:
@@ -113,7 +162,7 @@ class ABRIK {
         ///     Stores n by ((num_iters / 2) * k) orthonormal matrix of right singular vectors.
         ///
         /// @param[out] Sigma
-        ///     Stores ((num_iters / 2) * k) singular values. 
+        ///     Stores ((num_iters / 2) * k) singular values.
         ///
         /// @return = 0: successful exit
         ///
@@ -171,600 +220,419 @@ class ABRIK {
             T* &Sigma,
             RandBLAS::RNGState<RNG> &state
         ){
-            // Input parameter validation; same MEX-safety motivation as above.
-            randlapack_require(k > 0) << "target rank k=" << k << " must be > 0";
-            steady_clock::time_point allocation_t_start;
-            steady_clock::time_point allocation_t_stop;
-            steady_clock::time_point get_factors_t_start;
-            steady_clock::time_point get_factors_t_stop;
-            steady_clock::time_point ungqr_t_start;
-            steady_clock::time_point ungqr_t_stop;
-            steady_clock::time_point reorth_t_start;
-            steady_clock::time_point reorth_t_stop;
-            steady_clock::time_point qr_t_start;
-            steady_clock::time_point qr_t_stop;
-            steady_clock::time_point gemm_A_t_start;
-            steady_clock::time_point gemm_A_t_stop;
-            steady_clock::time_point main_loop_t_start;
-            steady_clock::time_point main_loop_t_stop;
-            steady_clock::time_point sketching_t_start;
-            steady_clock::time_point sketching_t_stop;
-            steady_clock::time_point r_cpy_t_start;
-            steady_clock::time_point r_cpy_t_stop;
-            steady_clock::time_point s_cpy_t_start;
-            steady_clock::time_point s_cpy_t_stop;
-            steady_clock::time_point norm_t_start;
-            steady_clock::time_point norm_t_stop;
-            steady_clock::time_point total_t_start;
-            steady_clock::time_point total_t_stop;
+                steady_clock::time_point total_t_start;
+                steady_clock::time_point total_t_stop;
+                steady_clock::time_point get_factors_t_start;
+                steady_clock::time_point get_factors_t_stop;
+                steady_clock::time_point allocation_t_start;
+                steady_clock::time_point allocation_t_stop;
+                long get_factors_t_dur = 0;
+                long driver_alloc_t_dur = 0;
+                long total_t_dur = 0;
 
-            long allocation_t_dur  = 0;
-            long get_factors_t_dur = 0;
-            long ungqr_t_dur       = 0;
-            long reorth_t_dur      = 0;
-            long qr_t_dur          = 0;
-            long gemm_A_t_dur      = 0;
-            long main_loop_t_dur   = 0;
-            long sketching_t_dur   = 0;
-            long r_cpy_t_dur       = 0;
-            long s_cpy_t_dur       = 0;
-            long norm_t_dur        = 0;
-            long total_t_dur       = 0;
+                if(this -> timing)
+                    total_t_start = steady_clock::now();
 
-            if(this -> timing) {
-                total_t_start = steady_clock::now();
-                allocation_t_start  = steady_clock::now();
+                // Forward config to BK
+                bk_obj.qr_exp            = this->qr_exp;
+                bk_obj.tol               = this->tol;
+                bk_obj.max_krylov_iters  = this->max_krylov_iters;
+                bk_obj.verbose           = this->verbose;
+                bk_obj.timing            = this->timing;
+
+                // Call BK to build Krylov subspaces and band matrices
+                T* X_ev = nullptr;
+                T* Y_od = nullptr;
+                T* R    = nullptr;
+                T* S    = nullptr;
+                int64_t end_rows = 0, end_cols = 0;
+                bool final_iter_is_odd = false;
+
+                // Adaptive setup, before BK runs and before any growth.
+                //
+                // The assessed rank is fixed here and never tracks end_cols. That is the
+                // whole point: deepening the subspace must improve a FIXED set of leading
+                // triplets, otherwise each restart manufactures the very error terms that
+                // keep the loop from terminating.
+                this->termination_reason = ABRIKTermination::not_adaptive;
+                int64_t requested_rank = this->assessed_rank;   // 0 = derive
+                if (this->adaptive) {
+                    if (this->max_krylov_iters == INT_MAX)
+                        this->max_krylov_iters = adaptive_default_iters;
+                    randlapack_require(this->max_krylov_iters >= 1)
+                        << "adaptive mode needs max_krylov_iters >= 1 (got "
+                        << this->max_krylov_iters << ")";
+                    randlapack_require(this->adaptive_growth > 1.0)
+                        << "adaptive_growth=" << this->adaptive_growth
+                        << " must be > 1 for the budget to make progress";
+
+                    int64_t derived = ((this->max_krylov_iters + 1) / 2) * k;
+                    if (requested_rank <= 0) {
+                        this->assessed_rank = derived;
+                    } else {
+                        // An explicit request must be reachable from the initial budget,
+                        // otherwise the first assessment would be taken over fewer triplets
+                        // than asked for and the growth would chase a moving target.
+                        randlapack_require(derived >= requested_rank)
+                            << "assessed_rank=" << requested_rank << " exceeds the "
+                            << derived << " triplets that the initial budget produces; "
+                            << "raise max_krylov_iters to at least "
+                            << (2 * ((requested_rank + k - 1) / k) - 1);
+                        this->assessed_rank = requested_rank;
+                    }
+                } else {
+                    this->assessed_rank = 0;
+                }
+
+                int status = bk_obj.call(A, k, X_ev, Y_od, R, S,
+                                         end_rows, end_cols, final_iter_is_odd, state);
+
+                // Read back BK outputs
+                this->num_krylov_iters = bk_obj.num_krylov_iters;
+                this->norm_R_end       = bk_obj.norm_R_end;
+
+                if (status != 0) return status;
+
+                int64_t m = A.n_rows;
+                int64_t n = A.n_cols;
+
+                T* U_hat  = nullptr;
+                T* VT_hat = nullptr;
+                int retries = 0;
+
+                // SVD + reconstruction loop (runs once in non-adaptive mode).
+                while (true) {
+                    // Phase: SVD on band matrix + factor reconstruction
+                    if(this -> timing)
+                        allocation_t_start = steady_clock::now();
+
+                    // Internal SVD workspace: freed in this function.
+                    U_hat  = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
+                    VT_hat = ( T * ) malloc( end_cols * end_cols * sizeof( T ) );
+
+                    // Output arrays: ownership transfers to caller (use delete[]).
+                    // No value-initialization: Sigma is fully written by gesdd and U, V are
+                    // fully written by the beta=0 reconstruction GEMMs below.
+                    Sigma = new T[std::min(end_cols, end_rows)];
+                    U     = new T[m * end_cols];
+                    V     = new T[n * end_cols];
+
+                    if(this -> timing) {
+                        allocation_t_stop = steady_clock::now();
+                        driver_alloc_t_dur += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                        get_factors_t_start = steady_clock::now();
+                    }
+
+                    if (this->adaptive) {
+                        // Adaptive: run gesdd on a copy to preserve R/S for potential resume.
+                        T* svd_input = ( T * ) malloc( end_rows * end_cols * sizeof( T ) );
+                        if (final_iter_is_odd) {
+                            lapack::lacpy(MatrixType::General, end_rows, end_cols, R, n, svd_input, end_rows);
+                        } else {
+                            lapack::lacpy(MatrixType::General, end_rows, end_cols, S, n + k, svd_input, end_rows);
+                        }
+                        lapack::gesdd(Job::SomeVec, end_rows, end_cols, svd_input, end_rows,
+                                      Sigma, U_hat, end_rows, VT_hat, end_cols);
+                        free(svd_input);
+                    } else {
+                        // Non-adaptive: gesdd overwrites R or S directly (they're freed below).
+                        if (final_iter_is_odd) {
+                            lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n,
+                                          Sigma, U_hat, end_rows, VT_hat, end_cols);
+                        } else {
+                            lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k,
+                                          Sigma, U_hat, end_rows, VT_hat, end_cols);
+                        }
+                    }
+
+                    // U = X_ev * U_hat
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows,
+                               1.0, X_ev, m, U_hat, end_rows, 0.0, U, m);
+                    // V = Y_od * V_hat
+                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols,
+                               1.0, Y_od, n, VT_hat, end_cols, 0.0, V, n);
+
+                    this->singular_triplets_found = end_cols;
+
+                    if(this -> timing) {
+                        get_factors_t_stop = steady_clock::now();
+                        get_factors_t_dur  += duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
+                    }
+
+                    if (!this->adaptive) break;
+
+                    // Assess the error over the leading assessed_rank triplets only.
+                    // Early on, before the budget has produced that many, assess over what
+                    // exists; end_cols reaches assessed_rank by the end of the first pass.
+                    int64_t k_assess = std::min(this->assessed_rank, end_cols);
+                    T residual = linops::svd_residual<T>(A, U, V, Sigma, k_assess);
+
+                    // A small residual over FEWER triplets than were asked for is not
+                    // convergence. The two cases look identical here but are not: the
+                    // subspace may simply not have grown yet (benign, keep going), or it
+                    // may be unable to grow at all, in which case the request can never be
+                    // met and reporting success would be a silent under-delivery. The
+                    // identity matrix is the extreme case: its Krylov space is span(Omega)
+                    // and never grows, so a request for any rank above b is unsatisfiable.
+                    bool short_of_request = (k_assess < this->assessed_rank);
+                    bool cannot_grow =
+                        bk_obj.termination_reason == BKTermination::norm_converged ||
+                        bk_obj.termination_reason == BKTermination::rank_deficient;
+
+                    if (residual <= this->tol && !short_of_request) {
+                        this->termination_reason = ABRIKTermination::converged;
+                        if (this->verbose)
+                            printf("ABRIK adaptive: converged, residual %e <= tol %e over %ld triplets after %d retries.\n",
+                                   residual, this->tol, (long)k_assess, retries);
+                        break;
+                    }
+
+                    if (short_of_request && cannot_grow) {
+                        this->termination_reason = ABRIKTermination::under_delivered;
+                        if (this->verbose)
+                            std::cerr << "ABRIK adaptive: only " << k_assess << " of the "
+                                      << this->assessed_rank << " requested triplets exist and the "
+                                      << "Krylov subspace cannot grow further. Residual over the "
+                                      << "available triplets = " << residual << "." << std::endl;
+                        break;
+                    }
+
+                    if (bk_obj.termination_reason == BKTermination::norm_converged) {
+                        this->termination_reason = ABRIKTermination::norm_converged;
+                        if (this->verbose)
+                            std::cerr << "ABRIK adaptive: BK exhausted the Frobenius content of the input. "
+                                      << "Cannot improve further. Residual = " << residual
+                                      << ", tol = " << this->tol << std::endl;
+                        break;
+                    }
+                    if (bk_obj.termination_reason == BKTermination::rank_deficient) {
+                        this->termination_reason = ABRIKTermination::rank_deficient;
+                        if (this->verbose)
+                            std::cerr << "ABRIK adaptive: BK could not grow the Krylov subspace further. "
+                                      << "Residual = " << residual << ", tol = " << this->tol << std::endl;
+                        break;
+                    }
+                    if (retries >= this->adaptive_max_retries) {
+                        this->termination_reason = ABRIKTermination::max_retries;
+                        if (this->verbose)
+                            std::cerr << "ABRIK adaptive: reached max retries (" << this->adaptive_max_retries
+                                      << "). Residual = " << residual << ", tol = " << this->tol << std::endl;
+                        break;
+                    }
+
+                    // Not satisfied, BK stopped at max_iters: discard current factors, resume BK.
+                    delete[] U;     U     = nullptr;
+                    delete[] V;     V     = nullptr;
+                    delete[] Sigma; Sigma = nullptr;
+                    free(U_hat);    U_hat  = nullptr;
+                    free(VT_hat);   VT_hat = nullptr;
+
+                    // Grow the budget multiplicatively. Doubling bounds the overshoot past
+                    // the true convergence point at 2x in iterations, hence about 4x in work
+                    // since reorthogonalization is quadratic in the iteration count. A larger
+                    // ratio buys almost nothing: the per-check costs telescope to
+                    // r^2/(r^2-1) of a single check, which is 1.33 at r=2 against 1.01 at
+                    // r=10, while the overshoot penalty grows as r^2. The +1 floor keeps the
+                    // budget strictly increasing for growth factors close to 1.
+                    bk_obj.max_krylov_iters = std::max(
+                        (int)std::ceil(this->adaptive_growth * bk_obj.max_krylov_iters),
+                        bk_obj.max_krylov_iters + 1);
+                    status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
+                                           end_rows, end_cols, final_iter_is_odd, state);
+
+                    this->num_krylov_iters = bk_obj.num_krylov_iters;
+                    this->norm_R_end       = bk_obj.norm_R_end;
+
+                    if (status != 0) {
+                        // BK resume failed (realloc failure); BK already cleaned up its buffers.
+                        return status;
+                    }
+
+                    ++retries;
+                }
+
+                if(this -> timing)
+                    allocation_t_start = steady_clock::now();
+
+                // Free BK-allocated buffers and SVD workspace
+                free(Y_od);
+                free(X_ev);
+                free(R);
+                free(S);
+                free(U_hat);
+                free(VT_hat);
+
+                if(this -> timing) {
+                    allocation_t_stop = steady_clock::now();
+                    driver_alloc_t_dur += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
+                }
+
+                // Assemble the 13-entry timing vector (same layout as before)
+                if(this -> timing) {
+                    total_t_stop = steady_clock::now();
+                    total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
+
+                    // BK times: [0]=alloc, [1]=ungqr, [2]=reorth, [3]=qr, [4]=gemm_A,
+                    //           [5]=main_loop, [6]=sketching, [7]=r_cpy, [8]=s_cpy, [9]=norm
+                    auto& bt = bk_obj.times;
+                    long allocation_t_dur = bt[0] + driver_alloc_t_dur;
+                    long ungqr_t_dur      = bt[1];
+                    long reorth_t_dur     = bt[2];
+                    long qr_t_dur         = bt[3];
+                    long gemm_A_t_dur     = bt[4];
+                    long main_loop_t_dur  = bt[5];
+                    long sketching_t_dur  = bt[6];
+                    long r_cpy_t_dur      = bt[7];
+                    long s_cpy_t_dur      = bt[8];
+                    long norm_t_dur       = bt[9];
+
+                    long t_rest = total_t_dur - (allocation_t_dur + get_factors_t_dur + ungqr_t_dur + reorth_t_dur
+                                  + qr_t_dur + gemm_A_t_dur + sketching_t_dur + r_cpy_t_dur + s_cpy_t_dur + norm_t_dur);
+
+                    this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur,
+                                     gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur,
+                                     norm_t_dur, t_rest, total_t_dur};
+
+                    if (this -> verbose) {
+                        printf("\n\n/------------ABRIK TIMING RESULTS BEGIN------------/\n");
+                        printf("Basic info: b_sz=%ld krylov_iters=%d\n",      k, num_krylov_iters);
+
+                        printf("Allocate and free time:          %25ld μs,\n", allocation_t_dur);
+                        printf("Time to acquire the SVD factors: %25ld μs,\n", get_factors_t_dur);
+                        printf("UNGQR time:                      %25ld μs,\n", ungqr_t_dur);
+                        printf("Reorthogonalization time:        %25ld μs,\n", reorth_t_dur);
+                        printf("QR time:                         %25ld μs,\n", qr_t_dur);
+                        printf("GEMM A time:                     %25ld μs,\n", gemm_A_t_dur);
+                        printf("Sketching time:                  %25ld μs,\n", sketching_t_dur);
+                        printf("R_ii cpy time:                   %25ld μs,\n", r_cpy_t_dur);
+                        printf("S_ii cpy time:                   %25ld μs,\n", s_cpy_t_dur);
+                        printf("Norm R time:                     %25ld μs,\n", norm_t_dur);
+
+                        printf("\nAllocation takes %22.2f%% of runtime.\n",                100 * ((T) allocation_t_dur  / (T) total_t_dur));
+                        printf("Factors takes    %22.2f%% of runtime.\n",                  100 * ((T) get_factors_t_dur / (T) total_t_dur));
+                        printf("Ungqr takes      %22.2f%% of runtime.\n",                  100 * ((T) ungqr_t_dur       / (T) total_t_dur));
+                        printf("Reorth takes     %22.2f%% of runtime.\n",                  100 * ((T) reorth_t_dur      / (T) total_t_dur));
+                        printf("QR takes         %22.2f%% of runtime.\n",                  100 * ((T) qr_t_dur          / (T) total_t_dur));
+                        printf("GEMM A takes     %22.2f%% of runtime.\n",                  100 * ((T) gemm_A_t_dur      / (T) total_t_dur));
+                        printf("Sketching takes  %22.2f%% of runtime.\n",                  100 * ((T) sketching_t_dur   / (T) total_t_dur));
+                        printf("R_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) r_cpy_t_dur       / (T) total_t_dur));
+                        printf("S_ii cpy takes   %22.2f%% of runtime.\n",                  100 * ((T) s_cpy_t_dur       / (T) total_t_dur));
+                        printf("Norm R takes     %22.2f%% of runtime.\n",                  100 * ((T) norm_t_dur        / (T) total_t_dur));
+                        printf("Rest takes       %22.2f%% of runtime.\n",                  100 * ((T) t_rest            / (T) total_t_dur));
+
+                        printf("\nMain loop takes  %22.2f%% of runtime.\n",                  100 * ((T) main_loop_t_dur   / (T) total_t_dur));
+                        printf("/-------------ABRIK TIMING RESULTS END-------------/\n\n");
+                    }
+                }
+                return 0;
             }
 
+        /// Runs BK iteratively with checkpoints. At each checkpoint, extracts SVD
+        /// factors and invokes on_checkpoint(total_matvecs, elapsed_us, residual).
+        ///
+        /// Elapsed time covers BK iterations + SVD extraction but NOT residual eval.
+        /// BK internally uses call()/resume() so no work is repeated between checkpoints.
+        ///
+        /// @param k                 Block size (matvecs per BK iteration = k).
+        /// @param target_rank       How many singular triplets to include in the residual.
+        /// @param checkpoint_iters  Sorted list of Krylov iteration counts at which to stop.
+        ///                          Must be strictly increasing; last entry is the full budget.
+        /// @param on_checkpoint     Called after each checkpoint.
+        ///                          Signature: void(int64_t total_matvecs, long elapsed_us, T residual).
+        ///                          total_matvecs = k * actual_iters_done (may differ from
+        ///                          k * checkpoint_iters[i] if BK terminated early).
+        template <RandLAPACK::linops::LinearOperator GLO, typename CheckpointFn>
+        int call_with_checkpoints(
+            GLO& A,
+            int64_t k,
+            int64_t target_rank,
+            std::vector<int64_t> checkpoint_iters,
+            CheckpointFn on_checkpoint,
+            RandBLAS::RNGState<RNG>& state
+        ) {
             int64_t m = A.n_rows;
             int64_t n = A.n_cols;
-            int64_t iter = 0, iter_od = 0, iter_ev = 0, end_rows = 0, end_cols = 0;
-            T norm_R = 0;
-            int max_iters = this->max_krylov_iters;//std::min(this->max_krylov_iters, (int) (n / (T) k));
 
-            // We need a full copy of X and Y all the way through the algorithm
-            // due to an operation with X_odd and Y_odd happening at the end.
-            // Below pointers stay the same throughout the alg; the space will be alloacted iteratively
-            // Space for Y_i and Y_odd.
-            T* Y_od  = ( T * ) calloc( n * k, sizeof( T ) );
-            int64_t curr_Y_cols = k;
-            // Space for X_i and X_ev. 
-            T* X_ev  = ( T * ) calloc( m * k, sizeof( T ) );
-            int64_t curr_X_cols = k;
+            bk_obj.qr_exp          = this->qr_exp;
+            bk_obj.tol             = this->tol;
+            bk_obj.verbose         = this->verbose;
+            bk_obj.timing          = false;
 
-            // While R and S matrices are structured (both band), we cannot make use of this structure through
-            // BLAS-level functions.
-            // Note also that we store a transposed version of R.
-            // 
-            // At each iterations, matrices R and S grow by b_sz.
-            // At the end, size of R would by d x d and size of S would
-            // be (d + 1) x d, where d = numiters_complete * b_sz, d <= n.
-            // Note that the total amount of iterations will always be numiters <= n * 2 / block_size
-            T* R   = ( T * ) calloc( n * k, sizeof( T ) );
-            T* S   = ( T * ) calloc( (n + k) * k, sizeof( T ) );
+            T* X_ev = nullptr, *Y_od = nullptr, *R = nullptr, *S = nullptr;
+            int64_t end_rows = 0, end_cols = 0;
+            bool final_iter_is_odd = false;
+            long elapsed_us = 0;
 
-            // These buffers are of constant size
-            T* Y_orth_buf = ( T * ) calloc( k * n, sizeof( T ) );
-            T* X_orth_buf = ( T * ) calloc( k * (n + k), sizeof( T ) );
+            for (int ci = 0; ci < (int)checkpoint_iters.size(); ++ci) {
+                bk_obj.max_krylov_iters = (int)checkpoint_iters[ci];
 
-            // Pointers allocation
-            // Below pointers will be offset by (n or m) * k at every even iteration.
-            T* Y_i  = Y_od;
-            T* X_i  = X_ev;
-            // S and S pointers are offset at every step.
-            T* R_i  = NULL;
-            T* R_ii = R;
-            T* S_i  = S;
-            T* S_ii = &S[k];
-            // Pre-decloration of SVD-related buffers.
-            T* U_hat = NULL;
-            T* VT_hat = NULL;
-            // tau space for QR
-            T* tau = ( T * ) calloc( k, sizeof( T ) );
+                // BK step: call on first, resume on subsequent.
+                auto t0 = steady_clock::now();
+                int status;
+                if (ci == 0)
+                    status = bk_obj.call(A, k, X_ev, Y_od, R, S,
+                                         end_rows, end_cols, final_iter_is_odd, state);
+                else
+                    status = bk_obj.resume(A, k, X_ev, Y_od, R, S,
+                                           end_rows, end_cols, final_iter_is_odd, state);
+                elapsed_us += duration_cast<microseconds>(steady_clock::now() - t0).count();
 
-            if(this -> timing) {
-                allocation_t_stop  = steady_clock::now();
-                allocation_t_dur   = duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-            }
-
-            // Pre-compute Fro norm of an input matrix.
-            //T norm_A = lapack::lange(Norm::Fro, m, n, A.A_buff, lda);
-            T norm_A = A.fro_nrm();
-            T sq_tol = std::pow(this->tol, 2);
-            T threshold =  std::sqrt(1 - sq_tol) * norm_A;
-
-            // Creating the CQRRT object in case it is to be used for explicit QR.
-            std::optional<RandLAPACK::CQRRT<T, RNG>> CQRRT;
-            T* R_11_trans = nullptr;
-            T d_factor = 1.25;
-            // Conditional initialization
-            if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                CQRRT.emplace(false, tol);
-                CQRRT->nnz = 2;
-                R_11_trans = ( T * ) calloc( k * k, sizeof( T ) );
-            }
-
-            if(this -> timing)
-                sketching_t_start  = steady_clock::now();
-
-            // Generate a dense Gaussian random matrix.
-            // We are using the plain dense operator instead of DenseSkOp here since
-            // the space in which teh dense operator is stored will be reused later, and
-            // also needs to be used together with the input's abstract linear operator form.
-            // OMP_NUM_THREADS=4 seems to be the best option for dense sketch generation.
-            #ifdef RandBLAS_HAS_OpenMP
-            omp_set_num_threads(this->num_threads_min);
-            #endif
-            RandBLAS::DenseDist D(n, k);
-            state = RandBLAS::fill_dense(D, Y_i, state);
-            #ifdef RandBLAS_HAS_OpenMP
-            omp_set_num_threads(this->num_threads_max);
-            #endif
-
-            if(this -> timing) {
-                sketching_t_stop  = steady_clock::now();
-                sketching_t_dur   = duration_cast<microseconds>(sketching_t_stop - sketching_t_start).count();
-                gemm_A_t_start = steady_clock::now();
-            }
-
-            // [X_ev, ~] = qr(A * Y_i, 0)
-            A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
-
-            if(this -> timing) {
-                gemm_A_t_stop = steady_clock::now();
-                gemm_A_t_dur  = duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
-            }
-
-            if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                if(this -> timing)
-                    qr_t_start = steady_clock::now();
-
-                CQRRT -> call(m, k, X_i, m, R_11_trans, k, d_factor, state);
-
-                if(this -> timing) {
-                    qr_t_stop = steady_clock::now();
-                    qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                }
-            } else {
-
-                if(this -> timing)
-                    qr_t_start = steady_clock::now();
-
-                lapack::geqrf(m, k, X_i, m, tau);
-
-                if(this -> timing) {
-                    qr_t_stop = steady_clock::now();
-                    qr_t_dur  = duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                    ungqr_t_start  = steady_clock::now();
+                if (status != 0) {
+                    free(X_ev); free(Y_od); free(R); free(S);
+                    return status;
                 }
 
-                // Convert X_i into an explicit form. It is now stored in X_ev as it should be.
-                lapack::ungqr(m, k, k, X_i, m, tau);
-
-                if(this -> timing) {
-                    ungqr_t_stop  = steady_clock::now();
-                    ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
-                }
-            }
-
-            // Advance odd iteration count.
-            ++iter_od;
-            // Advance iteration count.
-            ++iter;
-
-            // Iterate until in-loop termination criteria is met.
-            while(1) {
-                if(this -> timing)
-                    main_loop_t_start = steady_clock::now();
-
-                if (iter % 2 != 0) {
-                    if(this -> timing)
-                        gemm_A_t_start = steady_clock::now();
-                    // Y_i = A' * X_i 
-                    A(Side::Left, Layout::ColMajor, Op::Trans, Op::NoTrans, n, k, m, 1.0, X_i, m, 0.0, Y_i, n);
-
-                    if(this -> timing) {
-                        gemm_A_t_stop = steady_clock::now();
-                        gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
-                        allocation_t_start  = steady_clock::now();
-                    }
-
-                    // Allocate more space for Y_od
-                    curr_X_cols += k;
-                    X_ev = ( T * ) realloc(X_ev, m * curr_X_cols * sizeof( T ));
-                    // Move the X_i pointer;
-                    X_i = &X_ev[m * (curr_X_cols - k)];
-
-                    if(this -> timing) {
-                        allocation_t_stop  = steady_clock::now();
-                        allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-                        reorth_t_start  = steady_clock::now();   
-                    }  
-
-                    if (iter != 1) {
-                        // R_i' = Y_i' * Y_od
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, (T) 1.0, Y_i, n, Y_od, n, (T) 0.0, R_i, n);            
-                        
-                        // Y_i = Y_i - Y_od * R_i
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, (T) -1.0, Y_od, n, R_i, n, (T) 1.0, Y_i, n);
-
-                        // Reorthogonalization
-                        blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, k, iter_ev * k, n, (T) 1.0, Y_i, n, Y_od, n, (T) 0.0, Y_orth_buf, k);
-                        blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, k, iter_ev * k, (T) -1.0, Y_od, n, Y_orth_buf, k, (T) 1.0, Y_i, n);
-                    }
-
-                    if(this -> timing) {
-                        reorth_t_stop  = steady_clock::now();
-                        reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
-                    }
-
-                    // Perform explicit QR via a method of choice
-                    if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                        if(this -> timing)
-                            qr_t_start = steady_clock::now();
-
-                        CQRRT -> call(n, k, Y_i, n, R_11_trans, k, d_factor, state);
-                        // Copy R_ii over to R's (in transposed format).
-                        
-                        util::transposition(0, k, R_11_trans, k, R_ii, n, 1);
-                        if(this -> timing) {
-                            qr_t_stop = steady_clock::now();
-                            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                        }
-                    } else {
-                        // [Y_i, R_ii] = qr(Y_i, 0)
-                        std::fill(&tau[0], &tau[k], 0.0);
-
-                        if(this -> timing)
-                            qr_t_start = steady_clock::now();
-                        lapack::geqrf(n, k, Y_i, n, tau);
-
-                        if(this -> timing) {
-                            qr_t_stop = steady_clock::now();
-                            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                            r_cpy_t_start = steady_clock::now();
-                        }
-
-                        // Copy R_ii over to R's (in transposed format).
-                        #ifdef RandBLAS_HAS_OpenMP
-                        omp_set_num_threads(this->num_threads_min);
-                        #endif
-                        util::transposition(0, k, Y_i, n, R_ii, n, 1);
-                        #ifdef RandBLAS_HAS_OpenMP
-                        omp_set_num_threads(this->num_threads_max);
-                        #endif
-
-                        if(this -> timing) {
-                            r_cpy_t_stop  = steady_clock::now();
-                            r_cpy_t_dur  += duration_cast<microseconds>(r_cpy_t_stop - r_cpy_t_start).count();
-                            ungqr_t_start = steady_clock::now();
-                        }
-
-                        // Convert Y_i into an explicit form. It is now stored in Y_odd as it should be.
-                        lapack::ungqr(n, k, k, Y_i, n, tau);
-                        
-                        if(this -> timing) {
-                            ungqr_t_stop  = steady_clock::now();
-                            ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
-                        }
-                    }
-
-                    // Early termination
-                    // if (abs(R(end)) <= sqrt(eps('T')))
-                    if(std::abs(R_ii[(n + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
-                        //std::cout << "TERMINATION 1 at iteration " << iter << "\n";
-                        break;
-                    }
-
-                    // Allocate more space for R
-                    T* R_new = ( T * ) realloc(R, n * curr_X_cols * sizeof( T ));
-                    if (!R_new) {
-                        // Handle realloc failure.
-                        free(Y_od);
-                        free(X_ev);
-                        free(tau);
-                        free(R);
-                        free(S);
-                        free(U_hat);
-                        free(VT_hat);
-                        free(Y_orth_buf);
-                        free(X_orth_buf);
-                        if(R_11_trans != nullptr) {
-                            free(R_11_trans);
-                        }
-                        return -1;
-                    }
-                    // Need to make sure the newly-allocated space is empty
-                    R = R_new;
-                    T* temp_r = &R[n * (curr_X_cols - k)];
-                    std::fill(temp_r, temp_r + n*k, 0.0);
-
-                    // Advance R pointers
-                    R_i = &R[(iter_ev + 1) * k];
-                    R_ii = &R[(n * k * (iter_ev + 1)) + k + (k * (iter_ev))];
-
-                    // Advance even iteration count;
-                    ++iter_ev;
-                }
-                else {
-                    if(this -> timing)
-                        gemm_A_t_start = steady_clock::now();
-
-                    // X_i = A * Y_i
-                    A(Side::Left, Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, n, 1.0, Y_i, n, 0.0, X_i, m);
-
-                    if(this -> timing) {
-                        gemm_A_t_stop = steady_clock::now();
-                        gemm_A_t_dur  += duration_cast<microseconds>(gemm_A_t_stop - gemm_A_t_start).count();
-                        allocation_t_start  = steady_clock::now();
-                    }
-
-                    // Allocate more spece for Y_od
-                    curr_Y_cols += k;
-                    Y_od = ( T * ) realloc(Y_od, n * curr_Y_cols * sizeof( T ));
-                    // Move the X_i pointer;
-                    Y_i = &Y_od[n * (curr_Y_cols - k)];
-
-                    if(this -> timing) {
-                        allocation_t_stop  = steady_clock::now();
-                        allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-                        reorth_t_start  = steady_clock::now();
-                    }
-
-                    // S_i = X_ev' * X_i 
-                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, (T) 1.0, X_ev, m, X_i, m, (T) 0.0, S_i, n + k);
-                    
-                    //X_i = X_i - X_ev * S_i;
-                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, (T) -1.0, X_ev, m, S_i, n + k, (T) 1.0, X_i, m);
-
-                    // Reorthogonalization
-                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_od * k, k, m, (T) 1.0, X_ev, m, X_i, m, (T) 0.0, X_orth_buf, n + k);
-                    blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, k, iter_od * k, (T) -1.0, X_ev, m, X_orth_buf, n + k, (T) 1.0, X_i, m);
-
-                    if(this -> timing) {
-                        reorth_t_stop  = steady_clock::now();
-                        reorth_t_dur   += duration_cast<microseconds>(reorth_t_stop - reorth_t_start).count();
-                    }
-
-                    // Perform explicit QR via a method of choice
-                    if(this -> qr_exp == Subroutines::QR_explicit::cqrrt) {
-                        if(this -> timing)
-                            qr_t_start = steady_clock::now();
-
-                        CQRRT -> call(m, k, X_i, m, S_ii, n + k, d_factor, state);
-
-                        if(this -> timing) {
-                            qr_t_stop = steady_clock::now();
-                            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                        }
-
-
-                        //char name [] = "R_2";
-                        //RandLAPACK::util::print_colmaj(k, k, S_ii, n + k, name);
-
-                    } else {
-                        // [X_i, S_ii] = qr(X_i, 0);
-                        std::fill(&tau[0], &tau[k], 0.0);
-                        
-                        if(this -> timing)
-                            qr_t_start = steady_clock::now();
-                        
-                        lapack::geqrf(m, k, X_i, m, tau);
-
-                        if(this -> timing) {
-                            qr_t_stop = steady_clock::now();
-                            qr_t_dur  += duration_cast<microseconds>(qr_t_stop - qr_t_start).count();
-                            s_cpy_t_start = steady_clock::now();
-                        }
-
-                        // Copy S_ii over to S's space under S_i (offset down by iter_od * k)
-                        lapack::lacpy(MatrixType::Upper, k, k, X_i, m, S_ii, n + k);
-
-                        if(this -> timing) {
-                            s_cpy_t_stop  = steady_clock::now();
-                            s_cpy_t_dur  += duration_cast<microseconds>(s_cpy_t_stop - s_cpy_t_start).count();
-                            ungqr_t_start = steady_clock::now();
-                        }
-
-                        // Convert X_i into an explicit form. It is now stored in X_ev as it should be
-                        lapack::ungqr(m, k, k, X_i, m, tau);
-
-                        if(this -> timing) {
-                            ungqr_t_stop  = steady_clock::now();
-                            ungqr_t_dur   += duration_cast<microseconds>(ungqr_t_stop - ungqr_t_start).count();
-                        }
-                    }
-
-                        // REMOVE ME
-                        T min_val = 1000000000000;
-                        for (int buf = 0; buf < k; ++buf) {
-                            min_val = std::min(min_val, std::abs(S_ii[(n + k) * buf + buf]));
-                            //std::cout << "r_ii " << std::scientific << S_ii[(n + k) * buf + buf] << "\n";
-                        }
-                        std::cout << "Minimum value on the diagonal of the R-factor: " << std::scientific << min_val << "\n";
-
-
-                    // REMOVE ME
-                    std::vector<double> buffer2 (iter_ev * k * iter_ev * k, 0.0);
-                    RandLAPACK::util::eye(iter_ev * k, iter_ev * k, buffer2.data());
-                    blas::gemm(Layout::ColMajor, Op::Trans, Op::NoTrans, iter_ev * k, iter_ev * k, m, (T) 1.0, X_ev, m, X_ev, m, (T) -1.0, buffer2.data(), iter_ev * k);
-                    std::cout << "Orthonormality error in the basis for the left Krylov subspace at iteration " << iter << ": " << std::scientific << lapack::lange(Norm::Fro, iter_ev * k, iter_ev * k, buffer2.data(), iter_ev * k) / sqrt(iter_ev * k) << "\n\n";
-
-                    // Early termination
-                    // if (abs(S(end)) <= sqrt(eps('T')))
-                    if(std::abs(S_ii[((n + k) + 1) * (k - 1)]) < std::sqrt(std::numeric_limits<T>::epsilon())) {
-                        //std::cout << "TERMINATION 2 at iteration " << iter << "\n";
-                        break;
-                    }
-
-                    if(this -> timing) {
-                        allocation_t_start  = steady_clock::now();
-                    }
-
-                    // Allocate more space for S
-                    T* S_new = ( T * ) realloc(S, (n + k) * curr_Y_cols * sizeof( T ));
-                    if (!S_new) {
-                        // Handle realloc failure.
-                        free(Y_od);
-                        free(X_ev);
-                        free(tau);
-                        free(R);
-                        free(S);
-                        free(U_hat);
-                        free(VT_hat);
-                        free(Y_orth_buf);
-                        free(X_orth_buf);
-                        if(R_11_trans != nullptr) {
-                            free(R_11_trans);
-                        }
-                        return -1;
-                    }
-                    // Need to make sure the newly-allocated space is empty
-                    S = S_new;
-                    T* temp_s = &S[(n + k)* (curr_Y_cols - k)];
-                    std::fill(temp_s, temp_s + (n + k) * k, 0.0);
-
-                    // Advance S pointers
-                    S_i  = &S[(n + k) * k * iter_od];
-                    S_ii = &S[(n + k) * k * iter_od + k + (iter_od * k)];
-
-                    // Advance odd iteration count;
-                    ++iter_od;
-
-                    if(this -> timing) {
-                        allocation_t_stop  = steady_clock::now();
-                        allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-                    }
-                }
-
-                if(this -> timing)
-                    norm_t_start = steady_clock::now();
-
-                // This is only changed on odd iters
-                if (iter % 2 != 0)
-                    norm_R = lapack::lantr(Norm::Fro, Uplo::Upper, Diag::NonUnit, iter_ev * k, iter_ev * k, R, n);
-
-                if(this -> timing) {
-                    norm_t_stop       = steady_clock::now();
-                    norm_t_dur        += duration_cast<microseconds>(norm_t_stop - norm_t_start).count();
-                    main_loop_t_stop  = steady_clock::now();
-                    main_loop_t_dur   += duration_cast<microseconds>(main_loop_t_stop - main_loop_t_start).count();
-                }
-
-                if (iter >= max_iters) {
+                if (end_cols == 0) {
+                    on_checkpoint(0, elapsed_us, (T)1);
                     break;
                 }
 
-                ++iter;
-                //norm(R, 'fro') > sqrt(1 - sq_tol) * norm_A
-                if(norm_R > threshold) {
-                    // Threshold termination.
+                // SVD extraction: copy band matrix (preserves BK buffers for resume),
+                // then gesdd + two GEMMs. Timed as part of the "total ABRIK cost."
+                auto t1 = steady_clock::now();
+
+                T* band = (T*) malloc(end_rows * end_cols * sizeof(T));
+                if (final_iter_is_odd)
+                    lapack::lacpy(MatrixType::General, end_rows, end_cols, R, n, band, end_rows);
+                else
+                    lapack::lacpy(MatrixType::General, end_rows, end_cols, S, n + k, band, end_rows);
+
+                T* U_hat  = (T*) malloc(end_rows * end_cols * sizeof(T));
+                T* VT_hat = (T*) malloc(end_cols * end_cols * sizeof(T));
+                // Fully overwritten below (gesdd + beta=0 GEMMs), so no value-init.
+                T* Sigma  = new T[std::min(end_rows, end_cols)];
+                T* U      = new T[m * end_cols];
+                T* V      = new T[n * end_cols];
+
+                lapack::gesdd(Job::SomeVec, end_rows, end_cols, band, end_rows,
+                              Sigma, U_hat, end_rows, VT_hat, end_cols);
+                free(band);
+
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans,
+                           m, end_cols, end_rows, (T)1, X_ev, m, U_hat, end_rows, (T)0, U, m);
+                blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans,
+                           n, end_cols, end_cols, (T)1, Y_od, n, VT_hat, end_cols, (T)0, V, n);
+                free(U_hat); free(VT_hat);
+
+                elapsed_us += duration_cast<microseconds>(steady_clock::now() - t1).count();
+
+                // Residual check, NOT included in elapsed_us.
+                int64_t k_out = std::min(target_rank, end_cols);
+                T residual = linops::svd_residual<T>(A, U, V, Sigma, k_out);
+
+                delete[] U; delete[] V; delete[] Sigma;
+
+                on_checkpoint(k * (int64_t)bk_obj.num_krylov_iters, elapsed_us, residual);
+
+                if (bk_obj.termination_reason != BKTermination::max_iters_reached)
                     break;
-                }
             }
 
-            this->norm_R_end = norm_R;
-            this->num_krylov_iters = iter;
-            end_cols = num_krylov_iters * k / 2;
-            iter % 2 == 0 ? end_rows = end_cols + k : end_rows = end_cols;
-            
-
-            if(this -> timing) {
-                allocation_t_start  = steady_clock::now();
-            }
-
-            U_hat  = ( T * ) calloc( end_rows * end_cols, sizeof( T ) );
-            VT_hat = ( T * ) calloc( end_cols * end_cols, sizeof( T ) );
-
-            if(this -> timing) {
-                allocation_t_stop  = steady_clock::now();
-                allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-                get_factors_t_start  = steady_clock::now();
-            }
-
-
-            Sigma = new T[std::min(end_cols, end_rows)]();
-            U     = new T[m * end_cols]();
-            V     = new T[n * end_cols]();
-
-            if (iter % 2 != 0) {
-                // [U_hat, Sigma, V_hat] = svd(R')
-                lapack::gesdd(Job::SomeVec, end_rows, end_cols, R, n, Sigma, U_hat, end_rows, VT_hat, end_cols);
-            } else { 
-                // [U_hat, Sigma, V_hat] = svd(S)
-                lapack::gesdd(Job::SomeVec, end_rows, end_cols, S, n + k, Sigma, U_hat, end_rows, VT_hat, end_cols);
-            }
-
-            // U = X_ev * U_hat
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::NoTrans, m, end_cols, end_rows, (T) 1.0, X_ev, m, U_hat, end_rows, (T) 0.0, U, m);
-            // V = Y_od * V_hat
-            blas::gemm(Layout::ColMajor, Op::NoTrans, Op::Trans, n, end_cols, end_cols, (T) 1.0, Y_od, n, VT_hat, end_cols, (T) 0.0, V, n);
-
-            this->singular_triplets_found = end_cols;
-
-            if(this -> timing) {
-                get_factors_t_stop  = steady_clock::now();
-                get_factors_t_dur   = duration_cast<microseconds>(get_factors_t_stop - get_factors_t_start).count();
-                allocation_t_start  = steady_clock::now();
-            }
-
-            free(Y_od);
-            free(X_ev);
-            free(tau);
-            free(R);
-            free(S);
-            free(U_hat);
-            free(VT_hat);
-            free(Y_orth_buf);
-            free(X_orth_buf);
-            if(R_11_trans != nullptr) {
-                free(R_11_trans);
-            }
-
-            if(this -> timing) {
-                allocation_t_stop  = steady_clock::now();
-                allocation_t_dur   += duration_cast<microseconds>(allocation_t_stop - allocation_t_start).count();
-            }
-
-            if(this -> timing) {
-                total_t_stop = steady_clock::now();
-                total_t_dur  = duration_cast<microseconds>(total_t_stop - total_t_start).count();
-                long t_rest  = total_t_dur - (allocation_t_dur + get_factors_t_dur + ungqr_t_dur + reorth_t_dur + qr_t_dur + gemm_A_t_dur + sketching_t_dur + r_cpy_t_dur + s_cpy_t_dur + norm_t_dur);
-                this -> times.resize(13);
-                this -> times = {allocation_t_dur, get_factors_t_dur, ungqr_t_dur, reorth_t_dur, qr_t_dur, gemm_A_t_dur, main_loop_t_dur, sketching_t_dur, r_cpy_t_dur, s_cpy_t_dur, norm_t_dur, t_rest, total_t_dur};
-
-                if (this -> verbose) {
-                    std::cout << "\n\n/------------ABRIK TIMING RESULTS BEGIN------------/\n";
-                    std::cout << "Basic info: b_sz=" << k << " krylov_iters=" << num_krylov_iters << "\n";
-
-                    std::cout << "Allocate and free time:          " << std::setw(25) << allocation_t_dur << " μs,\n";
-                    std::cout << "Time to acquire the SVD factors: " << std::setw(25) << get_factors_t_dur << " μs,\n";
-                    std::cout << "UNGQR time:                      " << std::setw(25) << ungqr_t_dur << " μs,\n";
-                    std::cout << "Reorthogonalization time:        " << std::setw(25) << reorth_t_dur << " μs,\n";
-                    std::cout << "QR time:                         " << std::setw(25) << qr_t_dur << " μs,\n";
-                    std::cout << "GEMM A time:                     " << std::setw(25) << gemm_A_t_dur << " μs,\n";
-                    std::cout << "Sketching time:                  " << std::setw(25) << sketching_t_dur << " μs,\n";
-                    std::cout << "R_ii cpy time:                   " << std::setw(25) << r_cpy_t_dur << " μs,\n";
-                    std::cout << "S_ii cpy time:                   " << std::setw(25) << s_cpy_t_dur << " μs,\n";
-                    std::cout << "Norm R time:                     " << std::setw(25) << norm_t_dur << " μs,\n";
-
-                    std::cout << "\nAllocation takes " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) allocation_t_dur  / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "Factors takes    " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) get_factors_t_dur / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "Ungqr takes      " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) ungqr_t_dur       / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "Reorth takes     " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) reorth_t_dur      / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "QR takes         " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) qr_t_dur          / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "GEMM A takes     " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) gemm_A_t_dur      / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "Sketching takes  " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) sketching_t_dur   / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "R_ii cpy takes   " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) r_cpy_t_dur       / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "S_ii cpy takes   " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) s_cpy_t_dur       / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "Norm R takes     " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) norm_t_dur        / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "Rest takes       " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) t_rest            / (T) total_t_dur) << "% of runtime.\n";
-                    
-                    std::cout << "\nMain loop takes  " << std::fixed << std::setw(22) << std::setprecision(2) << 100 * ((T) main_loop_t_dur   / (T) total_t_dur) << "% of runtime.\n";
-                    std::cout << "/-------------ABRIK TIMING RESULTS END-------------/\n\n";
-                }
-            }
+            free(X_ev); free(Y_od); free(R); free(S);
             return 0;
         }
+
+    private:
+        BK<T, RNG> bk_obj;
     };
 }
