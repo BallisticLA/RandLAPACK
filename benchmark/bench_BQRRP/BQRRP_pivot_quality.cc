@@ -82,9 +82,6 @@ void _LAPACK_gejsv(
         work, lwork_,
         iwork_,
         info_
-        #ifdef LAPACK_FORTRAN_STRLEN_END
-        //, 1, 1, 1, 1, 1, 1
-        #endif
         );
 
     return;
