@@ -34,9 +34,13 @@ For GPU/CUDA support (enabled with `-DRequireCUDA=ON`), you need:
 
 #### CUDA/GCC Compatibility Matrix
 
+The table lists configurations we have verified; it is not exhaustive. The
+authoritative host-compiler caps are in each CUDA Toolkit's release notes.
+
 | CUDA Version | GCC Support | Status | Notes |
 |--------------|-------------|---------|-------|
-| **12.9.0** | **GCC 13.x ✓** | **✅ Recommended** | **Tested with GCC 13.3.0 + Driver v581.80** |
+| 13.3.0 | GCC up to 15.x ✓ | ✅ Supported | Tested with GCC 15.2 |
+| **12.9.0** | **GCC 13.x ✓** (up to 14.x) | **✅ Recommended** | **Tested with GCC 13.3.0 + Driver v581.80; nvcc rejects GCC > 14** |
 | 12.4.1 | GCC 13.x ✓ | ✅ Supported | Minimum supported version |
 | 12.2.1 | GCC 12.x ✓ | ⚠️ Limited | Use GCC ≤ 12.3.0 only |
 | 12.2.1 | GCC 13.x ✗ | ❌ Incompatible | NVCC error: "unsupported GNU version" |

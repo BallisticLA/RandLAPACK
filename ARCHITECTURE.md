@@ -20,14 +20,17 @@ are `int64_t`, and every public entry point is templated on the element type.
 ```mermaid
 flowchart TD
     U[User code<br/>#include &lt;RandLAPACK.hh&gt;] --> D
+    X[extras/ and benchmark/<br/>standalone projects in this repo,<br/>consume the installed RandLAPACK] --> D
     subgraph RandLAPACK
         D[drivers/<br/>RSVD, BQRRP, CQRRPT, CQRRT,<br/>REVD2, ABRIK, HQRRP, KRILL, ...]
         C[comps/<br/>rangefinders, QB, orthogonalization,<br/>stabilization, preconditioners]
         L[linops/<br/>dense, sparse, symmetric,<br/>composite linear operators]
         M[misc/ + testing/<br/>utilities, matrix generators]
+        GPU[gpu_functions/ + drivers/*_gpu<br/>CUDA kernels and GPU drivers,<br/>compiled only in CUDA builds]
         D --> C
         D --> L
         C --> M
+        D --- GPU
     end
     C --> RB[RandBLAS submodule<br/>sketching operators, counter-based RNG]
     D --> LPP[LAPACK++]
@@ -35,7 +38,7 @@ flowchart TD
     RB --> BPP
     LPP --> BPP
     BPP --> BLAS[(BLAS/LAPACK provider:<br/>MKL, OpenBLAS, AOCL, Accelerate)]
-    D -. CUDA variants .-> GPU[gpu_functions/ + drivers/*_gpu<br/>cuBLAS, cuSOLVER kernels]
+    GPU --> CUDALIBS[(cuBLAS, cuSOLVER)]
 ```
 
 ## Directory map
