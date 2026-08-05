@@ -34,6 +34,12 @@ if (GTest_FOUND)
     # Create non-CUDA test executable
     add_executable(RandLAPACK_tests ${RandLAPACK_test_srcs})
     target_link_libraries(RandLAPACK_tests RandLAPACK GTest::GTest GTest::Main)
+    # The template-heavy linop test translation units exceed MSVC's default
+    # object-file section limit.
+    target_compile_options(RandLAPACK_tests PRIVATE
+        $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/bigobj>)
+    # Stage dependency DLLs before gtest_discover_tests runs the binary at build time.
+    randlapack_stage_runtime_dlls(RandLAPACK_tests)
     gtest_discover_tests(RandLAPACK_tests)
 
     # Check if CUDA is required and setup CUDA-specific tests
@@ -48,6 +54,7 @@ if (GTest_FOUND)
         set_source_files_properties(${RandLAPACK_test_cu_srcs} PROPERTIES LANGUAGE CUDA)
         add_executable(RandLAPACK_tests_gpu ${RandLAPACK_test_cu_srcs})
         target_link_libraries(RandLAPACK_tests_gpu RandLAPACK GTest::GTest GTest::Main CUDA::cusolver)
+        randlapack_stage_runtime_dlls(RandLAPACK_tests_gpu)
 
         # Discover CUDA tests
         gtest_discover_tests(RandLAPACK_tests_gpu)
@@ -56,6 +63,7 @@ if (GTest_FOUND)
     # Create additional tests
     add_executable(test_pcgls comps/test_pcgls.cc)
     target_link_libraries(test_pcgls RandLAPACK GTest::GTest)
+    randlapack_stage_runtime_dlls(test_pcgls)
     add_test(NAME test_pcgls COMMAND test_pcgls 15 100)
 else()
     message(WARNING "GTest not found - tests will be disabled. Install GTest to enable regression tests.")

@@ -48,6 +48,7 @@ enable_testing()
 
 include(rl_build_options)
 include(rl_version)
+include(rl_runtime_dlls)
 
 # Find dependencies
 find_package(lapackpp REQUIRED)

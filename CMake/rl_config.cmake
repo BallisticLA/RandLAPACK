@@ -1,4 +1,9 @@
 
+# Values substituted into an installed CMake package file must use CMake path
+# syntax. Native Windows backslashes would otherwise be parsed as escape
+# sequences when a downstream project loads RandLAPACKConfig.cmake.
+file(TO_CMAKE_PATH "${RandLAPACK_lapackpp_DIR}" RandLAPACK_lapackpp_DIR)
+
 configure_file(CMake/RandLAPACKConfig.cmake.in
     ${CMAKE_INSTALL_LIBDIR}/cmake/RandLAPACK/RandLAPACKConfig.cmake @ONLY)
 
